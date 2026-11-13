@@ -51,7 +51,8 @@ import { laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { DETAIL_STORAGE_KEY, countByProject, readDetailLevel } from './detailLevel';
+import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
+import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
 import { DetailSlider } from './DetailSlider';
 import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
@@ -175,7 +176,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const canRunMissions = hasProject && devInstall && !!onStartMission;
   // 'project' = this project only · 'all' = the global cross-project board.
   const [mode, setMode] = useState<'project' | 'all'>(canToggle ? 'project' : 'all');
-  const [planVisible, setPlanVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // L'errore di UNA card sta sulla card, non nella barra qui sopra: quella vive
   // in cima al pannello, mentre la card che ha rifiutato il click può essere
@@ -371,10 +371,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // prop). A preference the person flips on and off between sessions, not a
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
-  const [detail, setDetail] = useState(readDetailLevel);
+  const [storedDetail, setDetail] = useState(readDetailLevel);
+  // The Plan is a view of the GLOBAL board only; a project board falls back to the kanban.
+  const detail: DetailLevel = mode !== 'all' && storedDetail === 'plan' ? 'grid' : storedDetail;
+  const planVisible = detail === 'plan';
+  const detailLevels = useMemo(() => DETAIL_LEVELS.filter((l) => mode === 'all' || l !== 'plan'), [mode]);
+  // One-click filter above the board, in AND with the search filters and with every view.
+  const [quick, setQuick] = useState<QuickFilter | null>(null);
   useEffect(() => {
-    try { localStorage.setItem(DETAIL_STORAGE_KEY, detail); } catch { /* private mode, best effort */ }
-  }, [detail]);
+    try { localStorage.setItem(DETAIL_STORAGE_KEY, storedDetail); } catch { /* private mode, best effort */ }
+  }, [storedDetail]);
   // The summary level has no columns; the row below it keeps the grid shape.
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
   // Per-viewer view choices, kept beside the layout: lanes per project, and the Done column.
@@ -529,10 +535,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // comparatore (e a `planDrop`, che lì non scrive posizioni).
   const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
 
-  const byStatus = useMemo(() => {
-    const visible = tasks.filter((task) => taskMatchesFilters(task, filters));
-    return groupByStatus(visible, orderScope);
-  }, [tasks, filters, orderScope]);
+  // The cards the search filters let through, before the quick filter: its counts read from here.
+  const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
+  const quickCounts = useMemo(() => countQuickFilters(filtered), [filtered]);
+  const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
+  // The Plan hides the board cards these filters hide; a card the board does not hold (a sub-card) stays.
+  const visibleTaskIds = useMemo(() => {
+    if (!quick && filtered.length === tasks.length) return null;
+    const hidden = new Set(tasks.map((t) => t.id));
+    for (const t of visibleTasks) hidden.delete(t.id);
+    return (id: string) => !hidden.has(id);
+  }, [tasks, filtered, visibleTasks, quick]);
+  const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 
   /**
    * LA FIRMA DELLE COLONNE, e serve al movimento.
@@ -1136,10 +1150,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
-        {mode === 'all' && <button type="button" data-testid="board-plan-toggle" aria-pressed={planVisible}
-          onClick={() => setPlanVisible((v) => !v)}
-          className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${planVisible ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
-        >{tr(planVisible ? 'plan.buttonBack' : 'plan.button')}</button>}
         <LoadAdviceChip />
         <WorktreeControl
           count={worktreeCount}
@@ -1159,7 +1169,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <DetailSlider value={detail} onChange={setDetail} />
+        <DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />
         <BoardViewToggles
           canGroup={mode === 'all'}
           groupBy={groupByPref} onGroupBy={setGroupByPref}
@@ -1316,13 +1326,21 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div ref={drawerHostRef} className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          {mode === 'all' && planVisible ? (
+          <div role="group" aria-label={tr('board.quick.label')} data-testid="board-quick-filters" className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
+            {QUICK_FILTERS.map((q) => (
+              <button key={q} type="button" data-testid={`board-quick-${q}`} aria-pressed={quick === q}
+                onClick={() => setQuick((cur) => (cur === q ? null : q))}
+                className={`flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-compact leading-4 coarse:min-w-11 ${quick === q ? 'border-primary bg-primary/15 text-app-text' : 'border-app-border text-app-text-secondary hover:bg-white/5'}`}
+              >{tr(`board.quick.${q}`)}<span data-testid={`board-quick-count-${q}`} className="tabular-nums text-app-text-muted">{quickCounts[q]}</span></button>
+            ))}
+          </div>
+          {planVisible ? (
             <Suspense fallback={<SpinnerFallback fill />}>
               {/* A DndContext with no sensors: the board's card is a sortable,
                   and here nothing is dragged — the Plan moves cards with its
                   own «move to» control. */}
               <DndContext sensors={NO_SENSORS}>
-                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} />
+                <PlanView onOpenTask={openTask} onOpenTopic={onOpenTopic} renderTaskCard={renderPlanCard} isVisible={visibleTaskIds} />
               </DndContext>
             </Suspense>
           ) : <>

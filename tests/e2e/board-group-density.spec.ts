@@ -206,7 +206,8 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
-    await page.getByTestId("board-plan-toggle").click();
+    await page.getByTestId("board-detail-slider").focus();
+    await page.keyboard.press("End");
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible({ timeout: 15000 });
     await expect(plan.locator(`[data-testid="plan-project"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
@@ -254,7 +255,8 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(laneC.getByTestId("board-lane-header")).not.toContainText("e2e-lane-gamma");
     const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
-    await page.getByTestId("board-plan-toggle").click();
+    await page.getByTestId("board-detail-slider").focus();
+    await page.keyboard.press("End");
     const plan = page.getByTestId("plan-view");
     const tileC = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_C}"]`);
     await expect(tileC).toBeVisible({ timeout: 15000 });
@@ -280,7 +282,8 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(laneE.getByTestId("board-lane-header")).toContainText(NAME_E);
     const laneOrder = await page.getByTestId("board-lane").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
 
-    await page.getByTestId("board-plan-toggle").click();
+    await page.getByTestId("board-detail-slider").focus();
+    await page.keyboard.press("End");
     const plan = page.getByTestId("plan-view");
     const tileE = plan.locator(`[data-testid="plan-project"][data-project-id="${ID_E}"]`);
     await expect(tileE).toBeVisible({ timeout: 15000 });
@@ -346,7 +349,8 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-plan-toggle").click();
+    await page.getByTestId("board-detail-slider").focus();
+    await page.keyboard.press("End");
     const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     const question = card.getByTestId("card-compact-question");
@@ -368,7 +372,8 @@ test.describe("Board per progetto e card compatte", () => {
     expect(posted.status(), await posted.text()).toBe(201);
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-plan-toggle").click();
+    await page.getByTestId("board-detail-slider").focus();
+    await page.keyboard.press("End");
     const card = page.getByTestId("plan-view").locator(`[data-task-card="${asked}"]`);
     await expect(card).toHaveAttribute("data-density", "compact");
     // The sentence is there; the reply that would duplicate the card's own choice is not.
@@ -439,5 +444,33 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(own.getByTestId("kanban-column-todo").locator(`[data-task-card="${moving}"]`)).toBeVisible();
     await expect(other.locator(`[data-task-card="${moving}"]`)).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("trascinamento-altro-progetto-fatto.png") });
+  });
+
+  test("il filtro «Serve te» mostra solo le card che aspettano la persona, in tutte e tre le viste", async ({ page, request }) => {
+    const asked = await createTask(request, ID_C, `Serve te ${STAMP}`, "review");
+    const sessionKey = `topic:${topics[2]!.slice(0, 8)}`;
+    const posted = await request.post(`${BASE}/api/sessions/${encodeURIComponent(sessionKey)}/tasks/${asked}/comments`, {
+      data: { content: "Posso procedere?", options: ["Si", "No"] },
+    });
+    expect(posted.status(), await posted.text()).toBe(201);
+    const quiet = await createTask(request, ID_C, `Nessuna attesa ${STAMP}`, "todo");
+
+    await freshGrouped(page, null);
+    await page.getByTestId("board-quick-me").click();
+    await expect(page.getByTestId("board-quick-me")).toHaveAttribute("aria-pressed", "true");
+    const slider = page.getByTestId("board-detail-slider");
+    await slider.focus();
+    // Kanban (grid), then list, then Plan: the same two cards, the same filter.
+    await page.keyboard.press("End");
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator(`[data-task-card="${asked}"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);
+    await page.keyboard.press("ArrowLeft");
+    await expect(page.locator(`[data-task-card="${asked}"]`).first()).toBeVisible();
+    await expect(page.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);
+    await page.keyboard.press("End");
+    const plan = page.getByTestId("plan-view");
+    await expect(plan.locator(`[data-task-card="${asked}"]`)).toBeVisible({ timeout: 15000 });
+    await expect(plan.locator(`[data-task-card="${quiet}"]`)).toHaveCount(0);
   });
 });

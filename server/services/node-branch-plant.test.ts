@@ -92,7 +92,7 @@ describe("plantBranch, base commit precondition", () => {
     git(repo, "fetch", "-q", "origin");
     expect(git(repo, "cat-file", "-t", baseSha)).toBe("commit");
     const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
-    expect(r).toEqual({ planted: true, commit: nodeTip, reason: null });
+    expect(r).toEqual({ planted: true, commit: nodeTip, commitCount: 1, reason: null });
     expect(git(repo, "rev-parse", "refs/heads/card/work")).toBe(nodeTip);
   }, T);
 
@@ -100,7 +100,7 @@ describe("plantBranch, base commit precondition", () => {
     const repo = freshMac("mac-behind");
     expect(() => git(repo, "cat-file", "-e", `${baseSha}^{commit}`)).toThrow();
     const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
-    expect(r).toEqual({ planted: true, commit: nodeTip, reason: null });
+    expect(r).toEqual({ planted: true, commit: nodeTip, commitCount: 1, reason: null });
     expect(git(repo, "cat-file", "-t", baseSha)).toBe("commit");
   }, T);
 
