@@ -304,9 +304,10 @@ that way on purpose, and archiving SHALL happen whatever the board's auto-merge
 setting says, because archiving is not landing. Detached and reused checkouts
 SHALL always be left to a human.
 
-After attempting a land, the sweep SHALL RE-READ the repository instead of
-trusting the reported outcome. On 2026-07-19 a task lost 139 lines because the
-outcome was believed.
+Before destroying a branch, the sweep SHALL RE-READ the repository instead of
+trusting a reported outcome: neither the card's recorded landing state nor what a
+land (the manual one, which shares this guard) said it did. On 2026-07-19 a task
+lost 139 lines because the outcome was believed.
 
 Every worktree KEPT SHALL carry a normalized reason. Without it, thirty-eight
 kept worktrees were invisible — no line, no why, and growing on the disk.

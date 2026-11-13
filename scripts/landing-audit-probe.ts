@@ -11,7 +11,7 @@
  * and comments go to this process's memory, git only reads (the revert check
  * uses a private index in the temp dir).
  *
- * Why it exists (card 2e3649aa): "22/22 delivered cards are NOT on main" was
+ * Why it exists (card 206fe874): "22/22 delivered cards are NOT on main" was
  * printed on every pass and nobody could say whether it was true. This answers
  * with the whole population instead of the cards one pass happens to re-ask.
  */

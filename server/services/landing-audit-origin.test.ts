@@ -1,7 +1,7 @@
 /**
  * "LANDED" MEANS ON origin/main, and a land that was undone is not a land.
  *
- * Card 2e3649aa, after the incident of card 48588f6e (2026-11-12): the GC merged
+ * Card 206fe874, after the incident of card 48588f6e (2026-11-12): the GC merged
  * a card closed without a land into the LOCAL main (`3be5ccbad merge task …`),
  * the card read `landed` although origin did not have it, and once the merge
  * and its manual revert both reached origin, three checks still acquitted it:
@@ -101,7 +101,8 @@ beforeAll(() => {
   localOnly = commit(repo, "local.ts", LINES("local"), "local work");
   git(repo, "checkout", "-q", "main");
   git(repo, "merge", "--no-ff", "-q", "-m", "merge topics/local", "topics/local");
-});
+  // About forty synchronous git calls: past the default hook timeout on a busy Windows box.
+}, 60_000);
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -135,7 +136,7 @@ describe("the audit asks origin/main", () => {
   test("a commit only on the local main is unpushed, not landed", async () => {
     // The fixture really is local-only: guard it, or the test proves nothing.
     expect(git(repo, "merge-base", "--is-ancestor", localOnly, "main")).toBe("");
-    expect(Bun.spawnSync(["git", "-C", repo, "merge-base", "--is-ancestor", localOnly, "origin/main"]).exitCode).toBe(1);
+    expect(() => git(repo, "merge-base", "--is-ancestor", localOnly, "origin/main")).toThrow();
 
     expect(await verdictOf({ id: "local-only", deliveryCommit: localOnly })).toBe("unpushed");
   });

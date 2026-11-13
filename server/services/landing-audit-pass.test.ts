@@ -19,11 +19,11 @@
  *
  * @covers LAND-05
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, spyOn } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runLandingAudit, type AuditWiring } from "./landing-audit-pass";
+import { auditOneLanding, runLandingAudit, type AuditWiring } from "./landing-audit-pass";
 import type { AuditTask, LandingState } from "./landing-audit";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
@@ -204,5 +204,24 @@ describe("l'audit annuncia i verdetti che cambiano", () => {
 
     expect(b.annunci[0]!.projectId).toBe(b.card.projectId);
     expect(b.annunci[0]!.task?.id).toBe("card-id");
+  });
+});
+
+describe("the single verdict keeps the column", () => {
+  test("auditOneLanding counts a review card as review, not as done debt", async () => {
+    // The summary line splits off-main cards by column. The single verdict
+    // built its own candidate and dropped the status, so a review card was
+    // counted as "done (debt)".
+    const b = banco({ id: "card-in-review", status: "review", deliveryBranch: "topics/fuori", deliveryCommit: commitOutside });
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(" ")); });
+    try {
+      await auditOneLanding(b.wiring, "card-in-review");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(b.card.landingState).toBe("unlanded");
+    const summary = lines.find((l) => l.includes("not on the published main"));
+    expect(summary).toContain("0 done (debt), 1 in review");
   });
 });

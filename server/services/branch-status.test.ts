@@ -129,6 +129,7 @@ describe("commitStatusFromRepo", () => {
   let ricopiato = "";   // consegna atterrata con un cherry-pick: altro sha, stesso autore/oggetto
   let assente = "";     // consegna che su main non c'è, in nessuna forma
   let empty = "";       // EMPTY delivery on top of a branch that is not on main
+  let copiedThenUndone = ""; // delivery copied by the land, then removed from main by hand
   let radice = "";
 
   beforeAll(() => {
@@ -170,6 +171,18 @@ describe("commitStatusFromRepo", () => {
     writeFileSync(join(repo, "copiato.txt"), "sorgente, poi cambiata da un'altra card\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "evoluzione successiva");
 
+    // -- The COPIED delivery whose land was then undone by hand ---------------
+    // Same road as above (another sha, same author time and subject), but main
+    // then deletes the file instead of editing it: the twin is still in the
+    // log, and only the content says the land is gone.
+    git(repo, "checkout", "-q", "-b", "topics/copy-undone", base);
+    writeFileSync(join(repo, "undone.txt"), "work that landed and was taken back\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "work the land copies, later undone");
+    copiedThenUndone = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "main");
+    git(repo, "cherry-pick", copiedThenUndone);
+    git(repo, "rm", "-q", "undone.txt"); git(repo, "commit", "-q", "-m", "take the stray land back by hand");
+
     // ── La consegna che non è mai atterrata ──────────────────────────────────
     git(repo, "checkout", "-q", "-b", "topics/persa", base);
     writeFileSync(join(repo, "persa.txt"), "lavoro mai landato\n");
@@ -202,6 +215,11 @@ describe("commitStatusFromRepo", () => {
 
   test("consegna RICOPIATA dal land (altro sha) → merged, anche dopo che main ha evoluto quel file", async () => {
     expect(await commitStatusFromRepo(repo, ricopiato)).toBe("merged");
+  });
+
+  test("a COPIED delivery whose content main later removed -> reverted, not merged", async () => {
+    // The twin in the log proves the land happened, not that it still holds.
+    expect(await commitStatusFromRepo(repo, copiedThenUndone)).toBe("reverted");
   });
 
   test("commit RADICE (nessun padre) → si guarda comunque il suo contenuto", async () => {

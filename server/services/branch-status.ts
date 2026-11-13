@@ -53,6 +53,19 @@ export async function gitExit(cwd: string, args: string[], run?: GitRunner): Pro
   return (await runBounded(["git", "-C", cwd, ...args], { stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query })).exitCode ?? 1;
 }
 
+/** The published main, when the repo has an origin that has one. */
+export const ORIGIN_MAIN = "refs/remotes/origin/main";
+
+/**
+ * The main a landing verdict is asked of. "Landed" means on origin/main: a
+ * merge that only sits on this disk's main (card 48588f6e, 2026-11-12) is not
+ * published, and the next land would publish it with nobody looking. A repo
+ * with no origin main has no published one, and its local main is the product.
+ */
+export async function publishedMainRef(repoPath: string, run?: GitRunner): Promise<string> {
+  return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${ORIGIN_MAIN}^{commit}`], run)) === 0 ? ORIGIN_MAIN : "main";
+}
+
 export async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }

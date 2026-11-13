@@ -20,16 +20,13 @@
  * numero due sullo stesso fatto.
  */
 import { auditLandings, classifyLandingEsito, type AuditTask, type LandingState } from "./landing-audit";
-import { branchExistsInRepo, commitStatusFromRepo } from "./branch-status";
+import { branchExistsInRepo, commitStatusFromRepo, publishedMainRef } from "./branch-status";
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./landing-verdict";
 import { landedMergeRange } from "./task-diff-range";
 import { changeUndoneOn } from "./change-undone";
-import { defaultRunGit } from "./own-commits";
 import { buildProjectCandidates, resolveProjectPath } from "./project-path-resolver";
 import type { ProjectStore } from "./project-store";
 
-/** The published main the verdict is asked of, when the repo has one. */
-const ORIGIN_MAIN = "refs/remotes/origin/main";
 
 /** I cinque riferimenti che vivono in `server.ts` e non altrove. */
 export interface AuditWiring {
@@ -93,8 +90,7 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
   const mainRefOf = async (repoPath: string): Promise<string> => {
     const known = refs.get(repoPath);
     if (known) return known;
-    const remote = await defaultRunGit(repoPath, ["rev-parse", "--verify", "--quiet", `${ORIGIN_MAIN}^{commit}`]).catch(() => null);
-    const ref = remote?.code === 0 ? ORIGIN_MAIN : "main";
+    const ref = await publishedMainRef(repoPath);
     refs.set(repoPath, ref);
     return ref;
   };
@@ -240,6 +236,8 @@ export async function auditOneLanding(deps: AuditWiring, taskId: string): Promis
   const one: AuditTask = {
     id: t.id, projectId: t.projectId,
     deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
+    // Without the column a review card would be counted as done debt.
+    status: t.status,
   };
   await auditLandings(landingAuditDeps(deps, () => [one], /*announce*/ false))
     .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
