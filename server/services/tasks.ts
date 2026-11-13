@@ -979,6 +979,10 @@ export interface TaskService {
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
+  /** The run this card last created on a paired node (persisted, survives a restart), or null. */
+  nodeRunOf(taskId: string): string | null;
+  /** Remember (or forget, with null) the card's run on a paired node. */
+  setNodeRun(taskId: string, runId: string | null): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
@@ -6659,6 +6663,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         "UPDATE tasks SET agent_tokens = MAX(COALESCE(agent_tokens, 0), ?), agent_cache_read_tokens = MAX(COALESCE(agent_cache_read_tokens, 0), ?), updated_at = ? WHERE id = ?",
       ).run(tok, cr, now(), taskId);
       return rowToTask(getTaskRow(taskId));
+    },
+
+    nodeRunOf(taskId) {
+      const row = db.prepare("SELECT node_run_id FROM tasks WHERE id = ?").get(taskId) as { node_run_id: string | null } | null;
+      return row?.node_run_id ?? null;
+    },
+
+    setNodeRun(taskId, runId) {
+      db.prepare("UPDATE tasks SET node_run_id = ? WHERE id = ?").run(runId, taskId);
     },
 
     setDispatchState({ taskId, state, error }): Task {

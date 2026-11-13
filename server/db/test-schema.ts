@@ -197,7 +197,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261111174458: consecutive bounces off the visibile-no-preview gate.
   visible_preview_bounces INTEGER NOT NULL DEFAULT 0,
   prior_commit TEXT,
-  same_tip_bounces INTEGER NOT NULL DEFAULT 0
+  same_tip_bounces INTEGER NOT NULL DEFAULT 0,
+  -- 20261113140000: the run this card last created on a paired node.
+  node_run_id TEXT
 )`;
 
 /**
