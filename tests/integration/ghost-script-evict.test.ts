@@ -48,12 +48,19 @@ function isAlive(pid: number): boolean {
 
 describe("evictOwnedScripts — Punto 1", () => {
   let tmpRoot: string;
+  let origRoot: string | undefined;
 
   beforeEach(() => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ghost-evict-"));
+    // The manager reads its root when it is built, and only removes what is
+    // under it: the test's worktrees must live under the root it sees.
+    origRoot = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = path.join(tmpRoot, "worktrees");
   });
 
   afterEach(() => {
+    if (origRoot === undefined) delete process.env.TOPICS_WORKTREES_DIR;
+    else process.env.TOPICS_WORKTREES_DIR = origRoot;
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 

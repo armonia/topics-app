@@ -137,10 +137,21 @@ export function isTranscriptOrphaned(opts: {
   nowMs: number;
   graceMs: number;
   transcriptExists: (path: string) => boolean;
+  /**
+   * The transcript wherever the CLI filed it (`findClaudeTranscript`). The CLI
+   * resumes a session by id from ANY folder (measured on 2.1.322 on 13/11:
+   * `--resume` from another cwd keeps the memory and appends to the original
+   * file), so a transcript filed under another cwd is still resumable. A chat
+   * whose cwd moved (an adopted session started in a scratch folder, then
+   * bound to its project) was forgotten at boot by the cwd-only check.
+   * Absent = the old cwd-only answer.
+   */
+  findAnywhere?: (sessionId: string) => string | null;
 }): boolean {
   const { cwd, claudeSessionId, updatedAtMs, nowMs, graceMs, transcriptExists } = opts;
   if (!claudeSessionId) return false;
   if (!cwd) return false;
   if (updatedAtMs > 0 && nowMs - updatedAtMs < graceMs) return false;
-  return !transcriptExists(claudeTranscriptPath(cwd, claudeSessionId));
+  if (transcriptExists(claudeTranscriptPath(cwd, claudeSessionId))) return false;
+  return !opts.findAnywhere?.(claudeSessionId);
 }
