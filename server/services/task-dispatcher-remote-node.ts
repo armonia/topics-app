@@ -272,7 +272,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   const { svc, log, emit, inFlight, releaseAndEmit } = host;
 
   /**
-   * The LAST run id created on a node for a task, kept per task.
+   * The LAST run id created on a node for a task, kept per task and PERSISTED on the card
+   * (`tasks.node_run_id`): a restart of this server must not forget the run, or the next dispatch
+   * skips the cancel and the node hands the old finished copy back (13/11).
    *
    * Deliberately NOT in `inFlight`: a buried run leaves `inFlight`, and it is
    * exactly then that this id is needed. A run this board gave up on may still
@@ -280,7 +282,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * first (KANBAN-77) - without that the card collects two deliveries and two
    * branches.
    */
-  const lastNodeRun = new Map<string, string>();
+  const lastNodeRun = {
+    get: (taskId: string): string | null => svc.nodeRunOf(taskId),
+    set: (taskId: string, runId: string): void => svc.setNodeRun(taskId, runId),
+    delete: (taskId: string): void => svc.setNodeRun(taskId, null),
+  };
   /**
    * One `node-run` hook at a time per machine. The hook wakes the machine and
    * syncs the repo over one tunnel: on 10/11 five cards for the PC ran it
