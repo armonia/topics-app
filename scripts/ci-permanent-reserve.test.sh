@@ -54,12 +54,13 @@ double() { jq '[.runners[] | select([.labels[].name | select(startswith("pn-"))]
 FOUR="1:online:false:permanent 2:online:false:permanent 3:online:false:permanent 4:online:false:permanent"
 
 seed "$FOUR"
-ok "four free, eight wanted: four booked" "$(run reserve permanent 8 pn-100-1)" 4
-ok "a second run finds none: its shards go to GitHub" "$(run reserve permanent 8 pn-101-1)" 0
-ok "the second run left no label behind" "$(booked pn-101-1)" 0
+ok "four free, eight wanted: held to its share of two" "$(run reserve permanent 8 pn-100-1)" 2
+ok "a second run gets the other two" "$(run reserve permanent 8 pn-101-1)" 2
+ok "a third run is refused: its shards go to GitHub" "$(run reserve permanent 8 pn-102-1)" 0
+ok "the third run left no label behind" "$(booked pn-102-1)" 0
 run release pn-100-1
-ok "release frees all four" "$(booked pn-100-1)" 0
-ok "freed runners serve the next run" "$(run reserve permanent 3 pn-102-1)" 3
+ok "release frees the first slot" "$(booked pn-100-1)" 0
+ok "the freed slot serves the next run" "$(run reserve permanent 3 pn-103-1)" 2
 
 seed "1:online:true:permanent 2:offline:false:permanent 3:online:false:permanent-prep 4:online:false:permanent"
 ok "busy, offline and other pools are skipped" "$(run reserve permanent 4 pn-103-1)" 1
@@ -67,7 +68,7 @@ ok "the prep pool books its own runner" "$(run reserve permanent-prep 1 pn-103-1
 
 seed "$FOUR" '{"200": "completed"}'
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-200-1\"]}"' >/dev/null
-ok "a booking of a finished run is dropped and the runner reused" "$(run reserve permanent 4 pn-201-1)" 4
+ok "a booking of a finished run is dropped and the runner reused" "$(run reserve permanent 4 pn-201-1)" 2
 ok "the stale label is gone" "$(booked pn-200-1)" 0
 
 seed "$FOUR"
@@ -76,10 +77,10 @@ ok "garbage count books nothing" "$(run reserve permanent abc pn-300-1)" 0
 
 seed "$FOUR"
 jq '.runners[0].name = "intruso-1"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
-ok "a runner not named topics-permanent-node-* is never booked" "$(run reserve permanent 4 pn-500-1)" 3
+ok "a runner not named topics-permanent-node-* is never booked" "$(run reserve permanent 4 pn-500-1)" 2
 
 # Both runs added their label before either read: this one gives every runner up.
-seed "1:online:false:permanent 2:online:false:permanent"
+seed "1:online:false:permanent 2:online:false:permanent 3:online:false:permanent 4:online:false:permanent"
 ok "a runner booked by two runs at once is given up" "$(INJECT=pn-other-1 run reserve permanent 2 pn-400-1)" 0
 ok "...and its label taken back, the other run's left" "$(booked pn-400-1)/$(booked pn-other-1)" 0/2
 
