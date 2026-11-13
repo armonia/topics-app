@@ -2,6 +2,7 @@
  * A resumed turn that hands in the tip that was just sent back, with no word
  * from the agent, must not reach review (and so must not open a CI run).
  * First time: back to todo with the reason. Second time: review, flagged.
+ * @covers KANBAN-05
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { type Database } from "bun:sqlite";
