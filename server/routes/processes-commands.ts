@@ -16,9 +16,9 @@ import { commandProcessesOf, serviceWatch, servicesOver, SERVICE_END_SHOWN_MS, S
 import { getListeningPorts, listenersOf, servesHtml } from "../lib/listening-ports";
 import { isPidAlive } from "../lib/pid-liveness";
 import { topicIdOfSubject } from "../../shared/attention";
-import { addToRecent, endFollow, followLog, followOf, lastLineOf, pumpTail, startFollow } from "./processes-output";
+import { addToRecent, endFollow, followLog, followOf, pumpTail, startFollow } from "./processes-output";
 import { exitPathOf, loadProcessRegistry, logPathOf, pidStartTime, saveState } from "./processes-persist";
-import { broadcastScriptsUpdate } from "./processes-snapshot";
+import { broadcastScriptsUpdate, lastLineOf } from "./processes-snapshot";
 import { type ScriptProcess, isPersonRun, recentScripts, runningScripts, _broadcastCtx } from "./processes-state";
 
 /**

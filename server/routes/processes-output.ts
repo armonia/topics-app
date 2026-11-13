@@ -4,7 +4,6 @@ import { homedir } from "os";
 import { join } from "path";
 import { writeFileAtomic } from "../lib/atomic-write";
 import { appendToLogBuffer, flushLogBuffer } from "../lib/log-cursor";
-import { stripAnsi } from "../utils/path-env";
 import { openTail, readTail, shrinkLog } from "../lib/file-tail";
 import { stdoutTargetOf } from "../lib/command-redirect";
 import { noteRunAlive } from "../lib/command-runs";
@@ -239,25 +238,6 @@ export function endFollow(sp: ScriptProcess): void {
   sp.followPending = undefined;
   try { writeFileAtomic(logPathOf(sp.processId), [...sp.output, sp.pendingLine ?? ""].join("\n")); }
   catch (err) { console.warn(`[processes] saving the log of ${sp.processId} failed:`, err); }
-}
-
-/**
- * The line a row is printing now, for a one-line preview (`scripts:output`,
- * the chat's live work): the line being written, else the last one that is
- * not blank. A progress bar redraws its line with `\r`: its last drawing.
- */
-export function lastLineOf(sp: ScriptProcess | undefined): string {
-  if (!sp) return "";
-  const clip = (line: string) => {
-    const shown = stripAnsi(line.slice(line.lastIndexOf("\r", line.length - 2) + 1)).trim();
-    return shown.length > 200 ? `${shown.slice(0, 199)}…` : shown;
-  };
-  for (const pending of [sp.followPending, sp.pendingLine]) if (pending && clip(pending)) return clip(pending);
-  for (let i = sp.output.length - 1; i >= Math.max(0, sp.output.length - 50); i--) {
-    const line = clip(sp.output[i] ?? "");
-    if (line) return line;
-  }
-  return "";
 }
 
 function tickTails(): void {

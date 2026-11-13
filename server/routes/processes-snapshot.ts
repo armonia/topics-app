@@ -2,7 +2,7 @@ import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { AppContext } from "../types";
 import { getDescendantPids } from "../lib/process-tree";
 import { getListeningPorts } from "../lib/listening-ports";
-import { lastLineOf } from "./processes-output";
+import { stripAnsi } from "../utils/path-env";
 import { loadProcessRegistry } from "./processes-persist";
 import { type ScriptProcess, recentScripts, runningScripts } from "./processes-state";
 
@@ -123,6 +123,25 @@ export function publicRow(sp: ScriptProcess) {
 export function getScriptsSnapshot(): any[] {
   loadProcessRegistry();
   return [...runningScripts.values(), ...recentScripts].map(sp => ({ ...publicRow(sp), ports: [] as number[] }));
+}
+
+/**
+ * The line a row is printing now, for a one-line preview (`scripts:output`,
+ * the chat's live work): the line being written, else the last one that is
+ * not blank. A progress bar redraws its line with `\r`: its last drawing.
+ */
+export function lastLineOf(sp: ScriptProcess | undefined): string {
+  if (!sp) return "";
+  const clip = (line: string) => {
+    const shown = stripAnsi(line.slice(line.lastIndexOf("\r", line.length - 2) + 1)).trim();
+    return shown.length > 200 ? `${shown.slice(0, 199)}…` : shown;
+  };
+  for (const pending of [sp.followPending, sp.pendingLine]) if (pending && clip(pending)) return clip(pending);
+  for (let i = sp.output.length - 1; i >= Math.max(0, sp.output.length - 50); i--) {
+    const line = clip(sp.output[i] ?? "");
+    if (line) return line;
+  }
+  return "";
 }
 
 // Debounced output notification

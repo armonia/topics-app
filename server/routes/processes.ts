@@ -19,6 +19,8 @@ import { commandGroupHooks, commandServiceWatch, settlePersonRun, settleWakeRead
 import { bumpProcessDetection } from "./processes-detection";
 import { addToRecent, appendOutput, trimRecent } from "./processes-output";
 import { SCRIPTS_CACHE_TTL, exitPathOf, invalidateScriptsCache, loadProcessRegistry, logPathOf, pidStartTime, saveState } from "./processes-persist";
+// Evaluated for its hook: it installs the registry restore that loadProcessRegistry runs.
+import "./processes-restore";
 import { finishBackgroundShell, sweepOrphanedShellTree } from "./processes-shells";
 import { broadcastScriptsUpdate, getPortsForProcesses, notifyScriptOutput, publicRow } from "./processes-snapshot";
 import { MAX_RECENT, type ScriptProcess, isPersonRun, recentScripts, runningScripts, scriptsResponseCache, setScriptsResponseCache, setBroadcastCtx } from "./processes-state";
