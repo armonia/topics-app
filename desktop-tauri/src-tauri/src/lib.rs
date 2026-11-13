@@ -2492,6 +2492,10 @@ mod macos_notifications;
 #[cfg(target_os = "macos")]
 #[path = "tray_overlay.rs"]
 mod tray_overlay;
+#[cfg(target_os = "macos")]
+mod tray_strip_apply;
+#[cfg(target_os = "macos")]
+mod tray_tracking;
 
 /// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
 /// completion banners while the user has a Focus on.
@@ -3296,7 +3300,10 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
                 .text("tray-show", "Apri Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
-                let _ = tray.set_menu(Some(menu));
+                // Never replace the menu while it is open: that closes it.
+                tray_tracking::defer("menu", move || {
+                    let _ = tray.set_menu(Some(menu));
+                });
             }
 }
 
@@ -12295,69 +12302,23 @@ pub fn run() {
                     tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
                 }
                 let overlay_handle = app.handle().clone();
+                #[cfg(target_os = "macos")]
+                tray_tracking::install();
+                let apply_handle = tray_handle.clone();
                 tray_quota::spawn_poller(move |strip| {
-                    if let Some(tray) = tray_handle.tray_by_id("main") {
-                        let (strip_w, strip_h) = (strip.width, strip.height);
-                        #[cfg(target_os = "macos")]
-                        tray_overlay::set_strip_width_pt(strip_w as f64 / tray_quota::SCALE as f64);
-                        let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_strip(tray, strip);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
                         let _ = tray.set_icon(Some(img));
-                        #[cfg(target_os = "macos")]
-                        {
-                            let _ = tray.set_icon_as_template(false);
-                            // The tray library forces every image to 18 pt tall; the strip is
-                            // drawn for the full 22 pt button, like the original one, so its
-                            // text would come out about a fifth too small. Restore the size.
-                            use crate::mac::{id, msg_send, nil, NSRect, NSSize};
-                            let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
-                            let _ = tray.with_inner_tray_icon(move |inner| {
-                                if let Some(item) = inner.ns_status_item() {
-                                    unsafe {
-                                        let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-                                        let button: id = msg_send![item, button];
-                                        if button != nil {
-                                            // The variable-length item measured the button on the
-                                            // 18 pt image, so it is a fifth narrower than the strip:
-                                            // the strip, centred, lost both ends (the working glyph
-                                            // on the left, the reset times on the right). Pin the
-                                            // item to the strip's own width.
-                                            let _: () = msg_send![item, setLength: w_pt];
-                                            let image: id = msg_send![button, image];
-                                            if image != nil {
-                                                let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
-                                            }
-                                            // The library sizes its click-catching overlay (the subview
-                                            // that opens the menu) BEFORE the resize above, so it stays
-                                            // as small as the 18 pt image and most of the strip no longer
-                                            // opens the menu. Make it track the button from now on.
-                                            let _: () = msg_send![button, layoutSubtreeIfNeeded];
-                                            let bounds: NSRect = msg_send![button, bounds];
-                                            let subs: id = msg_send![button, subviews];
-                                            let n: usize = msg_send![subs, count];
-                                            for i in 0..n {
-                                                let v: id = msg_send![subs, objectAtIndex: i];
-                                                let _: () = msg_send![v, setAutoresizingMask: 18usize];
-                                                let _: () = msg_send![v, setFrame: bounds];
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        }
                     }
                 }, move |frame| {
-                    // Only a layer swap: no image, no PNG, no relayout of the button.
                     #[cfg(target_os = "macos")]
                     if let Some(tray) = overlay_handle.tray_by_id("main") {
-                        let _ = tray.with_inner_tray_icon(move |inner| {
-                            if let Some(item) = inner.ns_status_item() {
-                                unsafe {
-                                    let item: crate::mac::id = objc2::rc::Retained::as_ptr(&item) as crate::mac::id;
-                                    let button: crate::mac::id = crate::mac::msg_send![item, button];
-                                    tray_overlay::show(button, frame);
-                                }
-                            }
-                        });
+                        tray_strip_apply::apply_overlay(&tray, frame);
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (&overlay_handle, frame);
