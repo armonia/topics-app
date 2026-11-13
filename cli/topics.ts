@@ -24,6 +24,9 @@
  *                                       is missing (sends SIGTERM directly
  *                                       to the pid in the lock file).
  *
+ *   topics tools [--json]             — the agents' tools (MCP, skills, CLIs),
+ *                                       the same inventory as the user menu.
+ *
  * No external deps. Reads the daemon state from `~/.topics/daemon-state.json`
  * the same way the Electron app does.
  */
@@ -31,6 +34,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import type { AgentToolsInventory } from "../shared/agent-tools";
 
 const TOPICS_HOME = process.env.TOPICS_HOME || join(homedir(), ".topics");
 
@@ -318,6 +322,31 @@ async function cmdDaemon(sub: string) {
   process.exit(2);
 }
 
+/** The inventory as plain lines: one group per kind, the state first. */
+export function formatAgentTools(inv: AgentToolsInventory): string {
+  const lines: string[] = [];
+  lines.push(`MCP (${inv.mcp.length})`);
+  for (const m of inv.mcp) lines.push(`  ${m.state.padEnd(10)} ${m.name}  ${m.toolCount} tools  [${m.source}]${m.reason ? `  ${m.reason}` : ""}`);
+  lines.push(`Skills (${inv.skills.length})`);
+  for (const k of inv.skills) lines.push(`  ${k.name}  [${k.source}]${k.description ? `  ${k.description}` : ""}`);
+  lines.push(`CLIs (${inv.clis.length})`);
+  for (const c of inv.clis) lines.push(`  ${c.installed ? "installed" : "missing  "} ${c.name}  ${c.path ?? c.install}`);
+  return lines.join("\n");
+}
+
+async function cmdTools(args: string[]) {
+  const state = readDaemonState();
+  if (!state) { console.error("no daemon running (topics daemon start)"); process.exit(1); }
+  const res = await fetchLocal(state.port, "/api/agent-tools", {
+    headers: { authorization: `Bearer ${state.token}` },
+    // Reading mounts the MCP fleet, which can take as long as its slowest handshake.
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) { console.error(`error: ${res.status}`); process.exit(1); }
+  const inv = (await res.json()) as AgentToolsInventory;
+  console.log(args.includes("--json") ? JSON.stringify(inv, null, 2) : formatAgentTools(inv));
+}
+
 async function main() {
   const [, , cmd, ...rest] = process.argv;
   if (!cmd || cmd === "-h" || cmd === "--help") {
@@ -333,6 +362,8 @@ async function main() {
       return cmdDaemon(rest[0] ?? "status");
     case "kill":
       return cmdDaemon("stop");
+    case "tools":
+      return cmdTools(rest);
     default:
       console.error(`unknown command: ${cmd}`);
       console.error(usage());

@@ -122,6 +122,20 @@ describe("own-commits — su git vero", () => {
     expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
   });
 
+  test("an older delivery branch of the same card (ancestor) does not hide its commits", async () => {
+    git(repo, "checkout", "-q", "-b", "topics/old-delivery", "main");
+    commit(repo, "oa.txt", "a\n", "card commit A");
+    git(repo, "checkout", "-q", "-b", "topics/new-delivery", "topics/old-delivery");
+    commit(repo, "ob.txt", "b\n", "card commit B");
+    git(repo, "checkout", "-q", "main");
+    const own = ["topics/old-delivery"];
+    const others = await otherLocalBranches(repo, "topics/new-delivery", { ownRefs: own });
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: others! })).toBe(2);
+    // Mutation check: without the own-refs filter the old branch is subtracted and A is lost.
+    const unfiltered = await otherLocalBranches(repo, "topics/new-delivery");
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: unfiltered! })).toBe(1);
+  });
+
   test("i commit propri arrivano dal più recente: il primo è il puntatore di consegna", async () => {
     const own = await listOwnCommits(repo, "topics/doppia");
     expect(own?.map((sha) => subject(repo, sha))).toEqual(["secondo mio", "primo mio"]);
