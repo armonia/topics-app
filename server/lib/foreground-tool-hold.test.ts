@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { foregroundToolHold, FOREGROUND_TOOL_HOLD_MS } from "./stale-stream-sweep";
 
+/**
+ * @covers CHAT-REL-03 - the stall judge is not asked while a foreground tool runs.
+ */
 describe("foregroundToolHold", () => {
   const now = 10_000_000;
   const running = (startedAt?: number) => [{ status: "running", ...(startedAt === undefined ? {} : { startedAt }) }];
