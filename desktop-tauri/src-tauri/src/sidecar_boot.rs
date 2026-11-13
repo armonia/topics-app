@@ -2511,6 +2511,9 @@ pub(crate) fn app_setup(
         // The quota strip polls the service itself (hidden window, restarted
         // client: it keeps updating). Card c675633f.
         let tray_handle = app.handle().clone();
+        if let Ok(Some(m)) = app.handle().primary_monitor() {
+            tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
+        }
         tray_quota::spawn_poller(move |strip| {
             if let Some(tray) = tray_handle.tray_by_id("main") {
                 let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
