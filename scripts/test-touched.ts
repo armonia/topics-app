@@ -128,7 +128,7 @@ export function pathLiterals(text: string, files: readonly string[]): Set<string
 }
 
 /** A test that walks the tree looking at every file: whatever changed, it may care. */
-const TREE_WALKER = /ls-files|\.scanSync\(|\.scan\(|readdirSync\([^)]*recursive/;
+const TREE_WALKER = /ls-files|\.scanSync\(|\.scan\(|readdirSync\([^)]*recursive|git["'`][^)]*grep["'`]|git grep/;
 
 /** file -> the files it imports or reads, built from `files` (repo-relative) and a reader. */
 export function buildGraph(files: readonly string[], read: (rel: string) => string): Map<string, Set<string>> {
