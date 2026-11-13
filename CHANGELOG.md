@@ -2,12 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.99 — 2026-11-13
+
+### Sotto il cofano
+- Flush the turn row before the stall hold reads the running tool
+- topics/precise-gull (card 06bf57c1) (#939)
+
 ## 2.3.98 — 2026-11-13
 
 ### Sotto il cofano
 - Read the Hetzner location from the server, not only from datacenter
 - Declare the requirement the Hetzner location test covers
 - Write the spec requirement HETZNER-LOC-1 the adapter test declares
+- Stall judge: hold while a foreground tool runs; name the machine cut honestly in sub-agent results
+- Update lifecycle test for the machine-cut reason
+- Declare what the foreground tool hold test covers
 
 ## 2.3.97 — 2026-11-13
 

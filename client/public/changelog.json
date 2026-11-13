@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.99",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Flush the turn row before the stall hold reads the running tool",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/precise-gull (card 06bf57c1) (#939)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.98",
     "date": "2026-11-13",
     "sections": {
@@ -19,6 +41,21 @@
         },
         {
           "it": "Write the spec requirement HETZNER-LOC-1 the adapter test declares",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stall judge: hold while a foreground tool runs; name the machine cut honestly in sub-agent results",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Update lifecycle test for the machine-cut reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare what the foreground tool hold test covers",
           "en": "",
           "scope": null
         }
