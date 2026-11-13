@@ -38,7 +38,7 @@ describe("how a child chat's turn ended, as a result (SUBAGENT-11)", () => {
   });
 
   test("a machine's cut is `stopped` with its reason; a person's Stop has none", () => {
-    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "watchdog" }, text: "⚠️ notice", stopped: false })).toMatchObject({ status: "stopped", reason: { code: "swept" } });
+    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "watchdog" }, text: "⚠️ notice", stopped: false })).toMatchObject({ status: "stopped", reason: { code: "machine-cut", detail: "watchdog" } });
     expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "user" }, text: "half", stopped: false }).reason).toBeUndefined();
   });
 });

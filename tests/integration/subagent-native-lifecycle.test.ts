@@ -335,7 +335,7 @@ describe("the stale-stream sweep closes a child's open turn", () => {
     await staleSweep();
     await until("its result", () => reportsFor(id)[0], 15_000).catch(() => null);
     await sleep(1_000);
-    expect(reportsFor(id).map((r) => [r.outcome.status, r.outcome.reason])).toEqual([["stopped", { code: "swept" }]]);
+    expect(reportsFor(id).map((r) => [r.outcome.status, r.outcome.reason])).toEqual([["stopped", { code: "machine-cut", detail: "watchdog" }]]);
     // A cut turn did not complete: the child stays in view.
     expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(false);
   }, 40_000);

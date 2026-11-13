@@ -78,6 +78,7 @@ const WORDS = {
         case 'stopped-by-parent': return 'fermato con stop_agent';
         case 'tab-closed': return 'la sua tab è stata chiusa';
         case 'reloaded': return 'la sua tab è stata ricaricata';
+        case 'machine-cut': return `fermato dal sistema (${r.detail})`;
         case 'swept': return "ritirato perché chi l'ha lanciato non lavora più";
         case 'terminal-lost': return 'il suo terminale non è sopravvissuto al riavvio';
       }
@@ -104,6 +105,7 @@ const WORDS = {
         case 'stopped-by-parent': return 'stopped with stop_agent';
         case 'tab-closed': return 'its tab was closed';
         case 'reloaded': return 'its tab was reloaded';
+        case 'machine-cut': return `stopped by the system (${r.detail})`;
         case 'swept': return 'retired because its parent is no longer working';
         case 'terminal-lost': return 'its terminal did not survive the restart';
       }
