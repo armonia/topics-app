@@ -1,6 +1,8 @@
 /**
  * A fake credential left behind by a killed e2e job is removed before the next
  * run's server starts; anything that is not the fake stays.
+ *
+ * @covers E2E-GATE-13
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
