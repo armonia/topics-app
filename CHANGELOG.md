@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.96 — 2026-11-13
+
+### Sotto il cofano
+- adopt-claude with topicId writes a lost binding back into the same chat (#927)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-13 [skip ci]
+
 ## 2.3.94 — 2026-11-13
 
 ### Novità

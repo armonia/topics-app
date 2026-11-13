@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.3.96",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "adopt-claude with topicId writes a lost binding back into the same chat (#927)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-13 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.94",
     "date": "2026-11-13",
     "sections": {
