@@ -16,7 +16,7 @@
  * Il codice HTTP non cambia mai: 403 resta 403. Cambia solo la lingua.
  */
 
-import { escapeHtml } from "./views/view-html";
+import { escapeHtml } from "./lib/escape-html";
 
 /** `true` when the request is a navigation, not a sub-fetch of a page. */
 export function wantsHtml(accept: string | null): boolean {

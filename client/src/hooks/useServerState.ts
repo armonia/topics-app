@@ -174,9 +174,13 @@ export function useServerState<T>(
     if (!localStorageKey) return;
     const handler = (e: StorageEvent) => {
       if (e.key !== localStorageKey || !e.newValue) return;
+      let parsed: unknown;
       try {
-        applyFromServer(JSON.parse(e.newValue));
-      } catch {}
+        parsed = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      applyFromServer(parsed);
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);

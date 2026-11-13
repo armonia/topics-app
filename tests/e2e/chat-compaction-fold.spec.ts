@@ -5,6 +5,7 @@ import { expect } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -20,15 +21,51 @@ hermetic(test);
 const PREAMBLE = "This session is being continued from a previous conversation that ran out of context";
 const SUMMARY_MARKER = "MARKER_RIASSUNTO_INTERNO_XYZ";
 const BEFORE = "Contenuto reale prima della compaction.";
+const CONTENT = `${BEFORE}\n\n${PREAMBLE}. Summary: ${SUMMARY_MARKER} ${"lorem ipsum ".repeat(200)}`;
 
 test.describe("Chat compaction summary fold", () => {
   let topicId: string;
   let topicName: string;
+  let sessionKey: string;
 
+  /**
+   * The recap lives in the DATABASE, not in a `page.route` mock.
+   *
+   * WHY. `openTopic` goes through `ensureTopicVisible`, which, whenever the
+   * sidebar row is not already on screen at the first load, detaches the client
+   * (`page.goto("about:blank")`), re-seeds the pane store and RELOADS. The
+   * comment there claims a `page.route` mock survives that; under webkit it does
+   * NOT. Measured on 2026-11-13, 20 repetitions: the 5 that failed are exactly
+   * the 5 that loaded the app twice, and in those the client's
+   * `POST /api/history/<sessionKey>` reached the real server (no route handler
+   * ran), so the chat rendered an EMPTY thread and no fold could exist. Which
+   * path `ensureTopicVisible` takes depends on the pane store, i.e. on what ran
+   * before: the fold assertion was riding on that coin toss.
+   *
+   * With the two rows seeded through `POST /api/test/seed-message`, the real
+   * history endpoint returns them, and any number of reloads stays harmless.
+   */
   test.beforeAll(async ({ request }) => {
     topicName = `compaction-fold-${Date.now()}`;
     const t = await createTopic(request, topicName);
     topicId = t.id;
+    sessionKey = `topic:${t.id.slice(0, 8)}`;
+    await seedMessage(request, {
+      sessionKey,
+      role: "user",
+      content: "vai",
+      id: `${topicId}-u1`,
+      parentId: null,
+      sortOrder: 1000,
+    });
+    await seedMessage(request, {
+      sessionKey,
+      role: "assistant",
+      content: CONTENT,
+      id: `${topicId}-a1`,
+      parentId: `${topicId}-u1`,
+      sortOrder: 1001,
+    });
   });
 
   test.afterAll(async ({ request }) => {
@@ -36,7 +73,7 @@ test.describe("Chat compaction summary fold", () => {
   });
 
   // Le pane lasciate aperte dai file precedenti montano altre chat: la history
-  // mockata qui vale per questo topic, ma i marker si cercherebbero in un DOM
+  // seminata qui vale per questo topic, ma i marker si cercherebbero in un DOM
   // che ne contiene anche altre. Reset al solo topic di questo file.
   test.beforeEach(async ({ request }) => {
     await resetPaneStore(request, [topicId]);
@@ -44,20 +81,6 @@ test.describe("Chat compaction summary fold", () => {
 
   test("folds the compaction recap; before-content stays visible; expands on click", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-COMPACT-03" });
-    const content = `${BEFORE}\n\n${PREAMBLE}. Summary: ${SUMMARY_MARKER} ${"lorem ipsum ".repeat(200)}`;
-    await page.route(/\/api\/history\//, async (route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      await route.fulfill({
-        status: 200,
-        json: {
-          messages: [
-            { id: "u1", role: "user", content: "vai", timestamp: new Date().toISOString() },
-            { id: "a1", role: "assistant", content, timestamp: new Date().toISOString() },
-          ],
-        },
-      });
-    });
-
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));

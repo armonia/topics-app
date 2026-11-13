@@ -436,7 +436,12 @@ jobs:
           bun run check:eslint-disable
           bun run check:test-skips
           bun run check:emdash
-          bun run check:bloat
+          # The fast static guards (untraced tests, sleeps, bloat, comment
+          # language, git env in tests): ONE list, in package.json, which the
+          # delivery gate also runs before it opens the pull request.
+          bun run gates:fast
+          git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
+          bun run check:backup-residue
           bun run check:route-shadowing
           # La scala tipografica e' UNA, e sta nel blocco `@theme` di
           # index.css. Questo rifiuta le due strade per uscirne: una misura
@@ -454,7 +459,6 @@ jobs:
           # verde su ~95k righe di debito e le lascia solo scendere, che e
           # l unico modo perche un cancello del genere sopravviva a una
           # settimana. Scappatoia per riga: `allow-italian: <perche>`.
-          bun run check:comment-language
           # E lo stesso standard applicato ai NOMI, che i due cancelli sopra non
           # vedono nemmeno: quattro identificatori italiani sono passati in una
           # sera attraverso tutto. Chiede se una parola e INGLESE (dizionario di
@@ -464,7 +468,6 @@ jobs:
           # Senza dizionario ADESSO ESCE 2: il passo qui sopra lo installa, e
           # una misura impossibile e' un rosso, non un «skipping» verde.
           bun run check:identifier-language
-          bun run check:sleeps
           # Su questo runner `/tmp` e' una cartella vera, quindi il difetto che
           # questo cancello ferma qui NON si vede girando la suite: e' statico
           # apposta. Uno spec che indirizza una board con `/tmp/...` letterale
@@ -495,7 +498,6 @@ jobs:
           # misura 1.043 file su 1.166 non dichiarano niente: nasce assoluto e
           # nasce rosso, cioe' spento. Risponde a una domanda sola — un test
           # NUOVO dichiara cosa copre?
-          bun run check:untraced-tests
           # Stampa i `check:*` che nessun workflow esegue, col motivo scritto in
           # `scripts/check-gates-orfani.ts`; esce non-zero se uno e' senza motivo.
           bun run check:gates-orfani

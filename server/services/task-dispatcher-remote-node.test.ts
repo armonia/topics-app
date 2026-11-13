@@ -192,6 +192,22 @@ describe("la card parte sul nodo, non qui", () => {
     expect(sent).not.toContain("Consegnato dal nodo");
   });
 
+  it("dopo un riavvio del server la corsa vecchia si cancella prima di crearne una nuova", async () => {
+    // 13/11: the run id lived in a Map; a restart forgot it and the node answered the next create with the finished copy.
+    const h = harness();
+    h.seed();
+    await dispatch(h);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+
+    // Same database, new dispatcher instance: nothing in memory survives.
+    const h2 = harness({}, { svc: h.svc });
+    h.db.run("UPDATE tasks SET status = 'todo', dispatch_state = NULL, assigned_topic_id = NULL, dispatch_attempts = 0 WHERE id = ?", [TASK]);
+    await dispatch(h2);
+    const order = h2.calls.filter((c) => c === "create" || c.startsWith("cancel"));
+    expect(order[0]).toBe("cancel:run-1");
+    expect(order[1]).toBe("create");
+  });
+
   it("a un dispositivo ospite confinato la discussione del proprietario NON viaggia", async () => {
     const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
     h.seed();
