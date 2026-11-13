@@ -330,6 +330,18 @@ CAMBIATO, e SHALL dire nel log quando non ha risolto niente, invece di tacere.
 - **AND** un ramo che aggiunge in fondo a un file toccato altrove NON SHALL
   essere dichiarato superato
 
+#### Scenario: solo nel `main` locale non è atterrato
+- **GIVEN** un repository con `origin/main` e il lavoro di una card presente
+  solo nel `main` locale
+- **THEN** il verdetto NON SHALL essere `landed`: «atterrato» vuol dire su
+  `origin/main`
+
+#### Scenario: un land disfatto non è un land
+- **GIVEN** un commit di consegna che è un «Merge main» senza lavoro proprio, o
+  un merge della card poi revertito su `main`
+- **THEN** né la discendenza, né il merge che nomina la card, né il confronto
+  sul contenuto SHALL bastare per dare `landed`
+
 #### Scenario: la soglia è una misura, non un'opinione
 - **GIVEN** il confronto per contenuto fra ramo e `main`
 - **THEN** la decisione SHALL richiedere un numero minimo di righe distintive

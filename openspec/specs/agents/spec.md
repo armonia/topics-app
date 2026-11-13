@@ -1193,3 +1193,12 @@ The channel titles are read once per window, but only a successful answer counts
 - **GIVEN** `/api/agent-channels` answers with a non-ok status on the first mount
 - **WHEN** the hook mounts again
 - **THEN** it asks the endpoint again and shows the titles it returns
+
+### Requirement: AGENT-TOOLS-01 — The agents' tools are one inventory, shown in the user menu
+
+The user menu SHALL have an «Agent tools» page listing MCP servers (active, parked, needing sign-in, failed, each with its reason), the skills found on disk and the agent CLIs. It reads `GET /api/agent-tools`, the same inventory `topics tools` prints for agents. Sources are standard locations plus extra files and folders the person adds; no machine-specific path is built in.
+
+#### Scenario: Authorizing a server that needs sign-in
+- **GIVEN** the page lists an MCP server in state needs-auth
+- **WHEN** the person presses Authorize and the sign-in completes
+- **THEN** the page shows that server as active
