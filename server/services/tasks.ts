@@ -28,7 +28,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
-import { listLandingAuditCandidates } from "./landing-candidates";
+import { listLandingAuditCandidates, type LandingAuditCandidate } from "./landing-candidates";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
@@ -1125,7 +1125,7 @@ export interface TaskService {
    * esattamente il modo in cui `landing_state` è finito a dire `unlanded` su
    * card dimostrabilmente dentro main.
    */
-  listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
+  listLandingAuditCandidates(): LandingAuditCandidate[];
   /**
    * Persist a landing verdict. `witnessed` = lo scrive chi il land l'ha VISTO
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
