@@ -173,6 +173,35 @@ export async function startFakeAnthropic(scripts: Record<string, FakeRound[]>): 
 }
 
 /**
+ * THE UNDO THAT NEVER RAN. `installFakeAnthropic` is undone by the spec's
+ * `afterAll`, and a job cancelled or killed mid-spec never gets there. On a
+ * runner whose `/tmp` outlives the job (the permanent node) the fake credential
+ * stays in the test HOME, the native runtime reads as connected, and every
+ * later chat without a pinned runtime goes to it and waits on a dead port:
+ * four reds on 13/11 in specs that never touch the engine. The global setup
+ * calls this before the server starts. Only what this file writes is taken
+ * away: the token it names and the loopback base URL it set.
+ */
+export function removeStaleFakeAnthropic(home: string): void {
+  const dir = join(home, ".claude");
+  const credentials = join(dir, ".credentials.json");
+  try {
+    if (readFileSync(credentials, "utf8").includes(FAKE_ACCESS_TOKEN)) rmSync(credentials, { force: true });
+  } catch { /* no file: nothing left over */ }
+  const settingsPath = join(dir, "settings.json");
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as { env?: Record<string, unknown> };
+    const url = settings.env?.ANTHROPIC_BASE_URL;
+    if (typeof url === "string" && /^http:\/\/(127\.0\.0\.1|localhost):/.test(url)) {
+      delete settings.env!.ANTHROPIC_BASE_URL;
+      writeFileSync(settingsPath, JSON.stringify(settings));
+    }
+  } catch { /* no file or not JSON: nothing of ours */ }
+}
+
+const FAKE_ACCESS_TOKEN = "e2e-fake-access";
+
+/**
  * Points the test server's native runtime at `baseUrl` with a fake credential.
  * The Keychain is off on the test server (`TOPICS_CREDENTIALS_KEYCHAIN=0` in
  * `testServerEnv`), so the fake file is the only credential it can find, and
@@ -189,7 +218,7 @@ export function installFakeAnthropic(home: string, baseUrl: string): () => void 
     [settingsPath]: JSON.stringify({ ...settings, env: { ...settings.env, ANTHROPIC_BASE_URL: baseUrl } }),
     [join(dir, ".credentials.json")]: JSON.stringify({
       claudeAiOauth: {
-        accessToken: "e2e-fake-access",
+        accessToken: FAKE_ACCESS_TOKEN,
         refreshToken: "e2e-fake-refresh",
         expiresAt: 4_102_444_800_000,
         scopes: ["user:inference"],

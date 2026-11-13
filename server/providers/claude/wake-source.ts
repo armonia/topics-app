@@ -31,7 +31,7 @@
  * clock slack, or a report already answered, must not name the next wake too.
  */
 import { closeSync, openSync, readSync, fstatSync } from "fs";
-import { claudeTranscriptPath } from "../../lib/claude-transcript-path";
+import { findClaudeTranscript } from "../../lib/claude-transcript-path";
 import type { BackgroundWork } from "./background-work";
 import type { WakeEvent } from "../../../shared/types";
 
@@ -133,7 +133,10 @@ export function resolveWakeSource(work: BackgroundWork | undefined): WakeEvent[]
   const report = work.lastReport;
   work.lastReport = undefined;
   if (work.cliCwd && work.cliSessionId) {
-    const read = readWakeNotifications(claudeTranscriptPath(work.cliCwd, work.cliSessionId), Math.max(since, work.wakeReadUpTo + 1));
+    // Wherever the CLI filed it: a resumed session keeps appending to the file
+    // under the cwd it was BORN in, not under the one it runs in now.
+    const file = findClaudeTranscript(work.cliCwd, work.cliSessionId);
+    const read = file ? readWakeNotifications(file, Math.max(since, work.wakeReadUpTo + 1)) : [];
     if (read.length > 0) {
       work.wakeReadUpTo = Math.max(...read.map((e) => e.at));
       return read.map(({ at: _at, ...ev }) => ev);
