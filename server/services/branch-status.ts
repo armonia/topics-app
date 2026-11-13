@@ -164,6 +164,13 @@ export async function commitStatusFromRepo(
   // ridispacciare ciò che il land ha appena chiuso.
   if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return "merged";
 
+  // A MERGE commit cannot speak for the branch under it. The realign step puts
+  // "bring origin/main into the branch" on the tip: its diff against the first
+  // parent is main's own commits, identical on main by construction, so check
+  // (3) would acquit a branch whose work is still outside (task 7dd1601a). Same
+  // answer as an empty commit: the audit then asks the branch.
+  if ((await gitOut(repoPath, ["rev-list", "--parents", "-n", "1", commit], runGit)).trim().split(/\s+/).length > 2) return "empty";
+
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
   // domanda, e a volte un errore.
