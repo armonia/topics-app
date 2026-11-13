@@ -49,19 +49,44 @@ magick "$OUT/old-bar.png" -alpha off "$OUT/old-flat.png"
 magick "$OUT/new-raw.png" -background gray12 -alpha remove -alpha off "$OUT/new-flat.png"
 RATIO=$(magick compare -fuzz 25% -metric AE "$OUT/old-flat.png" "$OUT/new-flat.png" "$OUT/diff.png" 2>&1 >/dev/null | sed -n 's/.*(\([0-9.e+-]*\)).*/\1/p')
 echo "old=$(identify -format %wx%h "$OUT/old-flat.png") new=$(identify -format %wx%h "$OUT/new-flat.png") differing=$RATIO max=$MAX out=$OUT"
-# Colour check: the fuzz hides a slightly wrong tint, so every saturated colour that dominates
-# the original (bars, status text) must exist in the new strip within 8 levels per channel.
+# Colour check: the fuzz hides a slightly wrong tint, so each column of the original is cut out
+# and every colour that dominates it (name, bar, percentage, time) must exist in the same column
+# of the new strip within a CIE76 colour distance of 3.
 python3 - "$OUT/old-flat.png" "$OUT/new-flat.png" <<'PY'
 import sys
 from collections import Counter
+import numpy as np
 from PIL import Image
-def dominant(path):
-    px = Image.open(path).convert("RGB").getdata()
-    return Counter(p for p in px if max(p) - min(p) > 60)
-old, new = dominant(sys.argv[1]), dominant(sys.argv[2])
-bad = [c for c, n in old.items() if n >= 40 and min(max(abs(a - b) for a, b in zip(c, d)) for d in new) > 8]
+old = np.array(Image.open(sys.argv[1]).convert("RGB")).astype(int)
+new = np.array(Image.open(sys.argv[2]).convert("RGB")).astype(int)
+BACKGROUND = old[0, 0]
+def lab(rgb):
+    c = np.array(rgb, dtype=float) / 255
+    c = np.where(c > 0.04045, ((c + 0.055) / 1.055) ** 2.4, c / 12.92)
+    xyz = np.array([[.4124, .3576, .1805], [.2126, .7152, .0722], [.0193, .1192, .9505]]) @ c / [.95047, 1, 1.08883]
+    f = np.where(xyz > 0.008856, np.cbrt(xyz), 7.787 * xyz + 16 / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
+ink = (np.abs(old - BACKGROUND).sum(2) > 60).any(0)
+cuts, last = [0], None
+for x in np.where(ink)[0]:
+    if last is not None and x - last > 12:
+        cuts.append((x + last) // 2)
+    last = x
+cuts.append(old.shape[1])
+bad = []
+for lo, hi in zip(cuts, cuts[1:]):
+    def dominant(img):
+        seg = img[:, max(lo - 2, 0):hi + 2].reshape(-1, 3)
+        return Counter(map(tuple, seg[np.abs(seg - BACKGROUND).sum(1) > 60]))
+    o, n = dominant(old), dominant(new)
+    for color, count in o.most_common(6):
+        if count < 25:
+            continue
+        nearest = min((np.linalg.norm(lab(color) - lab(c)) for c, k in n.items() if k >= 8), default=99)
+        if nearest > 3:
+            bad.append((lo, color, round(float(nearest), 1)))
 if bad:
-    print("colour mismatch (original colour missing in the new strip):", sorted(bad))
+    print("colour mismatch (column x, original colour, distance to nearest new colour):", bad)
     sys.exit(1)
 PY
 awk -v r="$RATIO" -v m="$MAX" 'BEGIN { exit (r < m ? 0 : 1) }'
