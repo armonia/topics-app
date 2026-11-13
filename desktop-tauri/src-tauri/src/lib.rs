@@ -31,6 +31,7 @@ mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
 mod tray_quota;
+mod tray_poller;
 #[cfg(target_os = "macos")]
 mod tray_coretext;
 #[cfg(target_os = "windows")]
@@ -3076,7 +3077,7 @@ fn set_app_status(
         let groups = groups.unwrap_or_default();
         let machines = machines.unwrap_or_default();
         // The agents by state replace the single number on the strip, on its left.
-        tray_quota::set_agents(agents.unwrap_or_default());
+        tray_poller::set_agents(agents.unwrap_or_default());
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -12314,7 +12315,7 @@ pub fn run() {
                     tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
                 }
                 let overlay_handle = app.handle().clone();
-                tray_quota::spawn_poller(move |strip| {
+                tray_poller::spawn_poller(move |strip| {
                     if let Some(tray) = tray_handle.tray_by_id("main") {
                         let (strip_w, strip_h) = (strip.width, strip.height);
                         #[cfg(not(target_os = "macos"))]
