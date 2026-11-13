@@ -126,6 +126,8 @@ function harness(opts: {
   cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean; github?: boolean;
   /** The PC is offline but a `node-run` hook can wake it. */
   pcWakeable?: boolean;
+  /** The PC's declared slots (0 = being drained). */
+  pcSlots?: number;
   /** What `createRun` throws instead of answering (a cloud account without environments). */
   createRunError?: () => Error | null;
   /** What `readRun` throws instead of answering, while set (a live run's account refused). */
@@ -157,7 +159,7 @@ function harness(opts: {
   let nextRun = 0;
   const machines = (): OverflowMachine[] => [
     { id: CLOUD, name: NAME[CLOUD], kind: "cloud", online: opts.cloudOnline ?? true },
-    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false },
+    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false, ...(opts.pcSlots !== undefined ? { slots: opts.pcSlots } : {}) },
   ];
 
   const deps: DispatcherDeps = {
@@ -361,6 +363,35 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     h.seed(CARD, { machineId: PC });
     await holdPastThreshold(h);
     expect(h.task(CARD).machineId).toBe(PC);
+  });
+});
+
+describe("overflow: slots 0 svuota la macchina", () => {
+  it("con slots 0 il PC non riceve card per overflow", async () => {
+    const h = harness({ cloudOnline: false, pcSlots: 0 });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("con slots 0 una card fissata sul PC non parte", async () => {
+    const h = harness({ floor: false, pcSlots: 0 });
+    h.seed(CARD, { machineId: PC });
+    await holdPastThreshold(h);
+    expect(h.created).toEqual([]);
+    expect(h.task(CARD).status).toBe("todo");
+  });
+
+  it("con slots 2 le riceve, fissate comprese", async () => {
+    const h = harness({ cloudOnline: false, pcSlots: 2 });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+    const pinned = harness({ floor: false, pcSlots: 2 });
+    pinned.seed(CARD, { machineId: PC });
+    await holdPastThreshold(pinned);
+    expect(pinned.created.length).toBe(1);
   });
 });
 

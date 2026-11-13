@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.97",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "cura la causa dei sette instabili, non il loro timeout",
+          "scope": "e2e"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.94",
     "date": "2026-11-13",
     "sections": {

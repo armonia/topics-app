@@ -1315,6 +1315,7 @@ const IT: Dict = {
   'settings.machines.provider.placeholder': "Token API",
   'settings.machines.provider.save': "Salva",
   'settings.machines.slots.label': 'Card insieme',
+  'settings.machines.slots.paused': 'In pausa: nessuna card nuova',
   'settings.machines.pair.address': 'Indirizzo del nodo',
   'settings.machines.pair.addressPlaceholder': 'https://nodo.local:3333',
   'settings.machines.pair.start': 'Chiedi l’accesso',
