@@ -1,3 +1,4 @@
+/** @covers KANBAN-115 */
 import { describe, expect, test } from "bun:test";
 import type { GithubRun, OpenPullRequest } from "./ci-evidence";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
