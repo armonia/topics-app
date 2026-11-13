@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.100",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "non rimandare in un turno che il registro tiene aperto (#945)",
+          "scope": "ripresa"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.97",
     "date": "2026-11-13",
     "sections": {
