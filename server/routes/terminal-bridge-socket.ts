@@ -11,11 +11,22 @@ import { tmpdir } from "os";
 import { augmentPath } from "../utils/path-env";
 import { identifyBridgeProcess, withBridgeProcess, type ActiveBridge, type PtyBridgeRuntimeStatus } from "../lib/pty-bridge-process";
 import { envDataDir } from "../lib/data-dir";
-import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-usage";
-import { getFleetSessionRefs } from "./terminal-queries";
-import { handleBridgeMessage } from "./terminal-bridge-messages";
-import { noteBridgeByte, noteBridgePong, reconcileSessions, startBridgeWatchdog } from "./terminal-bridge-roster";
-import { broadcastTerminalSessions } from "./terminal-registry";
+import { registerFleetSocket } from "../lib/fleet-usage";
+import { formatTerminalKillLog } from "../lib/terminal-kill";
+// The same verdict the AI bridge already reached for the same question: a late
+// pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
+import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
+import { sessions } from "./terminal-state";
+import { broadcastTerminalSessions } from "./terminal-shared";
+
+// The bridge's frames are handled in terminal-bridge-messages.ts, which writes
+// back through this socket: importing it here would be a cycle, so it installs this hook.
+let bridgeMessageHandler: ((msg: any) => void) | null = null;
+export function setBridgeMessageHandler(fn: (msg: any) => void): void { bridgeMessageHandler = fn; }
+// The reconcile after a reconnect lives in terminal-bridge-roster.ts, which
+// connects through this socket: importing it here would be a cycle, so it installs this hook.
+let bridgeReconciler: (() => Promise<void>) | null = null;
+export function setBridgeReconciler(fn: () => Promise<void>): void { bridgeReconciler = fn; }
 
 // --- Bridge connection (Unix domain socket) ---
 export let bridgeSocket: net.Socket | null = null;
@@ -91,10 +102,6 @@ export function _setPtyBridgeSocketPath(p: string | null): void {
   SOCKET_PATH = p ?? getSocketPath();
   registerFleetSocket("pty-bridge", SOCKET_PATH);
 }
-// Le sessioni vive col loro pid di testa, per l'attribuzione per-sessione.
-// Registrata come funzione, non come snapshot: l'insieme cambia a ogni
-// create/exit e va letto al momento del campionamento, non a import time.
-registerFleetSessionSource(getFleetSessionRefs);
 
 /**
  * Append-only stderr sink for the detached bridge, parked next to its socket so
@@ -471,7 +478,7 @@ function setupSocketReader(socket: net.Socket) {
     // reads this, not just the pong.
     noteBridgeByte();
     try {
-      handleBridgeMessage(JSON.parse(line));
+      bridgeMessageHandler?.(JSON.parse(line));
     } catch {}
   });
 
@@ -496,7 +503,7 @@ function setupSocketReader(socket: net.Socket) {
     // spawn. broadcastTerminalSessions afterwards pushes the refreshed list.
     setTimeout(() => {
       ensureBridge()
-        .then(() => reconcileSessions())
+        .then(() => bridgeReconciler?.())
         .then(() => broadcastTerminalSessions())
         // Not swallowed: a bridge that cannot be respawned here (ENOENT, EACCES,
         // a dead sidecar) is otherwise the one failure with no line in the log,
@@ -536,3 +543,97 @@ export function dropBridgeSocket(): void {
 export function setActiveBridgeImplementation(implementation: "rust" | "node"): void {
   activeBridge = { ...activeBridge, implementation };
 }
+
+// --- Bridge liveness watchdog ---
+/*
+ * Ping every 30s. A bridge that is genuinely wedged (one-way socket break,
+ * hung daemon) has to be recycled, because nothing else will unstick it.
+ *
+ * A LATE PONG IS NOT A DEAD BRIDGE, and treating it as one is expensive here in
+ * a way it is not elsewhere: `recycleBridge` SIGTERMs the daemon, whose
+ * `shutdown()` walks every session and calls `s.pty.kill()`. Every terminal on
+ * the machine dies, including the ones that were mid-turn. Measured in
+ * `topics-server.log` on 2026-08-21: 31 recycles, 31 of them for `no pong in
+ * 60s`, and two of those are sandwiched between the OTHER bridge's watchdog
+ * lines, i.e. it was the SERVER that was stalled, not the daemon. The loss is
+ * on the record: one recycle is followed by ten `Failed to recreate session
+ * <uuid>: Bridge not connected`.
+ *
+ * So the verdict is the one `ai-bridge-client.ts` already reached for the same
+ * question: `shouldRecycleSocket` is only true when the pong is late AND no
+ * BYTES have arrived either. A pong rides the same queue as everything else and
+ * can sit behind tens of MB of replay; a byte in that window proves the daemon
+ * is alive and talking.
+ *
+ * And when it is true, it escalates in two steps instead of one. First a plain
+ * socket reset, which costs nothing (the `close` handler reconnects and
+ * reconciles) and cures the one-way break. The SIGTERM, which is the one that
+ * kills PTYs, only fires if the bridge is STILL mute after that, so the case
+ * the watchdog was born for is still covered.
+ */
+export let lastPongAt = Date.now();
+/** Last byte received from the daemon, whoever it was for. See `setupSocketReader`. */
+export let lastByteAt = Date.now();
+/** When the soft stage fired. Cleared by a real pong, never by a reconnect. */
+export let recycleArmedAt = 0;
+let watchdogStarted = false;
+export function startBridgeWatchdog() {
+  if (watchdogStarted) return;
+  watchdogStarted = true;
+  setInterval(() => {
+    if (!bridgeReady || !bridgeSocket || bridgeSocket.destroyed) return;
+    try { bridgeSocket.write(JSON.stringify({ type: 'ping' }) + '\n'); }
+    catch { recycleBridge('ping write failed'); return; }
+    setTimeout(() => {
+      const now = Date.now();
+      const action = bridgeWatchdogStep(now, lastPongAt, lastByteAt, recycleArmedAt);
+      if (action === 'ok') return;
+      if (action === 'soft-reset') {
+        recycleArmedAt = now;
+        console.warn('[Terminal] Bridge mute for 60s (no pong, no bytes): resetting the socket, PTYs untouched');
+        if (bridgeSocket && !bridgeSocket.destroyed) {
+          try { bridgeSocket.destroy(); } catch { /* the socket may already be destroyed */ }
+        }
+        dropBridgeSocket();
+        return;
+      }
+      recycleArmedAt = 0;
+      recycleBridge('still mute 30s after a socket reset');
+    }, 5_000);
+  }, 30_000).unref();
+}
+
+export function recycleBridge(reason: string) {
+  console.warn(`[Terminal] Recycling bridge: ${reason}`);
+  if (bridgeSocket && !bridgeSocket.destroyed) {
+    try { bridgeSocket.destroy(); } catch { /* the socket may already be destroyed */ }
+  }
+  dropBridgeSocket();
+  // Try to send a SIGTERM to whatever owns the pidfile — see bridge
+  // checkExistingBridge for the same logic on the bridge side.
+  try {
+    const pidPath = bridgePidPath();
+    if (fs.existsSync(pidPath)) {
+      const pid = Number(fs.readFileSync(pidPath, 'utf8').trim());
+      if (pid && pid !== process.pid) {
+        try {
+          process.kill(pid, 'SIGTERM');
+          for (const session of sessions.values()) {
+            console.warn(formatTerminalKillLog({
+              sessionId: session.id,
+              reason: 'bridge-recycle',
+              caller: 'recycleBridge',
+              detail: reason,
+            }));
+          }
+        } catch { /* the old bridge may already be gone; the respawn below replaces it */ }
+      }
+    }
+  } catch { /* an unreadable or missing pidfile means no old bridge to stop */ }
+  // ensureBridge will respawn on next demand.
+  ensureBridge().catch(() => {});
+}
+
+export function noteBridgePong(): void { lastPongAt = Date.now(); }
+export function noteBridgeByte(): void { lastByteAt = Date.now(); }
+export function disarmBridgeRecycle(): void { recycleArmedAt = 0; }

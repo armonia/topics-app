@@ -7,7 +7,7 @@ import { discoverClaudeSubAgentSessionId } from "../lib/claude-subagent-transcri
 import { setSubagentSessionId } from "../lib/subagent-store";
 import { type ChildRef } from "../lib/subagent-runtime";
 import { sessions } from "./terminal-state";
-import { _tracker, broadcastTerminalSessions } from "./terminal-registry";
+import { _tracker, broadcastTerminalSessions } from "./terminal-shared";
 
 /** The lines of a sub-agent's own transcript (which survives the PTY death),
  *  or null when none can be found. Adopts the real transcript id first, for a

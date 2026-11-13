@@ -22,16 +22,19 @@ import { resolveClaudeEffort, topicEffortFor } from "../lib/topics-agent-prompt"
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
 import { agentWorkspaceForSession } from "../lib/agent-workspace";
-import { type TerminalSession, reloadingSessionIds, revivingSessions, sessionSockets, sessions, terminalMemPressure } from "./terminal-state";
-import { agentProfilesFor, boardAgentCap, boardSpawnMode, childrenBeingResumed, endedChildForRead, isCodexBridgeOnlyTopic, liveChildrenOf, resolveOwnedChild, seedAgentPrompt, seedPromptFingerprintForSession, spawnedAgentDepth, stopLiveCliChild, subAgentNotFound } from "./terminal-children";
+import { type TerminalSession, reloadingSessionIds, revivingSessions, sessionSockets, sessions, terminalActivity, terminalMemPressure } from "./terminal-state";
+import { agentProfilesFor, boardAgentCap, boardSpawnMode, childrenBeingResumed, endedChildForRead, isCodexBridgeOnlyTopic, resolveOwnedChild, seedAgentPrompt, seedPromptFingerprintForSession, spawnedAgentDepth, stopLiveCliChild, subAgentNotFound } from "./terminal-children";
 import { scheduleClaudeSubAgentIdCapture } from "./terminal-subagent-transcript";
-import { PASTE_ENTER_DELAY_MS, getTerminalBuffer } from "./terminal-queries";
-import { noteTerminalInput, noteTerminalResize, terminalActivity } from "./terminal-activity";
+import { PASTE_ENTER_DELAY_MS, getTerminalBuffer, requestBuffer } from "./terminal-queries";
+import { noteTerminalInput, noteTerminalResize } from "./terminal-activity";
 import { ensureBridge, isPtyBridgeDisabled, ptyBridgeUnavailable } from "./terminal-bridge-socket";
-import { noteDroppedInput, resolveTerminalSend, sendTerminalKill, sendToBridge } from "./terminal-bridge-messages";
-import { NOT_A_SUBAGENT, isRosterDependentRoute, reconcileSessions, requestBuffer, rosterReconciled, rosterWarming } from "./terminal-bridge-roster";
+import { noteDroppedInput, resolveTerminalSend, sendTerminalKill, sendToBridge } from "./terminal-bridge-send";
+// Evaluated for its hook: it installs the handler of the bridge's frames on the socket.
+import "./terminal-bridge-messages";
+import { NOT_A_SUBAGENT, isRosterDependentRoute, reconcileSessions, rosterWarming } from "./terminal-bridge-roster";
 import { createSession } from "./terminal-session-create";
-import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
+import { liveChildrenOf, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
+import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
 export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
 export type { TerminalSession } from "./terminal-state";
@@ -39,10 +42,11 @@ export { setSubAgentExitHandler, boardAgentCap, setChildAdmissionPreview, boardS
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
 export { getPtyBridgeRuntimeStatus, _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath, bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge, disconnectBridge } from "./terminal-bridge-socket";
-export { resolveTerminalSend } from "./terminal-bridge-messages";
+export { resolveTerminalSend } from "./terminal-bridge-send";
 export { _resetRosterReconciled } from "./terminal-bridge-roster";
 export { autoNameClaudeSession } from "./terminal-session-create";
-export { _setTerminalTrackerForTests, _terminalSessionsForTests, noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
+export { _setTerminalTrackerForTests, _terminalSessionsForTests } from "./terminal-shared";
+export { noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
 
 /** A Claude session id lands straight in an argv (`--resume <id>`): it passes
  *  only with uuid shape, never an arbitrary string from the body. */

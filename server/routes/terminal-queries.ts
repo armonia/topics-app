@@ -1,14 +1,14 @@
 import { getDatabase } from "../db";
-import type { FleetSessionRef } from "../lib/fleet-usage";
+import { registerFleetSessionSource, type FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
 import { renderScreen, screenToText } from "../lib/terminal-screen";
 import type { LiveTerminal } from "../../shared/live-terminals";
 import { promptAsPaste } from "../lib/subagent-seed";
-import { type TerminalSession, sessionSockets, sessions } from "./terminal-state";
-import { noteTerminalInput, terminalActivity } from "./terminal-activity";
-import { PASTE_MIN_BYTES, isPlainText, sendToBridge } from "./terminal-bridge-messages";
-import { requestBuffer } from "./terminal-bridge-roster";
+import { type TerminalSession, sessionSockets, sessions, terminalActivity } from "./terminal-state";
+import { noteTerminalInput } from "./terminal-activity";
+import { bridgeReady, pendingBufferRequests } from "./terminal-bridge-socket";
+import { PASTE_MIN_BYTES, isPlainText, sendToBridge } from "./terminal-bridge-send";
 
 /**
  * Look up a live terminal session by its id. Used by the browser open-pane
@@ -273,3 +273,46 @@ export async function getTerminalBuffer(sessionId: string): Promise<string> {
   return bytes ? new TextDecoder().decode(bytes) : "";
 }
 
+// Le sessioni vive col loro pid di testa, per l'attribuzione per-sessione.
+// Registrata come funzione, non come snapshot: l'insieme cambia a ogni
+// create/exit e va letto al momento del campionamento, non a import time.
+registerFleetSessionSource(getFleetSessionRefs);
+
+// --- Buffer request from bridge ---
+/**
+ * The session's scrollback as the bridge holds it, or `null` when the bridge
+ * did not hand it over: not connected, the write failed, or no answer within
+ * a second.
+ *
+ * `null` and an empty buffer are different facts and must stay apart. An empty
+ * answer means the bridge has nothing for this id, which is how a gone PTY
+ * looks; no answer means nothing at all. Both used to come back as zero bytes,
+ * and under load (2026-10-15, `[LAG]` stops of 1.3-1.7 s) the attach of a live
+ * claude idle on a question replayed nothing and its pane went under the
+ * `terminal.dormant.title` veil.
+ */
+export function requestBuffer(sessionId: string): Promise<Uint8Array | null> {
+  return new Promise((resolve) => {
+    if (!bridgeReady) { resolve(null); return; }
+    const existing = pendingBufferRequests.get(sessionId) || [];
+    existing.push(resolve);
+    pendingBufferRequests.set(sessionId, existing);
+    // Each request expires on its own: a second attach to the same id must not
+    // be failed by the first one's deadline.
+    const expire = () => {
+      const cbs = pendingBufferRequests.get(sessionId);
+      const i = cbs ? cbs.indexOf(resolve) : -1;
+      if (!cbs || i < 0) return;
+      cbs.splice(i, 1);
+      if (cbs.length === 0) pendingBufferRequests.delete(sessionId);
+      resolve(null);
+    };
+    try {
+      sendToBridge({ type: "buffer", id: sessionId });
+    } catch {
+      expire();
+      return;
+    }
+    setTimeout(expire, 1000);
+  });
+}

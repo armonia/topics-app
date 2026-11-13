@@ -1,7 +1,7 @@
 import { terminalActivity as attentionOfActivity } from "../attention/terminal-turns";
-import { sessions } from "./terminal-state";
+import { sessions, terminalActivity } from "./terminal-state";
 import { autoNameCodexSession, autoNameOpencodeSession } from "./terminal-session-create";
-import { _broadcastToAll, _tracker } from "./terminal-registry";
+import { _broadcastToAll, _tracker } from "./terminal-shared";
 
 // --- Per-session pty activity tracking ----------------------------------
 // All pty output flows through handleBridgeMessage's "data" case, so this is
@@ -11,8 +11,6 @@ import { _broadcastToAll, _tracker } from "./terminal-registry";
 // Broadcast over the app WS so every client reacts — independent of whether
 // a terminal pane is mounted (the old client-only pty pulse missed those).
 const TERMINAL_IDLE_MS = 1500;
-interface TerminalActivity { busy: boolean; timer: ReturnType<typeof setTimeout> | null; lastAt: number; }
-export const terminalActivity = new Map<string, TerminalActivity>();
 // Last visible-text signature per session, used to filter cosmetic repaints
 // (e.g. the animated "/goal active" statusline) so they don't count as pty
 // activity and pin a session "busy" forever. See lib/pty-activity.ts.

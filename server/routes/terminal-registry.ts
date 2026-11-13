@@ -1,4 +1,3 @@
-import type { AppContext } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
 import { encodeExitReason, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { getDatabase } from "../db";
@@ -11,28 +10,14 @@ import { type TerminalKillReason } from "../lib/terminal-kill";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { referencedSessionIdsIn } from "../lib/orphan-sessions";
-import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { liveClaudeSessionId, panesToFollow } from "../lib/claude-live-session";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
-import { childPhase, reportChildEnd } from "../lib/subagent-runtime";
+import { reportChildEnd } from "../lib/subagent-runtime";
 import { terminalClosed } from "../attention/terminal-turns";
-import type { OutboundMessage } from "../../shared/ws-outbound";
-import { type TerminalSession, parkedByServer, sessionSockets, sessions, terminalBrowserCloser } from "./terminal-state";
-import { cascadeKillChildren } from "./terminal-children";
-import { clearTerminalActivity, terminalActivity } from "./terminal-activity";
-import { sendTerminalKill } from "./terminal-bridge-messages";
-import { rosterReconciled } from "./terminal-bridge-roster";
-
-// Broadcast current terminal sessions list via WS
-export let _broadcastToAll: ((msg: OutboundMessage) => void) | null = null;
-// Claude session tracker — the authoritative phase machine. Terminal claude
-// sessions register here so their hook-driven phase (running/tool-running)
-// becomes the solid "is it working" signal, instead of fragile pty bytes.
-export let _tracker: ClaudeSessionTracker | null = null;
-/** Test seam: the tracker the park guards read (null = none), whatever an earlier file in the process installed. */
-export function _setTerminalTrackerForTests(tracker: ClaudeSessionTracker | null): void { _tracker = tracker; }
-/** Test seam: the live panes, to put one in front of a hook without a bridge. */
-export function _terminalSessionsForTests(): Map<string, TerminalSession> { return sessions; }
+import { type TerminalSession, parkedByServer, sessionSockets, sessions, terminalActivity, terminalBrowserCloser } from "./terminal-state";
+import { clearTerminalActivity } from "./terminal-activity";
+import { sendTerminalKill } from "./terminal-bridge-send";
+import { _tracker, broadcastTerminalSessions } from "./terminal-shared";
 
 /**
  * Moves each Claude pane's resume id to the conversation its CLI is on now
@@ -55,17 +40,6 @@ export function noteClaudeHookSession(claudeSessionId: string): void {
   for (const s of sessions.values()) if (s.claudeSessionId === claudeSessionId) return;
   followClaudeSessionIds();
 }
-/** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its
- *  directory, and the directory is the only binding there is: no new column. A
- *  module-level reference like `_tracker` because the wake of a child after a
- *  restart goes through here without `ctx` at hand. */
-export let _worktreeStore: AppContext["worktreeStore"] | null = null;
-/** The branch of the worktree checked out at exactly this path, if there is one. */
-export function branchOfCwd(cwd: string | undefined | null): string | null {
-  if (!cwd || !_worktreeStore) return null;
-  try { return _worktreeStore.getByAbsPath(cwd)?.branchName ?? null; } catch { return null; }
-}
-
 /**
  * The directories a terminal session lives in, for the sweep's guard
  * (WORKTREE-14). No filter on `ptyPid`: after a restart sessions come back from
@@ -79,32 +53,6 @@ export function liveTerminalCwds(): string[] {
   for (const s of sessions.values()) if (s.cwd) out.push(s.cwd);
   return out;
 }
-export function broadcastTerminalSessions() {
-  if (!_broadcastToAll) return;
-  const list = Array.from(sessions.values()).map(s => ({
-    id: s.id, name: s.name, createdAt: s.createdAt, cwd: s.cwd,
-    command: s.command, clients: sessionSockets.get(s.id)?.size || 0,
-    topicId: s.topicId, type: s.type,
-    // claudeSessionId lets the client map a claude-code pane to its phase in
-    // the tracker (the authoritative loading signal).
-    claudeSessionId: s.claudeSessionId || null,
-    // Sub-agent parentage: lets the roster nest children under the orchestrator
-    // that spawned them. null for human-/chat-created sessions.
-    parentSessionKey: s.parentSessionKey || null,
-    // A sub-agent's state from its transcript, not from PTY bytes (SUBAGENT-16):
-    // waiting for its prompt, working, or finished its turn.
-    ...(s.parentSessionKey ? { subAgentPhase: childPhase(s.id) } : {}),
-    // Authoritative busy snapshot. Lets clients reconcile loading state from
-    // the roster instead of relying solely on incremental terminal:activity
-    // deltas (which are lost on server restart, WS reconnect, or a dropped
-    // message → otherwise a finished session spins forever).
-    busy: terminalActivity.get(s.id)?.busy ?? false,
-  }));
-  // `reconciled` dice se un `sessions: []` va creduto. Campo aggiuntivo, non
-  // sostitutivo: i client vecchi continuano a leggere solo `sessions`.
-  _broadcastToAll({ type: 'terminal:sessions', sessions: list, reconciled: rosterReconciled });
-}
-
 /**
  * Il ritiro di una sessione di terminale, in un posto solo.
  *
@@ -428,7 +376,18 @@ export function parkTerminalSession(id: string, exitCode: number | null = null):
   return true;
 }
 
+/** Live children of a parent (present in the in-memory `sessions` map). */
+export function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
+  return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
+}
 
-export function setTerminalBroadcast(fn: (msg: OutboundMessage) => void): void { _broadcastToAll = fn; }
-export function setTerminalWorktreeStore(store: AppContext["worktreeStore"]): void { _worktreeStore = store; }
-export function setTerminalTracker(tracker: ClaudeSessionTracker): void { _tracker = tracker; }
+/** Kill every live child of a parent that just exited/was deleted. Children are
+ *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
+ *  dead owner) is worse than reaping them. */
+export function cascadeKillChildren(parentSessionKey: string, caller: string) {
+  for (const child of liveChildrenOf(parentSessionKey)) {
+    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch {}
+    // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
+  }
+}
+

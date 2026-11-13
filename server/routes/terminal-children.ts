@@ -16,13 +16,13 @@ import { effectiveDispatchCap, readGlobalCap, computeDispatchCapacity } from "..
 import { capMode, type DispatchAdmission } from "../../shared/board";
 import { resolveAgentRuntime } from "../services/app-settings";
 import type { SubAgentExitInfo } from "./subagent-exit";
-import { type TerminalSession, sessionSockets, sessions } from "./terminal-state";
+import { type TerminalSession, sessionSockets, sessions, terminalActivity } from "./terminal-state";
 import { readChildTranscriptLines, resolveChildTranscriptSessionId } from "./terminal-subagent-transcript";
 import { getTerminalBuffer } from "./terminal-queries";
-import { clearTerminalActivity, noteTerminalInput, terminalActivity } from "./terminal-activity";
-import { sendTerminalKill, sendToBridge } from "./terminal-bridge-messages";
-import { rosterReconciled } from "./terminal-bridge-roster";
-import { _tracker, branchOfCwd, broadcastTerminalSessions, tryParkSession } from "./terminal-registry";
+import { clearTerminalActivity, noteTerminalInput } from "./terminal-activity";
+import { sendTerminalKill, sendToBridge } from "./terminal-bridge-send";
+import { liveChildrenOf, tryParkSession } from "./terminal-registry";
+import { _tracker, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
 
 // A sub-agent spawned FROM a topic chat (its `parentSessionKey` is `topic:<id>`)
 // exits with no one watching: the chat turn that launched it completed long ago,
@@ -134,11 +134,6 @@ export function boardSpawnMode(): { resources?: { admission: DispatchAdmission |
   let admission: DispatchAdmission | null = null;
   try { admission = childAdmissionPreview?.() ?? null; } catch { /* unmeasurable: lets it through */ }
   return { resources: { admission } };
-}
-
-/** Live children of a parent (present in the in-memory `sessions` map). */
-export function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
-  return Array.from(sessions.values()).filter(s => s.parentSessionKey === parentSessionKey);
 }
 
 /**
@@ -257,16 +252,6 @@ export function isCodexBridgeOnlyTopic(ctx: AppContext, sessionKey: string): boo
   } catch {
     // Keep legacy/unmigrated databases on their established route behavior.
     return false;
-  }
-}
-
-/** Kill every live child of a parent that just exited/was deleted. Children are
- *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
- *  dead owner) is worse than reaping them. */
-export function cascadeKillChildren(parentSessionKey: string, caller: string) {
-  for (const child of liveChildrenOf(parentSessionKey)) {
-    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch {}
-    // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
   }
 }
 

@@ -21,8 +21,8 @@ import { getSubagent, setSubagentState } from "../lib/subagent-store";
 import { deriveClaudeSessionTitle } from "../lib/claude-transcript-title";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveCodexReasoningEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import { type SubagentLaunchFlags, type TerminalSession, sessionSockets, sessions } from "./terminal-state";
-import { pendingCreates, sendToBridge } from "./terminal-bridge-messages";
-import { _tracker, broadcastTerminalSessions } from "./terminal-registry";
+import { pendingCreates, sendToBridge } from "./terminal-bridge-send";
+import { _tracker, broadcastTerminalSessions } from "./terminal-shared";
 
 // --- Session management ---
 export async function createSession(id: string, name: string, cwd: string, command?: string, cols = 120, rows = 30, topicId?: string, sessionType: TerminalSessionType = 'shell', skipPermissions = true, claudeSessionId?: string, parentSessionKey?: string, nameSource: 'default' | 'auto' | 'user' = 'default', launch?: SubagentLaunchFlags | null): Promise<TerminalSession> {

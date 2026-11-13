@@ -4009,11 +4009,11 @@
       "identita",
       "miePath"
     ],
-    "server/routes/terminal-bridge-roster.ts": [
-      "cbs"
-    ],
     "server/routes/terminal-children.ts": [
       "buf"
+    ],
+    "server/routes/terminal-queries.ts": [
+      "cbs"
     ],
     "server/routes/terminal-session-create.ts": [
       "autoNameOpencodeSession",

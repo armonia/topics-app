@@ -2,78 +2,16 @@ import { TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S } f
 import { getDatabase } from "../db";
 import { warnThrottled } from "../lib/warn-throttled";
 import fs from "fs";
-// The same verdict the AI bridge already reached for the same question: a late
-// pong is not a dead daemon if bytes are still arriving. See `startBridgeWatchdog`.
-import { bridgeWatchdogStep } from "../lib/bridge-watchdog";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 import { restoreSweptTranscript } from "../lib/transcript-keeper";
 import { reportChildEnd } from "../lib/subagent-runtime";
 import { sessionSockets, sessions } from "./terminal-state";
 import { noteTerminalReattached } from "./terminal-activity";
-import { bridgeReady, bridgeSocket, dropBridgeSocket, ensureBridge, isPtyBridgeDisabled, pendingBufferRequests } from "./terminal-bridge-socket";
-import { recycleBridge, sendTerminalKill, sendToBridge } from "./terminal-bridge-messages";
+import { ensureBridge, isPtyBridgeDisabled, setBridgeReconciler } from "./terminal-bridge-socket";
+import { sendTerminalKill, sendToBridge } from "./terminal-bridge-send";
 import { createSession } from "./terminal-session-create";
-import { _tracker, broadcastTerminalSessions } from "./terminal-registry";
-
-// --- Bridge liveness watchdog ---
-/*
- * Ping every 30s. A bridge that is genuinely wedged (one-way socket break,
- * hung daemon) has to be recycled, because nothing else will unstick it.
- *
- * A LATE PONG IS NOT A DEAD BRIDGE, and treating it as one is expensive here in
- * a way it is not elsewhere: `recycleBridge` SIGTERMs the daemon, whose
- * `shutdown()` walks every session and calls `s.pty.kill()`. Every terminal on
- * the machine dies, including the ones that were mid-turn. Measured in
- * `topics-server.log` on 2026-08-21: 31 recycles, 31 of them for `no pong in
- * 60s`, and two of those are sandwiched between the OTHER bridge's watchdog
- * lines, i.e. it was the SERVER that was stalled, not the daemon. The loss is
- * on the record: one recycle is followed by ten `Failed to recreate session
- * <uuid>: Bridge not connected`.
- *
- * So the verdict is the one `ai-bridge-client.ts` already reached for the same
- * question: `shouldRecycleSocket` is only true when the pong is late AND no
- * BYTES have arrived either. A pong rides the same queue as everything else and
- * can sit behind tens of MB of replay; a byte in that window proves the daemon
- * is alive and talking.
- *
- * And when it is true, it escalates in two steps instead of one. First a plain
- * socket reset, which costs nothing (the `close` handler reconnects and
- * reconciles) and cures the one-way break. The SIGTERM, which is the one that
- * kills PTYs, only fires if the bridge is STILL mute after that, so the case
- * the watchdog was born for is still covered.
- */
-export let lastPongAt = Date.now();
-/** Last byte received from the daemon, whoever it was for. See `setupSocketReader`. */
-export let lastByteAt = Date.now();
-/** When the soft stage fired. Cleared by a real pong, never by a reconnect. */
-export let recycleArmedAt = 0;
-let watchdogStarted = false;
-export function startBridgeWatchdog() {
-  if (watchdogStarted) return;
-  watchdogStarted = true;
-  setInterval(() => {
-    if (!bridgeReady || !bridgeSocket || bridgeSocket.destroyed) return;
-    try { bridgeSocket.write(JSON.stringify({ type: 'ping' }) + '\n'); }
-    catch { recycleBridge('ping write failed'); return; }
-    setTimeout(() => {
-      const now = Date.now();
-      const action = bridgeWatchdogStep(now, lastPongAt, lastByteAt, recycleArmedAt);
-      if (action === 'ok') return;
-      if (action === 'soft-reset') {
-        recycleArmedAt = now;
-        console.warn('[Terminal] Bridge mute for 60s (no pong, no bytes): resetting the socket, PTYs untouched');
-        if (bridgeSocket && !bridgeSocket.destroyed) {
-          try { bridgeSocket.destroy(); } catch { /* the socket may already be destroyed */ }
-        }
-        dropBridgeSocket();
-        return;
-      }
-      recycleArmedAt = 0;
-      recycleBridge('still mute 30s after a socket reset');
-    }, 5_000);
-  }, 30_000).unref();
-}
+import { _tracker, broadcastTerminalSessions, setRosterReconciled } from "./terminal-shared";
 
 // --- Session reconciliation ---
 let reconcileResolver: ((sessions: { id: string; pid: number }[]) => void) | null = null;
@@ -125,30 +63,6 @@ function restoreDbSessionsOptimistically(): void {
 }
 
 /**
- * Il roster in memoria è già stato confrontato con la verità (il bridge, o il DB
- * quando il bridge non risponde), oppure è ancora quello vuoto del boot?
- *
- * PERCHÉ ESISTE. `Bun.serve` parte senza attendere `reconcileSessions` (lanciato
- * fire-and-forget in `createTerminalRouter`), quindi c'è una finestra in cui
- * `GET /api/terminal/sessions` risponde **200 con `[]`** — indistinguibile, per chi
- * la riceve, da "non c'è nessuna sessione". Il client la prendeva per oro colato:
- * la scriveva nello stato E nella cache `terminal-sessions-cache` di localStorage,
- * avvelenandola per il caricamento successivo. Da lì una pane terminale VIVA si
- * ritrova `sessionListed === false` ed è a un riaggancio sfortunato dall'overlay
- * "Sessione scaduta".
- *
- * È la stessa lezione che questo file ha già imparato una volta, dieci righe più
- * sotto: distinguere "una risposta reale, anche vuota" da "NESSUNA risposta"
- * (`answered.ok`). Lì valeva per il bridge, qui vale per chi interroga noi.
- */
-/** Il roster è confrontato con la verità: chi lo legge può fidarsi di un vuoto.
- *  Esce di qui SOLO come campo `reconciled` di `terminal:sessions` (in fondo al
- *  file): è quello il canale che il client ascolta. C'era anche un getter
- *  `isRosterReconciled()` esportato, che non ha mai avuto un chiamante — due
- *  porte sullo stesso bit, e una murata. */
-export let rosterReconciled = false;
-
-/**
  * How many requests the warming gate below turned away during THIS boot window.
  *
  * It exists to leave exactly one line in the log instead of one per request.
@@ -169,7 +83,7 @@ let warmingDeferrals = 0;
  * is how one of them ends up doing only the first step.
  */
 function markRosterReconciled(): void {
-  rosterReconciled = true;
+  setRosterReconciled(true);
   if (warmingDeferrals > 0) {
     console.log(`[Terminal] roster warming finished — ${warmingDeferrals} request(s) answered 503 instead of a false 404`);
     warmingDeferrals = 0;
@@ -189,7 +103,7 @@ function markRosterReconciled(): void {
  * behaviour and passes. Nothing in production calls this.
  */
 export function _resetRosterReconciled(): void {
-  rosterReconciled = false;
+  setRosterReconciled(false);
   warmingDeferrals = 0;
 }
 
@@ -428,46 +342,5 @@ export async function reconcileSessions(attempt = 0): Promise<void> {
   markRosterReconciled();
 }
 
-// --- Buffer request from bridge ---
-/**
- * The session's scrollback as the bridge holds it, or `null` when the bridge
- * did not hand it over: not connected, the write failed, or no answer within
- * a second.
- *
- * `null` and an empty buffer are different facts and must stay apart. An empty
- * answer means the bridge has nothing for this id, which is how a gone PTY
- * looks; no answer means nothing at all. Both used to come back as zero bytes,
- * and under load (2026-10-15, `[LAG]` stops of 1.3-1.7 s) the attach of a live
- * claude idle on a question replayed nothing and its pane went under the
- * `terminal.dormant.title` veil.
- */
-export function requestBuffer(sessionId: string): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    if (!bridgeReady) { resolve(null); return; }
-    const existing = pendingBufferRequests.get(sessionId) || [];
-    existing.push(resolve);
-    pendingBufferRequests.set(sessionId, existing);
-    // Each request expires on its own: a second attach to the same id must not
-    // be failed by the first one's deadline.
-    const expire = () => {
-      const cbs = pendingBufferRequests.get(sessionId);
-      const i = cbs ? cbs.indexOf(resolve) : -1;
-      if (!cbs || i < 0) return;
-      cbs.splice(i, 1);
-      if (cbs.length === 0) pendingBufferRequests.delete(sessionId);
-      resolve(null);
-    };
-    try {
-      sendToBridge({ type: "buffer", id: sessionId });
-    } catch {
-      expire();
-      return;
-    }
-    setTimeout(expire, 1000);
-  });
-}
-
-
-export function noteBridgePong(): void { lastPongAt = Date.now(); }
-export function noteBridgeByte(): void { lastByteAt = Date.now(); }
-export function disarmBridgeRecycle(): void { recycleArmedAt = 0; }
+// A hook, not an import from the socket: the socket importing this module would be a cycle.
+setBridgeReconciler(reconcileSessions);

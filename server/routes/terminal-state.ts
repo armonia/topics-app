@@ -92,3 +92,7 @@ export function setTerminalMemPressure(fn: (() => { atCeiling: boolean }) | null
   terminalMemPressure = fn;
 }
 
+// Per-session pty activity (busy flag, idle timer, last output), written by
+// terminal-activity.ts and read by the roster broadcast and the park guards.
+interface TerminalActivity { busy: boolean; timer: ReturnType<typeof setTimeout> | null; lastAt: number; }
+export const terminalActivity = new Map<string, TerminalActivity>();
