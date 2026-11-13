@@ -85,13 +85,15 @@ import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
-import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import { sweepRunLeftovers, describeLeftovers } from "../lib/run-leftovers";
+import { getSessionCliPid } from "../providers/session-pids";
+import { createTaskAttemptStore, setAttemptFinishedListener, type TaskAttempt } from "../services/task-attempts";
 import type { ScheduledCardsService } from "../services/scheduled-cards";
 import { recordRetirement } from "../services/retirement";
 import { conditionalJson } from "../lib/conditional-json";
@@ -699,6 +701,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
   });
   const attempts = createTaskAttemptStore(db);
+  // Run end: close what the run left behind in its worktree (orphans, detached
+  // children). Fire-and-forget; the one thread line says how many and which.
+  setAttemptFinishedListener((a) => {
+    const wt = a.worktreeId ? ctx.worktreeStore.get(a.worktreeId) : null;
+    if (!wt?.absPath) return;
+    const topicKey = a.topicId ? "topic:" + a.topicId.slice(0, 8) : "";
+    void sweepRunLeftovers(wt.absPath, { spare: [topicKey ? getSessionCliPid(topicKey) : null] })
+      .then((found) => {
+        if (!found.length) return;
+        console.warn(`[run-leftovers] ${a.taskId}: ${describeLeftovers(found)}`);
+        svc.addComment({ taskId: a.taskId, author: "system", kind: "service", content: describeLeftovers(found) });
+      })
+      .catch(() => { /* best-effort */ });
+  });
 
   /**
    * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.
@@ -1457,6 +1473,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Past the realign, on a known checkout: from here on THIS is the commit
     // the delivery is measuring, and the one a restart has to carry over.
     roundCommit.set(taskId, ref.commit ?? null);
+    // The fast static guards run FIRST, so a missing @covers or a stray sleep
+    // costs seconds here instead of a queued CI run. The list lives in the
+    // `gates:fast` script, the one CI runs as well. A project without it
+    // (any repo but this one) is measured exactly as before.
+    if (hasFastGates(ref.cwd)) checks = [FAST_GATES_CHECK, ...checks.filter((c) => c.cmd !== FAST_GATES_CHECK.cmd)];
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
@@ -2245,7 +2266,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               ? `il ramo era indietro di ${res.realignConflict.behind} commit e il realign ha fatto conflitto`
               : "il merge ha fatto conflitto con main")
             : res.status === "skipped" ? (res.reason ?? null) : null)
-          : null;
+          : res.status === "skipped" && res.code === "no-branch"
+            // Never let a caller read an empty reason as "accepted": nothing was landed.
+            ? "nessun ramo di consegna: non c'è niente da atterrare e la card NON risulta su main"
+            : null;
       return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
       // ── The path that produced "zero comments, zero reason" ────────────────
