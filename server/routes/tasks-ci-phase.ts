@@ -197,7 +197,10 @@ export function createCiPhase(deps: CiPhaseDeps) {
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
       return !row?.archived;
     },
-    note: (taskId, text) => { deps.svc.addComment({ taskId, author: "system", kind: "service", content: text }); },
+    // One slot per kind of news: a CI that stays unmeasured is retried every sweep, and must not pile a row each time.
+    note: (taskId, text) => {
+      deps.svc.addComment({ taskId, author: "system", kind: "service", content: text, replaces: ["CI non misurata", "CI rossa su", "CI verde su"] });
+    },
     log: (line) => console.warn(line),
   });
 
