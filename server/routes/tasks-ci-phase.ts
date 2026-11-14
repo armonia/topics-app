@@ -10,7 +10,7 @@ import { isCiEvidenceCheck } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
-import { awaitCiEvidence, closeCiDraft } from "../services/ci-evidence";
+import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
 import { personPlace } from "../services/auto-land";
@@ -52,7 +52,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const t = got.task;
     const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
     const verdict = redBounceVerdict(
-      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null, humanAsk: t.humanAsk ?? null },
+      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null, humanAsk: t.humanAsk ?? null, failedCheck: t.checks?.find((r) => !r.ok)?.name ?? null },
       got.comments,
       { turnLive: deps.cardTurnIsLive(t) },
     );
@@ -164,6 +164,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
         awaitCi: (input) => awaitCiEvidence(input),
         closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
         describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
+        rerunFailed: async (cwd, sha) => {
+          // The same capped door every other gh call of the board goes through (deadline, process group).
+          const gh = async (args: string[]) => {
+            const r = await spawnCapped(["gh", ...args], cwd);
+            return { code: r.code, out: r.out };
+          };
+          const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
+          const id = list.out.trim();
+          if (list.code !== 0 || !id) return false;
+          return (await gh(["run", "rerun", id, "--failed"])).code === 0;
+        },
       });
     },
     // Landed like a person's «Landa»: the integration commit measured main plus this branch, so the land may

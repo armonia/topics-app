@@ -949,7 +949,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? "Da qui l'atterraggio è quello di sempre: guarda il diff e approva, oppure rimandala indietro."
       : "Il lavoro è sul nodo, non qui: sistema quello che manca e rimanda indietro la card per farla riconsegnare.";
     try {
-      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true, deliveredTip: planted.commit ?? report.deliveryCommit ?? null });
+      // A planted branch asks nobody anything: the next move is a line of the note, not the card's question.
+      // Passed as `nextMove` it became the card's `human_ask`, and a card that asks something is never
+      // landed alone nor sent back on a red: every green node delivery waited for a person (14/11, 19d684fb).
+      const delivered = planted.planted
+        ? svc.deliverToReviewBySystem({ taskId, reason: `${reason} ${nextMove}`, quietReason: true, deliveredTip: planted.commit ?? report.deliveryCommit ?? null })
+        : svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true, deliveredTip: planted.commit ?? report.deliveryCommit ?? null });
       if (node.delegation) {
         try { host.recordDelegatedPhase?.({ taskId, phase: "completed", outcome: "review" }); }
         catch { /* audit never blocks delivery */ }
