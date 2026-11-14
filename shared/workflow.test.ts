@@ -9,10 +9,12 @@ import { describe, expect, test } from "bun:test";
 import { TASK_STATUSES } from "./board";
 import {
   STAGE_AI_REVIEW,
+  STAGE_CI,
   STAGE_HUMAN_REVIEW,
   STAGE_TRIAGE,
   WORKFLOW_PRESETS,
   awaitsHuman,
+  awaitsHumanSql,
   columnOfTask,
   resolveWorkflow,
   stageAtBirth,
@@ -22,12 +24,21 @@ import {
 const armonia = WORKFLOW_PRESETS.armonia;
 
 describe("resolveWorkflow", () => {
-  test("with no row the columns are the five of before", () => {
+  test("with no row the columns are the five of before, plus the CI phase that only named cards enter", () => {
     const wf = resolveWorkflow({});
     expect(wf.preset).toBe("default");
     expect(wf.source).toBe("default");
-    expect(wf.columns.map((c) => c.id)).toEqual([...TASK_STATUSES]);
-    expect(wf.columns.every((c) => c.id === c.base)).toBe(true);
+    expect(wf.columns.map((c) => c.id)).toEqual(["backlog", "todo", "in_progress", "review", "ci", "done"]);
+    expect(wf.columns.filter((c) => c.id !== STAGE_CI).every((c) => c.id === c.base)).toBe(true);
+    // A card with no stage never lands in CI: its review stays the review of before.
+    expect(columnOfTask(wf.columns, { status: "review" })?.id).toBe("review");
+    expect(columnOfTask(wf.columns, { status: "review", stage: STAGE_CI })?.id).toBe(STAGE_CI);
+  });
+
+  test("a card in the CI phase waits on nobody", () => {
+    expect(awaitsHuman({ status: "review", stage: STAGE_CI })).toBe(false);
+    expect(awaitsHuman({ status: "review", stage: null })).toBe(true);
+    expect(awaitsHumanSql(true)).toContain(`'${STAGE_CI}'`);
   });
 
   test("the project row wins over the global one", () => {
@@ -44,7 +55,7 @@ describe("resolveWorkflow", () => {
 
 describe("columnOfTask", () => {
   test("armonia: six columns, each stage on a coherent base status", () => {
-    expect(armonia.map((c) => c.id)).toEqual(["triage", "todo", "in_progress", "ai_review", "human_review", "done"]);
+    expect(armonia.map((c) => c.id)).toEqual(["triage", "todo", "in_progress", "ai_review", "human_review", "ci", "done"]);
     expect(armonia.find((c) => c.id === STAGE_TRIAGE)?.base).toBe("backlog");
     expect(armonia.find((c) => c.id === STAGE_AI_REVIEW)?.base).toBe("review");
     expect(armonia.find((c) => c.id === STAGE_HUMAN_REVIEW)?.base).toBe("review");
