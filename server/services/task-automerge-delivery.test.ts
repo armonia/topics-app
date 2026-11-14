@@ -390,6 +390,85 @@ describe("land vs consegna — su git vero", () => {
     }
   }, 30_000);
 
+  /**
+   * 13/11, card 06bf57c1: a node round started from the branch of the round
+   * before (still a local branch here), with "Riporta origin/main" merges in
+   * between. The earlier commits looked foreign, the land picked the later
+   * ones alone and reported a conflict a plain merge did not have.
+   */
+  test("node branch with interleaved realign merges, built on the prior round: it lands on main", async () => {
+    const { root, repo, clone } = remoteCardRepo();
+    try {
+      git(repo, "switch", "-q", "-c", "topics/round1");
+      commit(repo, "shared.txt", "round1\n", "first round of the card");
+      git(repo, "push", "-q", "origin", "topics/round1");
+      git(repo, "switch", "-q", "main");
+
+      git(clone, "fetch", "-q", "origin");
+      git(clone, "switch", "-q", "-c", "topics/silent-plateau", "origin/topics/round1");
+      commit(repo, "other.txt", "x\n", "main moves on");
+      git(repo, "push", "-q", "origin", "main");
+      git(clone, "fetch", "-q", "origin");
+      git(clone, "merge", "-q", "--no-edit", "-m", "Riporta origin/main nel ramo prima del land", "origin/main");
+      commit(clone, "shared.txt", "node\n", "node round reworks the first round");
+      commit(repo, "more.txt", "y\n", "main moves again");
+      git(repo, "push", "-q", "origin", "main");
+      git(clone, "fetch", "-q", "origin");
+      git(clone, "merge", "-q", "--no-edit", "-m", "Riporta origin/main nel ramo prima del land", "origin/main");
+      const tip = commit(clone, "node.txt", "node\n", "node round finishes");
+      git(clone, "push", "-q", "origin", "topics/silent-plateau");
+
+      const res = await landRemoteCard(repo, { deliveryBranch: "topics/silent-plateau", priorBranch: "topics/round1" }, tip);
+
+      expect(res.status).toBe("merged");
+      git(repo, "switch", "-q", "main");
+      expect(readFileSync(join(repo, "shared.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("node\n");
+      expect(existsSync(join(repo, "node.txt"))).toBe(true);
+      expect(git(repo, "merge-base", "--is-ancestor", tip, "main")).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  /** 13/11, card 06bf57c1: "nothing to land" was said about a commit main did not have. */
+  test("nothing to bring over while the delivered commit is not on main: refused, never accepted", async () => {
+    const { root, repo } = remoteCardRepo();
+    try {
+      // The declared branch has nothing ahead of main, the delivered commit lives elsewhere.
+      git(repo, "branch", "topics/rebuilt", "main");
+      git(repo, "switch", "-q", "-c", "topics/elsewhere");
+      const delivered = commit(repo, "rebuilt.txt", "one commit\n", "the card rebuilt as one commit");
+      git(repo, "switch", "-q", "main");
+
+      for (const task of [
+        { deliveryBranch: "topics/rebuilt", priorBranch: null },
+        { deliveryBranch: null, priorBranch: null },
+      ]) {
+        const res = await landRemoteCard(repo, task, delivered);
+        expect(res.status).toBe("skipped");
+        if (res.status !== "skipped") return;
+        expect(res.code).toBe("not-on-main");
+        expect(landFallout(res.code, { deliveryCommit: delivered }).status).toBe("review");
+      }
+      expect(existsSync(join(repo, "rebuilt.txt"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("no branch and the delivered commit already on main: still no-branch", async () => {
+    const { root, repo } = remoteCardRepo();
+    try {
+      const onMain = git(repo, "rev-parse", "main");
+      const res = await landRemoteCard(repo, { deliveryBranch: null, priorBranch: null }, onMain);
+      expect(res.status).toBe("skipped");
+      if (res.status !== "skipped") return;
+      expect(res.code).toBe("no-branch");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   test("agente rilasciato e ramo davvero potato: fallisce con un codice che TOGLIE la card da Done", async () => {
     const { repo } = repoConDueRami();
     try {

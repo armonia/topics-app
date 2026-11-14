@@ -143,6 +143,8 @@ export type LandSkipCode =
   | "auto-land-stopped"
   /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
   | "attribution"
+  /** The land found nothing to bring over, or no branch, while the delivered commit is not on main: nothing landed, so the card is not accepted. */
+  | "not-on-main"
   /** Eccezione durante il land. */
   | "internal-error";
 
@@ -249,6 +251,8 @@ export function landFallout(
       return { status: "review", reason: "il commit consegnato non è arrivato in questo checkout" };
     case "not-as-measured":
       return { status: "review", reason: "l'atterraggio automatico avrebbe pubblicato un commit diverso da quello misurato" };
+    case "not-on-main":
+      return { status: "review", reason: "il land non ha portato niente e il commit consegnato non è su main" };
     case "auto-land-stopped":
       return { status: "review", reason: "l'atterraggio automatico si è fermato prima del merge" };
     default:
@@ -308,6 +312,14 @@ export interface DeclaredDelivery {
   repoPath: string | null;
   /** Il ramo registrato alla consegna. `null` = la card non ne dichiara uno. */
   branch: string | null;
+  /**
+   * Every branch the card itself has carried (`deliveryBranch`, `priorBranch`).
+   * Their commits are the card's own: a node round starts from the branch of the
+   * round before, and with that branch still here every earlier commit looked
+   * foreign, so the land picked the later ones alone across the merges and
+   * reported a conflict a plain merge did not have (13/11, 06bf57c1).
+   */
+  ownRefs?: string[];
 }
 
 /** What `declaredDeliveryFor` reads of a card. */
@@ -324,7 +336,9 @@ export interface DeclaredTask {
  * another machine (`priorBranch`): a card that ran on a node or the PC comes
  * back with `deliveryBranch` null and the branch only in `priorBranch`, and
  * ignoring it made the land answer `no-branch` and close the card with its code
- * outside main (12/11, 17436204 and 403aad1f). `null` means no branch ever existed.
+ * outside main (12/11, 17436204 and 403aad1f). A `null` branch means no branch
+ * ever existed; the checkout is still resolved, so the land can check that a
+ * recorded delivery commit is on main before it says there was nothing to land.
  */
 export function declaredDeliveryFor(deps: {
   getTask: (taskId: string) => DeclaredTask | null | undefined;
@@ -335,10 +349,12 @@ export function declaredDeliveryFor(deps: {
     const task = deps.getTask(taskId);
     if (!task) return null;
     const branch = carriedBranch(task);
-    if (!branch) return null;
     let repoPath: string | null = null;
     try { repoPath = deps.resolveRepoPath(task.projectId); } catch (err) { deps.log?.(`[land] checkout non risolto per ${taskId}`, err); }
-    return { repoPath, branch };
+    const ownRefs = [...new Set([task.deliveryBranch, task.priorBranch]
+      .map((b) => b?.trim() || "")
+      .filter((b) => b !== "" && isPlainBranchName(b)))];
+    return { repoPath, branch, ownRefs };
   };
 }
 
@@ -834,6 +850,20 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     });
   }
 
+  /**
+   * Why the delivered commit is NOT on `mainRef`, or `null` when it is: by
+   * descent, as the land's own copy, or by content (`commitStatusFromRepo`).
+   *
+   * "Nothing to land" and "no branch" leave a card accepted, and on 13/11 (card
+   * 06bf57c1) one of them was said about a commit main did not have. Every such
+   * answer now passes here first.
+   */
+  async function notOnMain(repo: string, sha: string, mainRef: string): Promise<string | null> {
+    if ((await commitIsIn(repo, sha, mainRef, { runGit })) === true) return null;
+    if ((await commitStatusFromRepo(repo, sha, mainRef, runGit)) === "merged") return null;
+    return `il land non ha trovato niente da portare, ma il commit consegnato \`${sha.slice(0, 8)}\` non è su ${mainRef}: niente è atterrato, e la card non si accetta così`;
+  }
+
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
     // A node round that came back with nothing planted and no commit: whatever
     // branch this checkout holds is an earlier round, or none exists at all.
@@ -843,11 +873,17 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         reason: "la consegna del nodo non è arrivata in questo checkout: il giro è da rifare, il ramo che c'è qui non è il suo lavoro",
       };
     }
-    const choice = chooseMergeTarget(
-      deps.resolveTaskMerge(taskId),
-      deps.declaredDelivery?.(taskId) ?? null,
-    );
+    const declared = deps.declaredDelivery?.(taskId) ?? null;
+    const choice = chooseMergeTarget(deps.resolveTaskMerge(taskId), declared);
     if (!choice.target) {
+      // No branch, yet a delivery commit recorded: "nothing to land" closes the
+      // card, so it holds only when that commit is on main.
+      const sha = delivery?.commit?.trim();
+      const repo = declared?.repoPath?.trim();
+      if (choice.code === "no-branch" && sha) {
+        const missing = repo ? await notOnMain(repo, sha, "main") : `il checkout del progetto non si trova, quindi non so se il commit \`${sha.slice(0, 8)}\` sia su main`;
+        if (missing) return { status: "skipped", code: "not-on-main", reason: missing };
+      }
       return { status: "skipped", code: choice.code, reason: choice.reason };
     }
     const target = choice.target;
@@ -863,6 +899,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     let realigned: string | null = null;
 
     const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
+
+    /** Every "nothing to land" answer, which accepts the card: refused while the delivered commit is not on main. */
+    async function nothingToLand(): Promise<AutoMergeResult> {
+      const sha = delivery?.commit?.trim();
+      const missing = sha ? await notOnMain(repoPath, sha, defaultBranch) : null;
+      if (missing) return { status: "skipped", code: "not-on-main", reason: missing };
+      return { status: "nothing", branch, deliveryDrift: drift };
+    }
 
     /** The full sha the bar measured (`noRealign` only), set by the pin check below. The merge takes THIS, never the branch name: a name is read again at the merge. */
     let pinnedSha: string | null = null;
@@ -1278,12 +1322,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const sha = delivery?.commit?.trim();
           if (sha) {
             if ((await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
             const toccati = await runGit(repoPath, ["diff", "--name-only", `${sha}^`, sha]);
             const visti = toccati.code === 0 && toccati.stdout.trim().length > 0;
             if (visti && (await commitStatusFromRepo(repoPath, sha, defaultBranch, runGit)) === "merged") {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
           }
           // LA SECONDA PROVA, per le card che il commit di consegna non ce l'hanno.
@@ -1308,7 +1352,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // il drawer per mostrare il diff di un land, non una seconda copia
           // della regola.
           if ((await landedMergeRange(repoPath, taskId, { runGit, mainRef: defaultBranch })) !== null) {
-            return { status: "nothing", branch, deliveryDrift: drift };
+            return nothingToLand();
           }
           /* LA TERZA PROVA: il TITOLO della card fra i soggetti di main.
            *
@@ -1342,13 +1386,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               "log", defaultBranch, "-n", "1", "-F", `--grep=${titolo}`, "--format=%H",
             ]);
             if (perTitle.code === 0 && perTitle.stdout.trim()) {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
           }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
-          return { status: "nothing", branch, deliveryDrift: drift };
+          return nothingToLand();
         }
 
         // Squash-merged on GitHub: the branch commits are not ancestors of main,
@@ -1357,7 +1401,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // nothing to land; stop before touching the (possibly dirty) checkout.
         if (await branchContentIsOnMain(repoPath, branch, defaultBranch, runGit)) {
           console.log(`[task-automerge] ${branch}: content already on ${defaultBranch} (squash-merged), nothing to land`);
-          return { status: "nothing", branch, deliveryDrift: drift };
+          return nothingToLand();
         }
 
         // ── Il ramo è INDIETRO? Prima si riallinea, poi si giudica ───────────
@@ -1471,6 +1515,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         let ownRefs: string[] = [];
         try { ownRefs = deps.ownBranches?.(taskId) ?? []; } catch { ownRefs = []; }
+        ownRefs = [...ownRefs, ...(declared?.ownRefs ?? [])];
         const others = await otherLocalBranches(repoPath, branch, { mainRef: base, runGit, ownRefs });
         if (others === null) {
           return {
