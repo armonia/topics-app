@@ -208,6 +208,24 @@ describe("call loop", () => {
     expect(w.has("risultato_a_gemini")).toBe(false);
   });
 
+  test("a result in hand is still told when the brain's answer is about something else", async () => {
+    const w = new World({ brain: true, quick: true });
+    await jobRunning(w);
+    w.say(1500);
+    await w.advance(600);
+    w.call.reply("Due mail importanti: il backup è fermo, e una candidatura.");
+    await w.advance(300);
+    w.main.emit({ type: "toolCall", id: "c2", name: "chiedi_a_jarvis", args: { frase: "come fai a dirlo" } });
+    await w.flush();
+    await w.advance(2000);
+    w.thinks.at(-1)!.resolve({ ok: true, thought: { say: "Scusa, non ti ho capito bene: me lo ripeti?", task: "", close: false } });
+    await w.advance(500);
+    expect(w.has("risultato_nel_pensiero")).toBe(false);
+    w.geminiSays(800, "Scusa, non ti ho capito bene: me lo ripeti?", { turn: true });
+    await w.advance(2000);
+    expect(w.has("risultato_a_gemini")).toBe(true);
+  });
+
   test("no step slips in between a thought and its voice", async () => {
     const w = new World({ brain: true, quick: true });
     await jobRunning(w);
