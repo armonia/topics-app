@@ -203,7 +203,9 @@ export function createBrowserRouter(
       const raw = (body as { displayNames?: unknown } | null)?.displayNames;
       if (!Array.isArray(raw)) return errorResponse(400, "displayNames required");
       const displayNames = raw.filter((n): n is string => typeof n === "string" && n.trim() !== "");
-      return json(await browserService.forgetSite(forgetSiteMatch.id, displayNames));
+      const result = await browserService.forgetSite(forgetSiteMatch.id, displayNames);
+      if (result.error) return errorResponse(500, `could not remove the site data: ${result.error}`);
+      return json(result);
     }
 
     // --- «Questa tab aveva un login salvato? allora rimettilo» ---
