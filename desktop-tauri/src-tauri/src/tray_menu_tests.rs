@@ -69,7 +69,9 @@ fn a_refusing_service_is_not_success() {
 #[test]
 fn close_needs_a_closable_unit_and_lists_its_pids() {
     let p = Some(PROCS.to_string());
-    assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002] }));
+    assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002], force: false }));
+    assert_eq!(action_for("proc-force:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002], force: true }));
+    assert_eq!(action_for("proc-force:macos", &p), None);
     assert_eq!(action_for("proc-close:macos", &p), None);
     assert_eq!(action_for("proc-close:gone", &p), None);
     assert_eq!(leftover_pids(&p), vec![91050, 91051]);
@@ -77,9 +79,9 @@ fn close_needs_a_closable_unit_and_lists_its_pids() {
 
 #[test]
 fn terminate_never_touches_pid_one_and_reports_failures() {
-    assert_eq!(terminate(&[0, 1]), 0);
+    assert_eq!(terminate(&[0, 1], false), 0);
     // a pid nobody owns: kill fails, nothing is counted
-    assert_eq!(terminate(&[4_000_000]), 0);
+    assert_eq!(terminate(&[4_000_000], true), 0);
 }
 
 #[test]
@@ -170,8 +172,8 @@ fn service_down_keeps_backup_when_configured() {
 fn full_menu_has_every_section() {
     let t = dump_text(&build_menu(&full_snap(), Prefs { five_hour: true, ..Default::default() }, 0, true));
     for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57,0% in 24 h", "Processi", "Apri Processi",
-        "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "Priorità normale ✓", "Rinnovi",
-        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · prossimo: Rinnovo", "Backup · nessun dato"] {
+        "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "normale ✓", "Rinnovi",
+        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · Rinnovo", "Backup · nessun dato"] {
         assert!(t.contains(want), "manca «{want}» in:\n{t}");
     }
     assert!(!t.contains("Mac e PC"), "the machine rows are drawn by the Topics tray, not here");
@@ -212,7 +214,7 @@ fn every_clickable_row_does_something() {
 #[test]
 fn an_exhausted_unlock_is_not_offered_for_revoking() {
     let g = Some(r#"{"providers":{"claude":{"state":"frenato"}},"overrides":[{"provider":"claude","exhausted":true}]}"#.to_string());
-    let t = dump_text(&brake_nodes(&g));
+    let t = dump_text(&brake_nodes(&g, false));
     assert!(t.contains("Sblocca claude per 2 ore") && !t.contains("Togli lo sblocco"));
 }
 
@@ -333,4 +335,23 @@ fn the_backup_comes_from_the_service_and_survives_it_going_down() {
     assert!(down.backup_set && down.backup.as_deref().unwrap().contains("last_ok"));
     let _ = std::fs::remove_dir_all(&dir);
     assert!(!Snapshot::fetch("http://127.0.0.1:1", Some(&cache)).backup_set, "never answered, no row");
+}
+
+#[test]
+fn tray_calendar_row_says_when_the_next_one_is_due() {
+    // 2026-11-10 08:00 UTC is 09:00 in the pinned +1 h zone, a Tuesday
+    let body = |at: i64| Some(format!(r#"{{"needsYou":1,"broken":0,"calendar":{{"count":72,"next":{{"title":"Leggere la carta SuperFlash dalle API e confrontarla","at":{at}}}}}}}"#));
+    let now = 1_794_297_600 - 3 * 86_400;
+    let t = dump_text(&automation_nodes(&body(1_794_297_600_000), now, 3600));
+    assert!(t.contains("In calendario · 72 · mar 10 nov 09:00 Leggere la carta SuperFlash dalle A…"), "{t}");
+    let tomorrow = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 86_400, 3600));
+    assert!(tomorrow.contains("· domani 09:00 "), "{tomorrow}");
+    let today = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 3600, 3600));
+    assert!(today.contains("· oggi 09:00 "), "{today}");
+}
+
+#[test]
+fn tray_force_close_has_its_own_row_and_kills_instead_of_asking() {
+    let t = dump_text(&procs_nodes(&Some(PROCS.into())));
+    assert!(t.contains("Chiudi…") && t.contains("Forza chiusura…"), "{t}");
 }
