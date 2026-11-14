@@ -33,6 +33,10 @@ mod tray_menu;
 #[cfg(target_os = "macos")]
 mod tray_menu_native;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_detail;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_procs;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_pic;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_rich;

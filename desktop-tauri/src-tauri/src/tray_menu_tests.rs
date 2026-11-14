@@ -142,6 +142,7 @@ fn full_snap() -> Snapshot {
         gates: Some(r#"{"providers":{"claude":{"state":"libero"}},"overrides":[{"provider":"claude","until":1}]}"#.into()),
         backup: None,
         backup_set: true,
+        ..Default::default()
     }
 }
 
