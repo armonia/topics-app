@@ -48,21 +48,44 @@ jobs:
             const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
               ...context.repo, per_page: 100,
             });
+            // Un 500 di GitHub su UNA cancellazione faceva cadere tutta la purga
+            // (3 notti rosse su 6, 11-14/11). Si riprova tre volte con attesa
+            // crescente; un 404 vuol dire gia' sparito; se resta un errore la
+            // purga va avanti con gli altri e quello si ritenta la notte dopo.
+            // Rosso solo se non ne e' andata a buon fine nessuna: li' il guasto
+            // e' del token o dei permessi, non di un artifact.
+            let ok = 0, failed = 0;
             const del = async (a, why) => {
-              await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: a.id });
+              for (let attempt = 1; ; attempt++) {
+                try {
+                  await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: a.id });
+                  break;
+                } catch (e) {
+                  if (e.status === 404) break;
+                  if (e.status >= 500 && attempt < 3) {
+                    await new Promise((r) => setTimeout(r, 2000 * attempt));
+                    continue;
+                  }
+                  failed++;
+                  core.warning(`non rimosso ${a.name} (${a.id}): HTTP ${e.status ?? "?"} ${e.message}`);
+                  return false;
+                }
+              }
+              ok++;
               core.info(`rimosso ${a.name} (${(a.size_in_bytes / 1048576).toFixed(1)} MB) — ${why}`);
+              return true;
             };
             const live = [];
             let freed = 0;
             for (const a of all) {
-              if (a.expired) { await del(a, "scaduto"); freed += a.size_in_bytes; }
+              if (a.expired) { if (await del(a, "scaduto")) freed += a.size_in_bytes; }
               else live.push(a);
             }
             live.sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
             let used = live.reduce((n, a) => n + a.size_in_bytes, 0);
             while (used > CAP_BYTES && live.length > 1) {
               const a = live.shift();
-              await del(a, "sopra il tetto");
+              if (!(await del(a, "sopra il tetto"))) continue;
               used -= a.size_in_bytes;
               freed += a.size_in_bytes;
             }
@@ -71,3 +94,4 @@ jobs:
               .addHeading("Purga artifact")
               .addRaw(`Liberati **${(freed / 1048576).toFixed(1)} MB**. In uso: **${(used / 1048576).toFixed(1)} MB** in ${live.length} artifact (tetto ${CAP_BYTES / 1048576} MB).`)
               .write();
+            if (failed > 0 && ok === 0) core.setFailed(`nessuna cancellazione riuscita (${failed} errori)`);
