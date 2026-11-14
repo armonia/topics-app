@@ -14,7 +14,7 @@
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
 import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
-export { WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
+export { STAGE_CI, WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
 export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
@@ -672,6 +672,9 @@ export interface BoardTask {
   stage?: string | null;
   /** The question for the person the delivery carried (Human review). */
   humanAsk?: string;
+  /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
+  landIntent?: "human" | "auto";
+  landIntentCommit?: string;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */
