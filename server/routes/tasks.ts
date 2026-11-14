@@ -90,7 +90,7 @@ import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
+import { awaitCiEvidence, ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { sweepRunLeftovers, describeLeftovers } from "../lib/run-leftovers";
 import { getSessionCliPid } from "../providers/session-pids";
 import { createTaskAttemptStore, setAttemptFinishedListener, type TaskAttempt } from "../services/task-attempts";
@@ -101,7 +101,9 @@ import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { createAutoLander } from "../services/auto-land";
-import { redBounceMessage, redBounceVerdict } from "../services/red-bounce";
+import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
+import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
+import { measureIntegration } from "../services/integration-measure";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { makeSheetWriter } from "../services/delivery-sheet";
@@ -352,6 +354,16 @@ export interface TasksRouterOpts {
    * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
    * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
+  /**
+   * The CI phase (`services/integration-queue.ts`): the repository a card's
+   * branch lives in, for the integration commit. Absent = no CI phase, lands go
+   * straight to the land queue as before.
+   */
+  integrationRepo?: (taskId: string) => Promise<string | null>;
+  /** Tests: replaces the git + CI measure of an integration batch. */
+  integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
+  /** Tests: how long an idle integration queue collects cards before measuring. */
+  integrationCollectMs?: number;
   taskDeliveryRef?: (taskId: string) => Promise<{
     branch: string; commit: string | null;
     /** L'entità del lavoro consegnato, quando git ha saputo dirla. */
@@ -1684,6 +1696,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
+    if (enterCiPhase(projectId, taskId, landOpts)) {
+      const at = integration.pending(projectId).indexOf(taskId);
+      return { taskId, phase: "queued", ahead: at > 0 ? at : 0, queuedAt: new Date().toISOString(), settledAt: null, error: null, outcome: null, reason: null };
+    }
+    return landDirect(projectId, taskId, landOpts);
+  }
+
+  /** The land itself, behind the CI phase (or instead of it, on a board without CI rows). */
+  function landDirect(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
     // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
     // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
@@ -1731,7 +1752,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
-    liveTurns: opts?.liveTurnCount,
+    // With the CI phase the land waits for the CI, not for every open turn on the server: a person's
+    // «Landa» never waited for them either, and the reload that follows resumes the turns it cuts
+    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer
+    // gave up after three hours and the card stayed in review.
+    liveTurns: opts?.integrationRepo ? undefined : opts?.liveTurnCount,
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
       return !!t && cardTurnIsLive(t);
@@ -1753,7 +1778,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // A red measure sends the card back to its agent; anything else is offered to the automatic land.
     tryLand: async (projectId, taskId) => {
       if (await bounceRed(projectId, taskId)) return;
-      return autoLander.tryLand(projectId, taskId);
+      return afterDelivery(projectId, taskId);
     },
     log: (line) => console.warn(line),
   });
@@ -1785,6 +1810,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return false;
     }
     const message = redBounceMessage(verdict.round, formatChecksComment(t.checks ?? [], { commit: t.checksCommit }));
+    return sendBackToAgent(projectId, taskId, message);
+  }
+
+  /**
+   * The moves a person's reject makes, made by the system: the review
+   * decision, then the resume of the bound session, or the queue when nobody
+   * is bound (a node delivery, a released binding). `land_intent` survives it.
+   */
+  function sendBackToAgent(projectId: string, taskId: string, message: string): boolean {
     let task: Task;
     try {
       task = svc.reviewDecision({ taskId, by: "system", decision: "reject", comment: message, projectId });
@@ -1793,7 +1827,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       return false;
     }
     broadcastToAll({ type: "task:updated", projectId, task });
-    console.warn(`[red-bounce] ${taskId.slice(0, 8)} rimandata all'agente (giro ${verdict.round})`);
+    console.warn(`[red-bounce] ${taskId.slice(0, 8)} rimandata all'agente`);
     if (!dispatcher) return true;
     if (task.assignedTopicId) {
       dispatcher.resume(taskId, message).catch((err) => console.warn(`[red-bounce] resume fallito per ${taskId}:`, err));
@@ -1808,6 +1842,124 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     return true;
   }
 
+  /** The commit each card was measured on in the CI phase: it lands only if it still delivers that one. */
+  const ciMeasured = new Map<string, string>();
+
+  /** Does this board measure accepted work in the CI phase? Only with CI rows, a repo and the merge switch on. */
+  function boardHasCiPhase(projectId: string): boolean {
+    if (!opts?.integrationRepo && !opts?.integrationMeasure) return false;
+    try {
+      const s = svc.getBoardSettings(projectId);
+      return s.dispatchAutoMerge && s.reviewChecks.some(isCiEvidenceCheck);
+    } catch { return false; }
+  }
+
+  /**
+   * THE CI PHASE (`services/integration-queue.ts`). Every land asked for enters
+   * it: the card keeps its status (review), moves to the `ci` column, and
+   * carries who decided (`land_intent`) across a red or a conflict. `false` =
+   * no CI phase here, the caller lands directly.
+   */
+  function enterCiPhase(projectId: string, taskId: string, landOpts?: LandRunOpts): boolean {
+    if (!boardHasCiPhase(projectId)) return false;
+    const cur = svc.get(taskId, { projectId })?.task;
+    if (!cur || cur.status !== "review" || !cur.deliveryBranch) return false;
+    // The automatic land comes with its last look (`recheck`); a person's gesture does not.
+    const who = landOpts?.recheck ? "auto" : "human";
+    let task: Task;
+    try { task = svc.setLandIntent({ taskId, who, inCi: true }); } catch { return false; }
+    const already = integration.pending(projectId).includes(taskId);
+    if (!already) {
+      try {
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          replaces: "Fase CI:",
+          content: "Fase CI: la misuro insieme a main e alle altre card accettate, con la CI della board. Se è verde atterra da sola; se si rompe torna all'agente e poi qui, senza ripassare dalla review.",
+        });
+      } catch { /* the queue is what matters */ }
+    }
+    broadcastToAll({ type: "task:updated", projectId, task: svc.get(taskId, { projectId })?.task ?? task });
+    integration.request(projectId, taskId);
+    return true;
+  }
+
+  const integration = createIntegrationQueue({
+    collectMs: opts?.integrationCollectMs,
+    measure: async (projectId, taskIds) => {
+      if (opts?.integrationMeasure) {
+        for (const id of taskIds) { const c = svc.get(id, { projectId })?.task.deliveryCommit; if (c) ciMeasured.set(id, c); }
+        return opts.integrationMeasure(projectId, taskIds);
+      }
+      const cards = taskIds.flatMap((id) => {
+        const t = svc.get(id, { projectId })?.task;
+        return t?.deliveryCommit ? [{ taskId: id, commit: t.deliveryCommit }] : [];
+      });
+      for (const c of cards) ciMeasured.set(c.taskId, c.commit);
+      const repo = cards.length ? await opts!.integrationRepo!(cards[0]!.taskId).catch(() => null) : null;
+      if (!repo) return { measured: [], conflicts: [], verdict: "unmeasured", why: "il repository della card non si trova" };
+      const checks = svc.getBoardSettings(projectId).reviewChecks.filter(isCiEvidenceCheck);
+      return measureIntegration(repo, cards, checks, {
+        git: async (cwd, args, env) => {
+          const r = await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.write, env: { GIT_TERMINAL_PROMPT: "0", ...env } });
+          return { code: r.code, out: r.stdout, err: r.stderr };
+        },
+        awaitCi: (input) => awaitCiEvidence(input),
+        closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
+        describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
+      });
+    },
+    // Landed like a person's «Landa»: the integration commit measured main plus this branch, so the land may
+    // bring origin/main into the branch first (the automatic land's `noRealign` would refuse every branch
+    // that fell behind). The one fact re-read here is the commit: a card that moved on is measured again.
+    land: async (projectId, taskId) => {
+      const measured = ciMeasured.get(taskId);
+      ciMeasured.delete(taskId);
+      const now = svc.get(taskId, { projectId })?.task.deliveryCommit ?? null;
+      if (!measured || !now || measured !== now) { integration.request(projectId, taskId); return; }
+      landDirect(projectId, taskId);
+      await landings.whenSettled(taskId)?.catch(() => undefined);
+      const after = svc.get(taskId, { projectId })?.task;
+      if (after?.status === "done") { try { svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } }
+    },
+    bounce: async (projectId, taskId, why) => {
+      ciMeasured.delete(taskId);
+      const got = svc.get(taskId, { projectId });
+      if (!got) return;
+      const done = bouncesSinceHuman(got.comments);
+      if (done >= MAX_AUTO_BOUNCES) {
+        // Three rounds the agent did not get out of: the person decides, with the reason in front.
+        try {
+          svc.setLandIntent({ taskId, who: null });
+          const asked = svc.update({ taskId, actor: "human", by: "system", projectId, patch: { humanAsk: `Tre giri nella fase CI senza uscirne: ${why.split("\n")[0]!.slice(0, 200)}` } });
+          broadcastToAll({ type: "task:updated", projectId, task: asked });
+        } catch { /* stays where it is */ }
+        return;
+      }
+      sendBackToAgent(projectId, taskId, redBounceMessage(done + 1, why));
+    },
+    stillWanted: (projectId, taskId) => {
+      const t = svc.get(taskId, { projectId })?.task;
+      if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;
+      const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
+      return !row?.archived;
+    },
+    note: (taskId, text) => { svc.addComment({ taskId, author: "system", kind: "service", content: text }); },
+    log: (line) => console.warn(line),
+  });
+
+  /**
+   * After a delivery enters review: a card someone already decided to land
+   * (`land_intent`) goes back to the CI phase by itself, unless it now asks a
+   * person something; any other card is offered to the automatic land.
+   */
+  async function afterDelivery(projectId: string, taskId: string): Promise<void> {
+    const t = svc.get(taskId, { projectId })?.task;
+    if (t?.landIntent && !t.humanAsk && t.checksState === "pass" && t.status === "review") {
+      if (enterCiPhase(projectId, taskId)) return;
+    }
+    await autoLander.tryLand(projectId, taskId);
+  }
+
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
@@ -1816,6 +1968,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     for (const t of rows) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
+      // The CI phase lives in memory: a card that carries the intent and is in no queue is put back.
+      if (t.landIntent && !t.humanAsk) {
+        if (!integration.pending(t.projectId).includes(t.id)) enterCiPhase(t.projectId, t.id);
+        continue;
+      }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
@@ -3086,7 +3243,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
-      if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(projectId, taskId);
+      if (task.status === "review" && prevStatus !== "review") void afterDelivery(projectId, taskId);
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
       // Todo may be picked up by that board's configured dispatcher, while
@@ -3153,7 +3310,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
-    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
+    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -4402,7 +4559,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-          if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(sess.projectId, item.taskId);
+          if (task.status === "review" && prevStatus !== "review") void afterDelivery(sess.projectId, item.taskId);
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP
           // update_task). Al momento del fronte la domanda è l'ultima riga del

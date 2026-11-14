@@ -96,6 +96,8 @@ export interface BoardRouteDeps {
   cutLiveTurn: (t: { id: string; assignedTopicId: string | null; dispatchState: string | null }, reason: string, cause: StopCause) => boolean;
   enqueueLand: (projectId: string, taskId: string) => LandingTicket;
   enqueueLandOnDone: (projectId: string, taskId: string, branch: string) => LandingTicket | null;
+  /** The CI phase (`integration-queue.ts`): `true` = the card entered it, `false` = this board has none. */
+  enterCiPhase: (projectId: string, taskId: string) => boolean;
   proposeDeployIfConfigured: (projectId: string, taskId: string) => void;
   runDeploy: (projectId: string, taskId: string, command: string) => Promise<void>;
   publishProject: (projectId: string) => Promise<{ ok: boolean; branch?: string; output?: string; error?: string; code?: string }>;
@@ -129,6 +131,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     cutLiveTurn,
     enqueueLand,
     enqueueLandOnDone,
+    enterCiPhase,
     proposeDeployIfConfigured,
     runDeploy,
     publishProject,
@@ -775,6 +778,13 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       if (decision === "approve") {
         const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
         if (gate) return gate;
+        // «PER ME È FATTA» = it goes to main. On a board with the CI phase an approval of a card whose
+        // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
+        const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
+        if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed" && typeof body?.comment !== "string"
+          && enterCiPhase(bReview.projectId, bReview.taskId)) {
+          return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+        }
       }
       try {
         const comment = typeof body?.comment === "string" ? body.comment : undefined;

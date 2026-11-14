@@ -50,8 +50,8 @@ function deps(runs: (sha: string) => CheckRun[], seen: string[] = []): Integrati
   };
 }
 
-const ok = (name: string): CheckRun => ({ name, cmd: `github-ci:${name}`, ok: true, code: 0, ms: 1, timedOut: false });
-const ko = (name: string): CheckRun => ({ name, cmd: `github-ci:${name}`, ok: false, code: 1, ms: 1, timedOut: false });
+const ok = (name: string): CheckRun => ({ name, cmd: `github-ci:${name}`, ok: true, code: 0, ms: 1, timedOut: false, tail: "" });
+const ko = (name: string): CheckRun => ({ name, cmd: `github-ci:${name}`, ok: false, code: 1, ms: 1, timedOut: false, tail: "unit rosso" });
 const CHECKS = [{ name: "unit", cmd: "github-ci:unit" }];
 
 describe("measureIntegration", () => {

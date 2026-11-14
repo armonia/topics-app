@@ -5120,6 +5120,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
         markReopened(taskId, "review", target, "human", by);
+        // A PERSON's reject takes back the decision to land: the next delivery is theirs to look at again.
+        // The system's own bounces (a red, a conflict in the CI phase) keep it.
+        if (by !== "system") db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL WHERE id = ?").run(taskId);
       } else {
         // `done_actor = 'human'`: è LA decisione di Attilio, ed è ciò che il
         // cancello di riapertura legge (un agente non la ribalta). Il segno di
