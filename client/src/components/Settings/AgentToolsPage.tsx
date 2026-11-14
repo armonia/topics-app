@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Plug, RefreshCw, Sparkles, SquareTerminal, Trash2, Unplug } from 'lucide-react';
+import { ICON_BUTTON, ROW, TEXT_BUTTON } from '../Sidebar/menuRowStyles';
+import { PALLINO_ATTESA, PALLINO_OK } from '../Sidebar/chromeSignals';
 import { useT } from '../../hooks/useT';
 import { agentToolsApi, mcpApi, type AgentToolsInventory } from '../../lib/api';
 import { openExternalOnce } from '../../lib/openExternal';
@@ -84,100 +86,117 @@ export function AgentToolsPage() {
     });
   };
 
-  if (error && !inv) return <p data-testid="agent-tools-error" className="p-3 text-small text-app-text-secondary">{t('agentTools.error', { message: error })}</p>;
-  if (!inv) return <p data-testid="agent-tools-loading" className="p-3 text-small text-app-text-secondary">{t('agentTools.loading')}</p>;
+  if (error && !inv) return <p data-testid="agent-tools-error" className="px-3 py-2 text-mini text-app-text-muted">{t('agentTools.error', { message: error })}</p>;
+  if (!inv) return <p data-testid="agent-tools-loading" className="px-3 py-2 text-mini text-app-text-muted">{t('agentTools.loading')}</p>;
 
-  const btn = 'rounded-md border border-app-border px-2 py-0.5 text-mini hover:bg-app-hover disabled:opacity-50';
-  const heading = 'px-3 pt-3 pb-1 text-mini font-medium uppercase tracking-wide text-app-text-tertiary';
+  const heading = 'flex items-center gap-2 px-3 pt-2 pb-0.5 text-mini font-medium text-app-text-muted';
+  const hint = 'px-3 py-1 text-mini text-app-text-muted';
+  const link = 'text-app-text underline hover:text-primary';
+  // Secondary actions show on hover or focus; on touch they are always there.
+  const reveal = 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100 coarse:opacity-100';
+  const dot = (state: string) => (state === 'active' ? PALLINO_OK : state === 'needs-auth' ? PALLINO_ATTESA : state === 'failed' ? 'bg-red-600 dark:bg-red-400' : 'bg-app-text-muted/40');
 
   return (
-    <div data-testid="agent-tools-page" className="pb-2 text-small">
-      <div className="flex items-center justify-between pr-3">
-        <h3 className={heading}>{t('agentTools.mcp')}</h3>
-        <button type="button" data-testid="agent-tools-refresh" className={btn} disabled={busy !== null} onClick={() => void run('refresh', () => mcpApi.refresh())}>
-          <RefreshCw size={11} className="mr-1 inline" />{t('agentTools.refresh')}
+    <div data-testid="agent-tools-page" className="pb-1">
+      <div className={heading}>
+        <span className="min-w-0 flex-1 truncate">{t('agentTools.mcp')}</span>
+        <button type="button" data-testid="agent-tools-refresh" className={ICON_BUTTON} disabled={busy !== null} aria-label={t('agentTools.refresh')} title={t('agentTools.refresh')} onClick={() => void run('refresh', () => mcpApi.refresh())}>
+          <RefreshCw size={12} />
         </button>
       </div>
-      {inv.mcp.length === 0 && <p className="px-3 text-app-text-tertiary">{t('agentTools.none')}</p>}
+      {inv.mcp.length === 0 && <p className={hint}>{t('agentTools.none')}</p>}
       <ul>
         {inv.mcp.map((m) => (
-          <li key={m.name} data-testid={`agent-tools-mcp-${m.name}`} data-state={m.state} className="px-3 py-1.5">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate font-medium">{m.name}</span>
-              <span data-testid={`agent-tools-mcp-${m.name}-state`} className="text-mini text-app-text-secondary">{t(`agentTools.state.${m.state}`)}</span>
-              {m.state === 'needs-auth' && (
-                <button type="button" className={btn} disabled={busy === m.name} onClick={() => void authorize(m)}>{t('agentTools.authorize')}</button>
-              )}
-              {m.state === 'parked' && m.parkedByUser && (
-                <button type="button" className={btn} disabled={busy === m.name} onClick={() => void run(m.name, () => agentToolsApi.configure({ mount: m.name }))}>{t('agentTools.mount')}</button>
-              )}
-              {m.state !== 'parked' && (
-                <button type="button" className={btn} disabled={busy === m.name} onClick={() => void run(m.name, () => agentToolsApi.configure({ park: m.name }))}>{t('agentTools.disconnect')}</button>
-              )}
-            </div>
-            <div className="truncate text-mini text-app-text-tertiary">
-              {m.source} · {t('agentTools.toolCount', { n: m.toolCount })}{m.reason ? ` · ${m.reason}` : ''}
-            </div>
+          <li key={m.name} data-testid={`agent-tools-mcp-${m.name}`} data-state={m.state} className={`group ${ROW}`}>
+            <Plug size={12} className="flex-shrink-0 text-app-text-muted" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-app-text">{m.name}</span>
+              <span className="block truncate text-app-text-muted">
+                {m.source} · {t('agentTools.toolCount', { n: m.toolCount })}{m.reason ? ` · ${m.reason}` : ''}
+              </span>
+            </span>
+            <span data-testid={`agent-tools-mcp-${m.name}-state`} className="flex-shrink-0 text-app-text-muted">{t(`agentTools.state.${m.state}`)}</span>
+            <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot(m.state)}`} />
+            {m.state === 'needs-auth' && (
+              <button type="button" className={`${TEXT_BUTTON} text-app-text hover:bg-app-hover disabled:opacity-50`} disabled={busy === m.name} onClick={() => void authorize(m)}>{t('agentTools.authorize')}</button>
+            )}
+            {m.state === 'parked' && m.parkedByUser && (
+              <button type="button" className={`${ICON_BUTTON} ${reveal}`} disabled={busy === m.name} aria-label={t('agentTools.mount')} title={t('agentTools.mount')} onClick={() => void run(m.name, () => agentToolsApi.configure({ mount: m.name }))}>
+                <Plug size={12} />
+              </button>
+            )}
+            {m.state !== 'parked' && (
+              <button type="button" className={`${ICON_BUTTON} ${reveal}`} disabled={busy === m.name} aria-label={t('agentTools.disconnect')} title={t('agentTools.disconnect')} onClick={() => void run(m.name, () => agentToolsApi.configure({ park: m.name }))}>
+                <Unplug size={12} />
+              </button>
+            )}
           </li>
         ))}
       </ul>
 
-      <h3 className={heading}>{t('agentTools.skills')}</h3>
-      {inv.skills.length === 0 && <p className="px-3 text-app-text-tertiary">{t('agentTools.none')}</p>}
+      <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.skills')}</div>
+      {inv.skills.length === 0 && <p className={hint}>{t('agentTools.none')}</p>}
       <ul>
         {inv.skills.map((s) => (
-          <li key={s.name} data-testid={`agent-tools-skill-${s.name}`} className="px-3 py-1">
-            <div className="truncate font-medium">{s.name}</div>
-            <div className="truncate text-mini text-app-text-tertiary">{s.description || s.source}</div>
+          <li key={s.name} data-testid={`agent-tools-skill-${s.name}`} className={ROW}>
+            <Sparkles size={12} className="flex-shrink-0 text-app-text-muted" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-app-text">{s.name}</span>
+              <span className="block truncate text-app-text-muted">{s.description || s.source}</span>
+            </span>
           </li>
         ))}
       </ul>
 
-      <h3 className={heading}>{t('agentTools.clis')}</h3>
+      <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.clis')}</div>
       <ul>
         {inv.clis.map((c) => (
-          <li key={c.id} data-testid={`agent-tools-cli-${c.id}`} data-installed={c.installed ? 'true' : 'false'} className="flex items-center gap-2 px-3 py-1">
-            <span className="min-w-0 flex-1 truncate font-medium">{c.name}</span>
-            <span className="text-mini text-app-text-secondary">{c.installed ? t('agentTools.installed') : t('agentTools.missing')}</span>
+          <li key={c.id} data-testid={`agent-tools-cli-${c.id}`} data-installed={c.installed ? 'true' : 'false'} className={ROW}>
+            <SquareTerminal size={12} className="flex-shrink-0 text-app-text-muted" />
+            <span className="min-w-0 flex-1 truncate text-app-text">{c.name}</span>
+            <span className="flex-shrink-0 text-app-text-muted">{c.installed ? t('agentTools.installed') : t('agentTools.missing')}</span>
+            <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${c.installed ? PALLINO_OK : 'bg-app-text-muted/40'}`} />
           </li>
         ))}
       </ul>
 
-      <h3 className={heading}>{t('agentTools.machines')}</h3>
-      <p className="px-3 text-app-text-tertiary">
+      <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.machines')}</div>
+      <p className={hint}>
         {t('agentTools.machinesHint')}{' '}
-        <button type="button" data-testid="agent-tools-open-devices" className="underline" onClick={() => openUserMenu('devices')}>{t('home.machines')}</button>
+        <button type="button" data-testid="agent-tools-open-devices" className={link} onClick={() => openUserMenu('devices')}>{t('home.machines')}</button>
       </p>
 
-      <h3 className={heading}>{t('agentTools.automations')}</h3>
-      <p className="px-3 text-app-text-tertiary">
+      <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.automations')}</div>
+      <p className={hint}>
         {t('agentTools.automationsHint')}{' '}
-        <button type="button" data-testid="agent-tools-open-automations" className="underline" onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }))}>{t('automations.open')}</button>
+        <button type="button" data-testid="agent-tools-open-automations" className={link} onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'automations' } }))}>{t('automations.open')}</button>
       </p>
 
-      <h3 className={heading}>{t('agentTools.sources')}</h3>
-      <ul className="px-3 text-mini text-app-text-tertiary">
+      <div className={`${heading} border-t border-app-border mt-1`}>{t('agentTools.sources')}</div>
+      <ul>
         {inv.sources.map((s) => (
-          <li key={`${s.kind}:${s.label}`} className="flex items-center gap-2">
+          <li key={`${s.kind}:${s.label}`} className={`group ${ROW} text-app-text-muted`}>
             <span className="min-w-0 flex-1 truncate">
               {s.label}{!s.found ? ` · ${t('agentTools.sourceMissing')}` : ''}{s.extra ? ` · ${t('agentTools.sourceExtra')}` : ''}
             </span>
             {s.extra && (
-              <button type="button" data-testid="agent-tools-remove-source" className={btn} onClick={() => removeSource(s.kind, s.label)}>{t('agentTools.removeSource')}</button>
+              <button type="button" data-testid="agent-tools-remove-source" className={`${ICON_BUTTON} ${reveal}`} aria-label={t('agentTools.removeSource')} title={t('agentTools.removeSource')} onClick={() => removeSource(s.kind, s.label)}>
+                <Trash2 size={12} />
+              </button>
             )}
           </li>
         ))}
       </ul>
       {(['mcp', 'skills'] as const).map((kind) => (
-        <form key={kind} className="flex gap-2 px-3 pt-2" onSubmit={(e) => { e.preventDefault(); addSource(kind); }}>
+        <form key={kind} className={`${ROW} pt-1`} onSubmit={(e) => { e.preventDefault(); addSource(kind); }}>
           <input
             data-testid={`agent-tools-add-${kind}-input`}
             value={extra[kind]}
             onChange={(e) => setExtra((x) => ({ ...x, [kind]: e.target.value }))}
             placeholder={t('agentTools.pathPlaceholder')}
-            className="min-w-0 flex-1 rounded-md border border-app-border bg-transparent px-2 py-1 text-mini"
+            className="min-w-0 flex-1 rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-mini text-app-text outline-none focus:border-primary coarse:text-compact"
           />
-          <button type="submit" className={btn}>{t(kind === 'mcp' ? 'agentTools.addMcp' : 'agentTools.addSkills')}</button>
+          <button type="submit" className={`${TEXT_BUTTON} text-app-text hover:bg-app-hover`}>{t(kind === 'mcp' ? 'agentTools.addMcp' : 'agentTools.addSkills')}</button>
         </form>
       ))}
     </div>
