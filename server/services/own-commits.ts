@@ -142,7 +142,19 @@ export async function commitIsIn(
 }
 
 /**
- * Gli altri branch locali: tutti tranne questo e quello d'integrazione. Sono i
+ * Prefix of the board's integration branches (`integration-measure.ts`): main plus the
+ * accepted cards of a batch, merged for one CI run. Such a branch holds the cards' own
+ * commits by construction, so subtracting it made every card of the batch look like
+ * it had no commits of its own (14/11: three lands refused as «unisolable»). It is
+ * never another session's work.
+ */
+export const INTEGRATION_BRANCH_PREFIX = "topics/integrazione-";
+
+/**
+ * The other local branches: all but this one, main, the card's own branches and
+ * the board's integration branches.
+ *
+ * Sono i
  * ref da cui si SOTTRAE, e servono anche a chi compone il messaggio per l'umano
  * (il cherry-pick suggerito dal land li elenca).
  *
@@ -158,7 +170,8 @@ export async function otherLocalBranches(
   const res = await run(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
   if (res.code !== 0) return null;
   const excluded = new Set([refName(branch), refName(opts.mainRef ?? "main"), ...(opts.ownRefs ?? []).map(refName)]);
-  return lines(res.stdout).filter((r) => !excluded.has(r));
+  const integration = refName(INTEGRATION_BRANCH_PREFIX);
+  return lines(res.stdout).filter((r) => !excluded.has(r) && !r.startsWith(integration));
 }
 
 /**
