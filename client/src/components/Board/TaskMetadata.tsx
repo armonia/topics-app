@@ -7,6 +7,7 @@ import { autoGrow, fmtMs, fmtTok, fmtUpdatedAt, descSummary, fmtCount } from './
 import { Menu } from '../Shared/Menu';
 import { StatusIcon, QueueReasonChip } from './atoms';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
+import { STATUS_CHIP } from '@/lib/statusVisual';
 import { CardConsumption } from '../Processes/SessionConsumption';
 import { SectionHeader } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -86,7 +87,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             data-testid={`subtask-work-${node.id}`}
             data-kind="unattended"
             title={work.title}
-            className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-300"
+            className={`flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-mini ${STATUS_CHIP.danger}`}
           ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
         ) : (
           <span
@@ -342,7 +343,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 data-kind={workChip.kind}
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
-                  ? 'flex min-w-0 items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-mini text-rose-300'
+                  ? `flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`
                   : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'

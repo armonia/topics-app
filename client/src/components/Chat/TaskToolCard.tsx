@@ -8,29 +8,18 @@
  * that goes from todo to working to review changes under the reader without a
  * reload. The call only says which card and what this turn did to it.
  */
-import { useEffect, type ComponentType } from 'react';
-import { Ban, CheckCheck, CircleCheck, CircleX, Cpu, GitBranch, Hourglass, Inbox, ListTodo, ShieldCheck, ShieldX } from 'lucide-react';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { useEffect } from 'react';
+import { Ban, Cpu, GitBranch, CircleHelp, ListTodo, ShieldCheck, ShieldX } from 'lucide-react';
+import { StatusIcon } from '../Board/atoms';
+import { DANGER_TEXT } from '@/lib/popoverStyles';
 import { useT } from '../../hooks/useT';
 import { openTaskInApp } from '../../lib/openTaskLink';
 import { getMediaUrl } from '../../lib/api';
 import { hasLoadedBoardTasks, requestBoardTasksRefresh, useBoardTasks } from '../../lib/boardTasksStore';
-import { taskCardPhase, type TaskCardPhase } from '../../lib/taskCardState';
+import { taskCardPhase, PHASE_GLYPH } from '../../lib/taskCardState';
 import { useMachines, machineLabel } from '../../state/machinesStore';
 import type { BoardTask } from '../../lib/board';
 import type { ToolCallDetail } from '../../types';
-
-type Icon = ComponentType<{ size?: number; className?: string }>;
-const SparkIcon = () => <SparkLoader className="flex-shrink-0" />;
-
-const PHASE_ICON: Record<TaskCardPhase, { icon: Icon; tone: string }> = {
-  backlog: { icon: Inbox, tone: 'text-app-text-muted' },
-  todo: { icon: Hourglass, tone: 'text-amber-500' },
-  working: { icon: SparkIcon, tone: '' },
-  review: { icon: CircleCheck, tone: 'text-blue-500' },
-  done: { icon: CheckCheck, tone: 'text-emerald-500' },
-  failed: { icon: CircleX, tone: 'text-red-500' },
-};
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg)$/i;
 
@@ -47,7 +36,7 @@ function Ci({ task }: { task: BoardTask }) {
   if (!task.checksState || task.checksState === 'unknown') return null;
   const pass = task.checksState === 'pass';
   const fail = task.checksState === 'fail';
-  const Icon = fail ? ShieldX : pass ? ShieldCheck : Hourglass;
+  const Icon = fail ? ShieldX : pass ? ShieldCheck : CircleHelp;
   const tone = fail ? 'text-red-500' : pass ? 'text-emerald-500' : 'text-amber-500';
   return (
     <span className="inline-flex items-center gap-1" data-testid="task-card-ci" data-state={task.checksState}>
@@ -69,8 +58,6 @@ export function TaskToolCard({ detail, isRunning, isError, error }: {
   useEffect(() => { if (!hasLoadedBoardTasks()) requestBoardTasksRefresh(); }, []);
   const task = detail.taskId ? tasks.find((t) => t.id === detail.taskId) : undefined;
   const phase = task ? taskCardPhase(task) : undefined;
-  const phaseIcon = phase ? PHASE_ICON[phase] : undefined;
-  const Phase = phaseIcon?.icon ?? ListTodo;
   const refused = isError || !!error;
   const title = titleOf(task, detail.args, tr('chat.taskCard.title'));
   const open = () => { if (detail.taskId) openTaskInApp({ taskId: detail.taskId }); };
@@ -94,8 +81,8 @@ export function TaskToolCard({ detail, isRunning, isError, error }: {
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {refused
-          ? <Ban size={12} className="flex-shrink-0 text-red-500" />
-          : <Phase size={12} className={`flex-shrink-0 ${phaseIcon?.tone ?? 'text-app-text-muted'}`} />}
+          ? <Ban size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} />
+          : phase ? <StatusIcon status={PHASE_GLYPH[phase]} live className="h-3 w-3" /> : <ListTodo size={12} className="flex-shrink-0 text-app-text-muted" />}
         <span className="min-w-0 max-w-full grow basis-24 truncate font-medium text-app-text" data-testid="task-card-title">{title}</span>
         <span className="flex-shrink-0 text-app-text-secondary" data-testid="task-card-phase">
           {refused ? tr('chat.taskCard.refused') : phase ? tr(`chat.taskCard.phase.${phase}`) : isRunning ? tr('chat.taskCard.loading') : tr('chat.taskCard.unknown')}

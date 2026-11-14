@@ -36,11 +36,11 @@ const NUM_PT: f32 = 9.5;
 const GLYPH_GAP: f32 = 2.0;
 const ITEM_GAP: f32 = 5.0;
 const GROUP_GAP: f32 = 7.0;
-/// Hues of the app's status glyphs: sky in progress, rose review, amber a wait.
+/// Hues of the dark-theme tokens of the status glyphs: sky-400 in progress, rose-400 review, amber-400 a wait, --text-muted stopped.
 const SKY: [u8; 3] = [56, 189, 248];
 const ROSE: [u8; 3] = [251, 113, 133];
 const AMBER: [u8; 3] = [251, 191, 36];
-const MUTED: [u8; 3] = [160, 160, 170];
+const MUTED: [u8; 3] = [141, 147, 155];
 /// Frames of one full turn of the working pie, and how long each stays up.
 pub const TURN_FRAMES: u32 = 12;
 pub const FRAME_MS: u64 = 120;

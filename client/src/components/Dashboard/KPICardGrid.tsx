@@ -9,7 +9,7 @@ import {
   DollarSign,
   Wallet,
   CheckCircle,
-  Hourglass,
+  Timer,
 } from 'lucide-react';
 
 interface KPICardGridProps {
@@ -102,7 +102,7 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         label="Approval Turnaround"
         value={kpis ? kpis.approvalTurnaroundHours : null}
         unit="hrs"
-        icon={Hourglass}
+        icon={Timer}
         trend={kpis && kpis.approvalTurnaroundHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
