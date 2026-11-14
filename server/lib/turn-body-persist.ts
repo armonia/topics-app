@@ -111,7 +111,17 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
   // event must not lose its `content` on the way.
   let owesText = false;
   const throttle = createBlockPersistThrottle({
-    write: () => { const withText = owesText; owesText = false; writeNow(withText); },
+    write: () => {
+      const withText = owesText;
+      owesText = false;
+      try {
+        writeNow(withText);
+      } catch (err) {
+        // Not written: the text is still owed by the retry.
+        owesText = owesText || withText;
+        throw err;
+      }
+    },
   });
 
   // The size of the last request: a forced write needs one, and it only
