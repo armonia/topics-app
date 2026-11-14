@@ -94,14 +94,17 @@ function openSubject(item: Pick<InboxItem, 'kind' | 'id' | 'title' | 'url'>): vo
   }
 }
 
-export default function InboxPanel({ model, onWSMessage, onClose }: {
+export default function InboxPanel({ model, onWSMessage, onClose, tabRequest = null }: {
   model: InboxModel;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onClose: () => void;
+  /** The tab an open asked for (a hub's `#journal` asks for History); a new object per request. */
+  tabRequest?: { tab: Tab } | null;
 }) {
   const tr = useT();
   const { isTouch } = useMobile();
-  const [tab, setTab] = useState<Tab>('now');
+  const [tab, setTab] = useState<Tab>(tabRequest?.tab ?? 'now');
+  useEffect(() => { if (tabRequest) setTab(tabRequest.tab); }, [tabRequest]);
   const listRef = useRef<HTMLDivElement>(null);
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;

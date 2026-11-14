@@ -25,7 +25,7 @@ export interface WaitingItem {
   kind: WaitingKind;
   title: string;
   why: string | null;
-  /** http(s), a hub page or `claude://`: the primary action opens it in a new tab. */
+  /** http(s) or `claude://`: the primary action opens it in a new tab. */
   link: string | null;
   /** A link to one automation (`#automations/<key>`) opens Topics' own view on it, on every device. */
   automationKey: string | null;
@@ -38,34 +38,17 @@ export interface WaitingItem {
   since: number | null;
 }
 
-/** Where the hub's own pages live: a `#page` link of an item points there. */
-const HUB_PAGES_BASE = 'http://127.0.0.1:3360/';
-
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
-/**
- * The hub's dashboard listens on the Mac's loopback only, so a `#page` link
- * opens only where this window runs on that same machine. From the phone or a
- * remote session the same address would be the DEVICE's own localhost, a dead
- * link: there the item keeps its close action and no open action.
- */
-function hubPageLink(hash: string, windowHost: string): string | null {
-  return LOOPBACK_HOSTS.has(windowHost) ? HUB_PAGES_BASE + hash : null;
-}
-
-function currentHost(): string {
-  return typeof window === 'undefined' ? '' : window.location.hostname;
-}
-
 /**
  * The three link forms the hub accepts on an item (its `validateAttesa`):
  * http(s), `#page` of the hub's dashboard, and `claude://`. Anything else is
- * dropped, so the primary action never opens a scheme nobody vetted.
+ * dropped, so the primary action never opens a scheme nobody vetted. A
+ * `#page` reaching this point has no place in Topics (`hubPlaceOfLink`): the
+ * hub's pages now only redirect to Topics (track C2 of the hub's move), so
+ * such a link leads nowhere and the item keeps its close action, no open one.
  */
-function safeLink(v: unknown, windowHost: string): string | null {
+function safeLink(v: unknown): string | null {
   const s = str(v);
-  if (!s) return null;
-  if (s.startsWith('#')) return hubPageLink(s, windowHost);
+  if (!s || s.startsWith('#')) return null;
   try {
     const u = new URL(s);
     return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'claude:' ? u.toString() : null;
@@ -97,14 +80,15 @@ export function automationKeyOfLink(link: unknown): string | null {
 export type HubPlace =
   | { kind: 'utility'; type: 'processes' | 'accounts' | 'dashboard' | 'features' | 'automations' }
   | { kind: 'menu'; level: 'agents' | 'context' }
-  | { kind: 'log' };
+  | { kind: 'log' }
+  /** The bell: «now» is the old overview's «waiting for you», «history» the diary. */
+  | { kind: 'bell'; tab: 'now' | 'history' };
 
 /**
  * The hub's pages (`#work`, `#services`, …) and the place of Topics that
  * took each one over (hub-smistamento): a link of an item to one of them opens
  * Topics, so it keeps working once the hub's page only sends to Topics. The
- * overview and the diary have no single place (the overview is the sidebar,
- * the diary is this very bell): they stay hub links.
+ * overview's list («waiting for you») and the diary both live in the bell.
  */
 const HUB_PAGE_PLACES: Record<string, HubPlace> = {
   work: { kind: 'menu', level: 'agents' },
@@ -119,6 +103,8 @@ const HUB_PAGE_PLACES: Record<string, HubPlace> = {
   projects: { kind: 'utility', type: 'dashboard' },
   features: { kind: 'utility', type: 'features' },
   automations: { kind: 'utility', type: 'automations' },
+  overview: { kind: 'bell', tab: 'now' },
+  journal: { kind: 'bell', tab: 'history' },
 };
 
 /** The place in Topics of a hub page link (`#work/<filter>`, `#services`), or null for any other link. */
@@ -129,7 +115,7 @@ export function hubPlaceOfLink(link: unknown): HubPlace | null {
 }
 
 /** The open items, in the hub's own order (most urgent first). */
-export function waitingItems(data: unknown, windowHost: string = currentHost()): WaitingItem[] {
+export function waitingItems(data: unknown): WaitingItem[] {
   const items = isObject(data) && Array.isArray(data.items) ? data.items : [];
   const out: WaitingItem[] = [];
   for (const raw of items) {
@@ -141,7 +127,7 @@ export function waitingItems(data: unknown, windowHost: string = currentHost()):
     const automationKey = automationKeyOfLink(raw.link);
     const place = automationKey ? null : hubPlaceOfLink(raw.link);
     out.push({
-      id, kind, title, why: str(raw.why), link: automationKey || place ? null : safeLink(raw.link, windowHost), automationKey, place,
+      id, kind, title, why: str(raw.why), link: automationKey || place ? null : safeLink(raw.link), automationKey, place,
       from: str(raw.from), due: num(raw.due), since: num(raw.at),
     });
   }
