@@ -1,6 +1,6 @@
 /**
  * OPENING THE PLACES OF TOPICS that took over the hub's pages
- * (hub-smistamento), and the hub's OLD BOOKMARKS (hub-tutto-in-topics, C2).
+ * (hub-smistamento), and the hub's OLD BOOKMARKS (track C2 of moving the hub into Topics).
  *
  * `http://127.0.0.1:3360/#automations` answers a 302 to Topics without a
  * fragment: the browser keeps the old one, so Topics opens on

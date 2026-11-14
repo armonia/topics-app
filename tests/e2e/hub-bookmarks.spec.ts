@@ -1,5 +1,5 @@
 /**
- * OLD BOOKMARKS OF THE HUB (hub-tutto-in-topics, C2).
+ * OLD BOOKMARKS OF THE HUB (track C2 of moving the hub into Topics).
  *
  * `http://127.0.0.1:3360/#automations` answers a 302 to Topics without a
  * fragment, and the browser keeps the old one: Topics opens on

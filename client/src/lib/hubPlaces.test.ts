@@ -1,7 +1,7 @@
 /**
  * The hub's old bookmarks: `:3360/#<page>` sends to Topics keeping its
  * fragment, and the fragment opens the place of Topics that took the page
- * (hub-tutto-in-topics, C2), then leaves the address.
+ * (track C2 of moving the hub into Topics), then leaves the address.
  *
  * @covers HUBBR-03
  */
