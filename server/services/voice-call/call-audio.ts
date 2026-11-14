@@ -1,8 +1,8 @@
 /**
  * The clock of a call and the other side's audio: the 60 ms tick of the Rust
  * loop (greeting, fillers, steps, results, closing) and the frames from the
- * phone (voice detector, barge-in, whisper). Every third tick of the 20 ms
- * clock runs the logic; every tick sends one 20 ms piece to the phone.
+ * phone (voice detector, barge-in, whisper). Every tick of the 60 ms clock
+ * sends one frame to the phone, voice or background.
  */
 import { FRAME, FRAME_MS, joinSamples } from "./audio/pcm";
 import { CallState } from "./call-state";
@@ -31,7 +31,6 @@ import {
   RING_MAX,
   STEP_GAP,
   STILL_THINKING,
-  SUB,
   ms,
 } from "./call-rules";
 import { replyText } from "./prompts";
@@ -39,13 +38,10 @@ import { replyText } from "./prompts";
 export abstract class CallAudio extends CallState {
   // ─── the clock ─────────────────────────────────────────────────────────────
 
-  /** One tick of the 20 ms clock: the call logic every third tick, one 20 ms piece of voice to the phone at every tick. */
+  /** One tick of the 60 ms clock. */
   tick(): void {
     if (this.ended) return;
-    if (this.clockTicks++ % 3 === 0) this.step();
-    if (this.ended) return;
-    const c = this.outChunks.shift();
-    if (c && !this.deps.toPeer(c)) this.finish("audio chiuso", false);
+    this.step();
   }
 
   /** The 60 ms tick of the Rust loop. */
@@ -83,8 +79,8 @@ export abstract class CallAudio extends CallState {
     if (this.deps.backlogged?.()) {
       if (voiced) this.pendingFrame = frame;
     } else {
+      if (!this.deps.toPeer(frame)) return this.finish("audio chiuso", false);
       this.recorder?.said(frame);
-      for (let k = 0; k < 3; k++) this.outChunks.push(frame.subarray(k * SUB, (k + 1) * SUB));
     }
     const speaking = this.speaking();
     if (this.spec.group && speaking && (this.named || this.textTurn || this.playNamed)) this.addressedUntil = now + FOLLOW_UP;

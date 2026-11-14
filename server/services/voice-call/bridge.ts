@@ -2,7 +2,7 @@
  * The bridge between a channel and Topics: `WS /ws/voice/bridge`, one connection
  * per call. The channel carries the audio (it owns the phone line), Topics makes
  * the call. Text frames are JSON with a `type`; binary frames are PCM16
- * little-endian mono 16 kHz, 20 ms (640 bytes), both ways. The contract is
+ * little-endian mono 16 kHz, 60 ms (960 samples, 1920 bytes), both ways. The contract is
  * `openspec/changes/chiamate-vocali/protocollo.md`.
  */
 import { join } from "node:path";

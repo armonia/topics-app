@@ -84,16 +84,16 @@ afterEach(() => {
 });
 
 describe("call loop", () => {
-  test("an incoming call greets first, then streams the voice on the 20 ms clock", async () => {
+  test("an incoming call greets first, then streams the voice on the 60 ms clock", async () => {
     const w = new World();
     expect(w.events()[0]).toBe("inizio");
     w.main.emit({ type: "ready", resumed: false });
     expect(w.main.texts()[0]).toContain("Ciao Ada, dimmi");
     w.geminiSays(400, "Ciao Ada, dimmi.", { turn: true });
     await w.advance(600);
-    // one 320-sample piece per tick, never more
-    expect(w.chunks.length).toBe(30);
-    expect(w.chunks.every((c) => c.length === 320)).toBe(true);
+    // one 960-sample frame per tick, never more
+    expect(w.chunks.length).toBe(10);
+    expect(w.chunks.every((c) => c.length === 960)).toBe(true);
     expect(w.voicedMs(600)).toBeGreaterThanOrEqual(400);
     expect(w.first("turno")?.data).toEqual({ sentito: "", detto: "Ciao Ada, dimmi." });
   });

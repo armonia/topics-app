@@ -13,7 +13,7 @@ fotogrammi da 60 ms (960 campioni, 1920 byte: è il fotogramma della linea Whats
 - `{"type":"ended","why"}` — l'altro ha riattaccato / audio chiuso.
 
 ## Topics → canale
-- binario — l'audio da far sentire, a ritmo reale (Topics fa da orologio: un fotogramma ogni 60 ms, silenzio o fondo compresi, come il `tick` di `call.rs`).
+- binario — l'audio da far sentire, a ritmo reale (Topics fa da orologio: un fotogramma ogni 60 ms, silenzio o fondo compresi, come il `tick` di `call.rs`; mentre una chiamata in uscita squilla non manda niente).
 - `{"type":"handoff","id","text"}` — un compito per l'agente, da far entrare come messaggio della chat del proprietario; `text` è il compito nudo, il prefisso («📞 (dalla telefonata con Jarvis) …») lo mette il canale; `id` vale `<id della chiamata>:<n>`. Il canale risponde `{"type":"handoff_ok","id"}` o `{"type":"handoff_err","id","error"}`.
 - `{"type":"hangup","why"}` — chiudi la chiamata.
 - `{"type":"outcome","reason","ours","answered","talk_s","report","heard","speed","turns","handoffs","usd","recording"}` — ultima cosa prima di chiudere il socket; `recording` = percorso del file su questa macchina (m4a dove c'è `afconvert`, sennò WAV, sotto `TOPICS_HOME/voice/recordings/`, 30 giorni) o null. `reason`/`ours`/`answered`/`talk_s` servono al canale per l'esito per conto («non ha risposto», «ha rifiutato», durata) e per sapere se tocca a lui dire `terminate` a WhatsApp.

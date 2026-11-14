@@ -106,7 +106,7 @@ export class Resampler {
 
 /**
  * The other side's frames arrive as long as its phone decides (40 ms in the call
- * of 10/11, not the library's 60; 20 ms on the bridge): here they are rebuilt
+ * of 10/11, not the library's 60): here they are rebuilt
  * as 960-sample frames, because the voice detector, the thresholds and the
  * recording count 60 ms frames. With 40 ms the barge-in fired at 160 ms and the
  * recording lost a third of the voice.

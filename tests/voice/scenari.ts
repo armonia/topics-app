@@ -2,7 +2,7 @@
 /**
  * The bench of the phone calls, played against Topics through the bridge: a
  * fake channel per call that speaks the real phrases of past calls (WAV clips)
- * in real time, plays the agent's side (results, steps of the job), and checks
+ * in real time (60 ms frames), plays the agent's side (results, steps of the job), and checks
  * what the call did. Ported from the scenario test of jarvis-channels
  * `tests/voce.rs`, with the same checks, named as the keys of scenari.json:
  * affida, chiude, riferisce, breve, racconta, passi_non_dicono, non_ripete, rilancia.  allow-italian: the keys of scenari.json
@@ -107,15 +107,15 @@ class Rig {
     });
     this.send({ type: "start", id: `bench-${crypto.randomUUID().slice(0, 8)}`, name: owner, direction: { kind: "incoming" }, group: false, record: false });
     this.send({ type: "answered" });
-    // like a phone: 20 ms of the caller every 20 ms, the phrase in progress or digital silence
+    // like a phone: 60 ms of the caller every 60 ms, the phrase in progress or digital silence
     let next = now();
     const tick = () => {
       if (this.ws.readyState !== 1) return;
       while (next <= now()) {
-        const f = new Int16Array(320);
-        f.set(this.toSay.splice(0, 320));
+        const f = new Int16Array(960);
+        f.set(this.toSay.splice(0, 960));
         this.ws.send(f);
-        next += 20;
+        next += 60;
       }
     };
     this.pump = setInterval(tick, 5);

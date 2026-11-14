@@ -73,10 +73,10 @@ async function channel(port: number) {
   const mouth: number[] = [];
   const pump = setInterval(() => {
     if (ws.readyState !== 1) return;
-    const f = new Int16Array(320);
-    f.set(mouth.splice(0, 320));
+    const f = new Int16Array(960);
+    f.set(mouth.splice(0, 960));
     ws.send(new Uint8Array(f.buffer));
-  }, 20);
+  }, 60);
   ws.onclose = () => {
     closed = true;
     clearInterval(pump);
@@ -136,17 +136,17 @@ describe("voice bridge", () => {
     c.send({ type: "answered" });
     await c.until(() => w.gems.length > 0 && w.main().texts().length > 0);
     expect(w.main().texts()[0]).toContain("Ciao Ada, dimmi");
-    // the greeting: Topics is the clock, one 640-byte frame every 20 ms
+    // the greeting: Topics is the clock, one 1920-byte frame every 60 ms
     w.main().emit({ type: "said", text: "Ciao Ada, dimmi." });
     w.main().emit({ type: "audio", pcm: voice24k(500) });
     w.main().emit({ type: "generationDone" });
     w.main().emit({ type: "turnComplete" });
-    await c.until(() => c.frames.length >= 50);
-    const span = c.frames[49]!.at - c.frames[0]!.at;
-    expect(c.frames.slice(0, 50).every((f) => f.bytes === 640)).toBe(true);
-    expect(span).toBeGreaterThan(49 * 20 * 0.8);
-    expect(span).toBeLessThan(49 * 20 * 1.6);
-    // the caller talks: 20 ms binary frames reach Gemini as 60 ms frames
+    await c.until(() => c.frames.length >= 20);
+    const span = c.frames[19]!.at - c.frames[0]!.at;
+    expect(c.frames.slice(0, 20).every((f) => f.bytes === 1920)).toBe(true);
+    expect(span).toBeGreaterThan(19 * 60 * 0.8);
+    expect(span).toBeLessThan(19 * 60 * 1.6);
+    // the caller talks: its 60 ms frames reach Gemini while the voice detector is open
     c.say(voice16k(16000));
     await c.until(() => w.main().audioSamples() > 0);
     await c.until(() => c.events().includes("fine_frase"));
@@ -193,6 +193,7 @@ describe("voice bridge", () => {
     w.main().emit({ type: "toolCall", id: "t1", name: "affida_a_jarvis", args: { compito: "x" } });
     await c.until(() => w.main().toolResponses().length === 1);
     expect(w.main().toolResponses()[0]!.result).toContain("Non è partito (il canale non ha confermato in 5 s)");
+    await c.until(() => c.events().includes("affido_fallito"));
     const err = c.texts.find((m) => m.type === "log" && m.event === "affido_fallito");
     expect(err?.data.compito).toBe("x");
     c.ws.close();

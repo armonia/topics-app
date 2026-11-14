@@ -6,7 +6,7 @@
 import type { Thought } from "./brain";
 import type { OpenGemini, Usage, VoiceOptions } from "./gemini";
 import type { Direction, Persona } from "./prompts";
-import { FRAME } from "./audio/pcm";
+import { FRAME_MS } from "./audio/pcm";
 
 /** Rings without an answer (outgoing): then it gives up. */
 export const RING_MAX = 45_000;
@@ -64,9 +64,8 @@ export const HELD_MAX = 40;
  */
 export const FOLLOW_UP = 8000;
 export const NAME_WAIT = 900;
-/** The 20 ms clock of the bridge; the call logic runs on every third tick. */
-export const CLOCK_MS = 20;
-export const SUB = FRAME / 3;
+/** The clock of the call: one 60 ms frame per tick, the frame of the WhatsApp line (protocollo.md). */
+export const CLOCK_MS = FRAME_MS;
 
 export interface Outcome {
   reason: string;
@@ -102,7 +101,7 @@ export interface CallDeps {
   think: ((system: string, user: string) => Promise<{ ok: true; thought: Thought } | { ok: false; error: string }>) | null;
   /** passes a task to the agent (a message of the owner in their chat); rejects = it did not leave */
   handoff(task: string): Promise<void>;
-  /** one 20 ms piece of the assistant's voice to the phone; false = the audio is closed */
+  /** one 60 ms frame of the assistant's voice to the phone; false = the audio is closed */
   toPeer(chunk: Int16Array): boolean;
   /** the phone side is behind: a voiced frame waits for the next tick, a silent one is dropped */
   backlogged?(): boolean;

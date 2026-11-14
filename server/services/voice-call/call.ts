@@ -1,7 +1,7 @@
 /**
  * A phone call with the assistant: the caller's voice goes to Gemini Live only
  * when they speak (silence would be billed), Gemini's voice goes back to the
- * phone on a 20 ms clock. Gemini generates 3-5 times faster than real time, so
+ * phone one 60 ms frame at a time. Gemini generates 3-5 times faster than real time, so
  * the interruption is decided here: 240 ms of voice while the assistant talks
  * are enough to silence it. What Gemini cannot do alone it hands to the agent
  * as a message of the owner; the answer arrives in the chat as always and, if
@@ -9,7 +9,7 @@
  *
  * Ported from jarvis-channels `src/voice/call.rs` (commit 80f1fd26) as a state
  * machine: each branch of the Rust `select!` is a method here, the 60 ms tick is
- * `step()`, run every third tick of the 20 ms clock the bridge drives. Every
+ * `step()`, run at every tick of the 60 ms clock the bridge drives. Every
  * dated note is a real call that went wrong; the log event names are the same,
  * because the bench and the channel read them.
  */
@@ -614,7 +614,7 @@ export class Call extends CallAudio {
 }
 
 /**
- * Drives a call on the real clock: a tick every 20 ms, catching up in a burst
+ * Drives a call on the real clock: a tick every 60 ms, catching up in a burst
  * when the event loop was late (the Rust interval's `Burst`), so the other
  * phone keeps receiving real-time audio.
  */

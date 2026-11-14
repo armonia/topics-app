@@ -124,12 +124,12 @@ export class World {
     for (let i = 0; i < 6; i++) await Promise.resolve();
   }
 
-  /** Moves the clock by `ms`, one 20 ms tick at a time, feeding the phone's audio (voice or digital silence). */
+  /** Moves the clock by `ms`, one 60 ms tick at a time, feeding the phone's audio (voice or digital silence). */
   async advance(ms: number): Promise<void> {
     for (let k = 0; k < Math.round(ms / CLOCK_MS); k++) {
       this.t += CLOCK_MS;
-      const piece = this.mouthQueue.splice(0, 320);
-      const frame = new Int16Array(320);
+      const piece = this.mouthQueue.splice(0, 960);
+      const frame = new Int16Array(960);
       frame.set(piece);
       this.call.peerAudio(frame);
       this.call.tick();

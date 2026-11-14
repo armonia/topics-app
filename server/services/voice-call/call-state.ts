@@ -186,8 +186,6 @@ export abstract class CallState {
   protected recorder: Recorder | null = null;
   protected openText: string;
   protected reinjected: GeminiEvent[] = [];
-  protected clockTicks = 0;
-  protected outChunks: Int16Array[] = [];
   protected whisperInFlight = new Set<Promise<unknown>>();
   protected collecting = false;
 
