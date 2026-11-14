@@ -5667,8 +5667,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // keeps running whatever the reason. Card 60c4b56a: five waits in three
       // days on one condition, reworded each time, and the time cap never
       // fired. Real progress resets the series elsewhere (delivery, subtasks).
-      const giaInAttesa = Number(row.wait_streak) > 0 && !!row.wait_since;
-      const since = giaInAttesa ? (row.wait_since as string) : ts;
+      const alreadyWaiting = Number(row.wait_streak) > 0 && !!row.wait_since;
+      const since = alreadyWaiting ? (row.wait_since as string) : ts;
       const serieMs = Math.max(0, Date.parse(ts) - Date.parse(since));
       // IL TENTATIVO SI RIMBORSA, e questa è la riga che chiude il guasto.
       //
