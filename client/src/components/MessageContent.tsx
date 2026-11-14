@@ -409,10 +409,10 @@ export const markdownComponents: Components = {
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
+    <th className="md-cell border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => (
-    <td className="border border-app-border-light px-3 py-1.5">{children}</td>
+    <td className="md-cell border border-app-border-light px-3 py-1.5">{children}</td>
   ),
 };
 
