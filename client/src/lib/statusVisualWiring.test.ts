@@ -183,11 +183,11 @@ describe('statusVisual wiring', () => {
       ['Board/Card.tsx', "tr('board.card.checksRed')"],
       ['Board/Card.tsx', "tr('board.task.stopped')"],
       ['Board/Card.tsx', 'data-kind="unattended"'],
-      ['Board/TaskDetail.tsx', 'data-testid="task-action-error"'],
-      ['Board/TaskDetail.tsx', 'data-testid="task-not-landed-banner"'],
-      ['Board/TaskDetail.tsx', "tr('board.task.stopped')"],
-      ['Board/TaskDetail.tsx', 'data-testid={`subtask-work-${node.id}`}'],
-      ['Board/TaskDetail.tsx', "className={workChip.kind === 'unattended'"],
+      ['Board/TaskThread.tsx', 'data-testid="task-action-error"'],
+      ['Board/TaskDeliveryBand.tsx', 'data-testid="task-not-landed-banner"'],
+      ['Board/TaskHeader.tsx', "tr('board.task.stopped')"],
+      ['Board/TaskMetadata.tsx', 'data-testid={`subtask-work-${node.id}`}'],
+      ['Board/TaskMetadata.tsx', "className={workChip.kind === 'unattended'"],
     ];
     for (const [file, anchor] of sites) {
       const el = elementAround(read(file), anchor);

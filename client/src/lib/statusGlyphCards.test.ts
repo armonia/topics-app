@@ -44,3 +44,29 @@ describe('phase to glyph on the card surfaces', () => {
     expect(src).toContain('motion-safe:animate-[status-glyph-spin_1.44s_steps(12)_infinite]');
   });
 });
+
+describe('the chat task card', () => {
+  test('draws its phase with the glyph map, not spinner or lucide state icons', () => {
+    const src = read('Chat/TaskToolCard.tsx');
+    expect(src).not.toContain('SparkLoader');
+    expect(src).not.toContain('Hourglass');
+    expect(src).not.toContain('CircleCheck,');
+    expect(src).toContain('<StatusIcon status={PHASE_GLYPH[phase]} live');
+  });
+
+  test('PHASE_GLYPH maps working to the spinning half pie and review to three quarters', async () => {
+    const { PHASE_GLYPH } = await import('./taskCardState');
+    expect(PHASE_GLYPH.working).toBe('in_progress');
+    expect(PHASE_GLYPH.review).toBe('review');
+    expect(PHASE_GLYPH.done).toBe('done');
+    expect(PHASE_GLYPH.failed).toBe('failed');
+  });
+
+  test('the tray colours are the dark theme tokens', () => {
+    const rs = readFileSync(join(import.meta.dir, '../../../desktop-tauri/src-tauri/src/tray_agents.rs'), 'utf8');
+    expect(rs).toContain('SKY: [u8; 3] = [56, 189, 248]');
+    expect(rs).toContain('ROSE: [u8; 3] = [251, 113, 133]');
+    expect(rs).toContain('AMBER: [u8; 3] = [251, 191, 36]');
+    expect(rs).toContain('MUTED: [u8; 3] = [141, 147, 155]');
+  });
+});

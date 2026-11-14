@@ -425,10 +425,9 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
             disabled={busy} onClick={doLand}
             title={landWord.title}
             // No text color of its own: it inherits the band's `STATUS_CHIP.danger`,
-            // which is the pairing already proven on this tint in both themes.
-            // With a `text-rose-100` the button vanished on the light theme,
-            // whitish on pink: the affordance comes from the border and the
-            // background, not from text lighter than the background it sits on.
+            // the pairing already proven on this tint in both themes. A lighter
+            // ink vanished on the light theme: the affordance comes from the
+            // border and the background.
             className="flex shrink-0 items-center gap-1 rounded border border-red-400/40 bg-red-500/20 px-2 py-0.5 font-medium hover:bg-red-500/30 disabled:opacity-50"
           ><GitMerge className="h-3 w-3" /> {landWord.label}</button>
         </div>

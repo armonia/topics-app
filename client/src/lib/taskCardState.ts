@@ -28,3 +28,13 @@ export function isAwaitedPhase(phase: TaskCardPhase): boolean {
 export function openCardsOf(tasks: readonly BoardTask[], topicId: string, extraIds: ReadonlySet<string> = new Set()): BoardTask[] {
   return tasks.filter((t) => (t.openerTopicId === topicId || extraIds.has(t.id)) && isAwaitedPhase(taskCardPhase(t)));
 }
+
+/** The one phase to glyph map: the chat card draws these with `StatusIcon`. */
+export const PHASE_GLYPH: Record<TaskCardPhase, 'backlog' | 'todo' | 'in_progress' | 'review' | 'done' | 'failed'> = {
+  backlog: 'backlog',
+  todo: 'todo',
+  working: 'in_progress',
+  review: 'review',
+  done: 'done',
+  failed: 'failed',
+};
