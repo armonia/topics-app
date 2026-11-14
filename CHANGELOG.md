@@ -2,10 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.104 — 2026-11-14
+
+### Sotto il cofano
+- Fase CI: card già su main chiuse, Approva con commento in fase (#972)
+
+## 2.3.103 — 2026-11-14
+
+### Novità
+- **ui** · card state glyph family, live spinning half pie and failed variant
+- **ui** · chat task card uses the phase glyph map, tray colours match dark tokens
+
+### Correzioni
+- **ui** · sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens
+- **board** · GET land answers «fase CI» over an older settled ticket (#963)
+- **test** · status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig
+- **ui** · plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)
+
+### Sotto il cofano
+- nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)
+
 ## 2.3.102 — 2026-11-14
 
 ### Sotto il cofano
 - **e2e** · evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone
+- Preview rule: screenshots and clips come from the e2e spec, not a blanket browser ban
 - fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)
 
 ## 2.3.101 — 2026-11-14
@@ -76,6 +97,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Novità
 - **test** · test:touched runs only the unit tests the diff reaches, with a whole-suite fallback
 - **test** · test-touched-measure replays the selector on red CI runs and demands a proof for every miss
+- **ui** · unify status colours and icons
 - **heavy-slot** · a machine-wide queue for heavy commands, served by Topics
 - **heavy-slot** · native sessions queue their heavy bash commands in the machine-wide line (KANBAN-114)
 - **ci-evidence** · a redelivery closes the card's superseded PR and cancels its live runs
