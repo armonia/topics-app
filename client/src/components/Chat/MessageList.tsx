@@ -45,7 +45,7 @@ import { decideHistoryCompletion } from './historyCompletionDecision';
 import { getHistoryCompleteness, isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
 import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
-import type { QueuedTurn } from '../../state/chatQueue';
+import { hasQueuePersistError, type QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
@@ -405,7 +405,7 @@ export function MessageList({
   const queued = queuedTurns ?? NO_QUEUED;
   const footerHead = useMemo(() => (
     <>
-      <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
+      <BackgroundWorkLine topicId={topic.id} sessionKey={topic.sessionKey} isMobile={isMobile} />
       <QueuedTurns
         turns={queued}
         isMobile={isMobile}
@@ -414,9 +414,10 @@ export function MessageList({
         onClear={onClearQueue}
         onSendNow={onSendQueueNow}
         busy={queueBusy}
+        unsaved={queued.length > 0 && hasQueuePersistError(topic.sessionKey)}
       />
     </>
-  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  ), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id, topic.sessionKey]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.

@@ -30,12 +30,12 @@
  * @covers CMDRUN-04
  */
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { readDrawerSource } from './drawerSource.test';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'TaskDetail.tsx'), 'utf8');
+const src = readDrawerSource(here);
 
 /** The body of the effect that listens to the live wire. */
 const wireEffect = (() => {
@@ -149,7 +149,7 @@ describe('il dettaglio dei checks tiene i tre esiti separati', () => {
   test('esiste il ramo «non misurato», e non e\' dipinto di rosso', () => {
     expect(section).toContain("const unmeasured = task.checksState === 'unknown';");
     const box = section.slice(section.indexOf('const box = unmeasured'), section.indexOf('const box = unmeasured') + 200);
-    expect(box).toContain('amber');
+    expect(box).toContain('unmeasured ? STATUS_CHIP.wait');
     expect(section).toContain("tr('board.task.checks.unknown')");
   });
 

@@ -3,7 +3,7 @@
  * the run is cancelled on the node, the chip is cleared, and nothing the lane
  * does afterwards carries the card back out of `done`.
  *
- * @covers KANBAN-114
+ * @covers KANBAN-116
  */
 import { describe, expect, it } from "bun:test";
 import { TASK, dispatch, flush, harness, poll, report } from "./task-dispatcher-remote-node-test-support";

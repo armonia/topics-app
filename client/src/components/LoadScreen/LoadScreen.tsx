@@ -30,7 +30,7 @@ import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import LOAD_SCREEN_IT from '../../lib/i18n-loadscreen-it';
 import LOAD_SCREEN_EN from '../../lib/i18n-loadscreen-en';
-import { apiFetch } from '../../lib/shell/net';
+import { readJson } from '../../lib/readJson';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { formatMem, formatPct, macGauges, pcView } from '../../lib/machineProcesses';
@@ -63,15 +63,6 @@ interface Reads {
   hubFailing: boolean;
   /** A read came back and the machine gave no readout: only then the screen says it does not answer. */
   readoutFailed: boolean;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 function useScreenReads(machine: string | null): Reads {

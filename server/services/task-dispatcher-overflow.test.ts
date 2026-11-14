@@ -126,6 +126,8 @@ function harness(opts: {
   cloudOnline?: boolean; pcOnline?: boolean; cloudCredit?: boolean; github?: boolean;
   /** The PC is offline but a `node-run` hook can wake it. */
   pcWakeable?: boolean;
+  /** The PC's declared slots (0 = being drained). */
+  pcSlots?: number;
   /** What `createRun` throws instead of answering (a cloud account without environments). */
   createRunError?: () => Error | null;
   /** What `readRun` throws instead of answering, while set (a live run's account refused). */
@@ -157,7 +159,7 @@ function harness(opts: {
   let nextRun = 0;
   const machines = (): OverflowMachine[] => [
     { id: CLOUD, name: NAME[CLOUD], kind: "cloud", online: opts.cloudOnline ?? true },
-    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false },
+    { id: PC, name: NAME[PC], kind: "node", online: opts.pcOnline ?? true, wakeable: opts.pcWakeable ?? false, ...(opts.pcSlots !== undefined ? { slots: opts.pcSlots } : {}) },
   ];
 
   const deps: DispatcherDeps = {
@@ -207,7 +209,7 @@ function harness(opts: {
       nameOf: (id) => NAME[id] ?? null,
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
       bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
     },
@@ -364,6 +366,35 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   });
 });
 
+describe("overflow: slots 0 svuota la macchina", () => {
+  it("con slots 0 il PC non riceve card per overflow", async () => {
+    const h = harness({ cloudOnline: false, pcSlots: 0 });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.created).toEqual([]);
+  });
+
+  it("con slots 0 una card fissata sul PC non parte", async () => {
+    const h = harness({ floor: false, pcSlots: 0 });
+    h.seed(CARD, { machineId: PC });
+    await holdPastThreshold(h);
+    expect(h.created).toEqual([]);
+    expect(h.task(CARD).status).toBe("todo");
+  });
+
+  it("con slots 2 le riceve, fissate comprese", async () => {
+    const h = harness({ cloudOnline: false, pcSlots: 2 });
+    h.seed(CARD);
+    await holdPastThreshold(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+    const pinned = harness({ floor: false, pcSlots: 2 });
+    pinned.seed(CARD, { machineId: PC });
+    await holdPastThreshold(pinned);
+    expect(pinned.created.length).toBe(1);
+  });
+});
+
 describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("sul nodo PC la card specchio con un ramo base fa nascere il worktree da lì, non da main", async () => {
     const h = harness({ floor: false });
@@ -468,6 +499,17 @@ describe("overflow: una card rimandata in coda dopo la review porta il suo ramo"
     h.db.run("UPDATE tasks SET status = 'todo', machine_id = ? WHERE id = ?", [PC, CARD]);
     await h.tick();
     expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: "topics/endless-calf" }]);
+  });
+
+  it("three rejected deliveries keep every delivery branch, not only the last", () => {
+    const h = harness({ floor: false });
+    h.seed(CARD);
+    for (const branch of ["topics/del-a", "topics/del-b"]) {
+      h.db.run("UPDATE tasks SET status = 'review', delivery_branch = ?, delivery_commit = 'abc1234' WHERE id = ?", [branch, CARD]);
+      h.svc.reviewDecision({ taskId: CARD, by: "reviewer", decision: "reject", comment: "again" });
+    }
+    expect(h.task(CARD).priorBranch).toBe("topics/del-b");
+    expect(h.task(CARD).pastDeliveryBranches).toEqual(["topics/del-a", "topics/del-b"]);
   });
 
   it("un ramo già atterrato su main non fa da base: main è più nuovo", async () => {

@@ -1915,6 +1915,7 @@ export function useChat() {
         }
         break;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleStreamEventRef is a stable ref mirror declared right after this callback
   }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, reserveThinkingRow]);
   // The held frames run through the handler of the moment they are released.
   const handleStreamEventRef = useRefMirror(handleStreamEvent);
@@ -1972,7 +1973,7 @@ export function useChat() {
     }
     // Forward to registered handlers
     for (const handler of wsHandlersRef.current) {
-      try { handler(event); } catch {}
+      try { handler(event); } catch (e) { console.error('[chat] ws handler threw', e); }
     }
   }, [handleStreamEvent]);
 
@@ -2338,7 +2339,9 @@ export function useChat() {
         hydratedSessionsRef.current.add(sessionKey);
         // The whole thread, in one answer: nothing is missing above it.
         markHistoryComplete(sessionKey);
-      } catch {}
+      } catch (e) {
+        console.warn('[chat] history reload after stream failed', e);
+      }
 
       // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
       // via WS — tocca alla coda, se non è stata messa in freno da uno stop.
@@ -3128,18 +3131,26 @@ export function useChat() {
             const data = line.slice(6).trim();
             if (data === '[DONE]') { isDone = true; continue; }
 
+            let parsed: { choices?: Array<{ delta?: { content?: string } }> } | null;
             try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta;
-              if (delta?.content) {
-                let chunk = delta.content;
-                if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
-                if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
-                if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
-                if (isInThinking) { thinkingBatch += chunk; }
-                else if (chunk) { contentBatch += chunk; }
-              }
-            } catch {}
+              parsed = JSON.parse(data);
+            } catch (e) {
+              // Not every `data:` line is a content frame — keepalives and
+              // comments share the wire — but a line that LOOKS like JSON and
+              // fails to parse drops a real chunk of the answer with no trace,
+              // so it is worth seeing rather than silently skipped.
+              console.warn('[useChat] SSE data line failed to parse, skipping', e);
+              continue;
+            }
+            const delta = parsed?.choices?.[0]?.delta;
+            if (delta?.content) {
+              let chunk = delta.content;
+              if (chunk.includes('<thinking>')) { isInThinking = true; setThinking(prev => ({ ...prev, [sessionKey]: true })); chunk = chunk.replace('<thinking>', ''); }
+              if (chunk.includes('</thinking>')) { isInThinking = false; setThinking(prev => ({ ...prev, [sessionKey]: false })); chunk = chunk.replace('</thinking>', ''); }
+              if (!isInThinking) chunk = cleanInvisibleMarkers(chunk);
+              if (isInThinking) { thinkingBatch += chunk; }
+              else if (chunk) { contentBatch += chunk; }
+            }
           }
 
           // Same coalescing as the sendMessage reader above — this branch has no

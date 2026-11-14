@@ -5536,7 +5536,35 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
 
-### Requirement: KANBAN-114 - A card in done is never picked up again
+### Requirement: KANBAN-114 - Heavy commands wait in one machine-wide line
+
+Topics SHALL serve one line for heavy commands (tests, typechecks, builds, renders) that every harness on the machine can ask before running one. A request SHALL be admitted when a place is free and the machine has room, measured on available memory first and CPU second, never on how many agents exist; with nothing running the first request SHALL be admitted unless memory is critically low. A place held by a process SHALL live as long as that process does, and SHALL be freed when it dies. The client SHALL fail open: with Topics off, in error, or past the wait limit, the command runs.
+
+#### Scenario: a full line
+- **WHEN** every place is held and another command asks
+- **THEN** it SHALL wait, and SHALL be admitted as soon as a place frees
+
+#### Scenario: a holder dies
+- **WHEN** the process holding a place exits without releasing it
+- **THEN** the place SHALL be freed and the next in line admitted
+
+#### Scenario: Topics does not answer
+- **WHEN** the client cannot reach Topics
+- **THEN** the command SHALL run at once
+
+### Requirement: KANBAN-115 - A redelivery supersedes the card's previous pull request and its live runs
+
+When a card opens a pull request, the delivery flow SHALL close any other open pull request of the same card (found by the card tag in the title, never `main`) with a comment naming the new one, and SHALL cancel the live (queued or in progress) CI runs of that pull request. On a redelivery to the same branch it SHALL cancel the queued runs of older commits of that branch. Pull requests and runs of other cards and of `main` SHALL NOT be touched.
+
+#### Scenario: a redelivery on a new branch
+- **WHEN** a card with pull request A on branch X is redelivered on branch Y
+- **THEN** A SHALL be closed with a «superseded by» comment, its live runs cancelled, and the new pull request opened
+
+#### Scenario: other cards and main
+- **WHEN** another card has a live run, or `main` has one
+- **THEN** neither SHALL be cancelled
+
+### Requirement: KANBAN-116 - A card in done is never picked up again
 
 A card in `done` SHALL NOT go back to the queue: `release` with `requeue` SHALL leave its status as it is, and a system delivery or a deferral SHALL NOT move it. A remote run still alive when the card is closed SHALL be cancelled on the node and its `dispatchState` cleared, and a report or a bundle that arrives afterwards SHALL NOT reopen the card.
 

@@ -61,6 +61,7 @@ const WORDS = {
     head: (name: string) => `**Sotto-agente "${name}", esito:**`,
     silent: '_(terminato senza output)_',
     lastSeen: 'Ultima riga vista, non un esito:',
+    resume: (id: string) => `Per riprenderlo dal punto in cui era: \`send_to_agent\` con agent_id \`${id}\` e un messaggio che dice di continuare.`,
     branch: (b: string) => `Ramo: \`${b}\`. Per leggerlo: \`git log main..${b}\`.`,
     status: {
       failed: 'non ha finito il compito',
@@ -78,6 +79,7 @@ const WORDS = {
         case 'stopped-by-parent': return 'fermato con stop_agent';
         case 'tab-closed': return 'la sua tab è stata chiusa';
         case 'reloaded': return 'la sua tab è stata ricaricata';
+        case 'machine-cut': return `fermato dal sistema (${r.detail})`;
         case 'swept': return "ritirato perché chi l'ha lanciato non lavora più";
         case 'terminal-lost': return 'il suo terminale non è sopravvissuto al riavvio';
       }
@@ -87,6 +89,7 @@ const WORDS = {
     head: (name: string) => `**Sub-agent "${name}", result:**`,
     silent: '_(finished with no output)_',
     lastSeen: 'Last line seen, not a result:',
+    resume: (id: string) => `To resume it from where it was: \`send_to_agent\` with agent_id \`${id}\` and a message telling it to carry on.`,
     branch: (b: string) => `Branch: \`${b}\`. To read it: \`git log main..${b}\`.`,
     status: {
       failed: 'did not finish its task',
@@ -104,6 +107,7 @@ const WORDS = {
         case 'stopped-by-parent': return 'stopped with stop_agent';
         case 'tab-closed': return 'its tab was closed';
         case 'reloaded': return 'its tab was reloaded';
+        case 'machine-cut': return `stopped by the system (${r.detail})`;
         case 'swept': return 'retired because its parent is no longer working';
         case 'terminal-lost': return 'its terminal did not survive the restart';
       }
@@ -120,15 +124,17 @@ const WORDS = {
  * working sentence pass for a result and called a prompt that never arrived a
  * clean finish.
  */
-export function formatSubAgentExitBody(info: Pick<SubAgentExitInfo, 'outcome'>, language: ReportLanguage = 'it'): string {
+export function formatSubAgentExitBody(info: Pick<SubAgentExitInfo, 'outcome'> & { childId?: string }, language: ReportLanguage = 'it'): string {
   const w = WORDS[language];
   const { status, text, reason } = info.outcome;
   const trimmed = text.trim();
   if (status === 'completed') return trimmed || w.silent;
   const note = `_(${w.status[status]}${reason ? `: ${w.reason(reason)}` : ''})_`;
-  if (!trimmed) return note;
+  // A turn the machine cut (stall recycle, watchdog) left the child resumable: say how.
+  const resume = reason?.code === 'machine-cut' && info.childId ? `\n\n${w.resume(info.childId)}` : '';
+  if (!trimmed) return `${note}${resume}`;
   const quoted = trimmed.split('\n').map((l) => `> ${l}`).join('\n');
-  return `${note}\n\n${w.lastSeen}\n\n${quoted}`;
+  return `${note}\n\n${w.lastSeen}\n\n${quoted}${resume}`;
 }
 
 /** Full assistant-message content for a sub-agent exit: a bold header naming the
@@ -136,7 +142,7 @@ export function formatSubAgentExitBody(info: Pick<SubAgentExitInfo, 'outcome'>, 
  *  of its own, the line saying WHERE that work is. The parent no longer has the
  *  files under its hand: the branch is all it has left to read. */
 export function formatSubAgentExitMessage(
-  info: Pick<SubAgentExitInfo, 'name' | 'outcome' | 'branch'>,
+  info: Pick<SubAgentExitInfo, 'name' | 'outcome' | 'branch'> & { childId?: string },
   language: ReportLanguage = 'it',
 ): string {
   const w = WORDS[language];

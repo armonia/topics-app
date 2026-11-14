@@ -26,6 +26,10 @@ import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
+// This spec is ABOUT the service worker, so it opts out of the bench default
+// (`serviceWorkers: "block"` in playwright.config.ts, which keeps a worker from
+// swallowing the `page.route` stubs of every other spec).
+test.use({ serviceWorkers: "allow" });
 
 const VIDEO_DIR = "test-results/videos/push-one-voice";
 

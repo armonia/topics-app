@@ -6686,3 +6686,25 @@ la radice del disco SHALL essere scartata.
 #### Scenario: scrittura in una radice dichiarata
 - **GIVEN** `~/bin` elencata per il workspace
 - **THEN** una scrittura in `~/bin/x` SHALL passare, una in `~/altro/x` SHALL essere rifiutata
+
+### Requirement: CLIENT-SILENT-ERR-01 — Un errore del client non sparisce in silenzio
+
+Un handler WS che lancia, un frame malformato, il reload della history che fallisce, un listener della coda che lancia e uno `setItem` che fallisce SHALL lasciare un `console.error` o `console.warn`; lo storage in errore SHALL essere esposto al chiamante, e uno Stop rifiutato SHALL mostrare un errore visibile senza dire che il processo si è fermato.
+
+#### Scenario: setItem della coda fallisce
+- **GIVEN** uno storage la cui `setItem` lancia
+- **THEN** l'accodamento SHALL loggare un warn e `hasQueuePersistError` SHALL essere vero
+
+### Requirement: CHAT-TASK-CARD-01 — A chat sees the board cards it uses, and hears how they end
+
+A call of a card tool (`create_task`, `update_task`, `comment_task`, `get_task`, `board_create`, `board_status`, `board_review`, `board_comment`, `board_land`, bare, prefixed or through the gateway) SHALL be drawn in the transcript as a card with the card's title, its live state from the board store (backlog, todo, in progress, review, done, failed), machine, model, delivery branch, checks and preview image, and the action of that turn; a click SHALL open the card's drawer. A card the chat created or sent back to work, and that is not yet in review or done, SHALL be named in the chat's background work line and in its sidebar row. When such a card reaches review or done, or fails, the chat that opened it SHALL be woken once with the status, branch, checks, the first line of the report and the link; a repeated identical outcome SHALL wake nobody, and neither SHALL a card the chat only read.
+
+#### Scenario: A card goes from todo to review under the reader
+- **GIVEN** a chat whose transcript holds its `create_task` call
+- **WHEN** the card moves to in progress and then to review on the board
+- **THEN** the transcript card SHALL change state without a reload and the background work line SHALL leave when the card reaches review
+
+#### Scenario: One wake per outcome
+- **GIVEN** a card opened by a chat
+- **WHEN** it is taken to review and the same frame arrives again
+- **THEN** the chat SHALL receive exactly one message

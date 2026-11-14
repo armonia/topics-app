@@ -1,7 +1,7 @@
 /**
  * A CARD THAT IS DONE IS NEVER PICKED UP AGAIN.
  *
- * @covers KANBAN-114
+ * @covers KANBAN-116
  *
  * Measured 2026-11-12 on 403aad1f: closed at 13:04:04 while a remote attempt
  * was still `queued`/`starting`, reopened at 13:05:44 with `reopenedBy:

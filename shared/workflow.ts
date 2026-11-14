@@ -46,6 +46,14 @@ export const GLOBAL_WORKFLOW_SCOPE = '*';
 export const STAGE_TRIAGE = 'triage';
 export const STAGE_AI_REVIEW = 'ai_review';
 export const STAGE_HUMAN_REVIEW = 'human_review';
+/**
+ * The CI phase: the work was accepted (a person's Approva/Landa or the
+ * automatic land) and waits for the integration queue to measure it together
+ * with main and land it. Nobody has to look at it, so it is out of the
+ * waiting-on-you count; it exists on every workflow, `default` included.
+ */
+export const STAGE_CI = 'ci';
+const CI_COLUMN: WorkflowColumn = { id: STAGE_CI, label: 'CI', base: 'review', explicitOnly: true };
 
 /**
  * The one copy of the status words, shared by the client (`STATUS_LABEL` in
@@ -63,7 +71,7 @@ export const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
 const plain = (s: TaskStatus): WorkflowColumn => ({ id: s, label: STATUS_COLUMN_LABEL[s], base: s });
 
 export const WORKFLOW_PRESETS: Record<WorkflowPresetId, readonly WorkflowColumn[]> = {
-  default: TASK_STATUSES.map(plain),
+  default: [...TASK_STATUSES.filter((s) => s !== 'done').map(plain), CI_COLUMN, plain('done')],
   // Triage takes the backlog: a card opened by a person or from a chat lands
   // there and is triaged (title, priority, dependency, missing information)
   // before it reaches Todo. AI review sits on `review` but only holds the cards
@@ -75,6 +83,7 @@ export const WORKFLOW_PRESETS: Record<WorkflowPresetId, readonly WorkflowColumn[
     plain('in_progress'),
     { id: STAGE_AI_REVIEW, label: 'AI review', base: 'review', explicitOnly: true },
     { id: STAGE_HUMAN_REVIEW, label: 'Human review', base: 'review' },
+    CI_COLUMN,
     plain('done'),
   ],
 };
@@ -129,7 +138,7 @@ export function columnOfTask(
  * that stage, so the count is the one of before.
  */
 export function awaitsHuman(task: { status: string; stage?: string | null }): boolean {
-  return task.status === 'review' && task.stage !== STAGE_AI_REVIEW;
+  return task.status === 'review' && task.stage !== STAGE_AI_REVIEW && task.stage !== STAGE_CI;
 }
 
 /**
@@ -141,7 +150,7 @@ export function awaitsHuman(task: { status: string; stage?: string | null }): bo
 export function awaitsHumanSql(hasStage: boolean, alias = ''): string {
   const c = alias ? `${alias}.` : '';
   return hasStage
-    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage != '${STAGE_AI_REVIEW}'))`
+    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage NOT IN ('${STAGE_AI_REVIEW}', '${STAGE_CI}')))`
     : `${c}status = 'review'`;
 }
 

@@ -8,7 +8,6 @@
  */
 import { CircleAlert, Clock } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { SparkLoader } from '../Layout/StreamingIndicator';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
 import type { PlanActivity, PlanNeed } from '../../../../shared/plan';
@@ -25,7 +24,7 @@ export function ActivityBadge({ activity }: { activity: PlanActivity }) {
       className={`flex shrink-0 items-center gap-1 text-mini tabular-nums ${activity.state === 'working' ? 'text-app-text' : 'text-app-text-muted'}`}>
       {/* The same loader a card at work shows on the Board (CardLive). */}
       {activity.state === 'working'
-        ? <SparkLoader className="shrink-0" state="working" />
+        ? <StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />
         : activity.state === 'stale'
           ? <Clock className="h-3 w-3 shrink-0" aria-hidden />
           : <StatusIcon status={ICON_OF[activity.state]} className="h-3 w-3" />}

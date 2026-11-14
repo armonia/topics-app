@@ -1,6 +1,6 @@
 /**
  * @covers LAND-03
- * @covers LAND-15
+ * @covers LAND-18
  */
 import { describe, test, expect } from "bun:test";
 import { createTaskAutoMerge, declaredDeliveryFor, landFallout } from "./task-automerge";
@@ -502,8 +502,11 @@ describe("server.ts wires the land through declaredDeliveryFor and nothing of it
     expect(block).toMatch(/declaredDelivery:\s*declaredDeliveryFor\(/);
   });
 
-  test("the block reads no branch column itself", () => {
-    expect(block).not.toContain("deliveryBranch");
-    expect(block).not.toContain("priorBranch");
+  test("declaredDelivery reads no branch column itself", () => {
+    // `ownBranches` above it names the card's branches on purpose (06bf57c1):
+    // only the delivery pointer has to come from declaredDeliveryFor.
+    const delivery = block.slice(block.indexOf("declaredDelivery:"));
+    expect(delivery).not.toContain("deliveryBranch");
+    expect(delivery).not.toContain("priorBranch");
   });
 });

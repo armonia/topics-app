@@ -28,6 +28,10 @@ import { E2E_BASE } from "./helpers/test-server";
 import { openUserMenuLevel } from "./helpers/user-menu";
 
 hermetic(test);
+// This spec is ABOUT the service worker, so it opts out of the bench default
+// (`serviceWorkers: "block"` in playwright.config.ts, which keeps a worker from
+// swallowing the `page.route` stubs of every other spec).
+test.use({ serviceWorkers: "allow" });
 
 /** The phone-like origin: same server, reached by an address that is not `localhost`. */
 const PHONE_LIKE_ORIGIN = E2E_BASE.replace("//localhost:", "//127.0.0.1:");

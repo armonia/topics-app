@@ -42,6 +42,7 @@ import { getTerminalSessionById } from "./terminal";
 import { createBoardRoutes } from "./tasks-board";
 import { applySpendCapPatch, hasSpendCapPatch, spendCapFields, spendSnapshot } from "./task-spend-caps";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { confirmCardOrigin } from "../services/card-origin-notice";
 import { logActivity } from "../db/activity-log";
@@ -84,13 +85,15 @@ import type { LandingState } from "../services/landing-audit";
 import type { RepoProbe } from "../services/deliveryReportChecks";
 import { createLandingQueue, type LandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { decidePostLandReap, type BranchStatus, type LandOutcome } from "../services/worktree-gc";
-import { checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, runReviewChecks, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type ReviewCheck } from "../services/review-checks";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
-import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
+import { sweepRunLeftovers, describeLeftovers } from "../lib/run-leftovers";
+import { getSessionCliPid } from "../providers/session-pids";
+import { createTaskAttemptStore, setAttemptFinishedListener, type TaskAttempt } from "../services/task-attempts";
 import type { ScheduledCardsService } from "../services/scheduled-cards";
 import { recordRetirement } from "../services/retirement";
 import { conditionalJson } from "../lib/conditional-json";
@@ -98,6 +101,8 @@ import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { createAutoLander } from "../services/auto-land";
+import type { IntegrationMeasure } from "../services/integration-queue";
+import { createCiPhase } from "./tasks-ci-phase";
 import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
@@ -347,6 +352,18 @@ export interface TasksRouterOpts {
    * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
    * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
+  /**
+   * The CI phase (`services/integration-queue.ts`): the repository a card's
+   * branch lives in, for the integration commit. Absent = no CI phase, lands go
+   * straight to the land queue as before.
+   */
+  integrationRepo?: (taskId: string) => Promise<string | null>;
+  /** Tests: replaces the git + CI measure of an integration batch. */
+  integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
+  /** Tests: how long an idle integration queue collects cards before measuring. */
+  integrationCollectMs?: number;
+  /** Tests: the files between two commits of a card (git diff --name-only). */
+  integrationFilesBetween?: (taskId: string, from: string, to: string) => Promise<string[] | null>;
   taskDeliveryRef?: (taskId: string) => Promise<{
     branch: string; commit: string | null;
     /** L'entità del lavoro consegnato, quando git ha saputo dirla. */
@@ -564,14 +581,35 @@ function requestCardProcessStop(opts: TasksRouterOpts | undefined, cardId: strin
  * fast instead of hanging the request.
  */
 export async function runGitCap(cwd: string, args: string[], timeoutMs: number = SPAWN_TIMEOUT.write): Promise<{ code: number; out: string; err: string }> {
-  const r = await runBounded(["git", ...args], {
-    cwd,
-    stderr: "pipe",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    timeoutMs,
-  });
-  if (r.spawnFailed) return { code: 1, out: "", err: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 124, out: r.stdout, err: r.stderr };
+  const r = await runGit(cwd, args, { timeoutMs, env: { GIT_TERMINAL_PROMPT: "0" } });
+  return { code: r.code, out: r.stdout, err: r.stderr };
+}
+
+/**
+ * The files whose OWN change differs between two deliveries of the same card.
+ * Not `git diff from to`: after the rebase a conflict asks for, that diff also
+ * carries everything main received in between, other cards' files included, and
+ * every fix would look like a new change to look at. Here each delivery is read
+ * against its own merge base with origin/main, and a file counts when the card's
+ * patch on it is not the same (hunk positions and blob ids ignored).
+ */
+export async function ownChangesBetween(repo: string, from: string, to: string): Promise<string[] | null> {
+  const base = async (c: string) => (await runGitCap(repo, ["merge-base", c, "origin/main"])).out.trim();
+  const [b1, b2] = [await base(from), await base(to)];
+  if (!b1 || !b2) return null;
+  const names = async (b: string, c: string) => {
+    const r = await runGitCap(repo, ["diff", "--name-only", b, c]);
+    return r.code === 0 ? r.out.split("\n").map((l) => l.trim()).filter(Boolean) : null;
+  };
+  const [n1, n2] = [await names(b1, from), await names(b2, to)];
+  if (!n1 || !n2) return null;
+  const patch = async (b: string, c: string, f: string) =>
+    (await runGitCap(repo, ["diff", b, c, "--", f])).out.split("\n").filter((l) => !l.startsWith("index ") && !l.startsWith("@@")).join("\n");
+  const out: string[] = [];
+  for (const f of new Set([...n1, ...n2])) {
+    if (!n1.includes(f) || !n2.includes(f) || (await patch(b1, from, f)) !== (await patch(b2, to, f))) out.push(f);
+  }
+  return out;
 }
 
 /**
@@ -704,6 +742,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
   });
   const attempts = createTaskAttemptStore(db);
+  // Run end: close what the run left behind in its worktree (orphans, detached
+  // children). Fire-and-forget; the one thread line says how many and which.
+  setAttemptFinishedListener((a) => {
+    const wt = a.worktreeId ? ctx.worktreeStore.get(a.worktreeId) : null;
+    if (!wt?.absPath) return;
+    const topicKey = a.topicId ? "topic:" + a.topicId.slice(0, 8) : "";
+    void sweepRunLeftovers(wt.absPath, { spare: [topicKey ? getSessionCliPid(topicKey) : null] })
+      .then((found) => {
+        if (!found.length) return;
+        console.warn(`[run-leftovers] ${a.taskId}: ${describeLeftovers(found)}`);
+        svc.addComment({ taskId: a.taskId, author: "system", kind: "service", content: describeLeftovers(found) });
+      })
+      .catch(() => { /* best-effort */ });
+  });
 
   /**
    * UN TITOLO LEGGIBILE, in sottofondo, per una card appena nata.
@@ -1462,6 +1514,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // Past the realign, on a known checkout: from here on THIS is the commit
     // the delivery is measuring, and the one a restart has to carry over.
     roundCommit.set(taskId, ref.commit ?? null);
+    // The fast static guards run FIRST, so a missing @covers or a stray sleep
+    // costs seconds here instead of a queued CI run. The list lives in the
+    // `gates:fast` script, the one CI runs as well. A project without it
+    // (any repo but this one) is measured exactly as before.
+    if (hasFastGates(ref.cwd)) checks = [FAST_GATES_CHECK, ...checks.filter((c) => c.cmd !== FAST_GATES_CHECK.cmd)];
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
@@ -1666,6 +1723,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
+    if (enterCiPhase(projectId, taskId, landOpts)) {
+      const at = ciPhase.pending(projectId).indexOf(taskId);
+      return { taskId, phase: "queued", ahead: at > 0 ? at : 0, queuedAt: new Date().toISOString(), settledAt: null, error: null, outcome: null, reason: null };
+    }
+    return landDirect(projectId, taskId, landOpts);
+  }
+
+  /** The land itself, behind the CI phase (or instead of it, on a board without CI rows). */
+  function landDirect(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
     // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
     // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
@@ -1713,7 +1779,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
+    // On a board with the CI phase the land waits for the CI, not for every open turn on the server: a
+    // person's "Landa" never waited for them either, and the reload that follows resumes the turns it cuts
+    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer gave
+    // up after three hours and the card stayed in review. Boards without the phase keep the wait.
     liveTurns: opts?.liveTurnCount,
+    waitsForTurns: (taskId) => {
+      const projectId = svc.get(taskId)?.task.projectId;
+      return !projectId || !ciPhase.boardHasCiPhase(projectId);
+    },
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
       return !!t && cardTurnIsLive(t);
@@ -1732,9 +1806,32 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const t = svc.get(taskId)?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
     },
-    tryLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    // A red measure sends the card back to its agent; anything else is offered to the automatic land.
+    tryLand: async (projectId, taskId) => {
+      if (await bounceRed(projectId, taskId)) return;
+      return afterDelivery(projectId, taskId);
+    },
     log: (line) => console.warn(line),
   });
+
+  const ciPhase = createCiPhase({
+    svc, db, dispatcher,
+    broadcast: (msg) => broadcastToAll(msg),
+    cardTurnIsLive: (t) => cardTurnIsLive(t),
+    landDirect: (projectId, taskId) => landDirect(projectId, taskId),
+    whenLanded: (taskId) => landings.whenSettled(taskId),
+    tryAutoLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    integrationRepo: opts?.integrationRepo,
+    integrationMeasure: opts?.integrationMeasure,
+    integrationCollectMs: opts?.integrationCollectMs,
+    filesBetween: opts?.integrationFilesBetween ?? (opts?.integrationRepo
+      ? async (taskId, from, to) => {
+        const repo = await opts.integrationRepo!(taskId).catch(() => null);
+        return repo ? ownChangesBetween(repo, from, to) : null;
+      }
+      : undefined),
+  });
+  const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
@@ -1742,6 +1839,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
+      // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
+      if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
+      // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
+      // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.
+      if (t.landIntent === "human") {
+        if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.returnToCiPhase(t.projectId, t.id);
+        continue;
+      }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
@@ -2255,7 +2360,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               ? `il ramo era indietro di ${res.realignConflict.behind} commit e il realign ha fatto conflitto`
               : "il merge ha fatto conflitto con main")
             : res.status === "skipped" ? (res.reason ?? null) : null)
-          : null;
+          : res.status === "skipped" && res.code === "no-branch"
+            // Never let a caller read an empty reason as "accepted": nothing was landed.
+            ? "nessun ramo di consegna: non c'è niente da atterrare e la card NON risulta su main"
+            : null;
       return { outcome: ticketOutcome, reason: ticketReason };
     } catch (e) {
       // ── The path that produced "zero comments, zero reason" ────────────────
@@ -3014,7 +3122,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
-      if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(projectId, taskId);
+      if (task.status === "review" && prevStatus !== "review") void afterDelivery(projectId, taskId);
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
       // Todo may be picked up by that board's configured dispatcher, while
@@ -3081,7 +3189,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
-    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
+    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, landDirect, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -4330,7 +4438,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-          if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(sess.projectId, item.taskId);
+          if (task.status === "review" && prevStatus !== "review") void afterDelivery(sess.projectId, item.taskId);
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP
           // update_task). Al momento del fronte la domanda è l'ultima riga del

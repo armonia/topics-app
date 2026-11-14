@@ -71,27 +71,6 @@ const NIGHTLY_ONLY_SPECS = [
   "pane-store-two-devices",
   "split-screen-sync",
   "pane-server-migration",
-  // La famiglia file-explorer condivide un progetto/DB fra i test; su CI Linux
-  // lo stato accumulato disegnava un secondo albero, i locator treeitem ne
-  // trovavano >1 e il fallimento cascava di test in test (mettere in quarantena
-  // uno lo spostava sul successivo).
-  // L'isolamento c'è (fixtures/hermetic.ts: ogni FILE riparte dallo snapshot di
-  // baseline del globalSetup, vedi services/db-snapshot.ts), ma è per-file, non
-  // per-test: dentro lo stesso file lo stato scorre ancora — ed è voluto, quasi
-  // tutte le suite sono `describe.serial` e si passano il topic creato nel
-  // beforeAll. Restano quindi fuori dal gate PR finché non sono riscritte
-  // test-per-test. TODO(e2e-isolation).
-  //
-  // `file-explorer` è stato spezzato in tre file per tema (era 22 test / 138s in
-  // uno solo, il pavimento dello sharding — vedi helpers/file-project.ts). Ora
-  // ognuno ha il SUO progetto seminato, il che toglie l'interferenza FRA i tre;
-  // dentro ciascuno lo stato scorre ancora esattamente come prima, quindi la
-  // ragione di questa esclusione non è cambiata e valgono tutti e tre.
-  "file-explorer",
-  "file-explorer-git",
-  "file-explorer-panels",
-  "file-context-menu",
-  "file-external-drop",
   // Dipende da un motore STT raggiungibile (ElevenLabs o whisper locale) e
   // asserisce sul comportamento del provider reale: va bene nel notturno, non
   // nel gate PR dove il server di test gira senza chiavi e senza modelli.
@@ -272,6 +251,29 @@ export default defineConfig({
     ["json", { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE || "test-results/uat-report.json" }],
   ],
   use: {
+    /**
+     * No service worker, unless a spec asks for one.
+     *
+     * `public/boot.js` registers `/sw.js` on any SECURE origin, and localhost is
+     * one, so the bench registers it too. The worker takes control at the NEXT
+     * navigation, and a request a service worker answers is NEVER delivered to
+     * `page.route`: the stub is simply skipped and the real server replies. Any
+     * spec that mocks an endpoint and navigates twice is therefore a coin toss,
+     * and which spec reloads twice depends on what ran before it. That is the
+     * shape of the four red rounds of PR #825 and of the two of 2026-11-13: a
+     * different test every round, always outside the diff of the card that took
+     * it (a4689430). Measured on `muse-provider-picker` MUSE-04c, 10 webkit
+     * repetitions: `navigator.serviceWorker.controller` was non-null in every
+     * failure and null in every pass; on `dictation-hermetic` the stubbed
+     * `/api/stt` reached the real server and no bubble was ever written.
+     *
+     * Eleven specs had already found this one at a time and written
+     * `test.use({ serviceWorkers: "block" })` of their own. Here it holds for
+     * all of them, so the next spec does not have to rediscover it. The three
+     * specs that are ABOUT the worker (`push-one-voice`, `push-phone-enroll`,
+     * `sw-restart-vs-offline`) turn it back on with `serviceWorkers: "allow"`.
+     */
+    serviceWorkers: "block",
     /**
      * Un'azione ha un limite, e prima non ce l'aveva.
      *
