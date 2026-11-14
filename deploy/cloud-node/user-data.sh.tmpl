@@ -24,10 +24,10 @@ loginctl enable-linger topics
 cat > /home/topics/setup.sh <<'EOS'
 set -ex
 cd ~
-# Commits made on the node carry the identity of the origin repo (filled in by node-pool
-# from the Mac checkout), otherwise the land attribution gate refuses them.
-git config --global user.name @GIT_NAME@
-git config --global user.email @GIT_EMAIL@
+# No global git identity here: a card's project gets ITS OWN checkout's identity, set per run
+# (node-pool's `sync_repo`) from the Mac's `git config`. A machine-wide one would be wrong the
+# moment two projects with different identities ran on the same node, and stale the moment a
+# snapshot outlived the Mac config it was built from.
 git clone -q https://github.com/armonia/topics-app topics-app
 cd topics-app && git checkout -q @COMMIT@
 bash scripts/install-bun.sh

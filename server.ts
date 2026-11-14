@@ -282,6 +282,7 @@ import {
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
 import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { repoIdentity } from "./server/lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
@@ -2323,6 +2324,12 @@ const taskDispatcher = createTaskDispatcher({
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
+    // The same checkout the planter reads origin from: the node must sign the
+    // run's commits with it, or the land (LAND-13) refuses them as a foreign author.
+    gitIdentityOf: (projectId) => {
+      const path = projectPathForNode(projectId);
+      return path ? repoIdentity(path) : Promise.resolve(null);
+    },
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).
