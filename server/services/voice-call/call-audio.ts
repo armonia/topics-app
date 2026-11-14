@@ -33,6 +33,7 @@ import {
   PROGRESS_FROM,
   RING_MAX,
   STEP_GAP,
+  STILL_THERE,
   STILL_THINKING,
   ms,
 } from "./call-rules";
@@ -251,7 +252,7 @@ export abstract class CallAudio extends CallState {
       }
     }
     if (this.hangupAsked !== null && now - this.hangupAsked > 8000) this.hangupWhenSaid = true;
-    if (this.hangupWhenSaid && !speaking && !this.generating) return this.finish("chiusa da Jarvis", true);
+    if (this.hangupWhenSaid && !speaking && !this.generating) return this.finish(this.idleBye ? "silenzio" : "chiusa da Jarvis", true);
     if (now - at > MAX_CALL) return this.finish("durata massima", true);
     if (!speaking && !this.generating && !this.vad.isOpen() && this.replies.length > 0) {
       const t = this.replies.shift()!;
@@ -260,8 +261,26 @@ export abstract class CallAudio extends CallState {
       this.replySince = this.replies.length === 0 ? null : now;
       this.send({ type: "text", text: replyText(t, this.persona) });
     }
+    if (speaking || this.generating || this.vad.isOpen()) this.lastSound = now;
+    const calm = !speaking && !this.generating && !this.vad.isOpen() && this.asking === null && this.replies.length === 0 && !this.leave && this.hangupAsked === null;
+    // a long silence with nothing running: once "are you still there?", as a
+    // person would. Before, the line stayed mute for 3 minutes and then dropped
+    if (calm && this.greeted && !this.spec.group && !this.askedStillThere && this.waitingJobs === 0 && now - this.lastSound > STILL_THERE) {
+      this.askedStillThere = true;
+      this.textTurn = true;
+      this.deps.log("ci_sei", { s: Math.floor((now - this.lastSound) / 1000) });
+      this.send({ type: "text", text: "[Al telefono è in silenzio da mezzo minuto. Chiedigli in tre parole se c'è ancora, niente altro.]" });
+    }
     const idle = this.waitingJobs > 0 ? IDLE_WAITING : IDLE;
-    if (!speaking && now - this.lastVoice > idle) this.finish("silenzio", true);
+    if (!speaking && !this.idleBye && now - this.lastVoice > idle) {
+      // the call does not drop in silence: a goodbye first, then it closes when said (or after 8 s)
+      if (this.spec.group || !this.greeted) return this.finish("silenzio", true);
+      this.idleBye = true;
+      this.textTurn = true;
+      this.hangupAsked ??= now;
+      this.deps.log("silenzio_saluta", { s: Math.floor((now - this.lastVoice) / 1000) });
+      this.send({ type: "text", text: "[Nessuna risposta da troppo tempo: salutalo in una frase breve, la chiamata si chiude.]" });
+    }
   }
 
   // ─── the other side's audio ───────────────────────────────────────────────
@@ -308,6 +327,15 @@ export abstract class CallAudio extends CallState {
     }
     if (this.vad.voicedRun > 0) {
       this.lastVoice = this.deps.now();
+      this.lastSound = this.lastVoice;
+      this.askedStillThere = false;
+      if (this.idleBye) {
+        // they are there after all: the goodbye for silence no longer closes the call
+        this.idleBye = false;
+        this.hangupAsked = null;
+        this.hangupWhenSaid = false;
+        this.deps.log("chiusura_annullata", { perche: "parla" });
+      }
       this.spokeAt = this.lastVoice;
       this.heardAfterAnswer = true;
     }

@@ -15,6 +15,8 @@ export const MAX_CALL = 30 * 60_000;
 /** Nobody talks for long: it closes (with a handed-off job running it waits longer, the result can arrive). */
 export const IDLE = 3 * 60_000;
 export const IDLE_WAITING = 10 * 60_000;
+/** Nobody talks for this long (and no job runs): the assistant asks once if they are still there, as a person would. */
+export const STILL_THERE = 30_000;
 /** Voice in a row that interrupts the assistant while it talks (4 x 60 ms): less, and a cough or an echo silence it. */
 export const BARGE_FRAMES = 4;
 /** After this silence without an answer a filler starts: the median answer is 0.9 s, the slow ones 1.6-1.8. */
@@ -150,4 +152,20 @@ const HELLO = new Set(["pronto", "pronti", "si", "sì", "ciao", "eccomi", "dimmi
 export function onlyGreeting(text: string): boolean {
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
   return words.length > 0 && words.length <= 3 && words.every((w) => HELLO.has(w));
+}
+
+const LISTENING = new Set([
+  "si", "sì", "ok", "okay", "mh", "mhm", "mm", "mmh", "ah", "eh", "uh", "oh", "e", "certo", "giusto", "esatto", "bene", "va",
+  "vabbè", "vabbe", "capito", "perfetto", "chiaro", "ecco", "eccoci", "già", "ottimo", "d", "accordo", "infatti", "appunto", "yes",
+]);
+
+/**
+ * "Mh", "ok", "va bene": what one says to show they are listening. Said over the
+ * assistant it must not stop it: 6 of the 17 interruptions whisper confirmed
+ * (10-14/11) were only this ("ah", "Ok", "va bene", "eccoci"). A "no", a "ma",
+ * a "basta" or any other word is a real interruption.
+ */
+export function onlyListening(text: string): boolean {
+  const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  return words.length > 0 && words.length <= 4 && words.every((w) => LISTENING.has(w));
 }

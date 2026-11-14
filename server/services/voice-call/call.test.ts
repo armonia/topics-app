@@ -310,6 +310,77 @@ describe("call loop", () => {
     expect(w.events()).toContain("interrotto");
   });
 
+  // 10-14/11: 6 of the 17 interruptions whisper confirmed were "ah", "Ok", "va bene", "eccoci"
+  test("a 'mh, va bene' said over the assistant does not stop it; an 'ok ma' does", async () => {
+    const w = new World({ whisper: true });
+    await w.greet();
+    w.geminiSays(8000, "Ti spiego come funziona il preventivo, sono tre parti", { turn: false });
+    await w.advance(300);
+    w.say(900);
+    await w.advance(1000);
+    w.whispers.at(-1)!.resolve({ ok: true, text: "Mh, va bene." });
+    await w.advance(200);
+    expect(w.has("solo_ascolto")).toBe(true);
+    expect(w.has("interrotto")).toBe(false);
+    expect(w.voicedMs(180)).toBeGreaterThan(0);
+    await w.advance(1500);
+    w.say(900);
+    await w.advance(1000);
+    w.whispers.at(-1)!.resolve({ ok: true, text: "ok ma" });
+    await w.advance(100);
+    expect(w.events()).toContain("interrotto");
+  });
+
+  test("an interrupted answer reaches the brain only as far as it was heard", async () => {
+    const w = new World({ brain: true });
+    await w.greet();
+    w.geminiSays(6000, "uno due tre quattro cinque sei sette otto nove dieci", { turn: false });
+    await w.advance(1200);
+    w.say(800);
+    await w.advance(600);
+    expect(w.has("interrotto")).toBe(true);
+    w.main.emit({ type: "turnComplete" });
+    await w.advance(1500);
+    const part = String(w.first("sentito_in_parte")?.data.detto);
+    expect(part).toContain("uno");
+    expect(part).not.toContain("dieci");
+    w.main.emit({ type: "heard", text: "aspetta" });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "aspetta" } });
+    await w.advance(100);
+    const user = String(w.thinks.at(-1)!.args[1]);
+    expect(user).toContain("interrotto qui");
+    expect(user).not.toContain("nove dieci");
+  });
+
+  test("after half a minute of silence it asks once if they are still there", async () => {
+    const w = new World();
+    await w.greet();
+    await w.advance(29_000);
+    expect(w.has("ci_sei")).toBe(false);
+    await w.advance(2000);
+    expect(w.main.texts().filter((t) => t.includes("se c'è ancora")).length).toBe(1);
+    w.geminiSays(600, "Ci sei ancora?", { turn: true });
+    await w.advance(40_000);
+    expect(w.log.filter((l) => l.event === "ci_sei").length).toBe(1);
+  });
+
+  test("a call silent for minutes says goodbye before it closes, and their voice cancels the goodbye", async () => {
+    const w = new World();
+    await w.greet();
+    await w.advance(181_000);
+    expect(w.has("silenzio_saluta")).toBe(true);
+    expect(w.has("fine")).toBe(false);
+    w.say(700);
+    await w.advance(1500);
+    expect(w.has("chiusura_annullata")).toBe(true);
+    await w.advance(10_000);
+    expect(w.has("fine")).toBe(false);
+    await w.advance(181_000);
+    w.geminiSays(800, "Ok, ti lascio. Ciao!", { turn: true });
+    await w.advance(2000);
+    expect(w.first("fine")?.data.motivo).toBe("silenzio");
+  });
+
   test("a handed-off job is told when the line is free, in two or three phrases", async () => {
     const w = new World();
     await w.greet();

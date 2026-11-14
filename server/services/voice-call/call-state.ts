@@ -184,6 +184,15 @@ export abstract class CallState {
   protected waitingJobs = 0;
   protected heard = "";
   protected said = "";
+  // how much of the current answer was pushed to the phone (ms), and the part
+  // of its text they really heard when they interrupted it: the brain must not
+  // believe they heard the rest (it would build on things never said)
+  protected answerMs = 0;
+  protected saidHeard: string | null = null;
+  // the last moment either side made a sound: the silence that asks "are you still there?" counts from here
+  protected lastSound: number;
+  protected askedStillThere = false;
+  protected idleBye = false;
   protected readonly out: CallOutcome;
   protected recorder: Recorder | null = null;
   protected openText: string;
@@ -205,6 +214,7 @@ export abstract class CallState {
     this.start = now;
     this.lastGemini = now;
     this.lastVoice = now;
+    this.lastSound = now;
     this.answerDoneAt = now;
     this.mouthStretch = new Stretch(spec.speed);
     this.stretch = new Stretch(spec.speed);
@@ -271,6 +281,13 @@ export abstract class CallState {
     this.mouthLive = false;
     this.mouthStretch.reset();
     this.dropRest = this.generating;
+    // the text runs ahead of the voice: only the share of the answer played out was heard
+    const words = this.said.trim().split(/\s+/).filter(Boolean);
+    if (words.length > 0 && this.answerMs > 0) {
+      const share = Math.max(0, Math.min(1, (this.answerMs - notSaid) / this.answerMs));
+      const kept = words.slice(0, Math.round(words.length * share)).join(" ");
+      this.saidHeard = kept ? `${kept}… (interrotto qui: il resto non l'ha sentito)` : "(interrotto prima che sentisse qualcosa)";
+    }
     const [db, floor] = this.vad.levelsDb();
     this.deps.log(ev, { ms_non_detti: notSaid, db: Math.round(db), fondo: Math.round(floor) });
     // the interrupted goodbye was not heard: closing now would hang up in their face
