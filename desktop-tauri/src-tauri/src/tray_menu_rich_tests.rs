@@ -89,8 +89,18 @@ fn every_clickable_row_has_an_action_or_is_a_tray_row() {
 }
 
 #[test]
-fn the_client_list_wins_over_the_service_list() {
-    let client = vec![MachineCard { id: "n1".into(), name: "Node".into(), badge: "acceso".into(), ..Default::default() }];
-    assert_eq!(machines_for(&client, &snap())[0].id, "n1");
-    assert_eq!(machines_for(&[], &snap())[0].id, "local");
+fn the_client_machines_join_the_service_ones_without_doubles() {
+    let card = |id: &str, name: &str, local: bool| MachineCard { id: id.into(), name: name.into(), local, badge: "Acceso".into(), ..Default::default() };
+    let service: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.id.clone()).collect();
+    assert_eq!(service[0], "local");
+    // this computer and a machine the service already names stay the service's; a node it does not know is added after
+    let names: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.name.clone()).collect();
+    let client = vec![card("me", "anything", true), card("twin", &names[names.len() - 1].to_uppercase(), false), card("n1", "Node", false)];
+    let ids: Vec<String> = machines_for(&client, &snap()).iter().map(|m| m.id.clone()).collect();
+    let mut want = service.clone();
+    want.push("n1".into());
+    assert_eq!(ids, want);
+    // with no service there is nothing to merge: the client list is the menu
+    let none = Snapshot { board: None, ..snap() };
+    assert_eq!(machines_for(&client, &none).len(), 3);
 }

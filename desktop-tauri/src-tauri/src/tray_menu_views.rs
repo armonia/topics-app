@@ -87,6 +87,25 @@ const DIAL_ROWS: [(&str, &str); 4] = [("disk", "Disco"), ("mem", "Memoria"), ("c
 const CARD_X: f32 = PAD;
 const CARD_W: f32 = MENU_W - 2.0 * PAD;
 
+/// Vertical layout of a machine card, in points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CardLayout {
+    /// Baseline of the last legend row (GPU).
+    pub last_row: f32,
+    /// Baseline of the reason line.
+    pub reason_y: f32,
+    /// Height of the card's frame.
+    pub h: f32,
+}
+
+/// The four legend rows reach lower than the dial: the card ends under whichever is
+/// lower, and the reason line goes below both (it used to sit on the GPU row).
+pub fn card_layout(cy: f32, edge: f32, with_reason: bool) -> CardLayout {
+    let last_row = cy - edge + 12.0 + (DIAL_ROWS.len() as f32 - 1.0) * 17.0;
+    let body = (cy + 12.0).max(last_row + 4.0);
+    CardLayout { last_row, reason_y: body + 18.0, h: body + if with_reason { 26.0 } else { 10.0 } }
+}
+
 /// The same card for every machine: icon, name, state badge, the half-circle
 /// dial (disk, memory, CPU and GPU) with its legend, and the reason line. A
 /// machine with no readings gets the same card with the bands switched off.
@@ -97,7 +116,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let edge = r2 + band / 2.0;
     let cx = CARD_X + 16.0 + edge;
     let cy = 46.0 + edge;
-    let h = cy + 16.0 + if m.reason.is_empty() { 8.0 } else { 24.0 };
+    let CardLayout { reason_y, h, .. } = card_layout(cy, edge, !m.reason.is_empty());
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(CARD_X, 3.0, CARD_W, h, p);
     let head = tone(m.level);
@@ -108,7 +127,8 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let name = Pic::fit(Face::Sans, &m.name, 13.0, CARD_W - 40.0 - badge_w - 40.0);
     pic.text(Face::Sans, &name, CARD_X + 38.0, 26.0, 13.0, p.fg, 1.0);
     if !m.badge.is_empty() {
-        let off = ["dorme", "spento", "offline", "non risponde", "stopped"].iter().any(|w| m.badge.eq_ignore_ascii_case(w));
+        // a machine that is off or silent wears a grey pill: its tone is in the icon and the reason line
+        let off = ["dorme", "spento", "fermo", "offline", "non risponde", "stopped", "asleep", "off", "not answering"].iter().any(|w| m.badge.eq_ignore_ascii_case(w));
         pic.pill(CARD_X + CARD_W - 14.0, 21.0, &m.badge, if off { p.fg } else { head });
     }
     let find = |k: &str| m.metrics.iter().find(|x| x.key == k);
@@ -152,7 +172,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     if !m.reason.is_empty() {
         let line = Pic::fit(Face::SansRegular, &m.reason, 11.0, CARD_W - 32.0);
         let (c, a) = if m.level >= 1 { (head, 1.0) } else { (p.fg, p.dim) };
-        pic.text(Face::SansRegular, &line, CARD_X + 16.0, cy + 29.0, 11.0, c, a);
+        pic.text(Face::SansRegular, &line, CARD_X + 16.0, reason_y, 11.0, c, a);
     }
     pic
 }

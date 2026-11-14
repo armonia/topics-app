@@ -61,6 +61,19 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
+fn the_reason_line_sits_below_the_legend_inside_the_card() {
+    // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
+    let (edge, cy) = (38.0, 84.0);
+    let with = card_layout(cy, edge, true);
+    // 11 pt text: its top must clear the GPU row's baseline, and its baseline stay inside the frame
+    assert!(with.reason_y - 11.0 > with.last_row + 2.0, "{with:?}");
+    assert!(with.reason_y + 4.0 <= with.h + 3.0, "{with:?}");
+    let without = card_layout(cy, edge, false);
+    assert!(without.last_row + 4.0 <= without.h + 3.0, "{without:?}");
+    assert!(with.h > without.h);
+}
+
+#[test]
 fn every_view_renders_ink_at_the_menu_width() {
     let p = Palette::new(true);
     let m = machine_cards_from_board(BOARD);
@@ -76,7 +89,8 @@ fn every_view_renders_ink_at_the_menu_width() {
 
 /// TRAY_MENU_SNAPSHOT_DIR=/tmp/x cargo test --lib tray_menu_views -- snapshot
 /// writes machines.png, quota.png and backup.png (dark and light) from the fake answers above,
-/// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given.
+/// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given, plus the
+/// Topics machines (the client's `set_app_status` list) from TRAY_MENU_SNAPSHOT_MACHINES.
 #[test]
 fn snapshot() {
     let Ok(dir) = std::env::var("TRAY_MENU_SNAPSHOT_DIR") else { return };
@@ -86,7 +100,11 @@ fn snapshot() {
     for (name, dark) in [("dark", true), ("light", false)] {
         let p = Palette::new(dark);
         // a stack of the views, on the menu's own background, as the menu shows them
-        let mut pics: Vec<Pic> = machine_cards_from_board(&board).iter().map(|m| draw_machine_card(m, p)).collect();
+        let client: Vec<crate::tray_menu_views::MachineCard> = std::env::var("TRAY_MENU_SNAPSHOT_MACHINES").ok()
+            .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())
+            .unwrap_or_default().iter().filter_map(|m| m.card()).collect();
+        let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
+        let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
         pics.extend(backup_card(&backup, now).map(|b| draw_backup_card(&b, p)));
         let total: u32 = pics.iter().map(|x| x.cv.h).sum();
