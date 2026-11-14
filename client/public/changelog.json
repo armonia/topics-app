@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.117",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "banco voce: «chiede_se_ce», per lo scenario di rumore della stanza dopo un risultato (#1015)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.116",
     "date": "2026-11-14",
     "sections": {

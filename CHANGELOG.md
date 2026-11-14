@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.117 — 2026-11-15
+
+### Sotto il cofano
+- banco voce: «chiede_se_ce», per lo scenario di rumore della stanza dopo un risultato (#1015)
+
 ## 2.3.116 — 2026-11-14
 
 ### Sotto il cofano
