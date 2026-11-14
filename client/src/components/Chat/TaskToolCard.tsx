@@ -92,16 +92,15 @@ export function TaskToolCard({ detail, isRunning, isError, error }: {
       title={canOpen ? tr('chat.taskCard.open') : undefined}
       className={`space-y-1.5 text-mini ${canOpen ? 'cursor-pointer rounded-lg hover:bg-app-hover/40' : ''}`}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {refused
           ? <Ban size={12} className="flex-shrink-0 text-red-500" />
           : <Phase size={12} className={`flex-shrink-0 ${phaseIcon?.tone ?? 'text-app-text-muted'}`} />}
-        <span className="truncate font-medium text-app-text" data-testid="task-card-title">{title}</span>
+        <span className="min-w-0 max-w-full grow basis-24 truncate font-medium text-app-text" data-testid="task-card-title">{title}</span>
         <span className="flex-shrink-0 text-app-text-secondary" data-testid="task-card-phase">
           {refused ? tr('chat.taskCard.refused') : phase ? tr(`chat.taskCard.phase.${phase}`) : isRunning ? tr('chat.taskCard.loading') : tr('chat.taskCard.unknown')}
         </span>
         {agent && <span className="flex-shrink-0 text-app-text-muted" data-testid="task-card-agent">{tr(`chat.taskCard.agent.${agent}`)}</span>}
-        <span className="ml-auto" />
         {task?.model && <span className="truncate font-mono text-app-text-muted" data-testid="task-card-model">{task.model}</span>}
         {machine && (
           <span className="inline-flex flex-shrink-0 items-center gap-1 text-app-text-muted" data-testid="task-card-machine">
