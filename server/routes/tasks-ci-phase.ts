@@ -27,6 +27,11 @@ export interface CiPhaseDeps {
   cardTurnIsLive(task: Task): boolean;
   /** The land queue's own door: merge, confirm on main, close. */
   landDirect(projectId: string, taskId: string): unknown;
+  /**
+   * "Asked, not on main yet": the same stamp the direct land writes before it queues. Entering the CI
+   * phase is a land asked, not a land done, and a `landed` left over from a deduction must not survive it.
+   */
+  markLandPending?: (taskId: string) => void;
   whenLanded(taskId: string): Promise<unknown> | null;
   tryAutoLand(projectId: string, taskId: string): Promise<unknown>;
   integrationRepo?: (taskId: string) => Promise<string | null>;
@@ -126,6 +131,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const who = landOpts?.recheck ? "auto" : "human";
     let task: Task;
     try { task = deps.svc.setLandIntent({ taskId, who, inCi: true }); } catch { return false; }
+    // Card 572f8a09 entered the phase carrying a `landed` the audit had deduced from a merge commit, and
+    // everything downstream (the phase, a session closing it as "already on main") read it as a merge.
+    try { deps.markLandPending?.(taskId); } catch { /* the queue is what matters */ }
     const already = integration.pending(projectId).includes(taskId);
     if (!already) {
       try {
@@ -195,7 +203,11 @@ export function createCiPhase(deps: CiPhaseDeps) {
       if (!after) return;
       if (after.status === "done") { try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } return; }
       // Back with the agent (a conflict the land met): the decision stays, the fix comes back here.
-      if (after.status !== "review" || after.landingState === "landed") return;
+      if (after.status !== "review") return;
+      // Merged and confirmed on main, still in review (open steps): the land's own witness, not a
+      // deduction. A deduced `landed` after a land that merged nothing is exactly what kept card
+      // 572f8a09 in the phase, measured again and again "as already landed" (c2908b93).
+      if (after.landingState === "landed" && landingWitnessed(taskId)) return;
       // Still in review after a green CI: the land refused (dirty checkout, open steps, nothing to land...).
       // Measuring again would pay a CI run for the same refusal, so a person reads why.
       giveUp(projectId, taskId, "il land dopo la CI verde non è andato: leggi l'ultima riga del sistema nel thread");
@@ -231,6 +243,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
     },
     log: (line) => console.warn(line),
   });
+
+  /** Did a land SEE this card's merge on main? A deduced verdict leaves the flag at 0. */
+  function landingWitnessed(taskId: string): boolean {
+    const row = deps.db.query("SELECT landing_witnessed AS w FROM tasks WHERE id = ?").get(taskId) as { w?: number | null } | null;
+    return row?.w === 1;
+  }
 
   /** The CI phase stops for this card: the decision goes back to a person, with the reason in front. */
   function giveUp(projectId: string, taskId: string, why: string): void {
