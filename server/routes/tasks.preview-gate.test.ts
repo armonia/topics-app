@@ -117,7 +117,7 @@ describe("the preview gate", () => {
     expect((await deliver(r, t.id))!.status).toBe(200);
   });
 
-  // No agent on this fleet can open a browser for its own before/after shot
+  // No agent opens a browser by hand for its own before/after shot
   // (kickoff rule), so this gate is the agent's only path to evidence: before
   // refusing, it must try the auto-capture ("Ricattura evidenza") itself.
   test("no preview yet, but an auto-capture succeeds: tried once, then delivered", async () => {

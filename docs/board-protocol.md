@@ -258,16 +258,17 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
-   **Su questo Mac nessuna clip nasce da un browser** (dal 15/09/2026: niente
-   Chromium qui). Una tab del task che nessuna finestra mostra gira in un browser
+   **Niente browser aperto a mano per filmare o fotografare.** Una tab del task che nessuna finestra mostra gira in un browser
    headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
    `screencapture -R` filmerebbe lo schermo di chi lavora, non quella pagina.
    `PREVIEW_RULE` ammette `screencapture -V <secondi> -R <x,y,w,h> <file>.mov` solo
    su una superficie GIA' a schermo, e per una pane browser solo dopo
-   `browser_focus_tab`; altrimenti la prova del comportamento e' la sua spec e2e,
-   nominata nel commento di consegna, con uno screenshot o un diagramma come
-   anteprima. La clip qui sotto resta per il PC Windows e la CI, e l'envelope non
-   la nomina.
+   `browser_focus_tab`. Screenshot e video si producono dalla spec e2e del
+   progetto: `page.screenshot` a piu' larghezze, `test.use({ video: 'on' })`,
+   eseguita col comando e2e del progetto; se una guardia della macchina la ferma,
+   si segue cio' che stampa. Per card che chiedono piu' larghezze o un confronto
+   affiancato la prova sono le immagini della spec, allegate con
+   `comment_task media`. La spec va nominata nel commento di consegna.
 
    **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
    `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo
