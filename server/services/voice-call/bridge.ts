@@ -14,6 +14,7 @@ import { quick, think, type Complete } from "./brain";
 import { Call, runClock, versoOf, type CallDeps, type CallOutcome } from "./call";
 import { DEFAULT_VOCABULARY, spokenNow, voiceHome as defaultVoiceHome, voiceSettings, type VoiceSettings } from "./config";
 import { fillerDir, loadFillers } from "./fillers";
+import { previousCall, rememberCall } from "./call-memory";
 import { openGemini as realOpenGemini, sayOnce, usageUsd, type OpenGemini } from "./gemini";
 import type { Direction } from "./prompts";
 
@@ -256,12 +257,19 @@ export class VoiceBridgeSession {
         group: s.group,
         speed: s.speed,
         fillers,
+        previous: s.group || s.direction.kind === "on_behalf" ? null : previousCall(s.name, Date.now(), settings.resumeMin * 60_000),
       },
       callDeps,
     );
     this.call = call;
     this.stopClock = (this.deps.clock ?? runClock)(call);
-    void call.done.then((o) => this.finish(o));
+    void call.done.then((o) => {
+      if (!s.group && s.direction.kind !== "on_behalf") {
+        const m = call.memory();
+        rememberCall(s.name, m.lines, m.dropped, Date.now());
+      }
+      return this.finish(o);
+    });
   }
 
   private handoff(callId: string, task: string): Promise<void> {

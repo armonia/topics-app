@@ -24,6 +24,8 @@ const arg = (name: string): string | undefined => {
 const port = Number(arg("--port") ?? process.env.PORT ?? 13334);
 if (port === 3333) throw new Error("the bench never runs on the live port");
 
+// the scenarios are separate calls of the same person a minute apart, not call backs
+process.env.TOPICS_VOICE_RESUME_MIN ??= "0";
 const settings = voiceSettings();
 const key = process.env.ANTHROPIC_API_KEY ?? "";
 let complete: Complete | null = null;

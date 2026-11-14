@@ -1,4 +1,5 @@
 import type { DashboardKPIs } from '../../lib/api';
+import { useT } from '../../hooks/useT';
 import { KPICard } from './KPICard';
 import {
   CalendarClock,
@@ -40,12 +41,17 @@ function uncertainNote(n: number | undefined): string | null {
 }
 
 export function KPICardGrid({ kpis }: KPICardGridProps) {
+  const tr = useT();
+  // Columns follow the pane, not the window: five fixed columns on a 375px
+  // phone left each card 60px wide and clipped every value to «$…» and «0.…».
+  // Two per row on a phone, three in a narrow pane, five from 48rem up.
   return (
-    <div data-testid="kpi-card-grid" className="grid grid-cols-5 gap-2">
+    <div className="@container">
+    <div data-testid="kpi-card-grid" className="grid grid-cols-2 gap-2 @lg:grid-cols-3 @3xl:grid-cols-5">
       <KPICard
-        label="Throughput (Today)"
+        label={tr('dashboard.kpi.throughputDay')}
         value={kpis ? kpis.throughputDay : null}
-        unit="tasks"
+        unit={tr('dashboard.unit.tasks')}
         // Fa FAMIGLIA con la card della settimana qui sotto: i due numeri sono
         // la stessa misura su due finestre, quindi il glifo deve dire la
         // finestra. Il lampo che c'era diceva «veloce», che qui non c'entra —
@@ -54,36 +60,36 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         trend={kpis && kpis.throughputDay > 0 ? 'up' : 'flat'}
       />
       <KPICard
-        label="Throughput (Week)"
+        label={tr('dashboard.kpi.throughputWeek')}
         value={kpis ? kpis.throughputWeek : null}
-        unit="tasks"
+        unit={tr('dashboard.unit.tasks')}
         icon={CalendarCheck}
         trend={kpis && kpis.throughputWeek > 0 ? 'up' : 'flat'}
       />
       <KPICard
-        label="Avg Cycle Time"
+        label={tr('dashboard.kpi.cycleTime')}
         value={kpis ? kpis.avgCycleTimeHours : null}
-        unit="hrs"
+        unit={tr('dashboard.unit.hours')}
         icon={Clock}
         trend={kpis && kpis.avgCycleTimeHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
       <KPICard
-        label="Work in Progress"
+        label={tr('dashboard.kpi.wip')}
         value={kpis ? kpis.wipCount : null}
-        unit="tasks"
+        unit={tr('dashboard.unit.tasks')}
         icon={Loader}
         trend={kpis && kpis.wipCount > 0 ? 'up' : 'flat'}
       />
       <KPICard
-        label="Error Rate"
+        label={tr('dashboard.kpi.errorRate')}
         value={kpis ? `${(kpis.errorRate * 100).toFixed(1)}%` : null}
         icon={AlertTriangle}
         trend={kpis && kpis.errorRate > 0.05 ? 'up' : 'flat'}
         upIsGood={false}
       />
       <KPICard
-        label="Token Spend (Today)"
+        label={tr('dashboard.kpi.spendDay')}
         value={kpis ? `$${kpis.tokenSpendDay.toFixed(2)}` : null}
         icon={DollarSign}
         trend={kpis && kpis.tokenSpendDay > 0 ? 'up' : 'flat'}
@@ -91,7 +97,7 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         partialNote={uncertainNote(kpis?.tokenSpendDayUncertain)}
       />
       <KPICard
-        label="Token Spend (Week)"
+        label={tr('dashboard.kpi.spendWeek')}
         value={kpis ? `$${kpis.tokenSpendWeek.toFixed(2)}` : null}
         icon={Wallet}
         trend={kpis && kpis.tokenSpendWeek > 0 ? 'up' : 'flat'}
@@ -99,20 +105,21 @@ export function KPICardGrid({ kpis }: KPICardGridProps) {
         partialNote={uncertainNote(kpis?.tokenSpendWeekUncertain)}
       />
       <KPICard
-        label="Approval Turnaround"
+        label={tr('dashboard.kpi.approvalTurnaround')}
         value={kpis ? kpis.approvalTurnaroundHours : null}
-        unit="hrs"
+        unit={tr('dashboard.unit.hours')}
         icon={Timer}
         trend={kpis && kpis.approvalTurnaroundHours > 0 ? 'down' : 'flat'}
         upIsGood={false}
       />
       <KPICard
-        label="Pending Approvals"
+        label={tr('dashboard.kpi.pendingApprovals')}
         value={kpis ? kpis.pendingApprovals : null}
         icon={CheckCircle}
         trend={kpis && kpis.pendingApprovals > 0 ? 'up' : 'flat'}
         upIsGood={false}
       />
+    </div>
     </div>
   );
 }

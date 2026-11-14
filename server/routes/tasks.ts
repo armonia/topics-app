@@ -101,6 +101,7 @@ import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { createAutoLander } from "../services/auto-land";
+import { readWorkflowRules } from "../services/board-workflow";
 import type { IntegrationMeasure } from "../services/integration-queue";
 import { createCiPhase } from "./tasks-ci-phase";
 import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "../services/node-delivery-meter";
@@ -1779,6 +1780,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
+    personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
     // On a board with the CI phase the land waits for the CI, not for every open turn on the server: a
     // person's "Landa" never waited for them either, and the reload that follows resumes the turns it cuts
     // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer gave

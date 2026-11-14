@@ -7,6 +7,7 @@ import { Call, CLOCK_MS, type CallDeps, type CallSpec, type WhisperResult } from
 import { MOUTH, type Thought } from "./brain";
 import type { Cmd, GeminiEvent, OpenGemini } from "./gemini";
 import type { Direction } from "./prompts";
+import type { PreviousCall } from "./call-rules";
 
 export class FakeGemini {
   sent: Cmd[] = [];
@@ -50,6 +51,7 @@ export interface WorldOptions {
   record?: string | null;
   speed?: number;
   handoff?: (task: string) => Promise<void>;
+  previous?: PreviousCall | null;
 }
 
 export class World {
@@ -97,6 +99,7 @@ export class World {
       group: o.group ?? false,
       speed: o.speed ?? 1,
       fillers: o.fillers ?? [],
+      previous: o.previous ?? null,
     };
     this.call = new Call(spec, deps);
   }

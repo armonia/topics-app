@@ -20,7 +20,7 @@ import { joinSamples } from "./audio/pcm";
 import { clampSpeed, echoOf, heardWrong } from "./audio/natural";
 import { asksToLeave, namesAssistant, repeatedQuestion } from "./prompts";
 import { CallAudio } from "./call-audio";
-import { CLOCK_MS, FOLLOW_UP, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type CallOutcome, type WhisperResult } from "./call-rules";
+import { CLOCK_MS, FOLLOW_UP, onlyGreeting, onlyListening, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type CallOutcome, type WhisperResult } from "./call-rules";
 
 export * from "./call-rules";
 
@@ -70,6 +70,7 @@ export class Call extends CallAudio {
         if (!this.generating) {
           this.generating = true;
           this.playNamed = false;
+          if (this.said.trim() === "") this.answerMs = 0;
           if (this.spokeAt !== null && this.spokeAt > this.answerDoneAt) {
             this.deps.log("latenza", { ms: ms(this.deps.now() - this.spokeAt) });
           }
@@ -81,6 +82,7 @@ export class Call extends CallAudio {
         this.fillerArmed = true;
         this.anchor();
         const pcm = this.stretch.push(this.rs.push(e.pcm));
+        this.answerMs += pcm.length / 16;
         const now = this.deps.now();
         const open = !this.spec.group || this.textTurn || (this.addressedUntil !== null && now < this.addressedUntil);
         const pending = this.deps.whisper !== null && !this.spec.group && !this.textTurn && this.answerSeq > 0 && (this.wtext === null || this.wtext.seq < this.answerSeq);
@@ -146,7 +148,10 @@ export class Call extends CallAudio {
             this.dialog.push(this.persona.name, w);
           }
         }
-        if (this.brainOn) this.dialog.push(name, this.said);
+        if (this.brainOn) this.dialog.push(name, this.saidHeard ?? this.said);
+        if (this.saidHeard !== null) this.deps.log("sentito_in_parte", { detto: this.saidHeard });
+        this.saidHeard = null;
+        this.answerMs = 0;
         this.prevHeard = this.heard;
         this.heard = "";
         this.prevSaid = this.said;
@@ -320,6 +325,22 @@ export class Call extends CallAudio {
 
   protected onCheck(seq: number, w: WhisperResult): void {
     if (this.ended || this.check?.seq !== seq) return;
+    if (!this.greeted && w.ok && w.text !== null && onlyGreeting(w.text)) {
+      // "Hello?" over the greeting: it goes on, and the hello needs no answer
+      this.check = null;
+      this.paused = false;
+      this.held = [];
+      this.deps.log("saluto_sopra", { whisper: w.text });
+      return;
+    }
+    if (this.greeted && w.ok && w.text !== null && onlyListening(w.text)) {
+      // "mh", "ok", "va bene": they are listening, the assistant goes on
+      this.check = null;
+      this.paused = false;
+      this.held = [];
+      this.deps.log("solo_ascolto", { whisper: w.text });
+      return;
+    }
     if (w.ok && w.text !== null && !echoOf(this.said, w.text) && !echoOf(this.prevSaid, w.text)) {
       this.deps.log("voce_confermata", { whisper: w.text });
       return this.cut("interrotto");
@@ -542,6 +563,14 @@ export class Call extends CallAudio {
   /** the call is over from outside: they hung up, refused, the audio closed */
   endedByPeer(why: string): void {
     this.finish(why, false);
+  }
+
+  /** The dialog of this call and whether it dropped without a goodbye: the short memory for a call back. */
+  memory(): { lines: readonly string[]; dropped: boolean } {
+    // only this call: the one before, if it was there, is already older than the next call needs
+    const lines = this.dialog.lines.slice(this.dialog.lines.lastIndexOf("[Questa telefonata]") + 1);
+    const dropped = !this.out.ours && !this.leave && this.hangupAsked === null;
+    return { lines: this.brainOn && this.answeredAt !== null ? lines : [], dropped };
   }
 
   /** the service is stopping, or the channel's socket dropped */

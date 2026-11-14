@@ -44,12 +44,47 @@ fn sections_come_in_the_order_of_the_original_menu() {
 
 #[test]
 fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
-    let t = dump_text(&project_table(&Some(LIVE.into())));
+    let t = dump_text(&project_table(&Some(LIVE.into()), &None, 1_800_000_000));
     assert!(t.starts_with("PROGETTI | Claude | Codex | Muse | ritmo/h | stato"));
     let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
     assert!(busy < idle && !t.contains("Gone"));
     assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | attivo"), "{t}");
     assert!(t.contains("Idle one | – | – | – | – | fermo"));
+}
+
+const MACHINES: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
+
+#[test]
+fn a_remote_machine_submenu_holds_the_graphic_detail_not_just_text() {
+    let sn = Snapshot { machines: Some(MACHINES.into()), ..snap() };
+    let t = dump_text(&build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines_for(&[], &sn), true));
+    assert!(t.contains("[card machine-detail:pc]"), "{t}");
+    assert!(!t.contains("Si sta addormentando"), "the lines live in the card");
+    let plain = dump_text(&menu());
+    assert!(!plain.contains("machine-detail") && plain.contains("[card machine:pc]"));
+}
+
+#[test]
+fn the_project_submenu_has_week_today_last_job_and_budget_and_priority() {
+    let live = r#"{"projects":[{"name":"p","title":"P","claude":44.9,"codex":0.4,"muse":0,"total":45.3,"state":"attivo","priority":"alta","budgetPct":10,
+      "lastJob":{"task":"fix it","status":"done","endedAt":1799999400000},"agents":{"count":0,"list":[]}}]}"#;
+    let heavy = r#"{"sessions":[{"project":"p","sessions":14,"tokens":451644590}]}"#;
+    let t = dump_text(&project_table(&Some(live.into()), &Some(heavy.into()), 1_800_000_000));
+    assert!(t.contains("Questa settimana | Claude 44,9% | Codex 0,4% | Muse –"), "{t}");
+    assert!(t.contains("Oggi · 14 sessioni Claude · 451,6 M token"), "{t}");
+    assert!(t.contains("Ultimo lavoro in coda · fix it · 10 min fa"), "{t}");
+    assert!(t.contains("Budget e priorità · budget 10% Claude · priorità alta"), "{t}");
+    assert!(t.contains("Apri in Topics") && t.contains("Budget 25%") && t.contains("Priorità alta ✓"), "the new rows stay");
+    assert_eq!(t.matches("Ultimo lavoro").count(), 1, "no second copy: {t}");
+}
+
+#[test]
+fn the_options_open_with_the_subscription_limits_and_the_menu_ends_with_the_dashboard() {
+    let t = dump_text(&menu());
+    let (opts, limits) = (t.find("Altri abbonamenti e opzioni").unwrap(), t.find("Limiti degli abbonamenti · nessun limite raggiunto").unwrap());
+    assert!(limits > opts && limits < t.find("Nuova chat").unwrap(), "{t}");
+    assert!(t.trim_end().ends_with("Apri dashboard"), "{t}");
+    assert!(matches!(action_for("dashboard-open", &None), Some(crate::tray_menu::Action::OpenUrl(u)) if u.starts_with("http")));
 }
 
 #[test]

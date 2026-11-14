@@ -7,6 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  MAX_PERSON_PATHS,
   STAGE_AI_REVIEW,
   STAGE_CI,
   STAGE_HUMAN_REVIEW,
@@ -15,7 +16,11 @@ import {
   awaitsHuman,
   awaitsHumanSql,
   columnOfTask,
+  parsePersonPaths,
+  personPathsFromText,
+  personPathsToText,
   resolveWorkflow,
+  resolveWorkflowRules,
   stageAtBirth,
   stageForDelivery,
 } from "./workflow";
@@ -123,3 +128,33 @@ describe("stageForDelivery", () => {
     expect(stageForDelivery(WORKFLOW_PRESETS.default, { createdBy: "agent:session" })).toBeNull();
   });
 });
+
+describe("resolveWorkflowRules: the CI switch inherits, the paths add up", () => {
+  test("no rows: CI phase on, no board paths", () => {
+    expect(resolveWorkflowRules({})).toEqual({ ciPhase: true, personPaths: [] });
+  });
+  test("the project's switch wins over the global one; null inherits", () => {
+    expect(resolveWorkflowRules({ global: { ciPhase: false } }).ciPhase).toBe(false);
+    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: true } }).ciPhase).toBe(true);
+    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: null } }).ciPhase).toBe(false);
+  });
+  test("the global paths come first, then the project's", () => {
+    const g = { pattern: "a/**", why: "g" }; const p = { pattern: "b/**", why: "p" };
+    expect(resolveWorkflowRules({ global: { personPaths: [g] }, project: { personPaths: [p] } }).personPaths).toEqual([g, p]);
+  });
+});
+
+describe("person paths as text and as data", () => {
+  test("one per line, `pattern # why`; blank and comment lines skipped; no why = this board", () => {
+    const paths = personPathsFromText("client/src/** # interfaccia\n\n# a note\n  scripts/**  \n");
+    expect(paths).toEqual([{ pattern: "client/src/**", why: "interfaccia" }, { pattern: "scripts/**", why: "this board" }]);
+    expect(personPathsFromText(personPathsToText(paths))).toEqual(paths);
+  });
+  test("a list that is not one is refused, not read as empty", () => {
+    expect(parsePersonPaths([{ pattern: "a/**", why: "x" }])).toEqual([{ pattern: "a/**", why: "x" }]);
+    expect(parsePersonPaths("a/**")).toBeNull();
+    expect(parsePersonPaths([{ pattern: "", why: "x" }])).toBeNull();
+    expect(parsePersonPaths(Array.from({ length: MAX_PERSON_PATHS + 1 }, () => ({ pattern: "a", why: "b" })))).toBeNull();
+  });
+});
+

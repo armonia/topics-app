@@ -1,5 +1,61 @@
 [
   {
+    "version": "2.3.113",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: ciò che dice sopra il saluto si sente (#991)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "le regole del workflow della board si scrivono e tornano dopo il ricarico (DROP-09) (#995)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "voice-call: conversazione più fluida (ascolto, silenzi, linea caduta, frasi dette piano) (#996)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.112",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una misura che il quadrante non mostra va nella riga sotto (#979)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fase CI e «chi deve guardare» diventano regole del workflow (#992)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "menu grafico completo (tabella processi, dettaglio PC e server, backup, progetti, limiti, dashboard)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.111",
     "date": "2026-11-14",
     "sections": {
