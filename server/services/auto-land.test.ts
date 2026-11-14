@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, sameCommit, touchesServer,
+  autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, personPlace, sameCommit, touchesServer,
   type AutoLandBoard, type AutoLandCard, type AutoLandComment,
 } from "./auto-land";
 
@@ -126,27 +126,42 @@ describe("sameCommit / touchesServer", () => {
   });
 });
 
-describe("mayLandAloneByPlace / classifyDelivery: only text and tests land with no one looking", () => {
+describe("mayLandAloneByPlace / classifyDelivery: technical code lands alone, a person's places do not", () => {
   test.each([
     "docs/board-protocol.md", "openspec/changes/x/proposal.md",
     "server/lib/git-numstat.test.ts", "server/push-triggers.test.ts", "client/src/state/board.test.tsx",
     "tests/unit/x.test.ts", "tests/integration/migration-071.test.ts", "tests/e2e/board.spec.ts", "tests/e2e/deep/a.spec.ts",
-  ])("%s is text or a test: it lands alone", (f) => {
+    // Technical code (owner's rule 09/11): it lands once the whole bar is green on the commit that lands.
+    "server/lib/git-numstat.ts", "server/lib/serial-queue.ts", "server/services/task-dispatcher.ts", "server/routes/tasks.ts",
+    "server/db/schema.ts", "server/db/migrations/20261109-x.sql", "shared/board.ts", "shared/tool-detail.ts", "server.ts",
+    "desktop-tauri/src-tauri/src/lib.rs", "newdir/anything.ts",
+  ])("%s lands alone", (f) => {
     expect(mayLandAloneByPlace(f)).toBe(true);
     expect(classifyDelivery([f])).toEqual({ tier: "alone", files: [] });
   });
 
   test.each([
-    // The preload every run loads, data files, snapshots, helpers and e2e support are not tests.
-    "tests/setup/bun-test-preload.ts", "tests/setup/anything.test.ts", "tests/unit/data.json", "docs/schema.json", "openspec/changes/x/.openspec.json",
-    "tests/e2e/global-setup.ts", "tests/e2e/board.spec.ts-snapshots/a.png", "tests/unit/__snapshots__/x.snap", "tests/unit/x.snap",
-    "tests/helpers/time-slack.ts", "tests/fixtures/repo.ts",
-    // The CI guards and their own tests are the judge.
-    "scripts/check-security.ts", "scripts/check-eol.test.ts", ".github/workflows/ci.yml",
-    "package.json", "bunfig.toml", "LICENSE", "README.md", "landing/index.html", "client/src/App.tsx", "shared/board.ts", "server.ts", "newdir/anything.ts",
-  ])("%s is not text or a test: a person looks", (f) => {
-    expect(mayLandAloneByPlace(f)).toBe(false);
-    expect(classifyDelivery([f]).tier).not.toBe("alone");
+    // What a person sees.
+    ["client/src/App.tsx", "interface"], ["landing/index.html", "public site"], ["README.md", "public text"], ["LICENSE", "public text"],
+    // What reaches a person or a third party.
+    ["server/push-triggers.ts", "reaches a person"], ["server/presence.ts", "reaches a person"], ["server/services/discord-presence.ts", "reaches a person"],
+    ["server/routes/notifications.ts", "reaches a person"], ["server/routes/agent-channels.ts", "reaches a person"], ["server/routes/voice.ts", "reaches a person"],
+    // Security and money.
+    ["server/lib/authGate.ts", "security or money"], ["server/lib/agent-env.ts", "security or money"], ["server/lib/child-env.ts", "security or money"],
+    ["server/lib/session-token.ts", "security or money"], ["server/lib/stripe.ts", "security or money"], ["server/usage/pricing.ts", "security or money"],
+    ["server/services/relay-client.ts", "security or money"], ["server/lib/licenza.ts", "security or money"],
+    // Dependencies and the runner.
+    ["package.json", "dependencies or runner"], ["bun.lock", "dependencies or runner"], ["bunfig.toml", "dependencies or runner"],
+    // The judge: CI, its scripts, the preload, test helpers, baselines, snapshots, the gates and the labels.
+    ["scripts/check-security.ts", "the judge"], ["scripts/check-eol.test.ts", "the judge"], [".github/workflows/ci.yml", "the judge"],
+    ["tests/setup/bun-test-preload.ts", "the judge"], ["tests/setup/anything.test.ts", "the judge"], ["tests/e2e/global-setup.ts", "the judge"],
+    ["tests/helpers/time-slack.ts", "the judge"], ["tests/fixtures/repo.ts", "the judge"], ["tests/unit/data.json", "the judge"],
+    ["docs/schema.json", "the judge"], ["tests/unit/__snapshots__/x.snap", "the judge"], ["tests/e2e/board.spec.ts-snapshots/a.png", "the judge"],
+    ["server/services/auto-land.ts", "the judge"], ["server/services/red-bounce.ts", "the judge"], ["server/services/review-checks.ts", "the judge"],
+    ["shared/task-labels.ts", "the judge"], ["shared/workflow.ts", "the judge"],
+  ])("%s is a person's (%s)", (f, why) => {
+    expect(personPlace(f)).toBe(why);
+    expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
   });
 
   test("a test file or a document that the bar's configuration NAMES is the judge, not a test", () => {
@@ -156,26 +171,10 @@ describe("mayLandAloneByPlace / classifyDelivery: only text and tests land with 
     expect(classifyDelivery(["docs/board-protocol.md", "docs/a.md"], new Set(["docs/board-protocol.md"])).files).toEqual(["docs/board-protocol.md"]);
   });
 
-  // The verifier's files (09/11, repro `e2e-files.ts`): a list of words let 242 server files through, and each of these
-  // changes what protects, pays, deletes or judges. Nothing under server/ lands alone, whatever the file is called.
-  test.each([
-    "server/lib/low-priority.ts", "server/lib/agent-env.ts", "server/lib/child-env.ts", "server/services/known-project-dirs.ts",
-    "server/lib/project-visibility.ts", "server/lib/session-free-mode.ts", "server/lib/quiescence.ts", "server/services/project-store.ts",
-    "server/lib/transcript-keeper.ts", "server/lib/intent-classifier.ts", "server/services/preview-manager.ts",
-    "server/lib/bounded-spawn.ts", "server/lib/serial-queue.ts", "server/lib/git-numstat.ts", "server/utils/path-env.ts",
-    "server/lib/authGate.ts", "server/services/task-dispatcher.ts", "server/services/auto-land.ts", "server/push-triggers.ts",
-    // The router, the database, the browser and billing, outside server/ the shared contract, the shell, the entry point.
-    "server/routes/notes.ts", "server/routes/tasks.ts", "server/db/schema.ts", "server/db/migrations/20261109-x.sql",
-    "server/browser-site-data.ts", "server/usage/pricing.ts", "server/package.json",
-    "shared/tool-detail.ts", "desktop-tauri/src-tauri/tauri.conf.json", "client/public/icon.png", "bun.lock",
-  ])("%s is not text or a test: a person's, and the files that make it so are named", (f) => {
-    expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
-  });
-
   test("the delivery is a person's as soon as one file is, and the files that make it so are named", () => {
-    expect(classifyDelivery(["docs/a.md", "tests/unit/a.test.ts"]).tier).toBe("alone");
-    expect(classifyDelivery(["docs/a.md", "server/lib/git-numstat.ts"])).toEqual({ tier: "person", files: ["server/lib/git-numstat.ts"] });
-    expect(classifyDelivery(["server/lib/git-numstat.ts", "LICENSE", "docs/a.md"])).toEqual({ tier: "person", files: ["server/lib/git-numstat.ts", "LICENSE"] });
+    expect(classifyDelivery(["docs/a.md", "server/lib/git-numstat.ts"]).tier).toBe("alone");
+    expect(classifyDelivery(["server/lib/git-numstat.ts", "client/src/App.tsx", "docs/a.md"])).toEqual({ tier: "person", files: ["client/src/App.tsx"] });
+    expect(classifyDelivery(["server/push-service.ts", "LICENSE", "docs/a.md"])).toEqual({ tier: "person", files: ["server/push-service.ts", "LICENSE"] });
   });
 
   test("an empty diff has nothing a person must read", () => {
@@ -248,7 +247,7 @@ describe("createAutoLander", () => {
   });
 
   // The line `AI-REVIEW approved <sha>` is a comment, and a comment is signed by whatever session the URL names: it proves nothing.
-  test("server code stays a person's even with an approval line of another model family on this very commit", async () => {
+  test("a person's place stays a person's even with an approval line of another model family on this very commit", async () => {
     const sha = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
     const approval: AutoLandComment = {
       author: "agent:r1", kind: "comment", createdAt: "2026-11-09T11:00:00.000Z",
@@ -259,7 +258,7 @@ describe("createAutoLander", () => {
     const control = base({ files: ["docs/a.md"], card: delivered(null), thread: [approval] });
     expect(await control.lander.tryLand("p1", "t1")).toBe("queued");
     for (const stage of ["ai_review", "human_review", null]) {
-      const { state, lander } = base({ files: ["server/lib/git-numstat.ts"], card: delivered(stage), thread: [approval] });
+      const { state, lander } = base({ files: ["server/push-triggers.ts"], card: delivered(stage), thread: [approval] });
       expect(await lander.tryLand("p1", "t1")).toBe("refused");
       expect(state.lands).toBe(0);
     }
