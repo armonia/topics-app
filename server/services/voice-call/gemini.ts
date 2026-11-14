@@ -70,7 +70,7 @@ export interface VoiceOptions {
 
 /**
  * The language and a vocabulary for the input transcription: without them
- * Gemini guesses the language phrase by phrase ("Dimmi tutto" came back as
+ * Gemini guesses the language phrase by phrase ("Dimmi tutto" came back as  allow-italian: the quoted phrase is the real one
  * French, 100% of the times). Bench of 13/11, two rounds per side on the 21
  * real phrases: misheard phrases 20 -> 9, right words 48% -> 78%, failed checks
  * the same (3 and 3).
@@ -140,10 +140,10 @@ export function toolResponse(id: string, name: string, result: string, speaksWhi
 
 /*
  * Gemini talking while the brain thinks ("let me look at the mail...") instead
- * of 2-4 s of silence covered by a "Mmh": the ask tool becomes NON_BLOCKING.
+ * of 2-4 s of silence covered by a "Mmh": the ask tool becomes NON_BLOCKING.  allow-italian: NON_BLOCKING is the API constant
  * The owner's idea in the first call with the brain (13/11); it is also the
  * measured gain of the talker-reasoner pattern (ConvFill, LiveKit async tools).
- * Off by default (`speakWhileThinking`): with NON_BLOCKING gemini-3.8-live often
+ * Off by default (`speakWhileThinking`): with NON_BLOCKING gemini-3.8-live often  allow-italian: NON_BLOCKING is the API constant
  * did not say the brain's answer, or said it a turn later, and the "one moment"
  * lines sounded wrong. Bench of 13/11, 21 real phrases. The wait is covered by a
  * recorded filler (call.ts, ACK_AFTER).
@@ -157,58 +157,58 @@ export interface Parsed {
   goAway: boolean;
 }
 
-const obj = (v: unknown): Json | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : null);
+const asRecord = (v: unknown): Json | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
 
 export function parse(raw: string): Parsed {
   const p: Parsed = { events: [], setupComplete: false, handle: null, goAway: false };
   let m: Json | null;
   try {
-    m = obj(JSON.parse(raw));
+    m = asRecord(JSON.parse(raw));
   } catch {
     return p;
   }
   if (!m) return p;
   p.setupComplete = "setupComplete" in m;
   p.goAway = "goAway" in m;
-  const u = obj(m.sessionResumptionUpdate);
+  const u = asRecord(m.sessionResumptionUpdate);
   if (u && u.resumable !== false && typeof u.newHandle === "string" && u.newHandle !== "") p.handle = u.newHandle;
-  const sc = obj(m.serverContent);
+  const sc = asRecord(m.serverContent);
   if (sc) {
-    const it = obj(sc.inputTranscription)?.text;
+    const it = asRecord(sc.inputTranscription)?.text;
     if (typeof it === "string" && it !== "") p.events.push({ type: "heard", text: it });
-    const ot = obj(sc.outputTranscription)?.text;
+    const ot = asRecord(sc.outputTranscription)?.text;
     if (typeof ot === "string" && ot !== "") p.events.push({ type: "said", text: ot });
-    const parts = obj(sc.modelTurn)?.parts;
+    const parts = asRecord(sc.modelTurn)?.parts;
     for (const part of Array.isArray(parts) ? parts : []) {
-      const d = obj(obj(part)?.inlineData)?.data;
+      const d = asRecord(asRecord(part)?.inlineData)?.data;
       if (typeof d === "string") p.events.push({ type: "audio", pcm: i16FromLe(Buffer.from(d, "base64")) });
     }
     if (sc.interrupted === true) p.events.push({ type: "interrupted" });
     if (sc.generationComplete === true) p.events.push({ type: "generationDone" });
     if (sc.turnComplete === true) p.events.push({ type: "turnComplete" });
   }
-  const calls = obj(m.toolCall)?.functionCalls;
+  const calls = asRecord(m.toolCall)?.functionCalls;
   for (const fc of Array.isArray(calls) ? calls : []) {
-    const f = obj(fc) ?? {};
+    const f = asRecord(fc) ?? {};
     p.events.push({
       type: "toolCall",
       id: typeof f.id === "string" ? f.id : "",
       name: typeof f.name === "string" ? f.name : "",
-      args: obj(f.args) ?? {},
+      args: asRecord(f.args) ?? {},
     });
   }
-  const um = obj(m.usageMetadata);
+  const um = asRecord(m.usageMetadata);
   if (um) {
     const usage = emptyUsage();
     for (const d of Array.isArray(um.promptTokensDetails) ? um.promptTokensDetails : []) {
-      const n = num(obj(d)?.tokenCount);
-      if (obj(d)?.modality === "AUDIO") usage.inAudio += n;
+      const n = num(asRecord(d)?.tokenCount);
+      if (asRecord(d)?.modality === "AUDIO") usage.inAudio += n;
       else usage.inText += n;
     }
     for (const d of Array.isArray(um.responseTokensDetails) ? um.responseTokensDetails : []) {
-      const n = num(obj(d)?.tokenCount);
-      if (obj(d)?.modality === "AUDIO") usage.outAudio += n;
+      const n = num(asRecord(d)?.tokenCount);
+      if (asRecord(d)?.modality === "AUDIO") usage.outAudio += n;
       else usage.outText += n;
     }
     usage.outText += num(um.thoughtsTokenCount);

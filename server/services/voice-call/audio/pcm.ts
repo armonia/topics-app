@@ -34,7 +34,7 @@ export function toI16(x: number): number {
   return r > 32767 ? 32767 : r < -32768 ? -32768 : r;
 }
 
-export function concatI16(parts: ArrayLike<number>[]): Int16Array {
+export function joinSamples(parts: ArrayLike<number>[]): Int16Array {
   let n = 0;
   for (const p of parts) n += p.length;
   const out = new Int16Array(n);
@@ -66,10 +66,10 @@ export class Resampler {
     const half = TAPS / 2;
     const kernel = (x: number): number => {
       // x in input samples from the centre of the filter
-      const sinc = Math.abs(x) < 1e-6 ? 2 * cut : Math.sin(2 * Math.PI * cut * x) / (Math.PI * x);
+      const lowPass = Math.abs(x) < 1e-6 ? 2 * cut : Math.sin(2 * Math.PI * cut * x) / (Math.PI * x);
       const n = (x + half) / (2 * half);
       const w = 0.42 - 0.5 * Math.cos(2 * Math.PI * n) + 0.08 * Math.cos(4 * Math.PI * n);
-      return n >= 0 && n <= 1 ? sinc * w : 0;
+      return n >= 0 && n <= 1 ? lowPass * w : 0;
     };
     const build = (offset: number): Float64Array => {
       const k = new Float64Array(TAPS);
@@ -91,9 +91,9 @@ export class Resampler {
       const base = this.pos >> 1;
       const phase = this.phases[this.pos & 1]!;
       const start = base + 1 - TAPS;
-      let acc = 0;
-      for (let i = 0; i < TAPS; i++) acc += phase[i]! * this.hist[start + i]!;
-      out.push(toI16(acc));
+      let sum = 0;
+      for (let i = 0; i < TAPS; i++) sum += phase[i]! * this.hist[start + i]!;
+      out.push(toI16(sum));
       this.pos += 3;
     }
     // only the samples the filter still needs are kept
@@ -111,13 +111,13 @@ export class Resampler {
  * recording count 60 ms frames. With 40 ms the barge-in fired at 160 ms and the
  * recording lost a third of the voice.
  */
-export class Rechunk {
-  private buf: number[] = [];
+export class FrameBuilder {
+  private audio: number[] = [];
 
   push(f: ArrayLike<number>): Int16Array[] {
-    for (let i = 0; i < f.length; i++) this.buf.push(f[i]!);
+    for (let i = 0; i < f.length; i++) this.audio.push(f[i]!);
     const out: Int16Array[] = [];
-    while (this.buf.length >= FRAME) out.push(Int16Array.from(this.buf.splice(0, FRAME)));
+    while (this.audio.length >= FRAME) out.push(Int16Array.from(this.audio.splice(0, FRAME)));
     return out;
   }
 }
@@ -127,7 +127,7 @@ export class Rechunk {
  * call's clock. Gemini generates 3-5 times faster than real time, so the queue
  * fills faster than it drains; only an interruption empties it.
  */
-export class Playout {
+export class PlaybackQueue {
   private queue: number[] = [];
   private head = 0;
   // Gemini's turn is over: the last piece, even a short one, goes out padded with silence
@@ -184,8 +184,8 @@ export function levelDb(frame: ArrayLike<number>): number {
   if (frame.length === 0) return -100;
   let sum = 0;
   for (let i = 0; i < frame.length; i++) sum += frame[i]! * frame[i]!;
-  const rms = Math.sqrt(sum / frame.length) / 32768;
-  return rms <= 1e-5 ? -100 : Math.fround(20 * Math.log10(rms));
+  const rootMeanSquare = Math.sqrt(sum / frame.length) / 32768;
+  return rootMeanSquare <= 1e-5 ? -100 : Math.fround(20 * Math.log10(rootMeanSquare));
 }
 
 /** What to do with the frame that just arrived from the caller. */
@@ -198,7 +198,7 @@ export type Gate =
   | { kind: "end"; frame: Int16Array };
 
 const PRE_FRAMES = 5; // 300 ms
-export const HANG_FRAMES = 17; // ~1 s
+export const TRAILING_FRAMES = 17; // ~1 s
 const FLOOR_FRAMES = 50; // 3 s
 const OVER_FLOOR_DB = 12;
 const MIN_VOICE_DB = -48;
@@ -299,7 +299,7 @@ export class Vad {
       return { kind: "closed" };
     }
     this.quietRun = voice ? 0 : this.quietRun + 1;
-    if (this.quietRun >= HANG_FRAMES) {
+    if (this.quietRun >= TRAILING_FRAMES) {
       this.open = false;
       this.quietRun = 0;
       return { kind: "end", frame };

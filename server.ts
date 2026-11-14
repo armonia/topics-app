@@ -253,6 +253,8 @@ import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isDesktopShellOrigin, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
+import { VOICE_BRIDGE_PATH, VoiceBridgeSession } from "./server/services/voice-call/bridge";
+import type { Complete } from "./server/services/voice-call/brain";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
@@ -1079,6 +1081,16 @@ const billingRouter = createBillingRouter(ctx);
  * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
  * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
  */
+/**
+ * The brain of the phone calls: `complete()` of the provider named by
+ * TOPICS_VOICE_BRAIN_PROVIDER, or of the default one. Resolved at each call,
+ * so a provider that comes up later is used from the next call.
+ */
+const voiceBrainDoor = (): Complete | null => {
+  const p = tryGetProvider(process.env.TOPICS_VOICE_BRAIN_PROVIDER?.trim() || undefined);
+  return p ? (messages, options) => p.complete(messages, options) : null;
+};
+
 const identityByRequest = new WeakMap<Request, {
   role: 'owner' | 'guest';
   deviceId: string | null;
@@ -4143,6 +4155,10 @@ const opzioniServer = {
     // terminal and browser used to omit it, so revoking their device closed
     // chat while leaving the terminal keyboard and browser controls alive.
     if (isWebSocketPath(pathname)) {
+      // A phone call is the owner's: a guest or a delegated node never opens one.
+      if (pathname === VOICE_BRIDGE_PATH && identityByRequest.get(req)?.role !== "owner") {
+        return new Response(JSON.stringify({ error: "voice bridge: owner only", code: "forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
       const wsUpgrade = upgradeWebSocket(
         req, pathname, server, identityByRequest.get(req) ?? null, isRemotePeer(req, server),
       );
@@ -4462,6 +4478,14 @@ const opzioniServer = {
      */
     open(ws) {
       ws.data.lastPong = Date.now();
+      // A voice bridge is not a device of the app: no broadcasts, no presence.
+      if (ws.data.voiceBridge) {
+        ws.data._voice = new VoiceBridgeSession(
+          { send: (d) => void ws.send(d), close: (code, reason) => ws.close(code, reason), bufferedAmount: () => ws.getBufferedAmount() },
+          { complete: voiceBrainDoor },
+        );
+        return;
+      }
       ctx.deviceSockets.add(ws);
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
@@ -4732,6 +4756,11 @@ const opzioniServer = {
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+      if (ws.data._voice) {
+        if (typeof message === "string") ws.data._voice.onText(message);
+        else ws.data._voice.onBinary(new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+        return;
+      }
       refreshSocketPrincipal(ctx.db, ws.data);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
@@ -5190,6 +5219,10 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
+      if (ws.data._voice) {
+        ws.data._voice.onClose();
+        return;
+      }
       if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WS_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);

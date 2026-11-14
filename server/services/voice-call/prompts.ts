@@ -169,7 +169,7 @@ export function identity(model: string, p: Persona): string {
 
 type Tool = { name: string; description: string; parameters: unknown; behavior?: string };
 
-const HANG_UP_DESCRIPTION =
+const CLOSE_CALL_DESCRIPTION =
   "Chiude la telefonata dopo che hai salutato. Solo quando l'altro ha salutato o ha detto chiaramente che ha finito («ciao», «a dopo», «basta così»): mai per una frase che non hai capito bene.";
 
 export function tools(dir: Direction, p: Persona): [{ functionDeclarations: Tool[] }] {
@@ -179,7 +179,7 @@ export function tools(dir: Direction, p: Persona): [{ functionDeclarations: Tool
         functionDeclarations: [
           {
             name: "chiudi_chiamata",
-            description: HANG_UP_DESCRIPTION,
+            description: CLOSE_CALL_DESCRIPTION,
             parameters: {
               type: "OBJECT",
               properties: {
@@ -204,7 +204,7 @@ export function tools(dir: Direction, p: Persona): [{ functionDeclarations: Tool
           description: `Passa a ${p.assistant}, l'agente con i suoi strumenti, un lavoro che da solo non puoi fare: mail, calendario, file, messaggi, ricerche sul web, dati di oggi, codice. Non per domande a cui sai rispondere. Il risultato arriva più tardi, anche minuti.`,
           parameters: { type: "OBJECT", properties: { compito: { type: "STRING", description: "Il compito completo, con tutto il contesto che serve" } }, required: ["compito"] },
         },
-        { name: "chiudi_chiamata", description: HANG_UP_DESCRIPTION, parameters: { type: "OBJECT", properties: {} } },
+        { name: "chiudi_chiamata", description: CLOSE_CALL_DESCRIPTION, parameters: { type: "OBJECT", properties: {} } },
         {
           name: "velocita",
           description: "Cambia la velocità della tua voce, quando te lo chiede («parla più veloce», «più piano», «normale»). Vale da subito e resta per le prossime chiamate.",

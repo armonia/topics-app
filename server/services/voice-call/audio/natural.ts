@@ -32,7 +32,7 @@ export class Stretch {
   private ana = 0;
   // absolute start of the last chosen window
   private prev: number | null = null;
-  private acc = new Float64Array(N);
+  private sum = new Float64Array(N);
   private readonly win: Float64Array;
 
   constructor(rate: number) {
@@ -51,7 +51,7 @@ export class Stretch {
     this.base = 0;
     this.ana = 0;
     this.prev = null;
-    this.acc = new Float64Array(N);
+    this.sum = new Float64Array(N);
   }
 
   private at(abs: number): number {
@@ -69,7 +69,7 @@ export class Stretch {
       if (this.prev === null) {
         if (a + N > end) break;
         // the first window starts whole, without the entry ramp: no damped attack
-        for (let i = 0; i < N; i++) this.acc[i] = i < HS ? this.at(a + i) : this.win[i]! * this.at(a + i);
+        for (let i = 0; i < N; i++) this.sum[i] = i < HS ? this.at(a + i) : this.win[i]! * this.at(a + i);
         s = a;
       } else {
         const p = this.prev;
@@ -85,12 +85,12 @@ export class Stretch {
             bestC = c;
           }
         }
-        for (let i = 0; i < N; i++) this.acc[i]! += this.win[i]! * this.at(best + i);
+        for (let i = 0; i < N; i++) this.sum[i]! += this.win[i]! * this.at(best + i);
         s = best;
       }
-      for (let i = 0; i < HS; i++) out.push(toI16(this.acc[i]!));
-      this.acc.copyWithin(0, HS);
-      this.acc.fill(0, HS);
+      for (let i = 0; i < HS; i++) out.push(toI16(this.sum[i]!));
+      this.sum.copyWithin(0, HS);
+      this.sum.fill(0, HS);
       this.prev = s;
       this.ana += HS * this.rate;
       // what lies before the oldest window that can still be needed is no longer needed
@@ -212,7 +212,7 @@ const isItalianChar = (c: string): boolean => c.charCodeAt(0) < 128 || ITALIAN_E
  * "I see" came back as Portuguese, "my mother is ill" as nonsense) and answers
  * "I did not understand"; whisper on the same audio hears them right.
  */
-export function misheard(gemini: string, whisper: string): boolean {
+export function heardWrong(gemini: string, whisper: string): boolean {
   const w = wordsOf(whisper, true);
   if (w.length === 0) return false;
   if (gemini.trim() === "") return true;
@@ -249,7 +249,7 @@ export function echoOf(said: string, heard: string): boolean {
 }
 
 /** A 16 kHz mono PCM16 WAV. */
-export function wav16k(pcm: ArrayLike<number>): Uint8Array {
+export function wav16k(pcm: ArrayLike<number>): Uint8Array<ArrayBuffer> {
   const data = i16ToLe(pcm);
   const out = new Uint8Array(44 + data.length);
   const v = new DataView(out.buffer);

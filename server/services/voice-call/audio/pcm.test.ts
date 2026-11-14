@@ -3,7 +3,7 @@
  * @covers CALL-01
  */
 import { describe, expect, test } from "bun:test";
-import { FRAME, HANG_FRAMES, Playout, Rechunk, Resampler, VAD_PRE_FRAMES, Vad, concatI16 } from "./pcm";
+import { FRAME, TRAILING_FRAMES, PlaybackQueue, FrameBuilder, Resampler, VAD_PRE_FRAMES, Vad, joinSamples } from "./pcm";
 
 /** Rust `as i16` from a float: truncation toward zero, saturating. */
 const castI16 = (x: number): number => Math.max(-32768, Math.min(32767, Math.trunc(x)));
@@ -14,7 +14,7 @@ function tone(freq: number, rate: number, n: number, amp: number): Int16Array {
   return out;
 }
 
-function rms(x: ArrayLike<number>): number {
+function rootMeanSquare(x: ArrayLike<number>): number {
   let s = 0;
   for (let i = 0; i < x.length; i++) s += x[i]! * x[i]!;
   return Math.sqrt(s / x.length);
@@ -46,26 +46,26 @@ describe("pcm", () => {
     for (const db of [-40, -38, -35, -47, -42]) v.push(sineAtDb(db));
     expect(v.voicedRun).toBeGreaterThanOrEqual(4);
     expect(v.barges(4)).toBe(false);
-    // "Aspetta, un'..." said by the macOS voice: a dip to -44 between syllables, and it interrupts anyway
+    // "Wait, one more..." said by the macOS voice: a dip to -44 between syllables, and it interrupts anyway
     v = new Vad();
     for (const db of [-13, -20, -44, -15]) v.push(sineAtDb(db));
     expect(v.barges(4)).toBe(true);
   });
 
   test("frames of any length come out as 60 ms frames without losing samples", () => {
-    const r = new Rechunk();
+    const r = new FrameBuilder();
     const out: Int16Array[] = [];
     for (let k = 0; k < 6; k++) out.push(...r.push(new Int16Array(640).fill(k)));
     // 6 x 640 = 3840 = 4 x 960
     expect(out.length).toBe(4);
     expect(out.every((f) => f.length === FRAME)).toBe(true);
-    const want = concatI16([0, 1, 2, 3, 4, 5].map((k) => new Int16Array(640).fill(k)));
-    expect(Array.from(concatI16(out))).toEqual(Array.from(want));
+    const want = joinSamples([0, 1, 2, 3, 4, 5].map((k) => new Int16Array(640).fill(k)));
+    expect(Array.from(joinSamples(out))).toEqual(Array.from(want));
     expect(r.push(new Int16Array(100).fill(1)).length).toBe(0);
   });
 
   test("20 ms frames from the bridge become 60 ms frames, three to one", () => {
-    const r = new Rechunk();
+    const r = new FrameBuilder();
     const sizes = [1, 2, 3, 4, 5, 6].map((k) => r.push(new Int16Array(320).fill(k)).length);
     expect(sizes).toEqual([0, 0, 1, 0, 0, 1]);
   });
@@ -78,13 +78,13 @@ describe("pcm", () => {
     for (let i = 0; i < input.length; i += 337) split.push(pieces.push(input.subarray(i, i + 337)));
     expect(whole.length).toBe(16000);
     // the result does not depend on how the pieces arrive
-    expect(Array.from(concatI16(split))).toEqual(Array.from(whole));
+    expect(Array.from(joinSamples(split))).toEqual(Array.from(whole));
   });
 
   test("speech band passes and what would alias is cut", () => {
     // 1 kHz passes almost intact (in the middle, far from the filter's attack)
     let out = new Resampler().push(tone(1000, 24000, 24000, 8000));
-    const gain = rms(out.subarray(1000, 15000)) / (8000 / Math.SQRT2);
+    const gain = rootMeanSquare(out.subarray(1000, 15000)) / (8000 / Math.SQRT2);
     expect(gain).toBeGreaterThan(0.97);
     expect(gain).toBeLessThan(1.03);
     // the frequency stays 1 kHz: 2000 zero crossings in a second
@@ -94,12 +94,12 @@ describe("pcm", () => {
     expect(crossings).toBeLessThanOrEqual(2010);
     // 11 kHz at 16 kHz would become a whistle at 5 kHz: it must vanish (at least -40 dB)
     out = new Resampler().push(tone(11000, 24000, 24000, 8000));
-    const att = 20 * Math.log10(rms(out.subarray(1000, 15000)) / (8000 / Math.SQRT2));
-    expect(att).toBeLessThan(-40);
+    const attenuation = 20 * Math.log10(rootMeanSquare(out.subarray(1000, 15000)) / (8000 / Math.SQRT2));
+    expect(attenuation).toBeLessThan(-40);
   });
 
   test("playout sends whole frames and pads only the last piece", () => {
-    const p = new Playout();
+    const p = new PlaybackQueue();
     p.push(new Int16Array(FRAME + 100).fill(1));
     expect(p.nextFrame()?.length).toBe(FRAME);
     // 100 samples wait for the rest of the answer
@@ -135,7 +135,7 @@ describe("pcm", () => {
       if (g.kind === "send") sent++;
       else if (g.kind === "end") ended++;
     }
-    expect([sent, ended]).toEqual([HANG_FRAMES - 1, 1]);
+    expect([sent, ended]).toEqual([TRAILING_FRAMES - 1, 1]);
   });
 
   test("a noisy room becomes the floor and stops opening the gate", () => {

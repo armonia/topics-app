@@ -3,8 +3,8 @@
  * @covers CALL-01
  */
 import { describe, expect, test } from "bun:test";
-import { Ambience, Stretch, echoOf, misheard, whisperNoise, wav16k } from "./natural";
-import { concatI16, levelDb } from "./pcm";
+import { Ambience, Stretch, echoOf, heardWrong, whisperNoise, wav16k } from "./natural";
+import { joinSamples, levelDb } from "./pcm";
 import { whisper } from "./whisper";
 
 function tone(len: number, hz: number): Int16Array {
@@ -27,7 +27,7 @@ describe("natural", () => {
     // in pieces of any size, as they arrive from Gemini
     for (let i = 0; i < input.length; i += 777) parts.push(s.push(input.subarray(i, i + 777)));
     parts.push(s.flush());
-    const out = concatI16(parts);
+    const out = joinSamples(parts);
     const ratio = input.length / out.length;
     expect(Math.abs(ratio - 1.25)).toBeLessThan(0.03);
     expect(Math.abs(pitch(out.subarray(1000, out.length - 1000)) - 180)).toBeLessThan(4);
@@ -42,8 +42,8 @@ describe("natural", () => {
 
   test("the room is quiet and typing is louder but under the voice threshold", () => {
     const a = new Ambience();
-    const room = concatI16(Array.from({ length: 50 }, () => a.frame(960, false)));
-    const typing = concatI16(Array.from({ length: 50 }, () => a.frame(960, true)));
+    const room = joinSamples(Array.from({ length: 50 }, () => a.frame(960, false)));
+    const typing = joinSamples(Array.from({ length: 50 }, () => a.frame(960, true)));
     expect(levelDb(room)).toBeLessThan(-50);
     expect(levelDb(room)).toBeGreaterThan(-70);
     expect(levelDb(typing)).toBeGreaterThan(levelDb(room));
@@ -66,16 +66,16 @@ describe("natural", () => {
   });
 
   test("a short phrase heard as another language is misheard", () => {
-    expect(misheard("cadê?", "ah ho capito")).toBe(true);
-    expect(misheard("So, ich kann so gerne", "sì, io posso farlo volentieri")).toBe(true);
-    expect(misheard("기다려.", "aspetta")).toBe(true);
-    expect(misheard("", "dimmi una barzelletta")).toBe(true);
-    expect(misheard("Dimmi una barzelletta.", "Dimmi una barzelletta.")).toBe(false);
-    expect(misheard("Quanto fa 17 * 23?", "Quanto fa 17 per 23?")).toBe(false);
-    expect(misheard("Mi senti bene?", "mi senti bene")).toBe(false);
-    expect(misheard("Aha.", "")).toBe(false);
+    expect(heardWrong("cadê?", "ah ho capito")).toBe(true);
+    expect(heardWrong("So, ich kann so gerne", "sì, io posso farlo volentieri")).toBe(true);
+    expect(heardWrong("기다려.", "aspetta")).toBe(true);
+    expect(heardWrong("", "dimmi una barzelletta")).toBe(true);
+    expect(heardWrong("Dimmi una barzelletta.", "Dimmi una barzelletta.")).toBe(false);
+    expect(heardWrong("Quanto fa 17 * 23?", "Quanto fa 17 per 23?")).toBe(false);
+    expect(heardWrong("Mi senti bene?", "mi senti bene")).toBe(false);
+    expect(heardWrong("Aha.", "")).toBe(false);
     // one word is too little to judge by stems: only another alphabet gives it away
-    expect(misheard("Ok.", "aspetta")).toBe(false);
+    expect(heardWrong("Ok.", "aspetta")).toBe(false);
   });
 
   test("the wav header says 16 kHz mono and the right length", () => {

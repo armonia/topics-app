@@ -313,19 +313,19 @@ describe("call loop", () => {
   test("an outgoing call nobody answers ends after the rings, without a recording", async () => {
     const d = mkdtempSync(join(tmpdir(), "voice-call-"));
     dirs.push(d);
-    const rec = join(d, "c.wav");
-    const w = new World({ direction: { kind: "outgoing", reason: "" }, record: rec });
+    const recorder = join(d, "c.wav");
+    const w = new World({ direction: { kind: "outgoing", reason: "" }, record: recorder });
     await w.advance(46_000);
     const out = await w.call.done;
     expect([out.reason, out.answered, out.recording]).toEqual(["nessuna risposta", false, null]);
-    expect(existsSync(rec)).toBe(false);
+    expect(existsSync(recorder)).toBe(false);
   });
 
   test("on behalf: only the hang up, the outcome for the owner, and the recording of the call", async () => {
     const d = mkdtempSync(join(tmpdir(), "voice-call-"));
     dirs.push(d);
-    const rec = join(d, "c.wav");
-    const w = new World({ direction: { kind: "on_behalf", callee: "Mamma", message: "chiedile come sta", callback: false }, record: rec });
+    const recorder = join(d, "c.wav");
+    const w = new World({ direction: { kind: "on_behalf", callee: "Mamma", message: "chiedile come sta", callback: false }, record: recorder });
     expect(w.main.tools).toEqual(tools({ kind: "on_behalf", callee: "Mamma", message: "", callback: false }, { ...P, agentLabel: "" }));
     w.main.emit({ type: "ready", resumed: false });
     // the recorded call says so in the first line
@@ -339,8 +339,8 @@ describe("call loop", () => {
     await w.advance(1000);
     const out = await w.call.done;
     expect([out.reason, out.report, out.handoffs]).toEqual(["chiusa da Jarvis", "Sta bene, porta il pane.", 0]);
-    expect(out.recording).toBe(rec);
-    expect(statSync(rec).size).toBeGreaterThan(44 + 32_000 * 3);
+    expect(out.recording).toBe(recorder);
+    expect(statSync(recorder).size).toBeGreaterThan(44 + 32_000 * 3);
   });
 
   test("the speed changes by voice and stays in the outcome", async () => {

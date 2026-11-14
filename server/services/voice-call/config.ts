@@ -6,6 +6,9 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+/** The route a channel opens to carry one call. */
+export const VOICE_BRIDGE_PATH = "/ws/voice/bridge";
+
 export const DEFAULT_VOICE_MODEL = "gemini-3.8-live";
 /**
  * An explicit male voice: without it Gemini uses its default, at 180 Hz of mean
@@ -35,13 +38,15 @@ export interface VoiceSettings {
   assistant: string;
   /** where the owner works, said in the prompts when set (`TOPICS_VOICE_ORG`) */
   org: string;
+  /** who does the handed-off jobs, said when asked which model it is; empty = the assistant with its tools (`TOPICS_VOICE_AGENT_LABEL`) */
+  agentLabel: string;
   /** extra words for the input transcription, comma separated (`TOPICS_VOICE_VOCABULARY`) */
   vocabulary: string[];
   /** IANA time zone of "now" in the prompts; empty = this machine's (`TOPICS_VOICE_TZ`) */
   timeZone: string;
   /** thinking level of a `...thinking` Live model (`TOPICS_VOICE_THINKING_LEVEL`) */
   thinkingLevel: string;
-  /** Gemini talks while the brain thinks, through a NON_BLOCKING tool (`TOPICS_VOICE_SPEAK_WHILE_THINKING=1`) */
+  /** Gemini talks while the brain thinks, through a NON_BLOCKING tool (`TOPICS_VOICE_SPEAK_WHILE_THINKING=1`). allow-italian: NON_BLOCKING is the API constant */
   speakWhileThinking: boolean;
   /** every Gemini event in the call log (`TOPICS_VOICE_DEBUG=1`) */
   debug: boolean;
@@ -67,6 +72,7 @@ export function voiceSettings(env: Env = process.env): VoiceSettings {
     quickModel: str(env, "TOPICS_VOICE_QUICK_MODEL", DEFAULT_QUICK_MODEL),
     assistant: str(env, "TOPICS_VOICE_ASSISTANT", DEFAULT_ASSISTANT),
     org: str(env, "TOPICS_VOICE_ORG"),
+    agentLabel: str(env, "TOPICS_VOICE_AGENT_LABEL"),
     vocabulary: str(env, "TOPICS_VOICE_VOCABULARY")
       .split(",")
       .map((w) => w.trim())

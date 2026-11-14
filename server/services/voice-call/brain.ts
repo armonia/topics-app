@@ -187,7 +187,7 @@ export async function think(brain: Brain, sys: string, user: string): Promise<{ 
 /**
  * The system of the "mouth": a second Gemini session with the same voice, which
  * says only the quick voice's lines. The main one waits for the tool answer and
- * cannot talk (13/11: with NON_BLOCKING it skipped the answers).
+ * cannot talk (13/11: with NON_BLOCKING it skipped the answers).  allow-italian: NON_BLOCKING is the API constant
  */
 export const MOUTH = "Ripeti esattamente, in italiano, il testo che ricevi, con tono naturale e tranquillo al telefono. Non aggiungere né togliere niente.";
 

@@ -10,7 +10,7 @@ import { Recorder, compress, sweep } from "./record";
 
 const dirs: string[] = [];
 const scratch = (): string => {
-  const d = mkdtempSync(join(tmpdir(), "voice-rec-"));
+  const d = mkdtempSync(join(tmpdir(), "voice-recorder-"));
   dirs.push(d);
   return d;
 };

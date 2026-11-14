@@ -69,15 +69,15 @@ export class Recorder {
 
   /** The frame the assistant just sent (voice or silence): written mixed with the other side's. */
   said(f: ArrayLike<number>): void {
-    const buf = new Uint8Array(f.length * 2);
-    const v = new DataView(buf.buffer);
+    const audio = new Uint8Array(f.length * 2);
+    const v = new DataView(audio.buffer);
     for (let i = 0; i < f.length; i++) {
       const p = this.peerHead < this.peer.length ? this.peer[this.peerHead++]! : 0;
       const s = f[i]! + p;
       v.setInt16(i * 2, s > 32767 ? 32767 : s < -32768 ? -32768 : s, true);
     }
     this.samples += f.length;
-    writeSync(this.fd, buf);
+    writeSync(this.fd, audio);
   }
 
   /** Closes the file with the real lengths in the header. */
@@ -91,7 +91,7 @@ export class Recorder {
 /** Runs a converter and says whether it succeeded; injectable so a test never spawns one. */
 export type RunConvert = (argv: string[]) => Promise<boolean>;
 
-const AFCONVERT = "/usr/bin/afconvert";
+const CONVERTER_PATH = "/usr/bin/afconvert";
 
 async function spawnConvert(argv: string[]): Promise<boolean> {
   try {
@@ -107,10 +107,10 @@ async function spawnConvert(argv: string[]): Promise<boolean> {
  * the WAV is removed. Where the conversion is not available or fails the WAV
  * stays: it plays just the same.
  */
-export async function compress(wav: string, run: RunConvert = spawnConvert, hasConverter = existsSync(AFCONVERT)): Promise<string> {
+export async function compress(wav: string, run: RunConvert = spawnConvert, hasConverter = existsSync(CONVERTER_PATH)): Promise<string> {
   if (!hasConverter) return wav;
   const m4a = wav.replace(/\.wav$/i, "") + ".m4a";
-  const ok = await run([AFCONVERT, "-f", "m4af", "-d", "aac", "-b", "32000", wav, m4a]);
+  const ok = await run([CONVERTER_PATH, "-f", "m4af", "-d", "aac", "-b", "32000", wav, m4a]);
   let size = 0;
   try {
     size = statSync(m4a).size;
