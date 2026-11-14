@@ -20,7 +20,7 @@ import { joinSamples } from "./audio/pcm";
 import { clampSpeed, echoOf, heardWrong } from "./audio/natural";
 import { asksToLeave, namesAssistant, repeatedQuestion } from "./prompts";
 import { CallAudio } from "./call-audio";
-import { CLOCK_MS, FOLLOW_UP, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type CallOutcome, type WhisperResult } from "./call-rules";
+import { CLOCK_MS, FOLLOW_UP, onlyGreeting, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type CallOutcome, type WhisperResult } from "./call-rules";
 
 export * from "./call-rules";
 
@@ -320,6 +320,14 @@ export class Call extends CallAudio {
 
   protected onCheck(seq: number, w: WhisperResult): void {
     if (this.ended || this.check?.seq !== seq) return;
+    if (!this.greeted && w.ok && w.text !== null && onlyGreeting(w.text)) {
+      // "Hello?" over the greeting: it goes on, and the hello needs no answer
+      this.check = null;
+      this.paused = false;
+      this.held = [];
+      this.deps.log("saluto_sopra", { whisper: w.text });
+      return;
+    }
     if (w.ok && w.text !== null && !echoOf(this.said, w.text) && !echoOf(this.prevSaid, w.text)) {
       this.deps.log("voce_confermata", { whisper: w.text });
       return this.cut("interrotto");

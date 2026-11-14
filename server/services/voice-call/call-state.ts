@@ -69,6 +69,8 @@ export abstract class CallState {
   protected released = false;
   // until the greeting is all said the other's voice does not interrupt it: a "Hello?" said over it cut it (10/11)
   protected greeted = false;
+  // what the other said over the greeting and finished before it did: passed to Gemini once the greeting is over
+  protected lateHeld: Int16Array[] | null = null;
   // in a group: until when Gemini's answers are heard without the name; the
   // answer waiting for the name; the turn we asked for (greeting, result of a
   // job), which is always heard

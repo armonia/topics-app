@@ -226,6 +226,66 @@ describe("call loop", () => {
     expect(w.main.audioSamples()).toBeGreaterThan(0);
   });
 
+  // 14/11, Attilio: "it does not listen to what I say when I answer or while it starts the
+  // first sentence". Over the greeting nothing could interrupt, and a phrase that ended
+  // before the greeting did was thrown away (2.4 s of his voice, logged as dropped).
+  async function greetingPlaying(w: World): Promise<void> {
+    w.main.emit({ type: "ready", resumed: false });
+    await w.advance(60);
+    w.geminiSays(8000, "Ciao Ada, ti chiamo per dirti che la riunione di domani è spostata alle dieci", { turn: true });
+    await w.advance(300);
+  }
+
+  test("words said over the greeting interrupt it, once whisper confirms them", async () => {
+    const w = new World({ whisper: true });
+    await greetingPlaying(w);
+    w.say(900);
+    await w.advance(1000);
+    expect(w.has("forse_interrotto")).toBe(true);
+    w.whispers.at(-1)!.resolve({ ok: true, text: "aspetta, sono in macchina" });
+    await w.advance(100);
+    expect(w.events()).toContain("interrotto");
+    expect(w.main.audioSamples()).toBeGreaterThan(0);
+  });
+
+  test("a hello said over the greeting does not cut it", async () => {
+    const w = new World({ whisper: true });
+    await greetingPlaying(w);
+    w.say(900);
+    await w.advance(1000);
+    w.whispers.at(-1)!.resolve({ ok: true, text: "Pronto?" });
+    await w.advance(200);
+    expect(w.has("interrotto")).toBe(false);
+    expect(w.has("saluto_sopra")).toBe(true);
+    expect(w.voicedMs(180)).toBeGreaterThan(0);
+  });
+
+  test("a phrase that ends during the greeting reaches Gemini after it, not the bin", async () => {
+    const w = new World();
+    await greetingPlaying(w);
+    w.say(800);
+    await w.advance(2000);
+    expect(w.has("scartato_mentre_parlava")).toBe(false);
+    const before = w.main.audioSamples();
+    await w.advance(7000);
+    expect(w.has("detto_nel_saluto")).toBe(true);
+    expect(w.main.audioSamples() - before).toBeGreaterThanOrEqual(800 * 16 * 0.8);
+    expect(w.main.sent.some((c) => c.type === "streamEnd")).toBe(true);
+  });
+
+  test("with whisper, a held echo of the greeting is dropped after it", async () => {
+    const w = new World({ whisper: true });
+    await greetingPlaying(w);
+    w.say(500);
+    await w.advance(2000);
+    const before = w.main.audioSamples();
+    await w.advance(7000);
+    w.whispers.at(-1)!.resolve({ ok: true, text: "la riunione di domani è spostata" });
+    await w.advance(100);
+    expect(w.has("detto_nel_saluto")).toBe(false);
+    expect(w.main.audioSamples()).toBe(before);
+  });
+
   test("with whisper a loud sound only pauses: an echo resumes, words interrupt", async () => {
     const w = new World({ whisper: true });
     await w.greet();

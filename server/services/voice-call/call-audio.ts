@@ -5,6 +5,7 @@
  * sends one frame to the phone, voice or background.
  */
 import { FRAME, FRAME_MS, joinSamples } from "./audio/pcm";
+import { echoOf } from "./audio/natural";
 import { CallState } from "./call-state";
 import {
   ACK_AFTER,
@@ -23,6 +24,8 @@ import {
   GREET_QUIET,
   GREET_SILENT,
   HELD_MAX,
+  LATE_MIN_MS,
+  onlyGreeting,
   IDLE,
   IDLE_WAITING,
   MAX_CALL,
@@ -91,7 +94,10 @@ export abstract class CallAudio extends CallState {
       this.dropRest = true;
       this.deps.log("non_per_jarvis", { sentito: this.heard.trim(), ms_non_detti: Math.floor(audio.reduce((a, b) => a + b.length, 0) / 16) });
     }
-    if (this.released && !this.greeted && this.out.turns > 0 && !speaking && !this.generating) this.greeted = true;
+    if (this.released && !this.greeted && this.out.turns > 0 && !speaking && !this.generating) {
+      this.greeted = true;
+      if (this.lateHeld) this.passLate();
+    }
     const free = !speaking && !this.generating && !this.vad.isOpen() && this.replies.length === 0 && !this.leave && this.hangupAsked === null && this.mouthReady;
     if (this.ackLine && this.mouth && free) {
       const { round: r, line: l } = this.ackLine;
@@ -316,7 +322,10 @@ export abstract class CallAudio extends CallState {
       this.hangupWhenSaid = false;
       this.deps.log("chiusura_annullata", {});
     }
-    if (speaking && !this.barged && this.greeted && this.check === null && this.vad.barges(BARGE_FRAMES)) {
+    // over the greeting only words whisper confirms interrupt: a "Hello?" or the
+    // echo of the greeting itself must not cut it (10/11)
+    const canBarge = this.greeted || (this.deps.whisper !== null && !this.spec.group);
+    if (speaking && !this.barged && canBarge && this.check === null && this.vad.barges(BARGE_FRAMES)) {
       if (!this.deps.whisper || this.spec.group) {
         this.cut("interrotto");
       } else {
@@ -355,7 +364,10 @@ export abstract class CallAudio extends CallState {
         // the held tail: echo or noise while the assistant talked. It is logged:
         // a short phrase said softly over the end of the greeting vanished like
         // this, without a trace (13/11, mute scenario)
-        if (this.utt.length === 0 && this.check === null && this.held.length > 0) {
+        if (!this.greeted && !this.spec.group && this.utt.length === 0 && this.held.length * FRAME_MS >= LATE_MIN_MS) {
+          this.lateHeld = [...(this.lateHeld ?? []), ...this.held].slice(-HELD_MAX);
+          this.deps.log("tenuto_per_dopo", { ms: this.held.length * FRAME_MS });
+        } else if (this.utt.length === 0 && this.check === null && this.held.length > 0) {
           const [db] = this.vad.levelsDb();
           this.deps.log("scartato_mentre_parlava", { ms: this.held.length * FRAME_MS, db: Math.round(db) });
         }
@@ -371,29 +383,64 @@ export abstract class CallAudio extends CallState {
         this.send({ type: "streamEnd" });
         this.barged = false;
       }
-      if (this.utt.length === 0) return;
-      const phraseLen = this.utt.length;
-      for (const s of this.utt) this.turnPcm.push(s);
-      this.utt = [];
-      const phraseMs = Math.floor(phraseLen / 16);
-      this.uttSeq += 1;
-      const now = this.deps.now();
-      // already answered: the filler has nothing to cover
-      this.endAt = answered ? null : { at: now, ms: phraseMs, seq: this.uttSeq };
-      // while the brain thinks the answer is already on its way: no "you did not answer"
-      if (!answered && this.asking === null) this.awaitAnswer = { at: now, seq: this.uttSeq };
-      const turn = Int16Array.from(this.turnPcm);
-      this.deps.log("fine_frase", { ms: phraseMs, turno_ms: Math.floor(turn.length / 16) });
-      const earlyDone = this.earlySeq === this.uttSeq && !this.voicedAfterEarly;
-      if (this.deps.whisper && !this.spec.group && !earlyDone && turn.length / 16 >= 400) {
-        this.turnOf.push({ seq: this.uttSeq, turn: this.turnId });
-        this.spawnWhisper(this.uttSeq, turn);
-      }
-      if (this.clearAfterEnd) {
-        this.clearAfterEnd = false;
-        this.turnPcm = [];
-        this.turnId += 1;
-      }
+      this.endPhrase(answered);
     }
+  }
+
+  /** The bookkeeping of a finished phrase: its turn, its whisper, the filler timer. */
+  protected endPhrase(answered: boolean): void {
+    if (this.utt.length === 0) return;
+    const phraseLen = this.utt.length;
+    for (const s of this.utt) this.turnPcm.push(s);
+    this.utt = [];
+    const phraseMs = Math.floor(phraseLen / 16);
+    this.uttSeq += 1;
+    const now = this.deps.now();
+    // already answered: the filler has nothing to cover
+    this.endAt = answered ? null : { at: now, ms: phraseMs, seq: this.uttSeq };
+    // while the brain thinks the answer is already on its way: no "you did not answer"
+    if (!answered && this.asking === null) this.awaitAnswer = { at: now, seq: this.uttSeq };
+    const turn = Int16Array.from(this.turnPcm);
+    this.deps.log("fine_frase", { ms: phraseMs, turno_ms: Math.floor(turn.length / 16) });
+    const earlyDone = this.earlySeq === this.uttSeq && !this.voicedAfterEarly;
+    if (this.deps.whisper && !this.spec.group && !earlyDone && turn.length / 16 >= 400) {
+      this.turnOf.push({ seq: this.uttSeq, turn: this.turnId });
+      this.spawnWhisper(this.uttSeq, turn);
+    }
+    if (this.clearAfterEnd) {
+      this.clearAfterEnd = false;
+      this.turnPcm = [];
+      this.turnId += 1;
+    }
+  }
+
+  /**
+   * What was said over the greeting and ended before it: now that the greeting is
+   * over it goes to Gemini as a phrase, unless whisper hears only the greeting's
+   * own echo or a "Hello?". If the other is already talking again, the new phrase wins.
+   */
+  protected passLate(): void {
+    const frames = this.lateHeld ?? [];
+    this.lateHeld = null;
+    if (frames.length === 0) return;
+    const pass = (text: string | null) => {
+      if (this.ended || this.vad.isOpen() || this.utt.length > 0) return this.deps.log("scartato_nel_saluto", { perche: "parla di nuovo", whisper: text });
+      this.deps.log("detto_nel_saluto", { ms: frames.length * FRAME_MS, whisper: text });
+      for (const f of frames) {
+        for (const s of f) this.utt.push(s);
+        this.send({ type: "audio", pcm: f });
+      }
+      this.send({ type: "streamEnd" });
+      this.endPhrase(false);
+    };
+    const whisper = this.deps.whisper;
+    if (!whisper) return pass(null);
+    void whisper(joinSamples(frames)).then((r) => {
+      const t = r.ok ? (r.text ?? "") : null;
+      if (t !== null && (t.trim() === "" || onlyGreeting(t) || echoOf(this.said, t) || echoOf(this.prevSaid, t))) {
+        return this.deps.log("scartato_nel_saluto", { perche: "eco o saluto", whisper: t });
+      }
+      pass(t);
+    });
   }
 }
