@@ -30,8 +30,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
-import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
-import { STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
+import { readBoardWorkflow, readOwnWorkflowPreset, readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
+import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId, parsePersonPaths, type WorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -276,24 +276,48 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
     if (bWorkflow) {
       const scope = bWorkflow.projectId;
+      // `rules` = the CI switch and the board's paths a person must look at,
+      // resolved; `ownRules` = this scope's row. PUT takes any of `preset`,
+      // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
+      // keys present are written, `null` = inherit.
+      const view = () => ({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope), rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
       if (method === "GET") {
-        try { return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) }); }
+        try { return json(view()); }
         catch (e) { return fail(e); }
       }
       if (method === "PUT") {
-        const body = (await readJSON(req)) as { preset?: unknown } | null;
-        const preset = body?.preset;
-        if (preset !== null && !isWorkflowPresetId(preset)) {
+        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
+        const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+        if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
+          return json({ error: "nothing to write: send preset, ciPhase or personPaths", code: "invalid_input" }, 400);
+        }
+        const preset = body.preset;
+        if (has("preset") && preset !== null && !isWorkflowPresetId(preset)) {
           return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
         }
+        if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
+          return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
+        }
+        const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
+        if (has("personPaths") && body.personPaths !== null && personPaths === null) {
+          return json({ error: `personPaths must be a list of at most ${MAX_PERSON_PATHS} { pattern, why }`, code: "invalid_input" }, 400);
+        }
         try {
+          if (has("ciPhase") || has("personPaths")) {
+            writeWorkflowRules(ctx.db, scope, {
+              ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
+              ...(has("personPaths") ? { personPaths } : {}),
+            }, new Date().toISOString());
+          }
           // Through the service: the cards whose column the new workflow does
           // not have go back to the default one, and the attention state reads
           // them again (a card in review there waits on the person).
-          for (const task of svc.applyBoardWorkflow({ scope, preset })) {
-            broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+          if (has("preset")) {
+            for (const task of svc.applyBoardWorkflow({ scope, preset: preset as WorkflowPresetId | null })) {
+              broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+            }
           }
-          return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) });
+          return json(view());
         } catch (e) { return fail(e); }
       }
     }

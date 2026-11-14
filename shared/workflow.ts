@@ -106,6 +106,69 @@ export function resolveWorkflow(rows: { project?: string | null; global?: string
   return { preset: 'default', source: 'default', columns: WORKFLOW_PRESETS.default };
 }
 
+/**
+ * A path a person must look at before a card touching it lands: a glob on the
+ * repository path (`client/src/**`, `server/services/{a,b}.ts`) and why, in a
+ * few words. The generic list (dependencies, CI, public text, security...)
+ * lives in the code (`server/services/auto-land.ts`); a board adds what is
+ * specific to its repository. A test file never needs a person, wherever it is.
+ */
+export interface PersonPath { pattern: string; why: string }
+
+/** The rules of a workflow beside its columns. */
+export interface WorkflowRules {
+  /**
+   * Accepted work is measured together with main in the CI column before it
+   * lands. Takes effect only on a board with CI rows and auto-merge on.
+   */
+  ciPhase: boolean;
+  /** This board's paths on top of the generic list: the global row's first, then the project's. */
+  personPaths: PersonPath[];
+}
+
+/** One scope's row: `null`/absent = inherit (the global row, then the default). */
+export interface WorkflowRulesRow { ciPhase?: boolean | null; personPaths?: PersonPath[] | null }
+
+export const MAX_PERSON_PATHS = 200;
+
+/** The project's CI switch wins over the global one (on by default); the paths add up. */
+export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
+  const ciPhase = rows.project?.ciPhase ?? rows.global?.ciPhase ?? true;
+  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])] };
+}
+
+/** A stored or sent list, checked; `null` when it is not a valid one. */
+export function parsePersonPaths(v: unknown): PersonPath[] | null {
+  if (!Array.isArray(v) || v.length > MAX_PERSON_PATHS) return null;
+  const out: PersonPath[] = [];
+  for (const x of v) {
+    const pattern = typeof x?.pattern === 'string' ? x.pattern.trim() : '';
+    const why = typeof x?.why === 'string' ? x.why.trim() : '';
+    if (!pattern || pattern.length > 300 || why.length > 80) return null;
+    out.push({ pattern, why: why || 'this board' });
+  }
+  return out;
+}
+
+/** The settings panel writes one path per line, `pattern # why`. */
+export function personPathsToText(paths: readonly PersonPath[]): string {
+  return paths.map((p) => `${p.pattern} # ${p.why}`).join('\n');
+}
+
+/** Back from the panel: blank lines and lines starting with `#` are skipped. */
+export function personPathsFromText(text: string): PersonPath[] {
+  const out: PersonPath[] = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const cut = line.indexOf(' #');
+    const pattern = (cut < 0 ? line : line.slice(0, cut)).trim();
+    const why = cut < 0 ? '' : line.slice(cut + 2).trim();
+    if (pattern) out.push({ pattern, why: why || 'this board' });
+  }
+  return out;
+}
+
 export function workflowHasStage(columns: readonly WorkflowColumn[], stage: string): boolean {
   return columns.some((c) => c.id === stage);
 }
