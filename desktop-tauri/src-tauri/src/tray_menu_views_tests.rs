@@ -61,6 +61,17 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
+fn a_reading_the_dial_cannot_show_goes_in_the_line_under_it() {
+    let spend = Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() };
+    let cpu = Metric { key: "cpu".into(), name: "CPU".into(), pct: Some(40), ..Default::default() };
+    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu], ..Default::default() };
+    // the dial's own readings stay in the legend; the spend leads the line, the reason follows
+    assert_eq!(card_line(&m), "Spesa 8,44/60 € · Oltre il tetto");
+    assert_eq!(card_line(&MachineCard { reason: "x".into(), ..Default::default() }), "x");
+    assert_eq!(card_line(&MachineCard::default()), "");
+}
+
+#[test]
 fn the_reason_line_sits_below_the_legend_inside_the_card() {
     // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
     let (edge, cy) = (38.0, 84.0);
