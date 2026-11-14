@@ -1,43 +1,43 @@
 /**
- * Quando un agente di Topics passa il lavoro a un sotto-agente, e come.
+ * When a Topics agent hands work to a sub-agent, and how.
  *
- * Perché esiste (misura del 14/11/2026, transcript di un giorno intero): le due
- * chat di orchestrazione più pesanti hanno fatto 413 e 435 Bash nel proprio
- * contesto e lanciato 4 e 1 `spawn_agent`. Contesto mediano 230-270k token,
- * tre compattazioni a testa, e ogni chiamata rilegge tutto: da sole valevano un
- * terzo della quota settimanale consumata quel giorno. Il prompt diceva solo
- * che `spawn_agent` esiste, non quando usarlo.
+ * Why it exists (measured on 14/11/2026, one full day of transcripts): the two
+ * heaviest orchestration chats ran 413 and 435 Bash calls in their own context
+ * and started 4 and 1 `spawn_agent`. Median context 230-270k tokens, three
+ * compactions each, and every call re-reads it all: together a third of the
+ * weekly quota spent that day. The prompt only said `spawn_agent` exists, not
+ * when to use it.
  *
- * Il testo segue ciò che è misurato altrove, non un gusto:
- *  - orchestratore che decide, figli in parallelo con contesto proprio
- *    (Anthropic, «How we built our multi-agent research system», 06/2025);
- *  - mandato completo: obiettivo, forma del risultato, strumenti, confini
- *    (stessa fonte: senza, i figli duplicano o sbagliano compito);
- *  - mandato pulito invece della storia della chat (clean-slate: −99% di
- *    contesto ereditato, nessuna collisione con ipotesi scartate);
- *  - il risultato come prova riapribile, non come prosa: il 41,8% dei
- *    fallimenti della ricerca delegata nasce al passaggio di consegne, quasi
- *    sempre in silenzio (arXiv 2608.01507, SWE-QA);
- *  - esplorazione separata dal lavoro: fino a −60% di token del principale
+ * The wording follows what was measured elsewhere, not taste:
+ *  - an orchestrator that decides, children in parallel with their own context
+ *    (Anthropic, "How we built our multi-agent research system", 06/2025);
+ *  - a complete mandate: objective, shape of the result, tools, boundaries
+ *    (same source: without it children duplicate work or pick the wrong task);
+ *  - a clean mandate instead of the chat history (clean-slate dispatch: -99%
+ *    inherited context, no collisions with discarded hypotheses);
+ *  - the result as evidence that can be reopened, not prose: 41.8% of the
+ *    failures of delegated search happen at the hand-off, almost always
+ *    silently (arXiv 2608.01507, SWE-QA);
+ *  - exploration split from solving: up to -60% of the main agent's tokens
  *    (FastContext, arXiv 2606.14066).
  *
- * Puro: niente disco, niente ambiente. Lo usano il prompt delle sessioni
- * headless (`topics-agent-prompt.ts`), il motore nativo e lo script di hook
- * della CLI (`delegationHookScript`), così soglie e parole stanno in un posto.
+ * Pure: no disk, no environment. Used by the headless session prompt
+ * (`topics-agent-prompt.ts`), the native engine and the CLI hook script
+ * (`delegationHookScript`), so thresholds and wording live in one place.
  */
 
-/** Ogni quante chiamate di lavoro in fila, senza una delega, arriva il richiamo; e da che contesto. */
+/** How many inline work calls in a row, without a delegation, before the nudge; and from what context size. */
 export const DELEGATION_NUDGE = { everyInlineCalls: 25, minContextTokens: 120_000 } as const;
 
 export interface DelegationState { inline: number; next: number }
 
-/** Le chiamate che fanno lavoro nel contesto di chi le chiama: shell, letture, ricerche, uscite di processi. */
+/** Calls that do work in the caller's context: shell, reads, searches, process output. */
 export const INLINE_WORK_TOOL = /^(Bash|Read|Grep|Glob|bash|read_file|grep|glob|(mcp__topics__)?(run_command|read_process_output))$/;
 
-/** Le chiamate che passano lavoro a un'altra sessione. */
+/** Calls that hand work to another session. */
 export const DELEGATION_TOOL = /^((mcp__topics__)?spawn_agent|Agent|Task)$/;
 
-/** Il paragrafo del prompt di sistema. */
+/** The system prompt paragraph. */
 export function delegationPolicy(): string {
   return [
     'DELEGATE THE WORK, KEEP THE DECISIONS. Your whole context is re-read on every tool call, so a command that prints a lot costs far more here than in a fresh session.',
@@ -51,7 +51,7 @@ export function delegationPolicy(): string {
   ].join(' ');
 }
 
-/** Il richiamo a metà turno, con i numeri di questa sessione. */
+/** The mid-turn nudge, with this session's numbers. */
 export function delegationNudgeText(inlineCalls: number, contextK: number): string {
   return `Topics: ${inlineCalls} tool calls in a row in this context (now ~${contextK}k tokens) without a sub-agent. `
     + 'If what follows is more exploring, reading or running, hand it to `mcp__topics__spawn_agent` with a self-contained mandate and ask for paths, line ranges and exit codes back. '
@@ -59,10 +59,10 @@ export function delegationNudgeText(inlineCalls: number, contextK: number): stri
 }
 
 /**
- * Il contatore di una sessione: `observe` a ogni giro di tool, torna il testo
- * del richiamo quando tocca, altrimenti null. Sotto il contesto minimo non
- * richiama (costerebbe poco comunque) e riguarda fra 5 chiamate; dopo un
- * richiamo il prossimo arriva fra `everyInlineCalls`, così non diventa rumore.
+ * A session's counter: `observe` on every tool round returns the nudge text
+ * when it is due, null otherwise. Below the minimum context it does not nudge
+ * (it would cost little anyway) and checks again 5 calls later; after a nudge
+ * the next one comes `everyInlineCalls` later, so it does not become noise.
  */
 export function createDelegationTracker(nudge = DELEGATION_NUDGE, from?: DelegationState) {
   let inline = from?.inline ?? 0;
@@ -90,24 +90,24 @@ export function createDelegationTracker(nudge = DELEGATION_NUDGE, from?: Delegat
   };
 }
 
-/** Una stringa dentro apici singoli di shell. */
+/** A string inside single shell quotes. */
 const shQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
- * Lo stesso contatore per la CLI di Claude Code, come hook `PostToolUse`
- * sincrono: l'unico evento che può restituire testo al modello
- * (`hookSpecificOutput.additionalContext`). È `sh` e non `bun` perché gira a
- * ogni chiamata e deve costare millisecondi anche a Mac carico; il contesto lo
- * legge solo quando il contatore arriva alla soglia, dalla coda del transcript.
- * Stato: un file per sessione sotto `$TMPDIR`, due numeri.
+ * The same counter for the Claude Code CLI, as a synchronous `PostToolUse`
+ * hook: the only event that can hand text back to the model
+ * (`hookSpecificOutput.additionalContext`). It is `sh` and not `bun` because it
+ * runs on every call and must cost milliseconds even on a loaded machine; it
+ * reads the context size only when the count reaches the threshold, from the
+ * tail of the transcript. State: one file per session under `$TMPDIR`, two numbers.
  */
 export function delegationHookScript(nudge = DELEGATION_NUDGE): string {
   const template = JSON.stringify(delegationNudgeText(-1, -2)).replace('-1', '%d').replace('-2', '%d');
   const delegation = DELEGATION_TOOL.source.replace(/^\^|\$$/g, '');
   const inline = INLINE_WORK_TOOL.source.replace(/^\^|\$$/g, '');
   return `#!/bin/sh
-# Topics: richiamo alla delega (generato da server/lib/delegation-policy.ts, non modificare).
-# Esce sempre 0: un errore qui non deve mai fermare un tool.
+# Topics: delegation nudge (generated by server/lib/delegation-policy.ts, do not edit).
+# Always exits 0: an error here must never stop a tool.
 input=$(cat)
 first() { printf '%s' "$input" | grep -o "\\"$1\\":\\"[^\\"]*\\"" | head -1 | sed 's/.*:"\\(.*\\)"/\\1/'; }
 sid=$(first session_id); tool=$(first tool_name); tr=$(first transcript_path)
