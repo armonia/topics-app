@@ -68,8 +68,9 @@ fn only_the_working_glyph_moves() {
 /// or pushes a new image to the tray instead of moving the overlay frame.
 #[test]
 fn animation_frames_never_render_the_strip() {
-    use crate::tray_quota::{Animation, STRIP_RENDERS};
-    crate::tray_quota::seed_for_test(cols(), states());
+    use crate::tray_poller::Animation;
+    use crate::tray_quota::STRIP_RENDERS;
+    crate::tray_poller::seed_for_test(cols(), states());
     let mut anim = Animation::new();
     // The first tick sees new counts: one redraw is allowed.
     let (mut strips, mut frames) = (0, Vec::new());
