@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.111 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: la frase rapida non inventa cosa controlla e non scambia una domanda per una lamentela (#990)
+
+## 2.3.110 — 2026-11-14
+
+### Sotto il cofano
+- Chiamate vocali in Topics: il canale porta solo l'audio (#987)
+
+## 2.3.109 — 2026-11-14
+
+### Sotto il cofano
+- Artifact purge survives a GitHub 500 on one delete (#983)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-14 [skip ci]
+- DESIGN.md nel formato di Google, memoria del gusto di Attilio (#984)
+
 ## 2.3.108 — 2026-11-14
 
 ### Correzioni
