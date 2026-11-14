@@ -63,11 +63,11 @@ describe("delegation in the prompts", () => {
   });
 
   test("the native engine adds it only where spawn_agent exists", () => {
-    const lang = "L";
-    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: false, language: lang, delegate: true })).toContain("DELEGATE THE WORK");
-    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: false, language: lang })).not.toContain("DELEGATE THE WORK");
-    expect(nativeSystemPrompt({ workspace: false, globalOrchestrator: false, language: lang, delegate: true })).not.toContain("DELEGATE THE WORK");
-    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: true, language: lang, delegate: true })).not.toContain("DELEGATE THE WORK");
+    const language = "L";
+    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: false, language, delegate: true })).toContain("DELEGATE THE WORK");
+    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: false, language })).not.toContain("DELEGATE THE WORK");
+    expect(nativeSystemPrompt({ workspace: false, globalOrchestrator: false, language, delegate: true })).not.toContain("DELEGATE THE WORK");
+    expect(nativeSystemPrompt({ workspace: true, globalOrchestrator: true, language, delegate: true })).not.toContain("DELEGATE THE WORK");
   });
 
   test("the mandate asks for evidence, parallel pieces and a cheaper profile for mechanical work", () => {
