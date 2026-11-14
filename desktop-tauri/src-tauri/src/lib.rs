@@ -30,6 +30,10 @@ mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_pic;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_views;
 mod tray_quota;
 mod tray_poller;
 #[cfg(target_os = "macos")]
