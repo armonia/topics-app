@@ -123,4 +123,15 @@ describe("measureIntegration", () => {
     expect(closed).toContain("topics/integrazione-deadbeef");
     expect(closed).toContain(`topics/integrazione-${out.commit!.slice(0, 8)}`);
   });
+
+  test("a red is confirmed by one rerun of the failed jobs: a flake that passes the second time is green", async () => {
+    const r = repo();
+    let calls = 0; let reruns = 0;
+    const d = { ...deps(() => (++calls === 1 ? [ko("unit")] : [ok("unit")])), rerunFailed: async () => { reruns++; return true; } };
+    const out = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, d);
+    expect(reruns).toBe(1);
+    expect(out.verdict).toBe("pass");
+    const still = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, { ...deps(() => [ko("unit")]), rerunFailed: async () => true });
+    expect(still.verdict).toBe("fail");
+  });
 });

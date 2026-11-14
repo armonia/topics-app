@@ -164,6 +164,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
         awaitCi: (input) => awaitCiEvidence(input),
         closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
         describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
+        rerunFailed: async (cwd, sha) => {
+          const gh = async (args: string[]) => {
+            const p = Bun.spawn(["gh", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+            const out = await new Response(p.stdout).text();
+            return { code: await p.exited, out };
+          };
+          const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
+          const id = list.out.trim();
+          if (list.code !== 0 || !id) return false;
+          return (await gh(["run", "rerun", id, "--failed"])).code === 0;
+        },
       });
     },
     // Landed like a person's «Landa»: the integration commit measured main plus this branch, so the land may
