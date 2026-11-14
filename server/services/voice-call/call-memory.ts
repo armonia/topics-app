@@ -6,7 +6,7 @@
  */
 import type { PreviousCall } from "./call-rules";
 
-/** Past this the second call is a new conversation. */
+/** Past this the second call is a new conversation (the default of `TOPICS_VOICE_RESUME_MIN`). */
 export const RESUME_WINDOW = 10 * 60_000;
 
 const last = new Map<string, { lines: string[]; dropped: boolean; at: number }>();
@@ -18,10 +18,10 @@ export function rememberCall(who: string, lines: readonly string[], dropped: boo
 }
 
 /** The call before, if it ended a short while ago: used once, then forgotten. */
-export function previousCall(who: string, now: number): PreviousCall | null {
+export function previousCall(who: string, now: number, windowMs = RESUME_WINDOW): PreviousCall | null {
   const p = last.get(who);
   if (!p) return null;
   last.delete(who);
-  if (now - p.at > RESUME_WINDOW) return null;
+  if (now - p.at > windowMs) return null;
   return { lines: p.lines, dropped: p.dropped, agoMin: Math.max(1, Math.round((now - p.at) / 60_000)) };
 }

@@ -257,7 +257,7 @@ export class VoiceBridgeSession {
         group: s.group,
         speed: s.speed,
         fillers,
-        previous: s.group || s.direction.kind === "on_behalf" ? null : previousCall(s.name, Date.now()),
+        previous: s.group || s.direction.kind === "on_behalf" ? null : previousCall(s.name, Date.now(), settings.resumeMin * 60_000),
       },
       callDeps,
     );

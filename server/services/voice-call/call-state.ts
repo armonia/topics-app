@@ -261,7 +261,13 @@ export abstract class CallState {
     }
     const prev = this.brainOn ? (spec.previous ?? null) : null;
     if (prev) {
-      this.dialog.lines.push(`[La telefonata di ${prev.agoMin} minuti fa${prev.dropped ? ", caduta senza saluti" : ""}]`, ...prev.lines, "[Questa telefonata]");
+      // only to pick up the talk: what was handed off there answers in the chat, not here.
+      // Without this the brain said "I am already on it" and handed off nothing (bench 14/11)
+      this.dialog.lines.push(
+        `[La telefonata di ${prev.agoMin} minuti fa${prev.dropped ? ", caduta senza saluti" : ""}: serve solo a capire il discorso. Ciò che lì era stato affidato non torna in questa telefonata: se lo chiede di nuovo, affidalo di nuovo]`,
+        ...prev.lines,
+        "[Questa telefonata]",
+      );
     }
     this.openText = spec.group ? groupOpening(this.persona) : opening(this.persona, d, prev?.dropped === true);
     // whoever does not know they are talking to a recorded assistant hears it at once, does not find out later

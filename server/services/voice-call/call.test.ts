@@ -408,6 +408,7 @@ describe("call loop", () => {
     const user = String(w.thinks.at(-1)!.args[1]);
     expect(user).toContain("sconto del dieci per cento");
     expect(user).toContain("caduta senza saluti");
+    expect(user).toContain("affidalo di nuovo");
     // the memory handed to the next call holds only this call
     expect(w.call.memory().lines.join(" ")).not.toContain("sconto del dieci");
   });

@@ -14,4 +14,7 @@ test("a call back within the window gets the thread once; later, or for someone 
   expect(previousCall("Ada", RESUME_WINDOW + 1)).toBeNull();
   rememberCall("Ada", [], true, 0);
   expect(previousCall("Ada", 1)).toBeNull();
+  // a window of 0 (the bench) never resumes
+  rememberCall("Ada", ["Ada: e il preventivo?"], true, 0);
+  expect(previousCall("Ada", 1, 0)).toBeNull();
 });

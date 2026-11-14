@@ -50,6 +50,8 @@ export interface VoiceSettings {
   speakWhileThinking: boolean;
   /** every Gemini event in the call log (`TOPICS_VOICE_DEBUG=1`) */
   debug: boolean;
+  /** minutes a call back resumes the thread of the call before (`TOPICS_VOICE_RESUME_MIN`, default 10; 0 = never) */
+  resumeMin: number;
   /** folder of the bench scenarios (`TOPICS_VOICE_SCENARIOS`) */
   scenarios: string;
   geminiKey: string;
@@ -81,6 +83,7 @@ export function voiceSettings(env: Env = process.env): VoiceSettings {
     thinkingLevel: str(env, "TOPICS_VOICE_THINKING_LEVEL", "low"),
     speakWhileThinking: str(env, "TOPICS_VOICE_SPEAK_WHILE_THINKING") === "1",
     debug: str(env, "TOPICS_VOICE_DEBUG") === "1",
+    resumeMin: Math.max(0, Number(str(env, "TOPICS_VOICE_RESUME_MIN", "10")) || 0),
     scenarios: str(env, "TOPICS_VOICE_SCENARIOS"),
     geminiKey: str(env, "GEMINI_API_KEY"),
     groqKey: str(env, "GROQ_API_KEY"),
