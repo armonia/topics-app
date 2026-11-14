@@ -61,6 +61,19 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
+fn the_reason_line_sits_below_the_legend_inside_the_card() {
+    // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
+    let (edge, cy) = (38.0, 84.0);
+    let with = card_layout(cy, edge, true);
+    // 11 pt text: its top must clear the GPU row's baseline, and its baseline stay inside the frame
+    assert!(with.reason_y - 11.0 > with.last_row + 2.0, "{with:?}");
+    assert!(with.reason_y + 4.0 <= with.h + 3.0, "{with:?}");
+    let without = card_layout(cy, edge, false);
+    assert!(without.last_row + 4.0 <= without.h + 3.0, "{without:?}");
+    assert!(with.h > without.h);
+}
+
+#[test]
 fn every_view_renders_ink_at_the_menu_width() {
     let p = Palette::new(true);
     let m = machine_cards_from_board(BOARD);

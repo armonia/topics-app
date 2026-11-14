@@ -33,8 +33,11 @@ type Tr = (key: string, vars?: Record<string, string | number>) => string;
 
 const KNOWN_REASONS = new Set(['not_paired', 'unreachable', 'not_a_node', 'powered_off', 'empty']);
 
-// The same thresholds for every machine, so a band turns amber or red at the same reading anywhere.
-const levelOf = (pct: number | null): number => (pct === null ? 0 : pct >= 90 ? 2 : pct >= 75 ? 1 : 0);
+// Amber and red per band, the same readings at which the usage service colours this computer
+// and its own machines, so two cards side by side agree on what «full» means.
+const LIMITS = { cpu: [85, 97], mem: [80, 92], disk: [85, 95] } as const;
+const levelOf = (key: keyof typeof LIMITS, pct: number | null): number =>
+  pct === null ? 0 : pct >= LIMITS[key][1] ? 2 : pct >= LIMITS[key][0] ? 1 : 0;
 const gb = (n: number): string => `${n.toLocaleString(undefined, { maximumFractionDigits: n >= 100 ? 0 : 1 })} GB`;
 
 export function trayMachines(rows: readonly MachineOverviewRow[], tr: Tr): TrayMachine[] {
@@ -61,11 +64,12 @@ export function trayMachines(rows: readonly MachineOverviewRow[], tr: Tr): TrayM
     ].filter((l): l is string => l !== null);
     const pct = (v: number | null | undefined): number | null => (v == null ? null : Math.max(0, Math.min(100, Math.round(v))));
     const metrics: TrayMetric[] = k ? [
-      { key: 'cpu', pct: pct(k.cpuPct), level: levelOf(pct(k.cpuPct)), note: k.cores ? tr('processes.remote.cores', { n: k.cores }) : '' },
-      { key: 'mem', pct: pct(k.memPct), level: levelOf(pct(k.memPct)), note: k.memUsedGB != null && k.memTotalGB ? `${gb(k.memUsedGB)} / ${gb(k.memTotalGB)}` : k.memTotalGB ? gb(k.memTotalGB) : '' },
-      { key: 'disk', pct: pct(k.diskPct), level: levelOf(pct(k.diskPct)), note: '' },
+      { key: 'cpu', pct: pct(k.cpuPct), level: levelOf('cpu', pct(k.cpuPct)), note: k.cores ? tr('processes.remote.cores', { n: k.cores }) : '' },
+      { key: 'mem', pct: pct(k.memPct), level: levelOf('mem', pct(k.memPct)), note: k.memUsedGB != null && k.memTotalGB ? `${gb(k.memUsedGB)} / ${gb(k.memTotalGB)}` : k.memTotalGB ? gb(k.memTotalGB) : '' },
+      { key: 'disk', pct: pct(k.diskPct), level: levelOf('disk', pct(k.diskPct)), note: '' },
     ] : [];
-    const level = m.state === 'unreachable' ? 2 : m.state === 'stopped' ? 0 : Math.max(0, k?.rebootRequired && p ? 1 : 0, ...metrics.map((x) => x.level));
+    // The card's own tone says whether the machine answers, as the service's cards do; a full band colours itself only.
+    const level = m.state === 'unreachable' ? 2 : m.state === 'live' && k?.rebootRequired && p ? 1 : 0;
     // The line under the dial: why it does not answer, else what it is and what it costs.
     const reason = m.state !== 'live'
       ? (lines[0] ?? '')

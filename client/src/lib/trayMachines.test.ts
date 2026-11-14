@@ -34,7 +34,9 @@ describe('trayMachines', () => {
     expect(m.name).toBe('box');
     expect(m.badge).toBe('processes.remote.statelive');
     expect(m.metrics.map((x) => [x.key, x.pct, x.level])).toEqual([['cpu', 12, 0], ['mem', null, 0], ['disk', 95, 2]]);
-    expect(m.level).toBe(2);
+    // a full disk reddens its band, not the whole card: the machine still answers
+    expect(m.level).toBe(0);
+    expect(trayMachines([{ ...cloud, metrics: { ...cloud.metrics, diskPct: 86 } }], tr)[0].metrics[2].level).toBe(1);
     expect(m.reason).toContain('X Cloud · small');
     const [down] = trayMachines([{ ...base, state: 'unreachable', reason: 'unreachable', metrics: null }], tr);
     expect([down.level, down.reason, down.metrics.length]).toEqual([2, 'processes.remote.r.unreachable', 0]);
