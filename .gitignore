@@ -485,3 +485,7 @@ output/
 relay-identity.json
 !docs/archive/devreap-astro-noclient-2026-10-26.md
 !docs/archive/tray-fetchlive-lag-root-cause.md
+# tray-perf-measurement.md documents the live-measurement approach, the thresholds,
+# and the 2026-11-14 binary-search fix so a future contributor can re-run the bench
+# and understand why the loop was changed.
+!docs/tray-perf-measurement.md
