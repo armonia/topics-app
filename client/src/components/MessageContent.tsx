@@ -24,6 +24,7 @@ import { coalesceBrowserOpens, type BrowserMarker } from './Chat/browserOpens';
 import { viewOf, type ViewOpen } from './Chat/viewOpens';
 import { ViewBlock } from './Views/ViewBlock';
 import { BrowserOpenMarker } from './Chat/BrowserOpenMarker';
+import { ScrollFadeX } from './Chat/ScrollFadeX';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
 import { isRedoneAnswer, LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
@@ -404,15 +405,15 @@ export const markdownComponents: Components = {
     return <code className="bg-app-hover text-app-text-secondary px-1 py-0.5 rounded text-prose font-mono">{children}</code>;
   },
   table: ({ children }) => (
-    <div className="overflow-x-auto my-2">
+    <ScrollFadeX className="my-2">
       <table className="min-w-full border-collapse border border-app-border-light text-body-lg leading-5">{children}</table>
-    </div>
+    </ScrollFadeX>
   ),
   th: ({ children }) => (
-    <th className="md-cell border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
+    <th className="md-cell border border-app-border-light bg-app-hover dark:bg-elevated px-2 sm:px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => (
-    <td className="md-cell border border-app-border-light px-3 py-1.5">{children}</td>
+    <td className="md-cell border border-app-border-light px-2 sm:px-3 py-1.5">{children}</td>
   ),
 };
 

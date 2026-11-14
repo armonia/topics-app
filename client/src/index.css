@@ -1230,6 +1230,18 @@ html {
   hyphens: manual;
 }
 
+/* The fade of a horizontal scroller with more content past an edge
+   (components/Chat/ScrollFadeX.tsx). A mask, so it needs no background colour. */
+.scroll-fade-x[data-fade='right'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.scroll-fade-x[data-fade='left'] {
+  mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent);
+}
+.scroll-fade-x[data-fade='both'] {
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
 /* Ensure form inputs never overflow their container */
 textarea, input[type="text"] {
   max-width: 100%;
