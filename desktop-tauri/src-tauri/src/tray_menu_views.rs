@@ -292,7 +292,7 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     pic.text(Face::Sans, &who, ix + 18.0, ty, 11.5, p.fg, 1.0);
     let sy = y + Q_INSET + 16.0 + 4.0;
     let st = tone(c.state_level);
-    let mut tx = ix;
+    let tx;
     if let Some(n) = c.needle {
         let (gcx, gcy, r) = (ix + 13.0, sy + 17.0, 12.5);
         pic.ring(gcx, gcy, r - 1.5, 2.5, 0.0, 0.5, tone(0), 0.55);
