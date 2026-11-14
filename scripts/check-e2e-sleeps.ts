@@ -238,7 +238,9 @@ function countFile(root: string, absPath: string): FileCount | null {
   }
   if (calls === 0) return null;
   return {
-    file: relative(root, absPath),
+    // The baseline keys use forward slashes: on Windows `relative` answers with
+    // backslashes, and every file then reads as new.
+    file: relative(root, absPath).split("\\").join("/"),
     calls,
     ms,
     lines,

@@ -1,3 +1,6 @@
+/**
+ * @covers E2E-GATE-14
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";

@@ -37,7 +37,7 @@
  * `tests/e2e/hermetic-coverage.spec.ts` verifica che nessuno se la dimentichi.
  */
 
-import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
+import { request as playwrightRequest, type APIRequestContext, type TestInfo } from "@playwright/test";
 import { E2E_BASE } from "../helpers/test-server";
 import { acquireServerLock } from "../helpers/server-lock";
 import { slackMs } from "../../helpers/time-slack";
@@ -230,12 +230,11 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
 }
 
 /**
- * L'oggetto `test` del file chiamante — quello base o uno esteso con
- * `test.extend`. Chiediamo solo `beforeAll`: è tutto ciò che serve, e così
- * qualunque fixture custom va bene senza cast.
+ * The caller's `test` object, the base one or one built with `test.extend`.
+ * Only the two hooks are asked for, so any custom fixture fits without a cast.
  */
 type HookRegistrar = {
-  beforeAll: (fn: () => Promise<void>) => void;
+  beforeAll: (fn: (fixtures: unknown, testInfo: TestInfo) => Promise<void>) => void;
   afterAll: (fn: () => Promise<void>) => void;
 };
 
@@ -245,8 +244,15 @@ export function hermetic(test: HookRegistrar): void {
   // starting on one worker wipes the other worker's topics mid-test. Files take
   // turns: the lock is held from this reset to the file's afterAll.
   let release: (() => void) | null = null;
-  test.beforeAll(async () => {
+  test.beforeAll(async (_fixtures, testInfo) => {
+    // Waiting for the other worker's file is not this hook's work: without
+    // lifting the timeout, a file that holds the lock longer than one test
+    // timeout fails the waiting hook instead of queueing it.
+    const budget = testInfo.timeout;
+    const queuedAt = Date.now();
+    testInfo.setTimeout(0);
     release = await acquireServerLock(E2E_BASE);
+    testInfo.setTimeout(budget === 0 ? 0 : budget + (Date.now() - queuedAt));
     await resetToBaseline();
   });
   test.afterAll(async () => {
