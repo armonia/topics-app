@@ -38,6 +38,12 @@ describe('phase to glyph on the card surfaces', () => {
     });
   }
 
+  test('the Plan draws a failed dispatch with the failed glyph, and a live agent spinning', () => {
+    const src = read('Board/PlanView.tsx');
+    expect(src).toContain("c.dispatchState === 'failed' ? 'failed' : c.status");
+    expect(src).toContain("live={c.dispatchState === 'working'}");
+  });
+
   test('a space waiting for you shows the amber alert, not the waiting spinner', () => {
     const src = read('Sidebar/SpaceGroups.tsx');
     expect(src).not.toContain('SparkLoader');

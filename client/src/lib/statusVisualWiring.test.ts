@@ -145,14 +145,14 @@ describe('statusVisual wiring', () => {
 
   test('STATUS-VISUAL-01f: "working" is the sky of in_progress, never the green of done', () => {
     const pane = read('Agents/AgentsPane.tsx');
-    for (const [name, token] of [['DOT', 'STATUS_DOT.working'], ['TEXT', 'STATUS_INK.working']] as const) {
-      const working = entry(objectOf(pane, name), /\bworking:\s*/);
-      expect(working, `AgentsPane ${name}.working`).toContain(token);
-      expect(working).not.toMatch(GREEN);
-    }
+    const working = entry(objectOf(pane, 'TEXT'), /\bworking:\s*/);
+    expect(working, 'AgentsPane TEXT.working').toContain('STATUS_INK.working');
+    expect(working).not.toMatch(GREEN);
+    // An agent at work wears the card family's glyph: the spinning half pie, sky.
+    expect(pane).toContain(`if (state === 'working') return <StatusIcon status="in_progress" live`);
     const groupCount = elementAround(pane, "tr('agents.working', { n: g.working })");
     expect(groupCount).toContain('STATUS_INK.working');
-    expect(groupCount).toContain('STATUS_DOT.working');
+    expect(groupCount).toContain('<AgentStateGlyph state="working" />');
     expect(groupCount).not.toMatch(GREEN);
 
     const lines = entry(objectOf(read('Sidebar/AgentLines.tsx'), 'SIGNALS'), /\bworking:\s*/);
