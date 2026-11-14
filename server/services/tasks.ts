@@ -5130,7 +5130,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // «riaperta» si azzera: il ciclo si è chiuso qui.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, done_actor = 'human', " +
-            "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
+            "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, " +
+            // A closed card has no land pending: the CI phase's decision ends with it.
+            "land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL, updated_at = ? WHERE id = ?",
         ).run(target, ts, ts, taskId);
       }
       // The human decision ends the review round and its column: a stage left

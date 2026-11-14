@@ -213,4 +213,31 @@ describe("the CI phase", () => {
     expect(merges).toEqual([]);
     expect(s.read().humanAsk).toContain("hai scritto");
   }, 30_000);
+
+  test("a card whose code is already on main does not enter the CI phase: approving closes it", async () => {
+    const s = await setup();
+    await s.deliver();
+    svc.recordLandingState({ taskId: s.id, state: "landed" as never, checkedAt: new Date().toISOString(), witnessed: true });
+    const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
+    expect(r.status).toBe(200);
+    expect(s.read().status).toBe("done");
+    // Not even a card that already carries the decision: the sweep leaves it alone.
+    db.prepare("UPDATE tasks SET status = 'review', land_intent = 'human', stage = 'ci' WHERE id = ?").run(s.id);
+    await sweep!(); await s.settle();
+    expect(measured).toEqual([]);
+    expect(s.read().status).toBe("done");
+    expect(s.read().landIntent).toBeUndefined();
+  }, 30_000);
+
+  test("an approval with a comment enters the CI phase too, and the comment is kept", async () => {
+    const s = await setup();
+    await s.deliver();
+    const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve", comment: "ok, sistemati i due rossi" }))!;
+    expect(r.status).toBe(202);
+    expect(s.read().stage).toBe("ci");
+    await s.settle();
+    expect(measured).toEqual([[s.id]]);
+    expect(s.read().status).toBe("done");
+    expect(svc.get(s.id)!.comments.filter((c) => c.content === "ok, sistemati i due rossi")).toHaveLength(1);
+  }, 30_000);
 });
