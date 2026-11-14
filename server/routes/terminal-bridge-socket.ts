@@ -1,3 +1,4 @@
+import { dispatchBridgeLine } from "../lib/terminal-guards";
 import { withoutGatewayToken } from "../lib/child-env";
 import { STANDALONE_NO_PTY_CODE } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
@@ -477,9 +478,7 @@ function setupSocketReader(socket: net.Socket) {
     // Any line at all is proof of life, even one we cannot parse. The watchdog
     // reads this, not just the pong.
     noteBridgeByte();
-    try {
-      bridgeMessageHandler?.(JSON.parse(line));
-    } catch {}
+    if (bridgeMessageHandler) dispatchBridgeLine(line, bridgeMessageHandler);
   });
 
   socket.on('close', () => {

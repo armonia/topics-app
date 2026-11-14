@@ -6,6 +6,7 @@ import { shouldCompressFrame } from "../lib/ws-compression";
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
 import { classifyFrame, countsAsActivity, isInputEcho, isResizeRepaint } from "../lib/pty-activity";
 import { recordedExitCode } from "../lib/terminal-kill";
+import { settleExitedSessionRow } from "../lib/terminal-guards";
 import { cleanupMcpConfigForSession } from "../providers/claude-code";
 import { reportChildEnd } from "../lib/subagent-runtime";
 import { terminalExited } from "../attention/terminal-turns";
@@ -154,19 +155,13 @@ export function handleBridgeMessage(msg: any) {
         // it on every reload, which immediately exits again, producing the
         // "chat appears then closes" flicker. Treat those as dead: DELETE
         // the row so they stop haunting the UI.
-        try {
-          if (canResume) {
-            // The code is kept WITH the parked row, so a pane opened after the
-            // fact reads it too. NULL when the bridge gave none: an unknown
-            // code is not a zero.
-            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, msg.id]);
-          } else {
-            if (failedQuickly) {
-              console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
-            }
-            getDatabase().run("DELETE FROM terminal_sessions WHERE id = ?", [msg.id]);
-          }
-        } catch {}
+        if (!canResume && failedQuickly) {
+          console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
+        }
+        // The code is kept WITH the parked row, so a pane opened after the
+        // fact reads it too. NULL when the bridge gave none: an unknown
+        // code is not a zero.
+        settleExitedSessionRow(getDatabase, { id: msg.id, resumable: canResume, exitCode });
         // Mirror the lifecycle into the phase tracker so the loading signal
         // clears: dormant (resumable) → not loading; otherwise forget it.
         if (exitedSession.claudeSessionId && (exitedSession.type === 'claude-code' || exitedSession.type === 'claude-code-team')) {

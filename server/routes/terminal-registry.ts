@@ -2,6 +2,7 @@ import type { TerminalSessionType } from "../../shared/terminal-session-types";
 import { encodeExitReason, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { getDatabase } from "../db";
 import { warnThrottled } from "../lib/warn-throttled";
+import { killChildren } from "../lib/terminal-guards";
 import fs from "fs";
 import { decidePark, summarizeRefusals } from "../lib/terminal-idle-park";
 import { createChangeLogger } from "../lib/log-on-change";
@@ -385,9 +386,7 @@ export function liveChildrenOf(parentSessionKey: string): TerminalSession[] {
  *  model-spawned ephemerals, so orphaning them (leaving drivable PTYs with a
  *  dead owner) is worse than reaping them. */
 export function cascadeKillChildren(parentSessionKey: string, caller: string) {
-  for (const child of liveChildrenOf(parentSessionKey)) {
-    try { sendTerminalKill(child.id, 'subagent-cascade', caller); } catch {}
-    // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
-  }
+  // The bridge's `exit` frame will clean up maps/DB/tracker for each child.
+  killChildren(liveChildrenOf(parentSessionKey), parentSessionKey, (id) => sendTerminalKill(id, 'subagent-cascade', caller));
 }
 
