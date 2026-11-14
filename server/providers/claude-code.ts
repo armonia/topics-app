@@ -38,6 +38,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { delegationHookPath, hookScriptPath } from "../lib/topics-hook-script";
+import { nativeSubagentToolPolicy } from "../lib/subagent-tool-policy";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
@@ -2589,6 +2590,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // are spawn-time CLI flags, so the PATCH handler forces a respawn via
     // refreshSessionConfig when either changes.
     const overrides = getTopicSpawnOverridesForSession(sessionKey);
+    // A child at the depth cap: spawn_agent refuses it (`subagent-runtime.ts`),
+    // so it gets neither the delegation policy nor the nudge.
+    const canDelegate = !nativeSubagentToolPolicy(sessionKey)?.noDelegation;
     // Il modello si RILEGGE a ogni spawn, come l'effort: `this.config.model` è
     // congelato alla costruzione del provider, quindi da solo faceva valere la
     // scelta fatta in Impostazioni solo dal riavvio del server dopo.
@@ -2648,7 +2652,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
       // A board card's agent waits for its `run_command` inside the turn.
       // `headless`: no native Agent/Workflow here, the prompt names spawn_agent.
-      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched, true),
+      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched, true, canDelegate),
       // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
       // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
       // l'env qui sotto) ma passava da un canale che perde contro
@@ -2673,7 +2677,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // The nudge toward spawn_agent after a long run of inline calls (the
       // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
       // turns it off without a release.
-      delegationHookPath: process.env.TOPICS_DELEGATION_NUDGE === "off" ? null : delegationHookPath(),
+      delegationHookPath: process.env.TOPICS_DELEGATION_NUDGE === "off" || !canDelegate ? null : delegationHookPath(),
       // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
       // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
       // prefisso e si ripaga a ogni turno, per un elenco che un agente col

@@ -1,3 +1,6 @@
+/**
+ * @covers SUBAGENT-24
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +43,13 @@ describe("delegation tracker", () => {
     const t = createDelegationTracker();
     for (let i = 0; i < 100; i++) expect(t.observe(["Edit", "mcp__topics__update_goal_steps", "write_file"], BIG)).toBeNull();
   });
+
+  test("the count survives a detached turn: state out, tracker back in", () => {
+    const a = createDelegationTracker();
+    for (let i = 0; i < DELEGATION_NUDGE.everyInlineCalls - 1; i++) a.observe(["Bash"], BIG);
+    const b = createDelegationTracker(undefined, JSON.parse(JSON.stringify(a.state())));
+    expect(b.observe(["Bash"], BIG)).toContain("spawn_agent");
+  });
 });
 
 describe("delegation in the prompts", () => {
@@ -47,6 +57,9 @@ describe("delegation in the prompts", () => {
     expect(topicsAgentSystemPrompt("auto", "darwin", false, true)).toContain(delegationPolicy());
     expect(topicsAgentSystemPrompt("auto", "darwin", true, true)).toContain(delegationPolicy());
     expect(topicsAgentSystemPrompt()).not.toContain("DELEGATE THE WORK");
+    // A child at the depth cap: spawn_agent would refuse it.
+    expect(topicsAgentSystemPrompt("auto", "darwin", false, true, false)).not.toContain("DELEGATE THE WORK");
+    expect(topicsAgentSystemPrompt("auto", "darwin", false, true, false)).not.toContain("spawn_agent");
   });
 
   test("the native engine adds it only where spawn_agent exists", () => {

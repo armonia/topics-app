@@ -187,7 +187,7 @@ const boardWaits = (cmd: boolean): string[] => [
  * delegation went. An interactive terminal pane keeps both and its prompt
  * (and cache prefix) does not change.
  */
-const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolean): string => [
+const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolean, delegate: boolean): string => [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
@@ -203,7 +203,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   ...(board ? boardWaits(cmd) : chatWaits(cmd)),
-  ...(headless ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.', delegationPolicy()] : []),
+  ...(headless && delegate ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.', delegationPolicy()] : []),
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
@@ -227,8 +227,10 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
 export function topicsAgentSystemPrompt(
   lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform, boardAgent = false,
   headless = false,
+  /** False for a child at the depth cap: `spawn_agent` refuses it, so naming it would only cost a failed call. */
+  delegate = true,
 ): string {
-  return `${topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless)} ${languageDirective(lang)}`;
+  return `${topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless, delegate)} ${languageDirective(lang)}`;
 }
 
 /**

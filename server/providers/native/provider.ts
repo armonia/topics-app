@@ -802,6 +802,7 @@ export class NativeProvider implements AIProvider {
       if (end) {
         session.history = end.history as AgentMessage[];
         if (end.calibration) session.calibration = end.calibration as Calibration;
+        if (end.delegation) session.delegation = createDelegationTracker(undefined, end.delegation);
       }
       if (wait.stopped) return { stopped: wait.stopped };
       return end ? "adopted" : "none";
@@ -1019,6 +1020,7 @@ export class NativeProvider implements AIProvider {
           reminder: turnOpts.reminder,
           history: session.history,
           calibration: session.calibration,
+          ...(turnOpts.delegation ? { delegation: turnOpts.delegation.state() } : {}),
           tools: globalOrchestrator
             ? topicsToolSpecs("global-orchestrator")
             : [
@@ -1042,6 +1044,7 @@ export class NativeProvider implements AIProvider {
           if (r.end) {
             session.history = r.end.history as AgentMessage[];
             if (r.end.calibration) session.calibration = r.end.calibration as Calibration;
+            if (r.end.delegation) session.delegation = createDelegationTracker(undefined, r.end.delegation);
             this.keepCacheWarm(sessionKey, session, { model: turnModel, effort: turnEffort, maxTokens: turnMaxTokens, system: turnOpts.system, history: session.history, tools: turnOpts.tools }, r.lastRequestAt ?? requestedAt);
           } else {
             // No `end`: the process died and its history went with it. The
@@ -1193,6 +1196,7 @@ export class NativeProvider implements AIProvider {
         const s = this.sessionFor(sessionKey);
         s.history = res.end.history as AgentMessage[];
         if (res.end.calibration) s.calibration = res.end.calibration as Calibration;
+        if (res.end.delegation) s.delegation = createDelegationTracker(undefined, res.end.delegation);
         const warm = res.end.warm;
         if (warm && !this.stopped) {
           const tools = warm.tools;

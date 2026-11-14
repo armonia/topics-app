@@ -29,6 +29,8 @@
 /** Ogni quante chiamate di lavoro in fila, senza una delega, arriva il richiamo; e da che contesto. */
 export const DELEGATION_NUDGE = { everyInlineCalls: 25, minContextTokens: 120_000 } as const;
 
+export interface DelegationState { inline: number; next: number }
+
 /** Le chiamate che fanno lavoro nel contesto di chi le chiama: shell, letture, ricerche, uscite di processi. */
 export const INLINE_WORK_TOOL = /^(Bash|Read|Grep|Glob|bash|read_file|grep|glob|(mcp__topics__)?(run_command|read_process_output))$/;
 
@@ -62,10 +64,14 @@ export function delegationNudgeText(inlineCalls: number, contextK: number): stri
  * richiama (costerebbe poco comunque) e riguarda fra 5 chiamate; dopo un
  * richiamo il prossimo arriva fra `everyInlineCalls`, così non diventa rumore.
  */
-export function createDelegationTracker(nudge = DELEGATION_NUDGE) {
-  let inline = 0;
-  let next = nudge.everyInlineCalls;
+export function createDelegationTracker(nudge = DELEGATION_NUDGE, from?: DelegationState) {
+  let inline = from?.inline ?? 0;
+  let next = from?.next ?? nudge.everyInlineCalls;
   return {
+    /** The count, serializable: a detached turn (`turn-host.ts`) carries it across processes. */
+    state(): DelegationState {
+      return { inline, next };
+    },
     observe(toolNames: readonly string[], contextTokens: number): string | null {
       if (toolNames.some((n) => DELEGATION_TOOL.test(n))) {
         inline = 0;
