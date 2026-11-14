@@ -4,7 +4,7 @@ import { chatStopTarget, parentLabel, useConfirmSubagentStop, useConfirmTerminal
 import { useTerminalSessions, useTopics } from '../../contexts/TopicsContext';
 import { boardIdForPath } from '../../lib/board';
 import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
-import { STATUS_DOT, STATUS_ICON } from '../../lib/statusVisual';
+import { STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
@@ -32,7 +32,7 @@ import { EntryIncognito } from './EntryIncognito';
 import { ClaudeIcon } from '@/components/Shared/ClaudeIcon';
 import { CodexIcon } from '@/components/Shared/CodexIcon';
 import { ProjectGlyphSlot } from './ProjectGlyphSlot';
-import { SparkLoader, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
@@ -1124,7 +1124,7 @@ export function TopicTree({
           <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
           <span>{label}</span>
           {summary.needsYou
-            ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><SparkLoader state="waiting" /></span>
+            ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} /></span>
             : summary.working && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
         </button>
         {open && subAgents.map(child => renderSubAgentItem(child, depth))}

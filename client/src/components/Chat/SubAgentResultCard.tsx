@@ -10,7 +10,7 @@
  */
 import type { ComponentType } from 'react';
 import { Ban, Bot, CircleCheck, CircleStop, CircleX, MailX, SquareTerminal, Unplug } from 'lucide-react';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { StatusIcon } from '../Board/atoms';
 import { useT } from '../../hooks/useT';
 import { STATUS_ICON as TONE_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
@@ -87,14 +87,16 @@ export function SubAgentResultRow({ messageId, block }: { messageId?: string; bl
   );
 }
 
-/** The live phases wear the shared spark, which has its own size and ink. */
-const SparkIcon = () => <SparkLoader className="flex-shrink-0" />;
+/** The live phase wears the card status glyph: the half pie, spinning. */
+const SparkIcon = () => <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />;
+
+const DoneIcon = () => <StatusIcon status="done" className="h-3 w-3 flex-shrink-0" />;
 
 const PHASE_ICON: Record<SpawnCardState, { icon: ComponentType<{ size?: number; className?: string }>; className: string }> = {
   starting: { icon: SparkIcon, className: '' },
   'waiting-prompt': { icon: TONE_ICON.wait, className: STATUS_INK.wait },
   working: { icon: SparkIcon, className: '' },
-  finished: { icon: CircleCheck, className: STATUS_INK.ok },
+  finished: { icon: DoneIcon, className: '' },
   ended: { icon: CircleStop, className: 'text-app-text-muted' },
   refused: { icon: Ban, className: STATUS_INK.danger },
 };

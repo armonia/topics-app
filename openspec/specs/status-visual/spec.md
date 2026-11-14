@@ -134,3 +134,16 @@ at work, so the amber chip and the sky blue are on screen.
 - **GIVEN** the seeded Board with a `needs_input` task and a working agent session
 - **WHEN** the Board, the plan view or the Agents pane is captured in light or dark
 - **THEN** the capture matches its reference screenshot
+
+### Requirement: STATUS-VISUAL-01j — A card state is one glyph family, animated when live
+
+The card surfaces (live effort chip, plan tile activity, session live row, background work
+line, sub-agent card and strip) SHALL draw their state with `StatusIcon`, whose `live`
+variant spins the in_progress half pie under `motion-safe` at one turn per 1.44 s in 12
+steps, and which adds `failed` (red ring with a cross). They SHALL NOT use `SparkLoader`.
+Each glyph carries `data-testid="status-glyph"` and `data-status`.
+
+#### Scenario: the four-dot spinner comes back on a card
+- **GIVEN** one of the card surfaces
+- **WHEN** it imports `SparkLoader`
+- **THEN** the unit test fails
