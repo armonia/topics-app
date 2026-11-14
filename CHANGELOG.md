@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.112 — 2026-11-14
+
+### Sotto il cofano
+- una misura che il quadrante non mostra va nella riga sotto (#979)
+- fase CI e «chi deve guardare» diventano regole del workflow (#992)
+
 ## 2.3.111 — 2026-11-14
 
 ### Sotto il cofano
