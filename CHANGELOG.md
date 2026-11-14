@@ -2,11 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.113 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: ciò che dice sopra il saluto si sente (#991)
+- le regole del workflow della board si scrivono e tornano dopo il ricarico (DROP-09) (#995)
+- voice-call: conversazione più fluida (ascolto, silenzi, linea caduta, frasi dette piano) (#996)
+
 ## 2.3.112 — 2026-11-14
 
 ### Sotto il cofano
 - una misura che il quadrante non mostra va nella riga sotto (#979)
 - fase CI e «chi deve guardare» diventano regole del workflow (#992)
+- menu grafico completo (tabella processi, dettaglio PC e server, backup, progetti, limiti, dashboard)
 
 ## 2.3.111 — 2026-11-14
 
