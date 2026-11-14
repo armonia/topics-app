@@ -52,8 +52,8 @@ describe("brain", () => {
     expect(s).toContain("Sei Jarvis, l'assistente personale di Ada ad Acme");
     expect(s).toContain("lo riceve anche su WhatsApp");
     expect(system(persona, "x")).not.toContain(" ad ");
-    const [sys, user] = progressPrompt(persona, "leggi la posta", ["Bash: gws-mail gmail"]);
-    expect(sys).toContain("mai il suo nome");
+    const [instructions, user] = progressPrompt(persona, "leggi la posta", ["Bash: gws-mail gmail"]);
+    expect(instructions).toContain("mai il suo nome");
     expect(user).toBe("Chi ascolta: Ada\nIl lavoro: leggi la posta\nUltimi passi:\nBash: gws-mail gmail");
   });
 

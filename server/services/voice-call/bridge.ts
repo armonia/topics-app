@@ -230,7 +230,7 @@ export class VoiceBridgeSession {
       gemini: { ...geminiBase, vocabulary, speaksWhileThinking: settings.speakWhileThinking },
       whisper: groq ? (pcm) => whisper({ key: groq, fetchImpl }, pcm) : null,
       quick: groq ? (prompt) => quick({ key: groq, model: settings.quickModel, fetchImpl }, prompt) : null,
-      think: complete ? (sys, user) => think({ model: settings.brainModel, effort: settings.brainEffort, complete }, sys, user) : null,
+      think: complete ? (instructions, user) => think({ model: settings.brainModel, effort: settings.brainEffort, complete }, instructions, user) : null,
       handoff: (task) => this.handoff(s.id, task),
       toPeer: (chunk) => {
         if (this.closed) return false;

@@ -156,7 +156,7 @@ export interface Brain {
   complete: Complete;
 }
 
-export async function think(brain: Brain, sys: string, user: string): Promise<{ ok: true; thought: Thought } | { ok: false; error: string }> {
+export async function think(brain: Brain, instructions: string, user: string): Promise<{ ok: true; thought: Thought } | { ok: false; error: string }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error("tempo scaduto")), THINK_MAX_MS + 1000);
@@ -165,7 +165,7 @@ export async function think(brain: Brain, sys: string, user: string): Promise<{ 
     const r = await Promise.race([
       brain.complete(
         [
-          { role: "system", content: sys },
+          { role: "system", content: instructions },
           { role: "user", content: user },
         ],
         { model: brain.model, timeoutMs: THINK_MAX_MS, isolated: true, purpose: "voice-call", ...(brain.effort ? { reasoningEffort: brain.effort } : {}) },
@@ -231,14 +231,14 @@ export interface QuickDeps {
 }
 
 /** One line from the quick voice, within QUICK_MAX; empty, a dash or too long = nothing. */
-export async function quick(deps: QuickDeps, [sys, user]: [string, string]): Promise<string | null> {
+export async function quick(deps: QuickDeps, [instructions, user]: [string, string]): Promise<string | null> {
   const body = {
     model: deps.model,
     max_tokens: 60,
     temperature: 0.4,
     reasoning_effort: "none",
     messages: [
-      { role: "system", content: sys },
+      { role: "system", content: instructions },
       { role: "user", content: user },
     ],
   };

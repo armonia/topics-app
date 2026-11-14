@@ -29,8 +29,8 @@ function bridgeServer(deps: BridgeDeps) {
   const server = Bun.serve<{ voiceBridge?: boolean; _voice?: VoiceBridgeSession }>({
     port: 0,
     hostname: "127.0.0.1",
-    fetch(req, srv) {
-      const r = upgradeWebSocket(req, new URL(req.url).pathname, srv as never, null, false);
+    fetch(req, server) {
+      const r = upgradeWebSocket(req, new URL(req.url).pathname, server as never, null, false);
       return r === undefined ? undefined : (r ?? new Response("no", { status: 404 }));
     },
     websocket: {
@@ -124,8 +124,8 @@ function world(extra: Partial<BridgeDeps> = {}) {
 describe("voice bridge", () => {
   test("the upgrade on the bridge path marks the socket as a call", () => {
     let data: Record<string, unknown> | undefined;
-    const srv = { upgrade: (_r: Request, o: { data: Record<string, unknown> }) => ((data = o.data), true) };
-    expect(upgradeWebSocket(new Request(`http://localhost${VOICE_BRIDGE_PATH}`), VOICE_BRIDGE_PATH, srv as never, null, false)).toBeUndefined();
+    const server = { upgrade: (_r: Request, o: { data: Record<string, unknown> }) => ((data = o.data), true) };
+    expect(upgradeWebSocket(new Request(`http://localhost${VOICE_BRIDGE_PATH}`), VOICE_BRIDGE_PATH, server as never, null, false)).toBeUndefined();
     expect(data?.voiceBridge).toBe(true);
   });
 

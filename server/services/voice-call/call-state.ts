@@ -230,15 +230,15 @@ export abstract class CallState {
     if (this.brainOn) {
       this.mouth = deps.openGemini({ ...voice, system: MOUTH, tools: [] }, (e) => this.onMouth(e));
     }
-    let sys = this.brainOn
+    let instructions = this.brainOn
       ? voicePrompt(this.persona, deps.spokenNow, g.speaksWhileThinking)
       : `${systemPrompt(this.persona, d, deps.spokenNow)}\n${identity(g.model, this.persona)}`;
     if (d.kind !== "on_behalf") {
-      sys += `\nLa tua voce oggi va a velocità ${spec.speed.toFixed(2)}: se ti chiede di parlare più veloce o più piano chiama velocita, e poi conferma in due parole.`;
+      instructions += `\nLa tua voce oggi va a velocità ${spec.speed.toFixed(2)}: se ti chiede di parlare più veloce o più piano chiama velocita, e poi conferma in due parole.`;
     }
-    if (spec.group) sys += `\n${groupPrompt(this.persona)}`;
+    if (spec.group) instructions += `\n${groupPrompt(this.persona)}`;
     const gemTools = this.brainOn ? voiceTools(this.persona, g.speaksWhileThinking) : tools(d, this.persona);
-    this.gem = deps.openGemini({ ...voice, system: sys, tools: gemTools }, (e) => this.onGemini(e));
+    this.gem = deps.openGemini({ ...voice, system: instructions, tools: gemTools }, (e) => this.onGemini(e));
 
     if (spec.record) {
       try {
