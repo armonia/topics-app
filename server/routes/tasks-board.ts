@@ -1124,11 +1124,16 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       return json({ ok: true, text: migliore, before: t.text });
     }
 
+    // A card another machine's row owns — regardless of whether that row still
+    // has a `base_url`. A missing address used to read as "not a node card"
+    // and fell through to a silent `note`: the card never had a local session
+    // to resume either way, `base_url` or not, so it must still queue back to
+    // todo rather than sit unresumed in review.
     const isNodeCard = (card: { machineId?: string | null }): boolean => {
       if (!card.machineId) return false;
       try {
         const localId = ctx.machineStore?.upsertLocal().id ?? null;
-        return localId !== null && card.machineId !== localId && !!ctx.machineStore?.get(card.machineId)?.baseUrl;
+        return localId !== null && card.machineId !== localId;
       } catch { return false; }
     };
 
@@ -1279,58 +1284,84 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // specific reply lives on the step's own thread, not necessarily on
         // the main task's. Best-effort: the comment above is already saved.
         try {
-          const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
-          // A human comment on a dispatched task is DELIVERED to the agent, not
-          // left as an unread note. Two live cases, both through resume():
-          //  • review       → the agent is waiting: reject-with-text re-kicks it;
-          //  • in_progress   → the agent is working: resume() BUFFERS the message
-          //    mid-turn (pendingResume) and hands it over at the next turn
-          //    boundary; if idle it continues immediately. This is the
-          //    Claude-Code steering path — add a message while it runs and it
-          //    picks it up.
-          // …UNLESS THAT CARD IS ALREADY ON MAIN. The reject that re-kicks the
-          // agent also wipes `landing_state`, so a comment on a landed card
-          // (or on one of its steps) put an agent back to work over merged
-          // content AND made the card stop saying it had landed. The comment
-          // is already saved and broadcast above: on a landed card it stays a
-          // note, and the card stays in review, where it is approvable.
-          // A card DELIVERED BY A NODE has no live session on this Mac: the run
-          // on the node is already closed, so reject+resume would report
-          // «queued» and restart nobody (card 6290d85d). It goes back to todo
-          // and the node launches it again with the thread. The criterion is
-          // the dispatcher's `isRemoteTask`: another machine, with an address
-          // (this Mac's own row is the default «here» and has none).
-          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && isNodeCard(root)) {
+          const isStep = !!task?.parentTaskId;
+          // A ROOT CARD IN REVIEW WITH NO SESSION TO RESUME is exactly what
+          // an unbound `board_review reject` requeues (the `else if` branch
+          // on the review route above): either a NODE delivered it (its
+          // `machineId` names another machine — `isNodeCard`, which does not
+          // require that machine's row to still carry a `base_url`: the run
+          // on it is already closed either way) or a local session was
+          // released before the comment arrived (no `assignedTopicId`).
+          // `reviewDecision` settles the pending approval as `rejected` — not
+          // the `expired` a plain status patch leaves — and FRESH_SESSION_NOTE
+          // matches what the explicit reject writes, so the two paths read
+          // the same in the thread. ROOT ONLY: see the `else` below for why a
+          // STEP never takes this branch.
+          if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task)
+              && (isNodeCard(task) || !task.assignedTopicId)) {
+            const rejected = svc.reviewDecision({
+              taskId: task.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
+            });
+            broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
             const backInQueue = svc.update({
-              taskId: root.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
+              taskId: task.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
               patch: { status: "todo" }, origin: actionOrigin,
             });
+            try {
+              svc.addComment({ taskId: task.id, author: "system", kind: "service", content: FRESH_SESSION_NOTE });
+            } catch { /* the requeue is what matters */ }
             broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: backInQueue });
             if (backInQueue.status === "todo") {
-              dispatcher.onEnterTodo(bComments.projectId, root.id);
+              dispatcher.onEnterTodo(bComments.projectId, task.id);
               delivery = 'queued';
             }
-          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
-              && (root.status === "review" || root.status === "in_progress")) {
-            if (root.status === "review") {
-              const rejected = svc.reviewDecision({
-                taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
-              });
-              broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
+          } else {
+            // A human comment on a dispatched task is DELIVERED to the agent, not
+            // left as an unread note. Two live cases, both through resume():
+            //  • review       → the agent is waiting: reject-with-text re-kicks it;
+            //  • in_progress   → the agent is working: resume() BUFFERS the message
+            //    mid-turn (pendingResume) and hands it over at the next turn
+            //    boundary; if idle it continues immediately. This is the
+            //    Claude-Code steering path — add a message while it runs and it
+            //    picks it up.
+            // …UNLESS THAT CARD IS ALREADY ON MAIN. The reject that re-kicks the
+            // agent also wipes `landing_state`, so a comment on a landed card
+            // (or on one of its steps) put an agent back to work over merged
+            // content AND made the card stop saying it had landed. The comment
+            // is already saved and broadcast above: on a landed card it stays a
+            // note, and the card stays in review, where it is approvable.
+            // A STEP NEVER REQUEUES ON ITS OWN: nothing dispatches a non-root
+            // `todo` (the tick and `onEnterTodo` both read only root cards), so
+            // a step with no live session to resume stays a `note` here, never
+            // a `queued` that resumes nobody. The only thing a step's comment
+            // can wake is its dispatch ROOT (`boundRootOf`, which climbs
+            // through parents to the nearest one with a topic) — same target a
+            // step's comment already woke before this fix, and the only
+            // outcome this branch gives a step: resume the root, or an honest
+            // `note` when the root has no topic either.
+            const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+            if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+                && (root.status === "review" || root.status === "in_progress")) {
+              if (root.status === "review") {
+                const rejected = svc.reviewDecision({
+                  taskId: root.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
+                });
+                broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: rejected });
+              }
+              const text = typeof body?.content === "string" ? body.content : "";
+              let msg = root.id === bComments.taskId
+                ? text
+                : `Commento sul tuo sottotask "${(task?.text ?? "").slice(0, 60)}" (id=${bComments.taskId}): ${text}`;
+              // Attachments ride along as disk paths — the agent reads them
+              // directly (screenshots, docs, mockups the human dropped in).
+              if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
+              // The envelope carries the id of the comment it delivers: those
+              // words are already a row in the thread, and the anchor is what
+              // lets a reader draw them once instead of twice.
+              dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
+                .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
+              delivery = 'queued';
             }
-            const text = typeof body?.content === "string" ? body.content : "";
-            let msg = root.id === bComments.taskId
-              ? text
-              : `Commento sul tuo sottotask "${(task?.text ?? "").slice(0, 60)}" (id=${bComments.taskId}): ${text}`;
-            // Attachments ride along as disk paths — the agent reads them
-            // directly (screenshots, docs, mockups the human dropped in).
-            if (comment.media.length) msg += `\nAllegati (file su disco, leggili): ${comment.media.join(" ")}`;
-            // The envelope carries the id of the comment it delivers: those
-            // words are already a row in the thread, and the anchor is what
-            // lets a reader draw them once instead of twice.
-            dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
-              .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
-            delivery = 'queued';
           }
         } catch { /* the root may have moved meanwhile */ }
         return json({ ...comment, delivery }, 201);
