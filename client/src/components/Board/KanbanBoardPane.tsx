@@ -1442,7 +1442,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

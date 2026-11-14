@@ -15,7 +15,7 @@ export function ProjectsSummary({ rows, columnLabels }: { rows: ProjectCount[]; 
             <span className="min-w-0 flex-1 truncate font-medium text-app-text">{row.label}</span>
             <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
               {row.perColumn.map((n, i) => n > 0 && (
-                <span key={columnLabels[i]} className="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">
+                <span key={columnLabels[i]} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">
                   {columnLabels[i]} <b className="text-app-text">{n}</b>
                 </span>
               ))}

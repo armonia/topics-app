@@ -344,7 +344,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
                   ? `flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`
-                  : 'flex min-w-0 items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
+                  : 'flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />

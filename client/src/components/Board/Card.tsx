@@ -314,7 +314,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
               are working in, so it is the one place where "why is nothing
               starting?" gets asked. Beside the count, never instead of it. */}
           {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
-          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-black/10 dark:bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
+          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-black/5 dark:bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
       {/* HUBBR-20: how many of this column a provider's wall holds, and until when. */}
@@ -1369,7 +1369,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           {task.userCommentCount > 0 && (
             <span
               title={tr(task.userCommentCount === 1 ? 'board.card.yourMessagesOne' : 'board.card.yourMessagesMany', { n: task.userCommentCount })}
-              className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {notLanded && (
@@ -1430,14 +1430,14 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
@@ -1535,7 +1535,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             ><AlarmClock className="h-3 w-3 shrink-0" /> {plannedChip.label}</span>
           )}
-          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
           {dueChip && (
             <span
               data-testid="card-due-date"
@@ -1659,7 +1659,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           <span
             data-testid="card-subtasks-to-approve"
             title={tr('board.card.subtasksToApproveTitle', { n: task.subtaskReviewCount ?? 0 })}
-            className="inline-flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{tr('board.card.subtasksToApprove', { n: task.subtaskReviewCount ?? 0 })}</span>
         </div>
       )}
@@ -1711,7 +1711,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         <div className="mt-1">
           <span
             title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="inline-flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -2003,7 +2003,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           <span
             data-testid="card-node-chip"
             title={tr(task.overflowedAt ? 'board.task.node.overflowedTitle' : 'board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-black/10 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
           ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr(task.overflowedAt ? 'board.task.node.overflowed' : 'board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
