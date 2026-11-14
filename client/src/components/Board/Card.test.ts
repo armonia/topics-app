@@ -214,7 +214,7 @@ describe('la misura del turno sulla card', () => {
     expect(live).toContain('<span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>');
     // The model label must never be cut: no truncate on it.
     expect(live).not.toContain('min-w-0 truncate">{label');
-    expect(live).toContain('⏱ {fmtLive(ms)}');
+    expect(live).toContain('<Timer size={STATUS_GLYPH_PX}');
   });
 
   test('a 300 px non va in overflow: si accorcia dalla coda, prima i token', () => {
@@ -235,7 +235,7 @@ describe('la misura del turno sulla card', () => {
 
   test('il piede non ha pillole impilate: la misura non porta sfondo pieno', () => {
     const start = src.indexOf('data-testid="card-measure"');
-    expect(src.slice(start, start + 400)).not.toContain('bg-white/10');
+    expect(src.slice(start, start + 400)).not.toMatch(/(?<![:\w-])bg-white\/10/);
   });
 
   // Attilio, 01/11: una fascia avvolta, larga quanto la card, distinta dal testo.
@@ -260,7 +260,7 @@ describe('la misura del turno sulla card', () => {
 
   // Il lato destro (durata e consumo) non va mai a capo né si taglia: si accorcia il sinistro.
   test('a 300 px durata e consumo restano interi: il lato destro non va a capo né si taglia', () => {
-    expect(live).toContain('<span>⏱ {fmtLive(ms)}');
+    expect(live).toContain('{fmtLive(ms)}');
     const start = src.indexOf('data-testid="card-measure"');
     expect(src.slice(start, start + 1200)).toContain('<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">');
   });

@@ -12,6 +12,8 @@ import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 /** Full-window overlay (portal, over the app — NOT a separate OS window) showing
  *  the evidence at large size. Close on Esc, click-outside, or the X. A video
  *  autoplays with controls + sound; an image fills the viewport. */
+// Theme exception: the lightbox sits on a guaranteed dark backdrop, so its
+// white-alpha controls stay bare in both themes.
 function Lightbox({ url, video, onClose, su, giu, posizione }: {
   url: string;
   video: boolean;

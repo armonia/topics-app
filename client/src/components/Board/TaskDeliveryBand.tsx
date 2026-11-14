@@ -100,7 +100,7 @@ export function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: 
   const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
     ? 'bg-amber-700 hover:bg-amber-800 text-white'
     : 'bg-emerald-700 hover:bg-emerald-800 text-white';
-  const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  const neutralCls = 'bg-black/10 dark:bg-white/10 text-app-text hover:bg-white/20';
   // THE GLYPHS COME FROM THE SINGLE TABLE, not from here. They used to be
   // `ShieldCheck` and `ShieldX`, the CHECKS shields: on the same screen the
   // green shield is already the «checks green» chip, so the button that closes
@@ -447,7 +447,7 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
         </div>
       )}
       {task?.deployState === 'running' && (
-        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-300">
+        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-800 dark:text-amber-300">
           <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}
