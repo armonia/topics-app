@@ -20,6 +20,11 @@ const BOARD: &str = r#"{
 
 const BACKUP: &str = r#"{"last_ok":1799990000,"last_read_check":1799900000,"last_restore_ok":1799000000,"pending_since":null,
  "runs":[{"at":1797500000,"ok":true},{"at":1797600000,"ok":false},{"at":1799990000,"ok":true}],"icloud":{"files":10,"uploaded":10,"bytes":3221225472}}"#;
+/// Shape of `/api/machines`; the snapshot reads the real answer from TRAY_MENU_SNAPSHOT_DETAILS.
+const DETAILS: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[
+  {"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1000,"v":10},{"t":2000,"v":60},{"t":3000,"v":30}]},
+  {"key":"disk","name":"Disco","pct":97,"level":2,"note":"27 GB liberi","history":[]}],
+  "timeline":{"window":3000,"segments":[{"t0":0,"t1":1500,"state":"lavora"},{"t0":1500,"t1":3000,"state":"dorme"}]}}]"#;
 const NOW: i64 = 1_800_000_000;
 
 #[test]
@@ -72,6 +77,25 @@ fn a_reading_the_dial_cannot_show_goes_in_the_line_under_it() {
 }
 
 #[test]
+fn backup_card_has_the_private_archive_the_foot_and_the_next_run() {
+    let fresh = r#"{"last_ok":1799990000,"private_at":1799980000,"last_seconds":239,"icloud":{"local_bytes":1288490188,"files":1,"uploaded":1,"bytes":1}}"#;
+    let b = backup_card(fresh, NOW).unwrap();
+    assert!(b.caption.ends_with("prossima alle 5:00"), "{}", b.caption);
+    assert!(b.proofs.iter().any(|p| p.0 == "Archivio privato" && p.2));
+    assert_eq!(b.foot, "Sul Mac: Adesso niente · ultimo giro 4 min · 1,2 GB sul disco");
+    let stale = fresh.replace("1799980000", "1799800000");
+    let bad = backup_card(&stale, NOW).unwrap();
+    assert_eq!((bad.level, bad.proofs.iter().any(|p| p.0 == "Archivio privato" && !p.2)), (2, true));
+    assert!(bad.caption.starts_with("Archivio privato fermo"));
+    // an older service has no such field: no false alarm
+    assert!(!backup_card(BACKUP, NOW).unwrap().proofs.iter().any(|p| p.0 == "Archivio privato"));
+    let running = backup_card(r#"{"last_ok":1799990000,"pending_since":1799999000,"run_phase":"sta controllando i dati"}"#, NOW).unwrap();
+    assert_eq!(running.foot, "Sul Mac: sta controllando i dati");
+    let (with, without) = (draw_backup_card(&b, Palette::new(true)), draw_backup_card(&BackupCard { foot: String::new(), ..b.clone() }, Palette::new(true)));
+    assert!(with.cv.h > without.cv.h, "the foot takes a line");
+}
+
+#[test]
 fn the_reason_line_sits_below_the_legend_inside_the_card() {
     // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
     let (edge, cy) = (38.0, 84.0);
@@ -99,6 +123,7 @@ fn every_view_renders_ink_at_the_menu_width() {
 }
 
 /// TRAY_MENU_SNAPSHOT_DIR=/tmp/x cargo test --lib tray_menu_views -- snapshot
+/// (TRAY_MENU_SNAPSHOT_DETAILS: the service's /api/machines answer, for the machine submenu cards)
 /// writes machines.png, quota.png and backup.png (dark and light) from the fake answers above,
 /// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given, plus the
 /// Topics machines (the client's `set_app_status` list) from TRAY_MENU_SNAPSHOT_MACHINES.
@@ -106,8 +131,14 @@ fn every_view_renders_ink_at_the_menu_width() {
 fn snapshot() {
     let Ok(dir) = std::env::var("TRAY_MENU_SNAPSHOT_DIR") else { return };
     let read = |k: &str, d: &str| std::env::var(k).ok().map(|f| std::fs::read_to_string(f).unwrap()).unwrap_or(d.to_string());
-    let (board, backup) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP));
+    let (board, backup, details) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP), read("TRAY_MENU_SNAPSHOT_DETAILS", DETAILS));
     let now = if std::env::var("TRAY_MENU_SNAPSHOT_BOARD").is_ok() { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 } else { NOW };
+    // the process table is native rows, not a picture: its text goes next to the pictures
+    if let (Ok(procs), Ok(trust)) = (std::env::var("TRAY_MENU_SNAPSHOT_PROCS"), std::env::var("TRAY_MENU_SNAPSHOT_TRUST")) {
+        let cpu = std::env::var("TRAY_MENU_SNAPSHOT_PS").ok().map(|f| crate::tray_menu::parse_ps(&std::fs::read_to_string(f).unwrap())).unwrap_or_default();
+        let snap = crate::tray_menu::Snapshot { procs: Some(std::fs::read_to_string(procs).unwrap()), trust: Some(std::fs::read_to_string(trust).unwrap()), cpu, ..Default::default() };
+        std::fs::write(format!("{dir}/procs.txt"), crate::tray_menu::dump_text(&crate::tray_menu_procs::procs_table(&snap))).unwrap();
+    }
     for (name, dark) in [("dark", true), ("light", false)] {
         let p = Palette::new(dark);
         // a stack of the views, on the menu's own background, as the menu shows them
@@ -117,6 +148,8 @@ fn snapshot() {
         let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
         let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
+        // the submenu cards of the machines that have graphs: PC, cloud server
+        pics.extend(crate::tray_menu_detail::machine_details(&details).iter().filter(|d| crate::tray_menu_detail::has_graphics(d)).map(|d| crate::tray_menu_detail::draw_machine_detail(d, p)));
         pics.extend(backup_card(&backup, now).map(|b| draw_backup_card(&b, p)));
         let total: u32 = pics.iter().map(|x| x.cv.h).sum();
         let (w, bg) = (pics[0].cv.w, if dark { 40u8 } else { 236 });

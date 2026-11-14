@@ -48,6 +48,12 @@ pub struct Snapshot {
     pub backup: Option<String>,
     /// The service has answered with a backup state at least once on this machine: only then the backup row exists.
     pub backup_set: bool,
+    /// `/api/machines`: the history, timeline and spend the machine submenus draw.
+    pub machines: Option<String>,
+    /// `/api/mac/trust`: which running things are suspect.
+    pub trust: Option<String>,
+    /// CPU percent per process id on this computer (100 = one core), for the process table.
+    pub cpu: std::collections::HashMap<u32, f64>,
 }
 
 impl Snapshot {
@@ -68,6 +74,9 @@ impl Snapshot {
             automations: http_get(base, "/api/automations/summary"),
             live: http_get(base, "/api/live"),
             gates: http_get(base, "/api/gates"),
+            machines: http_get(base, "/api/machines"),
+            trust: http_get(base, "/api/mac/trust"),
+            cpu: cpu_by_pid(),
             backup_set: backup.is_some(),
             backup,
         }
@@ -75,6 +84,19 @@ impl Snapshot {
     pub fn service_up(&self) -> bool {
         self.board.is_some() || self.overview.is_some() || self.gates.is_some() || self.procs.is_some()
     }
+}
+
+/// CPU of every process on this computer, as the system's `ps` reports it.
+fn cpu_by_pid() -> std::collections::HashMap<u32, f64> {
+    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,pcpu="]).output() else { return Default::default() };
+    parse_ps(&String::from_utf8_lossy(&out.stdout))
+}
+
+pub(crate) fn parse_ps(text: &str) -> std::collections::HashMap<u32, f64> {
+    text.lines().filter_map(|l| {
+        let mut f = l.split_whitespace();
+        Some((f.next()?.parse().ok()?, f.next()?.replace(',', ".").parse().ok()?))
+    }).collect()
 }
 
 pub(crate) fn parse(body: &Option<String>) -> Value {
@@ -158,7 +180,7 @@ pub fn backup_lines(body: Option<&str>, now: i64) -> Vec<String> {
 
 // ------------------------------------------------------------------ processes
 
-fn mem_text(mb: f64) -> String {
+pub(crate) fn mem_text(mb: f64) -> String {
     if mb >= 1000.0 { format!("{:.1} GB", mb / 1000.0).replace('.', ",") } else { format!("{} MB", mb.round() as i64) }
 }
 
@@ -612,6 +634,9 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         // Only addresses of the places a session lives in; nothing else is handed to the system.
         let ok = ["claude://", "https://", "http://127.0.0.1", "http://localhost"].iter().any(|p| url.starts_with(p));
         return ok.then(|| Action::OpenUrl(url.to_string()));
+    }
+    if id == "dashboard-open" {
+        return Some(Action::OpenUrl(crate::tray_quota::hub_base()));
     }
     if let Some(k) = id.strip_prefix("pref:") {
         return Some(Action::TogglePref(k.into()));
