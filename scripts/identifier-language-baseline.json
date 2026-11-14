@@ -3793,26 +3793,11 @@
       "evalResult"
     ],
     "server/routes/chat.ts": [
-      "adoptWoken",
       "adottaTurnoVivo",
-      "avviso",
-      "cevt",
       "chatIdempotency",
-      "evt",
-      "haProdotto",
       "idempotencyKey",
       "idempotencySlot",
-      "inTok",
-      "isWoken",
-      "localhostScanCarry",
-      "localhostScanWindow",
-      "outTok",
-      "riprendeDaSolo",
-      "scartata",
-      "soloCompattazione",
-      "uevt",
-      "verdetto",
-      "vuota"
+      "isWoken"
     ],
     "server/routes/claude-hooks.ts": [
       "isLocalhost"
@@ -3903,17 +3888,23 @@
       "primo",
       "secondo"
     ],
+    "server/routes/processes-detection.ts": [
+      "pcwd"
+    ],
+    "server/routes/processes-output.ts": [
+      "buf"
+    ],
+    "server/routes/processes-shells.ts": [
+      "esitoShellMorta",
+      "unregisterPreviewProcess"
+    ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "buf",
       "dpid",
-      "esitoShellMorta",
-      "pcwd",
       "rilevati",
-      "rilevato",
-      "unregisterPreviewProcess"
+      "rilevato"
     ],
     "server/routes/profile.ts": [
       "servizio"
@@ -3964,6 +3955,26 @@
       "migliore",
       "prov"
     ],
+    "server/routes/tasks-checks-delivery.ts": [
+      "spente"
+    ],
+    "server/routes/tasks-intake.ts": [
+      "aggiornata",
+      "esc",
+      "fresca",
+      "migliore",
+      "prov",
+      "titoloInSottofondo"
+    ],
+    "server/routes/tasks-land.ts": [
+      "aperti",
+      "capturaConsegna",
+      "elenco"
+    ],
+    "server/routes/tasks-reap.ts": [
+      "capturaConsegna",
+      "nota"
+    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
@@ -3993,37 +4004,36 @@
       "vivo"
     ],
     "server/routes/tasks.ts": [
-      "aggiornata",
-      "aperti",
-      "capturaConsegna",
       "condivisi",
-      "elenco",
-      "esc",
-      "fresca",
       "giaScelto",
       "identita",
-      "miePath",
-      "migliore",
-      "nota",
-      "prov",
-      "spente",
-      "titoloInSottofondo"
+      "miePath"
+    ],
+    "server/routes/terminal-children.ts": [
+      "buf"
+    ],
+    "server/routes/terminal-queries.ts": [
+      "cbs"
+    ],
+    "server/routes/terminal-session-create.ts": [
+      "autoNameOpencodeSession",
+      "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/terminal.ts": [
-      "autoNameOpencodeSession",
-      "buf",
-      "cbs",
       "idemKey",
-      "idempotencyCache",
-      "sweepAutoNameOpencodeSessions"
+      "idempotencyCache"
+    ],
+    "server/routes/topics-tool-response.ts": [
+      "normalised",
+      "submittedAt"
+    ],
+    "server/routes/topics-ui-state.ts": [
+      "rec"
     ],
     "server/routes/topics.ts": [
       "detectLocalhostAutoNav",
       "localhostMatch",
-      "normalised",
-      "rec",
-      "stmt",
-      "submittedAt"
+      "stmt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"

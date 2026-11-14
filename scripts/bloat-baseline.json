@@ -580,13 +580,7 @@
 
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
-    "server/routes/chat.ts": {
-      "lines": 4341,
-      "why": [
-        "2026-10-03, commands-ui: +20 on main (4057), the onCommandAnswer handler that broadcasts stream:command-answer and discards the empty assistant row the way a compaction does.",
-        "2026-10-07, net +224 from five lanes, none of them able to take its own lines back alone: the attention store wired into chat (78e0720b2, +80), one SSE writer for the tool announcement from origin/main (4f9702851, +53), the native engine's queued call and live command (39bfbfdbe, +47), the same tool call on SSE and WS (06355d0ed, +40), the native memory recall (1e14064c7, +21, the one that crossed the ceiling), native sub-agents (1feba6d5f, a55c09c85, fb6421597, +18). Recorded by hand, this row only. First lines to give back: the memory-recall block belongs in server/lib/native-parity.ts."
-      ]
-    },
+    "server/routes/chat.ts": 1102,
 
     "server/routes/e2e.ts": 1017,
 
@@ -594,38 +588,17 @@
 
     "server/routes/outbound.test.ts": 1049,
 
-    "server/routes/processes.ts": {
-      "lines": 2711,
-      "why": [
-        "2026-10-07, chat-live-work: 2319 on main -> 2497. +167 the file a run_command sends its stdout to, followed beside its own log: the follow at the start, its resume at the reload (CMDRUN-03, legacy rows included), its last read and the log rewritten at the end, whole lines from two sources, the line a row prints now for scripts:output; +11 liveCommandsOf for the strip under the chat. The parser lives in server/lib/command-redirect.ts, the rows of the strip in server/lib/live-work.ts. Recorded by hand, this row only: server/routes/chat.ts is over its ceiling from another lane."
-      ]
-    },
-
     "server/routes/tasks-board.ts": 1457,
 
     "server/routes/tasks.test.ts": 2881,
 
-    "server/routes/tasks.ts": 4347,
+    "server/routes/tasks.ts": 1476,
 
-    "server/routes/terminal.ts": {
-      "lines": 4355,
-      "why": [
-        "2026-10-04, notifications-redesign: 3722 on main -> 3727, five calls into server/attention/terminal-turns.ts (a hook-less terminal's busy and quiet as its turn, the PTY exit as the end of what it waited on, the retire as T13). The logic lives in that module.",
-        "2026-10-05, subagent-nativi (PR #238): 3767 on main -> 3888, the routes' side of native sub-agents: the spawn's engine branch, send/read/stop/list on a native child, the resume that moves a CLI child to the engine, one resume at a time, the CLI stop as a function the tree stop reuses. The logic lives in server/lib/native-subagents.ts (childRuntimeFor, engineLaunchOf, moveCliChildToEngine, liveNativeChildren).",
-        "2026-10-06, muse-provider, rebased on e3f95e3c: 3888 -> 3908, +20 this change (the muse PTY spawn branch, its env, the install hint, the body.type parse).",
-        "2026-10-18, a /clear moves the pane's resume id: main had already taken it to 4096, under the ceiling, and these 28 lines make a Claude pane resume the conversation its CLI is on after a /clear instead of the one from before it (followClaudeSessionIds, its hook and park call sites, a test seam). The logic lives in server/lib/claude-live-session.ts."
-      ]
-    },
+    "server/routes/terminal.ts": 1081,
 
     "server/routes/topics.control.test.ts": 869,
 
-    "server/routes/topics.ts": {
-      "lines": 3308,
-      "why": [
-        "2026-10-03, commands-ui: +55 on main (3244): GET /api/topics/:id/resumable-sessions (/resume, CMDUI-03), the transcriptPath adopt-claude now accepts, the `compact` case of /api/command for the native engine, the slash menu read per provider. The reader lives in lib/resumable-claude-sessions.ts and the menu in lib/slash-command-menu.ts.",
-        "2026-10-03, merged with main 5125e396b (tornata 3b): 3309 measured. Main 3244 -> 3254 bought +10 (find inside one conversation: the POST /api/history-find door and the e2e switch that splits stored tool outputs); this branch +55 on top (the routes listed above)."
-      ]
-    },
+    "server/routes/topics.ts": 1309,
 
     "server/services/ci-evidence.ts": 1027,
 
