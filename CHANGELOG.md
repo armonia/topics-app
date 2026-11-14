@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.114 — 2026-11-14
+
+### Sotto il cofano
+- sei difetti trovati girando ogni schermata a 375px (#967)
+
 ## 2.3.113 — 2026-11-14
 
 ### Sotto il cofano
