@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.108",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
+          "scope": "server"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.103",
     "date": "2026-11-14",
     "sections": {

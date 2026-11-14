@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.3.108",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/ghostly-peacock (card c2908b93) (#971)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.106",
     "date": "2026-11-14",
     "sections": {
@@ -106,6 +136,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Agent tools page uses the compact user-menu row styles, with e2e screenshots next to Devices (card 572f8a09)",
+          "en": "",
+          "scope": null
         }
       ]
     }

@@ -5256,6 +5256,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      // The adopted turn was opened by a launch that died with the old server,
+      // so nobody else closes its attempt. Left `running`, it reads as a live
+      // turn forever: the CI phase skipped such a card at every sweep without a
+      // word (e8a0ce90, 14/11: 50 minutes in the CI column, never measured).
+      const open = deps.attempts?.list(taskId).find((a) => a.state === "running" && a.topicId === t.assignedTopicId);
+      if (open) {
+        try {
+          deps.attempts!.finish(open.id, {
+            state: !turnEnd || turnEnd.end === "end_turn" ? "delivered" : "failed",
+            agentMs: Date.now() - t0,
+          });
+        } catch (err) { log(`reattach: attempt ${open.id} not closed`, err); }
+      }
     } finally {
       endRun(taskId, runId);
     }
