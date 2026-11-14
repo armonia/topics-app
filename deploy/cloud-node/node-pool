@@ -33,7 +33,7 @@ gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pa
 10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
 registro lo ha perso.
 """
-import base64, json, math, os, shlex, signal, ssl, subprocess, sys, time, urllib.request
+import base64, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -317,20 +317,13 @@ def commit_of_mac():
     return subprocess.run(["git", "-C", APP_DIR, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
 
 
-def git_identity(key):
-    # Identity of the origin repo; shell-quoted because it lands in the recipe.
-    v = subprocess.run(["git", "-C", APP_DIR, "config", key], capture_output=True, text=True).stdout.strip()
-    return shlex.quote(v)
-
-
 def recipe():
     apt, npm = tools()
     node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
     with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
         t = f.read()
     return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
-             .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac())
-             .replace("@GIT_NAME@", git_identity("user.name")).replace("@GIT_EMAIL@", git_identity("user.email")))
+             .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
 
 
 def from_snapshot_user_data():
@@ -812,13 +805,22 @@ def hook():
         save_state(state)
     origin, repo = payload.get("origin_url"), payload.get("cwd")
     if origin and repo:
+        git_name, git_email = payload.get("git_author_name") or "", payload.get("git_author_email") or ""
+        if not git_name and not git_email:
+            # The dispatcher already refuses to send a card here without one (card
+            # 5d361c3d); this is only the floor for whoever calls the hook directly.
+            print(f"il checkout {repo} non ha un'identità git (git config user.name/user.email): "
+                  "la corsa non parte, il land rifiuterebbe i suoi commit", file=sys.stderr)
+            return 2
         with Lock(f"repo{n}-{origin.rstrip('/').split('/')[-1]}"):
-            sync_repo(sl, origin, repo)
+            sync_repo(sl, origin, repo, git_name, git_email)
     return 0
 
 
-def sync_repo(sl, origin, repo):
-    """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token)."""
+def sync_repo(sl, origin, repo, git_name, git_email):
+    """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token).
+    Il clone sul nodo firma i suoi commit con l'identità di QUESTO checkout (letta dal Mac dal dispatcher),
+    non con una propria: altrimenti il land (LAND-13) la rifiuta come autore estraneo."""
     name = origin.rstrip("/").split("/")[-1].removesuffix(".git")
     d = f"/home/topics/repos/{name}"
     subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "origin"], capture_output=True, timeout=120)
@@ -833,6 +835,10 @@ def sync_repo(sl, origin, repo):
     known = known_file(sl['ip'])
     subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
     os.remove(bundle)
+    # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
+    # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
+    name64 = base64.b64encode(git_name.encode()).decode()
+    email64 = base64.b64encode(git_email.encode()).decode()
     script = f"""set -e
 B=/tmp/{os.path.basename(bundle)}
 chmod 644 $B
@@ -844,6 +850,8 @@ git -C $d fetch -q '$B' "+{ref}:{ref}"
 git -C $d symbolic-ref refs/remotes/origin/HEAD {ref}
 if ! git -C $d rev-parse -q --verify HEAD >/dev/null; then git -C $d checkout -q -B {branch} {ref}
 elif [ -z "$(git -C $d status --porcelain)" ]; then git -C $d checkout -q {branch} && git -C $d merge -q --ff-only {ref} || true; fi
+git -C $d config user.name "$(echo {name64} | base64 -d)"
+git -C $d config user.email "$(echo {email64} | base64 -d)"
 '
 rm -f $B
 curl -s -m 10 http://127.0.0.1:3333/api/projects | grep -q '"path":"{d}"' || curl -s -m 10 -X POST -H 'Content-Type: application/json' -d '{{"name":"{name}","slug":"{name.lower()}","path":"{d}"}}' http://127.0.0.1:3333/api/projects >/dev/null
