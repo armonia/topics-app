@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { Timer } from 'lucide-react';
+import { STATUS_GLYPH_PX } from '../../lib/board';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
@@ -124,7 +126,7 @@ export function LiveEffortChip({ usage, label, trailing }: { usage: LiveUsage; l
         <span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-        <span>⏱ {fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
+        <span className="inline-flex items-center gap-1"><Timer size={STATUS_GLYPH_PX} className="shrink-0" />{fmtLive(ms)}{usage.liveTokens > 0 && ` · ${fmtTok(usage.liveTokens)}`}</span>
         {trailing}
       </span>
     </div>

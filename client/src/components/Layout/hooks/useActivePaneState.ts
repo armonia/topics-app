@@ -22,6 +22,7 @@ import {
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId, parseUtilityPanelType } from '../UtilityPanel';
 import type { UseActivePaneStateArgs, UseActivePaneStateReturn } from './standaloneTypes';
+import { DEFAULT_TOPIC_ICON } from '../../../lib/topicIcons';
 
 // Fixed sentinel timestamp (epoch) for synthetic draft topics, so a draft keeps
 // a stable identity across recomputes — `new Date()` would mint fresh timestamps
@@ -48,7 +49,7 @@ export function useActivePaneState(args: UseActivePaneStateArgs): UseActivePaneS
         map[id] = {
           id,
           name: 'New Chat',
-          icon: '💬',
+          icon: DEFAULT_TOPIC_ICON,
           color: '#0066ff',
           sessionKey: draftSessionKey(id),
           createdAt: DRAFT_SENTINEL_TS,

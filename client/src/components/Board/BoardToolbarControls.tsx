@@ -113,10 +113,10 @@ export function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; o
   // work that is not on main is a problem (rose), a commit to publish is a
   // ready action (amber), neither of the two is rest (neutral).
   const tone = unlanded.length > 0
-    ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+    ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
     : total > 0
-      ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-      : 'bg-white/10 text-app-text-secondary hover:bg-white/15';
+      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
+      : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/15';
   const title = [
     unlanded.length > 0 ? tr('board.delivery.unlandedTitle', { n: unlanded.length }) : null,
     total > 0 ? tr('board.delivery.toPublishTitle', { n: total }) : tr('board.delivery.nothingTitle'),
@@ -149,7 +149,7 @@ export function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; o
               closed task whose work shows up nowhere. */}
           {unlanded.length > 0 && (
             <div className="border-b border-app-border pb-1">
-              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-300/90">
+              <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-rose-800/90 dark:text-rose-300/90">
                 {tr('board.unlanded.title')}
               </div>
               {unlanded.map((t) => (
@@ -284,8 +284,8 @@ export function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: 
         onClick={() => setOpen((o) => !o)}
         data-testid="worktree-count-badge"
         className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${orphan > 0
-          ? 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-          : 'bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
+          ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25'
+          : 'bg-black/10 dark:bg-white/10 text-app-text-secondary hover:bg-white/20'}`}
       >{tr('board.worktree.count', { n: count })}{orphan > 0 && <span className="tabular-nums">{tr('board.worktree.orphanBranches', { n: orphan })}</span>}</button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={320}>
         <div className="space-y-1.5 px-3 py-2.5 text-mini leading-snug text-app-text-secondary">
@@ -294,7 +294,7 @@ export function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: 
           {branches && branches.total > 0 && (
             <p data-testid="worktree-branches-line">
               {tr('board.worktree.branchesStart')}<span className="text-app-text-heading">{tr('board.worktree.branchesCount', { n: branches.total })}</span>{tr('board.worktree.branchesMid')}
-              {branches.orphan > 0 && <> <span className="text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
+              {branches.orphan > 0 && <> <span className="text-amber-800 dark:text-amber-300">{branches.orphan}</span>{tr('board.worktree.branchesOrphan')}</>}
               {branches.onOpenTasks > 0 && <>{tr('board.worktree.branchesOpen', { n: branches.onOpenTasks })}</>}
             </p>
           )}
@@ -304,7 +304,7 @@ export function WorktreeControl({ count, branches, gcRunning, gcResult, onGc }: 
           <button
             onClick={onGc}
             disabled={gcRunning}
-            className="shrink-0 rounded bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
+            className="shrink-0 rounded bg-black/10 dark:bg-white/10 px-2 py-1 text-mini text-app-text-secondary hover:bg-white/20 disabled:opacity-50"
             data-testid="worktree-gc-button"
           >{tr(gcRunning ? 'board.worktree.gcRunning' : 'board.worktree.gc')}</button>
           <span className="text-mini leading-snug text-app-text-muted">
@@ -364,8 +364,8 @@ export function LoadAdviceChip() {
   if (!cap || !advice) return null;
   const { over, severe } = advice;
   const cls = severe
-    ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
-    : 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
+    ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-500/25'
+    : 'bg-amber-500/15 text-amber-800 dark:text-amber-300 ring-1 ring-amber-500/30 hover:bg-amber-500/25';
   return (
     <>
       <button
@@ -428,7 +428,7 @@ export function MissionsMenu({ onStart }: { onStart: (m: Mission) => void }) {
         onClick={() => setOpen((o) => !o)}
         data-testid="missions-button"
         title={tr('board.toolbar.missionsTitle')}
-        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
+        className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini ${open ? 'bg-black/15 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10'}`}
       ><Target className="h-3 w-3 shrink-0" /><span className="hidden sm:inline">{tr('board.toolbar.missions')}</span></button>
       <Menu open={open} anchorRef={btnRef} onClose={() => setOpen(false)} minWidth={330}>
         <div className="px-3 pb-1 pt-2 text-mini font-semibold uppercase tracking-wide text-app-text-muted">

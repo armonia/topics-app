@@ -145,7 +145,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           // here below. A chip that truncates without a tooltip is information
           // that exists and cannot be read.
           title={`${label} · ${why}`}
-          className="inline-flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-muted"
+          className="inline-flex max-w-full items-center gap-1.5 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-muted"
         >
           <GitCompare className="h-3 w-3 shrink-0" />
           <span className="shrink-0">{label}</span>
@@ -179,7 +179,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
         onClick={() => setOpen((s) => !s)}
         data-testid="task-changes-trigger"
         title={tr('board.task.changes.openTitle')}
-        className="flex max-w-full items-center gap-1.5 rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/10"
+        className="flex max-w-full items-center gap-1.5 rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/10"
       >
         <GitCompare className="h-3 w-3 shrink-0" />
         <span className="shrink-0">{label}</span>
@@ -191,7 +191,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <span className="text-emerald-400">+{totals.additions}</span> <span className="text-red-400">−{totals.deletions}</span>
         </span>
         {from && (
-          <span className="min-w-0 truncate rounded bg-white/5 px-1 text-mini text-app-text-faint">{from}</span>
+          <span className="min-w-0 truncate rounded bg-black/5 dark:bg-white/5 px-1 text-mini text-app-text-faint">{from}</span>
         )}
         {notes.length > 0 && (
           <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-mini text-indigo-300">
@@ -302,7 +302,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
       <div className="flex items-center gap-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.task.attempts')} <span className="normal-case tracking-normal text-app-text-faint">· {tr('board.task.attempts.parallel', { n: attempts.length })}</span>
         {running > 0 && (
-          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-mini normal-case tracking-normal text-amber-300">
+          <span className="ml-1 flex items-center gap-1 rounded bg-amber-500/15 px-1 text-mini normal-case tracking-normal text-amber-800 dark:text-amber-300">
             <Spinner size="xs" tone="current" /> {tr('board.task.attempts.running', { n: running })}
           </span>
         )}
@@ -329,7 +329,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
                 {won && <span className="rounded bg-emerald-500/25 px-1 text-mini text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {dead && <span className="rounded bg-black/5 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
                 {a.branch && <span className="truncate font-mono text-mini text-app-text-faint">{a.branch}</span>}
               </div>
@@ -340,7 +340,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                 {work && (
                   <button
                     onClick={() => setOpenDiff((cur) => (cur === a.id ? null : a.id))}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr(openDiff === a.id ? 'board.task.attempt.closeDiff' : 'board.task.attempt.openDiff')}</button>
                 )}
                 {/* The "open the chat" label said less than what it does: it
@@ -349,13 +349,13 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
                   <button
                     onClick={() => onOpenTopic(a.topicId!)}
                     title={tr('board.task.openSessionTitle')}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
+                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-heading hover:bg-white/10"
                   >{tr('board.task.openSession')}</button>
                 )}
                 {a.topicId && !dead && shouldExplainMissingSession(resolveSession(a.topicId)) && (
                   <span
                     title={tr('board.task.sessionGoneTitle')}
-                    className="rounded bg-white/5 px-1.5 py-0.5 text-mini text-app-text-faint"
+                    className="rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-mini text-app-text-faint"
                   >{tr('board.task.sessionGone')}</span>
                 )}
                 {!decided && running === 0 && a.topicId && (

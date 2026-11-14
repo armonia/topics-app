@@ -1,7 +1,7 @@
-import { AlertTriangle, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, RotateCcw, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, ShieldCheck } from 'lucide-react';
 import { Spinner } from '../Shared/Spinner';
 import { type TaskSessionState, canOpenTaskSession, shouldExplainMissingSession } from '../../lib/taskSession';
-import { type BoardTask, type TaskStatus, type BoardProjectRef, STATUS_LABEL, TASK_STATUSES } from '../../lib/board';
+import { type BoardTask, type TaskStatus, type BoardProjectRef, STATUS_GLYPH_PX, STATUS_LABEL, TASK_STATUSES } from '../../lib/board';
 import { autoGrow } from './format';
 import { type TaskBrowserGroupLayout } from './useTaskBrowserGroupLayout';
 import { Menu } from '../Shared/Menu';
@@ -84,7 +84,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             {reopened && (
               <details data-testid="task-reopened-notice" className="group relative shrink-0 text-mini text-app-text-muted">
                 <summary className="cursor-pointer list-none rounded px-1.5 py-0.5 hover:bg-white/5 hover:text-app-text">
-                  ↩︎ {tr('board.task.reopened')}
+                  <span className="inline-flex items-center gap-1"><RotateCcw size={STATUS_GLYPH_PX} className="shrink-0" />{tr('board.task.reopened')}</span>
                 </summary>
                 <p className="absolute right-0 top-full z-20 mt-1 w-64 rounded border border-app-border bg-elevated p-2 text-app-text shadow-lg">{reopened.detail}</p>
               </details>
@@ -116,7 +116,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             onCreate={doCreateProject}
             busy={projBusy}
             listLabel={tr('board.task.moveProjectTo')}
-            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-300/90">{moveBlocked}</p> : undefined}
+            headerNote={moveBlocked ? <p className="px-2.5 pb-1 text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">{moveBlocked}</p> : undefined}
           />
           <div className={POPOVER_DIVIDER} />
           <button
@@ -134,7 +134,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             onChange={(e) => { setTitleDraft(e.target.value); autoGrow(e.currentTarget); }}
             onBlur={saveTitle}
             onKeyDown={(e) => { cancelKey(e); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveTitle(); } }}
-            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
+            className="-mx-1.5 block max-h-24 w-[calc(100%+0.75rem)] resize-none overflow-y-auto rounded bg-black/5 dark:bg-white/5 px-1.5 py-1 text-body-lg leading-5 text-app-text outline-none"
           />
         ) : (
           <p
@@ -159,11 +159,11 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
                   onClick={() => openBlockerMenu(blockerChipRef.current)}
                   data-testid="task-blocked-by-chip"
                   title={tr('task.blocked.hint', { what: blockedChip.title })}
-                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-300 hover:bg-amber-500/25"
+                  className="flex min-w-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-mini text-amber-800 dark:text-amber-300 hover:bg-amber-500/25"
                 >
                   <Lock className="h-3 w-3 shrink-0" />
                   <span className="max-w-[14rem] truncate">{blockedChip.label}</span>
-                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-300/70" />
+                  <ChevronDown className="h-3 w-3 shrink-0 text-amber-800/70 dark:text-amber-300/70" />
                 </button>
               </div>
             )}

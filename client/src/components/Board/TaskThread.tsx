@@ -240,7 +240,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}
@@ -403,7 +403,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
                   {replyOptions.map((opt) => (
                     <button key={opt} disabled={sending || busy || uploading}
                       onClick={() => void answerOption(opt)}
-                      className="rounded border border-app-border bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-white/10 disabled:opacity-50">
+                      className="rounded border border-app-border bg-black/5 dark:bg-white/5 px-2.5 py-1.5 text-left text-compact leading-4 text-app-text hover:bg-white/10 disabled:opacity-50">
                       {stripMarkdown(opt)}
                     </button>
                   ))}

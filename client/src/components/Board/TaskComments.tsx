@@ -66,7 +66,7 @@ export function MediaViewer({ url, path }: { url: string; path: string }) {
       <p className="text-body-lg leading-5 text-app-text-secondary">{tr('board.task.noPreviewForType')}</p>
       <button
         onClick={(e) => openLink(url, { external: isExternalLinkGesture(e), origin: e.target })}
-        className="flex items-center gap-1 rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+        className="flex items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
       ><ExternalLink className="h-3.5 w-3.5" /> {tr('board.task.openInBrowser')}</button>
     </div>
   );
@@ -107,7 +107,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/10 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>
