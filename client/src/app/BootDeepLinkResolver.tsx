@@ -6,6 +6,7 @@ import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhen
 import { TAB_PATH_PREFIX, type TabTarget } from '../../../shared/tab-link';
 import { installOsOpenPathBridge, defaultOsOpenDeps } from '../lib/osOpenPath';
 import { usePaneStore } from '../state/pane/store';
+import { hubBookmarkTarget, openHubBookmarkWhenHydrated } from '../lib/hubPlaces';
 
 /**
  * The deep-link target the URL carries at boot, or `null`.
@@ -114,6 +115,13 @@ export function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     };
     const t = setTimeout(() => { void consume(); }, 0);
     return () => clearTimeout(t);
+  }, [isDetached]);
+  // An old bookmark of the hub (`:3360/#automations` sends here keeping its fragment): the place
+  // of Topics that took that page, once the pane store has hydrated (lib/hubPlaces).
+  useEffect(() => {
+    if (isDetached) return;
+    if (!hubBookmarkTarget(window.location.hash)) return;
+    return openHubBookmarkWhenHydrated();
   }, [isDetached]);
   useEffect(() => {
     // DETACHED windows (`?topics=`) are read-only towards the pane-store
