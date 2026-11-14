@@ -2,14 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.102 — 2026-11-14
+
+### Sotto il cofano
+- **e2e** · evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone
+- fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)
+
 ## 2.3.101 — 2026-11-14
+
+### Novità
+- **chat** · board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome
 
 ### Sotto il cofano
 - Tray strip: rasterize text with CoreText on macOS, pixel-snapped pens (ab_glyph stays for Windows/Linux)
 - Tray strip: CoreText draws with the real NSFont system weights; ink-vs-AppKit tests
+- declare what the card tests cover
+- card tests declare CHAT-TASK-CARD-01
 - pin the status item to the strip's width so neither end is cut (#949)
 - turn the working glyph in a native layer instead of redrawing the strip every frame
+- **spec** · CHAT-TASK-CARD-01
+- **e2e** · open the card through the board API; legibility spec uses a non-card MCP tool
+- **bloat** · record tray_quota.rs, already over the threshold on main
 - la barra non salta più e il menu resta aperto (#951)
+- bloat baseline back to what main has
 
 ## 2.3.100 — 2026-11-13
 
