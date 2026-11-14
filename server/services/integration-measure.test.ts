@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CheckRun } from "../../shared/board";
 import { measureIntegration, type IntegrationMeasureDeps } from "./integration-measure";
+import { ownChangesBetween } from "../routes/tasks";
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });
@@ -90,5 +91,26 @@ describe("measureIntegration", () => {
     expect(red.why).toContain("unit");
     const silent = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, deps(() => [{ ...ko("unit"), notMeasured: true }]));
     expect(silent.verdict).toBe("unmeasured");
+  });
+
+  test("a fix after a rebase counts only the card's own changes, not what main received meanwhile", async () => {
+    const r = repo();
+    // The card's first delivery touches a.ts; then main receives another card's c.ts.
+    sh(r.work, "switch", "--quiet", "-c", "card", r.one);
+    const c1 = sh(r.work, "rev-parse", "HEAD");
+    sh(r.work, "switch", "--quiet", "-c", "other", "origin/main");
+    writeFileSync(join(r.work, "c.ts"), "other card\n");
+    sh(r.work, "add", "."); sh(r.work, "commit", "--quiet", "-m", "other"); sh(r.work, "push", "--quiet", "origin", "HEAD:main");
+    sh(r.work, "fetch", "--quiet", "origin");
+    // The agent rebases on main and fixes only a.ts again.
+    sh(r.work, "switch", "--quiet", "card");
+    sh(r.work, "rebase", "--quiet", "origin/main");
+    expect(await ownChangesBetween(r.work, c1, sh(r.work, "rev-parse", "HEAD"))).toEqual([]);
+    writeFileSync(join(r.work, "a.ts"), "one fixed\n");
+    sh(r.work, "add", "."); sh(r.work, "commit", "--quiet", "-m", "fix");
+    expect(await ownChangesBetween(r.work, c1, sh(r.work, "rev-parse", "HEAD"))).toEqual(["a.ts"]);
+    writeFileSync(join(r.work, "d.ts"), "new\n");
+    sh(r.work, "add", "."); sh(r.work, "commit", "--quiet", "-m", "more");
+    expect((await ownChangesBetween(r.work, c1, sh(r.work, "rev-parse", "HEAD")))?.sort()).toEqual(["a.ts", "d.ts"]);
   });
 });

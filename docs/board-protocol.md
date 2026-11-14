@@ -524,7 +524,13 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      umana, poi `human_ask`) TENENDO `land_intent`: la consegna verde successiva
      rientra in fase CI senza passare da una persona. Non misurato → resta in CI e
      la spazzata dei 10 minuti riprova. Un rifiuto con commento di una persona
-     toglie `land_intent`. Una board senza righe CI atterra come prima.
+     toglie `land_intent`, e un suo commento durante la fase la ferma e le restituisce la
+     decisione. Una board senza righe CI atterra come prima; anche il trascinamento in
+     Done, «Landa e pubblica» e l'Approva con `force` su un rosso atterrano diretti, perché
+     sono gesti espliciti di una persona. Una card senza commit proprio (un'analisi) non
+     entra nella fase. La riconsegna dopo un ok di una persona si confronta con il commit
+     approvato sui SOLI cambiamenti propri della card (`ownChangesBetween`, ciascuno
+     contro la sua base): ciò che main ha ricevuto nel frattempo non la rimanda alla persona.
      **Il rosso torna all'agente da solo** anche fuori dalla fase CI: una card in
      review con la barra rossa sul commit consegnato (tipicamente una consegna
      dal nodo, misurata dopo l'ingresso in review) viene rimandata dalla spazzata

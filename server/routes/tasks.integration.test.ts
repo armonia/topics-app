@@ -31,10 +31,11 @@ describe("the CI phase", () => {
   let commit = "abc1234";
   let between: string[] | null = [];
   let landSkips = false;
+  let measureGate: Promise<void> = Promise.resolve();
   let sweep: (() => Promise<number>) | null = null;
   const cwd = mkdtempSync(join(tmpdir(), "tasks-integration-"));
 
-  beforeEach(() => { db = freshDb(); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; between = []; landSkips = false; });
+  beforeEach(() => { db = freshDb(); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; between = []; landSkips = false; measureGate = Promise.resolve(); });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
   async function setup() {
@@ -50,6 +51,7 @@ describe("the CI phase", () => {
       integrationFilesBetween: async () => between,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
       integrationMeasure: async (_p: string, ids: string[]): Promise<IntegrationMeasure> => {
+        await measureGate;
         measured.push(ids);
         const verdict = verdicts.shift() ?? "pass";
         return { measured: ids, conflicts: [], verdict, commit: "1ae9ca7e", why: verdict === "fail" ? "**Checks ROSSI**: `unit-ci` rosso" : undefined };
@@ -185,5 +187,30 @@ describe("the CI phase", () => {
     for (let i = 0; i < 3; i++) { await sweep!(); await s.settle(); }
     expect(measured.length).toBe(2);
     expect(s.read().humanAsk).toContain("non ha dato un esito");
+  }, 30_000);
+
+  test("a card with no code of its own does not enter the CI phase: it closes as before", async () => {
+    const s = await setup();
+    await s.deliver();
+    db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(s.id);
+    const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
+    expect(r.status).toBe(200);
+    expect(s.read().stage).toBeUndefined();
+    expect(measured).toEqual([]);
+  }, 30_000);
+
+  test("a person who writes on the card during the CI phase stops the land and gets the decision back", async () => {
+    const s = await setup();
+    await s.deliver();
+    let open: () => void = () => undefined;
+    measureGate = new Promise((r) => { open = r; });
+    await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" });
+    await Bun.sleep(5);
+    svc.addComment({ taskId: s.id, author: "user", content: "aspetta, cambio idea sul colore" });
+    open();
+    await s.settle();
+    measureGate = Promise.resolve();
+    expect(merges).toEqual([]);
+    expect(s.read().humanAsk).toContain("hai scritto");
   }, 30_000);
 });

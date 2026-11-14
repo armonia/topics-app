@@ -586,6 +586,33 @@ export async function runGitCap(cwd: string, args: string[], timeoutMs: number =
 }
 
 /**
+ * The files whose OWN change differs between two deliveries of the same card.
+ * Not `git diff from to`: after the rebase a conflict asks for, that diff also
+ * carries everything main received in between, other cards' files included, and
+ * every fix would look like a new change to look at. Here each delivery is read
+ * against its own merge base with origin/main, and a file counts when the card's
+ * patch on it is not the same (hunk positions and blob ids ignored).
+ */
+export async function ownChangesBetween(repo: string, from: string, to: string): Promise<string[] | null> {
+  const base = async (c: string) => (await runGitCap(repo, ["merge-base", c, "origin/main"])).out.trim();
+  const [b1, b2] = [await base(from), await base(to)];
+  if (!b1 || !b2) return null;
+  const names = async (b: string, c: string) => {
+    const r = await runGitCap(repo, ["diff", "--name-only", b, c]);
+    return r.code === 0 ? r.out.split("\n").map((l) => l.trim()).filter(Boolean) : null;
+  };
+  const [n1, n2] = [await names(b1, from), await names(b2, to)];
+  if (!n1 || !n2) return null;
+  const patch = async (b: string, c: string, f: string) =>
+    (await runGitCap(repo, ["diff", b, c, "--", f])).out.split("\n").filter((l) => !l.startsWith("index ") && !l.startsWith("@@")).join("\n");
+  const out: string[] = [];
+  for (const f of new Set([...n1, ...n2])) {
+    if (!n1.includes(f) || !n2.includes(f) || (await patch(b1, from, f)) !== (await patch(b2, to, f))) out.push(f);
+  }
+  return out;
+}
+
+/**
  * I file che i commit PROPRI del task hanno toccato — la base su cui si derivano
  * `visibile`/`invisibile` e il GENERE della card.
  *
@@ -1800,9 +1827,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     filesBetween: opts?.integrationFilesBetween ?? (opts?.integrationRepo
       ? async (taskId, from, to) => {
         const repo = await opts.integrationRepo!(taskId).catch(() => null);
-        if (!repo) return null;
-        const r = await runGitCap(repo, ["diff", "--name-only", from, to]);
-        return r.code === 0 ? r.out.split("\n").map((l) => l.trim()).filter(Boolean) : null;
+        return repo ? ownChangesBetween(repo, from, to) : null;
       }
       : undefined),
   });
@@ -1817,9 +1842,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
       // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
-      // back (`reenter` checks it again); an automatic decision goes through the automatic land below.
+      // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.
       if (t.landIntent === "human") {
-        if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.reenter(t.projectId, t.id);
+        if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.returnToCiPhase(t.projectId, t.id);
         continue;
       }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
@@ -1855,8 +1880,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * is a person's choice, not a side effect.
    */
   function enqueueLandOnDone(projectId: string, taskId: string, branch: string): LandingTicket | null {
-    // On a board with the CI phase, done means landed: the card goes back through the phase.
-    if (ciPhase.doneToCi(projectId, taskId)) return null;
     let autoMergeOn = true;
     // Failing to read the settings must not merge "because we did not know":
     // the careful direction is to NOT touch main.

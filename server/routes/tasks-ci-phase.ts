@@ -120,7 +120,8 @@ export function createCiPhase(deps: CiPhaseDeps) {
   function enterCiPhase(projectId: string, taskId: string, landOpts?: LandRunOpts): boolean {
     if (!boardHasCiPhase(projectId)) return false;
     const cur = deps.svc.get(taskId, { projectId })?.task;
-    if (!cur || cur.status !== "review" || !cur.deliveryBranch) return false;
+    // A card with no code of its own (an analysis) has nothing to measure: it closes as before.
+    if (!cur || cur.status !== "review" || !cur.deliveryBranch || !cur.deliveryCommit) return false;
     // The automatic land comes with its last look (`recheck`); a person's gesture does not.
     const who = landOpts?.recheck ? "auto" : "human";
     let task: Task;
@@ -173,13 +174,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
       ciMeasured.delete(taskId);
       const now = deps.svc.get(taskId, { projectId })?.task.deliveryCommit ?? null;
       if (!measured || !now || measured !== now) { integration.request(projectId, taskId); return; }
+      // A person who wrote on the card while it was in the phase ("wait", "not this") is waiting for an answer, not for a merge.
+      const since = (deps.db.query("SELECT land_intent_at FROM tasks WHERE id = ?").get(taskId) as { land_intent_at?: string | null } | null)?.land_intent_at;
+      const spoke = since && (deps.svc.get(taskId, { projectId })?.comments ?? []).some((c) => c.author === "user" && (c.kind ?? "comment") === "comment" && !!c.createdAt && c.createdAt > since);
+      if (spoke) { giveUp(projectId, taskId, "hai scritto sulla card mentre era in fase CI: non la atterro finché non rispondi"); return; }
       deps.landDirect(projectId, taskId);
       await deps.whenLanded(taskId)?.catch(() => undefined);
       const after = deps.svc.get(taskId, { projectId })?.task;
       if (!after) return;
       if (after.status === "done") { try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } return; }
       // Back with the agent (a conflict the land met): the decision stays, the fix comes back here.
-      if (after.status !== "review") return;
+      if (after.status !== "review" || after.landingState === "landed") return;
       // Still in review after a green CI: the land refused (dirty checkout, open steps, nothing to land...).
       // Measuring again would pay a CI run for the same refusal, so a person reads why.
       giveUp(projectId, taskId, "il land dopo la CI verde non è andato: leggi l'ultima riga del sistema nel thread");
@@ -232,7 +237,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * decision holds for what they saw: a new commit whose changes since then
    * touch a person's place goes back to the person.
    */
-  async function reenter(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
+  async function returnToCiPhase(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
     const t = deps.svc.get(taskId, { projectId })?.task;
     if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
     if ((t.humanAsk ?? "").trim() || t.checksState === "fail" || t.checksState === "running") return "no";
@@ -258,32 +263,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
 
   /**
    * After a delivery enters review: a card someone already decided to land
-   * goes back to the CI phase by itself (`reenter`); any other card, and an
+   * goes back to the CI phase by itself (`returnToCiPhase`); any other card, and an
    * automatic decision, is offered to the automatic land.
    */
   async function afterDelivery(projectId: string, taskId: string): Promise<void> {
-    const r = await reenter(projectId, taskId);
+    const r = await returnToCiPhase(projectId, taskId);
     if (r === "ci" || r === "person") return;
     await deps.tryAutoLand(projectId, taskId);
   }
 
-  /**
-   * Dragging a card to Done on a board with the CI phase: done means landed, so
-   * the card goes back to review and enters the phase. `false` = not this board,
-   * or the move did not take: the caller lands as before.
-   */
-  function doneToCi(projectId: string, taskId: string): boolean {
-    if (!boardHasCiPhase(projectId)) return false;
-    const t = deps.svc.get(taskId, { projectId })?.task;
-    if (!t || t.status !== "done" || !t.deliveryBranch || t.landingState === "landed") return false;
-    try {
-      deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "review" }, statusReason: "done vuol dire atterrata: passa dalla fase CI" });
-    } catch { return false; }
-    return enterCiPhase(projectId, taskId);
-  }
-
   return {
-    bounceRed, enterCiPhase, afterDelivery, reenter, doneToCi, boardHasCiPhase,
+    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase,
     pending: (projectId: string) => integration.pending(projectId),
   };
 }

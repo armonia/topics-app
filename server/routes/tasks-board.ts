@@ -30,7 +30,7 @@ import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
-import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
+import { STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -784,8 +784,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // "Done for me" means it goes to main. On a board with the CI phase an approval of a card whose
         // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
         const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
+        // `force` is the person overriding a red: an explicit gesture, it does not go through the phase's bounce.
         if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed" && typeof body?.comment !== "string"
-          && enterCiPhase(bReview.projectId, bReview.taskId)) {
+          && body?.force !== true && enterCiPhase(bReview.projectId, bReview.taskId)) {
           return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
         }
       }
@@ -1008,7 +1009,14 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     // dopo che la richiesta di land si è chiusa: è la controparte del 202.
     if (bLand && method === "GET") {
       const ticket = landings.status(bLand.taskId);
-      if (!ticket) return json({ error: "no land was requested for this task", code: "not_found" }, 404);
+      if (!ticket) {
+        // In the CI phase the land is asked and not yet queued: say so, the 202 promised a ticket.
+        const cur = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
+        if (cur?.stage === STAGE_CI && cur.status === "review") {
+          return json({ landing: { taskId: bLand.taskId, phase: "queued", ahead: 0, queuedAt: null, settledAt: null, error: null, outcome: null, reason: "fase CI" }, pending: 0 });
+        }
+        return json({ error: "no land was requested for this task", code: "not_found" }, 404);
+      }
       return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
     }
 

@@ -173,7 +173,8 @@ const PERSON_PLACES: ReadonlyArray<readonly [RegExp, string]> = [
   [/^(landing|site|public)\//, "public site"],
   [/^(README|LICENSE|PRIVACY|SECURITY|THIRD-PARTY-NOTICES)(\.|$)/i, "public text"],
   // A green main is released by itself (auto-bump → tauri-release): the shell, the relay and the nodes are a release.
-  [/^(desktop-tauri|relay|deploy)\//, "release or infrastructure"],
+  [/^(desktop-tauri|relay|deploy|native)\//, "release or infrastructure"],
+  [/(^|\/)\.gitattributes$/, "the judge"],
   [/(^|\/)Cargo\.(toml|lock)$/, "release or infrastructure"],
   // Words read on EVERY segment of the path, not only the file name: `relay/src/worker.ts`, `claude-cloud/creds.ts`.
   [/(^|\/)[^/]*(push|presence|discord|notif|mail|channel|voice|whatsapp|telegram|share(?!d(\/|$))|guest)[^/]*(\/|$)/i, "reaches a person"],
@@ -185,7 +186,8 @@ const PERSON_PLACES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\.json$/i, "the judge"],
   [/(^|\/)(__snapshots__|[^/]*-snapshots)\/|\.snap$/, "the judge"],
   // The whole road from a delivery to main: what measures it, what decides who closes it, what lands it.
-  [/^server\/services\/(auto-land|red-bounce|checks-gate|checks-[a-z-]+|review-checks[^/]*|ci-[a-z-]+|integration-[a-z-]+|landing-[a-z-]+|node-delivery-meter|node-branch-plant|task-automerge[^/]*|task-merge|land-attribution-gate|deliveryReportChecks|board-actions)\.ts$/, "the judge"],
+  [/^server\/services\/(auto-land|red-bounce|checks-gate|checks-[a-z-]+|review-checks[^/]*|ci-[a-z-]+|integration-[a-z-]+|landing-[a-z-]+|node-delivery-meter|node-branch-plant|task-automerge[^/]*|task-merge|land-attribution-gate|deliveryReportChecks|board-actions|board-workflow|delivery-branch-ref|task-delivery-capture|own-commits|tasks)\.ts$/, "the judge"],
+  [/^server\/lib\/live-checkout-branch-guard\.ts$/, "the judge"],
   [/^server\/routes\/(tasks|tasks-board|tasks-ci-phase)\.ts$/, "the judge"],
   [/^shared\/(task-labels|workflow|board)\.ts$/, "the judge"],
   [/^server\.ts$/, "the judge"],
