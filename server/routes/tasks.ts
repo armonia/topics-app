@@ -101,6 +101,8 @@ import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { createAutoLander } from "../services/auto-land";
+import { redBounceMessage, redBounceVerdict } from "../services/red-bounce";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { createNodeDeliveryMeter, type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
@@ -1748,9 +1750,63 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const t = svc.get(taskId)?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
     },
-    tryLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    // A red measure sends the card back to its agent; anything else is offered to the automatic land.
+    tryLand: async (projectId, taskId) => {
+      if (await bounceRed(projectId, taskId)) return;
+      return autoLander.tryLand(projectId, taskId);
+    },
     log: (line) => console.warn(line),
   });
+
+  /**
+   * A RED CARD GOES BACK TO ITS AGENT BY ITSELF (`services/red-bounce.ts`).
+   * The same moves a person's reject makes: the review decision, then the
+   * resume of the bound session, or the queue when nobody is bound (a node
+   * delivery, a released binding). `true` = the card left review.
+   */
+  async function bounceRed(projectId: string, taskId: string): Promise<boolean> {
+    let got: ReturnType<typeof svc.get>;
+    try { got = svc.get(taskId, { projectId }); } catch { return false; }
+    if (!got) return false;
+    const t = got.task;
+    const row = db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
+    const verdict = redBounceVerdict(
+      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null },
+      got.comments,
+      { turnLive: cardTurnIsLive(t) },
+    );
+    if (!verdict.bounce) {
+      if (verdict.exhausted && !t.humanAsk) {
+        try {
+          const asked = svc.update({ taskId, actor: "human", by: "system", projectId, patch: { humanAsk: "Tre giri rossi di fila senza uscirne: guarda il log dei check e decidi come procedere." } });
+          broadcastToAll({ type: "task:updated", projectId, task: asked });
+        } catch { /* the card stays in review either way */ }
+      }
+      return false;
+    }
+    const message = redBounceMessage(verdict.round, formatChecksComment(t.checks ?? [], { commit: t.checksCommit }));
+    let task: Task;
+    try {
+      task = svc.reviewDecision({ taskId, by: "system", decision: "reject", comment: message, projectId });
+    } catch (err) {
+      console.warn(`[red-bounce] ${taskId.slice(0, 8)} non rimandata:`, err);
+      return false;
+    }
+    broadcastToAll({ type: "task:updated", projectId, task });
+    console.warn(`[red-bounce] ${taskId.slice(0, 8)} rimandata all'agente (giro ${verdict.round})`);
+    if (!dispatcher) return true;
+    if (task.assignedTopicId) {
+      dispatcher.resume(taskId, message).catch((err) => console.warn(`[red-bounce] resume fallito per ${taskId}:`, err));
+      return true;
+    }
+    try {
+      const queued = svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" } });
+      try { svc.addComment({ taskId, author: "system", kind: "service", content: FRESH_SESSION_NOTE }); } catch { /* the requeue is what matters */ }
+      broadcastToAll({ type: "task:updated", projectId, task: queued });
+      if (queued.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
+    } catch (err) { console.warn(`[red-bounce] ${taskId.slice(0, 8)} non rimessa in coda:`, err); }
+    return true;
+  }
 
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
@@ -1758,6 +1814,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
+      // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
+      if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
