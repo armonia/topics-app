@@ -23,6 +23,11 @@ describe("redBounceVerdict", () => {
     expect(redBounceVerdict({ ...red, checksCommit: null }, [], { turnLive: false }).bounce).toBe(false);
   });
 
+  test("a realign that conflicted is about the delivered branch even with no commit stamped", () => {
+    expect(redBounceVerdict({ ...red, checksCommit: null, failedCheck: "realign" }, [], { turnLive: false }).bounce).toBe(true);
+    expect(redBounceVerdict({ ...red, checksCommit: null, failedCheck: "gates:fast" }, [], { turnLive: false }).bounce).toBe(false);
+  });
+
   test("an open agent turn is not interrupted", () => {
     expect(redBounceVerdict(red, [], { turnLive: true }).bounce).toBe(false);
   });
