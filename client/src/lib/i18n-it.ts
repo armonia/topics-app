@@ -3358,6 +3358,9 @@ const IT: Dict = {
   'board.card.dueTitle': 'Scadenza: {date}',
   'board.card.scheduledTitle': 'Programmata: {label}. La fa un giro a orario, nessun agente parte su questa card.',
   'board.card.assigneeTitle': 'La chiude {name}',
+  'board.card.assigneeNameOnly': 'solo nome',
+  'board.card.assigneeNameOnlyTitle': '{name} è solo il nome sulla card: la chiude il conduttore, a te non chiede niente.',
+  'board.card.needsInputWhy': "L'agente ha fermato il turno con una domanda: aprila nel thread e rispondi.",
   'board.card.dueOverdueTitle': 'Scadenza superata: {date}',
   'board.card.runComputerTitle': 'Esecuzione delegata eseguita su {name}',
 

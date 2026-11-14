@@ -3003,6 +3003,9 @@ const EN = {
   'board.card.dueTitle': 'Due date: {date}',
   'board.card.scheduledTitle': 'Scheduled: {label}. A timed run does this work, no agent is started on it.',
   'board.card.assigneeTitle': 'Closed by {name}',
+  'board.card.assigneeNameOnly': 'name only',
+  'board.card.assigneeNameOnlyTitle': '{name} is only the name on the card: the conductor closes it, nothing is asked of them.',
+  'board.card.needsInputWhy': 'The agent ended the turn on a question: open it in the thread and answer.',
   'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 
