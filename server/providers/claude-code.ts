@@ -37,7 +37,7 @@ import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker
 import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
-import { hookScriptPath } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath } from "../lib/topics-hook-script";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
@@ -2670,6 +2670,10 @@ export class ClaudeCodeProvider implements AIProvider {
       // file: phase, tool label and foreground command list for EVERY session
       // launched from here, and for no other.
       hooksScriptPath: hookScriptPath(),
+      // The nudge toward spawn_agent after a long run of inline calls (the
+      // policy itself rides `appendSystemPrompt`). `TOPICS_DELEGATION_NUDGE=off`
+      // turns it off without a release.
+      delegationHookPath: process.env.TOPICS_DELEGATION_NUDGE === "off" ? null : delegationHookPath(),
       // Solo gli agenti del board: il catalogo delle skill dell'UTENTE
       // (14.067 byte, ~4.200 token di prefisso misurati il 10/08) sta nel
       // prefisso e si ripaga a ogni turno, per un elenco che un agente col

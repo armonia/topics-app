@@ -11,6 +11,7 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS, MUSE_REASONING_EFFORTS } from '.
 import type { OutputLanguage } from '../../shared/types';
 import { BIND_LOOPBACK_NOTE, runScriptBindNote } from '../../shared/background-work';
 import { hasCommandShell } from './command-process';
+import { delegationPolicy } from './delegation-policy';
 
 /**
  * La riga che dice al modello in che lingua rispondere. UNA riga, e sempre la
@@ -202,7 +203,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   ...(board ? boardWaits(cmd) : chatWaits(cmd)),
-  ...(headless ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.'] : []),
+  ...(headless ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.', delegationPolicy()] : []),
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',

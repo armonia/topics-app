@@ -83,6 +83,7 @@ import type { TurnSpec } from "./turn-host";
 import { deadStoreIsOpenRowsTurn } from "../../lib/boot-native-turns";
 import type { RoundUsage } from "./turn-journal";
 import { getAiBridgeClient } from "../../lib/ai-bridge-client";
+import { createDelegationTracker, delegationPolicy } from "../../lib/delegation-policy";
 
 /**
  * The model we start from when nobody asks for one.
@@ -230,9 +231,12 @@ export function nativeSystemPrompt(args: {
   /** The coordinator: project-less by design, the note would lie. */
   globalOrchestrator: boolean;
   language?: string;
+  /** The chat can open sub-agents: it gets the delegation policy. */
+  delegate?: boolean;
 }): string {
   const note = args.workspace || args.globalOrchestrator ? undefined : NO_WORKSPACE_NOTE;
-  return [args.base, note, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
+  const policy = args.delegate && args.workspace && !args.globalOrchestrator ? delegationPolicy() : undefined;
+  return [args.base, note, policy, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -322,6 +326,8 @@ interface NativeSession {
   /** Measured chars-per-token. On the SESSION and not on the turn: the turn
    * that dies of a full context dies on its FIRST round, measuring nothing. */
   calibration: Calibration;
+  /** Inline tool calls since the last delegation, across turns (`lib/delegation-policy.ts`). */
+  delegation?: ReturnType<typeof createDelegationTracker>;
   /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEP_ALIVE_EVERY_MS`). */
   keepAlive?: ReturnType<typeof setTimeout>;
   /** Which keep-alive chain is the live one: a tick from an older chain stops. */
@@ -933,12 +939,19 @@ export class NativeProvider implements AIProvider {
         // registry-backed coordinator is different: it intentionally has no
         // workspace and only its five board tools, so adding that ordinary
         // note would falsely advertise web/file capabilities.
-        system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+        system: nativeSystemPrompt({
+          base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator,
+          delegate: !!topics && !subagentPolicy?.noDelegation,
+        }),
         reminder: languageReminder(),
         history: session.history,
         // Passed by REFERENCE: every turn restarts from what the previous
         // one measured, instead of from the assumed 4 chars per token.
         calibration: session.calibration,
+        // Only where spawn_agent exists: a nudge toward a tool the chat lacks is noise.
+        ...(workspace && topics && !globalOrchestrator && !subagentPolicy?.noDelegation
+          ? { delegation: (session.delegation ??= createDelegationTracker()) }
+          : {}),
         tools,
         // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
         // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e

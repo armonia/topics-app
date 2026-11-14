@@ -8,7 +8,8 @@ import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession, noteClaudeHookSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
-import { hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
+import { delegationHookScript } from "../lib/delegation-policy";
 import { hookEventTime } from "../lib/hook-order";
 
 /**
@@ -90,6 +91,9 @@ export function getOrCreateHookToken(): string {
   // boot does not touch the disk.
   try {
     writeHookScript(hookScriptPath());
+    // The delegation nudge rides the same boot step: generated from the policy,
+    // so its thresholds are the ones the native engine uses.
+    writeHookScript(delegationHookPath(), delegationHookScript());
   } catch (err) {
     // Without the script every hook of a Topics session exits 127: no phases,
     // no end-of-turn notifications. The turn itself goes on (only exit 2
