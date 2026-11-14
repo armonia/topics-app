@@ -19,7 +19,8 @@
  * `dispatch_state` is written only by the dispatcher, so it is staged through
  * the test route `bind-topic`, which calls the real service. The agent is
  * recognised by its folder (`lib/agentSessions.ts`, `agentOfPath`): a topic
- * whose project path ends in `/.openclaw` belongs to the main agent.
+ * whose project path ends in the legacy data folder (`LEGACY_DATA_DIR_NAME`)
+ * belongs to the main agent.
  *
  * The references are committed next to this file by `--update-snapshots`. A
  * missing reference fails the run the normal Playwright way: nothing here
@@ -35,6 +36,7 @@ import { attentionUpdated } from "./helpers/attention";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath as boardIdForPath } from "../../shared/board";
+import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 
 hermetic(test);
 
@@ -42,7 +44,7 @@ const BASE = E2E_BASE;
 const STAMP = Date.now();
 const ROOT = `${canonicalTmpRoot()}/e2e-status-visual-${STAMP}`;
 const PROJECT_PATH = `${ROOT}/shop`;
-const AGENT_HOME = `${ROOT}/.openclaw`;
+const AGENT_HOME = `${ROOT}/${LEGACY_DATA_DIR_NAME}`;
 const PROJECT_ID = boardIdForPath(PROJECT_PATH);
 
 const createdTasks: string[] = [];

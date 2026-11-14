@@ -56,10 +56,10 @@ function tailwind(step: string): Rgb {
 
 function hsl(h: number, s: number, l: number): Rgb {
   const sat = s / 100;
-  const lig = l / 100;
+  const lightness = l / 100;
   const k = (n: number) => (n + h / 30) % 12;
-  const a = sat * Math.min(lig, 1 - lig);
-  const f = (n: number) => 255 * (lig - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)));
+  const a = sat * Math.min(lightness, 1 - lightness);
+  const f = (n: number) => 255 * (lightness - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)));
   return [f(0), f(8), f(4)];
 }
 
