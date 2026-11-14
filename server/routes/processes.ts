@@ -53,6 +53,7 @@ import { recordServerSpawn } from "../lib/spawn-metrics";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { isPidAlive, livePids, watchPidExits } from "../lib/pid-liveness";
 import { topicIdOfSubject } from "../../shared/attention";
+import { drainOutput } from "../lib/drain-output";
 
 interface ScriptProcess {
   processId: string;
@@ -2203,37 +2204,12 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     saveState();
     broadcastScriptsUpdate(ctx);
 
-    if (proc.stdout) {
-      (async () => {
-        const reader = proc.stdout!.getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
-            notifyScriptOutput(ctx, processId);
-          }
-        } catch {}
-      })();
-    }
-
-    if (proc.stderr) {
-      (async () => {
-        const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-        const decoder = new TextDecoder();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            appendOutput(sp, useTty ? stripAnsi(chunk) : chunk);
-            notifyScriptOutput(ctx, processId);
-          }
-        } catch {}
-      })();
-    }
+    const drainInto = (stream: ReadableStream<Uint8Array>) => void drainOutput(stream, processId, (text) => {
+      appendOutput(sp, useTty ? stripAnsi(text) : text);
+      notifyScriptOutput(ctx, processId);
+    });
+    if (proc.stdout) drainInto(proc.stdout as ReadableStream<Uint8Array>);
+    if (proc.stderr) drainInto(proc.stderr as ReadableStream<Uint8Array>);
 
     proc.exited.then((exitCode) => {
       if (sp.closing || sp.stopFailed) return;
