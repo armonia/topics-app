@@ -2753,6 +2753,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.stage ? { stage: r.stage } : {}),
       ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
       ...(r.land_intent ? { landIntent: r.land_intent } : {}),
+      ...(r.land_intent_commit ? { landIntentCommit: r.land_intent_commit } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -5122,7 +5123,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         markReopened(taskId, "review", target, "human", by);
         // A PERSON's reject takes back the decision to land: the next delivery is theirs to look at again.
         // The system's own bounces (a red, a conflict in the CI phase) keep it.
-        if (by !== "system") db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL WHERE id = ?").run(taskId);
+        if (by !== "system") db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL WHERE id = ?").run(taskId);
       } else {
         // `done_actor = 'human'`: è LA decisione di Attilio, ed è ciò che il
         // cancello di riapertura legge (un agente non la ribalta). Il segno di
@@ -6693,12 +6694,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
       if (who === null) {
-        db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL, stage = CASE WHEN stage = ? THEN NULL ELSE stage END, updated_at = ? WHERE id = ?")
+        db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL, stage = CASE WHEN stage = ? THEN NULL ELSE stage END, updated_at = ? WHERE id = ?")
           .run(STAGE_CI, ts, taskId);
       } else {
         // A person's decision is never downgraded to the machine's.
         const keep = row.land_intent === "human" ? "human" : who;
-        db.prepare("UPDATE tasks SET land_intent = ?, land_intent_at = COALESCE(land_intent_at, ?), updated_at = ? WHERE id = ?")
+        db.prepare("UPDATE tasks SET land_intent = ?, land_intent_at = COALESCE(land_intent_at, ?), land_intent_commit = delivery_commit, updated_at = ? WHERE id = ?")
           .run(keep, ts, ts, taskId);
         if (inCi && row.status === "review") db.prepare("UPDATE tasks SET stage = ?, human_ask = NULL WHERE id = ?").run(STAGE_CI, taskId);
       }

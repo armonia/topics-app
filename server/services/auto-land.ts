@@ -172,16 +172,23 @@ const PERSON_PLACES: ReadonlyArray<readonly [RegExp, string]> = [
   [/^client\/src\//, "interface"],
   [/^(landing|site|public)\//, "public site"],
   [/^(README|LICENSE|PRIVACY|SECURITY|THIRD-PARTY-NOTICES)(\.|$)/i, "public text"],
-  [/(^|\/)[^/]*(push|presence|discord|notif|mail|channel|voice|whatsapp|telegram|share|guest)[^/]*$/i, "reaches a person"],
-  [/(^|\/)[^/]*(auth(?!or)|token|secret|crypt|agent-env|child-env|relay|licen[cs]|licenza|billing|stripe|pricing)[^/]*$/i, "security or money"],
-  [/(^|\/)(package\.json|bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|bunfig\.toml)$/, "dependencies or runner"],
+  // A green main is released by itself (auto-bump → tauri-release): the shell, the relay and the nodes are a release.
+  [/^(desktop-tauri|relay|deploy)\//, "release or infrastructure"],
+  [/(^|\/)Cargo\.(toml|lock)$/, "release or infrastructure"],
+  // Words read on EVERY segment of the path, not only the file name: `relay/src/worker.ts`, `claude-cloud/creds.ts`.
+  [/(^|\/)[^/]*(push|presence|discord|notif|mail|channel|voice|whatsapp|telegram|share(?!d(\/|$))|guest)[^/]*(\/|$)/i, "reaches a person"],
+  [/(^|\/)[^/]*(auth(?!or)|token|secret|crypt|creds?(\b|_|-|\.)|credential|permission|sandbox|relay|agent-env|child-env|licen[cs]|licenza|billing|stripe|pricing)[^/]*(\/|$)/i, "security or money"],
+  [/(^|\/)(package\.json|bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bunfig\.toml)$/, "dependencies or runner"],
   [/^(scripts|\.github|tests\/setup)\//, "the judge"],
   // Under tests/ only the test files themselves are tests: helpers, fixtures and the e2e setup are what they stand on.
   [/^tests\//, "the judge"],
   [/\.json$/i, "the judge"],
   [/(^|\/)(__snapshots__|[^/]*-snapshots)\/|\.snap$/, "the judge"],
-  [/^server\/services\/(auto-land|red-bounce|checks-gate|review-checks[^/]*|ci-evidence[^/]*|integration-queue[^/]*)\.ts$/, "the judge"],
-  [/^shared\/(task-labels|workflow)\.ts$/, "the judge"],
+  // The whole road from a delivery to main: what measures it, what decides who closes it, what lands it.
+  [/^server\/services\/(auto-land|red-bounce|checks-gate|checks-[a-z-]+|review-checks[^/]*|ci-[a-z-]+|integration-[a-z-]+|landing-[a-z-]+|node-delivery-meter|node-branch-plant|task-automerge[^/]*|task-merge|land-attribution-gate|deliveryReportChecks|board-actions)\.ts$/, "the judge"],
+  [/^server\/routes\/(tasks|tasks-board|tasks-ci-phase)\.ts$/, "the judge"],
+  [/^shared\/(task-labels|workflow|board)\.ts$/, "the judge"],
+  [/^server\.ts$/, "the judge"],
 ];
 
 const TEST_FILE = /\.(test|spec)\.[jt]sx?$/;
@@ -263,6 +270,8 @@ interface AutoLanderDeps {
    * turn: a question it writes right after would be cut before anyone read it.
    */
   cardTurnLive?: (taskId: string) => boolean;
+  /** Does a server diff of this card wait for ZERO open turns? Absent = yes. */
+  waitsForTurns?: (taskId: string) => boolean;
   pollMs?: number;
   maxWaitMs?: number;
   log?: (line: string) => void;
@@ -356,6 +365,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
   async function mustWait(taskId: string, files: readonly string[], how: { insideLand?: boolean } = {}): Promise<boolean> {
     if (deps.cardTurnLive?.(taskId) ?? false) return true;
     if (!touchesServer(files) || !deps.liveTurns) return false;
+    if (deps.waitsForTurns && !deps.waitsForTurns(taskId)) return false;
     try { return (await deps.liveTurns(how.insideLand ? { insideLand: true } : undefined)) > 0; } catch { return true; }
   }
 

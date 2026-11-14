@@ -35,6 +35,8 @@ export interface RedBounceCard {
   checksState: string | null;
   checksCommit: string | null;
   deliveryCommit: string | null;
+  /** A card that asks a person something is that person's, red or not. */
+  humanAsk?: string | null;
 }
 
 export interface RedBounceComment {
@@ -75,6 +77,7 @@ export function redBounceVerdict(
   if (card.checksState !== "fail") return no("checks are not red");
   if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the red is about another commit");
   if (opts.turnLive) return no("an agent turn is open on the card");
+  if ((card.humanAsk ?? "").trim()) return no("the card asks a person something");
   const done = bouncesSinceHuman(comments);
   if (done >= MAX_AUTO_BOUNCES) return no(`${done} bounces already, a person decides`, true);
   return { bounce: true, round: done + 1 };

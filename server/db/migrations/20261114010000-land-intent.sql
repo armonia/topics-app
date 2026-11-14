@@ -7,3 +7,6 @@
 -- phase by itself. A person's reject with a comment clears it.
 ALTER TABLE tasks ADD COLUMN land_intent TEXT CHECK (land_intent IN ('human', 'auto'));
 ALTER TABLE tasks ADD COLUMN land_intent_at TEXT;
+-- The commit the decision was taken on: a later delivery is compared with it, and
+-- what changed since then in a person's place goes back to a person.
+ALTER TABLE tasks ADD COLUMN land_intent_commit TEXT;

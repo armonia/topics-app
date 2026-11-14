@@ -6,7 +6,6 @@
  * @covers KANBAN-102
  */
 import { describe, expect, test } from "bun:test";
-import { TASK_STATUSES } from "./board";
 import {
   STAGE_AI_REVIEW,
   STAGE_CI,

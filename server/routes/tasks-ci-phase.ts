@@ -13,6 +13,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
+import { personPlace } from "../services/auto-land";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -31,6 +32,8 @@ export interface CiPhaseDeps {
   integrationRepo?: (taskId: string) => Promise<string | null>;
   integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
   integrationCollectMs?: number;
+  /** Files that differ between two commits of the card's repo; `null` = git could not say. */
+  filesBetween?: (taskId: string, from: string, to: string) => Promise<string[] | null>;
 }
 
 type LandRunOpts = { recheck?: unknown };
@@ -49,7 +52,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const t = got.task;
     const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
     const verdict = redBounceVerdict(
-      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null },
+      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null, humanAsk: t.humanAsk ?? null },
       got.comments,
       { turnLive: deps.cardTurnIsLive(t) },
     );
@@ -173,7 +176,13 @@ export function createCiPhase(deps: CiPhaseDeps) {
       deps.landDirect(projectId, taskId);
       await deps.whenLanded(taskId)?.catch(() => undefined);
       const after = deps.svc.get(taskId, { projectId })?.task;
-      if (after?.status === "done") { try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } }
+      if (!after) return;
+      if (after.status === "done") { try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } return; }
+      // Back with the agent (a conflict the land met): the decision stays, the fix comes back here.
+      if (after.status !== "review") return;
+      // Still in review after a green CI: the land refused (dirty checkout, open steps, nothing to land...).
+      // Measuring again would pay a CI run for the same refusal, so a person reads why.
+      giveUp(projectId, taskId, "il land dopo la CI verde non è andato: leggi l'ultima riga del sistema nel thread");
     },
     bounce: async (projectId, taskId, why) => {
       ciMeasured.delete(taskId);
@@ -191,9 +200,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
       }
       sendBackToAgent(projectId, taskId, redBounceMessage(done + 1, why));
     },
+    giveUp: (projectId, taskId, why) => giveUp(projectId, taskId, why),
     stillWanted: (projectId, taskId) => {
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;
+      if (t.checksState === "fail" || t.checksState === "running" || (t.humanAsk ?? "").trim()) return false;
+      if (deps.cardTurnIsLive(t)) return false;
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
       return !row?.archived;
     },
@@ -204,19 +216,74 @@ export function createCiPhase(deps: CiPhaseDeps) {
     log: (line) => console.warn(line),
   });
 
+  /** The CI phase stops for this card: the decision goes back to a person, with the reason in front. */
+  function giveUp(projectId: string, taskId: string, why: string): void {
+    try {
+      deps.svc.setLandIntent({ taskId, who: null });
+      const asked = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { humanAsk: `Fase CI ferma: ${why.split("\n")[0]!.slice(0, 220)}` } });
+      deps.broadcast({ type: "task:updated", projectId, task: asked });
+    } catch (err) { console.warn(`[integration] ${taskId.slice(0, 8)} non restituita a una persona:`, err); }
+  }
+
+  /**
+   * A card carrying a decision to land, back in review: does it go straight to
+   * the CI phase? `auto` = the automatic land decides again, on the new commit,
+   * with all its rules (`personPlace` on the whole delivery). A person's
+   * decision holds for what they saw: a new commit whose changes since then
+   * touch a person's place goes back to the person.
+   */
+  async function reenter(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
+    const t = deps.svc.get(taskId, { projectId })?.task;
+    if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
+    if ((t.humanAsk ?? "").trim() || t.checksState === "fail" || t.checksState === "running") return "no";
+    if (t.landIntent === "auto") return "auto";
+    const from = t.landIntentCommit ?? null;
+    if (from && from !== t.deliveryCommit) {
+      // A delivery other than the one approved must be measured green on its own commit first.
+      if (t.checksState !== "pass" || t.checksCommit !== t.deliveryCommit) return "no";
+      const files = deps.filesBetween ? await deps.filesBetween(taskId, from, t.deliveryCommit).catch(() => null) : [];
+      const touched = files === null ? null : files.filter((f) => personPlace(f) !== null);
+      if (touched === null || touched.length > 0) {
+        try {
+          deps.svc.setLandIntent({ taskId, who: null });
+          const what = touched === null ? "non so dire cosa è cambiato dopo il tuo ok" : `dopo il tuo ok ha cambiato ${touched.slice(0, 3).join(", ")}`;
+          const asked = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { humanAsk: `L'agente ${what}: guardalo e riapprova.` } });
+          deps.broadcast({ type: "task:updated", projectId, task: asked });
+        } catch { /* stays in review either way */ }
+        return "person";
+      }
+    }
+    return enterCiPhase(projectId, taskId) ? "ci" : "no";
+  }
+
   /**
    * After a delivery enters review: a card someone already decided to land
-   * (`land_intent`) goes back to the CI phase by itself, unless it now asks a
-   * person something; any other card is offered to the automatic land.
+   * goes back to the CI phase by itself (`reenter`); any other card, and an
+   * automatic decision, is offered to the automatic land.
    */
   async function afterDelivery(projectId: string, taskId: string): Promise<void> {
-    const t = deps.svc.get(taskId, { projectId })?.task;
-    if (t?.landIntent && !t.humanAsk && t.checksState === "pass" && t.status === "review") {
-      if (enterCiPhase(projectId, taskId)) return;
-    }
+    const r = await reenter(projectId, taskId);
+    if (r === "ci" || r === "person") return;
     await deps.tryAutoLand(projectId, taskId);
   }
 
+  /**
+   * Dragging a card to Done on a board with the CI phase: done means landed, so
+   * the card goes back to review and enters the phase. `false` = not this board,
+   * or the move did not take: the caller lands as before.
+   */
+  function doneToCi(projectId: string, taskId: string): boolean {
+    if (!boardHasCiPhase(projectId)) return false;
+    const t = deps.svc.get(taskId, { projectId })?.task;
+    if (!t || t.status !== "done" || !t.deliveryBranch || t.landingState === "landed") return false;
+    try {
+      deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "review" }, statusReason: "done vuol dire atterrata: passa dalla fase CI" });
+    } catch { return false; }
+    return enterCiPhase(projectId, taskId);
+  }
 
-  return { bounceRed, enterCiPhase, afterDelivery, pending: (projectId: string) => integration.pending(projectId) };
+  return {
+    bounceRed, enterCiPhase, afterDelivery, reenter, doneToCi, boardHasCiPhase,
+    pending: (projectId: string) => integration.pending(projectId),
+  };
 }

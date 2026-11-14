@@ -29,10 +29,12 @@ describe("the CI phase", () => {
   let db: Database; let svc: TaskService;
   let verdicts: Array<IntegrationMeasure["verdict"]>; let measured: string[][]; let merges: string[];
   let commit = "abc1234";
+  let between: string[] | null = [];
+  let landSkips = false;
   let sweep: (() => Promise<number>) | null = null;
   const cwd = mkdtempSync(join(tmpdir(), "tasks-integration-"));
 
-  beforeEach(() => { db = freshDb(); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; });
+  beforeEach(() => { db = freshDb(); svc = createTaskService(db); verdicts = []; measured = []; merges = []; commit = "abc1234"; between = []; landSkips = false; });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
   async function setup() {
@@ -45,6 +47,7 @@ describe("the CI phase", () => {
       deliveryFiles: async () => ["client/src/App.tsx"],
       deliveryReferenced: async () => [],
       integrationCollectMs: 0,
+      integrationFilesBetween: async () => between,
       onAutoLand: (api: { sweepAutoLand: () => Promise<number> }) => { sweep = api.sweepAutoLand; },
       integrationMeasure: async (_p: string, ids: string[]): Promise<IntegrationMeasure> => {
         measured.push(ids);
@@ -52,7 +55,10 @@ describe("the CI phase", () => {
         return { measured: ids, conflicts: [], verdict, commit: "1ae9ca7e", why: verdict === "fail" ? "**Checks ROSSI**: `unit-ci` rosso" : undefined };
       },
       autoMerge: {
-        tryMerge: async (taskId: string) => { merges.push(taskId); return MERGED; },
+        tryMerge: async (taskId: string) => {
+          merges.push(taskId);
+          return landSkips ? { status: "skipped", code: "dirty-checkout", reason: "il checkout ha modifiche non committate" } : MERGED;
+        },
         buildClient: async () => ({ code: 0, stderr: "" }),
       } as never,
       confirmLandedOnMain: async () => true,
@@ -138,5 +144,46 @@ describe("the CI phase", () => {
     expect(r.status).toBe(200);
     expect(s.read().stage).toBeUndefined();
     expect(measured).toEqual([]);
+  }, 30_000);
+
+  test("after a person's ok, a fix that touches a person's place goes back to the person, not to main", async () => {
+    const s = await setup();
+    await s.deliver();
+    verdicts = ["fail"];
+    await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" });
+    await s.settle();
+    commit = "def5678";
+    between = ["server/lib/x.ts", "client/src/Other.tsx"];
+    await s.deliver();
+    await sweep!();
+    await s.settle();
+    expect(merges).toEqual([]);
+    expect(s.read().status).toBe("review");
+    expect(s.read().humanAsk).toContain("client/src/Other.tsx");
+    expect(s.read().landIntent).toBeUndefined();
+  }, 30_000);
+
+  test("a land that does not go after a green CI is a person's, not a loop of CI runs", async () => {
+    const s = await setup();
+    await s.deliver();
+    landSkips = true;
+    await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" });
+    await s.settle();
+    for (let i = 0; i < 3; i++) { await sweep!(); await s.settle(); }
+    expect(measured.length).toBe(1);
+    expect(s.read().status).toBe("review");
+    expect(s.read().humanAsk).toContain("Fase CI ferma");
+    expect(s.read().landIntent).toBeUndefined();
+  }, 30_000);
+
+  test("a CI that never answers stops after two rounds and asks the person", async () => {
+    const s = await setup();
+    await s.deliver();
+    verdicts = ["unmeasured", "unmeasured", "unmeasured"];
+    await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" });
+    await s.settle();
+    for (let i = 0; i < 3; i++) { await sweep!(); await s.settle(); }
+    expect(measured.length).toBe(2);
+    expect(s.read().humanAsk).toContain("non ha dato un esito");
   }, 30_000);
 });

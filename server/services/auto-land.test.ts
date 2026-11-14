@@ -132,9 +132,9 @@ describe("mayLandAloneByPlace / classifyDelivery: technical code lands alone, a 
     "server/lib/git-numstat.test.ts", "server/push-triggers.test.ts", "client/src/state/board.test.tsx",
     "tests/unit/x.test.ts", "tests/integration/migration-071.test.ts", "tests/e2e/board.spec.ts", "tests/e2e/deep/a.spec.ts",
     // Technical code (owner's rule 09/11): it lands once the whole bar is green on the commit that lands.
-    "server/lib/git-numstat.ts", "server/lib/serial-queue.ts", "server/services/task-dispatcher.ts", "server/routes/tasks.ts",
-    "server/db/schema.ts", "server/db/migrations/20261109-x.sql", "shared/board.ts", "shared/tool-detail.ts", "server.ts",
-    "desktop-tauri/src-tauri/src/lib.rs", "newdir/anything.ts",
+    "server/lib/git-numstat.ts", "server/lib/serial-queue.ts", "server/services/task-dispatcher.ts", "server/routes/notes.ts",
+    "server/db/schema.ts", "server/db/migrations/20261109-x.sql", "shared/tool-detail.ts",
+    "server/services/project-store.ts", "newdir/anything.ts",
   ])("%s lands alone", (f) => {
     expect(mayLandAloneByPlace(f)).toBe(true);
     expect(classifyDelivery([f])).toEqual({ tier: "alone", files: [] });
@@ -158,7 +158,15 @@ describe("mayLandAloneByPlace / classifyDelivery: technical code lands alone, a 
     ["tests/helpers/time-slack.ts", "the judge"], ["tests/fixtures/repo.ts", "the judge"], ["tests/unit/data.json", "the judge"],
     ["docs/schema.json", "the judge"], ["tests/unit/__snapshots__/x.snap", "the judge"], ["tests/e2e/board.spec.ts-snapshots/a.png", "the judge"],
     ["server/services/auto-land.ts", "the judge"], ["server/services/red-bounce.ts", "the judge"], ["server/services/review-checks.ts", "the judge"],
-    ["shared/task-labels.ts", "the judge"], ["shared/workflow.ts", "the judge"],
+    ["shared/task-labels.ts", "the judge"], ["shared/workflow.ts", "the judge"], ["shared/board.ts", "the judge"], ["server.ts", "the judge"],
+    ["server/routes/tasks.ts", "the judge"], ["server/routes/tasks-ci-phase.ts", "the judge"], ["server/services/integration-measure.ts", "the judge"],
+    ["server/services/landing-files.ts", "the judge"], ["server/services/task-automerge.ts", "the judge"], ["server/services/node-delivery-meter.ts", "the judge"],
+    ["server/services/land-attribution-gate.ts", "the judge"], ["server/services/ci-supersede.ts", "the judge"],
+    // A release or the infrastructure: a green main ships the shell by itself.
+    ["desktop-tauri/src-tauri/src/lib.rs", "release or infrastructure"], ["desktop-tauri/src-tauri/Cargo.toml", "release or infrastructure"],
+    ["relay/src/worker.ts", "release or infrastructure"], ["deploy/cloud-node/user-data.sh.tmpl", "release or infrastructure"],
+    // Words on any segment of the path.
+    ["server/providers/claude-cloud/creds.ts", "security or money"], ["server/lib/permission-bridge.ts", "security or money"],
   ])("%s is a person's (%s)", (f, why) => {
     expect(personPlace(f)).toBe(why);
     expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });

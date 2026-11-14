@@ -98,6 +98,8 @@ export interface BoardRouteDeps {
   enqueueLandOnDone: (projectId: string, taskId: string, branch: string) => LandingTicket | null;
   /** The CI phase (`integration-queue.ts`): `true` = the card entered it, `false` = this board has none. */
   enterCiPhase: (projectId: string, taskId: string) => boolean;
+  /** The land queue's own door, behind the CI phase: for "Landa e pubblica", which goes online now. */
+  landDirect: (projectId: string, taskId: string) => LandingTicket;
   proposeDeployIfConfigured: (projectId: string, taskId: string) => void;
   runDeploy: (projectId: string, taskId: string, command: string) => Promise<void>;
   publishProject: (projectId: string) => Promise<{ ok: boolean; branch?: string; output?: string; error?: string; code?: string }>;
@@ -132,6 +134,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     enqueueLand,
     enqueueLandOnDone,
     enterCiPhase,
+    landDirect,
     proposeDeployIfConfigured,
     runDeploy,
     publishProject,
@@ -806,7 +809,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // Land + push nello STESSO turno di coda: la pubblicazione spinge il
           // ramo corrente del checkout, quindi non deve mai partire mentre un
           // altro land ci sta mergiando sopra.
-          const ticket = enqueueLand(projectId, taskId);
+          // Publishing is the explicit "online now": it skips the CI phase (the push runs the CI on main).
+          const ticket = landDirect(projectId, taskId);
           void landings.whenSettled(taskId)?.then(async (t) => {
             if (t.phase !== "settled") return; // il land è fallito: ha già parlato lui
             // …e «settled» vuol dire che il turno di coda è finito senza

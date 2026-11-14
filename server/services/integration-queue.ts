@@ -47,6 +47,8 @@ export interface IntegrationQueueDeps {
   land(projectId: string, taskId: string): Promise<void>;
   /** Back to the agent with `why`, intent kept. */
   bounce(projectId: string, taskId: string, why: string): Promise<void>;
+  /** The phase stops for this card and a person decides (a CI that never answers). */
+  giveUp?(projectId: string, taskId: string, why: string): void;
   /** Is the card still waiting for this (in review, intent set, nothing changed)? Read before every step. */
   stillWanted(projectId: string, taskId: string): boolean;
   note?(taskId: string, text: string): void;
@@ -84,6 +86,9 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
   /** The largest batch a card may be measured in: halved at every red it was part of. */
   const limit = new Map<string, number>();
   const running = new Map<string, Promise<void>>();
+  /** Rounds in a row a card came back unmeasured: each one is a CI run paid for no verdict. */
+  const silent = new Map<string, number>();
+  const MAX_SILENT = 2;
 
   const lane = (projectId: string) => {
     let l = waiting.get(projectId);
@@ -110,7 +115,9 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     } finally {
       measuring.delete(projectId);
     }
+    if (out.verdict !== "unmeasured") for (const id of batch) silent.delete(id);
     for (const c of out.conflicts) {
+      if (!deps.stillWanted(projectId, c.taskId)) continue;
       log(`[integration] ${c.taskId.slice(0, 8)} in conflitto: torna all'agente`);
       limit.delete(c.taskId);
       await deps.bounce(projectId, c.taskId, c.why).catch((err) => log(`[integration] rimando fallito per ${c.taskId}: ${String(err)}`));
@@ -129,6 +136,7 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
       if (out.measured.length === 1) {
         const id = out.measured[0]!;
         limit.delete(id);
+        if (!deps.stillWanted(projectId, id)) return;
         await deps.bounce(projectId, id, out.why ?? `la CI di ${sha} è rossa`).catch((err) => log(`[integration] rimando fallito per ${id}: ${String(err)}`));
         return;
       }
@@ -141,8 +149,16 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     }
     if (out.verdict === "unmeasured") {
       for (const id of out.measured.length ? out.measured : batch) {
+        const n = (silent.get(id) ?? 0) + 1;
+        silent.set(id, n);
+        if (n >= MAX_SILENT && deps.giveUp) {
+          silent.delete(id);
+          deps.giveUp(projectId, id, `la CI non ha dato un esito ${n} volte di fila (${out.why ?? "nessun esito"})`);
+          continue;
+        }
         note(id, `CI non misurata${out.commit ? ` su ${sha}` : ""}: ${out.why ?? "nessun esito"}. Resta nella fase CI e riprovo alla prossima spazzata.`);
       }
+      return;
     }
   }
 

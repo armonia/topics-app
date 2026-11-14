@@ -674,6 +674,7 @@ export interface BoardTask {
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
+  landIntentCommit?: string;
   /** Lo sforzo con cui il task ha girato davvero (dal topic dell'agente). Con la
    *  board su `auto` lo sceglie il classificatore, e questo è l'unico posto in
    *  cui la scelta si legge: è la leva di costo più pesante che abbiamo. */

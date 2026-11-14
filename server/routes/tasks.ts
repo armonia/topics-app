@@ -362,6 +362,8 @@ export interface TasksRouterOpts {
   integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
   /** Tests: how long an idle integration queue collects cards before measuring. */
   integrationCollectMs?: number;
+  /** Tests: the files between two commits of a card (git diff --name-only). */
+  integrationFilesBetween?: (taskId: string, from: string, to: string) => Promise<string[] | null>;
   taskDeliveryRef?: (taskId: string) => Promise<{
     branch: string; commit: string | null;
     /** L'entità del lavoro consegnato, quando git ha saputo dirla. */
@@ -1750,11 +1752,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     },
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
-    // With the CI phase the land waits for the CI, not for every open turn on the server: a person's
-    // «Landa» never waited for them either, and the reload that follows resumes the turns it cuts
-    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer
-    // gave up after three hours and the card stayed in review.
-    liveTurns: opts?.integrationRepo ? undefined : opts?.liveTurnCount,
+    // On a board with the CI phase the land waits for the CI, not for every open turn on the server: a
+    // person's "Landa" never waited for them either, and the reload that follows resumes the turns it cuts
+    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer gave
+    // up after three hours and the card stayed in review. Boards without the phase keep the wait.
+    liveTurns: opts?.liveTurnCount,
+    waitsForTurns: (taskId) => {
+      const projectId = svc.get(taskId)?.task.projectId;
+      return !projectId || !ciPhase.boardHasCiPhase(projectId);
+    },
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
       return !!t && cardTurnIsLive(t);
@@ -1791,6 +1797,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     integrationRepo: opts?.integrationRepo,
     integrationMeasure: opts?.integrationMeasure,
     integrationCollectMs: opts?.integrationCollectMs,
+    filesBetween: opts?.integrationFilesBetween ?? (opts?.integrationRepo
+      ? async (taskId, from, to) => {
+        const repo = await opts.integrationRepo!(taskId).catch(() => null);
+        if (!repo) return null;
+        const r = await runGitCap(repo, ["diff", "--name-only", from, to]);
+        return r.code === 0 ? r.out.split("\n").map((l) => l.trim()).filter(Boolean) : null;
+      }
+      : undefined),
   });
   const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
@@ -1802,9 +1816,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     for (const t of rows) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
       if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
-      // The CI phase lives in memory: a card that carries the intent and is in no queue is put back.
-      if (t.landIntent && !t.humanAsk) {
-        if (!ciPhase.pending(t.projectId).includes(t.id)) enterCiPhase(t.projectId, t.id);
+      // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
+      // back (`reenter` checks it again); an automatic decision goes through the automatic land below.
+      if (t.landIntent === "human") {
+        if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.reenter(t.projectId, t.id);
         continue;
       }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
@@ -1840,6 +1855,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
    * is a person's choice, not a side effect.
    */
   function enqueueLandOnDone(projectId: string, taskId: string, branch: string): LandingTicket | null {
+    // On a board with the CI phase, done means landed: the card goes back through the phase.
+    if (ciPhase.doneToCi(projectId, taskId)) return null;
     let autoMergeOn = true;
     // Failing to read the settings must not merge "because we did not know":
     // the careful direction is to NOT touch main.
@@ -3144,7 +3161,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
-    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, proposeDeployIfConfigured, runDeploy,
+    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, landDirect, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {

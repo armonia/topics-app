@@ -100,4 +100,15 @@ describe("integration queue", () => {
     await w.q.idle("p");
     expect(w.batches).toEqual([["a", "b"], ["c"]]);
   });
+
+  test("a card archived while its batch was measured is not sent back to its agent", async () => {
+    const w = world({ bad: ["a"] });
+    w.hold();
+    w.q.request("p", "a");
+    await Bun.sleep(5);
+    w.gone.add("a");
+    w.release();
+    await w.q.idle("p");
+    expect(w.bounced).toEqual([]);
+  });
 });

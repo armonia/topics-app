@@ -80,7 +80,7 @@ export async function measureIntegration(
     branch = `topics/integrazione-${sha.slice(0, 8)}`;
     const switched = await deps.git(dir, ["switch", "--quiet", "-C", branch]);
     if (switched.code !== 0) return unmeasured(`il ramo di integrazione non si crea: ${switched.err.trim().slice(0, 200)}`, sha);
-    const runs = await deps.awaitCi({ cwd: dir, sha, taskId: `integrazione-${sha.slice(0, 8)}`, checks });
+    const runs = await deps.awaitCi({ cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks });
     const red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);
     if (red.length) return { measured, conflicts, verdict: "fail", commit: sha, why: deps.describeRed(runs, sha) };
     if (runs.length < checks.length || runs.some((r) => !r.ok)) {
