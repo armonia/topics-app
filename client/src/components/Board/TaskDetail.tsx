@@ -1397,7 +1397,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 <p className="text-compact leading-4 text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+                  className="rounded bg-black/10 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}

@@ -43,12 +43,12 @@ export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { valu
       }}
       className="relative mx-1 h-6 w-16 shrink-0 cursor-pointer touch-none select-none rounded outline-none focus-visible:ring-1 focus-visible:ring-primary coarse:h-11 coarse:w-24"
     >
-      <div className="absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded bg-white/15" />
+      <div className="absolute inset-x-2 top-1/2 h-0.5 -translate-y-1/2 rounded bg-black/15 dark:bg-white/15" />
       {levels.map((level, i) => (
         <span
           key={level}
           data-level={level}
-          className={`absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${i <= index ? 'bg-primary/60' : 'bg-white/25'}`}
+          className={`absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${i <= index ? 'bg-primary/60' : 'bg-black/25 dark:bg-white/25'}`}
           style={{ left: `calc(0.5rem + (100% - 1rem) * ${i / last})` }}
         />
       ))}

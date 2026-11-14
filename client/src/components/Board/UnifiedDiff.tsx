@@ -80,7 +80,7 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         }}
         rows={2}
         placeholder={tr('diff.note.placeholder')}
-        className="w-full resize-y rounded bg-white/5 px-2 py-1 font-sans text-compact text-app-text outline-none placeholder:text-app-placeholder"
+        className="w-full resize-y rounded bg-black/5 dark:bg-white/5 px-2 py-1 font-sans text-compact text-app-text outline-none placeholder:text-app-placeholder"
       />
       <div className="mt-1 flex items-center gap-1.5">
         <button
@@ -233,7 +233,7 @@ const VIEW_LABEL: Record<FileView, string> = {
 function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: FileView; onChange: (v: FileView) => void }) {
   const tr = useT();
   return (
-    <div role="group" className="mr-1 flex shrink-0 items-center gap-0.5 rounded bg-white/5 p-0.5">
+    <div role="group" className="mr-1 flex shrink-0 items-center gap-0.5 rounded bg-black/5 dark:bg-white/5 p-0.5">
       {views.map((v) => (
         <button
           key={v}
@@ -290,7 +290,7 @@ function ImageSide({ label, testId, side, source, onStale }: {
           loading="lazy"
           onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
           onError={onError}
-          className="max-h-80 max-w-full rounded border border-app-border-subtle bg-white/5"
+          className="max-h-80 max-w-full rounded border border-app-border-subtle bg-black/5 dark:bg-white/5"
         />
       )}
     </figure>
