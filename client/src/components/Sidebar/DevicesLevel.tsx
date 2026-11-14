@@ -31,15 +31,13 @@ import type { DevicePerson, DevicesSnapshot, PairedDevice } from '@/lib/devicesR
 import { pendingRemoteRequests } from '@/lib/remoteNodeRequests';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { MachinesLevel } from './FormLevels';
+import { ICON_BUTTON, ROW, TEXT_BUTTON } from './menuRowStyles';
 import { HubMachineRows } from './HubMachineRows';
 import { nodeRequestsLabel } from './formLevelTails';
 import { deviceRevokedLine, deviceSeenLine, deviceWhen } from '@/lib/deviceAudit';
 import { nodesOf, useMachines } from '@/state/machinesStore';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
-const ROW = 'flex items-center gap-2 px-3 py-1 text-mini coarse:min-h-11 coarse:text-compact';
-const ICON_BUTTON = 'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-app-text-tertiary hover:bg-app-hover hover:text-app-text coarse:h-11 coarse:w-11';
-const TEXT_BUTTON = 'flex-shrink-0 rounded px-1.5 py-0.5 text-mini coarse:min-h-11 coarse:px-3';
 
 export function DevicesLevel({ devices, failed = false, width, onReadDevices, defaultOpen = false, machinesOpen = false }: {
   /** `null` until the route has answered once. */
