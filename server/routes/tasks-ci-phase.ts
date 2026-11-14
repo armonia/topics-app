@@ -127,6 +127,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const cur = deps.svc.get(taskId, { projectId })?.task;
     // A card with no code of its own (an analysis) has nothing to measure: it closes as before.
     if (!cur || cur.status !== "review" || !cur.deliveryBranch || !cur.deliveryCommit) return false;
+    // Code already on main has nothing left to integrate: measuring it again pays a CI run for nothing,
+    // at every sweep (572f8a09, 14/11: landed before it was approved, measured three times).
+    if (cur.landingState === "landed") return false;
     // The automatic land comes with its last look (`recheck`); a person's gesture does not.
     const who = landOpts?.recheck ? "auto" : "human";
     let task: Task;
@@ -232,6 +235,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     stillWanted: (projectId, taskId) => {
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;
+      if (t.landingState === "landed") return false;
       if (t.checksState === "fail" || t.checksState === "running" || (t.humanAsk ?? "").trim()) return false;
       if (deps.cardTurnIsLive(t)) return false;
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
@@ -269,6 +273,15 @@ export function createCiPhase(deps: CiPhaseDeps) {
   async function returnToCiPhase(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
     const t = deps.svc.get(taskId, { projectId })?.task;
     if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
+    // The decision was "this goes to main", and it is there: the card closes, nothing is measured.
+    if (t.landingState === "landed") {
+      try {
+        const done = deps.svc.reviewDecision({ taskId, by: "system", decision: "approve", projectId });
+        deps.svc.setLandIntent({ taskId, who: null });
+        deps.broadcast({ type: "task:updated", projectId, task: deps.svc.get(taskId, { projectId })?.task ?? done });
+      } catch (err) { console.warn(`[integration] ${taskId.slice(0, 8)} già su main ma non chiusa:`, err); }
+      return "person";
+    }
     if ((t.humanAsk ?? "").trim() || t.checksState === "fail" || t.checksState === "running") return "no";
     if (t.landIntent === "auto") return "auto";
     const from = t.landIntentCommit ?? null;
