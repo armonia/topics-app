@@ -401,11 +401,32 @@ pub struct BackupCard {
     pub days: Vec<Option<bool>>,
     pub days_say: String,
     pub proofs: Vec<(String, String, bool)>,
+    /// The footer line: what the backup costs this computer right now.
+    pub foot: String,
+}
+
+/// Seconds this computer's clock is ahead of UTC, read once from the system.
+pub fn local_offset() -> i64 {
+    static OFFSET: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *OFFSET.get_or_init(|| {
+        let out = std::process::Command::new("date").arg("+%z").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+        let (sign, digits) = out.split_at(out.len().min(1));
+        match (digits.len() == 4, digits.parse::<i64>()) {
+            (true, Ok(d)) => (if sign == "-" { -1 } else { 1 }) * ((d / 100) * 3600 + (d % 100) * 60),
+            _ => 0,
+        }
+    })
+}
+
+/// `HH:MM` on this computer's clock.
+pub fn clock_text(t: i64) -> String {
+    let l = t + local_offset();
+    format!("{:02}:{:02}", l.rem_euclid(86_400) / 3600, l.rem_euclid(3600) / 60)
 }
 
 fn when(now: i64, at: i64) -> String {
     let d = (now - at).max(0) / 86_400;
-    let clock = |t: i64| format!("{:02}:{:02}", (t % 86_400) / 3600, (t % 3600) / 60);
+    let clock = clock_text;
     match d {
         0 => format!("oggi {}", clock(at)),
         1 => format!("ieri {}", clock(at)),
@@ -420,14 +441,19 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     let err = Some(s(&v, "last_error")).filter(|e| !e.is_empty());
     let stale = last_ok.map_or(true, |t| now - t > 30 * 3600);
     let running = v.get("pending_since").map_or(false, |p| !p.is_null());
+    let private_at = v.get("private_at").and_then(Value::as_i64);
+    // the private archive counts only when the service reports it: an older service has no such field
+    let private_stale = v.get("private_at").is_some() && private_at.map_or(true, |t| now - t > 36 * 3600);
     let (badge, level, caption) = if err.is_some() {
         ("problema", 2, "Ultimo giro fallito".to_string())
     } else if stale {
         ("problema", 2, "Nessuna copia nelle ultime 30 ore".to_string())
+    } else if private_stale {
+        ("problema", 2, format!("Archivio privato fermo, ultimo salvataggio: {}", private_at.map_or("mai".into(), |t| when(now, t))))
     } else if running {
         ("in corso", 0, "Copia in corso".to_string())
     } else {
-        ("a posto", 0, format!("Ultima copia {}", when(now, last_ok.unwrap_or(now))))
+        ("a posto", 0, format!("Ultima copia {} · prossima alle 5:00", when(now, last_ok.unwrap_or(now))))
     };
     let mut by_day: std::collections::BTreeMap<i64, bool> = Default::default();
     for r in v.get("runs").and_then(Value::as_array).into_iter().flatten() {
@@ -462,13 +488,31 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     proofs.push(("Dati riletti".into(), read.map_or("mai".into(), |t| when(now, t)), fresh(read, 8)));
     let restore = v.get("last_restore_ok").and_then(Value::as_i64);
     proofs.push(("Ripristino provato".into(), restore.map_or("mai".into(), |t| when(now, t)), fresh(restore, 8)));
+    if v.get("private_at").is_some() {
+        proofs.push(("Archivio privato".into(), private_at.map_or("mai".into(), |t| when(now, t)), !private_stale));
+    }
     proofs.push(("Ultima copia".into(), last_ok.map_or("mai".into(), |t| when(now, t)), !stale));
-    Some(BackupCard { badge: badge.into(), level, caption, days, days_say, proofs })
+    let mut foot_parts: Vec<String> = Vec::new();
+    if running {
+        foot_parts.push(s(&v, "run_phase").to_string());
+    } else {
+        foot_parts.push("Adesso niente".into());
+        if let Some(sec) = v.get("last_seconds").and_then(Value::as_f64) {
+            foot_parts.push(format!("ultimo giro {} min", ((sec / 60.0).round() as i64).max(1)));
+        }
+    }
+    if let Some(local) = v.get("icloud").and_then(|i| i.get("local_bytes")).and_then(Value::as_f64) {
+        foot_parts.push(format!("{} GB sul disco", format!("{:.1}", local / 1_073_741_824.0).replace('.', ",")));
+    }
+    foot_parts.retain(|p| !p.is_empty());
+    let foot = if foot_parts.is_empty() { String::new() } else { format!("Sul Mac: {}", foot_parts.join(" · ")) };
+    Some(BackupCard { badge: badge.into(), level, caption, days, days_say, proofs, foot })
 }
 
 pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
     let rows = ((b.proofs.len() + 1) / 2) as f32;
-    let h = 118.0 + rows * 17.0;
+    let foot_h = if b.foot.is_empty() { 0.0 } else { 18.0 };
+    let h = 118.0 + rows * 17.0 + foot_h;
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(CARD_X, 3.0, CARD_W, h, p);
     let m = CARD_X + 14.0;
@@ -499,6 +543,11 @@ pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
         let lw = pic.text(Face::SansRegular, label, x + 12.0, y + 8.0, 10.5, p.fg, p.dim);
         let v = Pic::fit(Face::SansRegular, value, 10.5, (col - 20.0 - lw - 8.0).max(30.0));
         pic.text(Face::SansRegular, &v, x + 12.0 + lw + 6.0, y + 8.0, 10.5, if *ok { p.fg } else { tone(1) }, 1.0);
+    }
+    if !b.foot.is_empty() {
+        let fy = 108.0 + rows * 17.0 + 8.0;
+        pic.hline(m, fy - 8.0, inner, p.fg, 0.14);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &b.foot, 10.5, inner), m, fy + 6.0, 10.5, p.fg, p.dim);
     }
     pic
 }
