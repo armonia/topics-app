@@ -122,6 +122,18 @@ describe("own-commits — su git vero", () => {
     expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
   });
 
+  test("the board's integration branch holds the card's commits but is never foreign work", async () => {
+    // 14/11: a measure cut by a restart left `topics/integrazione-*` in refs/heads, with
+    // the card merged in; the land subtracted it and found zero own commits.
+    git(repo, "checkout", "-q", "-b", "topics/card-lotto", "main");
+    commit(repo, "lotto.txt", "x\n", "commit della card");
+    git(repo, "checkout", "-q", "-b", "topics/integrazione-0123abcd", "topics/card-lotto");
+    git(repo, "checkout", "-q", "main");
+    const others = await otherLocalBranches(repo, "topics/card-lotto");
+    expect(others).not.toContain("refs/heads/topics/integrazione-0123abcd");
+    expect(await countOwnCommits(repo, "topics/card-lotto", { others: others! })).toBe(1);
+  });
+
   test("an older delivery branch of the same card (ancestor) does not hide its commits", async () => {
     git(repo, "checkout", "-q", "-b", "topics/old-delivery", "main");
     commit(repo, "oa.txt", "a\n", "card commit A");
