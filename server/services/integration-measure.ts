@@ -26,6 +26,13 @@ export interface IntegrationMeasureDeps {
   awaitCi(input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] }): Promise<CheckRun[]>;
   /** `closeCiDraft`: the integration pull request and branch end with the verdict. */
   closeDraft(input: { cwd: string; branch: string; reason: string }): Promise<unknown>;
+  /**
+   * Ask the CI to run the failed jobs of `sha` again. A red on the integration
+   * commit sends a card back to its agent, and this suite has flaky tests (14/11:
+   * the first batch went red on a slot.ts timing test that is red now and then on
+   * main too). One rerun before blaming anyone. `false` = could not ask.
+   */
+  rerunFailed?: (cwd: string, sha: string) => Promise<boolean>;
   /** The failing rows as the agent reads them (`formatChecksComment`). */
   describeRed(runs: CheckRun[], commit: string): string;
   tmpRoot?: string;
@@ -80,8 +87,22 @@ export async function measureIntegration(
     branch = `topics/integrazione-${sha.slice(0, 8)}`;
     const switched = await deps.git(dir, ["switch", "--quiet", "-C", branch]);
     if (switched.code !== 0) return unmeasured(`il ramo di integrazione non si crea: ${switched.err.trim().slice(0, 200)}`, sha);
-    const runs = await deps.awaitCi({ cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks });
-    const red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);
+    // The queue is serial per repo: any other integration branch on origin is a measure a restart cut
+    // short, with its draft still open and its CI still running. It ends here.
+    const stale = (await deps.git(repoPath, ["ls-remote", "--heads", "origin", "refs/heads/topics/integrazione-*"])).out
+      .split("\n").map((l) => l.split("refs/heads/")[1]?.trim() ?? "").filter((b) => b && b !== branch);
+    for (const old of stale) {
+      await deps.closeDraft({ cwd: repoPath, branch: old, reason: "Misura di integrazione interrotta (riavvio del server): sostituita da una misura nuova." })
+        .catch(() => undefined);
+    }
+    const ask = { cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks };
+    let runs = await deps.awaitCi(ask);
+    let red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);
+    // A red is confirmed by a second run of the failed jobs: a flake must not cost a card a round.
+    if (red.length && deps.rerunFailed && (await deps.rerunFailed(dir, sha).catch(() => false))) {
+      runs = await deps.awaitCi(ask);
+      red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);
+    }
     if (red.length) return { measured, conflicts, verdict: "fail", commit: sha, why: deps.describeRed(runs, sha) };
     if (runs.length < checks.length || runs.some((r) => !r.ok)) {
       const missing = runs.find((r) => !r.ok)?.name ?? "una riga";

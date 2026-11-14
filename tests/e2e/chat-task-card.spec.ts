@@ -7,6 +7,9 @@
  * reload (todo, in progress, review), and the waiting line under the last
  * message must name the card while it is going and leave when it reaches review.
  *
+ * The phase is drawn by the status glyph (`data-testid="status-glyph"` with
+ * `data-status`), never by the four-dot spinner.
+ *
  * @covers CHAT-TASK-CARD-01
  */
 import { mkdirSync } from "node:fs";
@@ -65,6 +68,7 @@ test("the card in the transcript and the waiting line follow the board without a
   await expect(card.getByTestId("task-card-title")).toHaveText(title);
   await expect(card).toHaveAttribute("data-phase", "todo", { timeout: 20_000 });
   await expect(card).toHaveAttribute("data-action", "created");
+  await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "todo");
   await expect(line).toContainText(title);
 
   const patch = (data: Record<string, unknown>) =>
@@ -72,10 +76,13 @@ test("the card in the transcript and the waiting line follow the board without a
 
   expect((await patch({ status: "in_progress" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
+  await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "in_progress");
+  await expect(card.getByTestId("status-glyph")).toHaveCount(1);
   await expect(line).toContainText(title);
 
   expect((await patch({ status: "review" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "review", { timeout: 20_000 });
+  await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "review");
   await expect(line).toHaveCount(0);
 
   // The clip of this very transition, kept next to the screenshots.

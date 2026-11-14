@@ -1498,6 +1498,10 @@ html, body {
   animation: shimmer 1.5s infinite;
 }
 
+@keyframes status-glyph-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Typing indicator animation */
 @keyframes bounce {
   0%, 60%, 100% {

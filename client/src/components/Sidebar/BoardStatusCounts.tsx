@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { StatusIcon } from '../Board/atoms';
+import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { STATUS_GLYPH_PX, STATUS_LABEL, type BoardTask, type TaskStatus } from '../../lib/board';
 import { boardRowCounts } from '../../lib/boardTabCounts';
 import { useAttentionRows } from '../../state/attention';
@@ -361,7 +362,11 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
               title={countTitle(status, n)}
               className="flex items-center gap-1 tabular-nums text-mini text-app-text-secondary"
             >
-              <StatusIcon status={status} />
+              {/* The first count is the lit cards, i.e. "awaiting you": it wears
+                  that state's mark, not the Review column's rose glyph. */}
+              {status === 'review'
+                ? <STATUS_ICON.wait className={`h-3.5 w-3.5 shrink-0 ${STATUS_INK.wait}`} aria-hidden />
+                : <StatusIcon status={status} />}
               {n}
             </span>
           ))}

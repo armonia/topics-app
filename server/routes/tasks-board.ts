@@ -1009,13 +1009,16 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     // dopo che la richiesta di land si è chiusa: è la controparte del 202.
     if (bLand && method === "GET") {
       const ticket = landings.status(bLand.taskId);
-      if (!ticket) {
+      const open = ticket && (ticket.phase === "queued" || ticket.phase === "running");
+      if (!open) {
         // In the CI phase the land is asked and not yet queued: say so, the 202 promised a ticket.
+        // Ahead of an older SETTLED ticket too: a land that failed and was asked again entered the
+        // CI phase, and handing back the old refusal made the second request look refused as well (14/11).
         const cur = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
         if (cur?.stage === STAGE_CI && cur.status === "review") {
           return json({ landing: { taskId: bLand.taskId, phase: "queued", ahead: 0, queuedAt: null, settledAt: null, error: null, outcome: null, reason: "fase CI" }, pending: 0 });
         }
-        return json({ error: "no land was requested for this task", code: "not_found" }, 404);
+        if (!ticket) return json({ error: "no land was requested for this task", code: "not_found" }, 404);
       }
       return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
     }

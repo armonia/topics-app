@@ -80,3 +80,15 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
     expect(fnBody.toLowerCase()).not.toContain("senza anteprima");
   });
 });
+
+describe("PREVIEW_RULE e spec e2e", () => {
+  test("indica lo spec e2e e non vieta ogni browser", async () => {
+    const { PREVIEW_RULE } = await import("../../shared/board");
+    expect(PREVIEW_RULE).toContain("page.screenshot");
+    expect(PREVIEW_RULE).toContain("video: 'on'");
+    expect(PREVIEW_RULE).toContain("comment_task media");
+    expect(PREVIEW_RULE).not.toContain("none may be launched here");
+    expect(PREVIEW_RULE).not.toContain("can open a browser");
+    expect(PREVIEW_RULE).not.toMatch(/pw-remote|offload|\bvis\b/);
+  });
+});
