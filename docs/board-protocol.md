@@ -491,25 +491,51 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
     242 fra cui `agent-env`, `child-env`, `low-priority` che esegue la barra,
     `bounded-spawn`, `serial-queue` del land, `project-store`, `quiescence`,
     `intent-classifier`).
-     1. **Da sola** atterra SOLO un diff fatto interamente di testo e test:
-        `docs/**`, `openspec/**` e file di test (`*.test.ts` accanto al modulo,
-        `tests/unit/**`, `tests/integration/**`, `tests/e2e/**/*.spec.ts`). Esclusi
-        anche sotto `tests/`: `tests/setup/**`, ogni `*.json`, ogni snapshot
-        (`*-snapshots/**`, `__snapshots__/**`, `*.snap`), `scripts/**`, `.github/**` e
-        qualunque file che `bunfig.toml`, `scripts/`, `package.json` o `.github/`
-        NOMINANO (`git grep` sul commit, `referencedByTheJudge`: il preload, un
-        helper importato, un documento che uno script legge sono il giudice, non un
-        test). Se git non risponde, non atterra.
-     2. **A una persona** tutto il resto, `server/**` compreso: `client/`, `shared/`,
-        `server.ts`, `server/routes/`, `server/db/` (migration comprese), `scripts/`,
-        `.github/`, `desktop-tauri/`, la radice, i file nuovi di cartelle nuove.
+     **Dal 14/11/2026 la regola è rovesciata** (regola di Attilio del 09/11: le
+     card tecniche si chiudono da sole). `personPlace` in `auto-land.ts`:
+     1. **A una persona** resta solo ciò che una persona sola può giudicare:
+        l'interfaccia (`client/src/**` tranne i test), il sito pubblico
+        (`landing/**`), README e licenze; ciò che raggiunge persone (push,
+        presence, notifiche, mail, canali, voce, condivisioni, ospiti); sicurezza e
+        soldi (auth, token, segreti, l'ambiente degli agenti, relay, licenze,
+        billing, prezzi); dipendenze e runner (`package.json`, lockfile,
+        `bunfig.toml`); il GIUDICE (`scripts/**`, `.github/**`, `tests/**` che non
+        sono file di test, ogni `*.json`, gli snapshot, i cancelli dei check,
+        `auto-land.ts`, `red-bounce.ts`, `integration-queue.ts`, le etichette e i
+        workflow) e qualunque file che `bunfig.toml`, `scripts/`, `package.json` o
+        `.github/` NOMINANO (`referencedByTheJudge`).
+     2. **Da sola** tutto il resto, `server/**`, `shared/**`, `server.ts`,
+        `desktop-tauri/**` e le migration comprese (il DB vivo è copiato ogni 10 s
+        da Litestream): con la barra verde sul commit consegnato entra nella
+        **fase CI** (sotto) e atterra quando la CI del commit di integrazione è verde.
+     **Fase CI** (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
+     «Ti aspetta»). Ogni land chiesto (Approva o «Landa» di una persona su una card
+     col ramo non ancora su main, l'atterraggio automatico) mette la card in una
+     coda per progetto con `tasks.land_intent` = chi l'ha deciso. La coda aspetta
+     60 s per raccogliere le approvazioni in raffica, fonde fino a 6 rami su
+     `origin/main` in un commit di integrazione deterministico
+     (`integration-measure.ts`, date fissate su quelle della base: stessa base e
+     stessi rami = stesso sha, quindi un riavvio ritrova la stessa corsa CI), lo
+     spinge come `topics/integrazione-<sha8>` con una PR in bozza, legge le righe
+     `github-ci:*` della board, chiude la bozza e: verde → atterra le card una
+     dopo l'altra col land di sempre; rosso con più card → il lotto si dimezza
+     finché la colpevole resta sola; rosso o conflitto di una card → torna
+     all'agente col log (`red-bounce.ts`, al massimo 3 giri senza una parola
+     umana, poi `human_ask`) TENENDO `land_intent`: la consegna verde successiva
+     rientra in fase CI senza passare da una persona. Non misurato → resta in CI e
+     la spazzata dei 10 minuti riprova. Un rifiuto con commento di una persona
+     toglie `land_intent`. Una board senza righe CI atterra come prima.
+     **Il rosso torna all'agente da solo** anche fuori dalla fase CI: una card in
+     review con la barra rossa sul commit consegnato (tipicamente una consegna
+     dal nodo, misurata dopo l'ingresso in review) viene rimandata dalla spazzata
+     e dalla misura del nodo, senza che nessuno prema rifiuta.
      Il commento di una revisione AI sulla card (una riga come
      `AI-REVIEW approved <sha>`) non sblocca niente e il conduttore non lo legge:
      il commento lo firma la sessione che nomina l'URL, il loopback è fidato senza
      credenziali e il modello di un topic è una stringa libera, quindi chiunque può
-     scriverlo. Una revisione AI potrà sbloccare `server/**` solo con un'identità
-     che il server verifica (non con un commento), e quando esisterà sarà una
-     change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
+     scriverlo. Una revisione AI potrà sbloccare un posto di una persona solo con
+     un'identità che il server verifica (non con un commento), e quando esisterà
+     sarà una change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
      qualunque cosa consegni.
   - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
      L'etichetta la deriva dai percorsi, e un testo che una persona legge può
