@@ -197,6 +197,9 @@ fn type_word(t: &str) -> &'static str {
     }
 }
 
+/// The second close gesture of a process: SIGKILL after the same confirmation as the polite one.
+pub(crate) const FORCE_LABEL: &str = "Forza chiusura…";
+
 /// Rows of the process list a menu can hold; the rest is counted, not listed.
 const PROCS_SHOWN: usize = 15;
 
@@ -223,6 +226,7 @@ pub fn procs_nodes(body: &Option<String>) -> Vec<Node> {
             let verb = u.get("verb").and_then(Value::as_str).unwrap_or("Chiudi");
             children.push(Node::Sep);
             children.push(item(&format!("proc-close:{}", s(u, "id")), format!("{verb}…")));
+            children.push(item(&format!("proc-force:{}", s(u, "id")), FORCE_LABEL));
         }
         out.push(sub(
             format!("{} | {} // {}", s(u, "name"), mem_text(n(u, "memMB")), type_word(s(u, "type"))),
@@ -397,6 +401,27 @@ pub(crate) fn project_work_nodes(p: &Value) -> Vec<Node> {
     out
 }
 
+/// Budget values the original tray offers (0 = none), a share of the week of Claude.
+pub(crate) const BUDGET_STEPS: [i64; 6] = [0, 5, 10, 15, 20, 30];
+
+/// The two pick lists of a project, each under its own explaining header, the current value ticked.
+pub(crate) fn budget_priority_nodes(p: &Value) -> Vec<Node> {
+    let name = s(p, "name");
+    let cur_budget = p.get("budgetPct").and_then(Value::as_f64).map(|b| b as i64).unwrap_or(0);
+    let mut out = vec![note("Budget: % della settimana Claude, oltre si ferma il non interattivo")];
+    for b in BUDGET_STEPS {
+        let label = if b == 0 { "Nessuno".to_string() } else { format!("{b}%") };
+        out.push(item(&format!("proj-budget:{name}:{b}"), if b == cur_budget { format!("{label} ✓") } else { label }));
+    }
+    out.push(Node::Sep);
+    out.push(note("Priorità: alta corre di più, bassa si ferma prima"));
+    let cur = s(p, "priority");
+    for pr in ["alta", "normale", "bassa"] {
+        out.push(item(&format!("proj-priority:{name}:{pr}"), if pr == cur { format!("{pr} ✓") } else { pr.to_string() }));
+    }
+    out
+}
+
 fn project_nodes(live: &Option<String>) -> Vec<Node> {
     let v = parse(live);
     let Some(ps) = v.get("projects").and_then(Value::as_array) else { return vec![note("Progetti: il servizio non risponde")] };
@@ -405,20 +430,11 @@ fn project_nodes(live: &Option<String>) -> Vec<Node> {
         .take(12)
         .map(|p| {
             let name = s(p, "name");
-            let budget = p.get("budgetPct").and_then(Value::as_i64);
             let mut kids = vec![
                 note(format!("{} · consumi {:.1}%", s(p, "state"), n(p, "total"))),
-                note(match budget { Some(b) => format!("Budget {b}%"), None => "Budget: nessuno".into() }),
                 Node::Sep,
             ];
-            for b in [0, 10, 25, 50] {
-                kids.push(item(&format!("proj-budget:{name}:{b}"), if b == 0 { "Togli il budget".to_string() } else { format!("Budget {b}%") }));
-            }
-            kids.push(Node::Sep);
-            let cur = s(p, "priority");
-            for pr in ["alta", "normale", "bassa"] {
-                kids.push(item(&format!("proj-priority:{name}:{pr}"), format!("Priorità {pr}{}", if pr == cur { " ✓" } else { "" })));
-            }
+            kids.extend(budget_priority_nodes(p));
             kids.push(Node::Sep);
             kids.extend(project_work_nodes(p));
             kids.push(item(&format!("proj-open:{name}"), "Apri in Topics"));
@@ -428,7 +444,9 @@ fn project_nodes(live: &Option<String>) -> Vec<Node> {
         .collect()
 }
 
-pub(crate) fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
+/// `with_board`: the per account lines above already say each state, so a provider is
+/// listed only when there is something to do (unlock it, or take its unlock away).
+pub(crate) fn brake_nodes(gates: &Option<String>, with_board: bool) -> Vec<Node> {
     let v = parse(gates);
     if v.is_null() {
         return vec![note("Freno: il servizio non risponde")];
@@ -440,10 +458,13 @@ pub(crate) fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
         for (id, p) in provs {
             // An exhausted entry is spent: the service does not remove it on DELETE, so it is no revocable unlock.
             let unlocked = ov.iter().any(|o| s(o, "provider") == id && o.get("hold").and_then(Value::as_bool) != Some(true) && o.get("exhausted").and_then(Value::as_bool) != Some(true));
-            out.push(note(format!("{id}: {}", s(p, "state"))));
+            let braked = s(p, "state") == "frenato";
+            if !with_board {
+                out.push(note(format!("{id}: {}", s(p, "state"))));
+            }
             if unlocked {
                 out.push(item(&format!("brake-unlock-off:{id}"), format!("Togli lo sblocco di {id}")));
-            } else {
+            } else if braked || !with_board {
                 out.push(item(&format!("brake-unlock:{id}"), format!("Sblocca {id} per 2 ore")));
             }
         }
@@ -454,6 +475,7 @@ pub(crate) fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
     } else {
         item("brake-hold", "Ferma i lavori nuovi in background per 1 ora")
     });
+    out.push(note("Le sessioni aperte non si fermano mai: il freno vale per i lavori nuovi"));
     out
 }
 
@@ -507,7 +529,9 @@ pub(crate) fn tick(label: &str, on: bool) -> String {
     format!("{label}{}", if on { " ✓" } else { "" })
 }
 
-pub(crate) fn automation_nodes(body: &Option<String>) -> Vec<Node> {
+pub(crate) use crate::tray_menu_clock::{civil, local_offset_secs, when_text, Civil};
+
+pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64) -> Vec<Node> {
     let v = parse(body);
     if v.is_null() {
         return vec![note("Automazioni: il servizio non risponde")];
@@ -516,8 +540,15 @@ pub(crate) fn automation_nodes(body: &Option<String>) -> Vec<Node> {
         item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64)),
     ];
     if let Some(c) = v.get("calendar") {
-        let next = c.get("next").map(|x| s(x, "title")).filter(|t| !t.is_empty());
-        out.push(item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · prossimo: {t}")).unwrap_or_default())));
+        let next = c.get("next").filter(|x| !s(x, "title").is_empty()).map(|x| {
+            let title = s(x, "title");
+            let title = if title.chars().count() > 36 { format!("{}…", title.chars().take(35).collect::<String>()) } else { title.to_string() };
+            match x.get("at").and_then(Value::as_i64) {
+                Some(at) => format!("{} {title}", when_text(at, now_secs, offset)),
+                None => title,
+            }
+        });
+        out.push(item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default())));
     }
     out
 }
@@ -534,14 +565,14 @@ pub fn build_menu(snap: &Snapshot, prefs: Prefs, now: i64, ever_answered: bool) 
         m.push(sub("Processi", procs_nodes(&snap.procs)));
         m.push(sub("Progetti", project_nodes(&snap.live)));
         m.push(Node::Sep);
-        let mut more = brake_nodes(&snap.gates);
+        let mut more = brake_nodes(&snap.gates, false);
         more.push(Node::Sep);
         more.extend(extras_nodes(&snap.overview, prefs));
         more.push(item("pref:five-hour", tick("Fascia 5 ore", prefs.five_hour)));
         more.push(item("pref:api-credit", tick("Credito API", prefs.api_credit)));
         more.push(item("pref:cloud-bonus", tick("Bonus cloud", prefs.cloud_bonus)));
         m.push(sub("Altri abbonamenti e opzioni", more));
-        m.extend(automation_nodes(&snap.automations));
+        m.extend(automation_nodes(&snap.automations, now, local_offset_secs()));
     } else if ever_answered {
         m.push(note("Servizio quote: offline"));
     }
@@ -590,7 +621,8 @@ pub fn dump_text(nodes: &[Node]) -> String {
 pub enum Action {
     Http { method: &'static str, path: String, body: Option<Value> },
     /// `unit`: the census id to re-read before closing; `None` = the leftovers group.
-    ClosePids { name: String, unit: Option<String>, pids: Vec<u32> },
+    /// `force`: SIGKILL instead of SIGTERM, behind its own confirmation.
+    ClosePids { name: String, unit: Option<String>, pids: Vec<u32>, force: bool },
     OpenUrl(String),
     TogglePref(String),
     Open(String),
@@ -609,7 +641,7 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         "brake-hold" => return http("POST", "/api/hold", Some(json!({"hours": 1, "by": "tray"}))),
         "brake-hold-off" => return http("DELETE", "/api/hold", None),
         "proc-close-leftovers" => {
-            return Some(Action::ClosePids { name: "i resti senza padrone".into(), unit: None, pids: leftover_pids(procs) });
+            return Some(Action::ClosePids { name: "i resti senza padrone".into(), unit: None, pids: leftover_pids(procs), force: false });
         }
         _ => {}
     }
@@ -625,7 +657,11 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
     }
     if let Some(u) = id.strip_prefix("proc-close:") {
         let (name, pids) = unit_pids(procs, u)?;
-        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids });
+        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids, force: false });
+    }
+    if let Some(u) = id.strip_prefix("proc-force:") {
+        let (name, pids) = unit_pids(procs, u)?;
+        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids, force: true });
     }
     if let Some(name) = id.strip_prefix("proj-open:") {
         return Some(Action::Open(format!("project:{name}")));
@@ -702,11 +738,13 @@ pub fn close_confirmed(
     if pids.is_empty() { 0 } else { kill(&pids) }
 }
 
-/// SIGTERM, never SIGKILL: the process gets to save. Only pids the census listed as closable.
-pub fn terminate(pids: &[u32]) -> usize {
+/// SIGTERM so the process gets to save, or SIGKILL when the person chose the forced close.
+/// Only pids the census listed as closable.
+pub fn terminate(pids: &[u32], force: bool) -> usize {
+    let signal = if force { "-KILL" } else { "-TERM" };
     pids.iter()
         .filter(|p| **p > 1)
-        .filter(|p| std::process::Command::new("kill").args(["-TERM", &p.to_string()]).status().map_or(false, |s| s.success()))
+        .filter(|p| std::process::Command::new("kill").args([signal, &p.to_string()]).status().map_or(false, |s| s.success()))
         .count()
 }
 

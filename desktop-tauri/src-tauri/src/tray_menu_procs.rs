@@ -138,6 +138,7 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
         let verb = s(u, "verb");
         if closable(u) {
             kids.push(item(&format!("proc-close:{}", s(u, "id")), format!("{verb}…")));
+            kids.push(item(&format!("proc-force:{}", s(u, "id")), crate::tray_menu::FORCE_LABEL));
         } else {
             kids.push(note(format!("{verb}: non da qui, {}", s(u, "returns"))));
         }

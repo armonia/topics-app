@@ -44,12 +44,12 @@ fn sections_come_in_the_order_of_the_original_menu() {
 
 #[test]
 fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
-    let t = dump_text(&project_table(&Some(LIVE.into()), &None, 1_800_000_000));
+    let t = dump_text(&project_table(&Some(LIVE.into()), &None, 1_800_000_000, 3600));
     assert!(t.starts_with("PROGETTI | Claude | Codex | Muse | ritmo/h | stato"));
     let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
     assert!(busy < idle && !t.contains("Gone"));
-    assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | attivo"), "{t}");
-    assert!(t.contains("Idle one | – | – | – | – | fermo"));
+    assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | ▸ 1"), "{t}");
+    assert!(t.contains("Idle one | – | – | – | – | –"));
 }
 
 const MACHINES: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
@@ -69,12 +69,12 @@ fn the_project_submenu_has_week_today_last_job_and_budget_and_priority() {
     let live = r#"{"projects":[{"name":"p","title":"P","claude":44.9,"codex":0.4,"muse":0,"total":45.3,"state":"attivo","priority":"alta","budgetPct":10,
       "lastJob":{"task":"fix it","status":"done","endedAt":1799999400000},"agents":{"count":0,"list":[]}}]}"#;
     let heavy = r#"{"sessions":[{"project":"p","sessions":14,"tokens":451644590}]}"#;
-    let t = dump_text(&project_table(&Some(live.into()), &Some(heavy.into()), 1_800_000_000));
+    let t = dump_text(&project_table(&Some(live.into()), &Some(heavy.into()), 1_800_000_000, 3600));
     assert!(t.contains("Questa settimana | Claude 44,9% | Codex 0,4% | Muse –"), "{t}");
     assert!(t.contains("Oggi · 14 sessioni Claude · 451,6 M token"), "{t}");
     assert!(t.contains("Ultimo lavoro in coda · fix it · 10 min fa"), "{t}");
     assert!(t.contains("Budget e priorità · budget 10% Claude · priorità alta"), "{t}");
-    assert!(t.contains("Apri in Topics") && t.contains("Budget 25%") && t.contains("Priorità alta ✓"), "the new rows stay");
+    assert!(t.contains("Apri in Topics") && t.contains("20%") && t.contains("alta ✓"), "the new rows stay");
     assert_eq!(t.matches("Ultimo lavoro").count(), 1, "no second copy: {t}");
 }
 
@@ -138,4 +138,32 @@ fn the_client_machines_join_the_service_ones_without_doubles() {
     // with no service there is nothing to merge: the client list is the menu
     let none = Snapshot { board: None, ..snap() };
     assert_eq!(machines_for(&client, &none).len(), 3);
+}
+
+#[test]
+fn tray_limits_list_every_account_with_state_sentence_and_link_date() {
+    let board = r#"{"accounts":[
+      {"label":"Claude · hi","gauge":{"zone":"frenato","short":"esaurito, torna domani 10:00","cardSay":"Finita, torna domani alle 10:00.","say":"x"},"access":{"say":"Collegato dal 23 ott 2026."}},
+      {"label":"Muse · Muse","gauge":{"zone":"ok","short":"sotto ritmo","say":"Nella settimana 0,56 volte il sostenibile."},"access":{"say":"Collegato, data non nota."}}]}"#;
+    let gates = r#"{"providers":{"claude":{"state":"frenato"},"muse":{"state":"libero"}},"overrides":[]}"#;
+    let sn = Snapshot { board: Some(board.into()), gates: Some(gates.into()), ..Default::default() };
+    let t = dump_text(&[limits_node(&sn)]);
+    assert!(t.contains("Limiti degli abbonamenti · 1 abbonamento al limite"), "{t}");
+    assert!(t.contains("Claude · hi · esaurito, torna domani 10:00\n  Finita, torna domani alle 10:00.\n  Collegato dal 23 ott 2026."), "{t}");
+    assert!(t.contains("Muse · Muse · sotto ritmo\n  Nella settimana 0,56 volte il sostenibile.\n  Collegato, data non nota."), "{t}");
+    // the accounts already say each state: no «libero» line that contradicts the title, unlock only where braked
+    assert!(!t.contains("libero\n") && t.contains("Sblocca claude per 2 ore") && !t.contains("Sblocca muse"), "{t}");
+    assert!(t.contains("Le sessioni aperte non si fermano mai: il freno vale per i lavori nuovi"), "{t}");
+}
+
+/// TRAY_MENU_DUMP=/tmp/menu.txt cargo test --lib tray_menu_dump -- --nocapture
+/// writes the text of the whole menu from the live service (`TRAY_MENU_HUB`, default the hub on this machine).
+#[test]
+fn tray_menu_dump() {
+    let Ok(out) = std::env::var("TRAY_MENU_DUMP") else { return };
+    let base = std::env::var("TRAY_MENU_HUB").unwrap_or_else(|_| crate::tray_quota::hub_base());
+    let sn = Snapshot::fetch(&base, None);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let machines = machines_for(&[], &sn);
+    std::fs::write(out, dump_text(&build_menu_rich(&sn, Prefs::default(), now, &machines, true))).unwrap();
 }
