@@ -40,6 +40,10 @@ pub struct Metric {
     pub pct: Option<u32>,
     pub level: u32,
     pub note: String,
+    /// The reading's label and value in words («Spesa», «8,44/60 €»): drawn only for
+    /// a reading the dial has no band for.
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -78,6 +82,8 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
                 pct: num(x, "pct").map(|p| p.round().clamp(0.0, 100.0) as u32),
                 level: num(x, "level").unwrap_or(0.0) as u32,
                 note: s(x, "note").into(),
+                name: s(x, "name").into(),
+                value: s(x, "value").into(),
             }).collect()).unwrap_or_default(),
         })
         .collect()
@@ -86,6 +92,17 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
 const DIAL_ROWS: [(&str, &str); 4] = [("disk", "Disco"), ("mem", "Memoria"), ("cpu", "CPU"), ("gpu", "GPU")];
 const CARD_X: f32 = PAD;
 const CARD_W: f32 = MENU_W - 2.0 * PAD;
+
+/// The line under the dial: the readings the dial has no band for (a server's
+/// spend), then the reason. A machine that only measures its spend keeps it in sight
+/// instead of showing an empty dial and nothing else.
+pub fn card_line(m: &MachineCard) -> String {
+    let extra = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).filter_map(|x| {
+        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map(|p| format!("{p}%"))? };
+        Some(if x.name.is_empty() { value } else { format!("{} {value}", x.name) })
+    });
+    extra.chain(Some(m.reason.clone()).filter(|r| !r.is_empty())).collect::<Vec<_>>().join(" · ")
+}
 
 /// Vertical layout of a machine card, in points.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,7 +133,8 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let edge = r2 + band / 2.0;
     let cx = CARD_X + 16.0 + edge;
     let cy = 46.0 + edge;
-    let CardLayout { reason_y, h, .. } = card_layout(cy, edge, !m.reason.is_empty());
+    let line = card_line(m);
+    let CardLayout { reason_y, h, .. } = card_layout(cy, edge, !line.is_empty());
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(CARD_X, 3.0, CARD_W, h, p);
     let head = tone(m.level);
@@ -169,10 +187,12 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
         let note = Pic::fit(Face::SansRegular, x.map_or("", |x| x.note.as_str()), 10.5, CARD_X + CARD_W - 14.0 - (lx + 118.0));
         pic.text(Face::SansRegular, &note, lx + 118.0, y, 10.5, p.fg, p.dim * 0.9);
     }
-    if !m.reason.is_empty() {
-        let line = Pic::fit(Face::SansRegular, &m.reason, 11.0, CARD_W - 32.0);
-        let (c, a) = if m.level >= 1 { (head, 1.0) } else { (p.fg, p.dim) };
-        pic.text(Face::SansRegular, &line, CARD_X + 16.0, reason_y, 11.0, c, a);
+    if !line.is_empty() {
+        // the line takes the tone of the worst of the machine and the readings it names
+        let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
+        let text = Pic::fit(Face::SansRegular, &line, 11.0, CARD_W - 32.0);
+        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
+        pic.text(Face::SansRegular, &text, CARD_X + 16.0, reason_y, 11.0, c, a);
     }
     pic
 }
