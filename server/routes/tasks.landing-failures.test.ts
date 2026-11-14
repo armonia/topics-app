@@ -150,4 +150,96 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     expect(settled.landing?.reason ?? "").not.toMatch(/accettat/i);
     expect(settled.landing?.reason ?? "").toContain("NON risulta su main");
   });
+
+  /**
+   * A HUMAN-CLOSED CARD STAYS CLOSED, even when its land fails. @covers LAND-05
+   *
+   * Card 7ce15e25 ("Studio software…"): closed by a person on 10/11, bounced
+   * back to Review on its own the moment its (stale) delivery branch failed
+   * to land, through the very `actor: "human"` impersonation this file's
+   * other tests rely on to get a MACHINE-closed card back from an agent
+   * closing its own cards. The impersonation is correct there; it is not
+   * correct here, because the one thing it was built to walk around — "no
+   * agent reopens a card a human closed" — is exactly what this retraction
+   * is doing, just with a different door.
+   */
+  async function doneTaskClosedByHuman(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
+    const autoMerge = {
+      tryMerge: async () => (code === undefined ? { status: "conflict" } : { status: "skipped", reason: "non so quali commit siano suoi", code }),
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { r.push([id, msg]); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, { autoMerge });
+    d.run("INSERT INTO topics (id) VALUES ('top-h')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "studio software" }))!.json();
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-h', status='done', done_actor='human' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20)); // the land runs fire-and-forget
+    return { id: t.id, db: d, resumed: r };
+  }
+
+  test("CONFLITTO su una card chiusa da una persona: resta chiusa, nessun agente si risveglia", async () => {
+    const { id, db: d, resumed: r } = await doneTaskClosedByHuman(undefined);
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    expect(r).toEqual([]);
+    const t = createTaskService(d).get(id)!;
+    expect(t.comments.some((c) => c.content.includes("l'ha chiusa una persona"))).toBe(true);
+  });
+
+  test("land che non isola i commit su una card chiusa da una persona: resta chiusa, nessun resume", async () => {
+    const { id, db: d, resumed: r } = await doneTaskClosedByHuman("unisolable");
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+    expect(r).toEqual([]);
+    const t = createTaskService(d).get(id)!;
+    expect(t.comments.some((c) => c.content.includes("l'ha chiusa una persona"))).toBe(true);
+  });
+
+  /** A card a person closed, and a land whose merge step does `during()` and then `outcome`. */
+  async function landWithHook(
+    during: (d: Database, id: string) => void,
+    outcome: "throw" | "conflict",
+  ): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+    const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
+    let landing = "";
+    const autoMerge = {
+      tryMerge: async () => {
+        during(d, landing);
+        if (outcome === "throw") throw new Error("boom");
+        return { status: "conflict" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const dispatcher = {
+      onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
+      resume: async (id: string, msg: string) => { r.push([id, msg]); },
+    } as any;
+    const rt = createTasksRouter(makeCtx(d, b), dispatcher, { autoMerge });
+    d.run("INSERT INTO topics (id) VALUES ('top-h')");
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "studio software" }))!.json();
+    landing = t.id;
+    d.prepare("UPDATE tasks SET assigned_topic_id='top-h', status='done', done_actor='human' WHERE id = ?").run(t.id);
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 30));
+    return { id: t.id, db: d, resumed: r };
+  }
+
+  test("un land che LANCIA su una card chiusa da una persona: resta chiusa", async () => {
+    const { id, db: d } = await landWithHook(() => {}, "throw");
+    expect(createTaskService(d).get(id)!.task.status).toBe("done");
+  });
+
+  test("il proprietario riapre MENTRE il land gira e poi va in conflitto: l'agente riparte", async () => {
+    const { id, db: d, resumed: r } = await landWithHook(
+      (db, taskId) => { db.prepare("UPDATE tasks SET status='review', done_actor=NULL WHERE id = ?").run(taskId); },
+      "conflict",
+    );
+    expect(r.length).toBe(1);
+    expect(r[0]![0]).toBe(id);
+    const t = createTaskService(d).get(id)!;
+    expect(t.comments.some((c) => c.content.includes("l'ha chiusa una persona"))).toBe(false);
+  });
 });

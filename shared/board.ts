@@ -2571,6 +2571,24 @@ export function isLandedWork(task: { landingState?: string | null }): boolean {
   return task.landingState === 'landed';
 }
 
+/**
+ * CAN THE COMPOSER ACTUALLY REACH THE AGENT.
+ *
+ * `/comments` keeps ANY message on a landed card a note (see tasks-board.ts,
+ * same reasoning as `isLandedWork`): re-kicking the agent over content
+ * already on main would reopen a cycle the merge already closed. A box that
+ * still said "Invia all'agente" on that card promised a turn the server was
+ * never going to run, and the person read the silence as a bug.
+ */
+export function canSendToAgent(task: {
+  status?: TaskStatus | string | null;
+  assignedTopicId?: string | null;
+  landingState?: string | null;
+  archived?: boolean | null;
+}): boolean {
+  return task.status === 'review' && !!task.assignedTopicId && !isLandedWork(task) && !task.archived;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Deploy proposed at approve (board_settings.deployCommand) — analogue of
 // `landingState`, but for running a command instead of a git merge.
@@ -2599,6 +2617,20 @@ export const DEPLOY_ACTION_LABEL = 'Deploya ora';
  */
 export function showsDeployProposal(task: { deployState: string | null | undefined }): boolean {
   return task.deployState === 'proposed';
+}
+
+/**
+ * ARE THE REVIEW DECISIONS (Approva/Rimanda indietro/Landa) STILL LIVE.
+ *
+ * `archive()` never touches `status` — a card archived straight out of
+ * review keeps saying `review` forever after, because nothing else moves it.
+ * A drawer left open on it kept drawing the three buttons as if the card
+ * were still waiting for a verdict, and a click there changed nothing the
+ * archive had not already decided. The archived banner is the only button
+ * that card gets now; this is what gates the other three off.
+ */
+export function canDecideReview(task: { status: TaskStatus | string; archived?: boolean }): boolean {
+  return task.status === 'review' && !task.archived;
 }
 
 /**
