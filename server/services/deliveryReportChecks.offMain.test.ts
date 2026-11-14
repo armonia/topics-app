@@ -5,6 +5,8 @@
  * `topics/r3-letture`. The card was closed as done, the land of topics-app
  * merged topics-app only, and that branch never reached main. The delivery
  * check verified the sha existed; it never asked where.
+ *
+ * @covers KANBAN-11
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";

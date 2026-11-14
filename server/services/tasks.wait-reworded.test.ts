@@ -7,6 +7,8 @@
  * `wait_since` = now: neither cap ever fired and nobody was told.
  * The series clock now keeps running while the card is already waiting,
  * whatever the reason; the per-reason streak count stays as it was.
+ *
+ * @covers KANBAN-92
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
