@@ -609,6 +609,14 @@ export async function classifyCommitLanding(
   if ((await git(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`])).code !== 0) {
     return { ...nudo, esito: "non-decidibile", motivo: "non decidibile: il repo non ha più quel commit" };
   }
+  // A MERGE cannot speak for the work under it: `git show` of a clean merge prints no diff at all, so
+  // the empty answer below read "only generated files, nothing to lose" and acquitted the delivery of
+  // card 572f8a09 (a merge of the branch onto main) while none of its four files were on origin/main
+  // (card c2908b93). `commitStatusFromRepo` gives a merge the same "cannot tell" for the same reason.
+  const parents = (await git(repoPath, ["rev-list", "--parents", "-n", "1", commit])).stdout.trim().split(/\s+/);
+  if (parents.length > 2) {
+    return { ...nudo, esito: "non-decidibile", motivo: "non decidibile: la consegna è un merge, che non dice cosa porta il ramo" };
+  }
   const { file, aggiunte } = await collectDiff(repoPath, [commit], git);
   if (file.length === 0) {
     return { ...nudo, esito: "dentro", motivo: "tocca solo file generati (lock, bundle, versione): niente da perdere" };

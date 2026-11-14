@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.108 — 2026-11-14
+
+### Correzioni
+- **server** · a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)
+
+### Sotto il cofano
+- il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)
+- topics/ghostly-peacock (card c2908b93) (#971)
+
 ## 2.3.106 — 2026-11-14
 
 ### Sotto il cofano
@@ -30,6 +39,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - wip
 - nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)
 - menu ricco, tabella progetti, glue AppKit, lato client
+- Agent tools page uses the compact user-menu row styles, with e2e screenshots next to Devices (card 572f8a09)
 
 ## 2.3.102 — 2026-11-14
 

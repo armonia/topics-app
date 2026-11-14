@@ -11,6 +11,7 @@ import type { AppContext } from "../types";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
+import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
 import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
@@ -788,7 +789,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // An approval WITH a comment is still an approval: it went done and landed straight, past the
         // phase (2882b9fb, 14/11, main red on the bundle). Only "Landa e pubblica" goes online directly.
         const said = typeof body?.comment === "string" ? body.comment.trim() : "";
-        if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed"
+        // "Already on main" is a merge a land saw, not a deduced `landed` (c2908b93): that one enters the phase.
+        if (cur && cur.status === "review" && cur.deliveryBranch && !landedOnMain(ctx.db, cur)
           && !isPublishActionLabel(said) && body?.force !== true) {
           // The words go in BEFORE the phase starts: written after, they would read as the person speaking up
           // during the phase, which stops it. Written twice they are one row (author + content dedupe).
