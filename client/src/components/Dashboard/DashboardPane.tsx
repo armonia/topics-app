@@ -2,6 +2,9 @@ import { lazy, Suspense, useState } from 'react';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useHubEverRead } from '../../state/hubLive';
 import { useT } from '../../hooks/useT';
+import { addCatalogue } from '../../lib/i18n';
+import DASHBOARD_IT from '../../lib/i18n-dashboard-it';
+import DASHBOARD_EN from '../../lib/i18n-dashboard-en';
 import type { UsageRange } from '../../hooks/useProjectUsage';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
@@ -19,6 +22,10 @@ const ProjectUsagePanel = lazy(async () => {
   const { ProjectUsagePanel: Panel } = await import('../Sidebar/ProjectUsagePanel');
   return { default: Panel };
 });
+
+// The pane's strings travel with its chunk, before its first render.
+addCatalogue('it', DASHBOARD_IT);
+addCatalogue('en', DASHBOARD_EN);
 
 const METRIC_OPTIONS = ['throughput', 'tokens', 'cost', 'errors'] as const;
 

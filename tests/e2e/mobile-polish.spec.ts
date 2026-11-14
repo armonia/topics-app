@@ -63,7 +63,7 @@ test("MOBILE-POLISH-01: a chat table breaks between words, never inside one", as
   if (await row.isVisible()) await row.tap();
   await expect(page.getByTestId("chat-message-list")).toBeVisible({ timeout: 15_000 });
   await waitForLayoutSettled(page);
-  // «colonna», «valore», «secondo» are single words: each one is ONE line.
+  // «colonna», «valore», «secondo» are single words: each one is ONE line. allow-italian: the table cells under test
   // The bug squeezed them to «col/onna», «va/lor/e», «sec/on/do».
   expect(await lineCount(page, ".message-content th", /^colonna$/)).toBe(1);
   expect(await lineCount(page, ".message-content th", /^valore$/)).toBe(1);

@@ -41,8 +41,3 @@ export function lastPointerWasTouch(): boolean {
 export function watchPointerType(): void {
   install();
 }
-
-/** Test seam: forget the last pointer. */
-export function _resetLastPointerForTests(): void {
-  last = null;
-}
