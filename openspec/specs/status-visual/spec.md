@@ -133,7 +133,7 @@ at work, so the amber chip and the sky blue are on screen.
 #### Scenario: a status colour changes on screen
 - **GIVEN** the seeded Board with a `needs_input` task and a working agent session
 - **WHEN** the Board, the plan view or the Agents pane is captured in light or dark
-- **THEN** the capture matches its reference screenshot
+- **THEN** the status marks (the chips on the Board and the plan, the counts of the Agents pane) match their reference screenshots
 
 ### Requirement: STATUS-VISUAL-01j — A card state is one glyph family, animated when live
 

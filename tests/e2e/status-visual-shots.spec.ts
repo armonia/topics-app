@@ -76,11 +76,6 @@ async function openGlobalBoard(page: Page): Promise<void> {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
 }
 
-/** Relative times and clocks change between runs: they are masked, not frozen. */
-const moving = (page: Page) => [
-  page.locator('[data-testid*="ago"], [data-testid*="clock"], [data-testid*="elapsed"], time'),
-];
-
 const SHOT = { animations: "disabled", caret: "hide", maxDiffPixelRatio: 0.01 } as const;
 
 let agentTopic = "";
@@ -137,26 +132,32 @@ test.describe("Status colours on the Board, the plan and the Agents pane", () =>
 
       // ── Board ────────────────────────────────────────────────────────────
       await openGlobalBoard(page);
-      const board = page.getByTestId("kanban-board");
       const asking = page.locator(`[data-task-card="${needsInputTask}"]`);
       await expect(asking).toBeVisible({ timeout: 15_000 });
       await expect(asking.locator('[data-testid="dispatch-chip"][data-state="needs_input"]')).toBeVisible();
-      await expect(page.locator(`[data-task-card="${workingTask}"]`)).toBeVisible();
-      await expect(board).toHaveScreenshot(`status-visual-board-${scheme}.png`, { ...SHOT, mask: moving(page) });
+      const working = page.locator(`[data-task-card="${workingTask}"]`);
+      await expect(working).toBeVisible();
+      // The status marks, not the whole global Board: every spec of the shard adds its own cards to
+      // that board, so a picture of it changes with the run order (14/11: references never matched).
+      await expect(asking.locator('[data-testid="dispatch-chip"]')).toHaveScreenshot(`status-visual-board-asking-${scheme}.png`, SHOT);
+      await expect(working.locator('[data-testid="dispatch-chip"]')).toHaveScreenshot(`status-visual-board-working-${scheme}.png`, SHOT);
 
       // ── Plan ─────────────────────────────────────────────────────────────
-      await page.getByTestId("board-plan-toggle").click();
+      // The Plan is the last stop of the detail slider (the old plan toggle is gone).
+      await page.getByTestId("board-detail-slider").focus();
+      await page.keyboard.press("End");
       const plan = page.getByTestId("plan-view");
       await expect(plan).toBeVisible({ timeout: 15_000 });
-      await expect(plan.locator(`[data-task-card="${needsInputTask}"]`)).toBeVisible();
-      await expect(plan).toHaveScreenshot(`status-visual-plan-${scheme}.png`, { ...SHOT, mask: moving(page) });
+      const planCard = plan.locator(`[data-task-card="${needsInputTask}"]`);
+      await expect(planCard).toBeVisible();
+      await expect(planCard.locator('[data-testid="dispatch-chip"]').first()).toHaveScreenshot(`status-visual-plan-asking-${scheme}.png`, SHOT);
 
       // ── Agents ───────────────────────────────────────────────────────────
       await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "agents" } })));
       const group = page.getByTestId("agents-group").first();
       await expect(group).toBeVisible({ timeout: 15_000 });
       await expect(group.getByTestId("agents-group-counts")).toContainText(/1/);
-      await expect(group).toHaveScreenshot(`status-visual-agents-${scheme}.png`, { ...SHOT, mask: moving(page) });
+      await expect(group.getByTestId("agents-group-counts")).toHaveScreenshot(`status-visual-agents-${scheme}.png`, SHOT);
     });
   }
 });
