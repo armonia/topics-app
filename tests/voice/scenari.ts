@@ -278,6 +278,8 @@ async function playScenario(sc: Json, round: number): Promise<Json> {
       const rep = sentences.find((x, i) => sentences.slice(0, i).includes(x));
       if (rep) failed.push(`ha ripetuto: ${rep}`);
     }
+    // room noise after a result: once "are you still there?", never a goodbye (14/11, the call closed on a "thanks" whisper made up)
+    if (p.chiede_se_ce === true && !ev.some((e) => e.event === "ci_sei")) failed.push("non ha chiesto se c'è ancora");
     if (p.chiude === true && !closes) failed.push("non ha chiuso");
     if (p.chiude === false && closes) failed.push("ha chiuso la chiamata");
     if (p.rilancia === false) {
