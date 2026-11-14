@@ -2,7 +2,7 @@
 
 `WS /ws/voice/bridge` — locale (loopback = proprietario); da remoto `Authorization: Bearer <token del daemon>`.
 Una connessione = una chiamata. Testo = JSON con `type`; binario = audio PCM16 little-endian mono 16 kHz,
-fotogrammi da 20 ms (640 byte), in tutte e due le direzioni.
+fotogrammi da 60 ms (960 campioni, 1920 byte: è il fotogramma della linea WhatsApp, `pcm.rs` FRAME), in tutte e due le direzioni.
 
 ## Canale → Topics
 - `{"type":"start","id","name","direction":{"kind":"incoming"}|{"kind":"outgoing","reason"}|{"kind":"on_behalf","callee","message","callback"},"group":false,"speed":1.0,"record":true}` — prima cosa; Topics apre Gemini e la bocca subito (la chiamata può ancora squillare).
@@ -13,7 +13,7 @@ fotogrammi da 20 ms (640 byte), in tutte e due le direzioni.
 - `{"type":"ended","why"}` — l'altro ha riattaccato / audio chiuso.
 
 ## Topics → canale
-- binario — l'audio da far sentire, a ritmo reale (Topics fa da orologio: un fotogramma ogni 20 ms, silenzio o fondo compresi).
+- binario — l'audio da far sentire, a ritmo reale (Topics fa da orologio: un fotogramma ogni 60 ms, silenzio o fondo compresi, come il `tick` di `call.rs`).
 - `{"type":"handoff","id","text"}` — un compito per l'agente, da far entrare come messaggio della chat del proprietario (oggi «📞 (dalla telefonata con Jarvis) …»); il canale risponde `{"type":"handoff_ok","id"}` o `{"type":"handoff_err","id","error"}`.
 - `{"type":"hangup","why"}` — chiudi la chiamata.
 - `{"type":"outcome","report","heard","speed","turns","handoffs","usd","recording"}` — ultima cosa prima di chiudere il socket; `recording` = percorso del file su questa macchina o null.

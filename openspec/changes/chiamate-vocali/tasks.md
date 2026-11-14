@@ -16,7 +16,7 @@ Barra: `bun test server/services/voice-call/gemini.test.ts` esce 0 con i casi di
 Barra: `bun test …/brain.test.ts` esce 0; `acks` (frasi vere, 18 su 18, solo con chiave) come test saltato senza chiave.
 
 ## T4 · Chiamata (dipende da: T1, T2, T3)
-`server/services/voice-call/call.ts`: il ciclo di `call.rs` con tutte le regole (saluto, barge-in, verifica whisper, intercalari, cervello, riconoscimento a tono con attesa del momento libero, «ancora un secondo», passi con le tre guardie, `repeatedQuestion`, risultati in due o tre frasi, chiusura, velocità, gruppo, per conto) e `outcome`. Orologio a 20 ms.
+`server/services/voice-call/call.ts`: il ciclo di `call.rs` con tutte le regole (saluto, barge-in, verifica whisper, intercalari, cervello, riconoscimento a tono con attesa del momento libero, «ancora un secondo», passi con le tre guardie, `repeatedQuestion`, risultati in due o tre frasi, chiusura, velocità, gruppo, per conto) e `outcome`. Orologio a 60 ms (FRAME di `pcm.rs`).
 Barra: unit test della chiamata col finto Gemini (`call.test.ts`) esce 0, compresi `repeatedQuestion` e «passo pronto mentre parla si butta» con le loro mutazioni.
 
 ## T5 · Ponte (dipende da: T4)
