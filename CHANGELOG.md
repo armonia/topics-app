@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.101 — 2026-11-14
+
+### Sotto il cofano
+- Tray strip: rasterize text with CoreText on macOS, pixel-snapped pens (ab_glyph stays for Windows/Linux)
+- Tray strip: CoreText draws with the real NSFont system weights; ink-vs-AppKit tests
+- pin the status item to the strip's width so neither end is cut (#949)
+- turn the working glyph in a native layer instead of redrawing the strip every frame
+- la barra non salta più e il menu resta aperto (#951)
+
 ## 2.3.100 — 2026-11-13
 
 ### Correzioni
