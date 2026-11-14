@@ -1,6 +1,6 @@
 # Tracce
 
-Ogni traccia ha la sua barra; lo stato lo dà il test, non la casella. Codice in inglese, commenti in italiano.
+Ogni traccia ha la sua barra; lo stato lo dà il test, non la casella. Codice e commenti in inglese: `check:comment-language` non accetta commenti italiani nei file nuovi (i nomi degli eventi di registro e i prompt restano in italiano, sono dati).
 Fonte da portare: `~/.claude/jarvis/tools/jarvis-channels/src/voice/` (Rust, commit 80f1fd26) e `tests/voce.rs`.
 
 ## T1 · Audio (dipende da: niente)
@@ -29,7 +29,7 @@ Barra: `cargo test --release --features voce --lib voice::` esce 0 e un test del
 
 ## T7 · Banco su Topics (dipende da: T5)
 Il banco scenari come finto canale sul ponte (`tests/voice/scenari.ts`, clip e `scenari.json` dalla cartella in impostazione), stessi controlli di `tests/voce.rs` (affida, chiude, riferisce, breve, racconta, passi_non_dicono, non_ripete, rilancia).
-Barra: 2 giri, almeno 16/18 come il Rust del 14/11.
+Barra: 2 giri, almeno 16/18 come il Rust del 14/11. Il ponte per il banco è `tests/voice/bridge-server.ts` (solo il ponte, porta 13334, `TOPICS_HOME` di prova); il banco esce 0 da 16/18 in su (`--soglia`).
 
 ## T8 · Chiamate vere (dipende da: tutto)
 Motore `topics` acceso; Attilio chiama Jarvis e Jarvis chiama Attilio; ogni difetto sentito diventa un caso del banco prima della correzione; si richiama finché una chiamata esce senza niente da correggere.
