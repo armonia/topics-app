@@ -574,6 +574,10 @@ export interface BoardTask {
   updatedAt: string;
   /** Topic (chat tab) the dispatched agent works this task in, if any. */
   assignedTopicId: string | null;
+  /** Soft-deleted: off the board, kept for history. A drawer already open on
+   *  it still gets a GET — this is how it finds out, since the status
+   *  `archive()` leaves untouched (still e.g. `review`) would read as live. */
+  archived: boolean;
   /** null = not dispatched; queued | starting | working | needs_input. */
   dispatchState: string | null;
   /** Why the last dispatch attempt was released/parked (visible feedback). */

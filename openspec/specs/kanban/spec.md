@@ -5536,6 +5536,18 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
 
+### Requirement: REVIEW-BUTTONS-01 - A review button does what its label says
+
+The composer of a landed card SHALL read as a plain note, not promise a turn to the agent. On a card whose agent never finished (turns exhausted, model refused) the send button SHALL carry the word of the send-back button, because that message restarts the agent. After a card is archived the open drawer SHALL show an "archived" chip in place of the status, a banner with a restore button, no live review decisions and no agent composer, and a message written on it SHALL stay a note that restarts nobody. A card closed by a person SHALL NOT return to review because a queued land failed or threw, and a person reopening it during the land SHALL be honoured. Next to "Approva" on a card whose branch holds commits outside main, the drawer SHALL say that the code stays out and that landing is the way to merge it. A card closed by its owner SHALL NOT be reopened by a programmatic caller without the explicit confirmation header (409 `closed_by_owner`); the interface, a deliberate click, is exempt.
+
+#### Scenario: archived while the drawer is open
+- **WHEN** a card open in the drawer is archived
+- **THEN** the drawer SHALL show the archived banner and its restore button, and the review actions SHALL be gone
+
+#### Scenario: approve on an unlanded branch
+- **WHEN** the drawer shows a review card with an unmerged delivery
+- **THEN** a note beside the decision buttons SHALL say that the approve button leaves the code out of main, naming the buttons with their current labels in the current language
+
 ### Requirement: KANBAN-114 - Heavy commands wait in one machine-wide line
 
 Topics SHALL serve one line for heavy commands (tests, typechecks, builds, renders) that every harness on the machine can ask before running one. A request SHALL be admitted when a place is free and the machine has room, measured on available memory first and CPU second, never on how many agents exist; with nothing running the first request SHALL be admitted unless memory is critically low. A place held by a process SHALL live as long as that process does, and SHALL be freed when it dies. The client SHALL fail open: with Topics off, in error, or past the wait limit, the command runs.

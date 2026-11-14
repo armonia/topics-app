@@ -122,7 +122,7 @@ export const SessionRun = memo(function SessionRun({ items, sessionKey }: {
     && item.hasThreadReply === next.items[index].hasThreadReply
     && item.foldProgress === next.items[index].foldProgress));
 
-export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, commentRef, composerAreaRef, composerPlaceholder, composerSendTitle, draft, error, fileDragOver, fileInputRef, isAgentReview, isMobile, load, loadFailedMessage, onOpenTopic, saveCommentCursor, send, sending, sessionState, sessionTopic, setAttachments, setDraft, setError, setFileDragOver, shownEffort, stopAgent, task, taskId, tr, twoCol, uploadFiles, uploading, workspaceOpen }: {
+export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, commentRef, composerAreaRef, composerPlaceholder, composerSendTitle, draft, error, fileDragOver, fileInputRef, canSendToAgent, sendToAgentWord, isAgentReview, isMobile, load, loadFailedMessage, onOpenTopic, saveCommentCursor, send, sending, sessionState, sessionTopic, setAttachments, setDraft, setError, setFileDragOver, shownEffort, stopAgent, task, taskId, tr, twoCol, uploadFiles, uploading, workspaceOpen }: {
   agentBusy: boolean;
   attachments: StagedAttachment[];
   busy: boolean;
@@ -136,6 +136,8 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
   fileDragOver: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
   isAgentReview: boolean;
+  canSendToAgent: boolean;
+  sendToAgentWord: string;
   isMobile: boolean;
   load: () => Promise<void>;
   loadFailedMessage: string | null;
@@ -292,8 +294,8 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
               <button type="button" data-testid="task-composer-submit"
                 onClick={() => { if (agentBusy && !draft.trim() && !attachments.length) void stopAgent(); else void send(); }}
                 disabled={busy || sending || uploading || (!agentBusy && !draft.trim() && !attachments.length)}
-                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
-                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : isAgentReview ? tr('board.task.sendToAgent') : composerSendTitle}
+                title={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).title : canSendToAgent ? sendToAgentWord : composerSendTitle}
+                aria-label={agentBusy && !draft.trim() && !attachments.length ? taskActionWord('stop', tr).label : canSendToAgent ? sendToAgentWord : composerSendTitle}
                 className={`flex ${COMPOSER_ICON_BUTTON} shrink-0 items-center justify-center rounded-lg transition-all disabled:opacity-50 ${
                   draft.trim() || attachments.length ? 'bg-primary text-white hover:bg-primary-hover'
                     : agentBusy ? 'bg-app-text/15 text-app-text hover:bg-app-text/25'

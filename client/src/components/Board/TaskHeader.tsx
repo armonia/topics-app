@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Trash2, ArrowUpRight, ChevronRight, X, Bot, Check, ChevronDown, Copy, Globe, Lock, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Plus, ShieldCheck } from 'lucide-react';
 import { Spinner } from '../Shared/Spinner';
 import { type TaskSessionState, canOpenTaskSession, shouldExplainMissingSession } from '../../lib/taskSession';
 import { type BoardTask, type TaskStatus, type BoardProjectRef, STATUS_LABEL, TASK_STATUSES } from '../../lib/board';
@@ -304,16 +304,17 @@ export function TaskTopBar({ blockerChipRef, busy, changeStatus, chipStatus, cop
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
         <button
           ref={statusBtnRef}
-          onClick={() => task && setStatusMenuOpen(true)}
+          onClick={() => task && !task.archived && setStatusMenuOpen(true)}
+          disabled={!!task?.archived}
           data-testid="task-status-chip"
           title={tr('board.task.changeStatusTitle')}
           className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-compact leading-4 text-app-text-heading hover:bg-white/10 coarse:min-h-11"
         >
           {/* A failed first read must not keep saying «Loading…»: the spinner is
               a promise, and here nothing is coming. */}
-          {chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
-          {chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
-          <ChevronDown className="h-3 w-3 text-app-text-faint" />
+          {task?.archived ? <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> : chipStatus ? <StatusIcon status={chipStatus} /> : loadFailedMessage ? <AlertTriangle className={`h-3.5 w-3.5 ${DANGER_TEXT}`} /> : <Spinner size="sm" tone="current" />}
+          {task?.archived ? tr('board.task.archivedChip') : chipStatus ? STATUS_LABEL[chipStatus] : loadFailedMessage ? tr('board.task.loadFailedChip') : tr('board.task.loading')}
+          {!task?.archived && <ChevronDown className="h-3 w-3 text-app-text-faint" />}
         </button>
         {/* Sharing sits next to the STATUS, not inside a menu: it is a
             property of the card just like the status, and hiding it in a

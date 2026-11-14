@@ -2,7 +2,7 @@ import { useT } from '../../hooks/useT';
 import { STATUS_CHIP } from '@/lib/statusVisual';
 import { Spinner } from '../Shared/Spinner';
 import { getMediaUrl } from '../../lib/api';
-import { type BoardTask, showsLandingDebt, showsDeployProposal, hasCodeQuestion, systemDeliveryNote } from '../../lib/board';
+import { type BoardTask, hasDeliveryToMerge, showsLandingDebt, showsDeployProposal, hasCodeQuestion, systemDeliveryNote } from '../../lib/board';
 import { type TaskBrowserGroupLayout } from './useTaskBrowserGroupLayout';
 import { X, Globe, Paperclip, Camera, PackageCheck, GitMerge, Rocket, TriangleAlert, Download, WifiOff } from 'lucide-react';
 import { SectionHeader } from './sectionAccordion';
@@ -10,6 +10,7 @@ import type { RefObject, Dispatch, SetStateAction } from 'react';
 import { mediaPaneIdFor } from './constants';
 import { LandingNotice } from './LandingNotice';
 import { reviewDecisionButtons } from './taskActionWords';
+import { canDecideReview } from '../../../../shared/board';
 import { TASK_ACTION_ICON } from './taskActionIcons';
 import type { TaskActionWord } from './taskActionWords';
 import type { LandingBand } from './landingBand';
@@ -191,7 +192,7 @@ deliveryOpen && task ? (
     <div data-testid="task-delivery-panel" className="-mx-3 -mt-3 mb-3 border-b border-app-border">
       <div className="space-y-2 px-3 py-3">
             {/* Lifecycle choices belong to delivery. Stop is owned by the composer. */}
-            {task.status !== 'review' && (
+            {task.status !== 'review' && !task.archived && (
               <TaskChoiceRow
                 task={task} disabled={busy} exclude={['stop']} className="mb-2"
                 onDone={() => { void load(); onChanged(); }}
@@ -199,7 +200,7 @@ deliveryOpen && task ? (
               />
             )}
             {/* Review decisions stay next to the checks and delivery evidence. */}
-            {task.status === 'review' && (
+            {canDecideReview(task) && (
               <div className="mb-2 space-y-1.5">
                 {/* The evidence sits ATTACHED to the decision: the gate rejects an
                     approve with red checks, and finding that out from a 409
@@ -234,6 +235,14 @@ deliveryOpen && task ? (
                   onError={setError} onNeedText={() => commentRef.current?.focus()}
                 />
                 </div>
+                {hasDeliveryToMerge(task) && (
+                  <p data-testid="task-approve-leaves-branch-note" className="mt-1 text-mini text-app-text-secondary">
+                    {tr('board.task.approveLeavesBranchOut', {
+                      approve: reviewDecisionButtons(task, tr).accept.label,
+                      land: reviewDecisionButtons(task, tr).land?.label ?? '',
+                    })}
+                  </p>
+                )}
                 {/* «Ricattura evidenza» (Recapture evidence) is NO longer here: it
                     was a utility action on the preview, drawn as wide as a
                     decision and placed among the decisions, so at a glance it

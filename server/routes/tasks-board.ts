@@ -1300,7 +1300,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // and the node launches it again with the thread. The criterion is
           // the dispatcher's `isRemoteTask`: another machine, with an address
           // (this Mac's own row is the default «here» and has none).
-          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && isNodeCard(root)) {
+          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && !root.archived && isNodeCard(root)) {
             const backInQueue = svc.update({
               taskId: root.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
               patch: { status: "todo" }, origin: actionOrigin,
@@ -1310,7 +1310,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               dispatcher.onEnterTodo(bComments.projectId, root.id);
               delivery = 'queued';
             }
-          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
+          } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root) && !root.archived
               && (root.status === "review" || root.status === "in_progress")) {
             if (root.status === "review") {
               const rejected = svc.reviewDecision({
@@ -1383,6 +1383,22 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         try {
           const prevTask = svc.get(taskId, { projectId })?.task;
           const prevStatus = prevTask?.status;
+          // A card its owner closed does not leave Done because a script said so.
+          // On 2026-11-10 an agent tidying the board PATCHed a closed card back to
+          // backlog over the API, signed as the person, and it came back to review
+          // with nobody having asked. The interface (a click) passes; a programmatic
+          // caller must say it is deliberate with `X-Topics-Confirm-Reopen: 1`.
+          if (
+            prevTask?.status === "done" && prevTask.doneActor === "human"
+            && parsed.patch.status !== undefined && parsed.patch.status !== "done"
+            && actionOrigin !== "interface"
+            && req.headers.get("X-Topics-Confirm-Reopen") !== "1"
+          ) {
+            return json(
+              { error: "card closed by its owner: to reopen it from the API send the header X-Topics-Confirm-Reopen: 1", code: "closed_by_owner" },
+              409,
+            );
+          }
           // Invalidate probe cache when output_url changes (new URL needs a fresh probe).
           if (parsed.patch.outputUrl !== undefined) {
             const old = svc.get(taskId, { projectId })?.task.outputUrl;

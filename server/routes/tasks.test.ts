@@ -1994,7 +1994,7 @@ describe("uscita da Done: il segno sulla card e chi può riaprirla", () => {
   test("quando la card ESCE da done, l'API della board lo dice: reopenedAt/By/Actor sulla card", async () => {
     const { id, pid } = await approvedByHuman();
     // L'umano la riapre: legittimo — ma la board deve dirlo lo stesso.
-    const back = (await call(router, "PATCH", `/api/boards/${pid}/tasks/${id}`, { status: "in_progress" }))!;
+    const back = (await call(router, "PATCH", `/api/boards/${pid}/tasks/${id}`, { status: "in_progress" }, { "X-Topics-Action-Origin": "interface" }))!;
     expect(back.status).toBe(200);
 
     const { tasks } = await (await call(router, "GET", `/api/boards/${pid}/tasks`))!.json();
