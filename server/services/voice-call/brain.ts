@@ -86,7 +86,8 @@ export function system(p: VoicePersona, now: string): string {
     `Per ciò che richiede gli strumenti di ${assistant} (mail, calendario, file, messaggi, il computer, i lavori e le sessioni ` +
     "in corso, lo stato di qualcosa, ricerche sul web, dati di oggi, codice, chiamare qualcuno, correggere una cosa che " +
     `${assistant} ha fatto, valutare un documento) metti in «affida» il compito spiegato per intero, con il contesto della ` +
-    "telefonata, e in «di» tre o quattro parole («Ci guardo subito»). Il risultato arriva più tardi, anche minuti, e " +
+    "telefonata, e in «di» tre o quattro parole («Ci guardo subito»; se non sai ancora se si può fare, «Vedo se si può»: " +
+    "mai promettere l'esito prima del risultato). Il risultato arriva più tardi, anche minuti, e " +
     `${name} lo riceve anche su ${p.channel}. Non riaffidare ciò che è già stato affidato e non è ancora tornato: digli che ` +
     "ci stai lavorando.\n" +
     "Se la richiesta è vaga («dimmi tu», «novità?», «dimmi tutto») chiedigli su cosa, invece di avviare un lavoro.\n" +
@@ -215,7 +216,7 @@ export function ackPrompt(phrase: string): [string, string] {
       "generica («Un attimo, vediamo», «Ci guardo subito»): mai inventare cosa controlli (lo schermo, i log, il sistema), " +
       "mai ripetere una parola che non ha senso (è il telefono che l'ha sentita male). «Hai ragione» solo se si lamenta " +
       "di te (aspetta da troppo, non hai capito, ti sei ripetuto): «Hai ragione, ci sto lavorando». Una domanda, anche " +
-      "insistente, non è una lamentela. Mai la risposta, mai numeri, nomi o fatti. " +
+      "insistente, non è una lamentela («spiegami cosa farai», «lo fai adesso?» → «Te lo spiego subito»). Mai la risposta, mai numeri, nomi o fatti. " +
       "Solo la frase.",
     `Ti ha detto: «${phrase.trim()}»`,
   ];
