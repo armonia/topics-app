@@ -10,7 +10,7 @@ fn comma(v: f64, digits: usize) -> String {
     format!("{v:.digits$}").replace('.', ",")
 }
 
-/// A span in the service's short words: «meno di 1 min», «12 min», «1 h 22 min», «17 h».
+/// A span in the service's short words: «meno di 1 min», «12 min», «1 h 22 min», «17 h». allow-italian: quoted menu wording
 pub(crate) fn dur_text(ms: f64) -> String {
     let m = (ms / 60_000.0) as i64;
     if m < 1 {
@@ -163,7 +163,7 @@ fn opus_warning(p: &Value) -> Option<String> {
     ))
 }
 
-/// «12 k token nel giro · 0,1% della settimana», and what the agent waits for, if anything.
+/// «12 k token nel giro · 0,1% della settimana», and what the agent waits for, if anything. allow-italian: quoted menu wording
 fn agent_detail(a: &Value, now_ms: i64) -> String {
     let u = a.get("use");
     let mut parts: Vec<String> = Vec::new();
@@ -276,7 +276,7 @@ fn week_nodes(p: &Value, heavy: &Value, now_ms: i64) -> Vec<Node> {
     out
 }
 
-/// «Il progetto: consumi, budget, priorità»: what it is, who works, what it costs, its two settings.
+/// «Il progetto: consumi, budget, priorità»: what it is, who works, what it costs, its two settings. allow-italian: quoted menu wording
 fn project_page(p: &Value, heavy: &Value, now_ms: i64, offset: i64) -> Vec<Node> {
     let name = s(p, "name");
     let detail: Vec<String> = [Some(s(p, "what").to_string()).filter(|w| !w.is_empty()), Some(idle_reason(p, now_ms, offset).unwrap_or_else(|| state_words(p, now_ms)))].into_iter().flatten().collect();
