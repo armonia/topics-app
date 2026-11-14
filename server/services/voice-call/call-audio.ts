@@ -34,7 +34,9 @@ import {
   RING_MAX,
   STEP_GAP,
   STILL_THERE,
+  STILL_THERE_WAITING,
   STILL_THINKING,
+  asksToWait,
   ms,
 } from "./call-rules";
 import { replyText } from "./prompts";
@@ -265,7 +267,8 @@ export abstract class CallAudio extends CallState {
     const calm = !speaking && !this.generating && !this.vad.isOpen() && this.asking === null && this.replies.length === 0 && !this.leave && this.hangupAsked === null;
     // a long silence with nothing running: once "are you still there?", as a
     // person would. Before, the line stayed mute for 3 minutes and then dropped
-    if (calm && this.greeted && !this.spec.group && !this.askedStillThere && this.waitingJobs === 0 && now - this.lastSound > STILL_THERE) {
+    const stillThere = asksToWait(`${this.prevHeard} ${this.wtext?.text ?? ""}`) ? STILL_THERE_WAITING : STILL_THERE;
+    if (calm && this.greeted && !this.spec.group && !this.askedStillThere && this.waitingJobs === 0 && now - this.lastSound > stillThere) {
       this.askedStillThere = true;
       this.textTurn = true;
       this.deps.log("ci_sei", { s: Math.floor((now - this.lastSound) / 1000) });

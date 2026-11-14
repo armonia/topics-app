@@ -257,7 +257,11 @@ export abstract class CallState {
         deps.log("registrazione_fallita", { errore: e instanceof Error ? e.message : String(e) });
       }
     }
-    this.openText = spec.group ? groupOpening(this.persona) : opening(this.persona, d);
+    const prev = this.brainOn ? (spec.previous ?? null) : null;
+    if (prev) {
+      this.dialog.lines.push(`[La telefonata di ${prev.agoMin} minuti fa${prev.dropped ? ", caduta senza saluti" : ""}]`, ...prev.lines, "[Questa telefonata]");
+    }
+    this.openText = spec.group ? groupOpening(this.persona) : opening(this.persona, d, prev?.dropped === true);
     // whoever does not know they are talking to a recorded assistant hears it at once, does not find out later
     if (this.recorder && d.kind === "on_behalf") this.openText += recordedNotice(this.persona);
   }

@@ -565,6 +565,14 @@ export class Call extends CallAudio {
     this.finish(why, false);
   }
 
+  /** The dialog of this call and whether it dropped without a goodbye: the short memory for a call back. */
+  memory(): { lines: readonly string[]; dropped: boolean } {
+    // only this call: the one before, if it was there, is already older than the next call needs
+    const lines = this.dialog.lines.slice(this.dialog.lines.lastIndexOf("[Questa telefonata]") + 1);
+    const dropped = !this.out.ours && !this.leave && this.hangupAsked === null;
+    return { lines: this.brainOn && this.answeredAt !== null ? lines : [], dropped };
+  }
+
   /** the service is stopping, or the channel's socket dropped */
   shutdown(): void {
     this.finish("servizio fermo", true);

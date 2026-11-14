@@ -17,6 +17,8 @@ export const IDLE = 3 * 60_000;
 export const IDLE_WAITING = 10 * 60_000;
 /** Nobody talks for this long (and no job runs): the assistant asks once if they are still there, as a person would. */
 export const STILL_THERE = 30_000;
+/** ... unless they asked to wait ("one moment, I am looking for it"): then a person waits longer. */
+export const STILL_THERE_WAITING = 120_000;
 /** Voice in a row that interrupts the assistant while it talks (4 x 60 ms): less, and a cough or an echo silence it. */
 export const BARGE_FRAMES = 4;
 /** After this silence without an answer a filler starts: the median answer is 0.9 s, the slow ones 1.6-1.8. */
@@ -126,6 +128,15 @@ export interface CallSpec {
   speed: number;
   /** fillers with the same voice, PCM at 16 kHz: they cover a long wait before the answer */
   fillers: Int16Array[];
+  /** the call of a few minutes before with the same person (call-memory.ts): its thread goes on */
+  previous?: PreviousCall | null;
+}
+
+/** What the brain keeps of the last call: its dialog, and whether it dropped without a goodbye. */
+export interface PreviousCall {
+  lines: string[];
+  dropped: boolean;
+  agoMin: number;
 }
 
 export type Ask = { id: string; round: number; phrase: string; seq: number };
@@ -168,4 +179,9 @@ const LISTENING = new Set([
 export function onlyListening(text: string): boolean {
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
   return words.length > 0 && words.length <= 4 && words.every((w) => LISTENING.has(w));
+}
+
+/** "Wait a moment", "one second, I am looking for it": a silence they asked for. */
+export function asksToWait(text: string): boolean {
+  return /\b(un attimo|un attimino|un secondo|un momento|aspetta|aspettami|attendi|resta in linea)\b/i.test(text);
 }

@@ -233,8 +233,12 @@ export function voiceTools(p: VoicePersona, speaksWhileThinking: boolean): [{ fu
 }
 
 /** The first turn, as soon as the call is open and Gemini is ready: the one who answers the phone speaks first. */
-export function opening(p: VoicePersona, d: Direction): string {
+export function opening(p: VoicePersona, d: Direction, dropped = false): string {
   const { name, assistant } = p;
+  // the line dropped a few minutes ago and they called back: "Hi, tell me" as if nothing had happened sounds like a stranger
+  if (dropped && d.kind === "incoming") {
+    return `[${name} ti ha richiamato: la telefonata di poco fa è caduta a metà. Di' solo «Eccomi, è caduta la linea» e in mezza frase riprendi da dove eravate rimasti.]`;
+  }
   switch (d.kind) {
     case "incoming":
       return `[${name} ti ha chiamato e hai appena risposto. Di' solo un saluto brevissimo, per esempio «Ciao ${name}, dimmi».]`;

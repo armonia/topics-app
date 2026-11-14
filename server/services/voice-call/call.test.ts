@@ -381,6 +381,43 @@ describe("call loop", () => {
     expect(w.first("fine")?.data.motivo).toBe("silenzio");
   });
 
+  test("after 'aspetta un attimo' the silence is theirs: no 'are you there?' for two minutes", async () => {
+    const w = new World();
+    await w.greet();
+    w.say(900);
+    await w.advance(1000);
+    w.main.emit({ type: "heard", text: "Aspetta un attimo che lo cerco." });
+    w.geminiSays(500, "Certo, fai pure.", { turn: true });
+    await w.advance(60_000);
+    expect(w.has("ci_sei")).toBe(false);
+    await w.advance(62_000);
+    expect(w.has("ci_sei")).toBe(true);
+  });
+
+  test("a call back after a dropped line picks up the thread", async () => {
+    const lines = ["Ada: com'è andata la riunione col fornitore?", "Jarvis: Hanno accettato lo sconto del dieci per cento."];
+    const w = new World({ brain: true, previous: { lines, dropped: true, agoMin: 2 } });
+    w.main.emit({ type: "ready", resumed: false });
+    await w.advance(60);
+    expect(w.main.texts()[0]).toContain("è caduta la linea");
+    w.geminiSays(600, "Eccomi, è caduta la linea. Dicevamo dello sconto.", { turn: true });
+    await w.advance(1500);
+    w.main.emit({ type: "heard", text: "e sulle consegne?" });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "e sulle consegne?" } });
+    await w.advance(100);
+    const user = String(w.thinks.at(-1)!.args[1]);
+    expect(user).toContain("sconto del dieci per cento");
+    expect(user).toContain("caduta senza saluti");
+    // the memory handed to the next call holds only this call
+    expect(w.call.memory().lines.join(" ")).not.toContain("sconto del dieci");
+  });
+
+  test("a call that ended with a goodbye is not resumed as dropped", () => {
+    const w = new World({ brain: true, previous: { lines: ["Ada: ciao"], dropped: false, agoMin: 3 } });
+    w.main.emit({ type: "ready", resumed: false });
+    expect(w.main.texts()[0]).toContain("Ciao Ada, dimmi");
+  });
+
   test("a handed-off job is told when the line is free, in two or three phrases", async () => {
     const w = new World();
     await w.greet();
