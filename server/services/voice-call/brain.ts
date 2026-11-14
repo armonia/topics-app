@@ -97,14 +97,22 @@ export function system(p: VoicePersona, now: string): string {
   );
 }
 
-export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string, uncertain = false): string {
+/** How sure the transcript is: "partial" = whisper heard nothing, "two" = two readings of a short phrase that do not agree. */
+export type Doubt = "none" | "partial" | "two";
+
+export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string, doubt: Doubt = "none"): string {
   let t = "";
   const past = dialog.render();
   if (past) t += `La telefonata finora:\n${past}\n\n`;
-  t += `${name} adesso ha detto: «${phrase.trim()}»`;
   const h = heard.trim();
+  if (doubt === "two") {
+    t += `${name} adesso ha detto una frase corta, sentita in due modi: «${phrase.trim()}» oppure «${h}».`;
+    t += "\n(Prendi la lettura che ha senso nel discorso; se nessuna ne ha, chiedigli in breve di ripetere. Non ripetere ad alta voce una parola che non ha senso.)";
+    return t;
+  }
+  t += `${name} adesso ha detto: «${phrase.trim()}»`;
   if (h && h.toLowerCase() !== phrase.trim().toLowerCase()) t += ` (la voce aveva capito: «${h}»)`;
-  if (uncertain) t += "\n(Trascrizione incerta: dal telefono è arrivato solo questo, il resto non si è sentito. Se non basta a capire, chiedigli in breve di ripetere, senza tirare a indovinare.)";
+  if (doubt === "partial") t += "\n(Trascrizione incerta: dal telefono è arrivato solo questo, il resto non si è sentito. Se non basta a capire, chiedigli in breve di ripetere, senza tirare a indovinare.)";
   return t;
 }
 
