@@ -147,6 +147,25 @@ describe("gemini session", () => {
     s.close();
   });
 
+  test("a session Google has forgotten is not resumed again: the next setup starts fresh", async () => {
+    const { s, sockets } = session();
+    sockets[0]!.open();
+    sockets[0]!.server({ setupComplete: {} });
+    sockets[0]!.server({ sessionResumptionUpdate: { newHandle: "H1", resumable: true } });
+    await tick();
+    sockets[0]!.readyState = 3;
+    sockets[0]!.onclose?.({ code: 1011, reason: "Internal error encountered." });
+    await tick();
+    sockets[1]!.open();
+    expect(sockets[1]!.sent[0].setup.sessionResumption).toEqual({ handle: "H1" });
+    sockets[1]!.readyState = 3;
+    sockets[1]!.onclose?.({ code: 1008, reason: "BidiGenerateContent session not found or expired" });
+    await tick();
+    sockets[2]!.open();
+    expect(sockets[2]!.sent[0].setup.sessionResumption).toEqual({});
+    s.close();
+  });
+
   test("four attempts without a ready session and the call is told the line is gone", async () => {
     const { sockets, events } = session();
     for (let i = 0; i < 4; i++) {

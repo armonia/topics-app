@@ -405,6 +405,11 @@ export class GeminiSession {
     };
     ws.onclose = (ev) => {
       if (why !== "goAway") why = ev?.code ? `chiusa ${ev.code}: ${ev.reason ?? ""}`.trim() : "chiusa";
+      // the handle points at a session Google no longer has: resuming it fails at
+      // every attempt and the call dies (bench of 14/11: a 1011 from Google, then
+      // 1008 "session not found or expired" three times). A fresh session keeps the
+      // call alive; the conversation so far is lost to Gemini, not to the brain
+      if (ev?.code === 1008 && /session not found|expired/i.test(ev.reason ?? "")) this.handle = null;
       finish();
     };
   }
