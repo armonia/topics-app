@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.106 — 2026-11-14
+
+### Sotto il cofano
+- i nodi server con la stessa card del Mac, senza doppioni e senza righe sovrapposte (#975)
+
 ## 2.3.104 — 2026-11-14
 
 ### Sotto il cofano

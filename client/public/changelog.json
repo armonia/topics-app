@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.106",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i nodi server con la stessa card del Mac, senza doppioni e senza righe sovrapposte (#975)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.104",
     "date": "2026-11-14",
     "sections": {
