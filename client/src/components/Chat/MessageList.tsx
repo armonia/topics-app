@@ -2470,7 +2470,6 @@ export function MessageList({
                   copiedMsgId={copiedMsgId}
                   isCompact={isCompact}
                   fontSize={settings.fontSize}
-                  isMobile={isMobile}
                   onReply={onReply}
                   onCopy={onCopy}
                   onTogglePin={onTogglePin}

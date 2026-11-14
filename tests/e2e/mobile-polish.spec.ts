@@ -2,8 +2,8 @@
  * THE PHONE PASS OF 14/11: six defects found by touring every surface at
  * 375px with a finger, each one measured here on the DOM.
  *
- * MOBILE-POLISH-01  a chat table breaks between words, never inside one, and
- *                   fades at the edge that has more to scroll
+ * MOBILE-POLISH-01  a chat table breaks between words, never inside one, and a
+ *                   reply uses the whole row on a phone
  * MOBILE-POLISH-02  the usage KPI cards show their whole value on a phone
  * MOBILE-POLISH-03  a tap never opens a hover tooltip
  * MOBILE-POLISH-04  a pane stacked under another in the same cell is shown alone
@@ -73,15 +73,14 @@ test("MOBILE-POLISH-01: a chat table breaks between words, never inside one", as
   // scrolls inside its own wrapper.
   const docOverflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   expect(docOverflow).toBeLessThanOrEqual(0);
-  // …and SAYS it scrolls: iOS hides the scrollbar, so without the fade the cut
-  // at the edge read as content chopped off. Right edge at rest, both edges
-  // once scrolled a little, left only at the end.
-  const scroller = page.locator(".message-content .scroll-fade-x").first();
-  await expect(scroller).toHaveAttribute("data-fade", "right");
-  await scroller.evaluate((el) => { el.scrollLeft = 20; });
-  await expect(scroller).toHaveAttribute("data-fade", "both");
-  await scroller.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
-  await expect(scroller).toHaveAttribute("data-fade", "left");
+  // …and a reply uses the whole row. The phone used to cap every reply 64px
+  // short of the edge (`calc(100vw - 5rem)`, from when the sidebar sat beside
+  // the chat), so a table was cut while empty room sat on its right.
+  const gap = await page.locator(".message-content table").first().evaluate((t) => {
+    const row = t.closest('[data-testid="chat-message"]')!.getBoundingClientRect();
+    return Math.round(row.right - t.parentElement!.getBoundingClientRect().right);
+  });
+  expect(gap).toBeLessThanOrEqual(4);
 });
 
 test("MOBILE-POLISH-02: the usage KPI cards show their whole value on a phone", async ({ page, request }) => {
