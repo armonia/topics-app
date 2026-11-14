@@ -3794,8 +3794,6 @@
     ],
     "server/routes/chat.ts": [
       "adottaTurnoVivo",
-      "avviso",
-      "cevt",
       "chatIdempotency",
       "idempotencyKey",
       "idempotencySlot",

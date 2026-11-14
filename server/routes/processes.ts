@@ -1,3 +1,4 @@
+import { drainOutput } from "../lib/drain-output";
 import type { AppContext, RouteHandler } from "../types";
 import { sliceFromCursor } from "../lib/log-cursor";
 import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
