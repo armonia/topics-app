@@ -57,6 +57,8 @@ describe("sha-off-main con git vero, chiesto in prepare()", () => {
     execFileSync("git", args, { cwd, env: gitEnv(), encoding: "utf8" }).trim();
   const repo = (dir: string) => {
     g(dir, "init", "-q", "-b", "main");
+    g(dir, "config", "user.email", "synthetic@example.invalid");
+    g(dir, "config", "user.name", "Synthetic");
     writeFileSync(join(dir, "a.txt"), "a\n");
     g(dir, "add", "a.txt");
     g(dir, "commit", "-q", "-m", "init");
