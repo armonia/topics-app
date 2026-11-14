@@ -35,3 +35,4 @@ processes submenu fill < 50 ms CPU.
 
 Fix: `binTrunc()` uses binary search (O(log n) calls). Bench result after
 the fix: processes submenu 4 ms, apertura median 18 ms, exit 0.
+
