@@ -18,13 +18,28 @@ import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { createProviderRegistry, matchServer, writeProviderToken, type ProviderRegistry } from "../services/machine-providers";
 
+/** Global IPv4 addresses bound to this machine's interfaces: what a provider lists as the server's address. */
+function localPublicAddresses(): string[] {
+  const out: string[] = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list ?? []) {
+      if (a.internal || a.family !== "IPv4") continue;
+      const [p, q] = a.address.split(".").map(Number);
+      const isPrivate = p === 10 || p === 127 || (p === 172 && q >= 16 && q <= 31) || (p === 192 && q === 168) || (p === 169 && q === 254) || (p === 100 && q >= 64 && q <= 127);
+      if (!isPrivate) out.push(a.address);
+    }
+  }
+  return out;
+}
+
 const REMOTE_TIMEOUT_MS = 5_000;
 const SAMPLE_GAP_MS = 30_000;
 const MAX_SAMPLES = 720;
 /** A node's answer is reused this long so several windows polling do not become several calls to the node. */
 const REMOTE_TTL_MS = 10_000;
 
-type Remote = { metrics: MachineMetrics | null; reason: string | null };
+type Identity = { hostname: string; ips: string[] };
+type Remote = { metrics: MachineMetrics | null; reason: string | null; identity?: Identity };
 
 export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: ProviderRegistry; fetchImpl?: typeof fetch; now?: () => number } = {}): RouteHandler {
   const { json, readJSON, matchRoute, errorResponse, machineStore } = ctx;
@@ -48,8 +63,12 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
         });
         if (!res.ok) value = { metrics: null, reason: `http_${res.status}` };
         else {
-          const body = (await res.json()) as { metrics?: MachineMetrics };
-          value = body.metrics ? { metrics: body.metrics, reason: null } : { metrics: null, reason: "empty" };
+          const body = (await res.json()) as { metrics?: MachineMetrics; hostname?: unknown; publicIps?: unknown };
+          const identity: Identity = {
+            hostname: typeof body.hostname === "string" ? body.hostname : "",
+            ips: Array.isArray(body.publicIps) ? body.publicIps.filter((x): x is string => typeof x === "string") : [],
+          };
+          value = body.metrics ? { metrics: body.metrics, reason: null, identity } : { metrics: null, reason: "empty" };
         }
       } catch {
         value = { metrics: null, reason: "unreachable" };
@@ -77,11 +96,12 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
       const isLocal = m.id === local?.id;
       let metrics: MachineMetrics | null = null;
       let reason: string | null = null;
+      let identity: Identity | undefined;
       if (isLocal) metrics = readLocalMetrics(now());
       else if (!m.baseUrl || isCloudBaseUrl(m.baseUrl)) reason = "not_a_node";
-      else ({ metrics, reason } = await readRemote(m.id, m.baseUrl));
+      else ({ metrics, reason, identity } = await readRemote(m.id, m.baseUrl));
 
-      const server = isLocal ? null : matchServer(servers, m);
+      const server = isLocal ? null : matchServer(servers, { ...m, reportedHostname: identity?.hostname, reportedIps: identity?.ips });
       // The provider's own word wins over a silent node: a machine it says is powered off is stopped, not broken.
       const stopped = server?.status === "off";
       const adapterId = server?.adapterId ?? null;
@@ -108,7 +128,7 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
   return async function machinesOverviewRouter(req, _url, pathname, method) {
     if (method === "GET" && pathname === "/api/machines/overview") return json(await overview());
     if (method === "GET" && pathname === "/api/system/machine-metrics") {
-      return json({ metrics: readLocalMetrics(now()), hostname: os.hostname() });
+      return json({ metrics: readLocalMetrics(now()), hostname: os.hostname(), publicIps: localPublicAddresses() });
     }
     const tokenRoute = matchRoute(pathname, "/api/machines/providers/:id/token");
     if (tokenRoute && method === "PUT") {

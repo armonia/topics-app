@@ -18,6 +18,9 @@ import type { AppContext, RouteHandler } from "../types";
 import { ensureMcpFleet, remountMcpFleet, mcpFleetStatus, executeMcpTool, mcpToolSpecs } from "../providers/native/mcp-fleet";
 import { startMcpAuthorization } from "../providers/native/mcp-oauth";
 import { agentAuthOk } from "../lib/agent-auth";
+import { detectAgents } from "../lib/detect-agents";
+import { buildAgentToolsInventory } from "../lib/agent-tools";
+import { readAgentToolsSettings, writeAgentToolsSettings } from "../lib/agent-tools-settings";
 
 export function createMcpRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse } = ctx;
@@ -47,6 +50,35 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
       const input = body.input && typeof body.input === "object" ? body.input as Record<string, unknown> : {};
       const result = await executeMcpTool(body.name, input);
       return json({ result, specs: mcpToolSpecs() });
+    }
+    /**
+     * The agents' tools as one inventory (MCP, skills, CLIs), for the user menu
+     * page and for `topics tools`. `?project=<dir>` adds that project's own
+     * `.mcp.json` and skills.
+     */
+    if (pathname === "/api/agent-tools" && method === "GET") {
+      await ensureMcpFleet();
+      return json(buildAgentToolsInventory({
+        projectDir: url.searchParams.get("project"),
+        settings: readAgentToolsSettings(),
+        fleet: mcpFleetStatus(),
+        clis: detectAgents(),
+      }));
+    }
+    /** Park or mount an MCP server, or change the extra sources. */
+    if (pathname === "/api/agent-tools/settings" && method === "POST") {
+      const body = await readJSON(req) as { park?: unknown; mount?: unknown; extraMcpFiles?: unknown; extraSkillDirs?: unknown } | null;
+      const current = readAgentToolsSettings();
+      let parked = current.parkedMcp;
+      if (typeof body?.park === "string") parked = [...parked, body.park];
+      if (typeof body?.mount === "string") parked = parked.filter((n) => n !== body.mount);
+      const saved = writeAgentToolsSettings({
+        parkedMcp: parked,
+        ...(Array.isArray(body?.extraMcpFiles) ? { extraMcpFiles: body.extraMcpFiles as string[] } : {}),
+        ...(Array.isArray(body?.extraSkillDirs) ? { extraSkillDirs: body.extraSkillDirs as string[] } : {}),
+      });
+      await remountMcpFleet();
+      return json(saved);
     }
     if (pathname === "/api/mcp/fleet/refresh" && method === "POST") {
       await remountMcpFleet();

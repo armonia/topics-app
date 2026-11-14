@@ -57,6 +57,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -65,7 +66,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -230,6 +231,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createHeavySlotRouter } from "./server/routes/heavy-slot";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
@@ -257,7 +259,7 @@ import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { findClaudeTranscript, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { keepLiveTranscripts, restoreSweptTranscript } from "./server/lib/transcript-keeper";
 import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -1373,6 +1375,14 @@ async function watchHeadlessBody(
     isWaitingForBackground: stallBackgroundHold(sessionKey),
     // A foreground spawn_agent waiting for its child: our own wait as well.
     isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
+    // A foreground command (cargo test, a mutation run) is still executing: the
+    // transcript tail is silent for all of it and the judge would misread it.
+    isToolRunning: () => {
+      const stream = activeStreams.get(sessionKey);
+      // The row is written on a throttle: flush so the running tool's line is on it.
+      if (stream) flushTurnBody(sessionKey);
+      return !!stream && foregroundToolHold(getMessageById(stream.messageId), Date.now());
+    },
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     // Once per change of reason: a hold lasting an hour rearmed every five
@@ -1389,6 +1399,8 @@ async function watchHeadlessBody(
             ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
           : reason === "subagent"
             ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
+          : reason === "tool"
+            ? `[turn] stall watch rearmed on ${sessionKey}: a tool call is still running, the judge is not asked`
           : reason === "checks"
             ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
             : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -2658,7 +2670,13 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
-  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
+  // Attempt branches plus the card's own delivery/prior pointers: an old delivery
+  // branch of the same card is its history, never "another session".
+  ownBranches: (taskId) => {
+    const task = dispatcherSvc.get(taskId)?.task;
+    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
+    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+  },
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
@@ -2700,9 +2718,7 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
-  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
@@ -2949,6 +2965,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -3142,6 +3160,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The machine-wide queue for heavy commands, asked by every harness on this Mac.
+const heavySlotRouter = createHeavySlotRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
 // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
@@ -3235,6 +3255,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
@@ -3721,6 +3745,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  heavySlotRouter,
   agentChannelsRouter,
   agentConfigRouter,
   tabsRouter,
@@ -4363,7 +4388,21 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        // `Bun.file(...).exists()` resolves to `false` on every stat error this
+        // machine could produce (verified by hand: ENOENT, a path through a
+        // non-directory, a name long enough for ENAMETOOLONG — none of them
+        // throw), so nothing between here and the `return` above is known to
+        // reach this catch today. The real byte-for-byte read (the one that
+        // CAN throw EACCES, e.g. a 0-perm file whose `stat` still succeeds)
+        // happens lazily once Bun streams the returned `Response` body, which
+        // is after this function has already returned — outside this
+        // try/catch entirely. Kept as a backstop (logged, not swallowed) for
+        // whatever future Bun behavior or edge case does land here; not
+        // covered by an automated test for the reason above.
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -4784,7 +4823,15 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try {
+                await cleanup?.();
+              } catch (err) {
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
+                console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
+              }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //
@@ -6140,6 +6187,8 @@ function reconcileOrphanedTranscripts(): void {
         nowMs: now,
         graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
         transcriptExists: existsSync,
+        // Moved, not gone: `--resume` finds it by id from any folder.
+        findAnywhere: (id) => findClaudeTranscript(cwd ?? "/", id),
       })
     )
       continue;
@@ -6317,6 +6366,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
@@ -6380,6 +6431,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

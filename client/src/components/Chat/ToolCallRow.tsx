@@ -336,7 +336,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const effectiveOpen = bodyIsOpen({
     userToggled,
     open,
-    isSubAgent: detail.type === 'sub_agent',
+    isSubAgent: detail.type === 'sub_agent' || detail.type === 'task_card',
     isHumanTurn,
     autoOpen,
   });
@@ -462,7 +462,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // the plain row (nothing to open).
   // Sub-agent rows drop the chevron column and the command name (`Explore`):
   // the row is icon + description + time, and the type stays in its title.
-  const isSubAgent = detail.type === 'sub_agent';
+  const isSubAgent = detail.type === 'sub_agent' || detail.type === 'task_card';
   const headerInner = (
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con

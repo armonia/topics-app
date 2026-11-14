@@ -23,7 +23,7 @@
 import type { AppContext } from "../types";
 import { profileStatsCached } from "../services/profile-stats";
 import { getAppSettings } from "../services/app-settings";
-import { escapeHtml } from "../views/view-html";
+import { escapeHtml } from "../lib/escape-html";
 
 function compatto(n: number): string {
   const a = Math.abs(n);

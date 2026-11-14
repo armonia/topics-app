@@ -272,7 +272,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   const { svc, log, emit, inFlight, releaseAndEmit } = host;
 
   /**
-   * The LAST run id created on a node for a task, kept per task.
+   * The LAST run id created on a node for a task, kept per task and PERSISTED on the card
+   * (`tasks.node_run_id`): a restart of this server must not forget the run, or the next dispatch
+   * skips the cancel and the node hands the old finished copy back (13/11).
    *
    * Deliberately NOT in `inFlight`: a buried run leaves `inFlight`, and it is
    * exactly then that this id is needed. A run this board gave up on may still
@@ -280,7 +282,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * first (KANBAN-77) - without that the card collects two deliveries and two
    * branches.
    */
-  const lastNodeRun = new Map<string, string>();
+  const lastNodeRun = {
+    get: (taskId: string): string | null => svc.nodeRunOf(taskId),
+    set: (taskId: string, runId: string): void => svc.setNodeRun(taskId, runId),
+    delete: (taskId: string): void => svc.setNodeRun(taskId, null),
+  };
   /**
    * One `node-run` hook at a time per machine. The hook wakes the machine and
    * syncs the repo over one tunnel: on 10/11 five cards for the PC ran it
@@ -632,6 +638,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         );
         return;
       }
+      // The node does not run this card's model: another machine may. The card
+      // goes back to the queue with no fixed machine and says so in its thread.
+      if (nodeFailureReason(err) === "model_rejected") {
+        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
+        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo il rifiuto del modello`, e); parkNodeCard(task, `Il nodo «${name}» non esegue il modello della card.`); return; }
+        try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+        catch (e) { log(`nodo: la card ${task.id} non ha lasciato la macchina fissa`, e); }
+        try {
+          svc.addComment({
+            taskId: task.id, author: "system", kind: "service",
+            content: `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`,
+          });
+        } catch { /* the requeue stands without its line */ }
+        return;
+      }
       // A 400/422 is the node refusing THIS card (12/11: a model outside its
       // catalog, retried every 5 minutes for half an hour as a silent node).
       if (nodeFailureReason(err) === "rejected") {
@@ -868,7 +889,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
-    let planted: PlantBranchResult = { planted: false, commit: null, reason: report.reason || "il nodo non ha consegnato nessun ramo" };
+    let planted: PlantBranchResult = {
+      planted: false, commit: null, commitCount: 0, reason: report.reason || "il nodo non ha consegnato nessun ramo",
+    };
     if (branch) {
       let bundle: Uint8Array | null = null;
       let fetchFailed: string | null = null;
@@ -882,12 +905,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         log(`nodo: bundle della corsa ${node.runId} non scaricato`, err);
       }
       planted = fetchFailed
-        ? { planted: false, commit: null, reason: fetchFailed }
+        ? { planted: false, commit: null, commitCount: 0, reason: fetchFailed }
         : await client
           .plantBranch({ projectId: task.projectId, branch, baseSha: report.baseSha, bundle })
           .catch((err): PlantBranchResult => {
             log(`nodo: impianto del ramo ${branch} fallito`, err);
-            return { planted: false, commit: null, reason: "l'impianto del ramo è fallito su questa macchina" };
+            return { planted: false, commit: null, commitCount: 0, reason: "l'impianto del ramo è fallito su questa macchina" };
           });
       if (planted.planted) {
         try {
@@ -910,7 +933,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
     }
     const fresh = svc.get(taskId)?.task;
-    const producedNothing = planted.planted ? !!fresh && !fresh.deliveryCommit : !branch && !report.reason && !report.dispatchError;
+    // The planted branch's own commit COUNT above its base, not the run's: a
+    // run that adds nothing to a branch already ahead of main is a delivery
+    // the review door must see, and `commitCount` answers that regardless of
+    // what THIS run's own-commit capture could attribute to it.
+    const producedNothing = planted.planted
+      ? !!fresh && planted.commitCount === 0
+      : !branch && !report.reason && !report.dispatchError;
     if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +
@@ -920,7 +949,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       ? "Da qui l'atterraggio è quello di sempre: guarda il diff e approva, oppure rimandala indietro."
       : "Il lavoro è sul nodo, non qui: sistema quello che manca e rimanda indietro la card per farla riconsegnare.";
     try {
-      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true });
+      const delivered = svc.deliverToReviewBySystem({ taskId, reason, nextMove, quietReason: true, deliveredTip: planted.commit ?? report.deliveryCommit ?? null });
       if (node.delegation) {
         try { host.recordDelegatedPhase?.({ taskId, phase: "completed", outcome: "review" }); }
         catch { /* audit never blocks delivery */ }

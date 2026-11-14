@@ -25,7 +25,7 @@ import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './accountPanelLazy';
 import { DevicesLevel } from './DevicesLevel';
-import { PlanLevel } from './FormLevels';
+import { AgentToolsLevel, PlanLevel } from './FormLevels';
 import { AccountQuotasRow } from './AccountQuotasRow';
 import { UsageRow } from './UsageRow';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
@@ -82,6 +82,7 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
         defaultOpen={openLevel === 'devices' || openLevel === 'nodes'}
         machinesOpen={openLevel === 'nodes'}
       />
+      <AgentToolsLevel defaultOpen={openLevel === 'tools'} />
     </>
   );
 }

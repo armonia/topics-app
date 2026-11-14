@@ -24,6 +24,7 @@ import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { walkActiveThread, type SkeletonRow } from "./lib/thread-skeleton";
 import { CONTEXT_PREFIX, hasMachineMark } from "../shared/prompt-number";
+import { observeCardFrame, type CardFrame } from "./services/card-outcome-wake";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
@@ -1072,6 +1073,13 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcastToAll(message: OutboundMessage) {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
+    // The chat that opened a card hears its outcome (`card-outcome-wake`).
+    if (typeof message.type === "string" && message.type.startsWith("task:")) {
+      const card = (message as { task?: unknown }).task as CardFrame | undefined;
+      if (card && typeof card.id === "string" && typeof card.status === "string") {
+        try { observeCardFrame(card); } catch { /* a wake must never break a broadcast */ }
+      }
+    }
     const frame = presentedMessage as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
     // A topic frame reaches only the windows holding that topic. It goes through the same loop as
     // every other frame, so the guest rules below still decide what a guest receives.
@@ -2924,25 +2932,39 @@ export function createAppContext(baseDir: string): AppContext {
           try {
             const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
             for (const line of lines) {
+              let d: unknown;
               try {
-                const d = JSON.parse(line);
-                if (d.type === "message" && d.message) {
-                  const msg = d.message;
-                  if (msg.role === "user" || msg.role === "assistant") {
-                    let text = "";
-                    if (typeof msg.content === "string") text = msg.content;
-                    else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c.type === "text").map((c) => c.text).join("\n");
-                    if (text.toLowerCase().includes(lowerQuery)) {
-                      results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: d.timestamp || null });
-                      if (results.length >= limit) return results;
-                    }
+                d = JSON.parse(line);
+              } catch {
+                continue;
+              }
+              // Skip non-object rows (e.g. a bare `null` line) before touching
+              // .type/.message below — otherwise a single malformed row throws
+              // outside any try and aborts the whole session's scan.
+              if (!d || typeof d !== "object") continue;
+              const entryRecord = d as { type?: string; message?: unknown; timestamp?: string | null };
+              if (entryRecord.type === "message" && entryRecord.message && typeof entryRecord.message === "object") {
+                const msg = entryRecord.message as { role?: string; content?: unknown };
+                if (msg.role === "user" || msg.role === "assistant") {
+                  let text = "";
+                  if (typeof msg.content === "string") text = msg.content;
+                  else if (Array.isArray(msg.content)) text = (msg.content as { type?: string; text?: string }[]).filter((c) => c && typeof c === "object" && c.type === "text").map((c) => c.text).join("\n");
+                  if (text.toLowerCase().includes(lowerQuery)) {
+                    results.push({ messageId: null, sessionKey: key, topicId: topic?.id || null, topicName: topic?.name || key, topicIcon: topic?.icon || "MessageSquare", role: msg.role, content: text, timestamp: entryRecord.timestamp || null });
+                    if (results.length >= limit) return results;
                   }
                 }
-              } catch {}
+              }
             }
-          } catch {}
+          } catch (err) {
+            console.warn(`[Search] legacy transcript scan failed for ${entry.sessionId}:`, err);
+          }
         }
-      } catch {}
+      } catch (err) {
+        // sessions.json is unreadable or malformed: legacy JSONL transcripts are
+        // skipped for this search, but the SQLite `messages` hits above still apply.
+        console.warn("[Search] legacy sessions.json scan failed:", err);
+      }
     }
 
     return results;

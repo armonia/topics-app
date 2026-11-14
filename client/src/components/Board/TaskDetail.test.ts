@@ -30,12 +30,12 @@
  * @covers CMDRUN-04
  */
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { readDrawerSource } from './drawerSource.test';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(here, 'TaskDetail.tsx'), 'utf8');
+const src = readDrawerSource(here);
 
 /** The body of the effect that listens to the live wire. */
 const wireEffect = (() => {

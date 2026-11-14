@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, renameSync, rmSync } from "fs";
+import type * as fs from "fs";
 import { readdir as readdirAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
@@ -588,14 +589,16 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
         const logArgs = ["git", "log", `--max-count=${limit}`, "--format=%H|%h|%s|%an|%ar|%aI"];
-        try {
-          const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
-          const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          // Stesso confronto su path RISOLTI di `/api/git/status`: con un link
-          // simbolico di mezzo il log tornava quello di tutto il repo.
-          const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
-          if (prefix) logArgs.push("--", prefix.replace(/\/$/, ""));
-        } catch {}
+        const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
+        const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
+        // A TIMEOUT here must not look like "not a git repo": that silently
+        // drops the subdirectory scope and runs the log unscoped against the
+        // whole repository instead of surfacing the failure.
+        if (toplevelProc.timedOut) throw new Error("git rev-parse --show-toplevel timed out");
+        // Stesso confronto su path RISOLTI di `/api/git/status`: con un link
+        // simbolico di mezzo il log tornava quello di tutto il repo.
+        const { prefix } = repoPrefixOf(resolvedDir, gitRoot);
+        if (prefix) logArgs.push("--", prefix.replace(/\/$/, ""));
         const proc = spawnBounded(logArgs, { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
         const logText = (await new Response(proc.stdout).text()).trim();
         const commits = logText.split("\n").filter(Boolean).map(line => { const [hash, shortHash, message, author, ago, date] = line.split("|"); return { hash, shortHash, message, author, ago, date }; });
@@ -618,12 +621,12 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       const resolvedDir = resolveProjectPath(dirPath);
       if (!resolvedDir) return errorResponse(400, "Invalid path");
       try {
-        let prefix = "";
-        try {
-          const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
-          const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
-          prefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
-        } catch {}
+        const toplevelProc = spawnBounded(["git", "rev-parse", "--show-toplevel"], { cwd: resolvedDir, stdout: "pipe", stderr: "pipe", timeoutMs: SPAWN_TIMEOUT.query });
+        const gitRoot = (await new Response(toplevelProc.stdout).text()).trim();
+        // Same reasoning as /api/git/log: a timeout must not be read as "not a
+        // git repo" and silently fall back to an unscoped lookup.
+        if (toplevelProc.timedOut) throw new Error("git rev-parse --show-toplevel timed out");
+        const prefix = repoPrefixOf(resolvedDir, gitRoot).prefix;
         const leggi = async (args: string[]) => {
           const proc = spawnBounded(args, { cwd: resolvedDir, stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query });
           const text = await new Response(proc.stdout).text();
@@ -1235,34 +1238,47 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       // powers file search over a whole project tree, the largest scan in the file.
       async function walkFlat(dir: string): Promise<void> {
         if (files.length >= maxFiles) return;
+        let entries: fs.Dirent[];
         try {
-          const entries = await readdirAsync(dir, { withFileTypes: true });
-          for (const entry of entries) {
-            if (files.length >= maxFiles) return;
-            if (allExcludes.has(entry.name)) continue;
-            // Check glob-style excludes
-            let skip = false;
-            for (const pattern of allExcludes) {
-              if (pattern.startsWith("*.") && entry.name.endsWith(pattern.slice(1))) { skip = true; break; }
-              if (pattern.endsWith("*") && entry.name.startsWith(pattern.slice(0, -1))) { skip = true; break; }
-            }
-            if (skip) continue;
-            const fullPath = join(dir, entry.name);
-            if (entry.isDirectory()) {
-              // Other apps' data (`lib/protected-app-data.ts`): this walk has no
-              // depth limit, so from HOME or ~/Library it would read straight
-              // into Containers and make macOS ask for access.
-              if (!isProtectedFromWalk(fullPath, resolvedPath!)) await walkFlat(fullPath);
-            } else if (entry.isFile()) {
-              // resolvedPath is guaranteed non-null (guarded at the top of the
-              // handler); TS just loses the narrowing inside this closure.
-              files.push(relative(resolvedPath!, fullPath));
-            }
+          entries = await readdirAsync(dir, { withFileTypes: true });
+        } catch (err) {
+          // The ROOT directory must surface a real failure, not look like an
+          // empty project (200 `{files: []}`). A NESTED directory this process
+          // cannot read (permissions, a vanished symlink target) is skipped —
+          // that one is intentional: this applies ONLY to nested dirs, never
+          // to the root.
+          if (dir === resolvedPath) throw err;
+          return;
+        }
+        for (const entry of entries) {
+          if (files.length >= maxFiles) return;
+          if (allExcludes.has(entry.name)) continue;
+          // Check glob-style excludes
+          let skip = false;
+          for (const pattern of allExcludes) {
+            if (pattern.startsWith("*.") && entry.name.endsWith(pattern.slice(1))) { skip = true; break; }
+            if (pattern.endsWith("*") && entry.name.startsWith(pattern.slice(0, -1))) { skip = true; break; }
           }
-        } catch {}
+          if (skip) continue;
+          const fullPath = join(dir, entry.name);
+          if (entry.isDirectory()) {
+            // Other apps' data (`lib/protected-app-data.ts`): this walk has no
+            // depth limit, so from HOME or ~/Library it would read straight
+            // into Containers and make macOS ask for access.
+            if (!isProtectedFromWalk(fullPath, resolvedPath!)) await walkFlat(fullPath);
+          } else if (entry.isFile()) {
+            // resolvedPath is guaranteed non-null (guarded at the top of the
+            // handler); TS just loses the narrowing inside this closure.
+            files.push(relative(resolvedPath!, fullPath));
+          }
+        }
       }
-      await walkFlat(resolvedPath);
-      return json({ files });
+      try {
+        await walkFlat(resolvedPath);
+        return json({ files });
+      } catch (err) {
+        return json({ error: "Failed to list files: " + (err instanceof Error ? err.message : String(err)) }, 500);
+      }
     }
 
     // --- Package.json scripts ---

@@ -33,14 +33,13 @@
  *      again at every beat of the wait AND, inside the repo's queue, a moment
  *      before the merge itself (`recheck`, asked as `DeliverySnapshot.beforeMerge`),
  *      because the wait lasts hours and the queue and the fetch minutes.
- *   9. a list of words cannot say that a file is harmless: 242 files of
- *      `server/lib|services|utils` passed the vocabulary net, among them the one
- *      that builds the agents' environment, the one that runs the bar and the one
- *      that sets the restart gate. So only TEXT AND TESTS land alone (`docs/`,
- *      `openspec/`, test files); everything else, `server/**` included, is a
- *      person's. A reviewer AI will be able to unblock server code only with an
- *      identity the server verifies, never with a line in a comment (a comment is
- *      signed by whatever session the URL names).
+ *   9. what only a person can judge stays a person's, named by place
+ *      (`personPlace`): the interface, the public site, what reaches people,
+ *      security and money, the dependency set, and the judge itself. Until
+ *      14/11/2026 the net was the other way round (only text and tests landed
+ *      alone, after 242 server files had slipped through a list of words); the
+ *      owner's rule of 09/11 turned it: technical cards close themselves, with
+ *      the whole bar green on the commit that lands.
  */
 import { STAGE_AI_REVIEW, agentAskInThread } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
@@ -144,29 +143,68 @@ function personSpokeSinceReview(reviewAt: string | null, thread: ReadonlyArray<A
 }
 
 /**
- * WHAT MAY LAND WITH NO ONE LOOKING: text and tests, by PLACE.
+ * WHAT MAY LAND WITH NO ONE LOOKING: everything technical, by PLACE.
  *
- *   - `docs/**` and `openspec/**`: nothing reads them as code;
- *   - a test file: `*.test.ts` beside its module, `tests/unit/**`,
- *     `tests/integration/**`, and `tests/e2e/**` specs.
+ * Until 14/11/2026 only text and tests landed alone, and every line of
+ * `server/**` waited for a person: 104 cards closed by hand in two weeks, a
+ * median of 4.8 hours each in review. The owner's rule (09/11) is the other way
+ * round: technical cards close themselves; a person looks only at what only a
+ * person can judge. So the list below names what stays a PERSON'S, and the rest
+ * lands once the whole bar is green on the commit that lands:
  *
- * Out even when they sit under those folders, because they are not tests but
- * part of what judges or runs them: `tests/setup/**` (the preload every run
- * loads), every `*.json`, every snapshot, `scripts/**`, `.github/**`, and any
- * file that `bunfig.toml`, `scripts/`, `package.json` or `.github/` NAME
- * (`referencedByTheJudge`, asked of git at the commit).
+ *   - what a person SEES: `client/src/**` outside tests, the public site
+ *     (`landing/**`), the README and the licence;
+ *   - what REACHES a person or a third party: push, presence, notifications,
+ *     mail, channels, voice, shares and guests;
+ *   - SECURITY and MONEY: auth, tokens, secrets, the environment an agent runs
+ *     in, the relay, licences, billing and prices, and the dependency set
+ *     (`package.json`, lockfiles: installing a package is running its code);
+ *   - THE JUDGE: what decides whether a card is green or may close alone (the
+ *     CI and its scripts, the test preload, ratchet baselines and every JSON,
+ *     snapshots, the checks gate, the labels, this module and its siblings).
+ *     An agent that edits its own judge would sign its own release.
+ *
+ * Migrations land alone: the live database is copied every ten seconds
+ * (Litestream), so a bad one is undone by a restore, not lost.
  */
+const PERSON_PLACES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(^|\/)node_modules\//, "dependencies"],
+  [/^client\/src\//, "interface"],
+  [/^(landing|site|public)\//, "public site"],
+  [/^(README|LICENSE|PRIVACY|SECURITY|THIRD-PARTY-NOTICES)(\.|$)/i, "public text"],
+  // A green main is released by itself (auto-bump → tauri-release): the shell, the relay and the nodes are a release.
+  [/^(desktop-tauri|relay|deploy|native)\//, "release or infrastructure"],
+  [/(^|\/)\.gitattributes$/, "the judge"],
+  [/(^|\/)Cargo\.(toml|lock)$/, "release or infrastructure"],
+  // Words read on EVERY segment of the path, not only the file name: `relay/src/worker.ts`, `claude-cloud/creds.ts`.
+  [/(^|\/)[^/]*(push|presence|discord|notif|mail|channel|voice|whatsapp|telegram|share(?!d(\/|$))|guest)[^/]*(\/|$)/i, "reaches a person"],
+  [/(^|\/)[^/]*(auth(?!or)|token|secret|crypt|creds?(\b|_|-|\.)|credential|permission|sandbox|relay|agent-env|child-env|licen[cs]|licenza|billing|stripe|pricing)[^/]*(\/|$)/i, "security or money"],
+  [/(^|\/)(package\.json|bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bunfig\.toml)$/, "dependencies or runner"],
+  [/^(scripts|\.github|tests\/setup)\//, "the judge"],
+  // Under tests/ only the test files themselves are tests: helpers, fixtures and the e2e setup are what they stand on.
+  [/^tests\//, "the judge"],
+  [/\.json$/i, "the judge"],
+  [/(^|\/)(__snapshots__|[^/]*-snapshots)\/|\.snap$/, "the judge"],
+  // The whole road from a delivery to main: what measures it, what decides who closes it, what lands it.
+  [/^server\/services\/(auto-land|red-bounce|checks-gate|checks-[a-z-]+|review-checks[^/]*|ci-[a-z-]+|integration-[a-z-]+|landing-[a-z-]+|node-delivery-meter|node-branch-plant|task-automerge[^/]*|task-merge|land-attribution-gate|deliveryReportChecks|board-actions|board-workflow|delivery-branch-ref|task-delivery-capture|own-commits|tasks)\.ts$/, "the judge"],
+  [/^server\/lib\/live-checkout-branch-guard\.ts$/, "the judge"],
+  [/^server\/routes\/(tasks|tasks-board|tasks-ci-phase)\.ts$/, "the judge"],
+  [/^shared\/(task-labels|workflow|board)\.ts$/, "the judge"],
+  [/^server\.ts$/, "the judge"],
+];
+
+const TEST_FILE = /\.(test|spec)\.[jt]sx?$/;
+
+/** Why a file is a person's to look at, or `null` when it may land with no one looking. */
+export function personPlace(path: string): string | null {
+  // A test beside its module is a test even under client/src or server/push-*: it changes no behaviour.
+  if (TEST_FILE.test(path) && !path.startsWith("tests/setup/") && !path.startsWith("scripts/") && !path.startsWith(".github/")) return null;
+  for (const [re, why] of PERSON_PLACES) if (re.test(path)) return why;
+  return null;
+}
+
 export function mayLandAloneByPlace(path: string): boolean {
-  if (/(^|\/)node_modules\//.test(path)) return false;
-  if (path.startsWith("tests/setup/") || path.startsWith("scripts/") || path.startsWith(".github/")) return false;
-  if (/\.json$/i.test(path)) return false;
-  if (/(^|\/)(__snapshots__|[^/]*-snapshots)\//.test(path) || /\.snap$/.test(path)) return false;
-  if (path.startsWith("docs/") || path.startsWith("openspec/")) return true;
-  if (path.startsWith("tests/")) {
-    if (path.startsWith("tests/unit/") || path.startsWith("tests/integration/")) return true;
-    return path.startsWith("tests/e2e/") && /\.spec\.[jt]sx?$/.test(path);
-  }
-  return /\.(test|spec)\.[jt]sx?$/.test(path);
+  return personPlace(path) === null;
 }
 
 /** Who must look at a delivery: no one (`alone`) or a person. */
@@ -179,7 +217,7 @@ export interface DeliveryReading {
 }
 
 /**
- * One file that is not text or a test makes the whole delivery a person's.
+ * One file in a person's place makes the whole delivery a person's.
  * `judged` are the files that the bar's own configuration names; they are never
  * "alone", whatever their folder.
  */
@@ -234,6 +272,8 @@ interface AutoLanderDeps {
    * turn: a question it writes right after would be cut before anyone read it.
    */
   cardTurnLive?: (taskId: string) => boolean;
+  /** Does a server diff of this card wait for ZERO open turns? Absent = yes. */
+  waitsForTurns?: (taskId: string) => boolean;
   pollMs?: number;
   maxWaitMs?: number;
   log?: (line: string) => void;
@@ -327,6 +367,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
   async function mustWait(taskId: string, files: readonly string[], how: { insideLand?: boolean } = {}): Promise<boolean> {
     if (deps.cardTurnLive?.(taskId) ?? false) return true;
     if (!touchesServer(files) || !deps.liveTurns) return false;
+    if (deps.waitsForTurns && !deps.waitsForTurns(taskId)) return false;
     try { return (await deps.liveTurns(how.insideLand ? { insideLand: true } : undefined)) > 0; } catch { return true; }
   }
 

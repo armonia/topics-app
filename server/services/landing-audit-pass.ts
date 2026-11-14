@@ -20,11 +20,13 @@
  * numero due sullo stesso fatto.
  */
 import { auditLandings, classifyLandingEsito, type AuditTask, type LandingState } from "./landing-audit";
-import { branchExistsInRepo, commitStatusFromRepo } from "./branch-status";
+import { branchExistsInRepo, commitStatusFromRepo, publishedMainRef } from "./branch-status";
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./landing-verdict";
 import { landedMergeRange } from "./task-diff-range";
+import { changeUndoneOn } from "./change-undone";
 import { buildProjectCandidates, resolveProjectPath } from "./project-path-resolver";
 import type { ProjectStore } from "./project-store";
+
 
 /** I cinque riferimenti che vivono in `server.ts` e non altrove. */
 export interface AuditWiring {
@@ -73,24 +75,46 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
   const indexOf = async (repoPath: string): Promise<ReadonlySet<string>> => {
     const gia = indici.get(repoPath);
     if (gia) return gia;
-    const nuovo = await indiceRigheMain(repoPath);
+    const nuovo = await indiceRigheMain(repoPath, await mainRefOf(repoPath));
     indici.set(repoPath, nuovo);
     return nuovo;
+  };
+  // "LANDED" MEANS ON origin/main, not on this disk. Until 2026-11-12 every
+  // question below ran against the LOCAL main, so a merge that never left the
+  // machine (the GC's `merge task 48588f6e`) read `landed`, and the next land
+  // would have published it with nobody looking. With an origin that has a
+  // main, the verdict is asked of `refs/remotes/origin/main`; the push sweep
+  // fetches it, and a successful push moves it. A repo with no origin has no
+  // published main, and its local one is the product: there `main` stays.
+  const refs = new Map<string, string>();
+  const mainRefOf = async (repoPath: string): Promise<string> => {
+    const known = refs.get(repoPath);
+    if (known) return known;
+    const ref = await publishedMainRef(repoPath);
+    refs.set(repoPath, ref);
+    return ref;
   };
   return {
     listCandidates,
     repoPath: (projectId: string) => resolveProjectPath(projectId, candidates)?.path ?? null,
-    commitStatus: (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit),
+    commitStatus: async (repoPath: string, commit: string) => commitStatusFromRepo(repoPath, commit, await mainRefOf(repoPath)),
+    // On the local main but not on the published one: `unpushed`, the state
+    // the push sweep owns and turns into `landed` once origin has it.
+    localOnly: async (task: AuditTask, repoPath: string): Promise<boolean> => {
+      if ((await mainRefOf(repoPath)) === "main" || !task.deliveryCommit) return false;
+      return (await commitStatusFromRepo(repoPath, task.deliveryCommit, "main")) === "merged";
+    },
     // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
     // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
     // pastiglia sulla card non possono più dire due cose diverse.
     debtVerdict: async (task: AuditTask, repoPath: string): Promise<LandingState> => {
       const indiceMain = await indexOf(repoPath);
+      const mainRef = await mainRefOf(repoPath);
       // Col ramo ancora vivo si può chiedere tutto (patch inversa, conflitto,
       // supersessione); potato il ramo resta la sola domanda sul contenuto.
       const verdetto = task.deliveryBranch && (await branchExistsInRepo(repoPath, task.deliveryBranch))
-        ? await classifyBranchLanding(repoPath, task.deliveryBranch, { indiceMain })
-        : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain });
+        ? await classifyBranchLanding(repoPath, task.deliveryBranch, { indiceMain, mainRef })
+        : await classifyCommitLanding(repoPath, task.deliveryCommit ?? "", { indiceMain, mainRef });
       return classifyLandingEsito(verdetto.esito);
     },
     // LA TERZA MANIGLIA, e l'unica che risponde quando le altre due sono
@@ -102,9 +126,18 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
     // atterraggio, e `-F` perche' il titolo della card e' prosa.
     //
     // `null` = nessun merge trovato, che non e' una smentita.
+    //
+    // A merge that was REVERTED is not a land (card 48588f6e: `3be5ccbad` and
+    // its manual revert `dc45baa74` both sit on origin/main). The merge's own
+    // change is `^1..merge`; if it applies forward on main's tree again, it is
+    // not there any more, and the answer is `false`.
     landedMerge: async (task: AuditTask, repoPath: string): Promise<boolean | null> => {
-      const trovato = await landedMergeRange(repoPath, task.id).catch(() => null);
-      return trovato ? true : null;
+      const mainRef = await mainRefOf(repoPath);
+      const trovato = await landedMergeRange(repoPath, task.id, { mainRef }).catch(() => null);
+      if (!trovato) return null;
+      const sha = trovato.range.split("..")[1] ?? "";
+      if (sha && (await changeUndoneOn(repoPath, `${sha}^1`, sha, mainRef)) === true) return false;
+      return true;
     },
     // IL VERDETTO DEVE ARRIVARE ALLO SCHERMO, non solo alla colonna del database.
     //
@@ -203,6 +236,8 @@ export async function auditOneLanding(deps: AuditWiring, taskId: string): Promis
   const one: AuditTask = {
     id: t.id, projectId: t.projectId,
     deliveryBranch: t.deliveryBranch ?? null, deliveryCommit: t.deliveryCommit,
+    // Without the column a review card would be counted as done debt.
+    status: t.status,
   };
   await auditLandings(landingAuditDeps(deps, () => [one], /*announce*/ false))
     .catch((err) => { console.warn("[landing-audit] verdetto singolo fallito", err); return null; });
