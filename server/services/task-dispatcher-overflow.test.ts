@@ -410,9 +410,46 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   });
 });
 
-describe("overflow: il ramo della card, l'origin, il modello", () => {
-  it("sul nodo PC la card specchio con un ramo base fa nascere il worktree da lì, non da main", async () => {
+/**
+ * THE REAL INCIDENT (13/11, PR #904's review): the first card dispatched for a
+ * project after a restart hit the cold origin cache, read as "no origin", on
+ * the SAME tick the Mac itself had room (`floor: false`) - so it started
+ * locally there and then, grabbing the Mac's seat, even with a node sitting
+ * free the whole time. The fix must not need the floor to be holding anything:
+ * a free node beats the Mac on the very first tick too.
+ */
+describe("overflow: la cache fredda dell'origin non lascia partire la card sul Mac", () => {
+  it("Mac libero (floor:false) e un nodo con un posto: la prima card non parte sul Mac mentre l'origin è ancora da chiedere", async () => {
     const h = harness({ floor: false });
+    h.seed(CARD);
+    await h.tick();
+    // The origin lookup for this project just started: nowhere decided yet,
+    // but crucially NOT on the Mac either, even though the Mac has room.
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.turns).toEqual([]);
+    await h.tick();
+    // The answer is in: the free node wins over the Mac that was never full.
+    expect(h.task(CARD).machineId).toBe(CLOUD);
+  });
+
+  it("stesso caso ma nessuna macchina ha posto: la prima card parte sul Mac, non aspetta un origin che non le serve", async () => {
+    const h = harness({ floor: false });
+    fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
+    fillMachine(h, PC, OVERFLOW_SLOTS.node);
+    h.seed(CARD);
+    await h.tick();
+    expect(h.task(CARD).machineId).toBeNull();
+    expect(h.turns).toEqual([`topic:topic-1`]);
+  });
+});
+
+describe("overflow: il ramo della card, l'origin, il modello", () => {
+  it("sul Mac la card con un ramo base fa nascere il worktree da lì, non da main", async () => {
+    const h = harness({ floor: false });
+    // Not what this test is about: with overflow on, a cold origin cache
+    // defers both cards one round (see the cold-cache describe below) before
+    // either reaches a worktree at all. Off, they start locally at once.
+    h.svc.updateBoardSettings(PID, { dispatchOverflow: false });
     h.seed("specchio", { baseBranch: "topics/endless-calf" });
     h.seed("altra");
     await h.tick();

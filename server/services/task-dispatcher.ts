@@ -2369,6 +2369,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     return known ?? { ok: false, github: false };
   }
+  /**
+   * `true` only before this project's origin has EVER resolved (the lookup
+   * `overflowOriginOf` just kicked off is still in flight). SURFACED 2026-11-13:
+   * a fresh server's first dispatch tick for a project reads `origin.ok` as
+   * `false` while that lookup is pending, which is "unknown", not "no origin" -
+   * and a card that would otherwise move to a free node/cloud seat fell
+   * through to the Mac instead, on the one tick that mattered, because nothing
+   * told the caller the difference. Used to make THAT card wait one round for
+   * the answer instead of starting locally on a guess.
+   */
+  function overflowOriginUnresolved(projectId: string): boolean {
+    // `overflowOriginOf` is what actually KICKS OFF the lookup (its early
+    // return otherwise never runs when a card takes the deferral below
+    // instead of reaching `overflowHeldCard`, which is the only other caller):
+    // called here for that side effect too, not only to read the cache.
+    overflowOriginOf(projectId);
+    return !overflowOrigin.has(projectId);
+  }
+  /** Is there a seat on some OTHER online machine right now, origin aside -
+   *  cheap enough to ask before deciding whether a cold origin cache is worth
+   *  waiting out. */
+  function anyOverflowSeatElsewhere(localId: string | null, skipMachineId?: string | null): boolean {
+    if (!deps.overflowMachines) return false;
+    let machines: OverflowMachine[] = [];
+    try { machines = deps.overflowMachines(); } catch { return false; }
+    return machines.some((m) => m.id !== localId && m.id !== skipMachineId && m.online && machineLoad(m.id) < effectiveSlots(m));
+  }
   // Per card: is its own delivery branch on origin (pushed now if this checkout
   // is ahead)? A card that already has a branch runs over there FROM it
   // (`CreateRunBody.baseBranch`), so a branch origin cannot get keeps the card
@@ -5820,6 +5847,23 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         continue;
       }
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
+      // COLD ORIGIN CACHE (2026-11-13): the very first tick that asks this
+      // project's origin starts an async lookup and answers "unknown" for it,
+      // which `overflowHeldCard` below reads as "no origin" and skips. Without
+      // this check that one tick fell through to the Mac even with a free node
+      // seat sitting there, because nothing distinguished "no origin" from
+      // "origin not asked yet" - and once a card starts locally this round, it
+      // runs out here. One round's wait for the lookup is cheap; starting on
+      // the wrong machine is not undone.
+      if (!remoteCard(t) && !manualMemoryStartSelected) {
+        const delegated = delegatedPolicy(t) !== undefined;
+        const localId = (() => { try { return deps.node?.localMachineId?.() ?? null; } catch { return null; } })();
+        if (overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)
+          && overflowOriginUnresolved(t.projectId) && anyOverflowSeatElsewhere(localId, t.overflowSkipMachine)) {
+          try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort: the chip still reads "to do" */ }
+          continue;
+        }
+      }
       // THE OVERFLOW: a free seat on a node or the cloud beats waiting out the
       // Mac's memory floor, so an eligible card is offered one FIRST, whether
       // or not the floor is holding it. Only when that immediate try finds no
