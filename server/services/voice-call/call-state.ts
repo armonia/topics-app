@@ -169,6 +169,17 @@ export abstract class CallState {
   protected answerDoneAt: number;
   // the results of handed-off jobs wait for a moment of silence: a text sent to Gemini while the assistant talks cuts it mid-phrase
   protected replies: string[] = [];
+  // when each queued result arrived, and when the brain's question was built: a
+  // result already in its dialog is told by the brain, not a second time by Gemini (14/11)
+  protected replyAt: number[] = [];
+  protected askBuiltAt = 0;
+  // a thought sent to Gemini and not spoken yet: no step slips in between (14/11)
+  protected answerDue: number | null = null;
+  // the steps said for the running job: one that says the same again is skipped
+  // ("you told me three times", 14/11: three ways of "I am checking your mail")
+  protected saidSteps: string[] = [];
+  // the last phrase whisper heard as empty: with Gemini's single word, the transcript is not to be trusted
+  protected emptySeq = -1;
   // since when the first queued result waits: on 12/11 one left 30 s later, with no why in the log
   protected replySince: number | null = null;
   // everything they said since Gemini's last answer: the gate splits "Dimmi
@@ -299,6 +310,9 @@ export abstract class CallState {
       const share = Math.max(0, Math.min(1, (this.answerMs - notSaid) / this.answerMs));
       const kept = words.slice(0, Math.round(words.length * share)).join(" ");
       this.saidHeard = kept ? `${kept}… (interrotto qui: il resto non l'ha sentito)` : "(interrotto prima che sentisse qualcosa)";
+      // Gemini too believed it had said everything: "I told you that..." about a
+      // greeting cut after two words (14/11)
+      if (share < 0.9) this.send({ type: "note", text: `[Ti ha interrotto: della tua ultima risposta ha sentito solo «${kept || "niente"}». Il resto non l'ha sentito: se serve, ridillo.]` });
     }
     const [db, floor] = this.vad.levelsDb();
     this.deps.log(ev, { ms_non_detti: notSaid, db: Math.round(db), fondo: Math.round(floor) });
@@ -334,11 +348,17 @@ export abstract class CallState {
     if (!this.brainOn || !think) return;
     this.askGen += 1;
     const round = this.askGen;
-    const user = userTurn(this.dialog, this.persona.name, phrase, heard);
+    // the phone brought one or two words and whisper heard nothing: a guess on them
+    // made the brain answer a question never asked (14/11, "sottoagenti")
+    const uncertain = this.deps.whisper !== null && this.emptySeq === this.answerSeq && phrase.trim().split(/\s+/).length <= 2;
+    const user = userTurn(this.dialog, this.persona.name, phrase, heard, uncertain);
+    this.askBuiltAt = this.deps.now();
     if (this.asking === null) {
       this.askedAt = this.deps.now();
       const quick = this.deps.quick;
-      if (quick && this.mouth) {
+      // with a result already in hand "ok, I am on it" is false: the answer brings it
+      if (this.replies.length > 0) this.ackedRound = round;
+      else if (quick && this.mouth) {
         const t0 = this.deps.now();
         void quick(ackPrompt(phrase)).then((a) => this.onQuick(round, a, this.deps.now() - t0));
       }

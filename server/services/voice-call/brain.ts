@@ -97,13 +97,14 @@ export function system(p: VoicePersona, now: string): string {
   );
 }
 
-export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string): string {
+export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string, uncertain = false): string {
   let t = "";
   const past = dialog.render();
   if (past) t += `La telefonata finora:\n${past}\n\n`;
   t += `${name} adesso ha detto: «${phrase.trim()}»`;
   const h = heard.trim();
   if (h && h.toLowerCase() !== phrase.trim().toLowerCase()) t += ` (la voce aveva capito: «${h}»)`;
+  if (uncertain) t += "\n(Trascrizione incerta: dal telefono è arrivato solo questo, il resto non si è sentito. Se non basta a capire, chiedigli in breve di ripetere, senza tirare a indovinare.)";
   return t;
 }
 
