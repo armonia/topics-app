@@ -63,12 +63,35 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
 import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { SparkLoader } from '../Layout/StreamingIndicator';
+import { useBoardTasks } from '../../lib/boardTasksStore';
+import { openCardsOf, taskCardPhase } from '../../lib/taskCardState';
+import { useChatCardIds } from '../../state/chatCards';
 
-export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, isMobile }: { topicId: string; isMobile: boolean }) {
+export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, sessionKey, isMobile }: { topicId: string; sessionKey?: string; isMobile: boolean }) {
   const tasks = useTopicBackgroundTasks(topicId);
   const detail = useTopicBackgroundDetail(topicId);
+  const tr = useT();
+  // The cards this chat opened or sent back and that are still going: the
+  // chat waits on them as it waits on a sub-agent, and the line goes with them.
+  const board = useBoardTasks();
+  const sentIds = useChatCardIds(sessionKey);
+  const cards = openCardsOf(board, topicId, sentIds);
   // A command alone is the strip's (BGVIS-07): with nothing else the line does not come up.
-  const work = tasks.some((t) => t.kind !== 'command') ? lineWork(tasks, detail) : undefined;
+  const own = tasks.some((t) => t.kind !== 'command') ? lineWork(tasks, detail) : undefined;
+  const work = cards.length
+    ? {
+        sessionKey: own?.sessionKey ?? detail?.sessionKey ?? '',
+        lastSignalAt: own?.lastSignalAt ?? 0,
+        tasks: [
+          ...(own?.tasks ?? []),
+          ...cards.map((c): BackgroundTaskSummary => ({
+            type: 'card',
+            description: `${c.text} (${tr(`chat.taskCard.phase.${taskCardPhase(c)}`)})`,
+            startedAt: Date.parse(c.inProgressAt ?? c.updatedAt) || undefined,
+          })),
+        ],
+      }
+    : own;
   const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (

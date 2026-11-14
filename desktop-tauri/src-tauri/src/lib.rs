@@ -25,11 +25,15 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_agents;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
 mod tray_quota;
+mod tray_poller;
+#[cfg(target_os = "macos")]
+mod tray_coretext;
 #[cfg(target_os = "windows")]
 mod chords_win;
 
@@ -2486,6 +2490,14 @@ mod child_reaper;
 #[path = "macos_notifications.rs"]
 mod macos_notifications;
 
+#[cfg(target_os = "macos")]
+#[path = "tray_overlay.rs"]
+mod tray_overlay;
+#[cfg(target_os = "macos")]
+mod tray_strip_apply;
+#[cfg(target_os = "macos")]
+mod tray_tracking;
+
 /// Focus / Do-Not-Disturb state, read from the OS so the client can silence its
 /// completion banners while the user has a Focus on.
 ///
@@ -3055,6 +3067,7 @@ fn set_app_status(
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
     machines: Option<Vec<tray_machines::StatusMachine>>,
+    agents: Option<tray_agents::AgentStates>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -3067,6 +3080,8 @@ fn set_app_status(
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
         let machines = machines.unwrap_or_default();
+        // The agents by state replace the single number on the strip, on its left.
+        tray_poller::set_agents(agents.unwrap_or_default());
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -3081,7 +3096,8 @@ fn set_app_status(
             }
             rebuild_tray_menu(&app);
 
-            let title = if count > 0 { Some(count.to_string()) } else { None };
+            // No number next to the strip: the glyph group on its left says it by state.
+            let title: Option<String> = None;
             let tip = if count > 0 {
                 format!("Topics — {count} in attesa")
             } else {
@@ -3093,7 +3109,7 @@ fn set_app_status(
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups, machines);
+    let _ = (app, count, items, groups, machines, agents);
 }
 
 /// Last attention rows and board columns, kept so the service poller can redraw the
@@ -3285,7 +3301,10 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
                 .text("tray-show", "Apri Topics")
                 .text("tray-quit", "Esci");
             if let Ok(menu) = mb.build() {
-                let _ = tray.set_menu(Some(menu));
+                // Never replace the menu while it is open: that closes it.
+                tray_tracking::defer("menu", move || {
+                    let _ = tray.set_menu(Some(menu));
+                });
             }
 }
 
@@ -12283,35 +12302,27 @@ pub fn run() {
                 if let Ok(Some(m)) = app.handle().primary_monitor() {
                     tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
                 }
-                tray_quota::spawn_poller(move |strip| {
-                    if let Some(tray) = tray_handle.tray_by_id("main") {
-                        let (strip_w, strip_h) = (strip.width, strip.height);
-                        let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
-                        let _ = tray.set_icon(Some(img));
-                        #[cfg(target_os = "macos")]
-                        {
-                            let _ = tray.set_icon_as_template(false);
-                            // The tray library forces every image to 18 pt tall; the strip is
-                            // drawn for the full 22 pt button, like the original one, so its
-                            // text would come out about a fifth too small. Restore the size.
-                            use crate::mac::{id, msg_send, nil, NSSize};
-                            let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
-                            let _ = tray.with_inner_tray_icon(move |inner| {
-                                if let Some(item) = inner.ns_status_item() {
-                                    unsafe {
-                                        let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-                                        let button: id = msg_send![item, button];
-                                        if button != nil {
-                                            let image: id = msg_send![button, image];
-                                            if image != nil {
-                                                let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        }
+                let overlay_handle = app.handle().clone();
+                #[cfg(target_os = "macos")]
+                tray_tracking::install();
+                let apply_handle = tray_handle.clone();
+                tray_poller::spawn_poller(move |strip| {
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_strip(tray, strip);
                     }
+                    #[cfg(not(target_os = "macos"))]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                        let _ = tray.set_icon(Some(img));
+                    }
+                }, move |frame| {
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = overlay_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_overlay(&tray, frame);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    let _ = (&overlay_handle, frame);
                 });
                 // The menu content follows the same service, on its own thread, so it
                 // keeps updating with the window hidden or the client restarted.

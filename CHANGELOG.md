@@ -2,6 +2,59 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.102 — 2026-11-14
+
+### Sotto il cofano
+- **e2e** · evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone
+- fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)
+
+## 2.3.101 — 2026-11-14
+
+### Novità
+- **chat** · board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome
+
+### Sotto il cofano
+- Tray strip: rasterize text with CoreText on macOS, pixel-snapped pens (ab_glyph stays for Windows/Linux)
+- Tray strip: CoreText draws with the real NSFont system weights; ink-vs-AppKit tests
+- declare what the card tests cover
+- card tests declare CHAT-TASK-CARD-01
+- pin the status item to the strip's width so neither end is cut (#949)
+- turn the working glyph in a native layer instead of redrawing the strip every frame
+- **spec** · CHAT-TASK-CARD-01
+- **e2e** · open the card through the board API; legibility spec uses a non-card MCP tool
+- **bloat** · record tray_quota.rs, already over the threshold on main
+- la barra non salta più e il menu resta aperto (#951)
+- bloat baseline back to what main has
+
+## 2.3.100 — 2026-11-13
+
+### Correzioni
+- **ripresa** · non rimandare in un turno che il registro tiene aperto (#945)
+
+### Sotto il cofano
+- agents counted by state with animated working glyph, left of the quota strip
+- click overlay follows the full-size strip so the menu opens again (card 066276b6)
+- **ripresa** · il wake di un figlio tagliato dalla macchina porta il comando per riprenderlo
+- **ripresa** · asserzione sul comando di ripresa con l'id
+- **landing** · astro 7.4.12 per gli avvisi XSS e lettura file che facevano rosso il cancello dipendenze
+
+## 2.3.99 — 2026-11-13
+
+### Sotto il cofano
+- Flush the turn row before the stall hold reads the running tool
+- topics/precise-gull (card 06bf57c1) (#939)
+- Machine-cut sub-agent results tell the parent how to resume the child
+
+## 2.3.98 — 2026-11-13
+
+### Sotto il cofano
+- Read the Hetzner location from the server, not only from datacenter
+- Declare the requirement the Hetzner location test covers
+- Write the spec requirement HETZNER-LOC-1 the adapter test declares
+- Stall judge: hold while a foreground tool runs; name the machine cut honestly in sub-agent results
+- Update lifecycle test for the machine-cut reason
+- Declare what the foreground tool hold test covers
+
 ## 2.3.97 — 2026-11-13
 
 ### Correzioni
@@ -9,6 +62,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Machine slots accept 0: drained machine takes no new card, pinned ones included
+- Tray strip: Mac dial and pace gauge, same collapse rule as the original, full 22 pt image size (card 23ec388a)
+- Tray quota tests in their own file (size gate)
 
 ## 2.3.96 — 2026-11-13
 
@@ -56,6 +111,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **heavy-slot** · native sessions ask the server's line over HTTP, a detached turn-host no longer builds a private one; tests
 - **server** · catches that swallowed real errors now log or answer 400
 - **identifier-language** · allow GitHub's 'cancelled' conclusion value, refresh baseline
+- **relay** · a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven
 
 ### Sotto il cofano
 - branch/main-on-origin, branch-status/inventory and delivery-sheet use the shared runGit and escapeHtml; restore strip-ctrl and expand-home tests
@@ -63,6 +119,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - spec-flow dal pacchetto npm, la living-doc la ripubblica la CI (#837)
 - declare what the expand-home and public-profile escape tests cover
 - cover ids that exist in the specs
+- Tray menu: tests in their own file (size gate)
+- Tray tests: no slashes in a string that reads as a comment
 - **client** · UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment
 - declare @covers on the three new empty-catch tests
 - **client** · media renderers and ImageThumbnail leave MessageContent for MediaBlocks
@@ -76,7 +134,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **client** · App bootstrap hooks, boot deep-link, sidebar shell, dialogs and first-run/update screens into sibling modules
 - Cloud node recipe: sshd drop-ins and origin commit identity
 - **unit-shards** · the fake bun reads the file as the last argument
+- backup from the service with a cache, five-hour row matched by email, fresh census for the close, prefs keep their keys, defaults on
 - **landing-audit** · trace the origin/main audit test to LAND-05
+- Prefs default all on, like the old tray
 - **client** · readJson guard sees generic, cast and if/return copies
 - Trace the cloud node recipe test to LAND-13
 - unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)
@@ -89,6 +149,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Declare RUNTIME-25 spec and cover it from the leftovers test
 - unit: il test CLI parte senza TOPICS_GATE_SLOT_DIR ereditata dal runner esterno
 - drop a permanent-node booking once its run has no pending job on the label
+- Tray tests: the fake service reads the whole request head before answering
 - Tray parity bar: per-column colour check (distance 3), colour mutation
 - Landing audit: a merge delivery commit answers empty, so the branch is asked
 - Leftover sweep: async process listing instead of sync spawns
@@ -133,6 +194,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.3.93 — 2026-11-12
 
 ### Novità
+- **tray** · hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions
 - **machines** · remote machines in Processes and the tray like the Mac, with provider extras
 
 ### Correzioni
@@ -144,6 +206,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **nodes** · a node refusing a card parks it with its reason
 - **boot** · the shipped boot.js matches its source again
 - **tray** · a machine without the usage service keeps the plain icon
+- **tray** · destructured lazy import for the hub row
 - **machines** · Gauge in its own module (no import cycle), English identifiers
 
 ### Sotto il cofano

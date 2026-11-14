@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.3.101",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "text": "board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.100",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "non rimandare in un turno che il registro tiene aperto (#945)",
+          "scope": "ripresa"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.97",
     "date": "2026-11-13",
     "sections": {
@@ -159,6 +187,10 @@
         {
           "text": "allow GitHub's 'cancelled' conclusion value, refresh baseline",
           "scope": "identifier-language"
+        },
+        {
+          "text": "a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven",
+          "scope": "relay"
         }
       ],
       "perf": []
@@ -169,6 +201,10 @@
     "date": "2026-11-12",
     "sections": {
       "new": [
+        {
+          "text": "hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions",
+          "scope": "tray"
+        },
         {
           "text": "remote machines in Processes and the tray like the Mac, with provider extras",
           "scope": "machines"
@@ -205,6 +241,10 @@
         },
         {
           "text": "a machine without the usage service keeps the plain icon",
+          "scope": "tray"
+        },
+        {
+          "text": "destructured lazy import for the hub row",
           "scope": "tray"
         },
         {

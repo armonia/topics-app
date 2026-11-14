@@ -57,6 +57,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -65,7 +66,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -1374,6 +1375,14 @@ async function watchHeadlessBody(
     isWaitingForBackground: stallBackgroundHold(sessionKey),
     // A foreground spawn_agent waiting for its child: our own wait as well.
     isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
+    // A foreground command (cargo test, a mutation run) is still executing: the
+    // transcript tail is silent for all of it and the judge would misread it.
+    isToolRunning: () => {
+      const stream = activeStreams.get(sessionKey);
+      // The row is written on a throttle: flush so the running tool's line is on it.
+      if (stream) flushTurnBody(sessionKey);
+      return !!stream && foregroundToolHold(getMessageById(stream.messageId), Date.now());
+    },
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     // Once per change of reason: a hold lasting an hour rearmed every five
@@ -1390,6 +1399,8 @@ async function watchHeadlessBody(
             ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
           : reason === "subagent"
             ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
+          : reason === "tool"
+            ? `[turn] stall watch rearmed on ${sessionKey}: a tool call is still running, the judge is not asked`
           : reason === "checks"
             ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
             : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -2954,6 +2965,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -6353,6 +6366,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
@@ -6416,6 +6431,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

@@ -1,5 +1,226 @@
 [
   {
+    "version": "2.3.102",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.101",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "it": "board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Tray strip: rasterize text with CoreText on macOS, pixel-snapped pens (ab_glyph stays for Windows/Linux)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray strip: CoreText draws with the real NSFont system weights; ink-vs-AppKit tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "declare what the card tests cover",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "card tests declare CHAT-TASK-CARD-01",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "pin the status item to the strip's width so neither end is cut (#949)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "turn the working glyph in a native layer instead of redrawing the strip every frame",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "CHAT-TASK-CARD-01",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "open the card through the board API; legibility spec uses a non-card MCP tool",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "record tray_quota.rs, already over the threshold on main",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
+          "it": "la barra non salta più e il menu resta aperto (#951)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "bloat baseline back to what main has",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.100",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "non rimandare in un turno che il registro tiene aperto (#945)",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "agents counted by state with animated working glyph, left of the quota strip",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "click overlay follows the full-size strip so the menu opens again (card 066276b6)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il wake di un figlio tagliato dalla macchina porta il comando per riprenderlo",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        },
+        {
+          "it": "asserzione sul comando di ripresa con l'id",
+          "en": "",
+          "scope": "ripresa",
+          "breaking": false
+        },
+        {
+          "it": "astro 7.4.12 per gli avvisi XSS e lettura file che facevano rosso il cancello dipendenze",
+          "en": "",
+          "scope": "landing",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.99",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Flush the turn row before the stall hold reads the running tool",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/precise-gull (card 06bf57c1) (#939)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Machine-cut sub-agent results tell the parent how to resume the child",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.98",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Read the Hetzner location from the server, not only from datacenter",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare the requirement the Hetzner location test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Write the spec requirement HETZNER-LOC-1 the adapter test declares",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stall judge: hold while a foreground tool runs; name the machine cut honestly in sub-agent results",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Update lifecycle test for the machine-cut reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare what the foreground tool hold test covers",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.97",
     "date": "2026-11-13",
     "sections": {
@@ -16,6 +237,16 @@
       "internal": [
         {
           "it": "Machine slots accept 0: drained machine takes no new card, pinned ones included",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray strip: Mac dial and pace gauge, same collapse rule as the original, full 22 pt image size (card 23ec388a)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray quota tests in their own file (size gate)",
           "en": "",
           "scope": null
         }
@@ -260,6 +491,12 @@
           "en": "",
           "scope": "identifier-language",
           "breaking": false
+        },
+        {
+          "it": "a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven",
+          "en": "",
+          "scope": "relay",
+          "breaking": false
         }
       ],
       "perf": [],
@@ -291,6 +528,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Tray menu: tests in their own file (size gate)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tray tests: no slashes in a string that reads as a comment",
+          "en": "",
+          "scope": null
         },
         {
           "it": "UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment",
@@ -369,9 +616,21 @@
           "breaking": false
         },
         {
+          "it": "backup from the service with a cache, five-hour row matched by email, fresh census for the close, prefs keep their keys, defaults on",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "trace the origin/main audit test to LAND-05",
           "en": "",
           "scope": "landing-audit",
+          "breaking": false
+        },
+        {
+          "it": "Prefs default all on, like the old tray",
+          "en": "",
+          "scope": null,
           "breaking": false
         },
         {
@@ -439,6 +698,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Tray tests: the fake service reads the whole request head before answering",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Tray parity bar: per-column colour check (distance 3), colour mutation",
@@ -659,6 +923,12 @@
     "sections": {
       "new": [
         {
+          "it": "hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
           "it": "remote machines in Processes and the tray like the Mac, with provider extras",
           "en": "",
           "scope": "machines",
@@ -710,6 +980,12 @@
         },
         {
           "it": "a machine without the usage service keeps the plain icon",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "destructured lazy import for the hub row",
           "en": "",
           "scope": "tray",
           "breaking": false
