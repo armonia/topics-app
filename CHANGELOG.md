@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.116 — 2026-11-14
+
+### Sotto il cofano
+- il ramo di integrazione della board non è lavoro altrui (#1002)
+- voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
+- i rami vecchi della card non tolgono i suoi commit (#1005)
+- attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
+- Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
+- voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)
+
 ## 2.3.115 — 2026-11-14
 
 ### Sotto il cofano
@@ -170,6 +180,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **worktree-gc** · the GC archives a closed card's commits under a ref instead of merging them into main
 - **tests** · the profile escape guard declares its requirement and keeps its comment in English
 - **relay** · hold the client close until its write queue drains
+- **server** · drain survives a failing sink, exit row settles inside its guard, forget-site reports a failed save (card 79272a55)
 - **client** · clear the 9 react-hooks/exhaustive-deps warnings
 - **client+e2e+spike** · empty catches disproved by a scan get real reasons
 - **landing-audit** · landed means on origin/main, and an undone land is not a land
@@ -221,6 +232,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Prefs default all on, like the old tray
 - **client** · readJson guard sees generic, cast and if/return copies
 - Trace the cloud node recipe test to LAND-13
+- **server** · trace silent-catch test (card 30f7c880), cover chat call site, drop inert delete
 - unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)
 - **heavy-slot** · KANBAN-114 names the machine-wide line, and its test says it covers it
 - unit: il claim del JUnit dei figli scrive nella cartella del giro, non in /tmp (CI unit rossa su main)
@@ -254,6 +266,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - node-branch-plant: accept a re-delivery whose local branch has only board realign merges on top
 - own old delivery/prior branches excluded from isolation; no-branch land reason says not on main
 - layout cache and fastMode mirror failures are visible; a 'data: null' SSE frame no longer aborts the stream
+- **processes** · SILENT-CATCH-01, the requirement the silent-catch test declares (card 30f7c880)
 - Add backup-residue to qa-gate loop
 - **ci** · why the permanent node keeps 4 runners and no per-run quota (measured)
 - **ci-evidence** · move supersedePreviousDelivery into ci-supersede.ts, one source for the card tag
@@ -286,6 +299,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tasks** · one agent-author predicate for every delivery reader
 - **co-browse** · masking of card fields fails closed
 - **nodes** · a node refusing a card parks it with its reason
+- **server** · catches that swallowed real errors now report them
 - **boot** · the shipped boot.js matches its source again
 - **tray** · a machine without the usage service keeps the plain icon
 - **tray** · destructured lazy import for the hub row
@@ -310,6 +324,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · scope the last-line check to the list and repeat the checks after a reload
 - **client** · one Files header in the project sidebar, LoadScreen reads through lib/readJson, and a guard that catches every spelling of a copy
 - **client** · rename a helper in the guard to an English word
+- **server** · silent-catch sites fail for real; warnThrottled forgets expired keys
 - declare what the machine overview tests cover
 
 ## 2.3.92 — 2026-11-12
