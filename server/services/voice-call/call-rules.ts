@@ -137,3 +137,17 @@ export function versoOf(d: Direction, group: boolean): string {
 }
 
 export const ms = (x: number): number => Math.max(0, Math.round(x));
+
+/** A held phrase shorter than this is a cough or a click, not something said over the greeting. */
+export const LATE_MIN_MS = 400;
+
+const HELLO = new Set(["pronto", "pronti", "si", "sì", "ciao", "eccomi", "dimmi", "ehi", "allo", "salve", "buongiorno", "buonasera", "ok", "okay"]);
+
+/**
+ * "Hello?", "Yes, hi": what one says on picking up. Over the greeting it must not
+ * cut it (10/11, a "Pronto?" truncated it), and after it it needs no answer.
+ */
+export function onlyGreeting(text: string): boolean {
+  const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  return words.length > 0 && words.length <= 3 && words.every((w) => HELLO.has(w));
+}
