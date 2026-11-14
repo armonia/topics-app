@@ -28,4 +28,20 @@ describe('trayMachines', () => {
     expect(m.title).toContain('processes.remote.stateUnreachable');
     expect(m.lines[0]).toBe('processes.remote.r.unreachable');
   });
+  test('every machine ships the same card: name, state, the three bands and a line', () => {
+    const cloud = { ...base, provider: { provider: 'x', providerLabel: 'X Cloud', monthly: { amount: 4, currency: 'EUR' }, spentThisMonth: null, location: null, serverType: 'small', createdAt: null }, metrics: { ...base.metrics!, rebootRequired: false, memPct: null, diskPct: 95 } };
+    const [m] = trayMachines([cloud], tr);
+    expect(m.name).toBe('box');
+    expect(m.badge).toBe('processes.remote.statelive');
+    expect(m.metrics.map((x) => [x.key, x.pct, x.level])).toEqual([['cpu', 12, 0], ['mem', null, 0], ['disk', 95, 2]]);
+    // a full disk reddens its band, not the whole card: the machine still answers
+    expect(m.level).toBe(0);
+    expect(trayMachines([{ ...cloud, metrics: { ...cloud.metrics, diskPct: 86 } }], tr)[0].metrics[2].level).toBe(1);
+    expect(m.reason).toContain('X Cloud · small');
+    const [down] = trayMachines([{ ...base, state: 'unreachable', reason: 'unreachable', metrics: null }], tr);
+    expect([down.level, down.reason, down.metrics.length]).toEqual([2, 'processes.remote.r.unreachable', 0]);
+  });
+  test('a row that is not a node stays out of the tray', () => {
+    expect(trayMachines([{ ...base, state: 'unreachable', reason: 'not_a_node', metrics: null }, base], tr).map((m) => m.id)).toEqual(['a']);
+  });
 });

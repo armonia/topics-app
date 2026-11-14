@@ -131,12 +131,15 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     m
 }
 
-/// The machines to draw: the client's list when it carries cards, else the service's.
+/// The machines to draw: the service's cards (it reads this computer and its own
+/// machines in more depth), then every machine of the client's list the service
+/// does not describe, so a cloud node gets the same card as the Mac. A client card
+/// is the service's own when both are this computer or both carry the same name.
 pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard> {
-    if !client.is_empty() {
-        return client.to_vec();
-    }
-    snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default()
+    let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
+    let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
+    let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
+    service.into_iter().chain(extra).collect()
 }
 
 #[cfg(test)]
