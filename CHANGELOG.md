@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.110 — 2026-11-14
+
+### Sotto il cofano
+- Chiamate vocali in Topics: il canale porta solo l'audio (#987)
+
 ## 2.3.109 — 2026-11-14
 
 ### Sotto il cofano

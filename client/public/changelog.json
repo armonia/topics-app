@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.110",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiamate vocali in Topics: il canale porta solo l'audio (#987)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.109",
     "date": "2026-11-14",
     "sections": {
