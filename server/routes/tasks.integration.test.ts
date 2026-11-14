@@ -228,4 +228,16 @@ describe("the CI phase", () => {
     expect(s.read().status).toBe("done");
     expect(s.read().landIntent).toBeUndefined();
   }, 30_000);
+
+  test("an approval with a comment enters the CI phase too, and the comment is kept", async () => {
+    const s = await setup();
+    await s.deliver();
+    const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve", comment: "ok, sistemati i due rossi" }))!;
+    expect(r.status).toBe(202);
+    expect(s.read().stage).toBe("ci");
+    await s.settle();
+    expect(measured).toEqual([[s.id]]);
+    expect(s.read().status).toBe("done");
+    expect(svc.get(s.id)!.comments.filter((c) => c.content === "ok, sistemati i due rossi")).toHaveLength(1);
+  }, 30_000);
 });
