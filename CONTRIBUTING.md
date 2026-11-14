@@ -422,6 +422,30 @@ the shell source and its full universal-build machinery (`stage-server-dist.mjs`
 `electron-archive` branch. The old `v*` installers remain downloadable on the Releases
 page but are no longer built, signed, or updated.
 
+## macOS performance rules
+
+**Keep JSON decoding off the main thread.** `URLSession` callbacks arrive on a
+background thread. If you wrap the decode inside `DispatchQueue.main.async`, it
+runs in AppKit's modal event loop and can block the UI for 100-1000ms under load
+(measured on the status-bar item, 2026-11-14). Decode first, then dispatch only
+the assignment:
+
+```swift
+// wrong
+URLSession.shared.dataTask(with: req) { data, _, error in
+    DispatchQueue.main.async { // decode blocks main event loop
+        let obj = try? JSONDecoder().decode(MyType.self, from: data!)
+        self.value = obj
+    }
+}.resume()
+
+// right
+URLSession.shared.dataTask(with: req) { data, _, error in
+    let decoded = data.flatMap { try? JSONDecoder().decode(MyType.self, from: $0) }
+    DispatchQueue.main.async { self.value = decoded } // only assignment on main
+}.resume()
+```
+
 ## Testing
 
 **I quattro cancelli** — verdi tutti e quattro prima di consegnare, non tre su quattro:
