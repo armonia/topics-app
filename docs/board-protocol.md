@@ -494,22 +494,29 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
     `intent-classifier`).
      **Dal 14/11/2026 la regola è rovesciata** (regola di Attilio del 09/11: le
      card tecniche si chiudono da sole). `personPlace` in `auto-land.ts`:
-     1. **A una persona** resta solo ciò che una persona sola può giudicare:
-        l'interfaccia (`client/src/**` tranne i test), il sito pubblico
-        (`landing/**`), README e licenze; ciò che raggiunge persone (push,
+     1. **A una persona** resta solo ciò che una persona sola può giudicare, in
+        due parti. La parte GENERICA, uguale per ogni board, sta nel codice
+        (`GENERIC_PERSON_PLACES`): file di interfaccia per tipo (`.tsx`, `.vue`,
+        `.css`, `.html`…), README e licenze; ciò che raggiunge persone (push,
         presence, notifiche, mail, canali, voce, condivisioni, ospiti); sicurezza e
         soldi (auth, token, segreti, l'ambiente degli agenti, relay, licenze,
-        billing, prezzi); dipendenze e runner (`package.json`, lockfile,
-        `bunfig.toml`); il GIUDICE (`scripts/**`, `.github/**`, `tests/**` che non
-        sono file di test, ogni `*.json`, gli snapshot, i cancelli dei check,
-        `auto-land.ts`, `red-bounce.ts`, `integration-queue.ts`, le etichette e i
-        workflow) e qualunque file che `bunfig.toml`, `scripts/`, `package.json` o
-        `.github/` NOMINANO (`referencedByTheJudge`).
+        billing, prezzi); dipendenze e runner di ogni linguaggio (`package.json`,
+        lockfile, `Cargo.toml`, `go.mod`…); il GIUDICE (`.github/**` e le altre CI,
+        gli snapshot) e qualunque file che `bunfig.toml`, `scripts/`, `package.json`
+        o `.github/` NOMINANO (`referencedByTheJudge`). La parte DEL REPO sta nelle
+        **regole del workflow della board** (`board_workflow_rules`, pannello
+        impostazioni → Workflow → «Da far guardare a te», `PUT
+        /api/boards/:id/workflow { personPaths }`): un glob per riga col perché.
+        Quella di topics-app è `docs/board-workflow-rules.json` (interfaccia
+        `client/src/**`, sito, release, `scripts/**`, `tests/**`, ogni `*.json` e i
+        file del proprio giudice). Un file di test non conta mai, tranne dentro la
+        cartella della CI.
      2. **Da sola** tutto il resto, `server/**`, `shared/**`, `server.ts`,
         `desktop-tauri/**` e le migration comprese (il DB vivo è copiato ogni 10 s
         da Litestream): con la barra verde sul commit consegnato entra nella
         **fase CI** (sotto) e atterra quando la CI del commit di integrazione è verde.
-     **Fase CI** (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
+     **Fase CI** (si spegne dalle regole del workflow: `ciPhase: false`)
+     (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
      «Ti aspetta»). Ogni land chiesto (Approva o «Landa» di una persona su una card
      col ramo non ancora su main, l'atterraggio automatico) mette la card in una
      coda per progetto con `tasks.land_intent` = chi l'ha deciso. La coda aspetta

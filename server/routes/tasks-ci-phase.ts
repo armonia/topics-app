@@ -14,6 +14,7 @@ import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evide
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
 import { personPlace } from "../services/auto-land";
+import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -122,6 +123,8 @@ export function createCiPhase(deps: CiPhaseDeps) {
   function boardHasCiPhase(projectId: string): boolean {
     if (!deps.integrationRepo && !deps.integrationMeasure) return false;
     try {
+      // The board's workflow can turn the phase off; on by default.
+      if (!readWorkflowRules(deps.db, projectId).ciPhase) return false;
       const s = deps.svc.getBoardSettings(projectId);
       return s.dispatchAutoMerge && s.reviewChecks.some(isCiEvidenceCheck);
     } catch { return false; }
@@ -295,7 +298,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
       // A delivery other than the one approved must be measured green on its own commit first.
       if (t.checksState !== "pass" || t.checksCommit !== t.deliveryCommit) return "no";
       const files = deps.filesBetween ? await deps.filesBetween(taskId, from, t.deliveryCommit).catch(() => null) : [];
-      const touched = files === null ? null : files.filter((f) => personPlace(f) !== null);
+      let extra: ReturnType<typeof readWorkflowRules>["personPaths"] | null = null;
+      try { extra = readWorkflowRules(deps.db, projectId).personPaths; } catch { extra = null; }
+      const touched = files === null || extra === null ? null : files.filter((f) => personPlace(f, extra!) !== null);
       if (touched === null || touched.length > 0) {
         try {
           deps.svc.setLandIntent({ taskId, who: null });

@@ -138,6 +138,20 @@ describe("the CI phase", () => {
     expect(s.read().landIntent).toBeUndefined();
   }, 30_000);
 
+  test("a board whose workflow turns the CI phase off lands as before, and the switch reads back", async () => {
+    const s = await setup();
+    db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
+    const put = (await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { ciPhase: false, personPaths: [{ pattern: "server/lib/**", why: "this board" }] }))!;
+    expect(put.status).toBe(200);
+    expect((await put.json()).rules).toEqual({ ciPhase: false, personPaths: [{ pattern: "server/lib/**", why: "this board" }] });
+    expect((await call(s.router, "PUT", `/api/boards/${s.projectId}/workflow`, { personPaths: "server/**" }))!.status).toBe(400);
+    await s.deliver();
+    const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
+    expect(r.status).toBe(200);
+    expect(s.read().stage).toBeUndefined();
+    expect(measured).toEqual([]);
+  }, 30_000);
+
   test("a board without CI rows lands as before: no CI phase", async () => {
     const s = await setup();
     s.noCi();
