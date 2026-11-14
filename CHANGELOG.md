@@ -30,6 +30,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - wip
 - nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)
 - menu ricco, tabella progetti, glue AppKit, lato client
+- Agent tools page uses the compact user-menu row styles, with e2e screenshots next to Devices (card 572f8a09)
 
 ## 2.3.102 — 2026-11-14
 
