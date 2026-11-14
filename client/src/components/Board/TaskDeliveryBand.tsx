@@ -1,9 +1,10 @@
 import { useT } from '../../hooks/useT';
+import { STATUS_CHIP } from '@/lib/statusVisual';
 import { Spinner } from '../Shared/Spinner';
 import { getMediaUrl } from '../../lib/api';
 import { type BoardTask, showsLandingDebt, showsDeployProposal, hasCodeQuestion, systemDeliveryNote } from '../../lib/board';
 import { type TaskBrowserGroupLayout } from './useTaskBrowserGroupLayout';
-import { X, Globe, Paperclip, Camera, Hourglass, GitMerge, Rocket, TriangleAlert, Download, WifiOff } from 'lucide-react';
+import { X, Globe, Paperclip, Camera, PackageCheck, GitMerge, Rocket, TriangleAlert, Download, WifiOff } from 'lucide-react';
 import { SectionHeader } from './sectionAccordion';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 import { mediaPaneIdFor } from './constants';
@@ -35,7 +36,7 @@ export function OutputUrlProbeNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (!task.outputUrl || task.urlProbeStatus !== 'dead') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-red-500/10 px-2 py-1.5 text-mini text-red-300">
+    <div className={`flex items-start gap-1.5 rounded px-2 py-1.5 text-mini ${STATUS_CHIP.danger}`}>
       <WifiOff className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.previewUnreachable')}</span>{' '}
@@ -59,8 +60,8 @@ export function SystemDeliveryNotice({ task }: { task: BoardTask }) {
   const tr = useT();
   if (task.deliveredBy !== 'system') return null;
   return (
-    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5 text-mini text-amber-200">
-      <Hourglass className="mt-px h-3 w-3 shrink-0" />
+    <div className={`flex items-start gap-1.5 rounded px-2 py-1.5 text-mini ${STATUS_CHIP.wait}`}>
+      <PackageCheck className="mt-px h-3 w-3 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="font-medium">{tr('board.task.movedToReviewBySystem')}</span>{' '}
         {systemDeliveryNote(task.deliveredReason, tr)}
@@ -412,7 +413,7 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
           a chore instead of offering a way out, and that is why eight cards
           stayed like this for weeks. */}
       {task && showsLandingDebt(task) && (
-        <div data-testid="task-not-landed-banner" className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-mini text-rose-300">
+        <div data-testid="task-not-landed-banner" className={`flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-red-500/20 px-3 py-1.5 text-mini ${STATUS_CHIP.danger}`}>
           <span className="min-w-0">
             <TriangleAlert className="w-4 h-4 inline-block align-[-2px]" aria-hidden="true" /> {tr('task.landing.closedBut')} <strong>{tr('board.task.notOnMain')}</strong>{tr('task.landing.commitIs')}
             {task.deliveryCommit ? <> <code className="rounded bg-black/30 px-1">{task.deliveryCommit.slice(0, 8)}</code></> : null}
@@ -423,12 +424,11 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
             data-testid="task-not-landed-land"
             disabled={busy} onClick={doLand}
             title={landWord.title}
-            // No text color of its own: it inherits the band's `text-rose-300`,
-            // which is the pairing already proven on this tint in both themes.
-            // With a `text-rose-100` the button vanished on the light theme,
-            // whitish on pink: the affordance comes from the border and the
-            // background, not from text lighter than the background it sits on.
-            className="flex shrink-0 items-center gap-1 rounded border border-rose-400/40 bg-rose-500/20 px-2 py-0.5 font-medium hover:bg-rose-500/30 disabled:opacity-50"
+            // No text color of its own: it inherits the band's `STATUS_CHIP.danger`,
+            // the pairing already proven on this tint in both themes. A lighter
+            // ink vanished on the light theme: the affordance comes from the
+            // border and the background.
+            className="flex shrink-0 items-center gap-1 rounded border border-red-400/40 bg-red-500/20 px-2 py-0.5 font-medium hover:bg-red-500/30 disabled:opacity-50"
           ><GitMerge className="h-3 w-3" /> {landWord.label}</button>
         </div>
       )}

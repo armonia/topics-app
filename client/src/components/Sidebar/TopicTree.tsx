@@ -7,7 +7,9 @@ import { MODAL_OVERLAY, MODAL_PANEL } from '../../lib/modalStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
-import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, Hourglass, BellOff, BellRing, CircleCheck, type LucideIcon, Share2, Gauge, KanbanSquare } from 'lucide-react';
+import { STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
+import { StatusIcon } from '../Board/atoms';
+import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, BellOff, BellRing, type LucideIcon, Share2, Gauge, KanbanSquare } from 'lucide-react';
 import {
   usePendingActionStatus,
   useTerminalPendingStatus,
@@ -34,7 +36,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { useBoardTasks } from '@/lib/boardTasksStore';
 import { openTaskInApp } from '@/lib/openTaskLink';
 import { openCardsOf, taskCardPhase } from '@/lib/taskCardState';
-import { SparkLoader, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
@@ -86,9 +88,9 @@ import { useArchivedSidebarPages } from './useArchivedSidebarPages';
  * Le etichette dicono CHI deve muoversi, non il nome tecnico della fase.
  */
 const STATE_SECTIONS: readonly { key: SidebarStateBucket; icon: LucideIcon; labelKey: string }[] = [
-  { key: 'needs-you', icon: Hourglass, labelKey: 'sidebar.state.needsYou' },
-  { key: 'finished', icon: CircleCheck, labelKey: 'sidebar.state.finished' },
-  { key: 'working', icon: Activity, labelKey: 'sidebar.state.working' },
+  { key: 'needs-you', icon: STATUS_ICON.wait, labelKey: 'sidebar.state.needsYou' },
+  { key: 'finished', icon: STATUS_ICON.ok, labelKey: 'sidebar.state.finished' },
+  { key: 'working', icon: STATUS_ICON.working, labelKey: 'sidebar.state.working' },
   { key: 'rest', icon: MoreHorizontal, labelKey: 'sidebar.state.rest' },
 ];
 
@@ -1145,8 +1147,8 @@ export function TopicTree({
           <ChevronRight size={ROW_CHEVRON} className={`transition-transform duration-fast ${open ? 'rotate-90' : ''}`} />
           <span>{label}</span>
           {summary.needsYou
-            ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><SparkLoader state="waiting" /></span>
-            : summary.working && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.subagents.working')} />}
+            ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} /></span>
+            : summary.working && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
         </button>
         {open && subAgents.map(child => renderSubAgentItem(child, depth))}
       </>
@@ -1176,8 +1178,8 @@ export function TopicTree({
           <KanbanSquare size={ROW_CHEVRON} />
           <span>{label}</span>
           {working
-            ? <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label={tr('sidebar.cards.working')} />
-            : waiting && <span role="img" aria-label={tr('sidebar.cards.waiting')} className="inline-flex"><SparkLoader state="waiting" /></span>}
+            ? <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.cards.working')} />
+            : waiting && <span role="img" aria-label={tr('sidebar.cards.waiting')} className="inline-flex"><STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} /></span>}
         </button>
         {open && cards.map((c) => (
           <button
@@ -1191,8 +1193,8 @@ export function TopicTree({
             style={{ paddingLeft: ROW_INSET + (depth + 1) * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
           >
             {taskCardPhase(c) === 'working'
-              ? <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
-              : <Hourglass size={ROW_CHEVRON} className="flex-shrink-0 text-amber-500" />}
+              ? <StatusIcon status="in_progress" live className="h-3 w-3" />
+              : <STATUS_ICON.wait size={ROW_CHEVRON} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />}
             <span className="truncate">{c.text}</span>
           </button>
         ))}

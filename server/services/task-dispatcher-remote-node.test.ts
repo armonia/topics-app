@@ -888,6 +888,8 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     const note = h.comments().filter((c) => c.content.includes("Portatile"));
     expect(note.length).toBeGreaterThanOrEqual(1);
     expect(h.comments().some((c) => c.content.includes("piantato in questo checkout"))).toBe(true);
+    // A planted branch asks nobody anything: no `human_ask`, or it would never land alone nor bounce on a red.
+    expect(t.humanAsk).toBeUndefined();
     // The slot is released: the run is over.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
   });
