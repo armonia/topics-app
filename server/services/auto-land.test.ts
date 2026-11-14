@@ -3,7 +3,7 @@
  * The route-level cases live in `routes/tasks.autoland.test.ts`; here the
  * refusals that need no router: labels, bar coverage, commits, questions.
  *
- * @covers LAND-05
+ * @covers LAND-05, LAND-17
  */
 import { describe, expect, test } from "bun:test";
 import {
