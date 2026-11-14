@@ -1,5 +1,60 @@
 [
   {
+    "version": "2.3.103",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "it": "card state glyph family, live spinning half pie and failed variant",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "chat task card uses the phase glyph map, tray colours match dark tokens",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "GET land answers «fase CI» over an older settled ticket (#963)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.102",
     "date": "2026-11-14",
     "sections": {
@@ -12,6 +67,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Preview rule: screenshots and clips come from the e2e spec, not a blanket browser ban",
+          "en": "",
+          "scope": null
         },
         {
           "it": "fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)",
@@ -290,6 +350,12 @@
           "it": "test-touched-measure replays the selector on red CI runs and demands a proof for every miss",
           "en": "",
           "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "unify status colours and icons",
+          "en": "",
+          "scope": "ui",
           "breaking": false
         },
         {

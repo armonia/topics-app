@@ -1,5 +1,40 @@
 [
   {
+    "version": "2.3.103",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "text": "card state glyph family, live spinning half pie and failed variant",
+          "scope": "ui"
+        },
+        {
+          "text": "chat task card uses the phase glyph map, tray colours match dark tokens",
+          "scope": "ui"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens",
+          "scope": "ui"
+        },
+        {
+          "text": "GET land answers «fase CI» over an older settled ticket (#963)",
+          "scope": "board"
+        },
+        {
+          "text": "status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig",
+          "scope": "test"
+        },
+        {
+          "text": "plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)",
+          "scope": "ui"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.101",
     "date": "2026-11-14",
     "sections": {
@@ -53,6 +88,10 @@
         {
           "text": "test-touched-measure replays the selector on red CI runs and demands a proof for every miss",
           "scope": "test"
+        },
+        {
+          "text": "unify status colours and icons",
+          "scope": "ui"
         },
         {
           "text": "a machine-wide queue for heavy commands, served by Topics",
