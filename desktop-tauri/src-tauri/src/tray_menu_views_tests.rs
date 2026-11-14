@@ -76,7 +76,8 @@ fn every_view_renders_ink_at_the_menu_width() {
 
 /// TRAY_MENU_SNAPSHOT_DIR=/tmp/x cargo test --lib tray_menu_views -- snapshot
 /// writes machines.png, quota.png and backup.png (dark and light) from the fake answers above,
-/// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given.
+/// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given, plus the
+/// Topics machines (the client's `set_app_status` list) from TRAY_MENU_SNAPSHOT_MACHINES.
 #[test]
 fn snapshot() {
     let Ok(dir) = std::env::var("TRAY_MENU_SNAPSHOT_DIR") else { return };
@@ -86,7 +87,11 @@ fn snapshot() {
     for (name, dark) in [("dark", true), ("light", false)] {
         let p = Palette::new(dark);
         // a stack of the views, on the menu's own background, as the menu shows them
-        let mut pics: Vec<Pic> = machine_cards_from_board(&board).iter().map(|m| draw_machine_card(m, p)).collect();
+        let client: Vec<crate::tray_menu_views::MachineCard> = std::env::var("TRAY_MENU_SNAPSHOT_MACHINES").ok()
+            .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())
+            .unwrap_or_default().iter().filter_map(|m| m.card()).collect();
+        let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
+        let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
         pics.extend(backup_card(&backup, now).map(|b| draw_backup_card(&b, p)));
         let total: u32 = pics.iter().map(|x| x.cv.h).sum();
