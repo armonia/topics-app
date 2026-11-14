@@ -65,7 +65,7 @@ import {
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
 import { wakeBreaker } from "./wake-breaker";
-import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+import { machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
@@ -1359,6 +1359,40 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function pinnedMachineDrained(task: Task): boolean {
     if (!task.machineId || !deps.overflowMachines) return false;
     try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
+  }
+  /**
+   * A Todo card pinned to a machine that cannot run it (zero slots, or offline
+   * with no way to wake it) moves to an allowed machine, or back here when none
+   * is free, instead of waiting for ever. Delegated and mirror cards are bound
+   * to their machine and stay. `true` = the card moved.
+   */
+  function reassignFromForbidden(
+    t: Task,
+    settings: { dispatchModel?: string | null },
+  ): boolean {
+    if (!t.machineId || !deps.overflowMachines) return false;
+    if (delegatedPolicy(t) !== undefined || t.claudeTaskId?.startsWith("node-run:")) return false;
+    let machines: OverflowMachine[] = [];
+    try { machines = deps.overflowMachines(); } catch (err) { log("reassign: machine list failed", err); return false; }
+    const pinned = machines.find((m) => m.id === t.machineId);
+    if (!pinned || !machineForbidden(pinned, (id) => wakeBreaker.isOpen(id))) return false;
+    let cloudCredit = true;
+    try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
+    const origin = overflowOriginOf(t.projectId);
+    const target = pickReassignTarget(machines, pinned.id, {
+      cloudCredit,
+      githubOrigin: origin.github,
+      model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
+      load: machineLoad,
+      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+    });
+    try {
+      const moved = deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: target?.id ?? null } });
+      emit(moved);
+      deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: reassignNote(pinned.name, target?.name ?? null) });
+    } catch (err) { log(`reassign: move of ${t.id} failed`, err); return false; }
+    log(`reassign: ${t.id} left ${pinned.name}, now ${target?.name ?? "local"}`);
+    return true;
   }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
@@ -5793,7 +5827,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
-      // A card pinned to a machine that is being drained (slots 0) waits in Todo.
+      // A card pinned to a forbidden machine (drained, or offline with no way to
+      // wake it) is moved to an allowed one, or here. Moved to another remote
+      // machine it runs this round; moved here it re-enters the local gates next tick.
+      if (remoteCard(t) && reassignFromForbidden(t, settings)) {
+        remoteIds.delete(t.id);
+        continue;
+      }
       if (remoteCard(t) && pinnedMachineDrained(t)) continue;
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
       // THE OVERFLOW: a local card the memory floor has held for two minutes

@@ -136,6 +136,34 @@ export function pickOverflowMachine(
     ?? null;
 }
 
+/**
+ * A machine no card may be pinned to right now: it declares zero slots (drained),
+ * or a paired node is offline and nothing can switch it on (only a node with a `node-run`
+ * hook and no recent failed wake can be woken). Decided from the machine row
+ * alone: no machine name or id is known here.
+ */
+export function machineForbidden(m: OverflowMachine, wakeBlocked?: (machineId: string) => boolean): boolean {
+  if (m.slots === 0) return true;
+  // The cloud row has no heartbeat and nothing to wake: its "online" only says
+  // whether the overflow may CHOOSE it, so it never forbids a card already pinned there.
+  if (m.kind === "cloud" || m.online) return false;
+  return !(m.wakeable && !wakeBlocked?.(m.id));
+}
+
+/**
+ * Where a card pinned to a forbidden machine goes: the best allowed machine
+ * with free room (the same order as the overflow), or `null` meaning "this
+ * machine" when none can take it.
+ */
+export function pickReassignTarget(
+  machines: readonly OverflowMachine[],
+  pinnedId: string,
+  opts: OverflowChoice,
+): OverflowMachine | null {
+  const allowed = machines.filter((m) => m.id !== pinnedId && !machineForbidden(m, opts.wakeBlocked));
+  return pickOverflowMachine(allowed, opts);
+}
+
 /** The idempotency key of a node's MIRROR card (`routes/nodes.ts`): it already runs where its origin sent it. */
 const MIRROR_KEY_PREFIX = "node-run:";
 
@@ -193,6 +221,12 @@ export function overflowNote(machineName: string): string {
   return `Spostata su ${machineName}: Mac pieno. La memoria di questa macchina è rimasta sotto il pavimento per più di 2 minuti, ` +
     `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
     `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
+}
+
+/** The line on a card moved off a machine that cannot run it. */
+export function reassignNote(fromName: string, toName: string | null): string {
+  return `Spostata da ${fromName} a ${toName ?? "questo Mac"}: quella macchina non può accendersi o non prende più card, ` +
+    `e la card sarebbe rimasta in coda senza fine.`;
 }
 
 /** What the overflow reads of one row of the machine store. */
