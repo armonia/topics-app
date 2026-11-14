@@ -142,13 +142,25 @@ function sectorPath(pct: number): string {
  * ritocco sposta gli estremi di mezzo pixel ciascuno, che è proprio ciò che
  * qui sopra si è appena finito di allineare a mano.
  */
-export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: TaskStatus; className?: string }) {
+export type StatusGlyph = TaskStatus | 'failed';
+
+/** `failed` joins the card family as a red ring with a cross, so a stopped
+ *  run is the same shape language as the five column states. */
+const FAILED_COLOR = 'text-red-700 dark:text-red-400';
+
+/** `live` spins the half pie of in_progress, motion-safe only: one turn per
+ *  1.44 s in 12 steps of 120 ms, the cadence of the tray glyph. */
+export function StatusIcon({ status, className = 'h-3.5 w-3.5', live = false }: { status: StatusGlyph; className?: string; live?: boolean }) {
+  const color = status === 'failed' ? FAILED_COLOR : STATUS_ICON_COLOR[status];
+  const spin = live && status === 'in_progress';
   return (
     <svg
       viewBox="0 0 14 14"
       aria-hidden
       shapeRendering="geometricPrecision"
-      className={`${className} shrink-0 ${STATUS_ICON_COLOR[status]}`}
+      data-testid="status-glyph"
+      data-status={status}
+      className={`${className} shrink-0 ${color}`}
     >
       {status === 'done' ? (
         <>
@@ -159,15 +171,20 @@ export function StatusIcon({ status, className = 'h-3.5 w-3.5' }: { status: Task
         <>
           <circle
             cx={GLYPH_C} cy={GLYPH_C} r={GLYPH_R_RING} fill="none" stroke="currentColor" strokeWidth="2"
-            // `pathLength={20}` con tratti «2 2»: CINQUE trattini esatti, chiusi
-            // sul giro, da 3,8px l'uno. `pathLength` normalizza la circonferenza
-            // vera (37,70) a 20, quindi il passo è esatto e il pattern non si
-            // richiude con un trattino tronco. Il numero è misurato, non scelto:
-            // a 8 e a 10 trattini il tratto scende sotto i 2,4px e a 1x diventa
-            // una fila di specchi; a 4 l'anello si legge come quattro tacche.
+            // `pathLength={20}` with dashes "2 2": FIVE exact dashes closing the
+            // ring, 3.8px each (measured: 8 or 10 dashes fall under 2.4px and
+            // turn into a row of mirrors at 1x, 4 reads as four ticks).
             {...(status === 'backlog' ? { pathLength: 20, strokeDasharray: '2 2' } : {})}
           />
-          {status === 'in_progress' && <path d={sectorPath(50)} fill="currentColor" />}
+          {status === 'failed' && <path d="M5 5l4 4M9 5l-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}
+          {status === 'in_progress' && (
+            <path
+              d={sectorPath(50)}
+              fill="currentColor"
+              className={spin ? 'status-glyph-spin motion-safe:animate-[status-glyph-spin_1.44s_steps(12)_infinite]' : undefined}
+              style={spin ? { transformOrigin: '7px 7px' } : undefined}
+            />
+          )}
           {status === 'review' && <path d={sectorPath(75)} fill="currentColor" />}
         </>
       )}
