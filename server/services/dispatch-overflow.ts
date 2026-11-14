@@ -138,14 +138,16 @@ export function pickOverflowMachine(
 
 /**
  * A machine no card may be pinned to right now: it declares zero slots (drained),
- * or it is offline and nothing can switch it on (only a node with a `node-run`
+ * or a paired node is offline and nothing can switch it on (only a node with a `node-run`
  * hook and no recent failed wake can be woken). Decided from the machine row
  * alone: no machine name or id is known here.
  */
 export function machineForbidden(m: OverflowMachine, wakeBlocked?: (machineId: string) => boolean): boolean {
   if (m.slots === 0) return true;
-  if (m.online) return false;
-  return !(m.kind === "node" && m.wakeable && !wakeBlocked?.(m.id));
+  // The cloud row has no heartbeat and nothing to wake: its "online" only says
+  // whether the overflow may CHOOSE it, so it never forbids a card already pinned there.
+  if (m.kind === "cloud" || m.online) return false;
+  return !(m.wakeable && !wakeBlocked?.(m.id));
 }
 
 /**

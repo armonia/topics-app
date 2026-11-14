@@ -33,7 +33,7 @@ describe("machineForbidden", () => {
     expect(machineForbidden({ id: "x", name: "x", kind: "node", online: false })).toBe(true);
     expect(machineForbidden({ id: "x", name: "x", kind: "node", online: false, wakeable: true })).toBe(false);
     expect(machineForbidden({ id: "x", name: "x", kind: "node", online: false, wakeable: true }, () => true)).toBe(true);
-    expect(machineForbidden({ id: "x", name: "x", kind: "cloud", online: false, wakeable: true })).toBe(true);
+    expect(machineForbidden({ id: "x", name: "x", kind: "cloud", online: false })).toBe(false);
   });
 
   it("the target skips the forbidden machine and one with no room", () => {
