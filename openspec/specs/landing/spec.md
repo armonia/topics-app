@@ -620,3 +620,7 @@ Un rifiuto con commento di una persona SHALL togliere `land_intent`.
 Una consegna SHALL aspettare una persona solo se tocca interfaccia, sito
 pubblico, ciò che raggiunge persone, sicurezza e soldi, dipendenze o il giudice
 (`personPlace`); il resto SHALL atterrare da solo con la barra verde.
+
+#### Scenario: codice tecnico contro posto di una persona
+- **GIVEN** una consegna verde che tocca solo `server/lib/git-numstat.ts`
+- **THEN** SHALL atterrare da sola; la stessa con `client/src/App.tsx` o `.github/workflows/ci.yml` SHALL aspettare una persona
