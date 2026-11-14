@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.104 — 2026-11-14
+
+### Sotto il cofano
+- Fase CI: card già su main chiuse, Approva con commento in fase (#972)
+
 ## 2.3.103 — 2026-11-14
 
 ### Novità
