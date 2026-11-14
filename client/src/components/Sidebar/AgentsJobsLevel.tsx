@@ -49,7 +49,7 @@ import { setGateWaits } from '../../state/gateWaits';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { STATUS_CHIP, STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { StatusIcon } from '../Board/atoms';
 import { readJson } from '../../lib/readJson';
 import { shortTokens } from '../../lib/formatTokens';
 import {
@@ -577,7 +577,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
   const body = (
     <>
       <span className="mt-0.5 flex h-4 w-4 flex-none items-center justify-center" title={tr(SOURCE_KIND[row.source])} data-kind-glyph={row.source}>
-        {live ? <SparkLoader /> : <Icon size={14} className={tone} aria-hidden="true" />}
+        {live ? <StatusIcon status="in_progress" live className="h-3.5 w-3.5" /> : <Icon size={14} className={tone} aria-hidden="true" />}
       </span>
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">

@@ -30,6 +30,20 @@ describe('phase to glyph on the card surfaces', () => {
     });
   }
 
+  for (const rel of ['Sidebar/AgentsJobsLevel.tsx', 'Sidebar/AgentLines.tsx']) {
+    test(`${rel} draws a live agent with the spinning glyph, not SparkLoader`, () => {
+      const src = read(rel);
+      expect(src).not.toContain('SparkLoader');
+      expect(src).toMatch(/<StatusIcon status="in_progress" live /);
+    });
+  }
+
+  test('a space waiting for you shows the amber alert, not the waiting spinner', () => {
+    const src = read('Sidebar/SpaceGroups.tsx');
+    expect(src).not.toContain('SparkLoader');
+    expect(src).toContain('STATUS_ICON.wait');
+  });
+
   test('the sidebar needs-you mark is the amber alert, not the spinner', () => {
     const src = read('Sidebar/TopicTree.tsx');
     expect(src).not.toMatch(/<SparkLoader state="waiting"/);
@@ -64,9 +78,9 @@ describe('the chat task card', () => {
 
   test('the tray colours are the dark theme tokens', () => {
     const rs = readFileSync(join(import.meta.dir, '../../../desktop-tauri/src-tauri/src/tray_agents.rs'), 'utf8');
-    expect(rs).toContain('SKY: [u8; 3] = [56, 189, 248]');
-    expect(rs).toContain('ROSE: [u8; 3] = [251, 113, 133]');
-    expect(rs).toContain('AMBER: [u8; 3] = [251, 191, 36]');
+    expect(rs).toContain('SKY: [u8; 3] = [0, 188, 255]');
+    expect(rs).toContain('ROSE: [u8; 3] = [255, 99, 126]');
+    expect(rs).toContain('AMBER: [u8; 3] = [255, 185, 0]');
     expect(rs).toContain('MUTED: [u8; 3] = [141, 147, 155]');
   });
 });
