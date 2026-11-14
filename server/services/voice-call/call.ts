@@ -140,6 +140,7 @@ export class Call extends CallAudio {
         this.dropRest = false;
         this.textTurn = false;
         this.out.turns += 1;
+        this.answerDue = null;
         if (this.heard.trim() || this.said.trim()) this.deps.log("turno", { sentito: this.heard.trim(), detto: this.said.trim() });
         if (this.heard.trim()) {
           this.out.heard += `${this.heard.trim()} `;
@@ -285,6 +286,7 @@ export class Call extends CallAudio {
           this.jobTask = task;
           this.jobAt = this.deps.now();
           this.stepLine = null;
+          this.saidSteps = [];
           this.toolResponse(id, name, `Passato a ${this.persona.assistant}, il risultato arriva più tardi. Se hai già detto che ci guardi non aggiungere altro, sennò dillo in tre parole.`);
         },
         (err: unknown) => {
@@ -325,7 +327,7 @@ export class Call extends CallAudio {
 
   protected onCheck(seq: number, w: WhisperResult): void {
     if (this.ended || this.check?.seq !== seq) return;
-    if (!this.greeted && w.ok && w.text !== null && onlyGreeting(w.text)) {
+    if (!this.greeted && w.ok && w.text !== null && onlyGreeting(w.text, [this.persona.name, this.persona.assistant])) {
       // "Hello?" over the greeting: it goes on, and the hello needs no answer
       this.check = null;
       this.paused = false;
@@ -360,6 +362,7 @@ export class Call extends CallAudio {
     }
     if (this.ended) return;
     if (w === "" || w === "\0") {
+      if (w === "") this.emptySeq = seq;
       this.deps.log("whisper_vuoto", { frase: seq, errore: w !== "" });
       return;
     }
@@ -411,12 +414,22 @@ export class Call extends CallAudio {
       const t = r.thought;
       this.deps.log("pensato", { ms: ms(took), di: t.say, affida: t.task, chiudi: t.close });
       this.lastThought = t.say ? { phrase, say: t.say, at: this.deps.now() } : null;
-      const answer = (): void =>
+      // the results it already had in front: it tells them, Gemini does not repeat them
+      const known = this.replyAt.filter((a) => a <= this.askBuiltAt).length;
+      if (known > 0 && t.say) {
+        this.replies.splice(0, known);
+        this.replyAt.splice(0, known);
+        this.replySince = this.replies.length === 0 ? null : this.deps.now();
+        this.deps.log("risultato_nel_pensiero", { n: known });
+      }
+      const answer = (): void => {
+        if (t.say) this.answerDue = this.deps.now();
         this.toolResponse(
           id,
           name,
           t.say ? `${this.persona.assistant} risponde: «${t.say}». Dillo adesso così, con naturalezza, senza aggiungere altro.` : `${this.persona.assistant} non ha niente da aggiungere: non dire niente.`,
         );
+      };
       // the close is decided now; the tool answer waits for the handoff, as the Rust one did synchronously
       if (t.close) {
         this.hangupAsked ??= this.deps.now();
@@ -432,6 +445,7 @@ export class Call extends CallAudio {
           this.jobTask = t.task;
           this.jobAt = this.deps.now();
           this.stepLine = null;
+          this.saidSteps = [];
           answer();
         },
         (err: unknown) => {
@@ -455,6 +469,7 @@ export class Call extends CallAudio {
         this.jobTask = task;
         this.jobAt = this.deps.now();
         this.stepLine = null;
+        this.saidSteps = [];
         this.toolResponse(id, name, reply);
       },
       () => this.toolResponse(id, name, reply),
@@ -512,7 +527,7 @@ export class Call extends CallAudio {
   protected onProgressLine(line: string | null): void {
     if (this.ended) return;
     this.progressAsking = false;
-    if (line && line !== this.lastStepLine) this.stepLine = { line, at: this.deps.now() };
+    if (line && !this.saidSteps.some((said) => echoOf(said, line))) this.stepLine = { line, at: this.deps.now() };
     else this.deps.log("passo_saltato", { frase: line });
   }
 
@@ -534,6 +549,7 @@ export class Call extends CallAudio {
     this.deps.log("risultato", { testo: [...t].slice(0, 300).join("") });
     this.dialog.push(`[Risultato di un lavoro affidato a ${this.persona.assistant}]`, [...t].slice(0, 1500).join(""));
     this.replies.push(t);
+    this.replyAt.push(this.deps.now());
     this.replySince ??= this.deps.now();
   }
 

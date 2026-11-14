@@ -153,6 +153,88 @@ describe("call loop", () => {
     expect(w.mouth!.texts()).toContain("Sto aprendo la tua posta.");
   });
 
+  // 14/11 evening call: "Sto controllando la tua posta" said three ways, "you told me three times"  allow-italian: the quoted phrase is the real one
+  async function jobRunning(w: World): Promise<void> {
+    await w.greet();
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "leggi la posta" } });
+    await w.flush();
+    w.thinks[0]!.resolve({ ok: true, thought: { say: "Ci guardo subito.", task: "leggi la posta", close: false } });
+    w.quicks[0]!.resolve(null);
+    await w.flush();
+    w.main.emit({ type: "turnComplete" });
+    await w.advance(8000);
+  }
+
+  test("a step that says the same thing in other words is not said again", async () => {
+    const w = new World({ brain: true, quick: true });
+    await jobRunning(w);
+    w.call.progress(["Bash: gws-mail gmail +triage"]);
+    await w.flush();
+    w.quicks.at(-1)!.resolve("Sto controllando la tua posta per le ultime email.");
+    await w.advance(9000);
+    w.call.progress(["Bash: gws-mail gmail +triage", "Bash: gws-mail gmail +read"]);
+    await w.flush();
+    w.quicks.at(-1)!.resolve("Sto controllando la tua posta in arrivo.");
+    await w.advance(9000);
+    w.call.progress(["Bash: gws-mail gmail +triage", "Bash: gws-mail gmail +read", "Read: preventivo.pdf"]);
+    await w.flush();
+    w.quicks.at(-1)!.resolve("Sto leggendo il preventivo allegato.");
+    await w.advance(200);
+    expect(w.log.filter((l) => l.event === "passo_detto").map((l) => l.data.frase)).toEqual([
+      "Sto controllando la tua posta per le ultime email.",
+      "Sto leggendo il preventivo allegato.",
+    ]);
+  });
+
+  test("a result in hand while the brain thinks is told once, by the brain, with no 'I am on it' before", async () => {
+    const w = new World({ brain: true, quick: true });
+    await jobRunning(w);
+    // the result lands while they are saying "I am waiting": the line is not free, it waits
+    w.say(1500);
+    await w.advance(600);
+    w.call.reply("Due mail importanti: il backup è fermo, e una candidatura.");
+    await w.advance(300);
+    w.main.emit({ type: "toolCall", id: "c2", name: "chiedi_a_jarvis", args: { frase: "sto aspettando" } });
+    await w.flush();
+    await w.advance(2000);
+    expect(w.has("risultato_a_gemini")).toBe(false);
+    expect(w.quicks.length).toBe(1);
+    w.thinks.at(-1)!.resolve({ ok: true, thought: { say: "Eccole: il backup è fermo, e c'è una candidatura.", task: "", close: false } });
+    await w.advance(3000);
+    expect(w.has("intercalare")).toBe(false);
+    expect(w.has("risultato_nel_pensiero")).toBe(true);
+    w.main.emit({ type: "turnComplete" });
+    await w.advance(3000);
+    expect(w.has("risultato_a_gemini")).toBe(false);
+  });
+
+  test("no step slips in between a thought and its voice", async () => {
+    const w = new World({ brain: true, quick: true });
+    await jobRunning(w);
+    w.main.emit({ type: "toolCall", id: "c2", name: "chiedi_a_jarvis", args: { frase: "e il backup?" } });
+    await w.flush();
+    w.call.progress(["Bash: gh run list"]);
+    await w.flush();
+    w.quicks.at(-1)!.resolve("Sto controllando i backup su GitHub.");
+    w.thinks.at(-1)!.resolve({ ok: true, thought: { say: "Ci sto guardando.", task: "", close: false } });
+    await w.advance(3000);
+    expect(w.has("passo_detto")).toBe(false);
+  });
+
+  test("one word from Gemini and nothing from whisper: the brain is told the transcript is uncertain", async () => {
+    const w = new World({ brain: true, whisper: true });
+    await w.greet();
+    w.say(1500);
+    await w.advance(3000);
+    for (const p of w.whispers.splice(0)) p.resolve({ ok: true, text: "" });
+    await w.advance(100);
+    w.main.emit({ type: "heard", text: "sottoagenti" });
+    w.main.emit({ type: "said", text: "" });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "sottoagenti" } });
+    await w.advance(2000);
+    expect(String(w.thinks.at(-1)?.args[1])).toContain("Trascrizione incerta");
+  });
+
   test("the same question asked again right after the answer is not thought twice", async () => {
     const w = new World({ brain: true });
     await w.greet();
@@ -248,6 +330,28 @@ describe("call loop", () => {
     expect(w.main.audioSamples()).toBeGreaterThan(0);
   });
 
+  test("the greeting's own echo heard as 'ciao a tutti' or 'ciao Ada' does not cut it", async () => {
+    for (const heard of ["Ciao a tutti.", "Ciao Ada", "ciao Jarvis"]) {
+      const w = new World({ whisper: true });
+      await greetingPlaying(w);
+      w.say(900);
+      await w.advance(1000);
+      w.whispers.at(-1)!.resolve({ ok: true, text: heard });
+      await w.advance(200);
+      expect(w.has("interrotto")).toBe(false);
+      expect(w.has("saluto_sopra")).toBe(true);
+    }
+  });
+
+  test("a greeting word is not a free pass: 'ciao, mandami la mail' is words", async () => {
+    const { onlyGreeting } = await import("./call-rules");
+    expect(onlyGreeting("Ciao a tutti.", [])).toBe(true);
+    expect(onlyGreeting("Ciao Ada", ["Ada"])).toBe(true);
+    expect(onlyGreeting("Ciao Ada", [])).toBe(false);
+    expect(onlyGreeting("ciao, mandami la mail", ["Ada"])).toBe(false);
+    expect(onlyGreeting("a tutti", [])).toBe(false);
+  });
+
   test("a hello said over the greeting does not cut it", async () => {
     const w = new World({ whisper: true });
     await greetingPlaying(w);
@@ -341,6 +445,10 @@ describe("call loop", () => {
     expect(w.has("interrotto")).toBe(true);
     w.main.emit({ type: "turnComplete" });
     await w.advance(1500);
+    // Gemini gets the same, as context that asks for no answer
+    const note = w.main.sent.find((c) => c.type === "note");
+    expect(note && "text" in note ? note.text : "").toContain("ha sentito solo «uno");
+    expect(note && "text" in note ? note.text : "").not.toContain("dieci");
     const part = String(w.first("sentito_in_parte")?.data.detto);
     expect(part).toContain("uno");
     expect(part).not.toContain("dieci");
@@ -362,7 +470,8 @@ describe("call loop", () => {
     w.geminiSays(600, "Ci sei ancora?", { turn: true });
     await w.advance(40_000);
     expect(w.log.filter((l) => l.event === "ci_sei").length).toBe(1);
-  });
+    // minutes of call simulated tick by tick: slow on a loaded machine
+  }, 30_000);
 
   test("a call silent for minutes says goodbye before it closes, and their voice cancels the goodbye", async () => {
     const w = new World();
@@ -379,7 +488,8 @@ describe("call loop", () => {
     w.geminiSays(800, "Ok, ti lascio. Ciao!", { turn: true });
     await w.advance(2000);
     expect(w.first("fine")?.data.motivo).toBe("silenzio");
-  });
+    // minutes of call simulated tick by tick: slow on a loaded machine
+  }, 30_000);
 
   test("after 'aspetta un attimo' the silence is theirs: no 'are you there?' for two minutes", async () => {
     const w = new World();
@@ -392,7 +502,8 @@ describe("call loop", () => {
     expect(w.has("ci_sei")).toBe(false);
     await w.advance(62_000);
     expect(w.has("ci_sei")).toBe(true);
-  });
+    // minutes of call simulated tick by tick: slow on a loaded machine
+  }, 30_000);
 
   test("a call back after a dropped line picks up the thread", async () => {
     const lines = ["Ada: com'è andata la riunione col fornitore?", "Jarvis: Hanno accettato lo sconto del dieci per cento."];
@@ -468,7 +579,8 @@ describe("call loop", () => {
     await w.advance(400_000);
     expect(w.log.filter((l) => l.event === "ancora_al_lavoro").length).toBe(4);
     expect(w.has("fine")).toBe(false);
-  });
+    // minutes of call simulated tick by tick: slow on a loaded machine
+  }, 30_000);
 
   test("a handed-off job is told when the line is free, in two or three phrases", async () => {
     const w = new World();

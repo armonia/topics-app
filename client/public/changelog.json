@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.3.114",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "sei difetti trovati girando ogni schermata a 375px (#967)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.113",
     "date": "2026-11-14",
     "sections": {
