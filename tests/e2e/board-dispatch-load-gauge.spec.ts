@@ -31,6 +31,9 @@
  *    ring is full, the word says the Mac is busy, and the wait sentence says
  *    it in the same percentage with the point where it restarts by itself.
  *  - GAUGE-08  nothing measured: said as not measurable, never an invented 0%.
+ *  - GAUGE-09  the Mac's floor holds the queue while a node has a free seat:
+ *    the word says "altrove" (one overflow round away), never the generic
+ *    "no room" that is only honest when no `nodes` are on the wire at all.
  *
  * The cap is left in its default (by count, auto): the derivation line only
  * exists when the machine is what produced the limit, and auto is what the
@@ -416,5 +419,47 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await expect(busy).toHaveText("Occupazione del Mac non misurabile");
     await expect(busy).toHaveAttribute("data-tone", "unknown");
     await expect(busy).not.toContainText("%");
+  });
+
+  test("GAUGE-09: il Mac fermo per il pavimento con un nodo libero dice «altrove», non «niente spazio»", async ({ page }) => {
+    const floorPayload = (nodes?: { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[]) => ({
+      recommended: 4, cores: 12, totalMemGB: 34, availableMemGB: 2, load1: 2, running: 2,
+      usedCoreUnits: 1, usableCoreUnits: 6.6, otherCoreUnits: 1, frozen: 0,
+      machineCpuPct: 20, machineMemPct: 90,
+      admission: { admit: false, blockedBy: "floor", firstAgentExempt: false },
+      reason: "pavimento memoria",
+      nodes,
+    });
+    // BEFORE: an older server, or no node paired — no `nodes` on the wire at
+    // all, the one case where the generic floor word is still the honest one.
+    await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(floorPayload(undefined)) }));
+    await page.goto("/");
+    await openBoard(page);
+    await expect(word(page)).toHaveText("fermo: niente spazio");
+    await page.screenshot({ path: join(SHOTS, "09-before-floor.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
+
+    // AFTER: the same floor, but a node has a free seat (the night's real
+    // incident: 2 running on node1 of a 2-seat node). The word must say the
+    // card is one overflow round from running elsewhere, never "no room".
+    await page.route((url) => url.pathname === "/api/system/dispatch-capacity", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(floorPayload([
+          { id: "node1", name: "Nodo 1", kind: "node", online: true, slots: 2, used: 1 },
+          { id: "pc", name: "PC", kind: "node", online: true, slots: 4, used: 4 },
+        ])),
+      }));
+    await page.reload();
+    await openBoard(page);
+    const g = gauge(page);
+    await expect(word(page)).toHaveText("Mac fermo · nodo libero");
+    await expect(g).toHaveAttribute("data-held", "floor");
+    await g.click();
+    const popover = page.getByTestId("dispatch-load-popover");
+    await popover.getByTestId("dispatch-load-details").locator("summary").click();
+    await expect(popover.getByTestId("dispatch-load-nodes")).toHaveText("Nodo 1 1/2 · PC occupato");
+    await page.screenshot({ path: join(SHOTS, "09-after-floor-elsewhere.png"), clip: { x: 0, y: 0, width: 1600, height: 500 } });
   });
 });
