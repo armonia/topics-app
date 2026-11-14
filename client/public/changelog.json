@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.3.111",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: la frase rapida non inventa cosa controlla e non scambia una domanda per una lamentela (#990)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.110",
     "date": "2026-11-14",
     "sections": {

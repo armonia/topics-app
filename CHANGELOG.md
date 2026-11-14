@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.111 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: la frase rapida non inventa cosa controlla e non scambia una domanda per una lamentela (#990)
+
 ## 2.3.110 — 2026-11-14
 
 ### Sotto il cofano
