@@ -241,7 +241,7 @@ test.describe("Kanban board — what a card downloads for its steps", () => {
     // The other half: the steps arrived WHOLE. Each card draws its checklist
     // (the compact «n/m» fallback is gone), and the two chips derived off the
     // child rows are on the board, with the kind the seed put there.
-    const fallback = page.locator("[data-task-card]").getByText(/↳ \d+\/\d+/);
+    const fallback = page.locator("[data-task-card]").getByText(/^\d+\/\d+$/);
     await expect(fallback).toHaveCount(0);
     const unattended = page.getByTestId(`card-subtask-work-${unattendedRoot!.step}`);
     const parentTurn = page.getByTestId(`card-subtask-work-${parentTurnRoot!.step}`);

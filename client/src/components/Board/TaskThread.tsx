@@ -240,7 +240,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
                     {a.isImage ? (
                       <ZoomableImage src={getMediaUrl(a.path)} alt={a.name} title={a.name} testId="task-composer-attachment-image" className="h-12 w-12 rounded object-cover" />
                     ) : (
-                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/10 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
+                      <span className="flex max-w-[10rem] items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-1 text-mini text-app-text-heading">
                         <Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{a.name}</span>
                       </span>
                     )}

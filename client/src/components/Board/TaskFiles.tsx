@@ -329,7 +329,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
               <div className="flex items-center gap-1.5 text-mini">
                 <span className="font-medium text-app-text">{tr('board.task.attempt.n', { n: a.idx })}</span>
                 {won && <span className="rounded bg-emerald-500/25 px-1 text-mini text-emerald-200">{tr('board.task.attempt.selected')}</span>}
-                {dead && <span className="rounded bg-black/10 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
+                {dead && <span className="rounded bg-black/5 dark:bg-white/10 px-1 text-mini text-app-text-secondary">{tr('board.task.attempt.discarded')}</span>}
                 <span className="text-app-text-muted">{attemptStat(a, tr)}</span>
                 {a.branch && <span className="truncate font-mono text-mini text-app-text-faint">{a.branch}</span>}
               </div>
