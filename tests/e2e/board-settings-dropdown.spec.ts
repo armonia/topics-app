@@ -493,4 +493,33 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
       await flip(wasOn);
     }
   });
+
+  test("DROP-09: the board's own workflow rules, CI phase switch and paths a person must look at, are written and come back after a reload", async ({ page }) => {
+    // The generic paths live in the code; the panel holds only THIS board's.
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    await expect(panel(page)).toBeVisible();
+    await openThisBoard(page);
+    const paths = panel(page).getByTestId("board-workflow-paths");
+    await paths.scrollIntoViewIfNeeded();
+    await expect(panel(page).getByText("Fase CI")).toBeVisible();
+    await expect(panel(page).getByText("Da far guardare a te")).toBeVisible();
+    await panel(page).getByTestId("board-workflow-ci-off").click();
+    await paths.fill("client/src/** # interface\nscripts/** # the judge");
+    await paths.blur();
+    await expect(paths).toHaveValue(/client\/src\/\*\* # interface/, { timeout: 10_000 });
+    await page.reload();
+    await openBoard(page);
+    await gear(page).click();
+    await openThisBoard(page);
+    const again = panel(page).getByTestId("board-workflow-paths");
+    await again.scrollIntoViewIfNeeded();
+    await expect(again).toHaveValue("client/src/** # interface\nscripts/** # the judge");
+    await expect(panel(page).getByTestId("board-workflow-ci-off")).toHaveClass(/bg-emerald/);
+    await panel(page).getByTestId("board-workflow-ci-on").click();
+    await again.scrollIntoViewIfNeeded();
+    await panel(page).getByTestId("board-workflow-picker").screenshot({ path: join(SHOTS, "workflow-regole.png") });
+    await page.screenshot({ path: join(SHOTS, "workflow-pannello.png") });
+  });
 });
