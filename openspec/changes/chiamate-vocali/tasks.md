@@ -20,7 +20,7 @@ Barra: `bun test …/brain.test.ts` esce 0; `acks` (frasi vere, 18 su 18, solo c
 Barra: unit test della chiamata col finto Gemini (`call.test.ts`) esce 0, compresi `repeatedQuestion` e «passo pronto mentre parla si butta» con le loro mutazioni.
 
 ## T5 · Ponte (dipende da: T4)
-`/ws/voice/bridge` come in `protocollo.md`, intercalari in cache sotto `TOPICS_HOME/voice/`, impostazioni (`voiceModel`, `voiceName`, `voiceBrainModel`, `voiceQuickModel`, cartella scenari), `GROQ_API_KEY` e `GEMINI_API_KEY` dall'ambiente.
+`/ws/voice/bridge` come in `protocollo.md`, intercalari in cache sotto `TOPICS_HOME/voice/`, configurazione dall'ambiente con default nel codice, niente migration: `TOPICS_VOICE_MODEL` (gemini-3.8-live), `TOPICS_VOICE_NAME` (Algenib), `TOPICS_VOICE_BRAIN_MODEL` (vuoto = Gemini da solo), `TOPICS_VOICE_QUICK_MODEL` (qwen/qwen3.8-27b), `TOPICS_VOICE_SCENARIOS` (cartella del banco); chiavi `GEMINI_API_KEY` e `GROQ_API_KEY` come le altre rotte voce.
 Barra: test d'integrazione con un finto canale sul ponte (start → audio → handoff_ok → reply → hangup → outcome) esce 0.
 
 ## T6 · jarvis-channels filo (dipende da: protocollo; si prova con T5)
