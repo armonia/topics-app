@@ -6,6 +6,7 @@ import {
   AI_REVIEW_RETRY_MS,
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_AI_REVIEW,
+  STAGE_CI,
   isWorkflowPresetId,
   resolveWorkflow,
   stageForDelivery,
@@ -168,6 +169,8 @@ export function clearAiReviewReminderStamp(db: Database, taskId: string, stampIs
 export function checkStage(
   columns: BoardWorkflow["columns"], stage: string, status: string | undefined,
 ): { stage: string | null } | { error: string } {
+  // The CI column is entered by accepting the work (Approva, Landa), never by naming it: a drag there would skip the land.
+  if (stage === STAGE_CI) return { error: `the "${STAGE_CI}" column is entered by approving or landing the card, not by moving it there` };
   const col = columns.find((c) => c.id === stage);
   if (!col) return { error: `stage "${stage}" is not a column of this board's workflow (${columns.map((c) => c.id).join(", ")})` };
   if (status !== undefined && status !== col.base) return { error: `stage "${stage}" holds cards in status "${col.base}", not "${status}"` };
