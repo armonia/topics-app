@@ -415,8 +415,10 @@ export class Call extends CallAudio {
       this.deps.log("pensato", { ms: ms(took), di: t.say, affida: t.task, chiudi: t.close });
       this.lastThought = t.say ? { phrase, say: t.say, at: this.deps.now() } : null;
       // the results it already had in front: it tells them, Gemini does not repeat them
+      // only if its words are the result's: a "say it again?" does not tell it, and the
+      // result must still be said (bench 14/11, a result that was never told)
       const known = this.replyAt.filter((a) => a <= this.askBuiltAt).length;
-      if (known > 0 && t.say) {
+      if (known > 0 && t.say && echoOf(this.replies.slice(0, known).join(" "), t.say)) {
         this.replies.splice(0, known);
         this.replyAt.splice(0, known);
         this.replySince = this.replies.length === 0 ? null : this.deps.now();
