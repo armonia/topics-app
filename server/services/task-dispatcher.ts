@@ -4731,7 +4731,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
           // "RICATTURA EVIDENZA" (RECAPTURE EVIDENCE) STARTS ON ITS OWN, BEFORE
-          // THE GATE, not after. No agent on this fleet can open a browser for its own before/after
+          // THE GATE, not after. No agent opens a browser by hand for its own before/after
           // shot (kickoff rule), so on a `visibile` card the auto-capture is
           // this door's ONLY chance to give the gate below something real to
           // find — awaited here, not fired in the background after the
