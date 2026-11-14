@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.115 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)
+
 ## 2.3.114 — 2026-11-14
 
 ### Sotto il cofano
