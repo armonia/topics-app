@@ -168,10 +168,16 @@ const HELLO = new Set(["pronto", "pronti", "si", "sì", "ciao", "eccomi", "dimmi
  * "Hello?", "Yes, hi": what one says on picking up. Over the greeting it must not
  * cut it (10/11, a "Pronto?" truncated it), and after it it needs no answer.
  */
-export function onlyGreeting(text: string): boolean {
+export function onlyGreeting(text: string, names: readonly string[] = []): boolean {
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
-  return words.length > 0 && words.length <= 3 && words.every((w) => HELLO.has(w));
+  const named = new Set(names.flatMap((n) => n.toLowerCase().split(/[^\p{L}]+/u)).filter(Boolean));
+  // "ciao a tutti", "ciao Attilio": on 14/11 the phone sent back the greeting's  allow-italian: the quoted phrase is the real one
+  // own "Ciao Attilio", whisper wrote "Ciao a tutti" and 11 s of greeting were cut  allow-italian: the quoted phrase is the real one
+  const ok = (w: string) => HELLO.has(w) || AROUND_HELLO.has(w) || named.has(w);
+  return words.length > 0 && words.length <= 4 && words.some((w) => HELLO.has(w)) && words.every(ok);
 }
+
+const AROUND_HELLO = new Set(["a", "tutti", "te", "voi", "anche"]);
 
 const LISTENING = new Set([
   "si", "sì", "ok", "okay", "mh", "mhm", "mm", "mmh", "ah", "eh", "uh", "oh", "e", "certo", "giusto", "esatto", "bene", "va",
