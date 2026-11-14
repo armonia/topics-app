@@ -8,7 +8,7 @@
  * affida, chiude, riferisce, breve, racconta, passi_non_dicono, non_ripete, rilancia.  allow-italian: the keys of scenari.json
  *
  *   TOPICS_VOICE_SCENARIOS=<dir with scenari.json and the clips> \
- *   bun run tests/voice/scenari.ts --giri 2 [--solo <id>] [--insieme 3] [--url ws://127.0.0.1:13334/ws/voice/bridge]
+ *   bun run tests/voice/scenari.ts --giri 2 [--solo <id>] [--insieme 1] [--url ws://127.0.0.1:13334/ws/voice/bridge]
  *
  * The clips are voices of real people: they stay in their folder, outside any
  * repository. The results go to `<dir>/esiti/topics-<stamp>.json` (or `--out`).
@@ -32,7 +32,10 @@ if (!base) {
 }
 const url = arg("--url") ?? process.env.TOPICS_VOICE_BRIDGE_URL ?? "ws://127.0.0.1:13334/ws/voice/bridge";
 const rounds = Number(arg("--giri") ?? 3);
-const parallel = Number(arg("--insieme") ?? 3);
+// one call at a time by default: at two or three in parallel (four to six Live
+// sessions, each call has its mouth) Gemini answered 1011 "resource exhausted"
+// and the calls died before the greeting (14/11)
+const parallel = Number(arg("--insieme") ?? 1);
 const only = arg("--solo");
 const threshold = Number(arg("--soglia") ?? 16);
 const owner = process.env.TOPICS_VOICE_BENCH_NAME || "Ada";
