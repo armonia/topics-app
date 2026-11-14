@@ -9,6 +9,9 @@ import { type TaskAttempt } from "../services/task-attempts";
 import { createAutoLander } from "../services/auto-land";
 import { createNodeDeliveryMeter } from "../services/node-delivery-meter";
 import type { StopCause } from "../lib/abort-cause";
+import { readWorkflowRules } from "../services/board-workflow";
+import { createCiPhase } from "./tasks-ci-phase";
+import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
@@ -109,6 +112,15 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
+    if (enterCiPhase(projectId, taskId, landOpts)) {
+      const at = ciPhase.pending(projectId).indexOf(taskId);
+      return { taskId, phase: "queued", ahead: at > 0 ? at : 0, queuedAt: new Date().toISOString(), settledAt: null, error: null, outcome: null, reason: null };
+    }
+    return landDirect(projectId, taskId, landOpts);
+  }
+
+  /** The land itself, behind the CI phase (or instead of it, on a board without CI rows). */
+  function landDirect(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
     // PRIMA di accodare, non dopo: fra l'accodamento e la fusione la card non è
     // su main, e in quella finestra deve dirlo.
     try { opts?.markLandPending?.(taskId); } catch (err) { console.warn("[land] timbro di attesa fallito per", taskId, err); }
@@ -156,7 +168,16 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     },
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
+    personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
+    // On a board with the CI phase the land waits for the CI, not for every open turn on the server: a
+    // person's "Landa" never waited for them either, and the reload that follows resumes the turns it cuts
+    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer gave
+    // up after three hours and the card stayed in review. Boards without the phase keep the wait.
     liveTurns: opts?.liveTurnCount,
+    waitsForTurns: (taskId) => {
+      const projectId = svc.get(taskId)?.task.projectId;
+      return !projectId || !ciPhase.boardHasCiPhase(projectId);
+    },
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
       return !!t && cardTurnIsLive(t);
@@ -175,9 +196,33 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       const t = svc.get(taskId)?.task;
       if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
     },
-    tryLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    // A red measure sends the card back to its agent; anything else is offered to the automatic land.
+    tryLand: async (projectId, taskId) => {
+      if (await bounceRed(projectId, taskId)) return;
+      return afterDelivery(projectId, taskId);
+    },
     log: (line) => console.warn(line),
   });
+
+  const ciPhase = createCiPhase({
+    svc, db, dispatcher,
+    broadcast: (msg) => broadcastToAll(msg),
+    cardTurnIsLive: (t) => cardTurnIsLive(t),
+    landDirect: (projectId, taskId) => landDirect(projectId, taskId),
+    markLandPending: opts?.markLandPending,
+    whenLanded: (taskId) => landings.whenSettled(taskId),
+    tryAutoLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
+    integrationRepo: opts?.integrationRepo,
+    integrationMeasure: opts?.integrationMeasure,
+    integrationCollectMs: opts?.integrationCollectMs,
+    filesBetween: opts?.integrationFilesBetween ?? (opts?.integrationRepo
+      ? async (taskId, from, to) => {
+        const repo = await opts.integrationRepo!(taskId).catch(() => null);
+        return repo ? ownChangesBetween(repo, from, to) : null;
+      }
+      : undefined),
+  });
+  const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
@@ -185,6 +230,14 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
+      // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
+      if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
+      // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
+      // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.
+      if (t.landIntent === "human") {
+        if (!ciPhase.pending(t.projectId).includes(t.id)) await ciPhase.returnToCiPhase(t.projectId, t.id);
+        continue;
+      }
       if (!t.labels.some((l) => l.label === "invisibile") || t.checksState !== "pass") continue;
       asked += 1;
       await autoLander.tryLand(t.projectId, t.id, { quiet: true });
@@ -740,5 +793,5 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     }
   }
 
-  return { runningAttempts, cardTurnIsLive, cutLiveTurn, landings, enqueueLand, autoLander, nodeMeter, sweepAutoLand, enqueueLandOnDone, landProof, explainNothingToLand, landTask } satisfies Partial<TasksLate> & Record<string, unknown>;
+  return { runningAttempts, cardTurnIsLive, cutLiveTurn, landings, enqueueLand, enterCiPhase, landDirect, afterDelivery, autoLander, nodeMeter, sweepAutoLand, enqueueLandOnDone, landProof, explainNothingToLand, landTask } satisfies Partial<TasksLate> & Record<string, unknown>;
 }

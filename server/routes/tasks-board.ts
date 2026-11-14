@@ -11,9 +11,10 @@ import type { AppContext } from "../types";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
+import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
-import { isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
+import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -29,8 +30,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
-import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
-import { WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
+import { readBoardWorkflow, readOwnWorkflowPreset, readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
+import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId, parsePersonPaths, type WorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -96,6 +97,10 @@ export interface BoardRouteDeps {
   cutLiveTurn: (t: { id: string; assignedTopicId: string | null; dispatchState: string | null }, reason: string, cause: StopCause) => boolean;
   enqueueLand: (projectId: string, taskId: string) => LandingTicket;
   enqueueLandOnDone: (projectId: string, taskId: string, branch: string) => LandingTicket | null;
+  /** The CI phase (`integration-queue.ts`): `true` = the card entered it, `false` = this board has none. */
+  enterCiPhase: (projectId: string, taskId: string) => boolean;
+  /** The land queue's own door, behind the CI phase: for "Landa e pubblica", which goes online now. */
+  landDirect: (projectId: string, taskId: string) => LandingTicket;
   proposeDeployIfConfigured: (projectId: string, taskId: string) => void;
   runDeploy: (projectId: string, taskId: string, command: string) => Promise<void>;
   publishProject: (projectId: string) => Promise<{ ok: boolean; branch?: string; output?: string; error?: string; code?: string }>;
@@ -129,6 +134,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     cutLiveTurn,
     enqueueLand,
     enqueueLandOnDone,
+    enterCiPhase,
+    landDirect,
     proposeDeployIfConfigured,
     runDeploy,
     publishProject,
@@ -269,24 +276,48 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
     if (bWorkflow) {
       const scope = bWorkflow.projectId;
+      // `rules` = the CI switch and the board's paths a person must look at,
+      // resolved; `ownRules` = this scope's row. PUT takes any of `preset`,
+      // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
+      // keys present are written, `null` = inherit.
+      const view = () => ({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope), rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
       if (method === "GET") {
-        try { return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) }); }
+        try { return json(view()); }
         catch (e) { return fail(e); }
       }
       if (method === "PUT") {
-        const body = (await readJSON(req)) as { preset?: unknown } | null;
-        const preset = body?.preset;
-        if (preset !== null && !isWorkflowPresetId(preset)) {
+        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
+        const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+        if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
+          return json({ error: "nothing to write: send preset, ciPhase or personPaths", code: "invalid_input" }, 400);
+        }
+        const preset = body.preset;
+        if (has("preset") && preset !== null && !isWorkflowPresetId(preset)) {
           return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
         }
+        if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
+          return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
+        }
+        const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
+        if (has("personPaths") && body.personPaths !== null && personPaths === null) {
+          return json({ error: `personPaths must be a list of at most ${MAX_PERSON_PATHS} { pattern, why }`, code: "invalid_input" }, 400);
+        }
         try {
+          if (has("ciPhase") || has("personPaths")) {
+            writeWorkflowRules(ctx.db, scope, {
+              ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
+              ...(has("personPaths") ? { personPaths } : {}),
+            }, new Date().toISOString());
+          }
           // Through the service: the cards whose column the new workflow does
           // not have go back to the default one, and the attention state reads
           // them again (a card in review there waits on the person).
-          for (const task of svc.applyBoardWorkflow({ scope, preset })) {
-            broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+          if (has("preset")) {
+            for (const task of svc.applyBoardWorkflow({ scope, preset: preset as WorkflowPresetId | null })) {
+              broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+            }
           }
-          return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) });
+          return json(view());
         } catch (e) { return fail(e); }
       }
     }
@@ -775,6 +806,26 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       if (decision === "approve") {
         const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
         if (gate) return gate;
+        // "Done for me" means it goes to main. On a board with the CI phase an approval of a card whose
+        // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
+        const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
+        // `force` is the person overriding a red: an explicit gesture, it does not go through the phase's bounce.
+        // An approval WITH a comment is still an approval: it went done and landed straight, past the
+        // phase (2882b9fb, 14/11, main red on the bundle). Only "Landa e pubblica" goes online directly.
+        const said = typeof body?.comment === "string" ? body.comment.trim() : "";
+        // "Already on main" is a merge a land saw, not a deduced `landed` (c2908b93): that one enters the phase.
+        if (cur && cur.status === "review" && cur.deliveryBranch && !landedOnMain(ctx.db, cur)
+          && !isPublishActionLabel(said) && body?.force !== true) {
+          // The words go in BEFORE the phase starts: written after, they would read as the person speaking up
+          // during the phase, which stops it. Written twice they are one row (author + content dedupe).
+          if (said && !isLandActionLabel(said)) {
+            try { svc.addComment({ taskId: bReview.taskId, author: HUMAN, content: said, projectId: bReview.projectId, origin: actionOrigin }); }
+            catch { /* the phase is what matters */ }
+          }
+          if (enterCiPhase(bReview.projectId, bReview.taskId)) {
+            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+          }
+        }
       }
       try {
         const comment = typeof body?.comment === "string" ? body.comment : undefined;
@@ -796,7 +847,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // Land + push nello STESSO turno di coda: la pubblicazione spinge il
           // ramo corrente del checkout, quindi non deve mai partire mentre un
           // altro land ci sta mergiando sopra.
-          const ticket = enqueueLand(projectId, taskId);
+          // Publishing is the explicit "online now": it skips the CI phase (the push runs the CI on main).
+          const ticket = landDirect(projectId, taskId);
           void landings.whenSettled(taskId)?.then(async (t) => {
             if (t.phase !== "settled") return; // il land è fallito: ha già parlato lui
             // …e «settled» vuol dire che il turno di coda è finito senza
@@ -994,7 +1046,17 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     // dopo che la richiesta di land si è chiusa: è la controparte del 202.
     if (bLand && method === "GET") {
       const ticket = landings.status(bLand.taskId);
-      if (!ticket) return json({ error: "no land was requested for this task", code: "not_found" }, 404);
+      const open = ticket && (ticket.phase === "queued" || ticket.phase === "running");
+      if (!open) {
+        // In the CI phase the land is asked and not yet queued: say so, the 202 promised a ticket.
+        // Ahead of an older SETTLED ticket too: a land that failed and was asked again entered the
+        // CI phase, and handing back the old refusal made the second request look refused as well (14/11).
+        const cur = svc.get(bLand.taskId, { projectId: bLand.projectId })?.task;
+        if (cur?.stage === STAGE_CI && cur.status === "review") {
+          return json({ landing: { taskId: bLand.taskId, phase: "queued", ahead: 0, queuedAt: null, settledAt: null, error: null, outcome: null, reason: "fase CI" }, pending: 0 });
+        }
+        if (!ticket) return json({ error: "no land was requested for this task", code: "not_found" }, 404);
+      }
       return json({ landing: ticket, pending: landings.pending(bLand.projectId) });
     }
 

@@ -368,6 +368,9 @@ describe("a card whose agent ended its turn on a running run_command", () => {
     expect(b.turns.length).toBe(1);
     expect(b.task().dispatchAttempts).toBe(1);
     expect(b.task().status).toBe("in_progress");
+    // The attempt the dead launch opened is closed by the turn that adopted it:
+    // left `running`, the card would read as live forever.
+    expect(b.deps.attempts!.list("t1").map((a) => a.state)).toEqual(["delivered"]);
     next.shutdown();
   });
 

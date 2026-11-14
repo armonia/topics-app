@@ -57,6 +57,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -65,7 +66,7 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
@@ -252,6 +253,8 @@ import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isDesktopShellOrigin, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
+import { VOICE_BRIDGE_PATH, VoiceBridgeSession } from "./server/services/voice-call/bridge";
+import type { Complete } from "./server/services/voice-call/brain";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
@@ -1078,6 +1081,16 @@ const billingRouter = createBillingRouter(ctx);
  * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
  * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
  */
+/**
+ * The brain of the phone calls: `complete()` of the provider named by
+ * TOPICS_VOICE_BRAIN_PROVIDER, or of the default one. Resolved at each call,
+ * so a provider that comes up later is used from the next call.
+ */
+const voiceBrainDoor = (): Complete | null => {
+  const p = tryGetProvider(process.env.TOPICS_VOICE_BRAIN_PROVIDER?.trim() || undefined);
+  return p ? (messages, options) => p.complete(messages, options) : null;
+};
+
 const identityByRequest = new WeakMap<Request, {
   role: 'owner' | 'guest';
   deviceId: string | null;
@@ -1374,6 +1387,14 @@ async function watchHeadlessBody(
     isWaitingForBackground: stallBackgroundHold(sessionKey),
     // A foreground spawn_agent waiting for its child: our own wait as well.
     isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
+    // A foreground command (cargo test, a mutation run) is still executing: the
+    // transcript tail is silent for all of it and the judge would misread it.
+    isToolRunning: () => {
+      const stream = activeStreams.get(sessionKey);
+      // The row is written on a throttle: flush so the running tool's line is on it.
+      if (stream) flushTurnBody(sessionKey);
+      return !!stream && foregroundToolHold(getMessageById(stream.messageId), Date.now());
+    },
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     // Once per change of reason: a hold lasting an hour rearmed every five
@@ -1390,6 +1411,8 @@ async function watchHeadlessBody(
             ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
           : reason === "subagent"
             ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
+          : reason === "tool"
+            ? `[turn] stall watch rearmed on ${sessionKey}: a tool call is still running, the judge is not asked`
           : reason === "checks"
             ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
             : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -2954,6 +2977,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -4130,6 +4155,10 @@ const opzioniServer = {
     // terminal and browser used to omit it, so revoking their device closed
     // chat while leaving the terminal keyboard and browser controls alive.
     if (isWebSocketPath(pathname)) {
+      // A phone call is the owner's: a guest or a delegated node never opens one.
+      if (pathname === VOICE_BRIDGE_PATH && identityByRequest.get(req)?.role !== "owner") {
+        return new Response(JSON.stringify({ error: "voice bridge: owner only", code: "forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
       const wsUpgrade = upgradeWebSocket(
         req, pathname, server, identityByRequest.get(req) ?? null, isRemotePeer(req, server),
       );
@@ -4449,6 +4478,17 @@ const opzioniServer = {
      */
     open(ws) {
       ws.data.lastPong = Date.now();
+      // A voice bridge is not a device of the app: no broadcasts, no presence. It
+      // still sits in deviceSockets, the set revocation walks: a device revoked or
+      // demoted mid-call must lose the bridge too, not keep a 30-minute call.
+      if (ws.data.voiceBridge) {
+        ctx.deviceSockets.add(ws);
+        ws.data._voice = new VoiceBridgeSession(
+          { send: (d) => void ws.send(d), close: (code, reason) => ws.close(code, reason), bufferedAmount: () => ws.getBufferedAmount() },
+          { complete: voiceBrainDoor },
+        );
+        return;
+      }
       ctx.deviceSockets.add(ws);
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
@@ -4719,6 +4759,11 @@ const opzioniServer = {
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+      if (ws.data._voice) {
+        if (typeof message === "string") ws.data._voice.onText(message);
+        else ws.data._voice.onBinary(new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+        return;
+      }
       refreshSocketPrincipal(ctx.db, ws.data);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
@@ -5177,6 +5222,11 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
+      if (ws.data._voice) {
+        ctx.deviceSockets.delete(ws);
+        ws.data._voice.onClose();
+        return;
+      }
       if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WS_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
@@ -6353,6 +6403,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
@@ -6416,6 +6468,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

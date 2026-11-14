@@ -273,11 +273,11 @@ describe("a delivery that needs no one lands itself", () => {
   }, 30_000);
 
   // The line `AI-REVIEW approved <sha>` is a comment, and the comment door signs with the session named in the URL while the
-  // loopback is trusted with no credentials: anyone can write it. A reviewer AI will unblock server code only with an identity
-  // the server verifies (docs/board-protocol.md); until then server code is a person's, whatever the thread says.
-  describe("server code is a person's: an approval line in the thread unblocks nothing", () => {
+  // loopback is trusted with no credentials: anyone can write it. What sits in a person's place (here: push) stays a person's,
+  // whatever the thread says.
+  describe("a person's place stays a person's: an approval line in the thread unblocks nothing", () => {
     const FULL = "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
-    const server = { deliveryFiles: ["server/lib/git-numstat.ts"], deliveryCommit: FULL, checksCommit: FULL };
+    const server = { deliveryFiles: ["server/push-triggers.ts"], deliveryCommit: FULL, checksCommit: FULL };
 
     /** A session on another model family than the card's writer, as the forgery would claim to be. */
     function reviewer(id: string, model: string) {

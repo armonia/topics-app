@@ -183,4 +183,12 @@ describe('formatRelative — la colonna «quanto tempo fa»', () => {
   it('un orologio indietro non produce durate assurde', () => {
     expect(formatRelative(NOW + 5 * M, NOW)).toBe('now');
   });
+
+  it('Italian: «ora», days in «g», months spelled out', () => {
+    expect(formatRelative(NOW, NOW, 'it')).toBe('ora');
+    expect(formatRelative(NOW - 2 * M, NOW, 'it')).toBe('2m');
+    expect(formatRelative(NOW - 5 * D, NOW, 'it')).toBe('5g');
+    expect(formatRelative(NOW - 30 * D, NOW, 'it')).toBe('1 mese');
+    expect(formatRelative(NOW - 60 * D, NOW, 'it')).toBe('2 mesi');
+  });
 });

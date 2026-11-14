@@ -93,7 +93,7 @@ import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
 
 // These moved to sibling modules; this path stays their public home.
-export { runGitCap, ownCommitFiles, ownBranchFiles } from "./tasks-git";
+export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
 export { matchGuestTaskAction } from "./tasks-guests";
 export type { TasksRouterOpts } from "./tasks-opts";
 export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
@@ -193,7 +193,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const { resumePendingDeliveries } = checks;
   const land = createTasksLand(core, late);
   Object.assign(late, land);
-  const { cutLiveTurn, landings, enqueueLand, autoLander, enqueueLandOnDone } = land;
+  const { cutLiveTurn, landings, enqueueLand, afterDelivery, enterCiPhase, landDirect, enqueueLandOnDone } = land;
 
   const deploy = createTasksDeploy(core);
   Object.assign(late, deploy);
@@ -209,7 +209,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
     emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
-    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, proposeDeployIfConfigured, runDeploy,
+    triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, landDirect, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
@@ -1458,7 +1458,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, item.taskId);
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-          if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(sess.projectId, item.taskId);
+          if (task.status === "review" && prevStatus !== "review") void afterDelivery(sess.projectId, item.taskId);
           // È QUESTA la porta che conta per i tasti del banner: l'agente commenta
           // la domanda con `options` e poi si sposta in review da qui (MCP
           // update_task). Al momento del fronte la domanda è l'ultima riga del

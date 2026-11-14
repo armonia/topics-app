@@ -74,6 +74,10 @@ export interface WSData {
   openTopicIds?: Set<string>;
   lastPong: number;
   terminalId?: string;
+  /** Set when the socket was upgraded on /ws/voice/bridge: one phone call carried by a channel. */
+  voiceBridge?: boolean;
+  /** The call on a voice bridge socket, created at open. */
+  _voice?: import("./services/voice-call/bridge").VoiceBridgeSession;
   _termHandler?: { message: (data: string | Buffer | ArrayBuffer) => void; close: () => void };
   /** Phase 30 BROWSER-CHAT-02 — set when WS upgraded on /ws/browser/:contextId. */
   browserContextId?: string;

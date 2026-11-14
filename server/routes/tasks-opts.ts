@@ -14,6 +14,7 @@ import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { type MemoryFloor } from "../services/review-checks-brakes";
 import { type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import type { ScheduledCardsService } from "../services/scheduled-cards";
+import type { IntegrationMeasure } from "../services/integration-queue";
 import { type NodeDeliveryCheckout } from "../services/node-delivery-meter";
 import { type TaskFile } from "../../shared/task-labels";
 import type { StopCause } from "../lib/abort-cause";
@@ -120,6 +121,18 @@ export interface TasksRouterOpts {
    * ha avuto risposta: si lascia stare quel che c'è). `commit: null` ⇒ verificato,
    * la card non ha prodotto codice — che è un'informazione, e va registrata.
    */
+  /**
+   * The CI phase (`services/integration-queue.ts`): the repository a card's
+   * branch lives in, for the integration commit. Absent = no CI phase, lands go
+   * straight to the land queue as before.
+   */
+  integrationRepo?: (taskId: string) => Promise<string | null>;
+  /** Tests: replaces the git + CI measure of an integration batch. */
+  integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
+  /** Tests: how long an idle integration queue collects cards before measuring. */
+  integrationCollectMs?: number;
+  /** Tests: the files between two commits of a card (git diff --name-only). */
+  integrationFilesBetween?: (taskId: string, from: string, to: string) => Promise<string[] | null>;
   taskDeliveryRef?: (taskId: string) => Promise<{
     branch: string; commit: string | null;
     /** L'entità del lavoro consegnato, quando git ha saputo dirla. */

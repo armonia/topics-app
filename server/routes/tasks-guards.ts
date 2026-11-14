@@ -21,7 +21,7 @@ import type { TasksCore, TasksLate } from "./tasks-scope";
 
 export function createTasksGuards(core: TasksCore, late: TasksLate) {
   const { ctx, opts, svc, attempts, db, json, broadcastToAll, getTopicBySessionKey, isPathAllowed, dispatcher } = core;
-  const { checksWaitSince, autoLander } = late;
+  const { checksWaitSince, afterDelivery } = late;
   const triggerUrlProbe: TasksLate["triggerUrlProbe"] = (...args) => late.triggerUrlProbe(...args);
   const runChecksGate: TasksLate["runChecksGate"] = (...args) => late.runChecksGate(...args);
   const tellChatAboutChecksWait: TasksLate["tellChatAboutChecksWait"] = (...args) => late.tellChatAboutChecksWait(...args);
@@ -677,7 +677,7 @@ export function createTasksGuards(core: TasksCore, late: TasksLate) {
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
       task = await captureDelivery(task, prevStatus);
       broadcastToAll({ type: "task:updated", projectId, task });
-      if (task.status === "review" && prevStatus !== "review") void autoLander.tryLand(projectId, taskId);
+      if (task.status === "review" && prevStatus !== "review") void afterDelivery(projectId, taskId);
       // A registry-backed update changes a normal board card, not a parallel
       // status model. Preserve the board's queue accounting exactly: entering
       // Todo may be picked up by that board's configured dispatcher, while

@@ -201,7 +201,11 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261113140000: the run this card last created on a paired node.
   node_run_id TEXT,
   -- 20261113150000: all the delivery branches the card left behind, space separated.
-  past_delivery_branches TEXT
+  past_delivery_branches TEXT,
+  -- 20261114010000: who decided the work goes to main ('human' | 'auto'), kept across a bounce.
+  land_intent TEXT CHECK (land_intent IN ('human', 'auto')),
+  land_intent_at TEXT,
+  land_intent_commit TEXT
 )`;
 
 /**

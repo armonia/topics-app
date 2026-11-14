@@ -275,6 +275,36 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     expect(stuck).toBe(1);
   });
 
+  test("a running foreground tool holds the watch: no judge, rearm says 'tool'", async () => {
+    const t = fakeTimers();
+    let judged = 0;
+    let stuck = 0;
+    const rearms: StallRearmReason[] = [];
+    let running = true;
+    armStallDetector({
+      idleMs: 5_000,
+      isWaitingForHuman: () => false,
+      isToolRunning: () => running,
+      getTail: () => "assistant: Bash(cargo test) ... Bash(cargo test) ...",
+      judge: async () => { judged++; return "stuck"; },
+      onStuck: () => { stuck++; },
+      onRearm: (r) => rearms.push(r),
+      setTimer: t.setTimer, clearTimer: t.clearTimer, now: t.now,
+    });
+    t.silence(8 * 60_000);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(judged, "a long command is running: nobody asks the judge").toBe(0);
+    expect(stuck).toBe(0);
+    expect(rearms).toEqual(["tool"]);
+    running = false;
+    t.silence(5_000);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(judged).toBe(1);
+    expect(stuck).toBe(1);
+  });
+
   test("noteActivity forwards to the live inner watch (resets silence)", () => {
     const t = fakeTimers();
     let stuck = 0;

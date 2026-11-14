@@ -139,6 +139,12 @@ export interface LandingAuditDeps {
    * `unpushed`, not `landed` and not `unlanded`. Absent: no such question.
    */
   localOnly?: (task: AuditTask, repoPath: string) => Promise<boolean>;
+  /**
+   * Is the delivery commit an ANCESTOR of the main the verdict is asked of? `null` = git could not say.
+   * Asked only of a card still in review whose deduction came out `landed` (see `auditLandings`).
+   * Absent: no such question, and the deduction stands as before.
+   */
+  onMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
   /** Persist the verdict (landing_state + landing_checked_at). */
   record: (taskId: string, state: LandingState, checkedAt: string) => void;
   /** Called once per task that flipped INTO `unlanded` — the human must see it. */
@@ -216,6 +222,17 @@ export async function auditLandings(deps: LandingAuditDeps): Promise<LandingAudi
       // merge del land su main: porta il nome della card e non lo pota nessuno.
       if (state === "unverifiable" && repo && deps.landedMerge) {
         if ((await deps.landedMerge(task, repo)) === true) state = "landed";
+      }
+      // A CARD STILL IN REVIEW HAS NOT BEEN LANDED BY THE BOARD: whatever landed it has to be visible as
+      // a merge, either its delivery commit inside main or the land's own `merge task <id>`. A content
+      // guess is not enough there: on card 572f8a09 it read a merge delivery as "already on main", the
+      // CI phase and then a session trusted the field, and the card closed with its work outside main
+      // (c2908b93). On a done card the deduction keeps its other proofs (a land copies commits, and
+      // the copy is not an ancestor); in review it says "cannot tell" until a merge is seen.
+      if (state === "landed" && task.status === "review" && repo && task.deliveryCommit && deps.onMain) {
+        const merged = (await deps.onMain(repo, task.deliveryCommit)) === true
+          || (deps.landedMerge ? (await deps.landedMerge(task, repo)) === true : false);
+        if (!merged) state = "unverifiable";
       }
       if (state !== "landed" && repo && deps.localOnly && (await deps.localOnly(task, repo))) state = "unpushed";
 

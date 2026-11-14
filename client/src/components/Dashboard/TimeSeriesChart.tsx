@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { TimeSeriesPoint } from '../../lib/api';
+import { useT } from '../../hooks/useT';
 
 interface TimeSeriesChartProps {
   points: TimeSeriesPoint[];
@@ -10,6 +11,7 @@ interface TimeSeriesChartProps {
 const PADDING = { top: 20, right: 16, bottom: 28, left: 48 };
 
 export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChartProps) {
+  const tr = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -47,7 +49,7 @@ export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChar
   if (points.length === 0) {
     return (
       <div ref={containerRef} className="flex items-center justify-center text-app-text-muted text-compact" style={{ height }}>
-        No data for selected range
+        {tr('dashboard.noData')}
       </div>
     );
   }

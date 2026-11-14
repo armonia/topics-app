@@ -1,0 +1,17 @@
+{
+  "_": "The topics-app board's own workflow rules (PUT /api/boards/<projectId>/workflow with this body). The generic list lives in server/services/auto-land.ts; these are the paths specific to THIS repository.",
+  "ciPhase": true,
+  "personPaths": [
+    { "pattern": "client/src/**", "why": "interface" },
+    { "pattern": "{landing,site,public}/**", "why": "public site" },
+    { "pattern": "{desktop-tauri,relay,deploy,native}/**", "why": "release or infrastructure" },
+    { "pattern": "{scripts,tests}/**", "why": "the judge" },
+    { "pattern": "**/*.json", "why": "the judge" },
+    { "pattern": "server/services/{auto-land,red-bounce,checks-gate,task-merge,node-delivery-meter,node-branch-plant,land-attribution-gate,deliveryReportChecks,board-actions,board-workflow,delivery-branch-ref,task-delivery-capture,own-commits,tasks}.ts", "why": "the judge" },
+    { "pattern": "server/services/{checks-,review-checks,ci-,integration-,landing-,task-automerge}*.ts", "why": "the judge" },
+    { "pattern": "server/lib/live-checkout-branch-guard.ts", "why": "the judge" },
+    { "pattern": "server/routes/{tasks,tasks-board,tasks-ci-phase}.ts", "why": "the judge" },
+    { "pattern": "shared/{task-labels,workflow,board}.ts", "why": "the judge" },
+    { "pattern": "server.ts", "why": "the judge" }
+  ]
+}

@@ -7,6 +7,7 @@ import type { TaskService } from "../services/tasks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
 import type { createTaskAttemptStore } from "../services/task-attempts";
 import type { createDeliveryCapture } from "../services/task-delivery-capture";
+import type { createCiPhase } from "./tasks-ci-phase";
 import type { createAutoLander } from "../services/auto-land";
 import type { LandingTicket } from "../services/landing-queue";
 import type { LandOutcome } from "../services/worktree-gc";
@@ -48,6 +49,9 @@ export interface TasksLate {
   ): void;
   rememberDelivery(taskId: string, pathname: string, body: Record<string, unknown>): void;
   checksWaitSince: Map<string, number>;
+  enterCiPhase: ReturnType<typeof createCiPhase>["enterCiPhase"];
+  landDirect(projectId: string, taskId: string): LandingTicket;
+  afterDelivery: ReturnType<typeof createCiPhase>["afterDelivery"];
   enqueueLandOnDone(projectId: string, taskId: string, branch: string): LandingTicket | null;
   autoLander: ReturnType<typeof createAutoLander>;
   tasksRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null>;

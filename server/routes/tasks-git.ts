@@ -17,6 +17,33 @@ export async function runGitCap(cwd: string, args: string[], timeoutMs: number =
 }
 
 /**
+ * The files whose OWN change differs between two deliveries of the same card.
+ * Not `git diff from to`: after the rebase a conflict asks for, that diff also
+ * carries everything main received in between, other cards' files included, and
+ * every fix would look like a new change to look at. Here each delivery is read
+ * against its own merge base with origin/main, and a file counts when the card's
+ * patch on it is not the same (hunk positions and blob ids ignored).
+ */
+export async function ownChangesBetween(repo: string, from: string, to: string): Promise<string[] | null> {
+  const base = async (c: string) => (await runGitCap(repo, ["merge-base", c, "origin/main"])).out.trim();
+  const [b1, b2] = [await base(from), await base(to)];
+  if (!b1 || !b2) return null;
+  const names = async (b: string, c: string) => {
+    const r = await runGitCap(repo, ["diff", "--name-only", b, c]);
+    return r.code === 0 ? r.out.split("\n").map((l) => l.trim()).filter(Boolean) : null;
+  };
+  const [n1, n2] = [await names(b1, from), await names(b2, to)];
+  if (!n1 || !n2) return null;
+  const patch = async (b: string, c: string, f: string) =>
+    (await runGitCap(repo, ["diff", b, c, "--", f])).out.split("\n").filter((l) => !l.startsWith("index ") && !l.startsWith("@@")).join("\n");
+  const out: string[] = [];
+  for (const f of new Set([...n1, ...n2])) {
+    if (!n1.includes(f) || !n2.includes(f) || (await patch(b1, from, f)) !== (await patch(b2, to, f))) out.push(f);
+  }
+  return out;
+}
+
+/**
  * I file che i commit PROPRI del task hanno toccato — la base su cui si derivano
  * `visibile`/`invisibile` e il GENERE della card.
  *

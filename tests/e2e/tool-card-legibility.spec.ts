@@ -306,8 +306,8 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       toolCalls: [
         {
           id: "tc-mcp-json",
-          name: "mcp__topics__get_task",
-          args: { taskId: "12" },
+          name: "mcp__topics__list_tasks",
+          args: { status: "review" },
           status: "success",
           result: MCP_RAW,
           startedAt: Date.now() - 2200,

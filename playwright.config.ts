@@ -71,27 +71,6 @@ const NIGHTLY_ONLY_SPECS = [
   "pane-store-two-devices",
   "split-screen-sync",
   "pane-server-migration",
-  // La famiglia file-explorer condivide un progetto/DB fra i test; su CI Linux
-  // lo stato accumulato disegnava un secondo albero, i locator treeitem ne
-  // trovavano >1 e il fallimento cascava di test in test (mettere in quarantena
-  // uno lo spostava sul successivo).
-  // L'isolamento c'è (fixtures/hermetic.ts: ogni FILE riparte dallo snapshot di
-  // baseline del globalSetup, vedi services/db-snapshot.ts), ma è per-file, non
-  // per-test: dentro lo stesso file lo stato scorre ancora — ed è voluto, quasi
-  // tutte le suite sono `describe.serial` e si passano il topic creato nel
-  // beforeAll. Restano quindi fuori dal gate PR finché non sono riscritte
-  // test-per-test. TODO(e2e-isolation).
-  //
-  // `file-explorer` è stato spezzato in tre file per tema (era 22 test / 138s in
-  // uno solo, il pavimento dello sharding — vedi helpers/file-project.ts). Ora
-  // ognuno ha il SUO progetto seminato, il che toglie l'interferenza FRA i tre;
-  // dentro ciascuno lo stato scorre ancora esattamente come prima, quindi la
-  // ragione di questa esclusione non è cambiata e valgono tutti e tre.
-  "file-explorer",
-  "file-explorer-git",
-  "file-explorer-panels",
-  "file-context-menu",
-  "file-external-drop",
   // Dipende da un motore STT raggiungibile (ElevenLabs o whisper locale) e
   // asserisce sul comportamento del provider reale: va bene nel notturno, non
   // nel gate PR dove il server di test gira senza chiavi e senza modelli.
