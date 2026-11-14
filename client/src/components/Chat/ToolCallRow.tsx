@@ -1,6 +1,6 @@
 import { createElement, lazy, memo, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, HelpCircle, Hourglass, PenLine, ShieldOff, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, HelpCircle, PenLine, ShieldOff, X } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForTool } from '../Layout/loaderState';
 import type { ToolCall, ToolUserResponse } from '../../types';
@@ -336,7 +336,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const effectiveOpen = bodyIsOpen({
     userToggled,
     open,
-    isSubAgent: detail.type === 'sub_agent',
+    isSubAgent: detail.type === 'sub_agent' || detail.type === 'task_card',
     isHumanTurn,
     autoOpen,
   });
@@ -462,7 +462,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // the plain row (nothing to open).
   // Sub-agent rows drop the chevron column and the command name (`Explore`):
   // the row is icon + description + time, and the type stays in its title.
-  const isSubAgent = detail.type === 'sub_agent';
+  const isSubAgent = detail.type === 'sub_agent' || detail.type === 'task_card';
   const headerInner = (
         <>
         {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
@@ -547,7 +547,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               data-phase={toolCall.inputStreaming ? 'writing' : 'queued'}
               className="inline-flex items-center gap-1 text-mini text-app-text-muted"
             >
-              {toolCall.inputStreaming ? <PenLine size={11} aria-hidden="true" /> : <Hourglass size={11} aria-hidden="true" />}
+              {toolCall.inputStreaming ? <PenLine size={11} aria-hidden="true" /> : <Clock size={11} aria-hidden="true" />}
               {tr(toolCall.inputStreaming ? 'tool.writingInput' : 'tool.queued')}
             </span>
           )}

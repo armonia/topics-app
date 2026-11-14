@@ -405,7 +405,7 @@ export function MessageList({
   const queued = queuedTurns ?? NO_QUEUED;
   const footerHead = useMemo(() => (
     <>
-      <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
+      <BackgroundWorkLine topicId={topic.id} sessionKey={topic.sessionKey} isMobile={isMobile} />
       <QueuedTurns
         turns={queued}
         isMobile={isMobile}
@@ -2470,7 +2470,6 @@ export function MessageList({
                   copiedMsgId={copiedMsgId}
                   isCompact={isCompact}
                   fontSize={settings.fontSize}
-                  isMobile={isMobile}
                   onReply={onReply}
                   onCopy={onCopy}
                   onTogglePin={onTogglePin}

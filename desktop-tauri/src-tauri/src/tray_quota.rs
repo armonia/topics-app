@@ -8,6 +8,7 @@
 //! separate from the I/O so they are unit tested without a display.
 //! Card c675633f.
 
+use crate::tray_agents::{self, AgentStates};
 use crate::tray_dials::{draw_mac, draw_pace, parse_mac, parse_pace, Extras, MAC_W};
 use serde::Deserialize;
 use std::io::{Read, Write};
@@ -183,7 +184,7 @@ const PCT_W: f32 = 22.0;
 const GAP: f32 = 2.0;
 const TIME_GAP: f32 = 3.0;
 const ACCOUNT_GAP: f32 = 6.0;
-const PAD_X: f32 = 4.0;
+pub(crate) const PAD_X: f32 = 4.0;
 /// The strip never takes more than this share of the screen width (and never more than the cap).
 const SCREEN_SHARE: f32 = 0.3;
 const MAX_STRIP_PT: f32 = 520.0;
@@ -200,11 +201,17 @@ pub fn set_screen_width_pt(w: f32) {
     SCREEN_W_PT.store(w.max(0.0).round() as u32, Ordering::Relaxed);
 }
 
-fn screen_width_pt() -> f32 {
+pub(crate) fn screen_width_pt() -> f32 {
     match SCREEN_W_PT.load(Ordering::Relaxed) {
         0 => DEFAULT_SCREEN_PT,
         w => w as f32,
     }
+}
+
+thread_local! {
+    /// Full strip renders done by this thread; the animation test reads it to prove a
+    /// frame never redraws the strip (text, gauges, bars).
+    pub(crate) static STRIP_RENDERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 pub struct Strip {
@@ -213,23 +220,42 @@ pub struct Strip {
     pub rgba: Vec<u8>,
 }
 
+impl Strip {
+    /// The strip as PNG bytes, for the macOS status item, which takes an image file
+    /// rather than raw pixels.
+    pub fn to_png(&self) -> Option<Vec<u8>> {
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, self.width, self.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().ok()?.write_image_data(&self.rgba).ok()?;
+        Some(out)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Face {
     /// Header and labels: the semibold system sans.
     Sans,
     /// Reset time: monospaced regular.
     Mono,
-    /// Window tag and percentage: monospaced bold.
+    /// Percentage: monospaced bold.
     MonoBold,
     /// Never drawn: the semibold sans used to decide where a name is cropped. The drawn weight
     /// is pushed heavier to match the original's text rasterizer, which would crop a letter early.
     SansMetrics,
+    /// Window tag: monospaced semibold (drawn heavier than the original only by ab_glyph).
+    MonoSemibold,
+    /// Body text of the menu cards: the regular system sans.
+    SansRegular,
 }
 
+#[cfg(target_os = "macos")]
+use crate::tray_coretext::{FontSpec, SystemWeight};
 use ab_glyph::{Font as _, FontVec, ScaleFont as _, VariableFont as _};
 
 type Chain = Vec<FontVec>;
-static FONTS: OnceLock<[Chain; 4]> = OnceLock::new();
+static FONTS: OnceLock<[Chain; 6]> = OnceLock::new();
 
 /// Variable weight axis values and the optical size the system uses for text this small.
 const WEIGHT_SEMIBOLD: f32 = 800.0;
@@ -238,6 +264,7 @@ const WEIGHT_SEMIBOLD_LAYOUT: f32 = 760.0;
 const GLYPH_DX: f32 = -0.5;
 const GLYPH_DY: f32 = -0.2;
 const WEIGHT_REGULAR: f32 = 600.0;
+const WEIGHT_TEXT: f32 = 400.0;
 const WEIGHT_BOLD: f32 = 900.0;
 const OPTICAL_SIZE_TEXT: f32 = 17.0;
 
@@ -256,7 +283,7 @@ fn load_chain(primary: &[&str], weight: f32) -> Chain {
     chain
 }
 
-fn chains() -> &'static [Chain; 4] {
+fn chains() -> &'static [Chain; 6] {
     FONTS.get_or_init(|| {
         [
             load_chain(
@@ -274,6 +301,14 @@ fn chains() -> &'static [Chain; 4] {
             load_chain(
                 &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\seguisb.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
                 WEIGHT_SEMIBOLD_LAYOUT,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consolab.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
+                WEIGHT_BOLD,
+            ),
+            load_chain(
+                &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
+                WEIGHT_TEXT,
             ),
         ]
     })
@@ -296,11 +331,11 @@ const MONO_ADVANCE_EM: f32 = 0.6181;
 
 fn advance(face: Face, font: &FontVec, ch: char, px: f32) -> f32 {
     match face {
-        Face::Sans | Face::SansMetrics => match em_scale(font, px) {
+        Face::Sans | Face::SansMetrics | Face::SansRegular => match em_scale(font, px) {
             Some(scale) => font.as_scaled(scale).h_advance(font.glyph_id(ch)),
             None => px * 0.55,
         },
-        Face::Mono | Face::MonoBold => px * MONO_ADVANCE_EM,
+        Face::Mono | Face::MonoBold | Face::MonoSemibold => px * MONO_ADVANCE_EM,
     }
 }
 
@@ -321,9 +356,9 @@ pub(crate) fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
 }
 
 pub(crate) struct Canvas {
-    w: u32,
-    h: u32,
-    px: Vec<u8>,
+    pub(crate) w: u32,
+    pub(crate) h: u32,
+    pub(crate) px: Vec<u8>,
 }
 
 impl Canvas {
@@ -344,7 +379,48 @@ impl Canvas {
         }
         self.px[i + 3] = (oa * 255.0).round() as u8;
     }
+    /// macOS: CoreText with pixel-snapped pens. Elsewhere (and as the fallback when CoreText
+    /// cannot load the font) the ab_glyph rasterizer.
     fn glyphs(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
+        #[cfg(target_os = "macos")]
+        if let Some(w) = self.glyphs_coretext(face, s, x, baseline, size, c, a) {
+            return w;
+        }
+        self.glyphs_ab(face, s, x, baseline, size, c, a)
+    }
+    #[cfg(target_os = "macos")]
+    fn glyphs_coretext(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> Option<f32> {
+        // True system weights (what AppKit draws), not the inflated ab_glyph axis values.
+        let spec = match face {
+            Face::Sans => FontSpec { mono: false, weight: SystemWeight::Semibold },
+            Face::SansRegular => FontSpec { mono: false, weight: SystemWeight::Regular },
+            Face::SansMetrics => return None,
+            Face::Mono => FontSpec { mono: true, weight: SystemWeight::Regular },
+            Face::MonoSemibold => FontSpec { mono: true, weight: SystemWeight::Semibold },
+            Face::MonoBold => FontSpec { mono: true, weight: SystemWeight::Bold },
+        };
+        let chars: Vec<char> = s.chars().collect();
+        let mut pens = Vec::with_capacity(chars.len());
+        let mut pen = 0.0_f32;
+        for &ch in &chars {
+            pens.push(pen);
+            pen += match glyph_font(face, ch) {
+                Some(f) => advance(face, f, ch, size),
+                None => size * 0.55,
+            };
+        }
+        let origin = x.round();
+        let mask = crate::tray_coretext::rasterize(spec, size, &chars, &pens, pen)?;
+        let (left, top) = (origin as i32 - mask.margin, baseline.round() as i32 - mask.base_row);
+        for (i, cov) in mask.a.iter().enumerate() {
+            if *cov > 0 {
+                self.blend(left + (i % mask.w) as i32, top + (i / mask.w) as i32, c, *cov as f32 / 255.0 * a);
+            }
+        }
+        Some(pen)
+    }
+    #[cfg_attr(not(any(test, not(target_os = "macos"))), allow(dead_code))]
+    fn glyphs_ab(&mut self, face: Face, s: &str, x: f32, baseline: f32, size: f32, c: [u8; 3], a: f32) -> f32 {
         let mut pen = x;
         for ch in s.chars() {
             let Some(f) = glyph_font(face, ch) else {
@@ -522,9 +598,9 @@ fn measure(cols: &[Column]) -> Vec<Cell<'_>> {
 
 /// Who fits: active accounts first, then the most loaded; the rest becomes "+N".
 /// The Mac dial and the pace gauge sit at the head and take their room first.
-fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32) -> Vec<bool> {
+fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32, lead: f32) -> Vec<bool> {
     let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
-    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - extras.head_width(ACCOUNT_GAP) - plus_w;
+    let room = (MAX_STRIP_PT.min(screen_pt * SCREEN_SHARE)) - PAD_X * 2.0 - lead - extras.head_width(ACCOUNT_GAP) - plus_w;
     let peak = |c: &Column| c.quotas.iter().map(|q| q.used_pct).max().unwrap_or(0);
     let mut ranked: Vec<usize> = (0..cells.len()).collect();
     ranked.sort_by(|&a, &b| {
@@ -548,29 +624,38 @@ fn kept_cells(cells: &[Cell], extras: &Extras, screen_pt: f32) -> Vec<bool> {
 /// How many accounts end up in the "+N" for these dials on this screen.
 #[cfg(test)]
 fn hidden_count(cols: &[Column], extras: &Extras, screen_pt: f32) -> usize {
-    cols.len() - kept_cells(&measure(cols), extras, screen_pt).iter().filter(|k| **k).count()
+    cols.len() - kept_cells(&measure(cols), extras, screen_pt, 0.0).iter().filter(|k| **k).count()
 }
 
 pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32) -> Strip {
+    render_strip_agents(cols, extras, screen_pt, &AgentStates::default(), 0)
+}
+
+/// The strip with the agents-by-state group on its LEFT, before the Mac dial and the
+/// quota columns. `frame` turns the working glyph; it changes nothing else.
+pub fn render_strip_agents(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32, agents: &AgentStates, frame: u32) -> Strip {
+    STRIP_RENDERS.with(|c| c.set(c.get() + 1));
     let s = SCALE;
+    let lead = agents.width();
     let h = (HEIGHT_PT * s) as u32;
 
     let Some(cols) = cols.filter(|c| !c.is_empty()) else {
         let label = if cols.is_none() { "offline" } else { "nessun account" };
-        let w = (text_width(Face::Sans, label, 9.0 * s) + PAD_X * 3.0 * s).ceil() as u32;
+        let w = (text_width(Face::Sans, label, 9.0 * s) + (PAD_X * 3.0 + lead) * s).ceil() as u32;
         let mut cv = Canvas::new(w, h);
-        cv.text(Face::Sans, label, PAD_X * 1.5 * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
+        tray_agents::draw(&mut cv, PAD_X, agents, frame);
+        cv.text(Face::Sans, label, (PAD_X * 1.5 + lead) * s, h as f32 * 0.66, 9.0 * s, WHITE, 0.85);
         return Strip { width: w, height: h, rgba: cv.px };
     };
 
     let cells = measure(cols);
     let head = extras.head_width(ACCOUNT_GAP);
-    let keep = kept_cells(&cells, extras, screen_pt);
+    let keep = kept_cells(&cells, extras, screen_pt, lead);
     let hidden = keep.iter().filter(|k| !**k).count();
     let plus_w = width_pt(Face::Sans, "+9", HEADER_PT) + ACCOUNT_GAP;
 
     // Second pass: positions for the survivors, in service order.
-    let mut x = PAD_X + head;
+    let mut x = PAD_X + lead + head;
     let mut placed: Vec<(f32, &Cell)> = Vec::new();
     for (i, cell) in cells.iter().enumerate().filter(|(i, _)| keep[*i]) {
         let _ = i;
@@ -586,7 +671,8 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
     let mut cv = Canvas::new((total_pt * s).ceil() as u32, h);
 
     let top = |bottom_origin: f32| (HEIGHT_PT - bottom_origin) * s;
-    let mut hx = PAD_X;
+    let mut hx = PAD_X + lead;
+    tray_agents::draw(&mut cv, PAD_X, agents, frame);
     if let Some(m) = &extras.mac {
         draw_mac(&mut cv, hx, m);
         hx += MAC_W + ACCOUNT_GAP;
@@ -612,7 +698,7 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
             let base = if ri == 0 { ROW_TOP_BASELINE } else { ROW_BOTTOM_BASELINE };
             let mut qx = cx;
             let tag_w = width_pt(Face::MonoBold, &q.key, TAG_PT);
-            cv.text(Face::MonoBold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
+            cv.text(Face::MonoSemibold, &q.key, qx * s, top(base + TAG_BASELINE_SHIFT), TAG_PT * s, WHITE, text_dim);
             qx += tag_w + GAP;
             let (color, calpha) = status_color(&q.status);
             let fill_w = BAR_W * s * q.used_pct.min(100) as f32 / 100.0;
@@ -639,27 +725,6 @@ pub fn render_strip_on(cols: Option<&[Column]>, extras: &Extras, screen_pt: f32)
         cv.text(Face::Sans, &format!("+{hidden}"), plus_x * s, top(HEADER_BASELINE), HEADER_PT * s, WHITE, 1.0);
     }
     Strip { width: cv.w, height: cv.h, rgba: cv.px }
-}
-
-/// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`.
-/// Runs on its own thread so a hidden window or a restarted client changes nothing.
-pub fn spawn_poller<F>(apply: F)
-where
-    F: Fn(Strip) + Send + 'static,
-{
-    let _ = std::thread::Builder::new().name("tray-quota".into()).spawn(move || {
-        let mut ever_answered = false;
-        loop {
-            let base = hub_base();
-            let cols = fetch_columns(&base);
-            let answered_now = cols.is_some();
-            if strip_due(ever_answered, answered_now) {
-                apply(render_strip(cols.as_deref(), &fetch_extras(&base)));
-            }
-            ever_answered |= answered_now;
-            std::thread::sleep(Duration::from_secs(POLL_SECS));
-        }
-    });
 }
 
 /// Whether the strip replaces the tray icon. A machine that has no usage service

@@ -76,7 +76,7 @@ describe("landingFiles", () => {
     const files = await landingFiles(dir, "topics/x");
 
     expect(files?.sort()).toEqual(["server/lib/a.ts", "server/routes/auth.ts"]);
-    expect(classifyDelivery(files!)).toEqual({ tier: "person", files: ["server/lib/a.ts", "server/routes/auth.ts"] });
+    expect(classifyDelivery(files!)).toEqual({ tier: "person", files: ["server/routes/auth.ts"] });
   }, WITH_REAL_GIT);
 
   test("a rename does not hide the path it came from or the one it went to", async () => {

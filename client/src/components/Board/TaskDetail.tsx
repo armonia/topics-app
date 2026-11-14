@@ -1,4 +1,5 @@
 import { pickPlanComment } from './planPanel';
+import { DANGER_TEXT } from '@/lib/popoverStyles';
 import { useTopics as useTopicMap } from '../../contexts/TopicsContext';
 import { useProvidersSnapshot } from '@/hooks/useProvidersSnapshot';
 import { resolveShownEffortTier } from '@/lib/effortTiers';
@@ -1287,7 +1288,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
            window. Here the server's own sentence and one button that calls the
            same `load()`. */
         <div data-testid="task-load-error" className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <AlertTriangle className="h-6 w-6 text-rose-300" />
+          <AlertTriangle className={`h-6 w-6 ${DANGER_TEXT}`} />
           <p className="text-body-lg leading-5 text-app-text-heading">{tr('board.task.loadFailedTitle')}</p>
           <p className="max-w-sm break-words text-mini text-app-text-muted">{loadFailedMessage}</p>
           <button

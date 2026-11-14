@@ -53,6 +53,13 @@ describe("formatSubAgentExitBody", () => {
     );
   });
 
+  it("names the machine's cut, never a retired parent", () => {
+    const outcome: SubAgentOutcome = { status: "stopped", partial: true, text: "", reason: { code: "machine-cut", detail: "stall" } };
+    expect(formatSubAgentExitBody({ outcome })).toContain("stall");
+    expect(formatSubAgentExitBody({ outcome })).not.toContain("non lavora più");
+    expect(formatSubAgentExitBody({ outcome }, "en")).toContain("stopped by the system (stall)");
+  });
+
   it("names a Reload as the reason a turn was cut", () => {
     const outcome: SubAgentOutcome = { status: "stopped", partial: false, text: "", reason: { code: "reloaded" } };
     expect(formatSubAgentExitBody({ outcome })).toBe("_(fermato prima di finire il turno: la sua tab è stata ricaricata)_");
@@ -94,5 +101,16 @@ describe("formatSubAgentExitMessage - the branch of an isolated child", () => {
     const plain = formatSubAgentExitMessage({ name: "builder", outcome: completed("consegnato") });
     expect(plain).toBe(formatSubAgentExitMessage({ name: "builder", outcome: completed("consegnato"), branch: null }));
     expect(plain).toBe('**Sotto-agente "builder", esito:**\n\nconsegnato');
+  });
+});
+
+describe("resume hint on a machine cut (card 753932c6)", () => {
+  const outcome = { status: "stopped", partial: true, text: "", reason: { code: "machine-cut", detail: "stall" } } as never;
+  it("names send_to_agent with the child id", () => {
+    expect(formatSubAgentExitBody({ outcome, childId: "c1" }, "en")).toContain("send_to_agent` with agent_id `c1`");
+  });
+  it("no hint on a person's stop", () => {
+    const o = { status: "stopped", partial: true, text: "", reason: { code: "stopped-by-parent" } } as never;
+    expect(formatSubAgentExitBody({ outcome: o, childId: "c1" }, "en")).not.toContain("send_to_agent");
   });
 });

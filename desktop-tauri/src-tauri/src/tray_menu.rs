@@ -18,15 +18,19 @@ pub enum Node {
     Item { id: String, label: String, enabled: bool },
     Sep,
     Sub { label: String, children: Vec<Node> },
+    /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
+    Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
+    /// A table row: one cell per column, aligned by tab stops. `children` open on hover.
+    Row { id: String, cells: Vec<String>, header: bool, children: Vec<Node> },
 }
 
-fn item(id: &str, label: impl Into<String>) -> Node {
+pub(crate) fn item(id: &str, label: impl Into<String>) -> Node {
     Node::Item { id: id.into(), label: label.into(), enabled: true }
 }
-fn note(label: impl Into<String>) -> Node {
+pub(crate) fn note(label: impl Into<String>) -> Node {
     Node::Item { id: String::new(), label: label.into(), enabled: false }
 }
-fn sub(label: impl Into<String>, children: Vec<Node>) -> Node {
+pub(crate) fn sub(label: impl Into<String>, children: Vec<Node>) -> Node {
     Node::Sub { label: label.into(), children }
 }
 
@@ -44,6 +48,12 @@ pub struct Snapshot {
     pub backup: Option<String>,
     /// The service has answered with a backup state at least once on this machine: only then the backup row exists.
     pub backup_set: bool,
+    /// `/api/machines`: the history, timeline and spend the machine submenus draw.
+    pub machines: Option<String>,
+    /// `/api/mac/trust`: which running things are suspect.
+    pub trust: Option<String>,
+    /// CPU percent per process id on this computer (100 = one core), for the process table.
+    pub cpu: std::collections::HashMap<u32, f64>,
 }
 
 impl Snapshot {
@@ -64,6 +74,9 @@ impl Snapshot {
             automations: http_get(base, "/api/automations/summary"),
             live: http_get(base, "/api/live"),
             gates: http_get(base, "/api/gates"),
+            machines: http_get(base, "/api/machines"),
+            trust: http_get(base, "/api/mac/trust"),
+            cpu: cpu_by_pid(),
             backup_set: backup.is_some(),
             backup,
         }
@@ -73,13 +86,26 @@ impl Snapshot {
     }
 }
 
-fn parse(body: &Option<String>) -> Value {
+/// CPU of every process on this computer, as the system's `ps` reports it.
+fn cpu_by_pid() -> std::collections::HashMap<u32, f64> {
+    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,pcpu="]).output() else { return Default::default() };
+    parse_ps(&String::from_utf8_lossy(&out.stdout))
+}
+
+pub(crate) fn parse_ps(text: &str) -> std::collections::HashMap<u32, f64> {
+    text.lines().filter_map(|l| {
+        let mut f = l.split_whitespace();
+        Some((f.next()?.parse().ok()?, f.next()?.replace(',', ".").parse().ok()?))
+    }).collect()
+}
+
+pub(crate) fn parse(body: &Option<String>) -> Value {
     body.as_deref().and_then(|b| serde_json::from_str(b).ok()).unwrap_or(Value::Null)
 }
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+pub(crate) fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v.get(k).and_then(Value::as_str).unwrap_or("")
 }
-fn n(v: &Value, k: &str) -> f64 {
+pub(crate) fn n(v: &Value, k: &str) -> f64 {
     v.get(k).and_then(Value::as_f64).unwrap_or(0.0)
 }
 
@@ -102,7 +128,7 @@ fn day_word(now: i64, at: i64) -> String {
     }
 }
 
-fn gb(bytes: f64) -> String {
+pub(crate) fn gb(bytes: f64) -> String {
     format!("{:.1} GB", bytes / 1_073_741_824.0).replace('.', ",")
 }
 
@@ -154,7 +180,7 @@ pub fn backup_lines(body: Option<&str>, now: i64) -> Vec<String> {
 
 // ------------------------------------------------------------------ processes
 
-fn mem_text(mb: f64) -> String {
+pub(crate) fn mem_text(mb: f64) -> String {
     if mb >= 1000.0 { format!("{:.1} GB", mb / 1000.0).replace('.', ",") } else { format!("{} MB", mb.round() as i64) }
 }
 
@@ -294,7 +320,7 @@ fn pace_nodes(heavy: &Option<String>) -> Vec<Node> {
 }
 
 /// Renewals (from the plans) and, per the preferences, API credit and cloud bonus / AI credit.
-fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
+pub(crate) fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
     let v = parse(overview);
     let mut out = Vec::new();
     if let Some(plans) = v.get("plans").and_then(Value::as_object) {
@@ -341,7 +367,7 @@ fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
 }
 
 /// Jobs, sessions and Topics chats of one project; a session that is open somewhere opens there.
-fn project_work_nodes(p: &Value) -> Vec<Node> {
+pub(crate) fn project_work_nodes(p: &Value) -> Vec<Node> {
     let mut out = Vec::new();
     let list = p.get("agents").and_then(|a| a.get("list")).and_then(Value::as_array).cloned().unwrap_or_default();
     for a in list.iter().take(6) {
@@ -402,7 +428,7 @@ fn project_nodes(live: &Option<String>) -> Vec<Node> {
         .collect()
 }
 
-fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
+pub(crate) fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
     let v = parse(gates);
     if v.is_null() {
         return vec![note("Freno: il servizio non risponde")];
@@ -477,11 +503,11 @@ pub fn toggle_pref(path: &std::path::Path, key: &str) -> Prefs {
     p
 }
 
-fn tick(label: &str, on: bool) -> String {
+pub(crate) fn tick(label: &str, on: bool) -> String {
     format!("{label}{}", if on { " ✓" } else { "" })
 }
 
-fn automation_nodes(body: &Option<String>) -> Vec<Node> {
+pub(crate) fn automation_nodes(body: &Option<String>) -> Vec<Node> {
     let v = parse(body);
     if v.is_null() {
         return vec![note("Automazioni: il servizio non risponde")];
@@ -542,6 +568,14 @@ pub fn dump_text(nodes: &[Node]) -> String {
                     out.push_str(&format!("{pad}{label}\n"));
                     go(children, depth + 1, out);
                 }
+                Node::Card { key, children, .. } => {
+                    out.push_str(&format!("{pad}[card {key}]\n"));
+                    go(children, depth + 1, out);
+                }
+                Node::Row { cells, children, .. } => {
+                    out.push_str(&format!("{pad}{}\n", cells.join(" | ")));
+                    go(children, depth + 1, out);
+                }
             }
         }
     }
@@ -600,6 +634,9 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         // Only addresses of the places a session lives in; nothing else is handed to the system.
         let ok = ["claude://", "https://", "http://127.0.0.1", "http://localhost"].iter().any(|p| url.starts_with(p));
         return ok.then(|| Action::OpenUrl(url.to_string()));
+    }
+    if id == "dashboard-open" {
+        return Some(Action::OpenUrl(crate::tray_quota::hub_base()));
     }
     if let Some(k) = id.strip_prefix("pref:") {
         return Some(Action::TogglePref(k.into()));

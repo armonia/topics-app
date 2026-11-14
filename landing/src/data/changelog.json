@@ -1,5 +1,82 @@
 [
   {
+    "version": "2.3.108",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
+          "scope": "server"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.103",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "text": "card state glyph family, live spinning half pie and failed variant",
+          "scope": "ui"
+        },
+        {
+          "text": "chat task card uses the phase glyph map, tray colours match dark tokens",
+          "scope": "ui"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens",
+          "scope": "ui"
+        },
+        {
+          "text": "GET land answers «fase CI» over an older settled ticket (#963)",
+          "scope": "board"
+        },
+        {
+          "text": "status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig",
+          "scope": "test"
+        },
+        {
+          "text": "plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)",
+          "scope": "ui"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.101",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "text": "board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.100",
+    "date": "2026-11-13",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "non rimandare in un turno che il registro tiene aperto (#945)",
+          "scope": "ripresa"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.97",
     "date": "2026-11-13",
     "sections": {
@@ -25,6 +102,10 @@
         {
           "text": "test-touched-measure replays the selector on red CI runs and demands a proof for every miss",
           "scope": "test"
+        },
+        {
+          "text": "unify status colours and icons",
+          "scope": "ui"
         },
         {
           "text": "a machine-wide queue for heavy commands, served by Topics",
@@ -159,6 +240,10 @@
         {
           "text": "allow GitHub's 'cancelled' conclusion value, refresh baseline",
           "scope": "identifier-language"
+        },
+        {
+          "text": "a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven",
+          "scope": "relay"
         }
       ],
       "perf": []
@@ -169,6 +254,10 @@
     "date": "2026-11-12",
     "sections": {
       "new": [
+        {
+          "text": "hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions",
+          "scope": "tray"
+        },
         {
           "text": "remote machines in Processes and the tray like the Mac, with provider extras",
           "scope": "machines"
@@ -205,6 +294,10 @@
         },
         {
           "text": "a machine without the usage service keeps the plain icon",
+          "scope": "tray"
+        },
+        {
+          "text": "destructured lazy import for the hub row",
           "scope": "tray"
         },
         {

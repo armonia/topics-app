@@ -3161,17 +3161,26 @@ export function PanelGrid({
                         and the in-cell divider lets the user resize. */}
                     {(() => {
                       const stack = row.cellStacks?.[key];
-                      const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox);
+                      // On the phone the cell's own stack is one surface at a
+                      // time too: the slot holding the focus, or the primary.
+                      // Without it a pane stacked under another (a browser
+                      // opened while a terminal had the focus) split a 375px
+                      // screen into two half-height panes.
+                      const soloKey = isMobile && stack?.items.length
+                        ? (stack.items.find((k) => !!focusedPanelId && !!itemMap.get(k)?.panelIds.includes(focusedPanelId)) ?? key)
+                        : null;
+                      const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox && (soloKey === null || soloKey === key));
                       if (!stack) return primaryGroup;
                       return (
                         <CellSubStack
                           stack={stack}
                           primary={primaryGroup}
                           primaryKey={key}
+                          soloKey={soloKey}
                           renderStackItem={(stackKey) => {
                             const stackItem = itemMap.get(stackKey);
                             if (!stackItem) return null;
-                            return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox);
+                            return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox && (soloKey === null || soloKey === stackKey));
                           }}
                           onResize={(nextHeights) =>
                             handleCellStackResize(rowIdx, key, nextHeights)

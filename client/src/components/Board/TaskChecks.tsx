@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { STATUS_CHIP, STATUS_INK } from '@/lib/statusVisual';
 import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
 import { type BoardTask, NOT_MEASURED_EXIT, type CheckRun } from '../../lib/board';
 import { taskActionWord } from './taskActionWords';
-import { ChevronRight, X, Check, ChevronDown, Hourglass } from 'lucide-react';
+import { ChevronRight, X, Check, ChevronDown, CircleHelp } from 'lucide-react';
 
 /**
  * Outcome of the pre-review checks, next to the decision buttons.
@@ -94,7 +95,7 @@ export function ChecksSection({ task }: { task: BoardTask }) {
    * worse than neither. With the CI lines, which read GitHub and measure
    * nothing when the run dies, it is the most likely bucket after green. */
   const unmeasured = task.checksState === 'unknown';
-  const box = unmeasured ? 'bg-amber-500/10 text-amber-200' : 'bg-rose-500/10 text-rose-200';
+  const box = unmeasured ? STATUS_CHIP.wait : STATUS_CHIP.danger;
   const headline = unmeasured ? tr('board.task.checks.unknown') : tr('board.task.checks.fail');
   return (
     <div className={`rounded text-mini ${box}`}>
@@ -111,12 +112,12 @@ export function ChecksSection({ task }: { task: BoardTask }) {
         <div className="space-y-1.5 px-2 pb-2">
           {runs.map((r, i) => (
             <div key={i}>
-              <div className={r.ok ? 'text-emerald-300' : r.notMeasured || r.code === NOT_MEASURED_EXIT ? 'text-amber-200' : 'text-rose-200'}>
+              <div className={r.ok ? STATUS_INK.ok : r.notMeasured || r.code === NOT_MEASURED_EXIT ? STATUS_INK.wait : STATUS_INK.danger}>
                 {r.ok
-                  ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" />
+                  ? <Check size={14} className="inline-block" aria-hidden="true" />
                   : r.notMeasured || r.code === NOT_MEASURED_EXIT
-                    ? <Hourglass size={14} className="inline-block text-amber-300" aria-hidden="true" />
-                    : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
+                    ? <CircleHelp size={14} className="inline-block" aria-hidden="true" />
+                    : <X size={14} className="inline-block" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-mini leading-snug text-app-text-heading">

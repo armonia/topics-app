@@ -133,7 +133,12 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard, isVisible }:
             ? 'group/card relative flex items-start gap-1.5 py-0.5'
             : `group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
           {/* The status sign on both shapes: in the Plan no column says it. */}
-          <StatusIcon status={c.status} className={`h-3 w-3 shrink-0 ${boardCard ? 'mt-2.5' : ''}`} />
+          {/* A failed dispatch is its own glyph (red ring with the cross), as on the Board and in chat. */}
+          <StatusIcon
+            status={c.status !== 'done' && c.dispatchState === 'failed' ? 'failed' : c.status}
+            live={c.dispatchState === 'working'}
+            className={`h-3 w-3 shrink-0 ${boardCard ? 'mt-2.5' : ''}`}
+          />
           {boardCard ? (
             // The facts the Plan adds go UNDER the card, not beside it: beside, they
             // narrowed it, and cards of one tile had different widths.

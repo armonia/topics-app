@@ -135,3 +135,15 @@ MISURA: `cd client && bun test src/lib/hubMachines.test.ts src/components/Sideba
 #### Scenario: un percorso fuori dall'hub
 - **GIVEN** un comando il cui percorso non è `/api/...` del solo hub
 - **THEN** il comando SHALL non partire
+
+### Requirement: HETZNER-LOC-1 — La location di un server Hetzner viene dalla risposta, con o senza datacenter
+
+L'adattatore Hetzner SHALL leggere la location di un server da `location` (API attuale, sul server) e, in mancanza, da `datacenter.location` (API precedente). La location SHALL essere mostrata come città e paese («Helsinki, FI»). Il prezzo SHALL venire dal listino della location del server, non dal primo elenco di prezzi.
+
+#### Scenario: l'API attuale senza datacenter
+- **GIVEN** una risposta con `location` (hel1, Helsinki, FI) in cima al server e nessun `datacenter`
+- **THEN** la location SHALL essere «Helsinki, FI» e il prezzo mensile quello del listino hel1
+
+#### Scenario: l'API precedente
+- **GIVEN** una risposta con `datacenter.location` (hel1, Helsinki, FI)
+- **THEN** la location SHALL essere «Helsinki, FI» e il prezzo quello del listino hel1
