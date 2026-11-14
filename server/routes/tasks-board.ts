@@ -13,7 +13,7 @@ import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUE
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
-import { isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
+import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -785,9 +785,20 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
         const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
         // `force` is the person overriding a red: an explicit gesture, it does not go through the phase's bounce.
-        if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed" && typeof body?.comment !== "string"
-          && body?.force !== true && enterCiPhase(bReview.projectId, bReview.taskId)) {
-          return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+        // An approval WITH a comment is still an approval: it went done and landed straight, past the
+        // phase (2882b9fb, 14/11, main red on the bundle). Only "Landa e pubblica" goes online directly.
+        const said = typeof body?.comment === "string" ? body.comment.trim() : "";
+        if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed"
+          && !isPublishActionLabel(said) && body?.force !== true) {
+          // The words go in BEFORE the phase starts: written after, they would read as the person speaking up
+          // during the phase, which stops it. Written twice they are one row (author + content dedupe).
+          if (said && !isLandActionLabel(said)) {
+            try { svc.addComment({ taskId: bReview.taskId, author: HUMAN, content: said, projectId: bReview.projectId, origin: actionOrigin }); }
+            catch { /* the phase is what matters */ }
+          }
+          if (enterCiPhase(bReview.projectId, bReview.taskId)) {
+            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+          }
         }
       }
       try {
