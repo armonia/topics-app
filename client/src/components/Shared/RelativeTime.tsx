@@ -15,6 +15,7 @@
  */
 import { useSharedNow } from '@/state/useSharedNow';
 import { formatRelative } from '@/state/workLongevity';
+import { useActiveLocale } from '@/hooks/useT';
 
 export function RelativeTime({
   at,
@@ -28,11 +29,12 @@ export function RelativeTime({
   title?: string;
 }) {
   const now = useSharedNow();
+  const locale = useActiveLocale();
   const ms = typeof at === 'string' ? Date.parse(at) : at;
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return null;
   return (
     <span className={className} title={title ?? new Date(ms).toLocaleString()}>
-      {formatRelative(ms, now)}
+      {formatRelative(ms, now, locale)}
     </span>
   );
 }

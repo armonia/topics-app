@@ -103,7 +103,6 @@ interface MessageBubbleProps {
   copiedMsgId: string | null;
   isCompact: boolean;
   fontSize: number;
-  isMobile: boolean;
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
@@ -155,7 +154,6 @@ export const MessageBubble = memo(function MessageBubble({
   copiedMsgId,
   isCompact,
   fontSize,
-  isMobile,
   onReply,
   onCopy,
   onTogglePin,
@@ -414,7 +412,11 @@ export const MessageBubble = memo(function MessageBubble({
           // they need the 85% cap to look like a bubble; assistant replies
           // have no card to constrain and get the full row width instead.
           className={`relative flex flex-col min-w-0 ${msg.role === 'assistant' && messageHasView(msg.blocks, msg.toolCalls) ? 'w-full' : ''}`}
-          style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : (msg.role === 'user' ? '85%' : '100%') }}
+          // Same cap on the phone. It used to be `calc(100vw - 5rem)` there,
+          // from when the sidebar sat beside the chat on a phone: with the
+          // sidebar now an overlay it only took 64px off every reply, and a
+          // table cut at the edge with empty room on its right.
+          style={{ maxWidth: msg.role === 'user' ? '85%' : '100%' }}
         >
           {/* A pinned message carries the mark outside the hover too (CMDUI-10):
               it stays in the agent's context, and that is worth seeing. Out of

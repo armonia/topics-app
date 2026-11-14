@@ -2,6 +2,9 @@ import { lazy, Suspense, useState } from 'react';
 import { useDashboard } from '../../hooks/useDashboard';
 import { useHubEverRead } from '../../state/hubLive';
 import { useT } from '../../hooks/useT';
+import { addCatalogue } from '../../lib/i18n';
+import DASHBOARD_IT from '../../lib/i18n-dashboard-it';
+import DASHBOARD_EN from '../../lib/i18n-dashboard-en';
 import type { UsageRange } from '../../hooks/useProjectUsage';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
@@ -20,12 +23,11 @@ const ProjectUsagePanel = lazy(async () => {
   return { default: Panel };
 });
 
-const METRIC_OPTIONS = [
-  { value: 'throughput', label: 'Throughput' },
-  { value: 'tokens', label: 'Tokens' },
-  { value: 'cost', label: 'Cost' },
-  { value: 'errors', label: 'Errors' },
-];
+// The pane's strings travel with its chunk, before its first render.
+addCatalogue('it', DASHBOARD_IT);
+addCatalogue('en', DASHBOARD_EN);
+
+const METRIC_OPTIONS = ['throughput', 'tokens', 'cost', 'errors'] as const;
 
 interface DashboardPaneProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -49,19 +51,19 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
 
   const chartCard = (
     <div data-testid="dashboard-chart" className="bg-surface border border-app-border rounded-lg p-3">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5">
-          {METRIC_OPTIONS.map((opt) => (
+          {METRIC_OPTIONS.map((metric) => (
             <button
-              key={opt.value}
-              onClick={() => setSelectedMetric(opt.value)}
-              className={`px-2 py-0.5 text-mini rounded transition-colors ${
-                selectedMetric === opt.value
+              key={metric}
+              onClick={() => setSelectedMetric(metric)}
+              className={`tap-expand-y px-2 py-0.5 text-mini rounded transition-colors ${
+                selectedMetric === metric
                   ? 'bg-primary/10 text-primary font-medium'
                   : 'text-app-text-muted hover:text-app-text hover:bg-app-hover'
               }`}
             >
-              {opt.label}
+              {tr(`dashboard.metric.${metric}`)}
             </button>
           ))}
         </div>
@@ -126,7 +128,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
             aria-hidden={!loading}
             className={`text-app-text-muted ${loading ? 'animate-spin' : 'opacity-0'}`}
           />
-          <span className="text-mini text-app-text-muted">Auto-refresh 60s</span>
+          <span className="text-mini text-app-text-muted">{tr('dashboard.autoRefresh')}</span>
         </div>
       </div>
 
@@ -134,7 +136,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
         {/* The one banner, whether or not numbers had landed before the failure. */}
         {error && (
           <div className="text-mini text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-1.5">
-            {kpis ? `Refresh failed: ${error}` : error}
+            {kpis ? tr('dashboard.refreshFailed', { error }) : error}
           </div>
         )}
 

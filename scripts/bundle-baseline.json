@@ -880,6 +880,7 @@
     "",
     "2026-11-06, le otto tracce della parità con l'hub unite su hub-smistamento: misurato sul PC con `bun run build:client && bun run check:bundle`, total_assets 9.783.100 contro un tetto di 9.649.200 (9.460.000 +2%), entry_eager raw 960.536 sotto il suo tetto di 960.840. Ogni traccia aveva alzato il tetto sulla propria misura contro la stessa base, quindi la somma dei loro chunk pigri (Account e quote, Consumi, Agenti e lavori, Automazioni, Funzionalità, Contesto, Cronologia della campanella) supera ognuno dei tetti presi da solo; l'entry non cresce. Il tetto segue la misura unita: total_assets 9.460.000 -> 9.600.000.",
     "",
+    "2026-11-14 (phone pass, PR #967): main's ceiling is 1.002.818 after the status colour unification. This branch measured 1.004.005 in CI with the Usage strings in the main catalogue; they now travel with the Usage pane's chunk (`i18n-dashboard-*`), so what stays in the entry is the touch-pointer guard for tooltips (`lib/lastPointer`) and the Italian relative time. Ceiling follows that CI measure.",
     "2026-11-12 (card 8ccb234f, six oversized client files split into sibling modules): CI measured entry_eager 982.948 raw and total_assets 10.018.621 against ceilings of 980.817 and 10.005.510. The split moves code between files and adds module wrappers; the rest of the drift (+21k eager since 2026-11-07) comes from features merged to main in between, not re-measured here. Ceilings follow the CI measure.",
     "2026-11-07 (vista Piano, PR #608): entry_eager 960.644 -> 961.585 raw (+941), total_assets 9.783.822 -> 9.795.944 (+12.122), misurati con `bun run build:client` su origin/main e sul ramo. Il +941 e' il dizionario italiano del Piano e il pulsante nella board; PlanView e' `lazy()`.",
     "",
@@ -889,7 +890,7 @@
   "updated": "2026-11-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1002818,
+    "raw": 1004005,
     "gz": 392156
   },
   "critical_path": {

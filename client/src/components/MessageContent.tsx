@@ -405,14 +405,14 @@ export const markdownComponents: Components = {
   },
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-app-border-light text-body-lg leading-5">{children}</table>
+      <table className="min-w-full border-collapse border border-app-border-light text-prose sm:text-body-lg leading-5">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
+    <th className="md-cell border border-app-border-light bg-app-hover dark:bg-elevated px-1.5 sm:px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => (
-    <td className="border border-app-border-light px-3 py-1.5">{children}</td>
+    <td className="md-cell border border-app-border-light px-1.5 sm:px-3 py-1.5">{children}</td>
   ),
 };
 
