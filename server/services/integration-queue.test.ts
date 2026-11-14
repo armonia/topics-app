@@ -1,3 +1,4 @@
+/** @covers LAND-16 */
 import { describe, expect, test } from "bun:test";
 import { createIntegrationQueue, type IntegrationMeasure } from "./integration-queue";
 

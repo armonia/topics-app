@@ -8,7 +8,7 @@
  * moved the card: it sat in review until a person (or a coordinator session)
  * read the red and pressed reject. Measured on 14/11/2026: 7d229fbf red on
  * `gates:fast` for 20 hours in review; in the week before, most of the rejects
- * written by hand said only "CI rossa" or "CI non misurata".
+ * written by hand said only "CI red" or "CI not measured".
  *
  * A red is not a judgement anybody has to make, so the server makes the move:
  * the card goes back to the agent with the failing command and its log.

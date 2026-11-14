@@ -1,3 +1,4 @@
+/** @covers LAND-15 */
 import { describe, expect, test } from "bun:test";
 import { MAX_AUTO_BOUNCES, RED_BOUNCE_NOTE, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "./red-bounce";
 

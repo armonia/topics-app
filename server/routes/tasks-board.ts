@@ -778,7 +778,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       if (decision === "approve") {
         const gate = checksRedGate(bReview.projectId, bReview.taskId, body?.force);
         if (gate) return gate;
-        // «PER ME È FATTA» = it goes to main. On a board with the CI phase an approval of a card whose
+        // "Done for me" means it goes to main. On a board with the CI phase an approval of a card whose
         // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
         const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
         if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed" && typeof body?.comment !== "string"

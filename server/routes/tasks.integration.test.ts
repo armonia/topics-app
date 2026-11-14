@@ -1,4 +1,5 @@
 /**
+ * @covers LAND-16
  * THE CI PHASE, END TO END THROUGH THE ROUTER (`services/integration-queue.ts`).
  *
  * A person approves a card: it does not close, it enters the CI phase, is

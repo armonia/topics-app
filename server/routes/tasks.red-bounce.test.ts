@@ -1,4 +1,5 @@
 /**
+ * @covers LAND-15
  * A RED CARD IN REVIEW GOES BACK TO ITS AGENT BY ITSELF (`services/red-bounce.ts`).
  *
  * End to end through the router: a card reaches review, its bar turns red
