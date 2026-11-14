@@ -40,6 +40,7 @@ function repo() {
   return { work, one, two, clash };
 }
 
+const closed: string[] = [];
 function deps(runs: (sha: string) => CheckRun[], seen: string[] = []): IntegrationMeasureDeps {
   return {
     git: async (cwd, args, env) => {
@@ -47,7 +48,7 @@ function deps(runs: (sha: string) => CheckRun[], seen: string[] = []): Integrati
       return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
     },
     awaitCi: async ({ sha }) => { seen.push(sha); return runs(sha); },
-    closeDraft: async () => undefined,
+    closeDraft: async (input) => { closed.push(input.branch); },
     describeRed: (r, sha) => `rosso su ${sha.slice(0, 8)}: ${r.find((x) => !x.ok)?.name}`,
   };
 }
@@ -112,5 +113,14 @@ describe("measureIntegration", () => {
     writeFileSync(join(r.work, "d.ts"), "new\n");
     sh(r.work, "add", "."); sh(r.work, "commit", "--quiet", "-m", "more");
     expect((await ownChangesBetween(r.work, c1, sh(r.work, "rev-parse", "HEAD")))?.sort()).toEqual(["a.ts", "d.ts"]);
+  });
+
+  test("an integration branch left on origin by a cut-short measure is closed by the next one", async () => {
+    const r = repo();
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/topics/integrazione-deadbeef`);
+    closed.length = 0;
+    const out = await measureIntegration(r.work, [{ taskId: "x", commit: r.two }], CHECKS, deps(() => [ok("unit")]));
+    expect(closed).toContain("topics/integrazione-deadbeef");
+    expect(closed).toContain(`topics/integrazione-${out.commit!.slice(0, 8)}`);
   });
 });
