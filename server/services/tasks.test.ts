@@ -1657,7 +1657,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(finale.dispatchState).not.toBe("failed");
   });
 
-  test("la serie è per RAGIONE: una condizione diversa la fa ricominciare da uno", () => {
+  test("il conteggio è per RAGIONE, l'orologio no: una condizione diversa riparte da uno ma tiene `waitSince`", () => {
     const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
     attende(t.id, "la CI sta girando"); passa(16);
     const due = attende(t.id, "  LA CI   STA GIRANDO "); // stessa cosa, riscritta a mano
@@ -1666,8 +1666,10 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     passa(16);
 
     const altra = attende(t.id, "aspetto la risposta di Attilio");
-    expect(altra.waitStreak).toBe(1);                    // altra condizione, altra serie
-    expect(altra.waitSince).not.toBe(inizioSerie);
+    expect(altra.waitStreak).toBe(1);                    // other condition, count restarts
+    // ...but the clock keeps running: rewording must not reset the time cap
+    // (card 60c4b56a, five rewritten waits in three days, never stopped).
+    expect(altra.waitSince).toBe(inizioSerie);
   });
 
   test("alla soglia il task si ferma, ma col chip `waited_out` e senza la parola «fallito»", () => {

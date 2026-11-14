@@ -5657,13 +5657,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
-      // La serie: stessa ragione ⇒ continua, ragione nuova ⇒ ricomincia da uno.
+      // The count: same reason ⇒ it goes on, new reason ⇒ it restarts from one.
       // `waitReasonKey` normalizza, perché un turno nuovo riscrive a mano quasi
       // la stessa frase e «quasi» non deve valere come «un'altra attesa».
       const chiave = waitReasonKey(detto);
       const stessa = !!row.wait_streak && (row.wait_reason ?? "") === chiave;
       const streak = stessa ? (row.wait_streak as number) + 1 : 1;
-      const since = stessa && row.wait_since ? (row.wait_since as string) : ts;
+      // The series CLOCK ignores the words: if the card was already waiting it
+      // keeps running whatever the reason. Card 60c4b56a: five waits in three
+      // days on one condition, reworded each time, and the time cap never
+      // fired. Real progress resets the series elsewhere (delivery, subtasks).
+      const giaInAttesa = Number(row.wait_streak) > 0 && !!row.wait_since;
+      const since = giaInAttesa ? (row.wait_since as string) : ts;
       const serieMs = Math.max(0, Date.parse(ts) - Date.parse(since));
       // IL TENTATIVO SI RIMBORSA, e questa è la riga che chiude il guasto.
       //

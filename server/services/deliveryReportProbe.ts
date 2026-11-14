@@ -252,6 +252,30 @@ const symbolInHistory = (name: string) =>
     return r !== null && "out" in r ? r.out.trim().length > 0 : null;
   }).then((answer) => answer ?? true);
 
+/** Refs that stand for "main" in a repository, the first that resolve. */
+const DEFAULT_REFS = ["origin/HEAD", "main", "master", "origin/main", "origin/master"];
+
+/**
+ * Is `sha` off the default branch of `root`? The branches that hold it when so,
+ * `null` when it is on main OR when git cannot say: when in doubt, no accusation.
+ */
+async function offDefaultBranch(root: string, sha: string): Promise<readonly string[] | null> {
+  let resolved = 0;
+  for (const ref of DEFAULT_REFS) {
+    const exists = await git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], GIT_LOOKUP_TIMEOUT_MS, root);
+    if (exists === null || !("out" in exists)) continue;
+    resolved++;
+    const r = await git(["merge-base", "--is-ancestor", sha, ref], GIT_LOOKUP_TIMEOUT_MS, root);
+    if (r === null) return null;
+    if ("out" in r) return null; // exit 0: it is on main
+    if (r.exit !== 1) return null; // not an answer
+  }
+  if (resolved === 0) return null; // no recognisable main: nothing to compare with
+  const b = await git(["branch", "-a", "--contains", sha, "--format=%(refname:short)"], GIT_LOOKUP_TIMEOUT_MS, root);
+  const branches = b !== null && "out" in b ? b.out.split("\n").map((x) => x.trim()).filter(Boolean) : [];
+  return branches.slice(0, 3);
+}
+
 async function trackedFiles(): Promise<string[]> {
   if (tracked && Date.now() - tracked.at < TRACKED_TTL_MS) return tracked.files;
   const r = await git(["ls-files"], 20_000);
@@ -268,9 +292,11 @@ function answering(
   files: readonly string[] | null,
   shaLocations: ReadonlyMap<string, readonly string[]> = new Map(),
   shaUnverifiableLocations: ReadonlyMap<string, readonly string[]> = new Map(),
+  shaOffMain: ReadonlyMap<string, { repo: string; branches: readonly string[] }> = new Map(),
 ): RepoProbe {
   return {
     shaExists: (sha) => shas.get(sha) ?? true,
+    shaOffMain: (sha) => shaOffMain.get(sha) ?? null,
     shaSearchLocations: (sha) => shaLocations.get(sha) ?? [],
     shaSearchUnverifiableLocations: (sha) => shaUnverifiableLocations.get(sha) ?? [],
     symbolInHistory: (name) => symbols.get(name) ?? true,
@@ -311,6 +337,7 @@ return {
     const shas = new Map<string, boolean>();
     const shaLocations = new Map<string, readonly string[]>();
     const shaUnverifiableLocations = new Map<string, readonly string[]>();
+    const shaOffMain = new Map<string, { repo: string; branches: readonly string[] }>();
     const symbols = new Map<string, boolean>();
     let files: string[] | null = null;
     let home = resolve(context.homeDirectory ?? homedir());
@@ -455,6 +482,8 @@ return {
     const searchSha = async (sha: string): Promise<void> => {
       let found = false;
       const searched: string[] = [];
+      const foundIn: string[] = [];
+      let inCardRepo: boolean | null = null;
       const requiredRoots = new Set<string>();
       if (cardGitRoot) requiredRoots.add(cardGitRoot);
       for (const root of gitRoots) {
@@ -479,7 +508,8 @@ return {
           })));
           for (const result of results) {
             searched.push(displayRoot(result.root, home));
-            if (result.answer === true) found = true;
+            if (result.root === cardGitRoot) inCardRepo = result.answer;
+            if (result.answer === true) { found = true; foundIn.push(result.root); }
             else if (result.answer === null && requiredRoots.has(result.root)) incomplete.add(displayRoot(result.root, home));
           }
         }
@@ -492,6 +522,13 @@ return {
         incomplete.add(cardGitRoot ? displayRoot(cardGitRoot, home) : displayRoot(ROOT, home));
       }
       if (incomplete.size > 0) shaUnverifiableLocations.set(sha, [...incomplete]);
+      // Only when the card's repo answered NO: a worktree of the card shares
+      // its objects, so a commit of the card's own answers yes here.
+      const other = foundIn.find((root) => root !== cardGitRoot);
+      if (found && inCardRepo === false && other) {
+        const branches = await offDefaultBranch(other, sha);
+        if (branches) shaOffMain.set(sha, { repo: displayRoot(other, home), branches });
+      }
     };
 
     for (let reportIndex = 0; reportIndex < reports.length; reportIndex++) {
@@ -509,7 +546,7 @@ return {
       }
     }
     for (const sha of allShas) await searchSha(sha);
-    return answering(shas, symbols, files, shaLocations, shaUnverifiableLocations);
+    return answering(shas, symbols, files, shaLocations, shaUnverifiableLocations, shaOffMain);
   },
 };
 }
