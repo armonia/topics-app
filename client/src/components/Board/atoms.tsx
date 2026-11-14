@@ -213,7 +213,7 @@ export function DispatchChip({ state, error, deliveredBy, hasWork = true }: { st
       // Il buco si dichiara: uno stato di park senza `dispatch_error` è una card
       // ferma di cui NESSUNO ha scritto il motivo, e un tooltip assente si legge
       // come «non c'è niente da sapere». C'è, e non lo sappiamo.
-      title={chip.titleKey ? tr(chip.titleKey) : error ?? tr('task.dispatch.noReason')}
+      title={chip.titleKey ? tr(chip.titleKey) : error ?? tr(state === 'needs_input' ? 'board.dispatch.needsInput.title' : 'task.dispatch.noReason')}
     >
       {Icon && <Icon className="h-3 w-3" aria-hidden />}
       {tr(chip.textKey)}

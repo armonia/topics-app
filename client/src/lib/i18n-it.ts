@@ -1941,6 +1941,7 @@ const IT: Dict = {
   'board.dispatch.starting': 'avvio…',
   'board.dispatch.working': 'al lavoro',
   'board.dispatch.needsInput': 'serve te',
+  'board.dispatch.needsInput.title': 'L\'agente ha fermato il turno con una domanda: la risposta sta nell\'ultimo messaggio del thread, e va data nella sessione.',
   'board.dispatch.delivered': 'consegnato',
   'board.dispatch.delivered.title': "L'agent ha consegnato: aspetta la tua review",
   'board.dispatch.deliveredBySystem': 'corsa finita',
@@ -3356,6 +3357,7 @@ const IT: Dict = {
   'board.card.dueTitle': 'Scadenza: {date}',
   'board.card.scheduledTitle': 'Programmata: {label}. La fa un giro a orario, nessun agente parte su questa card.',
   'board.card.assigneeTitle': 'La chiude {name}',
+  'board.card.assigneeMentionTitle': '{name} è solo il nome sulla card: con la barra verde la chiude il conduttore, a te non chiede niente.',
   'board.card.dueOverdueTitle': 'Scadenza superata: {date}',
   'board.card.runComputerTitle': 'Esecuzione delegata eseguita su {name}',
 

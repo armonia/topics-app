@@ -1744,6 +1744,7 @@ const EN = {
   'board.dispatch.starting': 'starting…',
   'board.dispatch.working': 'working',
   'board.dispatch.needsInput': 'needs you',
+  'board.dispatch.needsInput.title': 'The agent stopped its turn with a question: the answer is in the last message of the thread, to be given in the session.',
   'board.dispatch.delivered': 'delivered',
   'board.dispatch.delivered.title': 'The agent delivered: it is waiting for your review',
   'board.dispatch.deliveredBySystem': 'run over',
@@ -3001,6 +3002,7 @@ const EN = {
   'board.card.dueTitle': 'Due date: {date}',
   'board.card.scheduledTitle': 'Scheduled: {label}. A timed run does this work, no agent is started on it.',
   'board.card.assigneeTitle': 'Closed by {name}',
+  'board.card.assigneeMentionTitle': '{name} is only the name on the card: with all checks green the conductor closes it, nothing is asked of that person.',
   'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 

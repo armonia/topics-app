@@ -1535,7 +1535,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             ><AlarmClock className="h-3 w-3 shrink-0" /> {plannedChip.label}</span>
           )}
-          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {task.assignedTo && <span data-testid="card-assignee" title={tr(conductorCloses ? 'board.card.assigneeMentionTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
           {dueChip && (
             <span
               data-testid="card-due-date"
