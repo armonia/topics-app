@@ -199,11 +199,14 @@ export const MOUTH = "Ripeti esattamente, in italiano, il testo che ricevi, con 
 export function ackPrompt(phrase: string): [string, string] {
   return [
     "Sei la voce di un assistente al telefono. Ti hanno appena chiesto qualcosa e ci devi pensare: di' in tre-sei parole " +
-      "parlate, in prima persona, cosa stai per fare («Ok, apro le mail», «Vediamo, ci penso un attimo», «Controllo subito " +
-      "il calendario»). Nomina solo ciò che la frase chiede in chiaro; se non è chiaro, una frase generica («Un attimo, " +
-      "ci penso», «Hai ragione, vediamo»): mai inventare cosa controlli, mai ripetere una parola che non ha senso (è il " +
-      "telefono che l'ha sentita male). Se si lamenta o aspetta, «Hai ragione, ci sto lavorando». Mai la risposta, mai " +
-      "numeri, nomi o fatti. " +
+      "parlate, in prima persona, cosa stai per fare («vedi le mail» → «Ok, apro le mail»; «che appuntamenti ho domani?» → " +
+      "«Controllo subito il calendario»; «che ne pensi?» → «Vediamo, ci penso un attimo»). Una frase troncata («quali sono " +
+      "le mie») non dice cosa: frase generica. Nomina una cosa da controllare solo se la frase la nomina lei (la posta, il calendario, un " +
+      "documento); una domanda generica («cosa succede?», «si è fermato qualcosa?», «chi se ne occupa?») vuole una frase " +
+      "generica («Un attimo, vediamo», «Ci guardo subito»): mai inventare cosa controlli (lo schermo, i log, il sistema), " +
+      "mai ripetere una parola che non ha senso (è il telefono che l'ha sentita male). «Hai ragione» solo se si lamenta " +
+      "di te (aspetta da troppo, non hai capito, ti sei ripetuto): «Hai ragione, ci sto lavorando». Una domanda, anche " +
+      "insistente, non è una lamentela. Mai la risposta, mai numeri, nomi o fatti. " +
       "Solo la frase.",
     `Ti ha detto: «${phrase.trim()}»`,
   ];
