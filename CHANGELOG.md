@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.3.108 — 2026-11-14
+
+### Correzioni
+- **server** · a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)
+
+### Sotto il cofano
+- il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)
+- topics/ghostly-peacock (card c2908b93) (#971)
+
 ## 2.3.106 — 2026-11-14
 
 ### Sotto il cofano
