@@ -43,6 +43,17 @@ export interface CiPhaseDeps {
 
 type LandRunOpts = { recheck?: unknown };
 
+/**
+ * Is this card's work ON MAIN, as far as closing it goes? Only a `landed` a land WITNESSED (it saw the
+ * merge on main) counts. A deduced `landed` (the audit's guess, `landing_witnessed = 0`) is not a merge:
+ * card 572f8a09 carried one, and every "already on main" that trusted it was wrong (c2908b93).
+ */
+export function landedOnMain(db: CiPhaseDeps["db"], task: Pick<Task, "id" | "landingState">): boolean {
+  if (task.landingState !== "landed") return false;
+  const row = db.query("SELECT landing_witnessed AS w FROM tasks WHERE id = ?").get(task.id) as { w?: number | null } | null;
+  return row?.w === 1;
+}
+
 export function createCiPhase(deps: CiPhaseDeps) {
   /**
    * A RED CARD GOES BACK TO ITS AGENT BY ITSELF (`services/red-bounce.ts`).
@@ -127,9 +138,10 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const cur = deps.svc.get(taskId, { projectId })?.task;
     // A card with no code of its own (an analysis) has nothing to measure: it closes as before.
     if (!cur || cur.status !== "review" || !cur.deliveryBranch || !cur.deliveryCommit) return false;
-    // Code already on main has nothing left to integrate: measuring it again pays a CI run for nothing,
-    // at every sweep (572f8a09, 14/11: landed before it was approved, measured three times).
-    if (cur.landingState === "landed") return false;
+    // Code already on main has nothing left to integrate: measuring it again pays a CI run for nothing.
+    // "On main" is a merge a land SAW, never the field alone: the `landed` card 572f8a09 carried here
+    // was a deduction, its work was not on main, and trusting it closed the card outside main (c2908b93).
+    if (landedOnMain(deps.db, cur)) return false;
     // The automatic land comes with its last look (`recheck`); a person's gesture does not.
     const who = landOpts?.recheck ? "auto" : "human";
     let task: Task;
@@ -210,7 +222,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
       // Merged and confirmed on main, still in review (open steps): the land's own witness, not a
       // deduction. A deduced `landed` after a land that merged nothing is exactly what kept card
       // 572f8a09 in the phase, measured again and again "as already landed" (c2908b93).
-      if (after.landingState === "landed" && landingWitnessed(taskId)) return;
+      if (landedOnMain(deps.db, after)) return;
       // Still in review after a green CI: the land refused (dirty checkout, open steps, nothing to land...).
       // Measuring again would pay a CI run for the same refusal, so a person reads why.
       giveUp(projectId, taskId, "il land dopo la CI verde non è andato: leggi l'ultima riga del sistema nel thread");
@@ -235,7 +247,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     stillWanted: (projectId, taskId) => {
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;
-      if (t.landingState === "landed") return false;
+      if (landedOnMain(deps.db, t)) return false;
       if (t.checksState === "fail" || t.checksState === "running" || (t.humanAsk ?? "").trim()) return false;
       if (deps.cardTurnIsLive(t)) return false;
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
@@ -247,12 +259,6 @@ export function createCiPhase(deps: CiPhaseDeps) {
     },
     log: (line) => console.warn(line),
   });
-
-  /** Did a land SEE this card's merge on main? A deduced verdict leaves the flag at 0. */
-  function landingWitnessed(taskId: string): boolean {
-    const row = deps.db.query("SELECT landing_witnessed AS w FROM tasks WHERE id = ?").get(taskId) as { w?: number | null } | null;
-    return row?.w === 1;
-  }
 
   /** The CI phase stops for this card: the decision goes back to a person, with the reason in front. */
   function giveUp(projectId: string, taskId: string, why: string): void {
@@ -274,7 +280,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const t = deps.svc.get(taskId, { projectId })?.task;
     if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
     // The decision was "this goes to main", and it is there: the card closes, nothing is measured.
-    if (t.landingState === "landed") {
+    if (landedOnMain(deps.db, t)) {
       try {
         const done = deps.svc.reviewDecision({ taskId, by: "system", decision: "approve", projectId });
         deps.svc.setLandIntent({ taskId, who: null });
