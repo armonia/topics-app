@@ -10,7 +10,7 @@ import { isCiEvidenceCheck } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
-import { awaitCiEvidence, closeCiDraft } from "../services/ci-evidence";
+import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
 import { personPlace } from "../services/auto-land";
@@ -165,10 +165,10 @@ export function createCiPhase(deps: CiPhaseDeps) {
         closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
         describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
         rerunFailed: async (cwd, sha) => {
+          // The same capped door every other gh call of the board goes through (deadline, process group).
           const gh = async (args: string[]) => {
-            const p = Bun.spawn(["gh", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-            const out = await new Response(p.stdout).text();
-            return { code: await p.exited, out };
+            const r = await spawnCapped(["gh", ...args], cwd);
+            return { code: r.code, out: r.out };
           };
           const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
           const id = list.out.trim();
