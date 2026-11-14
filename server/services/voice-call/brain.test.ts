@@ -105,7 +105,7 @@ describe("acks on the real phrases of the calls", () => {
   // each: no misheard word repeated ("I update the avvoli at once"), nothing not
   // asked ("checking the calendar", "your profile").
   test.skipIf(!groqKey)(
-    "acks name only what is asked (live on Groq, 18 of 18)",
+    "acks name only what is asked (live on Groq, 30 of 30)",
     async () => {
       const cases: [string, string[]][] = [
         ["Tu ti sei ripetuto. Sto aspettando ancora che ne aggiorni sugli avvoli.", ["avvol", "avvis"]],
@@ -114,11 +114,18 @@ describe("acks on the real phrases of the calls", () => {
         ["No, non è nella posta, è su Biper.", ["mail", "posta"]],
         ["me l'ha detto due volte ma va bene  cioè non va bene", ["calendario", "mail"]],
         ["vedi l'ultima mail che ha ricevuto", ["calendario"]],
+        // 14/11, the first call through Topics: things to check that nobody named, and a question taken for a complaint
+        ["E sottoagenti si sono interrotti.", ["log", "sistema", "schermo"]],
+        ["Cosa sta succedendo sul computer?", ["schermo", "log"]],
+        ["Lo sta già gestendo Jarvis.", ["hai ragione", "ci sto lavorando"]],
+        ["No, ho chiesto. Sì, sì, sì, sì, sta già occupando.", ["hai ragione", "ci sto lavorando"]],
       ];
       const model = process.env.TOPICS_VOICE_QUICK_MODEL || DEFAULT_QUICK_MODEL;
       const bad: string[] = [];
       for (const [phrase, banned] of cases) {
         for (let i = 0; i < 3; i++) {
+          // Groq's free tier allows 30 requests a minute: back to back, the tail of the run was all 429s (14/11)
+          await Bun.sleep(2100);
           const a = (await quick({ key: groqKey, model }, ackPrompt(phrase))) ?? "";
           const l = a.toLowerCase();
           if (!a || a.split(/\s+/).length > 8 || banned.some((b) => l.includes(b))) bad.push(`${phrase} -> «${a}»`);
@@ -126,6 +133,6 @@ describe("acks on the real phrases of the calls", () => {
       }
       expect(bad).toEqual([]);
     },
-    120_000,
+    180_000,
   );
 });
