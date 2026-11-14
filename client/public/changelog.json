@@ -8,6 +8,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "riprova dopo timeout Windows non legato al menu tray",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Fase CI: card già su main chiuse, Approva con commento in fase (#972)",
           "en": "",
           "scope": null
@@ -62,7 +68,24 @@
       "perf": [],
       "internal": [
         {
+          "it": "disegno delle schede macchina, quote e backup per il menu (card 1aba05b4)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "wip",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "menu ricco, tabella progetti, glue AppKit, lato client",
           "en": "",
           "scope": null,
           "breaking": false

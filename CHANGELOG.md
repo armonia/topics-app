@@ -5,6 +5,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.3.104 — 2026-11-14
 
 ### Sotto il cofano
+- riprova dopo timeout Windows non legato al menu tray
 - Fase CI: card già su main chiuse, Approva con commento in fase (#972)
 
 ## 2.3.103 — 2026-11-14
@@ -20,7 +21,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **ui** · plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)
 
 ### Sotto il cofano
+- disegno delle schede macchina, quote e backup per il menu (card 1aba05b4)
+- wip
 - nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)
+- menu ricco, tabella progetti, glue AppKit, lato client
 
 ## 2.3.102 — 2026-11-14
 
