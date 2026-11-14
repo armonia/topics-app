@@ -2047,8 +2047,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           agent ended the turn on a question) without inventing the question,
           which lives in the thread. The card is the button that opens it. */}
       {task.status === 'review' && task.dispatchState === 'needs_input' && !task.dispatchError && (
-        <p data-testid="card-needs-input-why" className="mt-1 break-words text-compact md:text-mini leading-snug text-app-text-muted">
-          {tr('board.card.needsInputWhy')}
+        <p
+          data-testid="card-needs-input-why"
+          data-source={task.humanAsk ? 'human-ask' : 'generic'}
+          className="mt-1 line-clamp-3 break-words text-compact md:text-mini leading-snug text-app-text-muted"
+        >
+          {task.humanAsk ? task.humanAsk : tr('board.card.needsInputWhy')}
         </p>
       )}
       {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
