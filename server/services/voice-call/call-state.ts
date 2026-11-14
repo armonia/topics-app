@@ -192,6 +192,8 @@ export abstract class CallState {
   // the last moment either side made a sound: the silence that asks "are you still there?" counts from here
   protected lastSound: number;
   protected askedStillThere = false;
+  protected jobNotes = 0;
+  protected jobNoteAt = 0;
   protected idleBye = false;
   protected readonly out: CallOutcome;
   protected recorder: Recorder | null = null;

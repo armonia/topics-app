@@ -19,6 +19,14 @@ export const IDLE_WAITING = 10 * 60_000;
 export const STILL_THERE = 30_000;
 /** ... unless they asked to wait ("one moment, I am looking for it"): then a person waits longer. */
 export const STILL_THERE_WAITING = 120_000;
+/**
+ * A handed-off job with no step to tell: after this silence "still on it", then
+ * every JOB_NOTE_EVERY, at most JOB_NOTES times. On 13/11 a mail clean-up ran
+ * 3.5 minutes with the line mute, and they asked "are you there? I am waiting".
+ */
+export const JOB_QUIET = 40_000;
+export const JOB_NOTE_EVERY = 60_000;
+export const JOB_NOTES = 4;
 /** Voice in a row that interrupts the assistant while it talks (4 x 60 ms): less, and a cough or an echo silence it. */
 export const BARGE_FRAMES = 4;
 /** After this silence without an answer a filler starts: the median answer is 0.9 s, the slow ones 1.6-1.8. */

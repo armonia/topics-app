@@ -418,6 +418,57 @@ describe("call loop", () => {
     expect(w.main.texts()[0]).toContain("Ciao Ada, dimmi");
   });
 
+  // 13/11: 16 pieces said softly over the assistant, too soft to interrupt it, were dropped
+  async function softOverAnswer(w: World, answer: string, heard: string): Promise<number> {
+    await w.greet();
+    w.geminiSays(4000, answer, { turn: true });
+    await w.advance(300);
+    w.say(0);
+    const soft = new Int16Array(900 * 16).map((_, i) => Math.trunc(600 * Math.sin((2 * Math.PI * 300 * i) / 16000)));
+    for (let i = 0; i < soft.length; i += 960) w.call.peerAudio(soft.subarray(i, i + 960));
+    await w.advance(1500);
+    expect(w.has("interrotto")).toBe(false);
+    const before = w.main.audioSamples();
+    await w.advance(3000);
+    w.whispers.at(-1)!.resolve({ ok: true, text: heard });
+    await w.advance(100);
+    return w.main.audioSamples() - before;
+  }
+
+  test("a phrase said softly over the answer reaches Gemini once the assistant is done", async () => {
+    const w = new World({ whisper: true });
+    expect(await softOverAnswer(w, "Ho trovato tre mail di oggi, la prima è del fornitore", "ma quella di ieri?")).toBeGreaterThan(0);
+    expect(w.has("detto_sopra")).toBe(true);
+  });
+
+  test("a soft echo or 'mh' over the answer stays out, an 'ok' to a question goes in", async () => {
+    const echo = new World({ whisper: true });
+    expect(await softOverAnswer(echo, "Ho trovato tre mail di oggi, la prima è del fornitore", "tre mail di oggi")).toBe(0);
+    const mh = new World({ whisper: true });
+    expect(await softOverAnswer(mh, "Ho trovato tre mail di oggi, la prima è del fornitore", "mh mh")).toBe(0);
+    const ok = new World({ whisper: true });
+    expect(await softOverAnswer(ok, "Ho preparato la bozza. Vuoi che la mandi?", "ok")).toBeGreaterThan(0);
+  });
+
+  test("a long job with no steps is not a mute line: 'still on it' after 40 s, a few times at most", async () => {
+    const w = new World({ brain: true });
+    await w.greet();
+    w.mouth!.emit({ type: "ready", resumed: false });
+    w.main.emit({ type: "heard", text: "pulisci la posta" });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "pulisci la posta" } });
+    await w.advance(100);
+    w.thinks.at(-1)!.resolve({ ok: true, thought: { say: "Ci guardo.", task: "pulisci la posta", close: false } });
+    await w.advance(100);
+    w.geminiSays(500, "Ci guardo.", { turn: true });
+    await w.advance(39_000);
+    expect(w.has("ancora_al_lavoro")).toBe(false);
+    await w.advance(2000);
+    expect(w.mouth!.texts().at(-1)).toContain("ancora lavorando");
+    await w.advance(400_000);
+    expect(w.log.filter((l) => l.event === "ancora_al_lavoro").length).toBe(4);
+    expect(w.has("fine")).toBe(false);
+  });
+
   test("a handed-off job is told when the line is free, in two or three phrases", async () => {
     const w = new World();
     await w.greet();

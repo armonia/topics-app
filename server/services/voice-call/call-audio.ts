@@ -26,8 +26,12 @@ import {
   HELD_MAX,
   LATE_MIN_MS,
   onlyGreeting,
+  onlyListening,
   IDLE,
   IDLE_WAITING,
+  JOB_NOTE_EVERY,
+  JOB_NOTES,
+  JOB_QUIET,
   MAX_CALL,
   NAME_WAIT,
   PROGRESS_FROM,
@@ -99,8 +103,8 @@ export abstract class CallAudio extends CallState {
     }
     if (this.released && !this.greeted && this.out.turns > 0 && !speaking && !this.generating) {
       this.greeted = true;
-      if (this.lateHeld) this.passLate();
-    }
+      if (this.lateHeld) this.passLate(true);
+    } else if (this.greeted && this.lateHeld && !speaking && !this.generating) this.passLate(false);
     const free = !speaking && !this.generating && !this.vad.isOpen() && this.replies.length === 0 && !this.leave && this.hangupAsked === null && this.mouthReady;
     if (this.ackLine && this.mouth && free) {
       const { round: r, line: l } = this.ackLine;
@@ -274,6 +278,28 @@ export abstract class CallAudio extends CallState {
       this.deps.log("ci_sei", { s: Math.floor((now - this.lastSound) / 1000) });
       this.send({ type: "text", text: "[Al telefono è in silenzio da mezzo minuto. Chiedigli in tre parole se c'è ancora, niente altro.]" });
     }
+    if (
+      calm &&
+      this.greeted &&
+      !this.spec.group &&
+      this.waitingJobs > 0 &&
+      this.jobNotes < JOB_NOTES &&
+      now - this.lastSound > JOB_QUIET &&
+      now - this.jobNoteAt > JOB_NOTE_EVERY &&
+      (this.mouth === null || this.mouthReady)
+    ) {
+      this.jobNotes += 1;
+      this.jobNoteAt = now;
+      this.deps.log("ancora_al_lavoro", { s: Math.floor((now - this.jobAt) / 1000) });
+      const line = this.jobNotes === 1 ? "Ci sto ancora lavorando, appena ho il risultato te lo dico." : "Ancora un attimo, ci sono quasi.";
+      if (this.mouth) {
+        this.mouthLive = true;
+        this.mouth.send({ type: "text", text: line });
+      } else {
+        this.textTurn = true;
+        this.send({ type: "text", text: `[Il lavoro affidato è ancora in corso. Digli solo: «${line}»]` });
+      }
+    }
     const idle = this.waitingJobs > 0 ? IDLE_WAITING : IDLE;
     if (!speaking && !this.idleBye && now - this.lastVoice > idle) {
       // the call does not drop in silence: a goodbye first, then it closes when said (or after 8 s)
@@ -395,7 +421,11 @@ export abstract class CallAudio extends CallState {
         // the held tail: echo or noise while the assistant talked. It is logged:
         // a short phrase said softly over the end of the greeting vanished like
         // this, without a trace (13/11, mute scenario)
-        if (!this.greeted && !this.spec.group && this.utt.length === 0 && this.held.length * FRAME_MS >= LATE_MIN_MS) {
+        // after the greeting too, with whisper to tell an echo from words: 16
+        // pieces (27 s) said softly over the assistant went to the bin in the
+        // calls of 13/11, too soft to interrupt it ("a phrase dropped, then «I did not understand»")
+        const late = !this.greeted || this.deps.whisper !== null;
+        if (late && !this.spec.group && this.utt.length === 0 && this.held.length * FRAME_MS >= LATE_MIN_MS) {
           this.lateHeld = [...(this.lateHeld ?? []), ...this.held].slice(-HELD_MAX);
           this.deps.log("tenuto_per_dopo", { ms: this.held.length * FRAME_MS });
         } else if (this.utt.length === 0 && this.check === null && this.held.length > 0) {
@@ -450,13 +480,14 @@ export abstract class CallAudio extends CallState {
    * over it goes to Gemini as a phrase, unless whisper hears only the greeting's
    * own echo or a "Hello?". If the other is already talking again, the new phrase wins.
    */
-  protected passLate(): void {
+  protected passLate(inGreeting: boolean): void {
     const frames = this.lateHeld ?? [];
     this.lateHeld = null;
     if (frames.length === 0) return;
+    const [said, dropped] = inGreeting ? ["detto_nel_saluto", "scartato_nel_saluto"] : ["detto_sopra", "scartato_sopra"];
     const pass = (text: string | null) => {
-      if (this.ended || this.vad.isOpen() || this.utt.length > 0) return this.deps.log("scartato_nel_saluto", { perche: "parla di nuovo", whisper: text });
-      this.deps.log("detto_nel_saluto", { ms: frames.length * FRAME_MS, whisper: text });
+      if (this.ended || this.vad.isOpen() || this.utt.length > 0) return this.deps.log(dropped, { perche: "parla di nuovo", whisper: text });
+      this.deps.log(said, { ms: frames.length * FRAME_MS, whisper: text });
       for (const f of frames) {
         for (const s of f) this.utt.push(s);
         this.send({ type: "audio", pcm: f });
@@ -464,13 +495,17 @@ export abstract class CallAudio extends CallState {
       this.send({ type: "streamEnd" });
       this.endPhrase(false);
     };
+    // an "ok" over the end of "shall I send it?" is the answer, not a sign they are listening
+    const asked = `${this.said} ${this.prevSaid}`.trim().endsWith("?");
     const whisper = this.deps.whisper;
     if (!whisper) return pass(null);
     void whisper(joinSamples(frames)).then((r) => {
       const t = r.ok ? (r.text ?? "") : null;
-      if (t !== null && (t.trim() === "" || onlyGreeting(t) || echoOf(this.said, t) || echoOf(this.prevSaid, t))) {
-        return this.deps.log("scartato_nel_saluto", { perche: "eco o saluto", whisper: t });
+      if (t !== null && (t.trim() === "" || (inGreeting && onlyGreeting(t)) || (onlyListening(t) && !asked) || echoOf(this.said, t) || echoOf(this.prevSaid, t))) {
+        return this.deps.log(dropped, { perche: "eco o saluto", whisper: t });
       }
+      // after the greeting it is said only if whisper heard words: without its verdict it may be the echo
+      if (t === null && !inGreeting) return this.deps.log(dropped, { perche: "whisper muto", whisper: null });
       pass(t);
     });
   }
