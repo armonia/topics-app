@@ -235,6 +235,10 @@ const IT: Dict = {
 
   'sidebar.board.brake': 'Frenato',
   'sidebar.board.brakeTitle': 'Card in Todo che aspettano il freno di {who}: {n}',
+  'sidebar.cards.one': '1 card',
+  'sidebar.cards.many': '{n} card',
+  'sidebar.cards.waiting': 'Una card aspetta un agente',
+  'sidebar.cards.working': 'Una card è in lavorazione',
   'sidebar.subagents.one': '1 sotto-agente',
   'sidebar.subagents.many': '{n} sotto-agenti',
   'sidebar.subagents.needsYou': 'Un sotto-agente ti aspetta',

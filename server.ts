@@ -57,6 +57,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -2964,6 +2965,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -6428,6 +6431,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

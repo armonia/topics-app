@@ -1,9 +1,39 @@
 [
   {
-    "version": "2.3.101",
+    "version": "2.3.102",
     "date": "2026-11-14",
     "sections": {
       "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.101",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "it": "board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
       "fixes": [],
       "perf": [],
       "internal": [
@@ -18,6 +48,18 @@
           "scope": null
         },
         {
+          "it": "declare what the card tests cover",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "card tests declare CHAT-TASK-CARD-01",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "pin the status item to the strip's width so neither end is cut (#949)",
           "en": "",
           "scope": null,
@@ -30,7 +72,31 @@
           "breaking": false
         },
         {
+          "it": "CHAT-TASK-CARD-01",
+          "en": "",
+          "scope": "spec",
+          "breaking": false
+        },
+        {
+          "it": "open the card through the board API; legibility spec uses a non-card MCP tool",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "record tray_quota.rs, already over the threshold on main",
+          "en": "",
+          "scope": "bloat",
+          "breaking": false
+        },
+        {
           "it": "la barra non salta più e il menu resta aperto (#951)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "bloat baseline back to what main has",
           "en": "",
           "scope": null,
           "breaking": false

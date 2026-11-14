@@ -232,6 +232,10 @@ const EN = {
 
   'sidebar.board.brake': 'Held',
   'sidebar.board.brakeTitle': 'Todo cards waiting for the brake on {who}: {n}',
+  'sidebar.cards.one': '1 card',
+  'sidebar.cards.many': '{n} cards',
+  'sidebar.cards.waiting': 'A card is waiting on an agent',
+  'sidebar.cards.working': 'A card is being worked',
   'sidebar.subagents.one': '1 sub-agent',
   'sidebar.subagents.many': '{n} sub-agents',
   'sidebar.subagents.needsYou': 'A sub-agent is waiting for you',
