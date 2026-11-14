@@ -18,15 +18,19 @@ pub enum Node {
     Item { id: String, label: String, enabled: bool },
     Sep,
     Sub { label: String, children: Vec<Node> },
+    /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
+    Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
+    /// A table row: one cell per column, aligned by tab stops. `children` open on hover.
+    Row { id: String, cells: Vec<String>, header: bool, children: Vec<Node> },
 }
 
-fn item(id: &str, label: impl Into<String>) -> Node {
+pub(crate) fn item(id: &str, label: impl Into<String>) -> Node {
     Node::Item { id: id.into(), label: label.into(), enabled: true }
 }
-fn note(label: impl Into<String>) -> Node {
+pub(crate) fn note(label: impl Into<String>) -> Node {
     Node::Item { id: String::new(), label: label.into(), enabled: false }
 }
-fn sub(label: impl Into<String>, children: Vec<Node>) -> Node {
+pub(crate) fn sub(label: impl Into<String>, children: Vec<Node>) -> Node {
     Node::Sub { label: label.into(), children }
 }
 
@@ -73,13 +77,13 @@ impl Snapshot {
     }
 }
 
-fn parse(body: &Option<String>) -> Value {
+pub(crate) fn parse(body: &Option<String>) -> Value {
     body.as_deref().and_then(|b| serde_json::from_str(b).ok()).unwrap_or(Value::Null)
 }
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+pub(crate) fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v.get(k).and_then(Value::as_str).unwrap_or("")
 }
-fn n(v: &Value, k: &str) -> f64 {
+pub(crate) fn n(v: &Value, k: &str) -> f64 {
     v.get(k).and_then(Value::as_f64).unwrap_or(0.0)
 }
 
@@ -102,7 +106,7 @@ fn day_word(now: i64, at: i64) -> String {
     }
 }
 
-fn gb(bytes: f64) -> String {
+pub(crate) fn gb(bytes: f64) -> String {
     format!("{:.1} GB", bytes / 1_073_741_824.0).replace('.', ",")
 }
 
@@ -294,7 +298,7 @@ fn pace_nodes(heavy: &Option<String>) -> Vec<Node> {
 }
 
 /// Renewals (from the plans) and, per the preferences, API credit and cloud bonus / AI credit.
-fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
+pub(crate) fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
     let v = parse(overview);
     let mut out = Vec::new();
     if let Some(plans) = v.get("plans").and_then(Value::as_object) {
@@ -341,7 +345,7 @@ fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node> {
 }
 
 /// Jobs, sessions and Topics chats of one project; a session that is open somewhere opens there.
-fn project_work_nodes(p: &Value) -> Vec<Node> {
+pub(crate) fn project_work_nodes(p: &Value) -> Vec<Node> {
     let mut out = Vec::new();
     let list = p.get("agents").and_then(|a| a.get("list")).and_then(Value::as_array).cloned().unwrap_or_default();
     for a in list.iter().take(6) {
@@ -402,7 +406,7 @@ fn project_nodes(live: &Option<String>) -> Vec<Node> {
         .collect()
 }
 
-fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
+pub(crate) fn brake_nodes(gates: &Option<String>) -> Vec<Node> {
     let v = parse(gates);
     if v.is_null() {
         return vec![note("Freno: il servizio non risponde")];
@@ -477,11 +481,11 @@ pub fn toggle_pref(path: &std::path::Path, key: &str) -> Prefs {
     p
 }
 
-fn tick(label: &str, on: bool) -> String {
+pub(crate) fn tick(label: &str, on: bool) -> String {
     format!("{label}{}", if on { " ✓" } else { "" })
 }
 
-fn automation_nodes(body: &Option<String>) -> Vec<Node> {
+pub(crate) fn automation_nodes(body: &Option<String>) -> Vec<Node> {
     let v = parse(body);
     if v.is_null() {
         return vec![note("Automazioni: il servizio non risponde")];
@@ -540,6 +544,14 @@ pub fn dump_text(nodes: &[Node]) -> String {
                 Node::Item { label, .. } => out.push_str(&format!("{pad}{label}\n")),
                 Node::Sub { label, children } => {
                     out.push_str(&format!("{pad}{label}\n"));
+                    go(children, depth + 1, out);
+                }
+                Node::Card { key, children, .. } => {
+                    out.push_str(&format!("{pad}[card {key}]\n"));
+                    go(children, depth + 1, out);
+                }
+                Node::Row { cells, children, .. } => {
+                    out.push_str(&format!("{pad}{}\n", cells.join(" | ")));
                     go(children, depth + 1, out);
                 }
             }
