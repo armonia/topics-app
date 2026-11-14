@@ -28,7 +28,7 @@ export const DIALOG_MAX = 40;
 export const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 /** Who is who in the prompts. */
-export interface Persona {
+export interface VoicePersona {
   /** how the assistant calls the owner aloud */
   name: string;
   /** the assistant's own name */
@@ -39,7 +39,7 @@ export interface Persona {
   channel: string;
 }
 
-const at = (p: Persona): string => (p.org ? ` ad ${p.org}` : "");
+const at = (p: VoicePersona): string => (p.org ? ` ad ${p.org}` : "");
 
 export interface Thought {
   /** what the voice says now */
@@ -73,7 +73,7 @@ export class Dialog {
  */
 const FORMAT = 'Rispondi SOLO con un oggetto JSON, senza altro testo: {"di": "...", "affida": "...", "chiudi": false}.';
 
-export function system(p: Persona, now: string): string {
+export function system(p: VoicePersona, now: string): string {
   const { name, assistant } = p;
   return (
     `Sei ${assistant}, l'assistente personale di ${name}${at(p)}, e stai parlando con lui al telefono. Adesso è ${now} (ora locale).\n` +
@@ -210,7 +210,7 @@ export function ackPrompt(phrase: string): [string, string] {
 }
 
 /** The technical steps of the agent's job said as a person would: "I am reading today's mail". */
-export function progressPrompt(p: Persona, task: string, steps: string[]): [string, string] {
+export function progressPrompt(p: VoicePersona, task: string, steps: string[]): [string, string] {
   return [
     // no way out: with "answer with a dash if there is nothing new" the quick model always answered a dash (13/11)
     `Sei la voce di ${p.assistant} al telefono: mentre lavora a una richiesta, racconti a chi ascolta cosa sta facendo adesso. ` +

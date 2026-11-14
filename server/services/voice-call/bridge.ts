@@ -11,7 +11,7 @@ import { DEFAULT_SPEED, clampSpeed } from "./audio/natural";
 import { KEEP_MS, compress, sweep, type RunConvert } from "./audio/record";
 import { whisper } from "./audio/whisper";
 import { quick, think, type Complete } from "./brain";
-import { Call, runClock, versoOf, type CallDeps, type Outcome } from "./call";
+import { Call, runClock, versoOf, type CallDeps, type CallOutcome } from "./call";
 import { DEFAULT_VOCABULARY, spokenNow, voiceHome as defaultVoiceHome, voiceSettings, type VoiceSettings } from "./config";
 import { fillerDir, loadFillers } from "./fillers";
 import { openGemini as realOpenGemini, sayOnce, usageUsd, type OpenGemini } from "./gemini";
@@ -102,7 +102,7 @@ function stamp(at: Date, timeZone: string): string {
 }
 
 /** The protocol's last word: what the channel needs to report and to keep (speed). */
-export function outcomeMessage(o: Outcome): Record<string, unknown> {
+export function outcomeMessage(o: CallOutcome): Record<string, unknown> {
   return {
     type: "outcome",
     reason: o.reason,
@@ -277,7 +277,7 @@ export class VoiceBridgeSession {
     });
   }
 
-  private async finish(o: Outcome): Promise<void> {
+  private async finish(o: CallOutcome): Promise<void> {
     this.stopClock?.();
     if (o.recording) o.recording = await compress(o.recording, this.deps.convert);
     if (this.closed) return;

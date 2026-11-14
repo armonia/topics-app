@@ -76,9 +76,19 @@ export class Recorder {
       const s = f[i]! + p;
       v.setInt16(i * 2, s > 32767 ? 32767 : s < -32768 ? -32768 : s, true);
     }
-    this.samples += f.length;
-    writeSync(this.fd, audio);
+    if (this.failed) return;
+    try {
+      writeSync(this.fd, audio);
+      this.samples += f.length;
+    } catch (e) {
+      // a full disk (ENOSPC) mid-call: this runs inside the call clock's timer,
+      // where a throw takes the whole server down. The call goes on unrecorded.
+      this.failed = e instanceof Error ? e.message : String(e);
+    }
   }
+
+  /** Why the recording stopped, or null while it is fine. */
+  failed: string | null = null;
 
   /** Closes the file with the real lengths in the header. */
   finish(): string {
@@ -95,7 +105,7 @@ const CONVERTER_PATH = "/usr/bin/afconvert";
 
 async function spawnConvert(argv: string[]): Promise<boolean> {
   try {
-    const p = Bun.spawn(argv, { stdout: "ignore", stderr: "ignore" });
+    const p = Bun.spawn(argv, { stdout: "ignore", stderr: "ignore", timeout: 120_000 });
     return (await p.exited) === 0;
   } catch {
     return false;

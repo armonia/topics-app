@@ -9,18 +9,18 @@ import { emptyUsage, type Cmd, type GeminiEvent } from "./gemini";
 import { FRAME_MS, PlaybackQueue, FrameBuilder, Resampler, Vad } from "./audio/pcm";
 import { Ambience, Stretch, heardWrong } from "./audio/natural";
 import { Recorder } from "./audio/record";
-import { groupOpening, groupPrompt, identity, opening, recordedNotice, systemPrompt, tools, voicePrompt, voiceTools, type LastThought, type Persona } from "./prompts";
-import { versoOf, type Ask, type CallDeps, type CallSpec, type Outcome, type WhisperResult } from "./call-rules";
+import { groupOpening, groupPrompt, identity, opening, recordedNotice, systemPrompt, tools, voicePrompt, voiceTools, type LastThought, type VoicePersona } from "./prompts";
+import { versoOf, type Ask, type CallDeps, type CallSpec, type CallOutcome, type WhisperResult } from "./call-rules";
 
 export abstract class CallState {
-  readonly done: Promise<Outcome>;
-  protected resolveDone!: (o: Outcome) => void;
+  readonly done: Promise<CallOutcome>;
+  protected resolveDone!: (o: CallOutcome) => void;
   protected ended = false;
 
   protected readonly brainOn: boolean;
   protected readonly brainSys: string;
   protected readonly dialog = new Dialog();
-  protected readonly persona: Persona;
+  protected readonly persona: VoicePersona;
   protected readonly gem: { send(c: Cmd): void; close(): void };
   protected mouth: { send(c: Cmd): void; close(): void } | null = null;
 
@@ -182,7 +182,7 @@ export abstract class CallState {
   protected waitingJobs = 0;
   protected heard = "";
   protected said = "";
-  protected readonly out: Outcome;
+  protected readonly out: CallOutcome;
   protected recorder: Recorder | null = null;
   protected openText: string;
   protected reinjected: GeminiEvent[] = [];

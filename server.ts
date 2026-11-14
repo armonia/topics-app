@@ -4478,8 +4478,11 @@ const opzioniServer = {
      */
     open(ws) {
       ws.data.lastPong = Date.now();
-      // A voice bridge is not a device of the app: no broadcasts, no presence.
+      // A voice bridge is not a device of the app: no broadcasts, no presence. It
+      // still sits in deviceSockets, the set revocation walks: a device revoked or
+      // demoted mid-call must lose the bridge too, not keep a 30-minute call.
       if (ws.data.voiceBridge) {
+        ctx.deviceSockets.add(ws);
         ws.data._voice = new VoiceBridgeSession(
           { send: (d) => void ws.send(d), close: (code, reason) => ws.close(code, reason), bufferedAmount: () => ws.getBufferedAmount() },
           { complete: voiceBrainDoor },
@@ -5220,6 +5223,7 @@ const opzioniServer = {
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
       if (ws.data._voice) {
+        ctx.deviceSockets.delete(ws);
         ws.data._voice.onClose();
         return;
       }

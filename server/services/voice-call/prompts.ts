@@ -18,7 +18,7 @@ export type Direction =
   | { kind: "on_behalf"; callee: string; message: string; callback: boolean };
 
 /** Who is who in the prompts: the owner, the assistant, where the owner works, the channel the call runs on. */
-export interface Persona {
+export interface VoicePersona {
   name: string;
   assistant: string;
   org: string;
@@ -27,7 +27,7 @@ export interface Persona {
   agentLabel: string;
 }
 
-const at = (p: Persona): string => (p.org ? ` ad ${p.org}` : "");
+const at = (p: VoicePersona): string => (p.org ? ` ad ${p.org}` : "");
 
 /** The assistant's name as the phone transcribes it: for "Jarvis" also "Giarvis", "Jervis", "Yarvis", "Jarbis"... */
 export function namesAssistant(text: string, assistant: string): boolean {
@@ -61,7 +61,7 @@ export function asksToLeave(text: string): boolean {
   ].some((p) => t.includes(p));
 }
 
-export function groupPrompt(p: Persona): string {
+export function groupPrompt(p: VoicePersona): string {
   const { name, assistant } = p;
   return (
     `È una chiamata di gruppo: ${name} ti ha aggiunto a una chiamata con altre persone, che parlano anche fra loro. ` +
@@ -81,7 +81,7 @@ export const PHONE =
   "o una frase che non torna, hai capito male: chiedi semplicemente di ripetere (senza nominare la lingua) e non agire su quella frase. " +
   "Rispondi sempre in italiano.";
 
-export function systemPrompt(p: Persona, dir: Direction, now: string): string {
+export function systemPrompt(p: VoicePersona, dir: Direction, now: string): string {
   const { name, assistant } = p;
   if (dir.kind === "on_behalf") {
     const { callee, message } = dir;
@@ -135,7 +135,7 @@ export function systemPrompt(p: Persona, dir: Direction, now: string): string {
  * itself, everything else it passes to the ask tool and says the answer. It is
  * the owner on the phone, incoming or outgoing.
  */
-export function voicePrompt(p: Persona, now: string, speaksWhileThinking: boolean): string {
+export function voicePrompt(p: VoicePersona, now: string, speaksWhileThinking: boolean): string {
   const { name, assistant } = p;
   // on 13/11, to "Yes, thanks" Gemini answered on its own "I will pass the idea on" and did not: no promises of its own
   const wait = speaksWhileThinking
@@ -159,7 +159,7 @@ export function voicePrompt(p: Persona, now: string, speaksWhileThinking: boolea
  * Who the voice on the phone is. Without it, to "which model are you?" Gemini
  * answered "Claude, the latest version" and insisted (10/11): it made it up.
  */
-export function identity(model: string, p: Persona): string {
+export function identity(model: string, p: VoicePersona): string {
   const who = p.agentLabel ? `li fa ${p.assistant} con ${p.agentLabel}` : `li fa ${p.assistant} con i suoi strumenti`;
   return (
     `Chi sei: la voce al telefono è ${model}, un modello di Google (Gemini Live); i lavori che passi a ${p.assistant} ${who}. ` +
@@ -172,7 +172,7 @@ type Tool = { name: string; description: string; parameters: unknown; behavior?:
 const CLOSE_CALL_DESCRIPTION =
   "Chiude la telefonata dopo che hai salutato. Solo quando l'altro ha salutato o ha detto chiaramente che ha finito («ciao», «a dopo», «basta così»): mai per una frase che non hai capito bene.";
 
-export function tools(dir: Direction, p: Persona): [{ functionDeclarations: Tool[] }] {
+export function tools(dir: Direction, p: VoicePersona): [{ functionDeclarations: Tool[] }] {
   if (dir.kind === "on_behalf") {
     return [
       {
@@ -220,7 +220,7 @@ export function tools(dir: Direction, p: Persona): [{ functionDeclarations: Tool
 }
 
 /** The tools of the voice with the brain on: the ask tool in place of the handoff (the brain hands jobs off). */
-export function voiceTools(p: Persona, speaksWhileThinking: boolean): [{ functionDeclarations: Tool[] }] {
+export function voiceTools(p: VoicePersona, speaksWhileThinking: boolean): [{ functionDeclarations: Tool[] }] {
   const t = tools({ kind: "incoming" }, p);
   const list = t[0].functionDeclarations.filter((f) => f.name !== "affida_a_jarvis");
   const ask: Tool = {
@@ -233,7 +233,7 @@ export function voiceTools(p: Persona, speaksWhileThinking: boolean): [{ functio
 }
 
 /** The first turn, as soon as the call is open and Gemini is ready: the one who answers the phone speaks first. */
-export function opening(p: Persona, d: Direction): string {
+export function opening(p: VoicePersona, d: Direction): string {
   const { name, assistant } = p;
   switch (d.kind) {
     case "incoming":
@@ -260,7 +260,7 @@ export function opening(p: Persona, d: Direction): string {
 }
 
 /** The opening of a group call: a very short greeting to everyone. */
-export function groupOpening(p: Persona): string {
+export function groupOpening(p: VoicePersona): string {
   return `[${p.name} ti ha aggiunto a una chiamata di gruppo e hai appena risposto. Di' solo un saluto brevissimo a tutti, per esempio «Ciao a tutti, sono ${p.assistant}».]`;
 }
 
@@ -278,12 +278,12 @@ export function repeatedQuestion(last: LastThought | null, phrase: string, now: 
   return `Questa è la risposta di ${assistant} che hai già: «${last.say}». Se non l'hai ancora detta, dilla adesso così; se l'hai detta, non dire niente.`;
 }
 
-export function replyText(t: string, p: Persona): string {
+export function replyText(t: string, p: VoicePersona): string {
   const cut = [...t].slice(0, 3000).join("");
   return `[Risultato del lavoro affidato a ${p.assistant}, che glielo ha anche scritto su ${p.channel}]\n${cut}\n\nRiferiscilo ora a voce in due o tre frasi: prima ciò che aspetta una sua decisione, poi l'essenziale (esito, numeri, nomi, scadenze); il resto in mezza frase («il resto è minore, lo trovi su ${p.channel}»). Niente link, codici o elenchi letti per intero.`;
 }
 
 /** What a call on behalf tells the callee when it is recorded: they hear it at once, they do not find out later. */
-export function recordedNotice(p: Persona): string {
+export function recordedNotice(p: VoicePersona): string {
   return ` [La chiamata è registrata per ${p.name}: diglielo in mezza frase subito dopo esserti presentato, poi il messaggio, tutto nella stessa battuta.]`;
 }

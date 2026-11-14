@@ -5,7 +5,7 @@
  */
 import type { Thought } from "./brain";
 import type { OpenGemini, Usage, VoiceOptions } from "./gemini";
-import type { Direction, Persona } from "./prompts";
+import type { Direction, VoicePersona } from "./prompts";
 import { FRAME_MS } from "./audio/pcm";
 
 /** Rings without an answer (outgoing): then it gives up. */
@@ -67,7 +67,7 @@ export const NAME_WAIT = 900;
 /** The clock of the call: one 60 ms frame per tick, the frame of the WhatsApp line (protocollo.md). */
 export const CLOCK_MS = FRAME_MS;
 
-export interface Outcome {
+export interface CallOutcome {
   reason: string;
   /** the assistant closes it: it is up to us to tell the other phone */
   ours: boolean;
@@ -114,7 +114,7 @@ export interface CallDeps {
 
 export interface CallSpec {
   id: string;
-  persona: Persona;
+  persona: VoicePersona;
   direction: Direction;
   /** where to record the call (both voices in a mono WAV); null = no recording */
   record: string | null;

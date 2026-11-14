@@ -185,6 +185,16 @@ describe("voice bridge", () => {
     expect(w.gems.every((g) => g.closed)).toBe(true);
   });
 
+  test("a channel that drops an outgoing call before the answer closes Gemini at once", async () => {
+    const w = world();
+    const c = await channel(w.port);
+    c.send({ type: "start", name: "Ada", direction: { kind: "outgoing", reason: "le mail di oggi" } });
+    await c.until(() => w.gems.length >= 1 && w.main() !== undefined);
+    c.ws.close();
+    // the clock of an unanswered call would close it only on its own timeout, 45 s later
+    await c.until(() => w.gems.every((g) => g.closed), 1000);
+  });
+
   test("a handoff the channel does not confirm in time is an error", async () => {
     const w = world({ handoffTimeoutMs: 150 });
     const c = await channel(w.port);

@@ -3,7 +3,7 @@
  * @covers CALL-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Recorder, compress, sweep } from "./record";
@@ -21,6 +21,15 @@ afterEach(() => {
 const sample = (b: Buffer, k: number): number => b.readInt16LE(44 + 2 * k);
 
 describe("record", () => {
+  test("a write that fails stops the recording, not the call", () => {
+    const r = Recorder.create(join(scratch(), "c.wav"));
+    // the disk goes away under the open file (ENOSPC in production, EBADF here)
+    closeSync((r as unknown as { fd: number }).fd);
+    expect(() => r.said(new Int16Array(960).fill(500))).not.toThrow();
+    expect(r.failed).not.toBeNull();
+    expect(() => r.said(new Int16Array(960))).not.toThrow();
+  });
+
   test("the two voices end up mixed in a wav with the right length", () => {
     const r = Recorder.create(join(scratch(), "c.wav"));
     // the other side sends 40 ms pieces: in the assistant's 60 ms frame there is all of the first and half of the second

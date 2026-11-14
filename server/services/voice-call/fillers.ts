@@ -33,7 +33,10 @@ export function loadFillers(dir: string, say: SayLine | null, note: (l: string) 
   }
   if (have.length < FILLER_LINES.length && say && !making) {
     making = true;
-    void makeFillers(dir, say, note).finally(() => (making = false));
+    void makeFillers(dir, say, note)
+      // a disk error here is a missing filler, never an unhandled rejection that stops the server
+      .catch((e) => note(`voce: intercalari non salvati (${e instanceof Error ? e.message : String(e)})`))
+      .finally(() => (making = false));
   }
   return have;
 }

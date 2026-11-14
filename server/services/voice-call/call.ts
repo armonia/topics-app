@@ -20,7 +20,7 @@ import { joinSamples } from "./audio/pcm";
 import { clampSpeed, echoOf, heardWrong } from "./audio/natural";
 import { asksToLeave, namesAssistant, repeatedQuestion } from "./prompts";
 import { CallAudio } from "./call-audio";
-import { CLOCK_MS, FOLLOW_UP, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type Outcome, type WhisperResult } from "./call-rules";
+import { CLOCK_MS, FOLLOW_UP, MUSIC_HOLD, PROGRESS_EVERY, PROGRESS_FROM, ms, type CallOutcome, type WhisperResult } from "./call-rules";
 
 export * from "./call-rules";
 
@@ -559,7 +559,7 @@ export class Call extends CallAudio {
     void this.epilogue(reason, ours).then((o) => this.resolveDone(o));
   }
 
-  protected async epilogue(reason: string, ours: boolean): Promise<Outcome> {
+  protected async epilogue(reason: string, ours: boolean): Promise<CallOutcome> {
     const out = this.out;
     // what the other side was saying when the call dropped, without a closed turn
     if (this.heard.trim()) out.heard += this.heard.trim();
