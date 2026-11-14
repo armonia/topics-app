@@ -37,9 +37,15 @@ describe("comment on a card in review", () => {
     router = createTasksRouter(ctx, fakeDispatcher);
   });
 
-  async function cardInReview(machineId: string): Promise<string> {
+  async function cardInReview(machineId: string, opts?: { withLocalTopic?: boolean }): Promise<string> {
     const t = await (await call(router, "POST", `/api/boards/${BOARD}/tasks`, { text: "deliver", status: "in_progress", machineId }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(t.id);
+    // A LOCALLY dispatched card is bound to a topic (the live session); a card
+    // a NODE delivered never gets one here, because the session it ran lives
+    // on the node, not on this Mac — `assigned_topic_id` stays NULL for the
+    // whole chain. Setting it unconditionally used to hide exactly that gap:
+    // see the «without a local topic» test below, which is the real shape of
+    // 28b5facb/30f7c880.
+    if (opts?.withLocalTopic !== false) db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(t.id);
     await call(router, "PATCH", `/api/boards/${BOARD}/tasks/${t.id}`, { status: "review" });
     return t.id;
   }
@@ -55,6 +61,21 @@ describe("comment on a card in review", () => {
     expect(resumed).toEqual([]);
   });
 
+  // THE CARD AS IT REALLY ARRIVES: no local topic was ever bound, because the
+  // run lived entirely on the node (28b5facb, 30f7c880, measured 12/11).
+  // `boundRootOf` finds no ancestor with a topic and comes back null — the
+  // route must still recognise the task itself as a node card in review
+  // instead of silently doing nothing while answering "queued".
+  test("a card delivered by a node with no local topic bound still goes back to todo", async () => {
+    const id = await cardInReview(nodeId, { withLocalTopic: false });
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "rispondo alla tua domanda" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, id]]);
+    expect(resumed).toEqual([]);
+  });
+
   test("a card on this Mac (its own machine row is the default «here») keeps reject+resume", async () => {
     const id = await cardInReview(localId);
     const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "continua" }))!;
@@ -62,5 +83,49 @@ describe("comment on a card in review", () => {
     expect(statusOf(id)).toBe("in_progress");
     expect(resumed).toEqual([id]);
     expect(entered).toEqual([]);
+  });
+
+  // A SUBTASK OF A LOCALLY-BOUND PARENT, delivered by a node itself (the
+  // overflow dispatch does not exclude subtasks). `boundRootOf` climbs past
+  // the child — which has no topic — straight to the parent, which DOES, so
+  // the node branch must look at the commented card, not only at `root`.
+  test("a node's subtask whose parent has a local topic still goes back to todo", async () => {
+    const parent = await (await call(router, "POST", `/api/boards/${BOARD}/tasks`, { text: "parent", status: "in_progress", machineId: localId }))!.json();
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-x' WHERE id = ?").run(parent.id);
+    const child = await (await call(router, "POST", `/api/boards/${BOARD}/tasks`, { text: "child", status: "in_progress", machineId: nodeId, parentTaskId: parent.id }))!.json();
+    await call(router, "PATCH", `/api/boards/${BOARD}/tasks/${child.id}`, { status: "review" });
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${child.id}/comments`, { content: "rispondo" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(child.id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, child.id]]);
+    expect(resumed).toEqual([]);
+  });
+
+  // A LOCAL card in review whose session was already released (a restart
+  // with dispatch off, a requeue): no topic to resume, same as the unbound
+  // path `board_review reject` already handles.
+  test("a local card in review with a released session goes back to todo, same as an unbound reject", async () => {
+    const id = await cardInReview(localId, { withLocalTopic: false });
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "continua" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, id]]);
+    expect(resumed).toEqual([]);
+  });
+
+  // A node card whose machine row has since lost its `base_url` (unpaired,
+  // offline): still not a card this Mac can resume, so it must still queue —
+  // never fall through to a silent `note`.
+  test("a node card with no base_url on its machine row still goes back to todo", async () => {
+    db.run("UPDATE machines SET base_url = NULL WHERE id = ?", [nodeId]);
+    const id = await cardInReview(nodeId);
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "rispondo" }))!;
+    expect(resp.status).toBe(201);
+    expect((await resp.json()).delivery).toBe("queued");
+    expect(statusOf(id)).toBe("todo");
+    expect(entered).toEqual([[BOARD, id]]);
+    expect(resumed).toEqual([]);
   });
 });

@@ -1124,11 +1124,16 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       return json({ ok: true, text: migliore, before: t.text });
     }
 
+    // A card another machine's row owns — regardless of whether that row still
+    // has a `base_url`. A missing address used to read as "not a node card"
+    // and fell through to a silent `note`: the card never had a local session
+    // to resume either way, `base_url` or not, so it must still queue back to
+    // todo rather than sit unresumed in review.
     const isNodeCard = (card: { machineId?: string | null }): boolean => {
       if (!card.machineId) return false;
       try {
         const localId = ctx.machineStore?.upsertLocal().id ?? null;
-        return localId !== null && card.machineId !== localId && !!ctx.machineStore?.get(card.machineId)?.baseUrl;
+        return localId !== null && card.machineId !== localId;
       } catch { return false; }
     };
 
@@ -1279,7 +1284,47 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // specific reply lives on the step's own thread, not necessarily on
         // the main task's. Best-effort: the comment above is already saved.
         try {
-          const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
+          // `boundRootOf` only finds an ancestor with a LOCAL topic bound to it
+          // (`assigned_topic_id`), which is exactly what a card run on a remote
+          // node never has: the session lives on the node, not here. For such a
+          // card `boundRootOf` comes back null even though the card ITSELF sits
+          // in review waiting on this very comment, so the node branch below
+          // never ran — a comment on a card delivered by a node saved fine and
+          // moved nothing, the exact gap measured on 28b5facb/30f7c880 (12/11).
+          // The fallback is the comment's own task: the same `?? taskId` pattern
+          // the open-question check above already uses.
+          const root = (dispatcher ? svc.boundRootOf(bComments.taskId) : null) ?? task ?? null;
+          // The card in review the node branch (next) should act on. `root`
+          // climbs to the nearest ancestor with a LOCAL topic, which for a
+          // node card that is a SUBTASK of a locally-bound parent finds that
+          // parent instead — the parent sits `in_progress`, the node branch's
+          // `root.status === "review"` check misses, and the fall-through
+          // resume branch below re-kicked the PARENT while the child (the
+          // card actually commented on) stayed in review forever. The node
+          // branch must look at the commented card itself first.
+          const nodeTarget = (task && task.status === "review" && isNodeCard(task))
+            ? task
+            : (root && root.status === "review" && isNodeCard(root) ? root : null);
+          // Requeues a card this Mac cannot resume (no live session to deliver
+          // into) back to `todo`, where it is claimed fresh with the thread
+          // intact — the same outcome an explicit `board_review reject` gets
+          // on an unbound card (tasks-board.ts, the `reject` handler above).
+          const backToTodo = (activeDispatcher: NonNullable<typeof dispatcher>, target: NonNullable<typeof root>, note?: string) => {
+            const backInQueue = svc.update({
+              taskId: target.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
+              patch: { status: "todo" }, origin: actionOrigin,
+            });
+            if (note) {
+              try {
+                svc.addComment({ taskId: target.id, author: "system", kind: "service", content: note });
+              } catch { /* the requeue is what matters */ }
+            }
+            broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: backInQueue });
+            if (backInQueue.status === "todo") {
+              activeDispatcher.onEnterTodo(bComments.projectId, target.id);
+              delivery = 'queued';
+            }
+          };
           // A human comment on a dispatched task is DELIVERED to the agent, not
           // left as an unread note. Two live cases, both through resume():
           //  • review       → the agent is waiting: reject-with-text re-kicks it;
@@ -1297,19 +1342,20 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // A card DELIVERED BY A NODE has no live session on this Mac: the run
           // on the node is already closed, so reject+resume would report
           // «queued» and restart nobody (card 6290d85d). It goes back to todo
-          // and the node launches it again with the thread. The criterion is
-          // the dispatcher's `isRemoteTask`: another machine, with an address
-          // (this Mac's own row is the default «here» and has none).
-          if (dispatcher && root && root.status === "review" && !isLandedWork(root) && isNodeCard(root)) {
-            const backInQueue = svc.update({
-              taskId: root.id, actor: "human", by: HUMAN, projectId: bComments.projectId,
-              patch: { status: "todo" }, origin: actionOrigin,
-            });
-            broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: backInQueue });
-            if (backInQueue.status === "todo") {
-              dispatcher.onEnterTodo(bComments.projectId, root.id);
-              delivery = 'queued';
-            }
+          // and the node launches it again with the thread. `isNodeCard` is
+          // the criterion here, not `isLandedWork` first: a node card with no
+          // `base_url` on its machine row is STILL not a card this Mac can
+          // resume, so it must queue too, never fall through to a silent note.
+          if (dispatcher && nodeTarget && !isLandedWork(nodeTarget)) {
+            backToTodo(dispatcher, nodeTarget);
+          // A LOCAL card in review whose session was already released (a
+          // restart with dispatch off, a requeue) has no topic to resume
+          // either — `reviewDecision` wiped it, same as the explicit
+          // `board_review reject` branch above handles. Left here the card
+          // sat in review answering «consegnato» with nothing resumed.
+          } else if (dispatcher && root && root.status === "review" && !root.assignedTopicId
+              && !isLandedWork(root) && !isNodeCard(root)) {
+            backToTodo(dispatcher, root, FRESH_SESSION_NOTE);
           } else if (dispatcher && root && root.assignedTopicId && !isLandedWork(root)
               && (root.status === "review" || root.status === "in_progress")) {
             if (root.status === "review") {
