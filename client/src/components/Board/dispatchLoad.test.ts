@@ -213,6 +213,30 @@ describe('the gate holds', () => {
     expect(r.fill).toBeCloseTo(0.5, 5);
     expect(gateCoreNumbers(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6 }))).toEqual({ used: 2, usable: 6.6, pending: 0 });
   });
+
+  test('the floor holds but a node has a free seat: the word says so, never "floor"', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 1 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floorElsewhere');
+    expect(loadWordKey(r)).not.toBe('board.gauge.wait.floor');
+  });
+
+  test('no node has a free seat: the word still says "floor", unchanged', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 2 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floor');
+  });
+
+  test('no `nodes` at all (older server, or no node paired): unchanged', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floor');
+  });
 });
 
 describe('admissionVerdictText: the wait said in the one number', () => {

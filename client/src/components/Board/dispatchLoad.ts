@@ -73,6 +73,13 @@ export interface DispatchLoadReading {
    * names the axis. `null` = nothing holds, or no verdict on the wire.
    */
   heldBy: HeldBy | null;
+  /**
+   * Every overflow-reachable machine, reduced to the one thing the ring's word
+   * needs: a name and whether it has a free seat. `undefined`/empty = no
+   * dispatcher sent them, or an older server: the word must read exactly as
+   * it did before this field existed.
+   */
+  nodeRoom?: { name: string; free: boolean }[];
 }
 
 /**
@@ -115,6 +122,7 @@ function bareReading(s: GlobalDispatchCapState): DispatchLoadReading {
     usedShare: null as number | null, budgetShare: null as number | null,
     frozen: Math.max(0, s.capacity?.frozen ?? 0),
     heldBy: heldByOf(s.capacity),
+    nodeRoom: s.nodes?.map((n) => ({ name: n.name, free: n.online && n.used < n.slots })),
   };
   if (s.cap && capMode(s.cap) === 'resources') {
     const c = s.capacity;
@@ -163,7 +171,13 @@ export function loadWordKey(r: DispatchLoadReading): string {
   if (r.loading) return 'board.gauge.reading';
   // The axis that holds, before the name of the brake: "a budget" beside a ring
   // while memory held the queue was the one word that answered nothing.
-  if (r.heldBy) return `board.gauge.wait.${r.heldBy}`;
+  if (r.heldBy) {
+    // "The Mac's floor holds it" is only half the truth when a node or the
+    // cloud has a free seat right now: the card is not actually stuck, it is
+    // one overflow round away from running elsewhere.
+    if (r.nodeRoom?.some((n) => n.free)) return 'board.gauge.wait.floorElsewhere';
+    return `board.gauge.wait.${r.heldBy}`;
+  }
   if (r.byResources) return 'board.gauge.byResources';
   if (r.unbounded) return 'board.gauge.noLimit';
   if (r.tone === 'over') return 'board.gauge.over';
@@ -284,6 +298,28 @@ export function limitDerivation(s: GlobalDispatchCapState): { cores: number; lim
   if (!s.cap.auto) return null;
   if (!s.capacity || !(s.capacity.cores > 0)) return null;
   return { cores: s.capacity.cores, limit };
+}
+
+/**
+ * ONE READABLE LINE for every overflow-reachable machine: "node 1/2 · PC
+ * busy". Built from the raw `nodes` (not `DispatchLoadReading.nodeRoom`,
+ * which only keeps the free/not-free bit `loadWordKey` needs) so the popover
+ * can show the actual seat count. `null` when there is nothing to say (no
+ * dispatcher sent them, or an older server).
+ */
+export function nodeStatusLine(
+  nodes: { name: string; online: boolean; slots: number; used: number }[] | undefined,
+  tr: (k: string, v?: Record<string, string | number>) => string,
+): string | null {
+  if (!nodes || nodes.length === 0) return null;
+  return nodes
+    .map((n) => {
+      if (!n.online) return tr('board.gauge.nodeOffline', { name: n.name });
+      return n.used < n.slots
+        ? tr('board.gauge.nodeFree', { name: n.name, used: n.used, slots: n.slots })
+        : tr('board.gauge.nodeFull', { name: n.name });
+    })
+    .join(' · ');
 }
 
 /**

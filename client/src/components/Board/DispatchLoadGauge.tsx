@@ -32,7 +32,7 @@ import { useActiveLocale, useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import {
   admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation,
-  loadToneClass, loadWordKey, verdictSentence, type DispatchLoadReading,
+  loadToneClass, loadWordKey, nodeStatusLine, verdictSentence, type DispatchLoadReading,
 } from './dispatchLoad';
 import { MachineAxesLine, MachineBusyLine } from '../Shared/MachineBusyLine';
 import { pctPlaceholders } from '../../lib/machineBusy';
@@ -169,6 +169,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
   const mem = reading.byResources ? memoryLine(cap) : null;
   const verdict = reading.heldBy && cap?.admission ? admissionVerdictText(cap.admission, cap) : null;
   const agents = agentsLineKey(reading);
+  const nodeLine = nodeStatusLine(s.nodes, tr);
 
   return (
     <>
@@ -234,6 +235,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
                 </p>
               )}
               {mem && <p className="tabular-nums" data-testid="dispatch-load-memory">{tr('board.gauge.memLine', mem)}</p>}
+              {nodeLine && <p className="tabular-nums" data-testid="dispatch-load-nodes">{nodeLine}</p>}
               {reading.frozen > 0 && <p className="tabular-nums">{tr('board.gauge.frozen', { n: reading.frozen })}</p>}
               {s.spend && (
                 <p className="tabular-nums">{tr('board.gauge.spendToday', { amount: spendLabel(s.spend.cents24h) })}</p>

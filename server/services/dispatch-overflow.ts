@@ -195,6 +195,16 @@ export function overflowNote(machineName: string): string {
     `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
 }
 
+/**
+ * The line used when the card moves because a MACHINE had a free seat, not
+ * because the Mac's floor held it: `overflowNote` says "Mac pieno", which
+ * would be false here, since this move happens whether or not the Mac is full.
+ */
+export function overflowNoteImmediate(machineName: string): string {
+  return `Spostata su ${machineName}: c'era un posto libero lì. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
+    `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
+}
+
 /** What the overflow reads of one row of the machine store. */
 export interface OverflowMachineRow {
   id: string;
