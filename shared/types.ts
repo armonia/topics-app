@@ -748,6 +748,16 @@ export type ToolCallDetail =
       agentId?: string;
     }
   | { type: 'plan'; text: string }
+  /** A call on a card of the board (`shared/task-tool.ts`): drawn as the card, not as a tool row. */
+  | {
+      type: 'task_card';
+      tool: string;
+      action: 'created' | 'moved' | 'delivered' | 'resent' | 'closed' | 'landed' | 'commented' | 'read' | 'reviewed';
+      taskId?: string;
+      reason?: string;
+      args?: Record<string, unknown>;
+      result?: string;
+    }
   | { type: 'mcp'; server: string; tool: string; args?: Record<string, unknown>; result?: string }
   // Long-lived / background / harness tools that previously fell through to
   // `unknown`. Typed so the chat shows a real row instead of a raw JSON blob.

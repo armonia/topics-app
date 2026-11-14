@@ -272,6 +272,10 @@ export interface Task {
   stage?: string;
   /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
   humanAsk?: string;
+  /** Who decided the work goes to main ('human' | 'auto'); kept across a bounce. Absent = nobody yet. */
+  landIntent?: "human" | "auto";
+  /** The commit the decision to land was taken on. */
+  landIntentCommit?: string;
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;

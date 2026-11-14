@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.3.101",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "text": "board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome",
+          "scope": "chat"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.100",
     "date": "2026-11-13",
     "sections": {
