@@ -62,7 +62,7 @@ import type { BackgroundTaskSummary } from '../../../../shared/background-work';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
 import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { StatusIcon } from '../Board/atoms';
 import { useBoardTasks } from '../../lib/boardTasksStore';
 import { openCardsOf, taskCardPhase } from '../../lib/taskCardState';
 import { useChatCardIds } from '../../state/chatCards';
@@ -137,7 +137,7 @@ function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
           <span className={`flex flex-shrink-0 ${isStale ? 'opacity-70' : ''}`}>
-            <SparkLoader state="working" />
+            <StatusIcon status="in_progress" live className="h-3 w-3" />
           </span>
           <span className="min-w-0 truncate text-compact text-app-text-secondary">
             {n === 0

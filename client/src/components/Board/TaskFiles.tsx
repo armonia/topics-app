@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { DANGER_TEXT } from '@/lib/popoverStyles';
 import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
 import { boardApi, boardDrafts, diffTotals, attemptHasWork, type DiffBundle, type DiffNote, type DiffPanelSource, type TaskAttempt } from '../../lib/board';
@@ -217,7 +218,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
             <span className="min-w-0 flex-1 text-mini text-app-text-heading">
               {notesError
-                ? <span className="text-rose-300">{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
+                ? <span className={DANGER_TEXT}>{tr('board.task.changes.sendFailedInline', { msg: notesError })}</span>
                 : tr(notes.length === 1 ? 'board.task.changes.notes.one' : 'board.task.changes.notes.many', { n: notes.length })}
             </span>
             <button
@@ -311,7 +312,7 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
           {tr('board.task.attempts.pickHint')}
         </p>
       )}
-      {error && <p className="mt-1 text-mini text-rose-300">{error}</p>}
+      {error && <p className={`mt-1 text-mini ${DANGER_TEXT}`}>{error}</p>}
       <div className="mt-1.5 space-y-1.5">
         {attempts.map((a) => {
           const won = a.state === 'selected';
@@ -401,7 +402,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
   }, [projectId, taskId, attemptId, reads]);
   const source = useMemo<DiffPanelSource>(() => ({ kind: 'task', projectId, taskId, attemptId }), [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
-  if (state === 'error') return <p className="mt-1.5 text-mini text-rose-300">{tr('board.task.diffUnreadable')}</p>;
+  if (state === 'error') return <p className={`mt-1.5 text-mini ${DANGER_TEXT}`}>{tr('board.task.diffUnreadable')}</p>;
   // An attempt is read ONLY from its own worktree (durable refs speak about the
   // winner), so there are two codes here: "produced nothing" and
   // "not reconstructible", and they stay distinct even in a single line.
