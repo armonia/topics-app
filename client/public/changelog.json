@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.3.112",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una misura che il quadrante non mostra va nella riga sotto (#979)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fase CI e «chi deve guardare» diventano regole del workflow (#992)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.111",
     "date": "2026-11-14",
     "sections": {
