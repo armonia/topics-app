@@ -44,6 +44,12 @@ pub struct Metric {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MachineCard {
+    /// Identity for the click action; never drawn.
+    pub id: String,
+    /// This computer: its submenu lists the processes that weigh.
+    pub local: bool,
+    /// The service's lines about it, shown in the hover submenu.
+    pub lines: Vec<String>,
     pub name: String,
     /// The state in words: working, asleep, off...
     pub badge: String,
@@ -60,6 +66,9 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
     rows.iter()
         .filter(|m| !s(m, "name").is_empty())
         .map(|m| MachineCard {
+            id: s(m, "id").into(),
+            local: s(m, "id") == "local",
+            lines: m.get("lines").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default(),
             name: s(m, "name").into(),
             badge: s(m, "state").into(),
             level: num(m, "level").unwrap_or(0.0) as u32,
