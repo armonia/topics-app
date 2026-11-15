@@ -39,8 +39,7 @@ import { useHubEverRead } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
-import { useChildRow } from '../../state/childWork';
-import { WorkMeter } from '../Board/WorkMeter';
+import { ChildWorkMeter } from '../Board/ChildWorkMeter';
 import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
 import { openAutomation, openAutomationsCalendar } from '../../state/automationTarget';
 import { peekAgentsJobsFilter, takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
@@ -558,13 +557,6 @@ function Section({ section, tr, pad, limit, onMore, renderRow }: {
   );
 }
 
-/** What is left and what it weighs, for a row that is a sub-agent at work: nothing for any other row. */
-function RowWork({ id }: { id: string }) {
-  const child = useChildRow(id);
-  if (!child) return null;
-  return <span className="mt-0.5 block"><WorkMeter startedAt={child.startedAt} estimateMs={child.estimateMs} weight={child.weight} /></span>;
-}
-
 function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWithdraw, onAutomation, timelineOpen = false, onTimeline }: {
   row: JobRow;
   tr: Tr;
@@ -603,7 +595,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
             <span className="min-w-0 truncate">{meta}</span>
           </span>
         )}
-        {row.target && live && <RowWork id={row.target.id} />}
+        {row.target && live && <span className="mt-0.5 block"><ChildWorkMeter id={row.target.id} /></span>}
         {timelineOpen && row.timeline && (
           <span data-testid="agents-jobs-timeline" className="mt-1 block border-l border-app-border-light pl-2">
             {row.timeline.map((line, i) => <span key={i} className="block text-mini text-app-text-secondary">{line}</span>)}

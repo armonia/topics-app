@@ -2086,6 +2086,7 @@ const IT: Dict = {
   'board.card.childrenTitle': '{n} sottoagenti al lavoro per questa card',
   'workLine.context': 'Contesto {approx}{pct}% ({used})',
   'workLine.tokens': '{n} token spesi',
+  'workLine.late': '{n} oltre la stima',
   'board.weight.children': '{n} sottoagenti: {tok} · {usd} in tutto',
   'board.countdown.left': '~{min} min',
   'board.countdown.over': 'oltre la stima di {min} min',

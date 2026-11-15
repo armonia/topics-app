@@ -8,7 +8,7 @@
  * context from the provider, no percent; nothing spent, no tokens. With
  * nothing known the line is empty.
  */
-import { sessionWeight, taskCountdown } from '../../../shared/task-countdown';
+import { sessionWeight, taskCountdown, type RunningSummary } from '../../../shared/task-countdown';
 import type { WorkWeight } from '../../../shared/live-work';
 import { fmtTok } from '../components/Board/format';
 
@@ -34,5 +34,13 @@ export function workLine(tr: Translate, i: WorkLineInput): string {
     if (w.percent != null && w.usedTokens != null) parts.push(tr('workLine.context', { approx: w.estimated ? '≈ ' : '', pct: w.percent, used: fmtTok(w.usedTokens) }));
     if (w.billableTokens > 0) parts.push(tr('workLine.tokens', { n: fmtTok(w.billableTokens) }));
   }
+  return parts.join(' · ');
+}
+
+/** What a count of work in progress says about time: when the first should be done, how many are late. Empty when nothing is known. */
+export function runningLine(tr: Translate, s: RunningSummary): string {
+  const parts: string[] = [];
+  if (s.soonestLeftMs !== null) parts.push(tr('board.countdown.left', { min: minutes(s.soonestLeftMs) }));
+  if (s.over > 0) parts.push(tr('workLine.late', { n: s.over }));
   return parts.join(' · ');
 }

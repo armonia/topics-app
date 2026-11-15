@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { CONTEXT_CRITICAL_PERCENT } from "./context-thresholds";
-import { contextMeasure, estimateFromHistory, estimatesByProject, foldChildren, ownOfCounter, sessionWeight, sumTranscriptUsage, taskCountdown } from "./task-countdown";
+import { summarizeRunning, contextMeasure, estimateFromHistory, estimatesByProject, foldChildren, ownOfCounter, sessionWeight, sumTranscriptUsage, taskCountdown } from "./task-countdown";
 
 const MIN = 60_000;
 
@@ -109,5 +109,18 @@ describe("estimatesByProject", () => {
     const out = estimatesByProject(tasks);
     expect(out.get("a")).toBe(30 * MIN);
     expect(out.has("b")).toBe(false);
+  });
+});
+
+describe("summarizeRunning", () => {
+  const est = new Map([["a", 30 * MIN]]);
+  const card = (id: string, projectId: string, minutes: number) => ({ id, projectId, agentMs: minutes * MIN });
+  test("the soonest left among the cards that have an estimate, and how many are late", () => {
+    const s = summarizeRunning([card("1", "a", 10), card("2", "a", 25), card("3", "a", 40), card("4", "none", 5)], est);
+    expect(s).toEqual({ count: 4, soonestLeftMs: 5 * MIN, over: 1 });
+  });
+  test("no estimate anywhere: a count and nothing to say about time", () => {
+    expect(summarizeRunning([card("1", "none", 5)], est)).toEqual({ count: 1, soonestLeftMs: null, over: 0 });
+    expect(summarizeRunning([], est)).toEqual({ count: 0, soonestLeftMs: null, over: 0 });
   });
 });

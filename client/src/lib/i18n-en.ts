@@ -1874,6 +1874,7 @@ const EN = {
   'board.card.childrenTitle': '{n} sub-agents working for this card',
   'workLine.context': 'Context {approx}{pct}% ({used})',
   'workLine.tokens': '{n} tokens spent',
+  'workLine.late': '{n} over the estimate',
   'board.weight.children': '{n} sub-agents: {tok} · {usd} in total',
   'board.countdown.left': '~{min} min left',
   'board.countdown.over': '{min} min over the estimate',

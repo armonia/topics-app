@@ -10,6 +10,10 @@ export interface TrayTaskInput {
   projectId: string;
   /** The workflow column (`shared/workflow.ts`): AI review is not a person's. */
   stage?: string | null;
+  /** Agent time so far, subtask progress: what a card in progress says about its countdown. */
+  agentMs?: number;
+  subtaskCount?: number;
+  subtaskDoneCount?: number;
 }
 
 /**
@@ -82,6 +86,11 @@ export function trayTitle(text: string, max = 44): string {
   return `${(spazio > max * 0.6 ? tagliato.slice(0, spazio) : tagliato).trimEnd()}…`;
 }
 
+/** A row's title followed by what it adds; the title alone when there is nothing to add. */
+function withSuffix(title: string, suffix: string): string {
+  return suffix ? `${title} · ${suffix}` : title;
+}
+
 /**
  * I task aperti raggruppati per stato, pronti per il menu.
  *
@@ -91,7 +100,12 @@ export function trayTitle(text: string, max = 44): string {
  */
 export function trayBoardGroups(
   tasks: readonly TrayTaskInput[],
-  opts: { rowsPerGroup?: number; lit?: readonly TrayLitCard[] } = {},
+  opts: {
+    rowsPerGroup?: number;
+    lit?: readonly TrayLitCard[];
+    /** What a card in progress adds after its title (its countdown): the same words as everywhere, built by the caller. */
+    runningSuffix?: (task: TrayTaskInput) => string;
+  } = {},
 ): TrayGroup[] {
   const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
   // With the lit cards in hand, what waits on a person comes from them (steps
@@ -108,7 +122,7 @@ export function trayBoardGroups(
       count: miei.length,
       rows: miei.slice(0, perGroup).map((t) => ({
         id: t.id,
-        title: trayTitle(t.text),
+        title: status === "in_progress" && opts.runningSuffix ? withSuffix(trayTitle(t.text), opts.runningSuffix(t)) : trayTitle(t.text),
         projectId: t.projectId,
       })),
     });

@@ -2,7 +2,7 @@
  * @covers KANBAN-63
  */
 import { describe, expect, test } from 'bun:test';
-import { workLine } from './workLine';
+import { runningLine, workLine } from './workLine';
 
 const tr = (key: string, vars?: Record<string, string | number>) => `${key}${vars ? JSON.stringify(vars) : ''}`;
 const MIN = 60_000;
@@ -27,5 +27,12 @@ describe('workLine', () => {
   });
   test('an estimated window is marked', () => {
     expect(workLine(tr, { elapsedMs: 0, weight: { ...weight, estimated: true } })).toContain('"approx":"≈ "');
+  });
+});
+
+describe('runningLine', () => {
+  test('the first to finish and how many are late; nothing when no card has an estimate', () => {
+    expect(runningLine(tr, { count: 3, soonestLeftMs: 7 * MIN, over: 1 })).toBe('board.countdown.left{"min":7} · workLine.late{"n":1}');
+    expect(runningLine(tr, { count: 2, soonestLeftMs: null, over: 0 })).toBe('');
   });
 });

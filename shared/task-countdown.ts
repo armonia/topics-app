@@ -182,3 +182,44 @@ export function estimatesByProject(tasks: Iterable<{ status: string; projectId: 
   }
   return out;
 }
+
+export interface RunningCard {
+  id: string;
+  projectId: string;
+  agentMs: number;
+  subtaskDoneCount?: number;
+  subtaskCount?: number;
+}
+
+export interface RunningSummary {
+  /** Cards in progress. */
+  count: number;
+  /** The one that finishes first among those with a countdown; `null` when none has an estimate. */
+  soonestLeftMs: number | null;
+  /** How many have run past their estimate. */
+  over: number;
+}
+
+/**
+ * What a list of cards in progress says as a whole: how many, how long until
+ * the first one should be done, how many are late. The surfaces that show a
+ * count of work in progress (the sidebar row, the board tab, the tray) read
+ * it, so they agree. A card with no estimate adds to the count and to
+ * nothing else.
+ */
+export function summarizeRunning(cards: readonly RunningCard[], estimates: ReadonlyMap<string, number>): RunningSummary {
+  let soonest: number | null = null;
+  let over = 0;
+  for (const c of cards) {
+    const countdown = taskCountdown({
+      estimateMs: estimates.get(c.projectId) ?? null,
+      elapsedMs: c.agentMs,
+      stepsDone: c.subtaskDoneCount,
+      stepsTotal: c.subtaskCount,
+    });
+    if (!countdown) continue;
+    if (countdown.kind === "over") over += 1;
+    else soonest = soonest === null ? countdown.remainingMs : Math.min(soonest, countdown.remainingMs);
+  }
+  return { count: cards.length, soonestLeftMs: soonest, over };
+}

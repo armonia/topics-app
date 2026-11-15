@@ -10,6 +10,8 @@ import { useBoardTasks } from '../lib/boardTasksStore';
 import { trayBoardGroups, trayAgentStates } from '../../../shared/tray-board';
 import { isMainWindow } from '../lib/windowRole';
 import { useT } from './useT';
+import { estimatesByProject } from '../../../shared/task-countdown';
+import { workLine } from '../lib/workLine';
 import { useMachinesOverview } from './useMachinesOverview';
 import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
@@ -67,9 +69,16 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   // the menu (order, exclusions, title cut) is decided and tested in
   // `shared/tray-board`. Here it is read and shipped.
   const boardTasks = useBoardTasks();
-  const boardGroups = useMemo(() => trayBoardGroups(boardTasks, {
-    lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
-  }), [boardTasks, attention]);
+  const boardGroups = useMemo(() => {
+    // The same countdown the cards draw, from the same history of closed cards.
+    const estimates = estimatesByProject(boardTasks);
+    return trayBoardGroups(boardTasks, {
+      lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
+      runningSuffix: (t) => workLine(tr, {
+        estimateMs: estimates.get(t.projectId), elapsedMs: t.agentMs ?? 0, stepsDone: t.subtaskDoneCount, stepsTotal: t.subtaskCount,
+      }),
+    });
+  }, [boardTasks, attention, tr]);
   // The agents by state, for the strip's left group: counted from the same rows.
   const agentStatesKey = useMemo(() => {
     const subjects = { working: 0, needsYou: 0, error: 0 };
