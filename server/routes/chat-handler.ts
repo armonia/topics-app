@@ -1,4 +1,5 @@
 import type { StreamHandler } from "../providers";
+import { warnIfBusy } from "../lib/sqlite-busy";
 import { onFirstModelEvent } from "../lib/answer-relay";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { computeCleanBroadcastDelta } from "./stream-markers";
@@ -748,7 +749,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         }
         turn.captureProviderUsage(message);
       }
-      finalizeStream("done", undefined, message?.turnEnd);
+      void finalizeStream("done", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (done) of ${sessionKey}`));
     },
 
     onError: (error: string) => {
@@ -770,7 +771,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
       // che non sa in che progetto si trova.
       undoInlineMarkAfterFailedTurn();
-      finalizeStream("error", error);
+      void finalizeStream("error", error).catch(warnIfBusy(`finalize (error) of ${sessionKey}`));
     },
 
     onAborted: (message?: any) => {
@@ -787,7 +788,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         // the guard inside, and the row stays as it was.
         turn.captureProviderUsage(message);
       }
-      finalizeStream("aborted", undefined, message?.turnEnd);
+      void finalizeStream("aborted", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (aborted) of ${sessionKey}`));
     },
   }, () => turn.streamState === "finalized", late), heardCarry);
   turn.handler = handler;
