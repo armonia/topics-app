@@ -142,6 +142,7 @@ import {
   noteSteerFailed, noteSteerMessage, offerSteer, setSteerSink, steerState, type SteerItem, type SteerMeta,
 } from "../lib/turn-steer";
 import { onTurnEnded } from "../lib/turn-ended";
+import { warnIfBusy, writeWhenFree } from "../lib/sqlite-busy";
 import { firstTimes, toolTimesOfRow, type ToolTimes } from "../lib/tool-call-times";
 
 /**
@@ -2146,7 +2147,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // footnote. The EVENT is the block: the cause in code, which is
             // what the client draws the banner off (`interrupted-turn-block`).
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
+            writeWhenFree(`grace-expiry close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow));
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
@@ -2203,7 +2204,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // the one this path broadcasts on `stream:end` below, and two
             // witnesses of the same turn must not disagree.
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
+            writeWhenFree(`hard-timeout close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow));
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
@@ -2813,7 +2814,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
 
             const latencyMs = Math.max(0, Date.now() - turnStartMs - humanWait.totalMs());
-            const finalizedMsg = updateLastMessage(sessionKey, {
+            // Busy waits for the lock on its own (lib/sqlite-busy.ts); a free database stays synchronous.
+            const finalizedMsg = writeWhenFree(`final write of ${partialMsg.id}`, () => updateLastMessage(sessionKey, {
               content: fullContent,
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
@@ -2831,7 +2833,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               cacheReadTokens,
               cacheCreationTokens,
               cacheCreation1hTokens,
-            }, ownRow);
+            }, ownRow)) ?? null;
             // THE ROW IS NOW WHOLE: nothing may still owe it a write.
             // `clearAllTimers` runs at the TOP of this function, and everything
             // between there and here keeps touching the timeline (every tool
@@ -3823,7 +3825,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 }
                 captureProviderUsage(message);
               }
-              finalizeStream("done", undefined, message?.turnEnd);
+              void finalizeStream("done", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (done) of ${sessionKey}`));
             },
 
             onError: (error: string) => {
@@ -3845,7 +3847,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
               // che non sa in che progetto si trova.
               undoInlineMarkAfterFailedTurn();
-              finalizeStream("error", error);
+              void finalizeStream("error", error).catch(warnIfBusy(`finalize (error) of ${sessionKey}`));
             },
 
             onAborted: (message?: any) => {
@@ -3862,7 +3864,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // the guard inside, and the row stays as it was.
                 captureProviderUsage(message);
               }
-              finalizeStream("aborted", undefined, message?.turnEnd);
+              void finalizeStream("aborted", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (aborted) of ${sessionKey}`));
             },
           }, () => streamState === "finalized", late), heardCarry);
 
@@ -4437,7 +4439,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               endTurnAttention(matchedTopic, { messageId: storedJsonAssistant.id, completed: true, dispatched: boardAgentTurn }, { preview: content });
               finalizeTurnActivity(matchedTopic);
             }
-            if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => autoBindProject(matchedTopic!), 100);
+            if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => { writeWhenFree(`auto-bind of ${matchedTopic!.id}`, () => autoBindProject(matchedTopic!)); }, 100);
             const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
             return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
           }

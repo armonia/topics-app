@@ -39,6 +39,7 @@ import type { ContentBlock } from "../../shared/types";
 import { containsSameString, leanBlocks, STRIP_FIELDS, type MovedOutputMark } from "../../shared/lean-tool-call";
 import { decodeCol, encodeCol, encodesAsBlob, MACHINE_MARKS, MOVED_OUTPUT_MARK } from "../../shared/message-blob";
 import { parseToolCallDetail } from "../../shared/tool-call-detail";
+import { isSqliteBusy } from "./sqlite-busy";
 import { warnThrottled } from "./warn-throttled";
 
 /**
@@ -294,6 +295,13 @@ export function putToolOutputs(
  * Runs `writeRow(value)` and stores the moved output in one transaction.
  * If storing or the check fails, the row is written whole instead: the output
  * never leaves it unless it is verifiably stored.
+ *
+ * Except when the database is BUSY: the transaction rolled back because another
+ * connection holds the lock, and the whole row would wait for the same lock
+ * right away. Retrying here held the event loop for a second `busy_timeout`
+ * (20 s instead of 10 under the lock of 2026-11-14) only to fail the same way,
+ * so the refusal goes straight to the caller, which decides when to try again
+ * (lib/block-persist-throttle.ts).
  */
 export function writeSplitRow(
   db: Database,
@@ -312,6 +320,7 @@ export function writeSplitRow(
       putToolOutputs(db, messageId, moved, stubbed, original);
     })();
   } catch (err) {
+    if (isSqliteBusy(err)) throw err;
     warnThrottled("tool-output-store:write", `[tool-outputs] message ${messageId}: output kept in the row:`, err);
     writeRow(col.whole());
   }
@@ -389,7 +398,7 @@ export function backfillToolOutputsTick(db: Database, opts: { maxRows: number; m
       // Anything else (an unreadable row, a read-back that does not rebuild
       // it) is stepped past on its own, so one row cannot stall the backfill;
       // the row stays as it is.
-      if (/SQLITE_BUSY|SQLITE_LOCKED|database is locked/i.test(`${(err as { code?: unknown })?.code ?? ""} ${String(err)}`)) break;
+      if (isSqliteBusy(err)) break;
       warnThrottled("tool-output-store:backfill", `[tool-outputs] backfill left ${id} whole:`, err);
       try { advance.run(id); } catch { break; }
     }
