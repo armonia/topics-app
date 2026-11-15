@@ -28,7 +28,6 @@ import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
-import { DISPATCH_CHIP_QUEUED } from "../../shared/board";
 import { setProviderHold } from "../lib/provider-hold";
 import { carriedBranch } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
@@ -204,16 +203,6 @@ const NODE_RETRY_MINUTES = 5;
 const CHIP_WORKING = "working";
 const CHIP_BLOCKED = "blocked";
 const CHIP_WAITING = "waiting";
-
-/**
- * The chips that mean "the dispatcher itself had this card in hand when the
- * process died" — the dispatcher's own `RECOVERABLE_DISPATCH_STATES`, mirrored
- * here because importing it would close a cycle (`task-dispatcher.ts` already
- * imports this module). Anything else (`null`, `needs_input`, a stale `blocked`
- * left over from a card closed long ago) is a human's own move — dragging a
- * review/done card into `in_progress` by hand — and not a restart orphan.
- */
-const RESTART_RECOVERABLE_STATES = new Set([CHIP_WORKING, "starting", DISPATCH_CHIP_QUEUED]);
 
 /**
  * The part of the dispatcher's `RunSlot` this lane may look at: the run's
@@ -1244,17 +1233,6 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
-    // A DONE CARD NEVER RUNS AGAIN, AND NEITHER DOES ONE A HUMAN JUST DRAGGED.
-    //
-    // `task.machineId` is sticky: it names where a card ran, not where it is
-    // still running, and it survives review and done untouched. The caller
-    // only hands this an `in_progress` row, but that status alone does not
-    // say the dispatcher was mid-run when the process died — a human dragging
-    // a closed card back into `in_progress` by hand produces the exact same
-    // row, chip and all (`done` clears `dispatch_state` to `null`). Without
-    // this check that drag relaunched a card closed minutes earlier on the
-    // very next restart, on the same node, for a run nobody asked for.
-    if (!RESTART_RECOVERABLE_STATES.has(task.dispatchState ?? "")) return null;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({

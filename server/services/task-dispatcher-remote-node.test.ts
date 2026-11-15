@@ -1356,30 +1356,6 @@ describe("lo slot remoto non resta zombie", () => {
     expect(h.task().status).toBe("in_progress");
     expect(h.dispatcher.busyIds()).toContain(TASK);
   });
-
-  it("una card chiusa e poi trascinata a mano in In Progress non riparte sul nodo al riavvio", async () => {
-    // `machine_id` is sticky: it names where the card ran once, and a `done`
-    // card keeps it. Dragging a closed card back into `in_progress` by hand
-    // leaves the exact same row a real restart orphan would have, minus the
-    // chip (`done` clears `dispatch_state` to `null`) — the one thing that
-    // tells the two apart. No `dispatch()` here: this process never held a
-    // slot for this card, same as right after a restart.
-    const h = harness();
-    h.seed();
-    h.db.run(
-      "UPDATE tasks SET status = 'in_progress', dispatch_state = NULL WHERE id = ?",
-      [TASK],
-    );
-
-    await h.dispatcher.reconcile({ reason: "boot" });
-    await flush();
-
-    expect(h.calls).toEqual([]);
-    const t = h.task();
-    expect(t.status).toBe("in_progress");
-    expect(t.machineId).toBe(MACHINE);
-    expect(h.dispatcher.busyIds()).not.toContain(TASK);
-  });
 });
 
 describe("una corsa remota persa non riporta mai indietro una card chiusa", () => {
