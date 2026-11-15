@@ -373,12 +373,15 @@ export async function moveCliChildToEngine(row: SubagentRow, input: string, from
 }): Promise<{ sessionKey: string } | null> {
   if (!nativeSubagentsAvailable() || subagentRuntimeReason(getDatabase(), row.id) === "asked") return null;
   const place = nativeChildPlace({ explicitCwd: row.cwd || null, parentTopic: from.parentTopic, parentCwd: from.parentCwd, knownProject: from.knownProject });
-  // A CLI child born in a folder that is not a project resumes where it was.
-  if (place.outsideCwd) return null;
+  // A CLI child born in a folder that is not a project comes back on the engine
+  // in its parent's project, told where its folder is; with no parent project
+  // to stand in, it resumes where it was.
+  if (place.outsideCwd && !place.projectPath) return null;
   try {
+    const migrated = await migratedChildPromptFor(row, input);
     const child = spawnNativeChild({
       id: row.id, parentSessionKey: row.parentSessionKey, name: row.name,
-      prompt: await migratedChildPromptFor(row, input),
+      prompt: place.outsideCwd ? outsideCwdPreamble(place.outsideCwd) + migrated : migrated,
       cwd: row.cwd, parentTopic: from.parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
       ...engineLaunchOf(row.agentType ? from.profileOf(row.cwd, row.agentType) : null, row.model),
       effort: row.effort, agentType: row.agentType,
