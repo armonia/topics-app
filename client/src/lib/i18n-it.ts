@@ -2081,6 +2081,7 @@ const IT: Dict = {
   'board.weight.tokens': '{n} token',
   'board.weight.cache': '{n} riletti da cache',
   'board.weight.compaction': 'ancora {n} alla compattazione',
+  'board.weight.contextTitle': 'Contesto in uso: {used} token, {pct}% della finestra del modello',
   'board.weight.children': '{n} sottoagenti: {tok} · {usd} in tutto',
   'board.countdown.left': '~{min} min',
   'board.countdown.over': 'oltre la stima di {min} min',

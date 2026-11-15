@@ -2,7 +2,8 @@
  * @covers KANBAN-63
  */
 import { describe, expect, test } from "bun:test";
-import { estimateFromHistory, sessionWeight, sumTranscriptUsage, taskCountdown } from "./task-countdown";
+import { CONTEXT_CRITICAL_PERCENT } from "./context-thresholds";
+import { contextMeasure, estimateFromHistory, estimatesByProject, foldChildren, ownOfCounter, sessionWeight, sumTranscriptUsage, taskCountdown } from "./task-countdown";
 
 const MIN = 60_000;
 
@@ -56,5 +57,57 @@ describe("sessionWeight", () => {
     const w = sessionWeight({ usedTokens: null, windowTokens: null, billableTokens: 1, cacheReadTokens: 0, costCents: 0 });
     expect(w.percent).toBeNull();
     expect(w.untilCompactionTokens).toBeNull();
+  });
+});
+
+describe("contextMeasure", () => {
+  test("a provider payload becomes a measure", () => {
+    expect(contextMeasure({ usage: { used: 150_000, size: 1_000_000 }, estimated: true })).toEqual({ usedTokens: 150_000, windowTokens: 1_000_000, estimated: true });
+  });
+  test("nothing measured, no measure", () => {
+    expect(contextMeasure(null)).toBeNull();
+    expect(contextMeasure({ usage: { used: 0, size: 1_000_000 } })).toBeNull();
+    expect(contextMeasure({ usage: { used: 10, size: 0 } })).toBeNull();
+    expect(contextMeasure({ usage: {} })).toBeNull();
+  });
+});
+
+describe("sessionWeight context", () => {
+  const base = { billableTokens: 0, cacheReadTokens: 0, costCents: 0 };
+  test("compaction point is the shared critical threshold, not a local number", () => {
+    const w = sessionWeight({ ...base, usedTokens: 500_000, windowTokens: 1_000_000 });
+    expect(w.untilCompactionTokens).toBe(1_000_000 * (CONTEXT_CRITICAL_PERCENT / 100) - 500_000);
+    expect(w.percent).toBe(50);
+    expect(w.level).toBe("critical"); // 500k used is past the absolute per-call threshold
+  });
+  test("level follows the shared thresholds", () => {
+    expect(sessionWeight({ ...base, usedTokens: 100_000, windowTokens: 1_000_000 }).level).toBe("ok");
+    expect(sessionWeight({ ...base, usedTokens: 700_000, windowTokens: 1_000_000 }).level).toBe("critical");
+    expect(sessionWeight({ ...base, usedTokens: 150_000, windowTokens: 200_000 }).level).toBe("warn");
+  });
+  test("no measure, no percent, no level, no room figure", () => {
+    const w = sessionWeight({ ...base, usedTokens: null, windowTokens: null });
+    expect([w.percent, w.level, w.untilCompactionTokens]).toEqual([null, null, null]);
+  });
+});
+
+describe("foldChildren and ownOfCounter", () => {
+  test("sums the children", () => {
+    expect(foldChildren([{ billableTokens: 100, costCents: 5 }, { billableTokens: 50, costCents: 0 }])).toEqual({ count: 2, billableTokens: 150, costCents: 5 });
+    expect(foldChildren([])).toEqual({ count: 0, billableTokens: 0, costCents: 0 });
+  });
+  test("the counter already carries the children: own is what is left", () => {
+    expect(ownOfCounter(1000, { billableTokens: 300 })).toBe(700);
+    expect(ownOfCounter(100, { billableTokens: 300 })).toBe(0);
+  });
+});
+
+describe("estimatesByProject", () => {
+  test("one median per project, none below the sample floor", () => {
+    const done = (projectId: string, m: number) => ({ status: "done", projectId, agentMs: m * MIN });
+    const tasks = [10, 20, 30, 40, 100].map((m) => done("a", m)).concat([done("b", 5), done("b", 6)], [{ status: "in_progress", projectId: "a", agentMs: 999 * MIN }]);
+    const out = estimatesByProject(tasks);
+    expect(out.get("a")).toBe(30 * MIN);
+    expect(out.has("b")).toBe(false);
   });
 });

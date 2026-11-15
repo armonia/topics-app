@@ -8,7 +8,7 @@ import { Menu } from '../Shared/Menu';
 import { StatusIcon, QueueReasonChip } from './atoms';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 import { STATUS_CHIP } from '@/lib/statusVisual';
-import { SessionWeight } from './SessionWeight';
+import { TaskSessionWeight } from './TaskSessionWeight';
 import { CardConsumption } from '../Processes/SessionConsumption';
 import { SectionHeader } from './sectionAccordion';
 import { ChatMarkdown } from '../ChatMarkdown';
@@ -557,7 +557,7 @@ detailsOpen && task ? (
       {/* What the running session costs (tokens, tokens per second, CPU, memory), read from the
           same answer as the load screen and the Processes view. Nothing while it is not running. */}
       {task.status === 'in_progress' && <div className="px-3 pt-3"><CardConsumption cardId={task.id} /></div>}
-      {(task.agentTokens > 0 || task.agentCacheReadTokens > 0) && <div className="px-3 pt-3"><SessionWeight usedTokens={null} windowTokens={null} billableTokens={task.agentTokens} cacheReadTokens={task.agentCacheReadTokens} costCents={task.agentCostCents} /></div>}
+      {(task.agentTokens > 0 || task.agentCacheReadTokens > 0) && <div className="px-3 pt-3"><TaskSessionWeight assignedTopicId={task.assignedTopicId} billableTokens={task.agentTokens} cacheReadTokens={task.agentCacheReadTokens} costCents={task.agentCostCents} /></div>}
       <MetadataCard boardDispatchModel={boardDispatchModel} busy={busy} changeModel={changeModel} changeNode={changeNode}
         changePriority={changePriority} changeTopicsRouting={changeTopicsRouting} drawerRouting={drawerRouting} labelBtnRef={labelBtnRef}
         labelMenuOpen={labelMenuOpen} machines={machines} modelBtnRef={modelBtnRef} modelMenuOpen={modelMenuOpen} modelTrigger={modelTrigger}

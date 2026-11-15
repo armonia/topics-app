@@ -1,7 +1,11 @@
 import { Gauge } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { sessionWeight, type SessionWeightInput } from '../../../../shared/task-countdown';
+import type { ContextLevel } from '../../../../shared/context-thresholds';
 import { fmtTok, fmtUsd } from './format';
+
+/** Ink of a context level, from the shared thresholds: the same cut-offs the ring and the server use. */
+export const contextLevelInk = (level: ContextLevel | null): string => (level === 'critical' ? 'text-red-500' : level === 'warn' ? 'text-amber-500' : '');
 
 /**
  * The exact weight of a session: the provider's own token counts, the share
@@ -13,7 +17,7 @@ export function SessionWeight(props: SessionWeightInput & { locale?: string }) {
   const w = sessionWeight(props);
   if (w.billableTokens <= 0 && w.cacheReadTokens <= 0 && w.usedTokens == null) return null;
   const locale = props.locale ?? 'it-IT';
-  const level = w.percent == null ? '' : w.percent >= 85 ? 'text-red-500' : w.percent >= 65 ? 'text-amber-500' : '';
+  const level = contextLevelInk(w.level);
   return (
     <div data-testid="session-weight" className="rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact text-app-text-secondary tabular-nums dark:bg-white/[0.16]">
       <div className="flex items-center gap-2">

@@ -1869,6 +1869,7 @@ const EN = {
   'board.weight.tokens': '{n} tokens',
   'board.weight.cache': '{n} re-read from cache',
   'board.weight.compaction': '{n} left before compaction',
+  'board.weight.contextTitle': 'Context in use: {used} tokens, {pct}% of the model window',
   'board.weight.children': '{n} sub-agents: {tok} · {usd} in total',
   'board.countdown.left': '~{min} min left',
   'board.countdown.over': '{min} min over the estimate',
