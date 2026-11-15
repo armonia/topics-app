@@ -113,14 +113,14 @@ describe("estimatesByProject", () => {
 });
 
 describe("summarizeRunning", () => {
-  const est = new Map([["a", 30 * MIN]]);
+  const estimates = new Map([["a", 30 * MIN]]);
   const card = (id: string, projectId: string, minutes: number) => ({ id, projectId, agentMs: minutes * MIN });
   test("the soonest left among the cards that have an estimate, and how many are late", () => {
-    const s = summarizeRunning([card("1", "a", 10), card("2", "a", 25), card("3", "a", 40), card("4", "none", 5)], est);
+    const s = summarizeRunning([card("1", "a", 10), card("2", "a", 25), card("3", "a", 40), card("4", "none", 5)], estimates);
     expect(s).toEqual({ count: 4, soonestLeftMs: 5 * MIN, over: 1 });
   });
   test("no estimate anywhere: a count and nothing to say about time", () => {
-    expect(summarizeRunning([card("1", "none", 5)], est)).toEqual({ count: 1, soonestLeftMs: null, over: 0 });
-    expect(summarizeRunning([], est)).toEqual({ count: 0, soonestLeftMs: null, over: 0 });
+    expect(summarizeRunning([card("1", "none", 5)], estimates)).toEqual({ count: 1, soonestLeftMs: null, over: 0 });
+    expect(summarizeRunning([], estimates)).toEqual({ count: 0, soonestLeftMs: null, over: 0 });
   });
 });

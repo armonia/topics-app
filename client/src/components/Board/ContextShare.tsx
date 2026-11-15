@@ -2,7 +2,7 @@ import { Gauge } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { sessionWeight, type ContextMeasure } from '../../../../shared/task-countdown';
 import { fmtTok } from './format';
-import { contextLevelInk } from './SessionWeight';
+import { contextLevelInk } from '../../lib/contextLevelInk';
 
 /**
  * The share of the model window a session fills, as one chip. The one place

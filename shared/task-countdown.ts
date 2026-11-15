@@ -208,7 +208,7 @@ export interface RunningSummary {
  * nothing else.
  */
 export function summarizeRunning(cards: readonly RunningCard[], estimates: ReadonlyMap<string, number>): RunningSummary {
-  let soonest: number | null = null;
+  let firstLeft: number | null = null;
   let over = 0;
   for (const c of cards) {
     const countdown = taskCountdown({
@@ -219,7 +219,7 @@ export function summarizeRunning(cards: readonly RunningCard[], estimates: Reado
     });
     if (!countdown) continue;
     if (countdown.kind === "over") over += 1;
-    else soonest = soonest === null ? countdown.remainingMs : Math.min(soonest, countdown.remainingMs);
+    else firstLeft = firstLeft === null ? countdown.remainingMs : Math.min(firstLeft, countdown.remainingMs);
   }
-  return { count: cards.length, soonestLeftMs: soonest, over };
+  return { count: cards.length, soonestLeftMs: firstLeft, over };
 }

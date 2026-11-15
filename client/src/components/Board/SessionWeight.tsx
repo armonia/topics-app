@@ -1,11 +1,8 @@
 import { Gauge } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { sessionWeight, type SessionWeightInput } from '../../../../shared/task-countdown';
-import type { ContextLevel } from '../../../../shared/context-thresholds';
+import { contextLevelInk } from '../../lib/contextLevelInk';
 import { fmtTok, fmtUsd } from './format';
-
-/** Ink of a context level, from the shared thresholds: the same cut-offs the ring and the server use. */
-export const contextLevelInk = (level: ContextLevel | null): string => (level === 'critical' ? 'text-red-500' : level === 'warn' ? 'text-amber-500' : '');
 
 /**
  * The exact weight of a session: the provider's own token counts, the share

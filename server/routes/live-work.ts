@@ -90,8 +90,8 @@ function withWeight(db: ReturnType<typeof getDatabase>, rows: LiveWorkRow[]): Li
     const child = getSubagent(db, r.id);
     if (!child) return r;
     const weight = (child.runtime === "topics" ? nativeChildWeight(db, child) : cliChildWeight(child)) ?? undefined;
-    const est = r.state === "ended" ? undefined : estimateOf(child.runtime);
-    return { ...r, ...(weight ? { weight } : {}), ...(est ? { estimateMs: est } : {}) };
+    const estimate = r.state === "ended" ? undefined : estimateOf(child.runtime);
+    return { ...r, ...(weight ? { weight } : {}), ...(estimate ? { estimateMs: estimate } : {}) };
   });
 }
 
