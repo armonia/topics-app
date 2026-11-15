@@ -2,7 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.4 — 2026-11-15
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
+- topics/cheery-orbit (card 475724bc) (#868)
+
 ## 2.4.3 — 2026-11-15
+
+### Correzioni
+- **heavy-slot** · the cpu ceiling holds even the first request
 
 ### Sotto il cofano
 - job con Playwright fissati a ubuntu-24.04 (#1049)
