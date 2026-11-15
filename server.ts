@@ -39,6 +39,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -201,6 +202,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createHeavySlotRouter } from "./server/routes/heavy-slot";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
 import { resolveAiProvider, getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, resolveDiscordDetailLevel, resolveAgentRuntime } from "./server/services/app-settings";
@@ -215,6 +217,8 @@ import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
+import { VOICE_BRIDGE_PATH, VoiceBridgeSession } from "./server/services/voice-call/bridge";
+import type { Complete } from "./server/services/voice-call/brain";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
@@ -995,6 +999,16 @@ const billingRouter = createBillingRouter(ctx);
  * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
  * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
  */
+/**
+ * The brain of the phone calls: `complete()` of the provider named by
+ * TOPICS_VOICE_BRAIN_PROVIDER, or of the default one. Resolved at each call,
+ * so a provider that comes up later is used from the next call.
+ */
+const voiceBrainDoor = (): Complete | null => {
+  const p = tryGetProvider(process.env.TOPICS_VOICE_BRAIN_PROVIDER?.trim() || undefined);
+  return p ? (messages, options) => p.complete(messages, options) : null;
+};
+
 const identityByRequest = new WeakMap<Request, {
   role: 'owner' | 'guest';
   deviceId: string | null;
@@ -2261,7 +2275,9 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
-  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
+  // Attempt branches plus the card's own delivery/prior pointers: an old delivery
+  // branch of the same card is its history, never "another session".
+  ownBranches: (taskId) => cardOwnBranches(taskId),
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
@@ -2303,9 +2319,7 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
-  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
@@ -2371,6 +2385,20 @@ const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates
   branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
 });
 
+/**
+ * The card's own branch history: attempt branches plus its delivery and earlier delivery
+ * pointers. An old branch of the same card is its history, never "another session", and
+ * both the land and the delivery capture must leave it out of the subtraction: the capture
+ * did not, so a re-delivery on a fresh branch whose commits were all reachable from the
+ * card's previous branch recorded "no commit of its own", got no checks and sat in review
+ * (14/11, 19d684fb and 30f7c880).
+ */
+function cardOwnBranches(taskId: string): string[] {
+  const task = dispatcherSvc.get(taskId)?.task;
+  const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
+  return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+}
+
 const taskDeliveryRef = async (taskId: string) => {
     const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
     if (!ref) return null;
@@ -2388,7 +2416,7 @@ const taskDeliveryRef = async (taskId: string) => {
     // già su main da una settimana. Registrarla avrebbe fatto leggere al
     // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
     // esattamente il guasto per cui l'audit esiste.
-    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
     if (!pointer) return null;
     // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
     //
@@ -2552,6 +2580,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -2745,6 +2775,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The machine-wide queue for heavy commands, asked by every harness on this Mac.
+const heavySlotRouter = createHeavySlotRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
 // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
@@ -2838,6 +2870,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
@@ -3195,6 +3231,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  heavySlotRouter,
   agentChannelsRouter,
   agentConfigRouter,
   tabsRouter,
@@ -3592,6 +3629,10 @@ const opzioniServer = {
     // terminal and browser used to omit it, so revoking their device closed
     // chat while leaving the terminal keyboard and browser controls alive.
     if (isWebSocketPath(pathname)) {
+      // A phone call is the owner's: a guest or a delegated node never opens one.
+      if (pathname === VOICE_BRIDGE_PATH && identityByRequest.get(req)?.role !== "owner") {
+        return new Response(JSON.stringify({ error: "voice bridge: owner only", code: "forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
       const wsUpgrade = upgradeWebSocket(
         req, pathname, server, identityByRequest.get(req) ?? null, isRemotePeer(req, server),
       );
@@ -3837,7 +3878,21 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        // `Bun.file(...).exists()` resolves to `false` on every stat error this
+        // machine could produce (verified by hand: ENOENT, a path through a
+        // non-directory, a name long enough for ENAMETOOLONG — none of them
+        // throw), so nothing between here and the `return` above is known to
+        // reach this catch today. The real byte-for-byte read (the one that
+        // CAN throw EACCES, e.g. a 0-perm file whose `stat` still succeeds)
+        // happens lazily once Bun streams the returned `Response` body, which
+        // is after this function has already returned — outside this
+        // try/catch entirely. Kept as a backstop (logged, not swallowed) for
+        // whatever future Bun behavior or edge case does land here; not
+        // covered by an automated test for the reason above.
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -3897,6 +3952,17 @@ const opzioniServer = {
      */
     open(ws) {
       ws.data.lastPong = Date.now();
+      // A voice bridge is not a device of the app: no broadcasts, no presence. It
+      // still sits in deviceSockets, the set revocation walks: a device revoked or
+      // demoted mid-call must lose the bridge too, not keep a 30-minute call.
+      if (ws.data.voiceBridge) {
+        ctx.deviceSockets.add(ws);
+        ws.data._voice = new VoiceBridgeSession(
+          { send: (d) => void ws.send(d), close: (code, reason) => ws.close(code, reason), bufferedAmount: () => ws.getBufferedAmount() },
+          { complete: voiceBrainDoor },
+        );
+        return;
+      }
       ctx.deviceSockets.add(ws);
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
@@ -4167,6 +4233,11 @@ const opzioniServer = {
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+      if (ws.data._voice) {
+        if (typeof message === "string") ws.data._voice.onText(message);
+        else ws.data._voice.onBinary(new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+        return;
+      }
       refreshSocketPrincipal(ctx.db, ws.data);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
@@ -4258,7 +4329,15 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try {
+                await cleanup?.();
+              } catch (err) {
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
+                console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
+              }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //
@@ -4617,6 +4696,11 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
+      if (ws.data._voice) {
+        ctx.deviceSockets.delete(ws);
+        ws.data._voice.onClose();
+        return;
+      }
       if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WS_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
@@ -5048,6 +5132,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
@@ -5111,6 +5197,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

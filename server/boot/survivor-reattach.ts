@@ -7,7 +7,7 @@ import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "../providers/native
 import { describeTurnEnd } from "../providers/stop-reason";
 import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { BUSY_SPINNER_PHASES } from "../lib/claude-session-state";
-import { isTranscriptOrphaned } from "../lib/claude-transcript-path";
+import { findClaudeTranscript, isTranscriptOrphaned } from "../lib/claude-transcript-path";
 import { keepLiveTranscripts, restoreSweptTranscript } from "../lib/transcript-keeper";
 import { pendingForkSessions } from "../lib/chat-fork-store";
 import { postBackgroundNotice } from "../lib/background-notice";
@@ -329,6 +329,8 @@ export function createSurvivorReattach(d: {
           nowMs: now,
           graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
           transcriptExists: existsSync,
+          // Moved, not gone: `--resume` finds it by id from any folder.
+          findAnywhere: (id) => findClaudeTranscript(cwd ?? "/", id),
         })
       )
         continue;

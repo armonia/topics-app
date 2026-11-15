@@ -7,6 +7,8 @@ import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { takeTurnEnd, peekTurnEnd } from "../providers/turn-end-registry";
 import { raceReadAgainstTurnEnd } from "../providers/race-read-turn-end";
 import { awaitsForegroundChild } from "../lib/subagent-runtime";
+import { foregroundToolHold } from "../lib/stale-stream-sweep";
+import { flushTurnBody } from "../lib/turn-body-flush";
 import { isSseCommentOnly } from "../lib/sse-ping";
 import { isHumanHold } from "../lib/human-hold";
 import { armStallDetector } from "../lib/stall-detector";
@@ -141,6 +143,14 @@ export function createHeadlessTurns(d: {
       isWaitingForBackground: stallBackgroundHold(sessionKey),
       // A foreground spawn_agent waiting for its child: our own wait as well.
       isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
+      // A foreground command (cargo test, a mutation run) is still executing: the
+      // transcript tail is silent for all of it and the judge would misread it.
+      isToolRunning: () => {
+        const stream = ctx.activeStreams.get(sessionKey);
+        // The row is written on a throttle: flush so the running tool's line is on it.
+        if (stream) flushTurnBody(sessionKey);
+        return !!stream && foregroundToolHold(ctx.getMessageById(stream.messageId), Date.now());
+      },
       getTail: () => stallTranscriptTail(sessionKey),
       judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
       // Once per change of reason: a hold lasting an hour rearmed every five
@@ -157,6 +167,8 @@ export function createHeadlessTurns(d: {
               ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
             : reason === "subagent"
               ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
+            : reason === "tool"
+              ? `[turn] stall watch rearmed on ${sessionKey}: a tool call is still running, the judge is not asked`
             : reason === "checks"
               ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
               : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
