@@ -243,3 +243,24 @@ export function decide(
 export function levelFor(raw: string | null | undefined): AutonomyLevel {
   return raw === "ask" || raw === "auto-apply" || raw === "yolo" ? raw : DEFAULT_AUTONOMY;
 }
+
+/**
+ * The turn now owns what a SUCCESSFUL tool call just made, so a later `rm` on
+ * that path is cleanup of its own work (RT-07). Called by the loop after each
+ * non-error result; a failed write or `mkdir` created nothing to own.
+ */
+export function recordTurnCreatedPaths(
+  created: Set<string>,
+  tool: string,
+  input: Record<string, unknown>,
+  workspace: string,
+): void {
+  if (tool === "write_file" || tool === "edit_file") {
+    const raw = String(input.path ?? "");
+    if (raw) created.add(isAbsolute(raw) ? resolve(raw) : resolve(workspace, raw));
+  } else if (tool === "bash") {
+    const cwd = input.cwd ? String(input.cwd) : workspace;
+    const abs = isAbsolute(cwd) ? resolve(cwd) : resolve(workspace, cwd);
+    for (const p of pathsCreatedBy(String(input.command ?? ""), abs)) created.add(p);
+  }
+}
