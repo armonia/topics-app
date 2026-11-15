@@ -70,7 +70,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
+import { endReattachLeg, finalizeStaleRowWhenFree } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
@@ -5605,7 +5605,7 @@ function runStaleStreamPass(): void {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: (args) => finalizeStaleRow(db, args),
+    finalizeMessage: (args) => finalizeStaleRowWhenFree(db, args),
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),

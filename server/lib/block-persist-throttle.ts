@@ -49,6 +49,7 @@
  */
 
 import { onBeforeDatabaseClose } from "../db";
+import { isSqliteBusy } from "./sqlite-busy";
 
 /**
  * Growth factor that earns an immediate write.
@@ -86,12 +87,6 @@ export interface BlockPersistThrottle {
 export interface BlockPersistThrottleOptions {
   /** Does the actual persistence. Called synchronously by `persist`/`flush`, or from the timer. */
   write: () => void;
-}
-
-/** SQLITE_BUSY and its extended codes: the write lock was not obtained within busy_timeout. */
-function isLockTimeout(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === "string" && code.startsWith("SQLITE_BUSY");
 }
 
 export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): BlockPersistThrottle {
@@ -140,7 +135,7 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
         // past busy_timeout (seen with a WAL replicator checkpointing on a
         // machine at load 200). The deferred write serializes the live array,
         // so trying again later loses nothing.
-        if (!isLockTimeout(err)) throw err;
+        if (!isSqliteBusy(err)) throw err;
         stats.busyRetries++;
         console.warn(`[block-persist] row locked by another writer, write retried later (${stats.busyRetries} so far)`);
         schedule();

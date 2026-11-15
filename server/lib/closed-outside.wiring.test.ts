@@ -46,8 +46,8 @@ describe("server.ts closes and relights turn rows only through the helpers", () 
     expect(end, "endReattachLeg is not on the leg's own chain").toBeLessThan(body.indexOf("continue;", leg));
   });
 
-  test("the stale-stream sweeper closes a row through finalizeStaleRow", () => {
-    expect(block("function runStaleStreamPass(): void {", "\n}\n")).toContain("finalizeMessage: (args) => finalizeStaleRow(db, args)");
+  test("the stale-stream sweeper closes a row through finalizeStaleRowWhenFree (busy = retried)", () => {
+    expect(block("function runStaleStreamPass(): void {", "\n}\n")).toContain("finalizeMessage: (args) => finalizeStaleRowWhenFree(db, args)");
   });
 
   test("the orphan-tool cleanup runs after the boot's partial sweep, with the broker's live sessions", () => {

@@ -1116,6 +1116,7 @@ function boardLanguage(settings: { language?: string } | null | undefined): Outp
 }
 
 import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
+import { warnIfBusy } from "../lib/sqlite-busy";
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
@@ -4543,13 +4544,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { emit(deps.svc.get(taskId)?.task ?? cur); } catch { /* best-effort */ }
         if (reopened) {
           // Deferred a tick: the caller's finally still holds the inFlight slot.
-          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
+          setTimeout(() => { void resumeInBackground(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
           return;
         }
         // Delivery intact: fall through to the review handling below (chip,
         // preview). The card stays where the agent put it.
       } else if (cur.status === "in_progress") {
-        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
+        setTimeout(() => { void resumeInBackground(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
         return;
       }
       // No turn to resume: the card went back to the queue (a declared wait, a
@@ -4683,7 +4684,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
-            void resume(taskId, "", { continuation: true });
+            void resumeInBackground(taskId, "", { continuation: true });
           }, waitMs);
           retryWaits.set(taskId, retryTimer);
           broadcastRetryWait(bumped, { at: Date.now() + waitMs, attempt: bumped.dispatchAttempts, cap, free, end });
@@ -4999,6 +5000,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       : null;
   }
 
+  /**
+   * `resume` from a timer or a poll, where nobody awaits it. Its writes
+   * (`setDispatchState` first) run inside a try/finally with no catch, so a
+   * busy database became an unhandled rejection and the server exited. A busy
+   * refusal now skips this pass with a warning: `finally` has freed the run,
+   * so the card is in progress with no live turn, which is exactly what the
+   * next reconcile poll resumes. Any other error stays the rejection it was.
+   */
+  function resumeInBackground(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
+    return resume(taskId, humanMessage, opts).catch(warnIfBusy(`resume of task ${taskId}`, (msg, err) => log(msg, err)));
+  }
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -5167,7 +5180,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // guardare in mezzo e vedere l'attesa sparita.
       const timer = setTimeout(() => {
         slotWaits.delete(taskId);
-        void resume(taskId, humanMessage, opts);
+        void resumeInBackground(taskId, humanMessage, opts);
       }, delay);
       slotWaits.set(taskId, { timer, message: humanMessage, commentIds: opts?.commentIds });
       return;
@@ -6831,8 +6844,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // must not remain attached to a dead run.
           clearNoCheckReservation(t.id);
           // Sets inFlight synchronously → the 10s poll can never double-fire.
-          if (rejection) void resume(t.id, rejection.text, { commentIds: rejection.commentIds });
-          else void resume(t.id, "", { continuation: true });
+          if (rejection) void resumeInBackground(t.id, rejection.text, { commentIds: rejection.commentIds });
+          else void resumeInBackground(t.id, "", { continuation: true });
           // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
           // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
           // already say which one it was. Counting the call wrote «riprese» for
