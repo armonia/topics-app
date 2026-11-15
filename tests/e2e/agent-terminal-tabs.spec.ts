@@ -66,10 +66,10 @@ test.beforeEach(async ({ request }) => {
   sessionKey = topics[topicId]?.sessionKey ?? "";
   if (!sessionKey) throw new Error(`topic ${topicId} has no sessionKey`);
 
-  // `/tmp` is no project Topics knows: the child runs on the CLI, in a PTY.
+  // A PTY child: the CLI starts only when asked (15/11).
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/spawn`, {
     headers: daemonAuthHeaders(),
-    data: { prompt: "wait for instructions", name: AGENT_NAME, cwd: "/tmp" },
+    data: { prompt: "wait for instructions", name: AGENT_NAME, cwd: "/tmp", runtime: "claude-code" },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);
   agentId = ((await spawned.json()) as { agentId: string }).agentId;

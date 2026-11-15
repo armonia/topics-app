@@ -14,7 +14,7 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
-import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
+import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
 import { boardSpawnRefusal } from "../services/agent-census";
@@ -704,7 +704,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // subagent-nativi: the engine, unless the call asks for the CLI or the engine cannot take it.
+        // subagent-nativi: the engine, and the CLI only when the call asks for it.
         const choice = childRuntimeFor(body.runtime, () => isolation === "worktree"
           ? { ok: true, projectPath: null, worktreeId: null } // decided once the worktree exists
           : nativeChildPlace({
@@ -715,7 +715,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }));
         if (!choice.ok) return errorResponse(choice.status, choice.error);
         let nativePlace = choice.runtime === "topics" ? choice.place : null;
-        const runtimeNote = choice.runtime === "claude-code" ? choice.note : null;
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -756,7 +755,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           try {
             if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
             const child = spawnNativeChild({
-              id, parentSessionKey: parentKey, name, prompt, cwd,
+              id, parentSessionKey: parentKey, name, cwd,
+              prompt: nativePlace.outsideCwd ? outsideCwdPreamble(nativePlace.outsideCwd) + prompt : prompt,
               parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
               ...engine, effort: launch.effort, agentType: launch.agent,
               promptSnippet: normalizePromptSnippet(prompt),
@@ -791,7 +791,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             promptSnippet: session.spawnPromptSnippet, cwd: session.cwd, branch,
             claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
             // Only a CLI the call asked for stays on the CLI when resumed.
-            runtimeReason: body.runtime === "claude-code" ? "asked" : runtimeNote ? "fallback" : "default",
+            runtimeReason: "asked",
           });
           noteChildSeeded(id);
           if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
@@ -807,7 +807,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           scheduleClaudeSubAgentIdCapture(id);
           return json({
             agentId: id, name: session.name, cwd: session.cwd, branch,
-            runtime: "claude-code", ...(runtimeNote ? { runtimeNote } : {}),
+            runtime: "claude-code",
             model: launch.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
             agentType: launch.agent, effort: launch.effort,
             // How the parent hears of the result: a chat is woken, a terminal reads.

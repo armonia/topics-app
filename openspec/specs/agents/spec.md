@@ -695,9 +695,14 @@ Spawning SHALL be refused (429) past any of these limits:
 - depth 2: a child may spawn, a grandchild may not (choice 3 of
   `subagent-nativi`);
 - 5 live children per parent;
-- 6 live sub-agents across the machine.
+- across the machine, no fixed number: a child SHALL be refused only when the
+  dispatcher's admission, priced for one sub-agent, holds it on memory (the
+  RAM/disk floor or the free-memory quota). The CPU axis SHALL NOT hold a
+  child. Changed on 15/11 (Attilio: «rimuoverlo e farlo dinamico»): the fixed 6
+  dated from CLI children of ~300 MB, and six native children of 40-60 MB were
+  refusing every spawn with 22 GB free.
 
-All three SHALL be counted from the persisted sub-agent rows joined with the
+The first two SHALL be counted from the persisted sub-agent rows joined with the
 live PTYs, so a restart does not reset them. The depth walk SHALL cross native
 children through the session key of their chat. A retired child counts toward
 none of them; a native child holds a slot only while its turn runs.
@@ -706,8 +711,7 @@ A child at the depth cap on the engine SHALL NOT be offered the five
 sub-agent tools (`spawn_agent`, `send_to_agent`, `read_agent`, `list_agents`,
 `stop_agent`), and SHALL be refused them at execution too.
 
-The machine-wide refusal SHALL name the parent and the name of each child
-holding a slot. The board refusals (`boardSpawnRefusal`) SHALL keep running
+The memory refusal SHALL say which memory clause held and with what numbers. The board refusals (`boardSpawnRefusal`) SHALL keep running
 first and unchanged.
 
 Dove cambiarla: scelta 3 di `subagent-nativi` (profondità 2 contro 1); scelta 4
@@ -796,11 +800,13 @@ Its prompt SHALL be the chat's first message, sent through the chat route of
 the server itself; no process and no PTY SHALL be started for it. Its row in
 `subagents` SHALL carry `runtime = 'topics'` and the chat's session key.
 
-The engine SHALL be skipped, and the child started as a CLI, when the engine
-is not connected, or when the child would have no project Topics knows (a
-`cwd` that is not a known project, a terminal parent outside one). The answer
-SHALL then carry `runtime: "claude-code"` and the reason; a call that asked for
-`runtime: "topics"` SHALL instead be refused (503 or 400) with that reason.
+The CLI SHALL start only when the call asks for `runtime: "claude-code"`.
+A `cwd` that is not a project Topics knows SHALL NOT become the child's project:
+the child SHALL stand in the parent's project and receive the folder as the
+first line of its prompt, to reach with absolute paths. With no parent project
+to stand in, or with the engine not connected, the call SHALL be refused (400
+or 503) with the reason and the hint to pass `runtime: "claude-code"`. Changed
+on 15/11: 58 children in two weeks had started a CLI nobody asked for.
 
 With `runtime: "claude-code"` the child SHALL be the interactive CLI of
 SUBAGENT-01..17, unchanged.

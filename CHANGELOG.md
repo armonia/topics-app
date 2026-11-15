@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.7 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)
+
 ## 2.4.6 — 2026-11-15
 
 ### Sotto il cofano
