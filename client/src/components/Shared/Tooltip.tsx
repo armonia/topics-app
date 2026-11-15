@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } f
 import { createPortal } from 'react-dom';
 import { useExitGhost } from '../../lib/exitGhost';
 import { toFixed } from '../../lib/fixedFrame';
+import { lastPointerWasTouch } from '../../lib/lastPointer';
 
 /**
  * IL TOOLTIP DELL'APP. Nessun `title=` nativo dove l'informazione conta.
@@ -53,7 +54,8 @@ export function Tooltip({ content, children, side = 'bottom', disabled = false }
 
   const stopTimer = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
   const apri = () => {
-    if (disabled || !content) return;
+    // No tooltip from a finger: see lib/lastPointer.
+    if (disabled || !content || lastPointerWasTouch()) return;
     stopTimer();
     timer.current = setTimeout(() => {
       // La posizione si azzera QUI, nel gestore, non nell'effetto: e' un

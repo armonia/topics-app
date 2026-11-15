@@ -6,6 +6,9 @@
  * @covers LAND-05, LAND-17
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { PersonPath } from "../../shared/workflow";
 import {
   autoLandVerdict, classifyDelivery, createAutoLander, mayLandAloneByPlace, personPlace, sameCommit, touchesServer,
   type AutoLandBoard, type AutoLandCard, type AutoLandComment,
@@ -141,8 +144,8 @@ describe("mayLandAloneByPlace / classifyDelivery: technical code lands alone, a 
   });
 
   test.each([
-    // What a person sees.
-    ["client/src/App.tsx", "interface"], ["landing/index.html", "public site"], ["README.md", "public text"], ["LICENSE", "public text"],
+    // What a person sees, in any repository.
+    ["client/src/App.tsx", "interface"], ["landing/index.html", "interface"], ["web/styles/site.css", "interface"], ["README.md", "public text"], ["LICENSE", "public text"],
     // What reaches a person or a third party.
     ["server/push-triggers.ts", "reaches a person"], ["server/presence.ts", "reaches a person"], ["server/services/discord-presence.ts", "reaches a person"],
     ["server/routes/notifications.ts", "reaches a person"], ["server/routes/agent-channels.ts", "reaches a person"], ["server/routes/voice.ts", "reaches a person"],
@@ -150,26 +153,42 @@ describe("mayLandAloneByPlace / classifyDelivery: technical code lands alone, a 
     ["server/lib/authGate.ts", "security or money"], ["server/lib/agent-env.ts", "security or money"], ["server/lib/child-env.ts", "security or money"],
     ["server/lib/session-token.ts", "security or money"], ["server/lib/stripe.ts", "security or money"], ["server/usage/pricing.ts", "security or money"],
     ["server/services/relay-client.ts", "security or money"], ["server/lib/licenza.ts", "security or money"],
-    // Dependencies and the runner.
+    // Dependencies and the runner, whatever the language.
     ["package.json", "dependencies or runner"], ["bun.lock", "dependencies or runner"], ["bunfig.toml", "dependencies or runner"],
-    // The judge: CI, its scripts, the preload, test helpers, baselines, snapshots, the gates and the labels.
-    ["scripts/check-security.ts", "the judge"], ["scripts/check-eol.test.ts", "the judge"], [".github/workflows/ci.yml", "the judge"],
-    ["tests/setup/bun-test-preload.ts", "the judge"], ["tests/setup/anything.test.ts", "the judge"], ["tests/e2e/global-setup.ts", "the judge"],
-    ["tests/helpers/time-slack.ts", "the judge"], ["tests/fixtures/repo.ts", "the judge"], ["tests/unit/data.json", "the judge"],
-    ["docs/schema.json", "the judge"], ["tests/unit/__snapshots__/x.snap", "the judge"], ["tests/e2e/board.spec.ts-snapshots/a.png", "the judge"],
+    ["desktop-tauri/src-tauri/Cargo.toml", "dependencies or runner"], ["api/go.mod", "dependencies or runner"], ["requirements-dev.txt", "dependencies or runner"],
+    // The judge: the CI and the snapshots.
+    [".github/workflows/ci.yml", "the judge"], [".github/scripts/x.test.ts", "the judge"], [".gitlab-ci.yml", "the judge"],
+    ["tests/unit/__snapshots__/x.snap", "the judge"], ["tests/e2e/board.spec.ts-snapshots/a.png", "the judge"],
+    // Words on any segment of the path.
+    ["server/providers/claude-cloud/creds.ts", "security or money"], ["server/lib/permission-bridge.ts", "security or money"],
+  ])("%s is a person's on any board (%s)", (f, why) => {
+    expect(personPlace(f)).toBe(why);
+    expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
+  });
+
+  // THIS repository's own paths come from its board's workflow rules, not from the code.
+  const TOPICS = (JSON.parse(readFileSync(join(import.meta.dir, "../../docs/board-workflow-rules.json"), "utf8")) as { personPaths: PersonPath[] }).personPaths;
+  test.each([
+    ["client/src/lib/board.ts", "interface"], ["landing/vite.config.ts", "public site"],
+    ["scripts/check-security.ts", "the judge"], ["tests/setup/bun-test-preload.ts", "the judge"], ["tests/e2e/global-setup.ts", "the judge"],
+    ["tests/helpers/time-slack.ts", "the judge"], ["tests/fixtures/repo.ts", "the judge"], ["tests/unit/data.json", "the judge"], ["docs/schema.json", "the judge"],
     ["server/services/auto-land.ts", "the judge"], ["server/services/red-bounce.ts", "the judge"], ["server/services/review-checks.ts", "the judge"],
     ["shared/task-labels.ts", "the judge"], ["shared/workflow.ts", "the judge"], ["shared/board.ts", "the judge"], ["server.ts", "the judge"],
     ["server/routes/tasks.ts", "the judge"], ["server/routes/tasks-ci-phase.ts", "the judge"], ["server/services/integration-measure.ts", "the judge"],
     ["server/services/landing-files.ts", "the judge"], ["server/services/task-automerge.ts", "the judge"], ["server/services/node-delivery-meter.ts", "the judge"],
-    ["server/services/land-attribution-gate.ts", "the judge"], ["server/services/ci-supersede.ts", "the judge"],
-    // A release or the infrastructure: a green main ships the shell by itself.
-    ["desktop-tauri/src-tauri/src/lib.rs", "release or infrastructure"], ["desktop-tauri/src-tauri/Cargo.toml", "release or infrastructure"],
-    ["relay/src/worker.ts", "release or infrastructure"], ["deploy/cloud-node/user-data.sh.tmpl", "release or infrastructure"],
-    // Words on any segment of the path.
-    ["server/providers/claude-cloud/creds.ts", "security or money"], ["server/lib/permission-bridge.ts", "security or money"],
-  ])("%s is a person's (%s)", (f, why) => {
-    expect(personPlace(f)).toBe(why);
-    expect(classifyDelivery([f])).toEqual({ tier: "person", files: [f] });
+    ["server/services/land-attribution-gate.ts", "the judge"], ["server/services/ci-supersede.ts", "the judge"], ["server/services/board-workflow.ts", "the judge"],
+    ["desktop-tauri/src-tauri/src/lib.rs", "release or infrastructure"], ["native/src/lib.rs", "release or infrastructure"],
+    ["deploy/cloud-node/user-data.sh.tmpl", "release or infrastructure"],
+  ])("%s is a person's on the topics-app board (%s), and nowhere else", (f, why) => {
+    expect(personPlace(f, TOPICS)).toBe(why);
+    expect(personPlace(f)).toBeNull();
+    expect(classifyDelivery([f], new Set(), TOPICS)).toEqual({ tier: "person", files: [f] });
+  });
+
+  test("a test is a test even under a board's path: only the CI's own folder holds its tests", () => {
+    for (const f of ["client/src/state/board.test.tsx", "tests/e2e/board.spec.ts", "scripts/check-eol.test.ts"]) {
+      expect(personPlace(f, TOPICS)).toBeNull();
+    }
   });
 
   test("a test file or a document that the bar's configuration NAMES is the judge, not a test", () => {
@@ -198,6 +217,8 @@ describe("createAutoLander", () => {
       cardLive: false, turns: 0, fileReads: 0, turnAsks: [] as Array<{ insideLand?: boolean } | undefined>,
       /** What the bar's configuration names, per ask. */
       named: [] as string[] | null, namedAsks: 0,
+      /** The board's own paths (its workflow rules); `null` = they cannot be read. */
+      boardPaths: [] as PersonPath[] | null,
       /** The commit each path read was asked about. */
       fileCommits: [] as string[],
       precheck: null as null | ((commit: string | null) => Promise<string | null>),
@@ -211,6 +232,7 @@ describe("createAutoLander", () => {
       referenced: async () => { state.namedAsks += 1; return state.named; },
       liveTurns: async (how) => { state.turnAsks.push(how); return state.turns; },
       cardTurnLive: () => state.cardLive,
+      personPaths: () => { if (state.boardPaths === null) throw new Error("unreadable"); return state.boardPaths; },
       pollMs: 5,
     });
     return { state, lander };
@@ -224,6 +246,17 @@ describe("createAutoLander", () => {
     const { state, lander } = base({ files: ["server/push-triggers.ts"] });
     expect(await lander.tryLand("p1", "t1")).toBe("refused");
     expect(state.lands).toBe(0);
+  });
+
+  test("a path the BOARD names is a person's on that board: refused; paths that cannot be read refuse too", async () => {
+    const { state, lander } = base({ files: ["server/lib/git-numstat.ts"] });
+    state.boardPaths = [{ pattern: "server/lib/**", why: "this board" }];
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    state.boardPaths = null;
+    expect(await lander.tryLand("p1", "t1")).toBe("refused");
+    expect(state.lands).toBe(0);
+    state.boardPaths = [];
+    expect(await lander.tryLand("p1", "t1")).toBe("queued");
   });
 
   test("files that cannot be read refuse the land", async () => {

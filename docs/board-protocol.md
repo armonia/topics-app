@@ -258,16 +258,17 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
-   **Su questo Mac nessuna clip nasce da un browser** (dal 15/09/2026: niente
-   Chromium qui). Una tab del task che nessuna finestra mostra gira in un browser
+   **Niente browser aperto a mano per filmare o fotografare.** Una tab del task che nessuna finestra mostra gira in un browser
    headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
    `screencapture -R` filmerebbe lo schermo di chi lavora, non quella pagina.
    `PREVIEW_RULE` ammette `screencapture -V <secondi> -R <x,y,w,h> <file>.mov` solo
    su una superficie GIA' a schermo, e per una pane browser solo dopo
-   `browser_focus_tab`; altrimenti la prova del comportamento e' la sua spec e2e,
-   nominata nel commento di consegna, con uno screenshot o un diagramma come
-   anteprima. La clip qui sotto resta per il PC Windows e la CI, e l'envelope non
-   la nomina.
+   `browser_focus_tab`. Screenshot e video si producono dalla spec e2e del
+   progetto: `page.screenshot` a piu' larghezze, `test.use({ video: 'on' })`,
+   eseguita col comando e2e del progetto; se una guardia della macchina la ferma,
+   si segue cio' che stampa. Per card che chiedono piu' larghezze o un confronto
+   affiancato la prova sono le immagini della spec, allegate con
+   `comment_task media`. La spec va nominata nel commento di consegna.
 
    **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
    `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo
@@ -493,22 +494,29 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
     `intent-classifier`).
      **Dal 14/11/2026 la regola è rovesciata** (regola di Attilio del 09/11: le
      card tecniche si chiudono da sole). `personPlace` in `auto-land.ts`:
-     1. **A una persona** resta solo ciò che una persona sola può giudicare:
-        l'interfaccia (`client/src/**` tranne i test), il sito pubblico
-        (`landing/**`), README e licenze; ciò che raggiunge persone (push,
+     1. **A una persona** resta solo ciò che una persona sola può giudicare, in
+        due parti. La parte GENERICA, uguale per ogni board, sta nel codice
+        (`GENERIC_PERSON_PLACES`): file di interfaccia per tipo (`.tsx`, `.vue`,
+        `.css`, `.html`…), README e licenze; ciò che raggiunge persone (push,
         presence, notifiche, mail, canali, voce, condivisioni, ospiti); sicurezza e
         soldi (auth, token, segreti, l'ambiente degli agenti, relay, licenze,
-        billing, prezzi); dipendenze e runner (`package.json`, lockfile,
-        `bunfig.toml`); il GIUDICE (`scripts/**`, `.github/**`, `tests/**` che non
-        sono file di test, ogni `*.json`, gli snapshot, i cancelli dei check,
-        `auto-land.ts`, `red-bounce.ts`, `integration-queue.ts`, le etichette e i
-        workflow) e qualunque file che `bunfig.toml`, `scripts/`, `package.json` o
-        `.github/` NOMINANO (`referencedByTheJudge`).
+        billing, prezzi); dipendenze e runner di ogni linguaggio (`package.json`,
+        lockfile, `Cargo.toml`, `go.mod`…); il GIUDICE (`.github/**` e le altre CI,
+        gli snapshot) e qualunque file che `bunfig.toml`, `scripts/`, `package.json`
+        o `.github/` NOMINANO (`referencedByTheJudge`). La parte DEL REPO sta nelle
+        **regole del workflow della board** (`board_workflow_rules`, pannello
+        impostazioni → Workflow → «Da far guardare a te», `PUT
+        /api/boards/:id/workflow { personPaths }`): un glob per riga col perché.
+        Quella di topics-app è `docs/board-workflow-rules.json` (interfaccia
+        `client/src/**`, sito, release, `scripts/**`, `tests/**`, ogni `*.json` e i
+        file del proprio giudice). Un file di test non conta mai, tranne dentro la
+        cartella della CI.
      2. **Da sola** tutto il resto, `server/**`, `shared/**`, `server.ts`,
         `desktop-tauri/**` e le migration comprese (il DB vivo è copiato ogni 10 s
         da Litestream): con la barra verde sul commit consegnato entra nella
         **fase CI** (sotto) e atterra quando la CI del commit di integrazione è verde.
-     **Fase CI** (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
+     **Fase CI** (si spegne dalle regole del workflow: `ciPhase: false`)
+     (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
      «Ti aspetta»). Ogni land chiesto (Approva o «Landa» di una persona su una card
      col ramo non ancora su main, l'atterraggio automatico) mette la card in una
      coda per progetto con `tasks.land_intent` = chi l'ha deciso. La coda aspetta

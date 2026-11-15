@@ -37,6 +37,8 @@ export interface RedBounceCard {
   deliveryCommit: string | null;
   /** A card that asks a person something is that person's, red or not. */
   humanAsk?: string | null;
+  /** The first failing check's name: `realign` (main did not merge into the branch) is stamped with no commit. */
+  failedCheck?: string | null;
 }
 
 export interface RedBounceComment {
@@ -75,7 +77,9 @@ export function redBounceVerdict(
   if (card.archived) return no("archived");
   if (card.status !== "review") return no("not in review");
   if (card.checksState !== "fail") return no("checks are not red");
-  if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the red is about another commit");
+  // A realign that conflicts stops before any command runs and records no commit: it is about the delivered branch.
+  const realignRed = card.failedCheck === "realign" && !card.checksCommit;
+  if (!realignRed && !sameCommit(card.checksCommit, card.deliveryCommit)) return no("the red is about another commit");
   if (opts.turnLive) return no("an agent turn is open on the card");
   if ((card.humanAsk ?? "").trim()) return no("the card asks a person something");
   const done = bouncesSinceHuman(comments);

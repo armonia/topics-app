@@ -23,6 +23,7 @@ import CONSUMPTION_IT from '../../lib/i18n-consumption-it';
 import CONSUMPTION_EN from '../../lib/i18n-consumption-en';
 import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { STATUS_CHIP, STATUS_ICON } from '../../lib/statusVisual';
 import { boardApi } from '../../lib/board';
 import { chatApi } from '../../lib/api';
 import { formatMem } from '../../lib/machineProcesses';
@@ -87,7 +88,7 @@ export function SessionRowView({ session: s, now, variant, windowS, machineLabel
         <div className="flex min-w-0 items-center gap-2 px-2.5 pt-2">
           {s.kind === 'card' ? <StatusIcon status="in_progress" /> : <Zap size={14} className="flex-none text-app-text-secondary" aria-hidden="true" />}
           <span className="min-w-0 flex-1 truncate text-body-lg font-semibold text-app-text" data-testid="session-title">{s.title}</span>
-          {s.awaiting && <span className="flex-none rounded bg-rose-500/15 px-1.5 py-0.5 text-mini font-medium text-rose-800 dark:text-rose-300" data-testid="session-awaiting">{tr('board.card.awaitingYou')}</span>}
+          {s.awaiting && <span className={`flex flex-none items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium ${STATUS_CHIP.wait}`} data-testid="session-awaiting"><STATUS_ICON.wait size={11} aria-hidden="true" />{tr('board.card.awaitingYou')}</span>}
           {elapsed !== null && <span className="flex-none text-title font-semibold tabular-nums text-app-text-heading" data-testid="session-clock" title={tr('consumption.time')}>{elapsed}</span>}
         </div>
       )}

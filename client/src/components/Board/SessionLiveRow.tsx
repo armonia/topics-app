@@ -14,7 +14,7 @@
  * and the button that jumped to the other pane has nowhere left to jump.
  */
 import { useEffect, useState } from 'react';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { StatusIcon } from './atoms';
 import { TurnLoader } from '../Chat/TurnLoader';
 import { useT } from '../../hooks/useT';
 import { fmtLive } from './format';
@@ -43,7 +43,7 @@ export function SessionLiveRow({ phase, since, tool }: {
   return (
     <TurnLoader
       testId="task-session-live"
-      icon={<SparkLoader className="shrink-0" state="working" />}
+      icon={<StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />}
       phrase={phase}
       phraseClassName="turn-activity-phrase font-medium"
       tool={tool}

@@ -77,7 +77,7 @@ describe('il chip dei checks distingue rosso da non-misurato', () => {
     // riusare `rose` avrebbe rimesso in piedi il difetto lasciando i test verdi.
     expect(src).toContain('data-testid="card-checks-unknown"');
     const chip = src.slice(src.indexOf('data-testid="card-checks-unknown"'));
-    expect(chip.slice(0, 400)).toContain('amber');
+    expect(chip.slice(0, 400)).toContain('STATUS_CHIP.wait');
     expect(chip.slice(0, 400)).not.toContain('rose');
   });
 
@@ -199,9 +199,10 @@ describe('la misura del turno sulla card', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
     expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} />');
     expect(live).toContain('data-testid="card-measure"');
-    // The live dot is main's SparkLoader now, not a sky pulse dot.
-    expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
-    expect(live).toContain('<SparkLoader className="shrink-0" />');
+    // The live mark is the card status glyph (spinning half pie), not the four-dot spinner.
+    expect(live).toContain("import { StatusIcon } from './atoms';");
+    expect(live).toContain('<StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />');
+    expect(live).not.toContain('SparkLoader');
     expect(live).not.toContain('animate-pulse rounded-full bg-sky-400');
     expect(live).not.toContain('bg-sky-500/15');
   });

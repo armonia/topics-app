@@ -20,7 +20,7 @@
  * numero due sullo stesso fatto.
  */
 import { auditLandings, classifyLandingEsito, type AuditTask, type LandingState } from "./landing-audit";
-import { branchExistsInRepo, commitStatusFromRepo, publishedMainRef } from "./branch-status";
+import { branchExistsInRepo, commitIsAncestor, commitStatusFromRepo, publishedMainRef } from "./branch-status";
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain } from "./landing-verdict";
 import { landedMergeRange } from "./task-diff-range";
 import { changeUndoneOn } from "./change-undone";
@@ -104,6 +104,7 @@ function landingAuditDeps(deps: AuditWiring, listCandidates: () => AuditTask[], 
       if ((await mainRefOf(repoPath)) === "main" || !task.deliveryCommit) return false;
       return (await commitStatusFromRepo(repoPath, task.deliveryCommit, "main")) === "merged";
     },
+    onMain: async (repoPath: string, commit: string) => commitIsAncestor(repoPath, commit, await mainRefOf(repoPath)),
     // La seconda domanda, solo su chi la prima ha già dato per fuori: è lo
     // STESSO conto di `report:landed`, che è il modo in cui la misura a mano e la
     // pastiglia sulla card non possono più dire due cose diverse.

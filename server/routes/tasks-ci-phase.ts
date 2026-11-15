@@ -10,10 +10,11 @@ import { isCiEvidenceCheck } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
-import { awaitCiEvidence, closeCiDraft } from "../services/ci-evidence";
+import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
 import { personPlace } from "../services/auto-land";
+import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
 import { formatChecksComment } from "../services/review-checks";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -27,6 +28,11 @@ export interface CiPhaseDeps {
   cardTurnIsLive(task: Task): boolean;
   /** The land queue's own door: merge, confirm on main, close. */
   landDirect(projectId: string, taskId: string): unknown;
+  /**
+   * "Asked, not on main yet": the same stamp the direct land writes before it queues. Entering the CI
+   * phase is a land asked, not a land done, and a `landed` left over from a deduction must not survive it.
+   */
+  markLandPending?: (taskId: string) => void;
   whenLanded(taskId: string): Promise<unknown> | null;
   tryAutoLand(projectId: string, taskId: string): Promise<unknown>;
   integrationRepo?: (taskId: string) => Promise<string | null>;
@@ -37,6 +43,17 @@ export interface CiPhaseDeps {
 }
 
 type LandRunOpts = { recheck?: unknown };
+
+/**
+ * Is this card's work ON MAIN, as far as closing it goes? Only a `landed` a land WITNESSED (it saw the
+ * merge on main) counts. A deduced `landed` (the audit's guess, `landing_witnessed = 0`) is not a merge:
+ * card 572f8a09 carried one, and every "already on main" that trusted it was wrong (c2908b93).
+ */
+export function landedOnMain(db: CiPhaseDeps["db"], task: Pick<Task, "id" | "landingState">): boolean {
+  if (task.landingState !== "landed") return false;
+  const row = db.query("SELECT landing_witnessed AS w FROM tasks WHERE id = ?").get(task.id) as { w?: number | null } | null;
+  return row?.w === 1;
+}
 
 export function createCiPhase(deps: CiPhaseDeps) {
   /**
@@ -52,7 +69,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const t = got.task;
     const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
     const verdict = redBounceVerdict(
-      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null, humanAsk: t.humanAsk ?? null },
+      { status: t.status, archived: !!row?.archived, checksState: t.checksState ?? null, checksCommit: t.checksCommit ?? null, deliveryCommit: t.deliveryCommit ?? null, humanAsk: t.humanAsk ?? null, failedCheck: t.checks?.find((r) => !r.ok)?.name ?? null },
       got.comments,
       { turnLive: deps.cardTurnIsLive(t) },
     );
@@ -106,6 +123,8 @@ export function createCiPhase(deps: CiPhaseDeps) {
   function boardHasCiPhase(projectId: string): boolean {
     if (!deps.integrationRepo && !deps.integrationMeasure) return false;
     try {
+      // The board's workflow can turn the phase off; on by default.
+      if (!readWorkflowRules(deps.db, projectId).ciPhase) return false;
       const s = deps.svc.getBoardSettings(projectId);
       return s.dispatchAutoMerge && s.reviewChecks.some(isCiEvidenceCheck);
     } catch { return false; }
@@ -122,10 +141,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const cur = deps.svc.get(taskId, { projectId })?.task;
     // A card with no code of its own (an analysis) has nothing to measure: it closes as before.
     if (!cur || cur.status !== "review" || !cur.deliveryBranch || !cur.deliveryCommit) return false;
+    // Code already on main has nothing left to integrate: measuring it again pays a CI run for nothing.
+    // "On main" is a merge a land SAW, never the field alone: the `landed` card 572f8a09 carried here
+    // was a deduction, its work was not on main, and trusting it closed the card outside main (c2908b93).
+    if (landedOnMain(deps.db, cur)) return false;
     // The automatic land comes with its last look (`recheck`); a person's gesture does not.
     const who = landOpts?.recheck ? "auto" : "human";
     let task: Task;
     try { task = deps.svc.setLandIntent({ taskId, who, inCi: true }); } catch { return false; }
+    // Card 572f8a09 entered the phase carrying a `landed` the audit had deduced from a merge commit, and
+    // everything downstream (the phase, a session closing it as "already on main") read it as a merge.
+    try { deps.markLandPending?.(taskId); } catch { /* the queue is what matters */ }
     const already = integration.pending(projectId).includes(taskId);
     if (!already) {
       try {
@@ -164,6 +190,17 @@ export function createCiPhase(deps: CiPhaseDeps) {
         awaitCi: (input) => awaitCiEvidence(input),
         closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
         describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
+        rerunFailed: async (cwd, sha) => {
+          // The same capped door every other gh call of the board goes through (deadline, process group).
+          const gh = async (args: string[]) => {
+            const r = await spawnCapped(["gh", ...args], cwd);
+            return { code: r.code, out: r.out };
+          };
+          const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
+          const id = list.out.trim();
+          if (list.code !== 0 || !id) return false;
+          return (await gh(["run", "rerun", id, "--failed"])).code === 0;
+        },
       });
     },
     // Landed like a person's «Landa»: the integration commit measured main plus this branch, so the land may
@@ -184,7 +221,11 @@ export function createCiPhase(deps: CiPhaseDeps) {
       if (!after) return;
       if (after.status === "done") { try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* landed is what matters */ } return; }
       // Back with the agent (a conflict the land met): the decision stays, the fix comes back here.
-      if (after.status !== "review" || after.landingState === "landed") return;
+      if (after.status !== "review") return;
+      // Merged and confirmed on main, still in review (open steps): the land's own witness, not a
+      // deduction. A deduced `landed` after a land that merged nothing is exactly what kept card
+      // 572f8a09 in the phase, measured again and again "as already landed" (c2908b93).
+      if (landedOnMain(deps.db, after)) return;
       // Still in review after a green CI: the land refused (dirty checkout, open steps, nothing to land...).
       // Measuring again would pay a CI run for the same refusal, so a person reads why.
       giveUp(projectId, taskId, "il land dopo la CI verde non è andato: leggi l'ultima riga del sistema nel thread");
@@ -209,6 +250,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     stillWanted: (projectId, taskId) => {
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;
+      if (landedOnMain(deps.db, t)) return false;
       if (t.checksState === "fail" || t.checksState === "running" || (t.humanAsk ?? "").trim()) return false;
       if (deps.cardTurnIsLive(t)) return false;
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
@@ -240,6 +282,15 @@ export function createCiPhase(deps: CiPhaseDeps) {
   async function returnToCiPhase(projectId: string, taskId: string): Promise<"ci" | "auto" | "person" | "no"> {
     const t = deps.svc.get(taskId, { projectId })?.task;
     if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return "no";
+    // The decision was "this goes to main", and it is there: the card closes, nothing is measured.
+    if (landedOnMain(deps.db, t)) {
+      try {
+        const done = deps.svc.reviewDecision({ taskId, by: "system", decision: "approve", projectId });
+        deps.svc.setLandIntent({ taskId, who: null });
+        deps.broadcast({ type: "task:updated", projectId, task: deps.svc.get(taskId, { projectId })?.task ?? done });
+      } catch (err) { console.warn(`[integration] ${taskId.slice(0, 8)} già su main ma non chiusa:`, err); }
+      return "person";
+    }
     if ((t.humanAsk ?? "").trim() || t.checksState === "fail" || t.checksState === "running") return "no";
     if (t.landIntent === "auto") return "auto";
     const from = t.landIntentCommit ?? null;
@@ -247,7 +298,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
       // A delivery other than the one approved must be measured green on its own commit first.
       if (t.checksState !== "pass" || t.checksCommit !== t.deliveryCommit) return "no";
       const files = deps.filesBetween ? await deps.filesBetween(taskId, from, t.deliveryCommit).catch(() => null) : [];
-      const touched = files === null ? null : files.filter((f) => personPlace(f) !== null);
+      let extra: ReturnType<typeof readWorkflowRules>["personPaths"] | null = null;
+      try { extra = readWorkflowRules(deps.db, projectId).personPaths; } catch { extra = null; }
+      const touched = files === null || extra === null ? null : files.filter((f) => personPlace(f, extra!) !== null);
       if (touched === null || touched.length > 0) {
         try {
           deps.svc.setLandIntent({ taskId, who: null });

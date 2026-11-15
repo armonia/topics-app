@@ -52,6 +52,7 @@ import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
 import { anthropicMessagesUrl, engineHoldUntil, engineJustGaveUp } from "./base-url";
+import type { createDelegationTracker } from "../../lib/delegation-policy";
 
 const API_VERSION = "2023-06-01";
 
@@ -215,6 +216,13 @@ export interface AgentTurnOptions {
    * user message as the results. Absent = nobody can steer this turn.
    */
   takeSteer?: () => string[];
+  /**
+   * The session's delegation counter (`lib/delegation-policy.ts`), owned by
+   * the CALLER like `calibration` so it spans turns. Fed the tool names and
+   * the prompt size of every round; when it answers, its text joins that
+   * round's results. Absent = no nudge.
+   */
+  delegation?: ReturnType<typeof createDelegationTracker>;
 }
 
 /** Puts `text` at the end of the last message when the person wrote it (the
@@ -1290,11 +1298,16 @@ export async function runAgentTurn(
     if (steered.length > 0) {
       console.log(`[native] steer: session_key=${opts.sessionId ?? "unknown"} round=${i + 1} messages=${steered.length}`);
     }
+    const nudge = opts.delegation?.observe(
+      toolUses.map((t) => (t as { name: string }).name),
+      round.usage.input + round.usage.cacheRead + round.usage.cacheWrite,
+    );
     opts.history.push({
       role: "user",
       content: [
         ...results,
         ...steered.map((text): Block => ({ type: "text", text })),
+        ...(nudge ? [{ type: "text", text: nudge } as Block] : []),
         ...(opts.reminder ? [{ type: "text", text: opts.reminder }] : []),
       ],
     });

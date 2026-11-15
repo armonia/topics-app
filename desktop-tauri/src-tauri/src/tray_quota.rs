@@ -246,6 +246,8 @@ pub(crate) enum Face {
     SansMetrics,
     /// Window tag: monospaced semibold (drawn heavier than the original only by ab_glyph).
     MonoSemibold,
+    /// Body text of the menu cards: the regular system sans.
+    SansRegular,
 }
 
 #[cfg(target_os = "macos")]
@@ -253,7 +255,7 @@ use crate::tray_coretext::{FontSpec, SystemWeight};
 use ab_glyph::{Font as _, FontVec, ScaleFont as _, VariableFont as _};
 
 type Chain = Vec<FontVec>;
-static FONTS: OnceLock<[Chain; 5]> = OnceLock::new();
+static FONTS: OnceLock<[Chain; 6]> = OnceLock::new();
 
 /// Variable weight axis values and the optical size the system uses for text this small.
 const WEIGHT_SEMIBOLD: f32 = 800.0;
@@ -262,6 +264,7 @@ const WEIGHT_SEMIBOLD_LAYOUT: f32 = 760.0;
 const GLYPH_DX: f32 = -0.5;
 const GLYPH_DY: f32 = -0.2;
 const WEIGHT_REGULAR: f32 = 600.0;
+const WEIGHT_TEXT: f32 = 400.0;
 const WEIGHT_BOLD: f32 = 900.0;
 const OPTICAL_SIZE_TEXT: f32 = 17.0;
 
@@ -280,7 +283,7 @@ fn load_chain(primary: &[&str], weight: f32) -> Chain {
     chain
 }
 
-fn chains() -> &'static [Chain; 5] {
+fn chains() -> &'static [Chain; 6] {
     FONTS.get_or_init(|| {
         [
             load_chain(
@@ -303,6 +306,10 @@ fn chains() -> &'static [Chain; 5] {
                 &["/System/Library/Fonts/SFNSMono.ttf", "C:\\Windows\\Fonts\\consolab.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"],
                 WEIGHT_BOLD,
             ),
+            load_chain(
+                &["/System/Library/Fonts/SFNS.ttf", "C:\\Windows\\Fonts\\segoeui.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
+                WEIGHT_TEXT,
+            ),
         ]
     })
 }
@@ -324,7 +331,7 @@ const MONO_ADVANCE_EM: f32 = 0.6181;
 
 fn advance(face: Face, font: &FontVec, ch: char, px: f32) -> f32 {
     match face {
-        Face::Sans | Face::SansMetrics => match em_scale(font, px) {
+        Face::Sans | Face::SansMetrics | Face::SansRegular => match em_scale(font, px) {
             Some(scale) => font.as_scaled(scale).h_advance(font.glyph_id(ch)),
             None => px * 0.55,
         },
@@ -349,8 +356,8 @@ pub(crate) fn width_pt(face: Face, s: &str, pt: f32) -> f32 {
 }
 
 pub(crate) struct Canvas {
-    w: u32,
-    h: u32,
+    pub(crate) w: u32,
+    pub(crate) h: u32,
     pub(crate) px: Vec<u8>,
 }
 
@@ -386,6 +393,7 @@ impl Canvas {
         // True system weights (what AppKit draws), not the inflated ab_glyph axis values.
         let spec = match face {
             Face::Sans => FontSpec { mono: false, weight: SystemWeight::Semibold },
+            Face::SansRegular => FontSpec { mono: false, weight: SystemWeight::Regular },
             Face::SansMetrics => return None,
             Face::Mono => FontSpec { mono: true, weight: SystemWeight::Regular },
             Face::MonoSemibold => FontSpec { mono: true, weight: SystemWeight::Semibold },

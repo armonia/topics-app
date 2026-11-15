@@ -13,10 +13,16 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
-import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
+import type { BoardWorkflow, WorkflowPresetId, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
 export { STAGE_CI, WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
-export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
+export interface BoardWorkflowView extends BoardWorkflow {
+  own: WorkflowPresetId | null;
+  /** The CI switch and the board's paths a person must look at, resolved; `ownRules` = this board's row. */
+  rules?: WorkflowRules;
+  ownRules?: WorkflowRulesRow | null;
+}
+export { personPathsFromText, personPathsToText } from '../../../shared/workflow';
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
@@ -1362,6 +1368,9 @@ export const boardApi = {
   /** Choose this board's preset; `null` goes back to inheriting the global one. */
   setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
+  /** Write the workflow's rules; only the keys present change, `null` = inherit. */
+  setWorkflowRules: (projectId: string, patch: WorkflowRulesRow) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify(patch) }),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
   /**
