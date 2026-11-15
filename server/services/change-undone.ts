@@ -70,16 +70,42 @@ export function splitIntoHunks(diff: string): string[] {
   return out;
 }
 
+/** How many times each line occurs in a text. */
+function lineCounts(text: string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const l of text.split("\n")) m.set(l, (m.get(l) ?? 0) + 1);
+  return m;
+}
+
+/** The lines a hunk removes and adds, without the `-`/`+` marks. */
+function hunkLines(hunk: string): { removed: string[]; added: string[] } {
+  const removed: string[] = [];
+  const added: string[] = [];
+  for (const l of hunk.slice(hunk.search(/^@@ /m)).split("\n").slice(1)) {
+    if (l.startsWith("-")) removed.push(l.slice(1));
+    else if (l.startsWith("+")) added.push(l.slice(1));
+  }
+  return { removed, added };
+}
+
+/** `diff --git a/x b/x` → `x` (the b side: the path on the branch's tip). */
+function hunkPath(hunk: string): string | null {
+  const m = /^\+\+\+ b\/(.*)$/m.exec(hunk) ?? /^--- a\/(.*)$/m.exec(hunk);
+  return m ? m[1]! : null;
+}
+
 /**
- * WAS ANY PART OF THIS CHANGE UNDONE ON MAIN? The per-hunk twin of `changeUndoneOn`.
+ * IS ANY PART OF THIS CHANGE UNDONE ON MAIN? Asked hunk by hunk, for a squash C that held it.
  *
- * A squash C that held the branch, then main removing only one of the branch's two edits
- * in the same file (15/11, verifier on #1113): the whole patch no longer applies forward,
- * the file still differs from the fork point, and every file-level check says "still
- * there" while that edit is gone. A single hunk that applies forward on main is that edit.
+ * Main may take back one of the branch's two edits in a file (15/11, verifier on #1113): every
+ * file-level check still says "there". Content alone cannot tell a revert from main editing the
+ * same lines further (card 360127d1: main rewrote the card's line, nothing was taken back), and
+ * applying hunks either way fails on both once a neighbouring line moved. The signal used is
+ * what a revert does and an edit does not: the lines the branch REMOVED come back (more of them
+ * on main than on the branch's tip); for a hunk that only adds, every added line is gone.
  *
- * `true` = at least one hunk was undone · `false` = none was · `null` = cannot tell
- * (empty or binary diff, too many hunks, git error): never read as `false`.
+ * `true` = some hunk was undone · `false` = none was · `null` = cannot tell (empty or binary
+ * diff, too many hunks, git error). Only `false` may close a card as "nothing to land".
  */
 export async function someHunkUndoneOn(
   repoPath: string,
@@ -94,21 +120,37 @@ export async function someHunkUndoneOn(
   if (/^Binary files /m.test(diff.stdout)) return null;
   const hunks = splitIntoHunks(diff.stdout);
   if (hunks.length === 0 || hunks.length > MAX_HUNKS) return null;
-  let dir: string | null = null;
+  const show = async (ref: string, path: string): Promise<string | null> => {
+    const r = await runGit(repoPath, ["show", `${ref}:${path}`]).catch(() => null);
+    return r && r.code === 0 ? r.stdout : null;
+  };
+  const files = new Map<string, { onMain: Map<string, number> | null; onTip: Map<string, number> }>();
   try {
-    dir = await mkdtemp(join(tmpdir(), "hunk-undone-"));
-    const env = { GIT_INDEX_FILE: join(dir, "index") };
-    if ((await runGit(repoPath, ["read-tree", mainRef], { env })).code !== 0) return null;
-    for (let i = 0; i < hunks.length; i++) {
-      const patch = join(dir, `h${i}.patch`);
-      await writeFile(patch, hunks[i]!);
-      // `--check` leaves the private index as it is: every hunk is asked of main's own tree.
-      if ((await runGit(repoPath, ["apply", "--cached", "--check", patch], { env })).code === 0) return true;
+    for (const hunk of hunks) {
+      const path = hunkPath(hunk);
+      if (!path) return null;
+      let f = files.get(path);
+      if (!f) {
+        const m = await show(mainRef, path);
+        const t = await show(tip, path);
+        f = { onMain: m === null ? null : lineCounts(m), onTip: lineCounts(t ?? "") };
+        files.set(path, f);
+      }
+      const { removed, added } = hunkLines(hunk);
+      // The branch's file is gone from main: everything the hunk added went with it.
+      if (f.onMain === null) { if (added.length > 0) return true; continue; }
+      const main = f.onMain;
+      const tipCounts = f.onTip;
+      // Blank lines come and go with every edit: they say nothing about a revert.
+      const back = (l: string) => l.trim() !== "" && (main.get(l) ?? 0) > (tipCounts.get(l) ?? 0);
+      const gone = (l: string) => l.trim() !== "" && (main.get(l) ?? 0) < (tipCounts.get(l) ?? 0);
+      if (removed.some(back)) return true;
+      // A hunk that only adds has no removed line to come back: any added line gone is the
+      // safe reading (a land that goes on can conflict, a wrong "nothing" loses the work).
+      if (removed.length === 0 && added.some(gone)) return true;
     }
     return false;
   } catch {
     return null;
-  } finally {
-    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

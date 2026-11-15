@@ -241,7 +241,7 @@ describe("squash gia' su main, ramo vivo", () => {
     }
   }, 30_000);
 
-  test("main ha cambiato UN file del ramo dopo lo squash: il contenuto era su main allo squash, «nothing»", async () => {
+  test("main ha cambiato UN file del ramo dopo lo squash: si prosegue come prima (qui il riallineamento va in «conflict»)", async () => {
     const { repo, branch } = repoWithSquashedBranch();
     try {
       // Commit a change to a.txt only; the dirty tracked.txt stays uncommitted.
@@ -249,10 +249,11 @@ describe("squash gia' su main, ramo vivo", () => {
       git(repo, "add", "a.txt");
       git(repo, "commit", "-q", "-m", "later edit of a");
       const res = await land(repo, branch).tryMerge("t-sq-2", "Card squashata");
-      // The tip no longer matches, but the squash commit did: realigning would conflict and pull a
-      // done card back to In Progress (card 360127d1). A main that took the work back is covered by
-      // "main reverted the squash" in task-automerge-realign.test.ts.
-      expect(res.status).toBe("nothing");
+      // a.txt is a file the branch ADDED, and main rewrote its only line: from the content
+      // alone that is a revert of the card's line as much as an edit of it. The safe reading
+      // goes on with the land (a conflict reaches a person); "nothing" could lose the work.
+      expect(res.status).not.toBe("nothing");
+      expect(res.status).toBe("conflict");
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

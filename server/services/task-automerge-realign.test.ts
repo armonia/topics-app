@@ -702,4 +702,21 @@ describe("a branch squash-merged before main moved on is not landed again", () =
 
     expect(res.status).not.toBe("nothing");
   }, WITH_REAL_GIT);
+
+  test("the revert also edits a line next to the edit it takes back: still not «nothing»", async () => {
+    const lines = (a: string, near: string, b: string) =>
+      ["l1", a, "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", near, b, "l13", "l14", "l15"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", lines("l2", "l11", "l12")]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", lines("2A", "l11", "12B")]],
+    });
+    commit(repo, "shared.txt", lines("2A", "l11", "12B"), "Card work (#1106)");
+    // One commit takes 12B back AND rewrites line 11, inside the hunk's context.
+    commit(repo, "shared.txt", lines("2A", "11x", "l12"), "main: drop 12B, tweak 11");
+
+    const res = await landOn(repo).tryMerge("t1", "Card partly reverted, context moved");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
 });
