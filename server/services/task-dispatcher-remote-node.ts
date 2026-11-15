@@ -1121,6 +1121,27 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         await cancelTask(taskId);
         continue;
       }
+      // A human PATCHed the card back to `todo` while this remote slot was
+      // still open — the usual move to try to restart a card that looks
+      // stuck. `inFlight` is dispatcher memory, not a card field: the patch
+      // alone never freed it, so the next poll kept re-mirroring the node's
+      // old chip onto a card whose mandate had already changed, and the card
+      // sat in `todo` forever — only a restart (which empties `inFlight`)
+      // ever unstuck it. `review`/`done`/archived are NOT this case: those
+      // already have their own dedicated treatment below (never requeued),
+      // and unconditionally cancelling here would race it. Cancel the stale
+      // run and free the slot: the ordinary dispatch loop picks the card up
+      // again on its own, on its next tick.
+      if (task && task.status === "todo") {
+        inFlight.delete(taskId);
+        try {
+          await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+          lastNodeRun.delete(taskId);
+        } catch (err) {
+          log(`nodo: la corsa ${node.runId} non si è cancellata dopo il cambio di stato di ${taskId}`, err);
+        }
+        continue;
+      }
       let report: NodeRunReport;
       try {
         report = await client.readRun({
@@ -1172,6 +1193,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         continue;
       }
       mirrorNodeReport(taskId, node, report);
+      // The node parked the run ITSELF (`backlog` + `failed`/`blocked`: its own
+      // dispatch ran out of road, e.g. no runtime for the model). It will never
+      // come back no matter how many more times this polls it, and mirroring
+      // the chip forever only kept the slot open and the card frozen wherever
+      // it happened to be. Close the slot here and park the card with the
+      // node's own reason, instead of waiting for a human to notice the chip
+      // and drag the card back to `todo`.
+      if (
+        task && task.status === "in_progress" && !svc.isArchived?.(taskId)
+        && report.status === "backlog" && (report.dispatchState === "failed" || report.dispatchState === CHIP_BLOCKED)
+      ) {
+        inFlight.delete(taskId);
+        lastNodeRun.delete(taskId);
+        const why = report.reason || report.dispatchError || "nessun motivo riportato";
+        parkNodeCard(task, `Il nodo «${nodeName(node.machineId)}» ha parcheggiato la corsa: ${why}`);
+        continue;
+      }
       if (report.status !== "review") continue;
       if (stopOnWeeklyLimit(taskId, report, task)) continue;
       // A paired node never sends `reason`: review with no branch and no error may be
