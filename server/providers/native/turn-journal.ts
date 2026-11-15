@@ -19,6 +19,7 @@
  */
 
 import type { SteerItem } from "../../lib/turn-steer";
+import type { DelegationState } from "../../lib/delegation-policy";
 import { StringDecoder } from "node:string_decoder";
 import type { StreamHandler } from "../types";
 import type { ToolSpec } from "./tools";
@@ -73,6 +74,8 @@ export type JournalEvent =
    */
   | {
       e: "end"; history: unknown[]; calibration?: unknown; warm?: TurnWarmPrefix;
+      /** The delegation counter after the turn (`lib/delegation-policy.ts`); absent = the turn had none. */
+      delegation?: DelegationState;
       /** Steered messages the host got and never took: sent on as turns of their own. */
       steerLeft?: SteerItem[];
       /** The turn ended on a person's Stop: what it left is held, not sent (a server that restarted cannot tell otherwise). */

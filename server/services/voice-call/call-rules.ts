@@ -168,10 +168,16 @@ const HELLO = new Set(["pronto", "pronti", "si", "sì", "ciao", "eccomi", "dimmi
  * "Hello?", "Yes, hi": what one says on picking up. Over the greeting it must not
  * cut it (10/11, a "Pronto?" truncated it), and after it it needs no answer.
  */
-export function onlyGreeting(text: string): boolean {
+export function onlyGreeting(text: string, names: readonly string[] = []): boolean {
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
-  return words.length > 0 && words.length <= 3 && words.every((w) => HELLO.has(w));
+  const named = new Set(names.flatMap((n) => n.toLowerCase().split(/[^\p{L}]+/u)).filter(Boolean));
+  // "ciao a tutti", "ciao Attilio": on 14/11 the phone sent back the greeting's  allow-italian: the quoted phrase is the real one
+  // own "Ciao Attilio", whisper wrote "Ciao a tutti" and 11 s of greeting were cut  allow-italian: the quoted phrase is the real one
+  const ok = (w: string) => HELLO.has(w) || AROUND_HELLO.has(w) || named.has(w);
+  return words.length > 0 && words.length <= 4 && words.some((w) => HELLO.has(w)) && words.every(ok);
 }
+
+const AROUND_HELLO = new Set(["a", "tutti", "te", "voi", "anche"]);
 
 const LISTENING = new Set([
   "si", "sì", "ok", "okay", "mh", "mhm", "mm", "mmh", "ah", "eh", "uh", "oh", "e", "certo", "giusto", "esatto", "bene", "va",
@@ -187,6 +193,20 @@ const LISTENING = new Set([
 export function onlyListening(text: string): boolean {
   const words = text.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
   return words.length > 0 && words.length <= 4 && words.every((w) => LISTENING.has(w));
+}
+
+/**
+ * Two readings of a short phrase with no word in common: neither can be trusted
+ * alone. On 14/11 "Dimmi tu" was "limitato" and "Dimitro" for whisper and right
+ * for Gemini, on 12/11 the other way round.  allow-italian: the quoted phrases are the real ones
+ */
+export function readingsDiffer(whisper: string, gemini: string): boolean {
+  const words = (t: string): string[] => t.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  const w = words(whisper);
+  const g = words(gemini);
+  if (w.length === 0 || w.length > 3 || g.length === 0) return false;
+  const stem = (x: string): string => [...x].slice(0, 4).join("");
+  return w.filter((x) => g.some((y) => stem(y) === stem(x))).length * 2 < w.length;
 }
 
 /** "Wait a moment", "one second, I am looking for it": a silence they asked for. */

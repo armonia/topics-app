@@ -138,6 +138,7 @@ export abstract class CallAudio extends CallState {
       this.asking === null &&
       now - this.jobAt >= PROGRESS_FROM &&
       now - this.lastVoice >= STEP_GAP &&
+      (this.answerDue === null || now - this.answerDue > 8000) &&
       // their last phrase has not been taken by anyone yet: between the end of
       // the phrase and the question to the brain ~0.7 s pass, and the old step got
       // in there (bench 14/11, loaded Mac). 6 s = it was noise, not a phrase
@@ -149,6 +150,7 @@ export abstract class CallAudio extends CallState {
       this.progressSaid = now;
       this.deps.log("passo_detto", { frase: l });
       this.lastStepLine = l;
+      this.saidSteps.push(l);
       this.mouth.send({ type: "text", text: l });
     }
     // the brain still thinks after STILL_THINKING: "one more second", with the mouth, once per question
@@ -260,14 +262,19 @@ export abstract class CallAudio extends CallState {
     if (this.hangupAsked !== null && now - this.hangupAsked > 8000) this.hangupWhenSaid = true;
     if (this.hangupWhenSaid && !speaking && !this.generating) return this.finish(this.idleBye ? "silenzio" : "chiusa da Jarvis", true);
     if (now - at > MAX_CALL) return this.finish("durata massima", true);
-    if (!speaking && !this.generating && !this.vad.isOpen() && this.replies.length > 0) {
+    // while the brain thinks a result waits: its answer may already tell it
+    if (!speaking && !this.generating && !this.vad.isOpen() && this.replies.length > 0 && this.asking === null && (this.answerDue === null || now - this.answerDue > 8000)) {
       const t = this.replies.shift()!;
+      this.replyAt.shift();
       this.textTurn = true;
       this.deps.log("risultato_a_gemini", { attesa_ms: this.replySince === null ? 0 : ms(now - this.replySince) });
       this.replySince = this.replies.length === 0 ? null : now;
       this.send({ type: "text", text: replyText(t, this.persona) });
     }
-    if (speaking || this.generating || this.vad.isOpen()) this.lastSound = now;
+    // with whisper, sound is presence only once whisper finds words in it: room
+    // noise kept the line "busy" for 2 minutes and "are you still there?" never
+    // came (14/11)
+    if (speaking || this.generating || (this.vad.isOpen() && this.deps.whisper === null)) this.lastSound = now;
     const calm = !speaking && !this.generating && !this.vad.isOpen() && this.asking === null && this.replies.length === 0 && !this.leave && this.hangupAsked === null;
     // a long silence with nothing running: once "are you still there?", as a
     // person would. Before, the line stayed mute for 3 minutes and then dropped
@@ -320,6 +327,19 @@ export abstract class CallAudio extends CallState {
     for (const fr of this.chunks.push(f)) this.peerFrame(fr);
   }
 
+  /** Someone is on the line: the silence timers start again and a goodbye for silence is withdrawn. */
+  protected present(): void {
+    this.lastSound = this.deps.now();
+    this.askedStillThere = false;
+    if (this.idleBye) {
+      // they are there after all: the goodbye for silence no longer closes the call
+      this.idleBye = false;
+      this.hangupAsked = null;
+      this.hangupWhenSaid = false;
+      this.deps.log("chiusura_annullata", { perche: "parla" });
+    }
+  }
+
   protected spawnWhisper(seq: number, pcm: Int16Array): void {
     const whisper = this.deps.whisper;
     if (!whisper) return;
@@ -356,15 +376,7 @@ export abstract class CallAudio extends CallState {
     }
     if (this.vad.voicedRun > 0) {
       this.lastVoice = this.deps.now();
-      this.lastSound = this.lastVoice;
-      this.askedStillThere = false;
-      if (this.idleBye) {
-        // they are there after all: the goodbye for silence no longer closes the call
-        this.idleBye = false;
-        this.hangupAsked = null;
-        this.hangupWhenSaid = false;
-        this.deps.log("chiusura_annullata", { perche: "parla" });
-      }
+      if (this.deps.whisper === null) this.present();
       this.spokeAt = this.lastVoice;
       this.heardAfterAnswer = true;
     }
@@ -501,7 +513,7 @@ export abstract class CallAudio extends CallState {
     if (!whisper) return pass(null);
     void whisper(joinSamples(frames)).then((r) => {
       const t = r.ok ? (r.text ?? "") : null;
-      if (t !== null && (t.trim() === "" || (inGreeting && onlyGreeting(t)) || (onlyListening(t) && !asked) || echoOf(this.said, t) || echoOf(this.prevSaid, t))) {
+      if (t !== null && (t.trim() === "" || (inGreeting && onlyGreeting(t, [this.persona.name, this.persona.assistant])) || (onlyListening(t) && !asked) || echoOf(this.said, t) || echoOf(this.prevSaid, t))) {
         return this.deps.log(dropped, { perche: "eco o saluto", whisper: t });
       }
       // after the greeting it is said only if whisper heard words: without its verdict it may be the echo

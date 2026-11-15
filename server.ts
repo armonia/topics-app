@@ -2684,11 +2684,7 @@ const taskAutoMerge = createTaskAutoMerge({
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
   // Attempt branches plus the card's own delivery/prior pointers: an old delivery
   // branch of the same card is its history, never "another session".
-  ownBranches: (taskId) => {
-    const task = dispatcherSvc.get(taskId)?.task;
-    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
-    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
-  },
+  ownBranches: (taskId) => cardOwnBranches(taskId),
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
@@ -2796,6 +2792,20 @@ const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates
   branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
 });
 
+/**
+ * The card's own branch history: attempt branches plus its delivery and earlier delivery
+ * pointers. An old branch of the same card is its history, never "another session", and
+ * both the land and the delivery capture must leave it out of the subtraction: the capture
+ * did not, so a re-delivery on a fresh branch whose commits were all reachable from the
+ * card's previous branch recorded "no commit of its own", got no checks and sat in review
+ * (14/11, 19d684fb and 30f7c880).
+ */
+function cardOwnBranches(taskId: string): string[] {
+  const task = dispatcherSvc.get(taskId)?.task;
+  const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
+  return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+}
+
 const taskDeliveryRef = async (taskId: string) => {
     const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
     if (!ref) return null;
@@ -2813,7 +2823,7 @@ const taskDeliveryRef = async (taskId: string) => {
     // già su main da una settimana. Registrarla avrebbe fatto leggere al
     // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
     // esattamente il guasto per cui l'audit esiste.
-    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
     if (!pointer) return null;
     // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
     //

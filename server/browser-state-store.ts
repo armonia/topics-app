@@ -212,7 +212,10 @@ export async function deleteStorageState(topicId: string): Promise<void> {
   const file = topicFile(topicId);
   const dir = topicDir(topicId);
   if (existsSync(file)) {
-    try { unlinkSync(file); } catch {}
+    try { unlinkSync(file); } catch (e) {
+      console.warn(`[BrowserState] deleting ${file} failed, the saved cookies would come back:`, e);
+      throw e;
+    }
   }
   // Remove parent dir if empty (best effort).
   if (existsSync(dir)) {

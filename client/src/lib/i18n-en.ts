@@ -2087,6 +2087,8 @@ const EN = {
   'board.composer.sendTodoTitle': 'Create the task in Todo (the agent starts from there)',
   'board.composer.sendBacklogTitle': 'Create the task in Backlog (no agent starts)',
   'common.project': 'Project',
+  'chat.reserve.continue': 'Continue on the reserve',
+  'chat.reserve.continueTitle': 'Only the last subscription is left: unlock it until the first reset and send the message again',
   'chat.turnError.details': 'Technical details',
   'chat.turnError.copy': 'Copy the details',
   'chat.turnError.detailsTruncated': 'Technical details (payload stored truncated)',

@@ -222,7 +222,14 @@ export type Cmd =
   | { type: "audio"; pcm: ArrayLike<number> }
   | { type: "streamEnd" }
   | { type: "text"; text: string }
+  /** context that asks for no answer (what they really heard of an interrupted answer) */
+  | { type: "note"; text: string }
   | { type: "toolResponse"; id: string; name: string; result: string };
+
+/** Context added to the conversation without asking for an answer (`turnComplete: false`). */
+export function note(t: string): Json {
+  return { clientContent: { turns: [{ role: "user", parts: [{ text: t }] }], turnComplete: false } };
+}
 
 export function cmdJson(c: Cmd, speaksWhileThinking: boolean): Json {
   switch (c.type) {
@@ -232,6 +239,8 @@ export function cmdJson(c: Cmd, speaksWhileThinking: boolean): Json {
       return streamEnd();
     case "text":
       return text(c.text);
+    case "note":
+      return note(c.text);
     case "toolResponse":
       return toolResponse(c.id, c.name, c.result, speaksWhileThinking);
   }
