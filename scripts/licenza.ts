@@ -81,10 +81,10 @@ function conia(perNodo = false): void {
   const [iid, ...altri] = resto;
   // `conia-nodo <iid> <label> [days]`: one seat, 30 days. A node adds nobody to
   // the group, and a token living on an hourly server must not last a year.
-  const nodo = perNodo ? altri[0] : undefined;
-  const postiRaw = perNodo ? "1" : altri[0];
-  const giorniRaw = perNodo ? altri[1] ?? "30" : altri[1];
-  if (perNodo && !nodo) {
+  const nodeLabel = perNodo ? altri[0] : undefined;
+  const rawSeats = perNodo ? "1" : altri[0];
+  const rawDays = perNodo ? altri[1] ?? "30" : altri[1];
+  if (perNodo && !nodeLabel) {
     console.error("Serve l'etichetta del nodo (es. topics-permanent-node).");
     process.exit(1);
   }
@@ -92,8 +92,8 @@ function conia(perNodo = false): void {
     console.error(`Serve l'installationId del cliente. Lo legge da sé: curl -sk https://…/api/license`);
     process.exit(1);
   }
-  const posti = Number(postiRaw ?? 5);
-  const giorni = Number(giorniRaw ?? 365);
+  const posti = Number(rawSeats ?? 5);
+  const giorni = Number(rawDays ?? 365);
   if (!Number.isInteger(posti) || posti < POSTI_MIN || posti > POSTI_MAX) {
     console.error(`I posti devono essere un intero fra ${POSTI_MIN} e ${POSTI_MAX}.`);
     process.exit(1);
@@ -124,13 +124,13 @@ function conia(perNodo = false): void {
     adesso,
     chiave: chiave.chiave,
     kid: KID,
-    nodo,
+    nodo: nodeLabel,
   });
 
   console.log(`
 ── GETTONE ──────────────────────────────────────────────────────────────────
 installazione : ${iid}
-posti         : ${posti}${nodo ? `\nnodo          : ${nodo}` : ""}
+posti         : ${posti}${nodeLabel ? `\nnodo          : ${nodeLabel}` : ""}
 scade         : ${new Date(scadenza).toISOString().slice(0, 10)}
 
 ${gettone}

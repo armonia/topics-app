@@ -164,22 +164,22 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     const gettone = r.stdout.split("\n").map((l) => l.trim()).find((l) => /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(l) && l.length > 80);
     expect(gettone).toBeTruthy();
 
-    const carico = leggiCaricoNonVerificato(gettone!);
-    expect(carico?.node).toBe("topics-permanent-node");
-    expect(carico?.seats).toBe(1);
-    const giorni = ((carico?.exp ?? 0) - Date.now()) / 86_400_000;
-    expect(giorni).toBeGreaterThan(29);
-    expect(giorni).toBeLessThanOrEqual(30);
+    const payload = leggiCaricoNonVerificato(gettone!);
+    expect(payload?.node).toBe("topics-permanent-node");
+    expect(payload?.seats).toBe(1);
+    const days = ((payload?.exp ?? 0) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29);
+    expect(days).toBeLessThanOrEqual(30);
 
     const chiavi = caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }, []);
-    const sulMac = verificaGettone(gettone!, { chiavi, installationId: IID, ora: Date.now() });
-    expect(sulMac.motivo).toBe("valid");
-    expect(sulMac.accessoRemoto).toBe(true);
-    expect(sulMac.posti).toBe(1);
+    const onMac = verificaGettone(gettone!, { chiavi, installationId: IID, ora: Date.now() });
+    expect(onMac.motivo).toBe("valid");
+    expect(onMac.accessoRemoto).toBe(true);
+    expect(onMac.posti).toBe(1);
     // On another installation (a node that does not declare the Mac's) it is refused.
-    const altrove = verificaGettone(gettone!, { chiavi, installationId: "ffffffffffffffffffffffff", ora: Date.now() });
-    expect(altrove.motivo).toBe("other_installation");
-    expect(altrove.accessoRemoto).toBe(false);
+    const elsewhere = verificaGettone(gettone!, { chiavi, installationId: "ffffffffffffffffffffffff", ora: Date.now() });
+    expect(elsewhere.motivo).toBe("other_installation");
+    expect(elsewhere.accessoRemoto).toBe(false);
     // The summary names the node.
     expect(r.stdout).toContain("nodo          : topics-permanent-node");
   });
