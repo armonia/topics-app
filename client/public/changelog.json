@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.4.5",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "track a Bash the CLI itself moved to the background (#1066)",
+          "en": "",
+          "scope": "subagent-result",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Native runtime: per-turn temp folder, rm allowed there or on files the turn created",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guardia per turno: tracciamento dei percorsi creati estratto in permissions.ts (bloat)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "note on the night DM quota hold and its probe cure (#1062)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "decision note for daily summary overruns and waits (#1057)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a busy database goes straight to the caller instead of a second whole-row attempt (#1039)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/open-rivet (card b2b33bf0) (#998)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.4",
     "date": "2026-11-15",
     "sections": {

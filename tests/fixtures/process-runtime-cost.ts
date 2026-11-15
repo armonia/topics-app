@@ -14,7 +14,8 @@ const originalTimer = globalThis.setTimeout;
 const originalClearTimer = globalThis.clearTimeout;
 const originalNow = Date.now;
 try {
-  const { startProcessDetection, getListeningPorts } = await import("../../server/routes/processes");
+  const { startProcessDetection } = await import("../../server/routes/processes");
+  const { getListeningPorts } = await import("../../server/lib/listening-ports");
   if (process.argv[2] === "timers") {
     let now = 0, nextId = 0, cycles = 0;
     const probes: string[] = [];
