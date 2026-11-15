@@ -7,7 +7,7 @@
  * Two temporary repos stand in for the parent (this Mac) and the node: no
  * `origin` anywhere, the `~/.claude/jarvis/home` case the proposal names.
  *
- * @covers sottoagenti-nodo
+ * @covers SUBAGENT-26
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

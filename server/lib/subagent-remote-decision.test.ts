@@ -1,5 +1,5 @@
 /**
- * @covers sottoagenti-nodo-1
+ * @covers SUBAGENT-25
  */
 import { expect, test } from "bun:test";
 import { decideRemoteSpawn } from "./subagent-remote-decision";

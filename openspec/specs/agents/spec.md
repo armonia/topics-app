@@ -1205,6 +1205,29 @@ A headless Topics session (claude-code chat or card, native engine chat with a p
 - **WHEN** its session is spawned
 - **THEN** its system prompt has no delegation policy and no reminder hook is registered
 
+### Requirement: SUBAGENT-25 — Which children may leave this Mac is one pure decision
+
+Before a `spawn_agent` child can run on a paired node, `decideRemoteSpawn` (`server/lib/subagent-remote-decision.ts`) SHALL say whether it may and why, with no fs, db or process access of its own. An explicit `runtime: "claude-code"` SHALL stay here. A child that needs a live mac-only resource (macOS, a browser pane, a session, Jarvis: the reasons a card's `stayLocal` protects) SHALL stay here. Otherwise a git working tree, GitHub-hosted or local-only, MAY go remote, and a folder with no `.git` SHALL stay here. Each answer SHALL carry its reason in words.
+
+#### Scenario: A git repo with nothing mac-only
+- **GIVEN** a spawn in a git working tree with no runtime preference and no mac-only resource
+- **WHEN** the decision is asked
+- **THEN** it answers remote, with the reason that a node can clone and push to it
+
+#### Scenario: A folder that is not a repository
+- **GIVEN** a spawn whose `cwd` has no `.git`
+- **WHEN** the decision is asked
+- **THEN** it answers local, with the reason that a node has nothing to check out
+
+### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
+
+The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus `git stash create` for uncommitted changes) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree or index. The child's branch SHALL come back the same way. Both legs SHALL work on a repository with no `origin`.
+
+#### Scenario: Round trip on a repo with no origin
+- **GIVEN** a parent repo with no `origin` and an uncommitted change
+- **WHEN** its snapshot goes to an empty repo, a commit is made there on the child's branch, and that branch comes back
+- **THEN** the parent's tree is unchanged by the snapshot and the returned branch holds the child's commit on top of the uncommitted change
+
 ### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
 
 The channel titles are read once per window, but only a successful answer counts as the read. A non-ok response, or a body without `titles`, SHALL leave the cache empty so the next mount asks again; it SHALL NOT latch an empty object for the rest of the window.
