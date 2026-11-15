@@ -77,6 +77,13 @@ export interface NodeDeps {
   localMachineId?: () => string | null;
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
+  /**
+   * The identity this checkout signs commits with (`git-identity.ts`'s
+   * `repoIdentity`), `null` when none is configured. The node must sign the
+   * run's commits with THIS identity, never one of its own: the land (LAND-13)
+   * refuses a foreign author. Absent = no gate, the historical behaviour.
+   */
+  gitIdentityOf?: (projectId: string) => Promise<{ name: string; email: string } | null>;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
   /**
    * Makes sure a card's own branch is on origin, pushing it when this checkout
@@ -410,6 +417,20 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    // The commits the node is about to make must carry THIS checkout's
+    // identity, not one the node invents: LAND-13 refuses any other author.
+    // Missing identity is not a silent node (retrying changes nothing), so it
+    // parks the card with the fix in words instead of deferring.
+    const gitIdentity = await Promise.resolve(node.gitIdentityOf?.(task.projectId) ?? null).catch(() => null);
+    if (node.gitIdentityOf && !gitIdentity) {
+      parkNodeCard(
+        task,
+        `Questa card è assegnata al nodo «${name}», ma questo checkout non ha un'identità git (\`git config user.name\`/` +
+          "`user.email`): senza di essa il land rifiuterebbe i commit della corsa come di un autore estraneo. " +
+          "Configura l'identità git di questo progetto, oppure togli la macchina dalla card.",
+      );
+      return;
+    }
     // A CARD THAT ALREADY HAS A BRANCH STARTS FROM IT over there (a rerun after
     // a review). Started from main, the delivery lacked that branch's commits and
     // conflicted with them at the land (df5fd8c5, 30/10/2026: 5 files). The node
@@ -464,6 +485,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         machine_name: name,
         node_base_url: baseUrl,
         origin_url: originUrl,
+        git_author_name: gitIdentity?.name ?? "",
+        git_author_email: gitIdentity?.email ?? "",
       })).catch((err): HookOutcome => {
         // A runner that throws said nothing: same rule as a hook that never answered.
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);

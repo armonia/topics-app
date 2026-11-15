@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { gitEnvFor, FALLBACK_GIT_IDENTITY, resetGitIdentityCache } from "./git-identity";
+import { gitEnvFor, FALLBACK_GIT_IDENTITY, resetGitIdentityCache, repoIdentity } from "./git-identity";
 
 /**
  * Il caso che il banco non poteva vedere: una macchina senza identità git.
@@ -69,4 +69,23 @@ test("macchina CON identità: l'ambiente non si tocca (il merge resta firmato da
 
   const env = await gitEnvFor(process.cwd());
   expect(env).toBe(process.env);
+});
+
+/**
+ * @covers GIT-ID-02
+ */
+test("repoIdentity: no name and no email configured answers null", async () => {
+  withoutIdentity();
+  expect(await repoIdentity(process.cwd())).toBeNull();
+});
+
+test("repoIdentity: reads the checkout's own name and email", async () => {
+  const cfgDir = mkdtempSync(join(tmpdir(), "git-identity-repo-id-"));
+  const cfg = join(cfgDir, "gitconfig");
+  writeFileSync(cfg, "[user]\n\tname = Umano Vero\n\temail = umano@example.com\n");
+  process.env.GIT_CONFIG_GLOBAL = cfg;
+  process.env.GIT_CONFIG_SYSTEM = "/dev/null";
+  resetGitIdentityCache();
+
+  expect(await repoIdentity(process.cwd())).toEqual({ name: "Umano Vero", email: "umano@example.com" });
 });
