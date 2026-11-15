@@ -87,6 +87,12 @@ test.describe("Board: countdown and weight of work in progress", () => {
       });
       await route.fulfill({ json: { ...body, tasks } });
     });
+    // The drawer reads its card on its own: same figures as the feed.
+    await page.route(new RegExp(`/api/all-boards/tasks/${runningId}$`), async (route) => {
+      const body = (await (await route.fetch()).json()) as { task: FeedTask | null };
+      const task = body.task && { ...body.task, status: "in_progress", assignedTopicId: topicId, agentMs: runningMs, agentTokens: 180_000, agentCostCents: 240 };
+      await route.fulfill({ json: { ...body, task } });
+    });
     // What the provider measured on the session: 30% of a 1M window.
     await page.route(/\/api\/context\/live\?/, (route) => route.fulfill({
       json: { context: { usage: { used: 300_000, size: 1_000_000 }, percent: 30, level: "critical", reason: "cost", estimated: false, model: "claude-sonnet-5" } },
@@ -143,6 +149,8 @@ test.describe("Board: countdown and weight of work in progress", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openBoard(page);
     await page.locator(`[data-task-card="${runningId}"]`).click();
+    // The weight sits in the details panel, closed by default.
+    await page.getByTestId("task-details-toggle").click();
     const weight = page.getByTestId("session-weight");
     await expect(weight).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("session-weight-context")).toContainText("30%");
