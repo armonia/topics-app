@@ -2446,6 +2446,22 @@
       "stato",
       "trovatiScorrendo"
     ],
+    "server/boot/headless-turns.ts": [
+      "runHeadlessWoken"
+    ],
+    "server/boot/http-wrappers.ts": [
+      "pathname"
+    ],
+    "server/boot/landing-audit.ts": [
+      "visti"
+    ],
+    "server/boot/node-heartbeat.ts": [
+      "flipped"
+    ],
+    "server/boot/survivor-reattach.ts": [
+      "adottaTurniRisvegliati",
+      "prov"
+    ],
     "server/browser-chromium-extensions.test.ts": [
       "NOMAN"
     ],
