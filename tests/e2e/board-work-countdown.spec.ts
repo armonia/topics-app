@@ -88,10 +88,12 @@ test.describe("Board: countdown and weight of work in progress", () => {
       await route.fulfill({ json: { ...body, tasks } });
     });
     // The drawer reads its card on its own: same figures as the feed.
-    await page.route(new RegExp(`/api/all-boards/tasks/${runningId}$`), async (route) => {
-      const body = (await (await route.fetch()).json()) as { task: FeedTask | null };
-      const task = body.task && { ...body.task, status: "in_progress", assignedTopicId: topicId, agentMs: runningMs, agentTokens: 180_000, agentCostCents: 240 };
-      await route.fulfill({ json: { ...body, task } });
+    await page.route(new RegExp(`/api/(all-boards|boards/[^/]+)/tasks/${runningId}(\\?.*)?$`), async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const body = (await (await route.fetch()).json()) as Record<string, unknown>;
+      const own = { status: "in_progress", assignedTopicId: topicId, agentMs: runningMs, agentTokens: 180_000, agentCostCents: 240 };
+      const inner = body.task as Record<string, unknown> | null | undefined;
+      await route.fulfill({ json: inner ? { ...body, task: { ...inner, ...own } } : { ...body, ...own } });
     });
     // What the provider measured on the session: 30% of a 1M window.
     await page.route(/\/api\/context\/live\?/, (route) => route.fulfill({
