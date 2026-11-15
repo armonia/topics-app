@@ -667,4 +667,23 @@ describe("a branch squash-merged before main moved on is not landed again", () =
     if (res.status !== "conflict") return;
     expect(res.realignConflict?.files).toEqual(["shared.txt"]);
   }, WITH_REAL_GIT);
+
+  test("main reverted the squash: the work is gone from main, so landing again is real", async () => {
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", "one\ntwo\nthree\n"]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", "one\ntwo (card)\nthree\n"], ["card.txt", "card\n"]],
+    });
+    writeFileSync(join(repo, "shared.txt"), "one\ntwo (card)\nthree\n");
+    writeFileSync(join(repo, "card.txt"), "card\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Card work (#1106)");
+    git(repo, "revert", "--no-edit", "HEAD");
+
+    const res = await landOn(repo).tryMerge("t1", "Card reverted on main");
+
+    expect(res.status).not.toBe("nothing");
+    expect(res.status).toBe("merged");
+    expect(git(repo, "show", "main:card.txt")).toBe("card\n");
+  }, WITH_REAL_GIT);
 });
