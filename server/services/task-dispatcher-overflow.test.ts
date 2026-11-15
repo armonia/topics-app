@@ -486,8 +486,8 @@ describe("overflow: slots 0 svuota la macchina", () => {
     const h = harness({ floor: false, pcSlots: 0 });
     h.seed(CARD, { machineId: PC });
     await settleTwoRounds(h);
-    expect(h.created).toEqual([]);
     expect(h.task(CARD).machineId).not.toBe(PC);
+    expect(h.created).toEqual([{ baseUrl: "claude-cloud://", originTaskId: CARD }]);
   });
 
   it("con slots 2 le riceve, fissate comprese", async () => {
