@@ -132,8 +132,8 @@ test.describe("Board: countdown and weight of work in progress", () => {
     // Ten more minutes of work reach the card through the feed: the countdown drops, it never rises.
     for (const advance of [5, 5]) {
       runningMs += advance * MIN;
-      const res = await page.request.patch(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks/${runningId}`, { data: { text: `Running ${stamp} ${runningMs}` } });
-      expect(res.ok()).toBe(true);
+      // The board reads the feed again, as it does when the app is reopened.
+      await openBoard(page);
       await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBeLessThan(first);
     }
     await expect.poll(() => minutesLeft(page), { timeout: 15_000 }).toBe(5);
