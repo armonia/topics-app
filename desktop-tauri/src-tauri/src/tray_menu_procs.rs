@@ -3,7 +3,7 @@
 //! list, the trust check, the macOS row and the rankings. Pure: service answers in,
 //! `Node`s out. Every word about a process is the service's own. Card ad8b474a.
 
-use crate::tray_menu::{item, mem_text, n, note, parse, s, sub, Node, Snapshot};
+use crate::tray_menu::{item, mem_text, n, note, parse, s, sub, with_icon, Node, Snapshot};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -120,7 +120,6 @@ fn level_word(l: &str) -> &'static str {
 fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     let detail = unit_detail(u);
-    kids.push(note(format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail })));
     if let Some(r) = Some(s(u, "returns")).filter(|r| !r.is_empty()) {
         kids.push(note(format!("come torna: {r}")));
     }
@@ -137,19 +136,47 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
         kids.push(Node::Sep);
         let verb = s(u, "verb");
         if closable(u) {
-            kids.push(item(&format!("proc-close:{}", s(u, "id")), format!("{verb}…")));
-            kids.push(item(&format!("proc-force:{}", s(u, "id")), crate::tray_menu::FORCE_LABEL));
+            kids.push(with_icon("sf:xmark.circle", item(&format!("proc-close:{}", s(u, "id")), format!("{verb}…"))));
+            kids.push(with_icon("sf:xmark.octagon", item(&format!("proc-force:{}", s(u, "id")), crate::tray_menu::FORCE_LABEL)));
         } else {
-            kids.push(note(format!("{verb}: non da qui, {}", s(u, "returns"))));
+            kids.push(with_icon("sf:lock", note(format!("{verb}: non da qui, {}", s(u, "returns")))));
         }
     }
+    let second_line = format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail });
     let c = cpu_of(u, cpu);
-    Node::Row {
+    let worst = flags_of(u, trust).iter().map(|f| s(f, "level")).fold("", |w, l| if l == "grave" || (l == "attenzione" && w != "grave") { l } else { w });
+    let row = Node::Row {
         id: String::new(),
-        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB"))],
+        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line],
         header: false,
         children: kids,
+    };
+    with_icon(unit_icon(u, worst), row)
+}
+
+/// The row's icon: a shield when something about it is suspect, an app's own icon,
+/// else the sign of its kind (the same symbols as the original tray).
+fn unit_icon(u: &Value, worst: &str) -> String {
+    if worst == "grave" || worst == "attenzione" {
+        return "sf:exclamationmark.shield.fill".into();
     }
+    let bundle = s(u, "bundle");
+    if s(u, "type") == "app" && !bundle.is_empty() {
+        return format!("app:{bundle}");
+    }
+    let symbol = match s(u, "type") {
+        "sessione" => "terminal",
+        "lavoro" => "gearshape.2",
+        "devserver" => "server.rack",
+        "app" => "app",
+        "servizio" => "gearshape",
+        "mcp" => "puzzlepiece.extension",
+        "resto" => "trash",
+        "cloud" => "cloud",
+        "macos" => "lock",
+        _ => "questionmark.circle",
+    };
+    format!("sf:{symbol}")
 }
 
 fn sorted_by<'a>(units: &[&'a Value], key: impl Fn(&Value) -> f64) -> Vec<&'a Value> {
@@ -176,21 +203,21 @@ pub fn procs_table(snap: &Snapshot) -> Vec<Node> {
         let rest = &ranked[SHOWN..];
         let mut kids = vec![head("TUTTO IL RESTO")];
         kids.extend(rest.iter().map(|u| unit_row(u, cpu, &trust)));
-        out.push(sub(format!("Tutto il resto ({}) · {} in tutto", rest.len(), mem_text(rest.iter().map(|u| mem(u)).sum())), kids));
+        out.push(with_icon("sf:ellipsis.circle", sub(format!("Tutto il resto ({}) · {} in tutto", rest.len(), mem_text(rest.iter().map(|u| mem(u)).sum())), kids)));
     }
     let leftovers: Vec<&&Value> = real.iter().filter(|u| s(u, "type") == "resto").collect();
     if !leftovers.is_empty() {
-        out.push(item("proc-close-leftovers", format!("Chiudi i resti ({} · {})…", leftovers.len(), mem_text(leftovers.iter().map(|u| mem(u)).sum()))));
+        out.push(with_icon("sf:trash|bad", item("proc-close-leftovers", format!("Chiudi i resti ({} · {})…", leftovers.len(), mem_text(leftovers.iter().map(|u| mem(u)).sum())))));
     }
     out.push(Node::Sep);
     out.extend(trust_node(&trust, units, cpu));
     if let Some(os) = units.iter().find(|u| s(u, "type") == "macos") {
-        out.push(Node::Row {
+        out.push(with_icon("sf:lock", Node::Row {
             id: String::new(),
             cells: vec![format!("{} · {} processi", s(os, "name"), n(os, "n") as i64), cpu_text(cpu_of(os, cpu)), gpu_text(os), net_text(os), mem_text(mem(os))],
             header: false,
             children: Vec::new(),
-        });
+        }));
     }
     out.push(rankings(&real, cpu, &trust));
     out
@@ -210,8 +237,9 @@ fn trust_node(trust: &Value, units: &[Value], cpu: &HashMap<u32, f64>) -> Option
     };
     let label = format!("{title} · {ok} ok");
     if bad.is_empty() {
-        return Some(note(label));
+        return Some(with_icon("sf:checkmark.shield|ok", note(label)));
     }
+    let tone = if grave > 0 { "bad" } else { "warn" };
     let kids = bad.iter().map(|f| {
         let pid = f.get("pid").and_then(Value::as_u64).unwrap_or(0);
         match units.iter().find(|u| pids_of(u).contains(&pid)) {
@@ -222,7 +250,7 @@ fn trust_node(trust: &Value, units: &[Value], cpu: &HashMap<u32, f64>) -> Option
             }
         }
     }).collect();
-    Some(sub(label, kids))
+    Some(with_icon(format!("sf:exclamationmark.shield.fill|{tone}"), sub(label, kids)))
 }
 
 /// The four rankings, each as a block of the same table.
@@ -243,7 +271,7 @@ fn rankings(real: &[&Value], cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let net: Vec<&Value> = real.iter().copied().filter(|u| netsum(u) >= 1024.0).collect();
     block("PIÙ RETE ADESSO", sorted_by(&net, netsum).into_iter().take(5).collect());
     let total: f64 = cpu.values().sum();
-    sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids)
+    with_icon("sf:chart.bar", sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
 }
 
 #[cfg(test)]
