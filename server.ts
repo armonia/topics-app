@@ -127,7 +127,7 @@ import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGo
 import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
-import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
+import { createTaskAutoMerge, declaredDeliveryFor, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
 import { imageShape, isBlankLikeImage } from "./server/services/image-shape";
 import { createPreviewManager, type PreviewManager, type PreviewProcess } from "./server/services/preview-manager";
 import { createPreviewBrowser } from "./server/services/preview-browser";
@@ -2685,24 +2685,19 @@ const taskAutoMerge = createTaskAutoMerge({
   // Attempt branches plus the card's own delivery/prior pointers: an old delivery
   // branch of the same card is its history, never "another session".
   ownBranches: (taskId) => cardOwnBranches(taskId),
-  declaredDelivery: (taskId) => {
-    const task = dispatcherSvc.get(taskId)?.task;
-    if (!task) return null;
-    const branch = task.deliveryBranch ?? null;
-    if (!branch) return null;
-    let repoPath: string | null = null;
-    try {
-      repoPath = resolveProjectPath(
-        task.projectId,
-        buildProjectCandidates({
-          projectStore: ctx.projectStore,
-          workspaceDir: DISPATCH_WORKSPACE_DIR,
-          extraPaths: dispatchExtraPaths,
-        }),
-      )?.path ?? null;
-    } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
-    return { repoPath, branch };
-  },
+  // A card that ran on another machine declares its branch as `priorBranch`.
+  declaredDelivery: declaredDeliveryFor({
+    getTask: (taskId) => dispatcherSvc.get(taskId)?.task,
+    resolveRepoPath: (projectId) => resolveProjectPath(
+      projectId,
+      buildProjectCandidates({
+        projectStore: ctx.projectStore,
+        workspaceDir: DISPATCH_WORKSPACE_DIR,
+        extraPaths: dispatchExtraPaths,
+      }),
+    )?.path ?? null,
+    log: (msg, err) => console.warn(msg, err),
+  }),
   log: (msg, err) => console.error(msg, err ?? ""),
 });
 
