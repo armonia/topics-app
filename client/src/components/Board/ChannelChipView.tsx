@@ -34,7 +34,7 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
       data-channel-kind={chip.kind}
       title={chip.title}
       aria-label={chip.title}
-      className={`flex min-w-0 max-w-full ${full ? 'flex-wrap' : ''} items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 transition-colors md:text-mini ${TONE[chip.kind]}`}
+      className={`flex min-w-0 max-w-full ${full ? 'flex-wrap' : 'overflow-hidden'} items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 transition-colors md:text-mini ${TONE[chip.kind]}`}
       onClick={(e) => { e.stopPropagation(); open({ kind: 'chat', key: chip.topicId }, { notify }); }}
     >
       <Mark className="h-3 w-3 shrink-0" aria-hidden />
