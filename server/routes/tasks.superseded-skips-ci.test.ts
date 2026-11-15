@@ -39,8 +39,9 @@ describe("approve come superata su una board con la fase CI", () => {
     expect(r?.status).toBe(200);
     const after = svc.get(t.id)!.task;
     expect(after.status).toBe("done");
-    expect(after.landingState).toBe("superseded");
-    const row = db.query("SELECT stage, land_intent FROM tasks WHERE id = ?").get(t.id) as { stage: string | null; land_intent: string | null };
+    const row = db.query("SELECT landing_state, stage, land_intent FROM tasks WHERE id = ?").get(t.id) as
+      { landing_state: string | null; stage: string | null; land_intent: string | null };
+    expect(row.landing_state).toBe("superseded");
     expect(row.stage).not.toBe("ci");
     expect(row.land_intent).toBeNull();
     expect(measured).toBe(0);
