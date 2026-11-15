@@ -22,6 +22,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - il ramo di integrazione della board non è lavoro altrui (#1002)
+- fill the data the Rust menu lacked against the Swift one
+- move the local clock helpers out of tray_menu.rs to stay under the size baseline
+- mark quoted menu wording in comments
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)

@@ -69,6 +69,24 @@
           "breaking": false
         },
         {
+          "it": "fill the data the Rust menu lacked against the Swift one",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "move the local clock helpers out of tray_menu.rs to stay under the size baseline",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "mark quoted menu wording in comments",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)",
           "en": "",
           "scope": null
