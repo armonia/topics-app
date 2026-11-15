@@ -3796,7 +3796,6 @@
       "adoptWoken",
       "adottaTurnoVivo",
       "avviso",
-      "candidati",
       "cevt",
       "chatIdempotency",
       "evt",
@@ -4899,6 +4898,9 @@
     "server/services/worktree-store.ts": [
       "stmt",
       "stmts"
+    ],
+    "server/silent-catch-sites.test.ts": [
+      "enc"
     ],
     "server/spa-fallback.test.ts": [
       "pathname"

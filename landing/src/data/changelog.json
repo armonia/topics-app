@@ -150,6 +150,10 @@
           "scope": "relay"
         },
         {
+          "text": "drain survives a failing sink, exit row settles inside its guard, forget-site reports a failed save (card 79272a55)",
+          "scope": "server"
+        },
+        {
           "text": "clear the 9 react-hooks/exhaustive-deps warnings",
           "scope": "client"
         },
@@ -287,6 +291,10 @@
         {
           "text": "a node refusing a card parks it with its reason",
           "scope": "nodes"
+        },
+        {
+          "text": "catches that swallowed real errors now report them",
+          "scope": "server"
         },
         {
           "text": "the shipped boot.js matches its source again",

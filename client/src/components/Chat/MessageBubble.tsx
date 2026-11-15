@@ -13,7 +13,8 @@ import { MessageContent } from '../MessageContent';
 import { TurnActivityIndicator } from '../MessageParts';
 import { runningToolLabel } from './runningToolLabel';
 import { isAwaitingHuman } from '../../../../shared/types';
-import { turnIsOnlyError } from './turnError';
+import { turnIsOnlyError, turnErrorOf } from './turnError';
+import { isReserveStop, confirmReserve } from './reserveConfirm';
 import { goalLoopRowOf } from './goalLoopRow';
 import { machineStopOf } from './machineRow';
 import { messageHasView } from './viewOpens';
@@ -555,6 +556,20 @@ export const MessageBubble = memo(function MessageBubble({
               ne farebbe un secondo, a pagamento, sopra uno che è già lì. Il
               cartello dice che qualcosa è andato storto; solo l'assenza di
               lavoro dice che c'è da rifarlo. */}
+          {/* The reserve asks before it is spent: the account engine stopped
+              the turn on the last subscription. The user's yes unlocks it until
+              the first reset and sends the message again; without that yes
+              nothing goes out (15/11). */}
+          {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && isReserveStop(turnErrorOf(msg)) && (
+            <button
+              onClick={() => { void confirmReserve().then((ok) => { if (ok) onRetry(); }); }}
+              data-testid="message-reserve-continue"
+              title={tr('chat.reserve.continueTitle')}
+              className="mt-1.5 mr-1.5 px-3 py-1 text-compact leading-4 font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+            >
+              {tr('chat.reserve.continue')}
+            </button>
+          )}
           {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && (
             <button
               onClick={onRetry}

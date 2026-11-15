@@ -271,7 +271,10 @@ export abstract class CallAudio extends CallState {
       this.replySince = this.replies.length === 0 ? null : now;
       this.send({ type: "text", text: replyText(t, this.persona) });
     }
-    if (speaking || this.generating || this.vad.isOpen()) this.lastSound = now;
+    // with whisper, sound is presence only once whisper finds words in it: room
+    // noise kept the line "busy" for 2 minutes and "are you still there?" never
+    // came (14/11)
+    if (speaking || this.generating || (this.vad.isOpen() && this.deps.whisper === null)) this.lastSound = now;
     const calm = !speaking && !this.generating && !this.vad.isOpen() && this.asking === null && this.replies.length === 0 && !this.leave && this.hangupAsked === null;
     // a long silence with nothing running: once "are you still there?", as a
     // person would. Before, the line stayed mute for 3 minutes and then dropped
@@ -324,6 +327,19 @@ export abstract class CallAudio extends CallState {
     for (const fr of this.chunks.push(f)) this.peerFrame(fr);
   }
 
+  /** Someone is on the line: the silence timers start again and a goodbye for silence is withdrawn. */
+  protected present(): void {
+    this.lastSound = this.deps.now();
+    this.askedStillThere = false;
+    if (this.idleBye) {
+      // they are there after all: the goodbye for silence no longer closes the call
+      this.idleBye = false;
+      this.hangupAsked = null;
+      this.hangupWhenSaid = false;
+      this.deps.log("chiusura_annullata", { perche: "parla" });
+    }
+  }
+
   protected spawnWhisper(seq: number, pcm: Int16Array): void {
     const whisper = this.deps.whisper;
     if (!whisper) return;
@@ -360,15 +376,7 @@ export abstract class CallAudio extends CallState {
     }
     if (this.vad.voicedRun > 0) {
       this.lastVoice = this.deps.now();
-      this.lastSound = this.lastVoice;
-      this.askedStillThere = false;
-      if (this.idleBye) {
-        // they are there after all: the goodbye for silence no longer closes the call
-        this.idleBye = false;
-        this.hangupAsked = null;
-        this.hangupWhenSaid = false;
-        this.deps.log("chiusura_annullata", { perche: "parla" });
-      }
+      if (this.deps.whisper === null) this.present();
       this.spokeAt = this.lastVoice;
       this.heardAfterAnswer = true;
     }

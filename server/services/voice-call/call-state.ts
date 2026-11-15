@@ -10,7 +10,7 @@ import { FRAME_MS, PlaybackQueue, FrameBuilder, Resampler, Vad } from "./audio/p
 import { Ambience, Stretch, heardWrong } from "./audio/natural";
 import { Recorder } from "./audio/record";
 import { groupOpening, groupPrompt, identity, opening, recordedNotice, systemPrompt, tools, voicePrompt, voiceTools, type LastThought, type VoicePersona } from "./prompts";
-import { versoOf, type Ask, type CallDeps, type CallSpec, type CallOutcome, type WhisperResult } from "./call-rules";
+import { onlyListening, readingsDiffer, versoOf, type Ask, type CallDeps, type CallSpec, type CallOutcome, type WhisperResult } from "./call-rules";
 
 export abstract class CallState {
   readonly done: Promise<CallOutcome>;
@@ -351,14 +351,17 @@ export abstract class CallState {
     // the phone brought one or two words and whisper heard nothing: a guess on them
     // made the brain answer a question never asked (14/11, "sottoagenti")
     const uncertain = this.deps.whisper !== null && this.emptySeq === this.answerSeq && phrase.trim().split(/\s+/).length <= 2;
-    const user = userTurn(this.dialog, this.persona.name, phrase, heard, uncertain);
+    const two = this.deps.whisper !== null && readingsDiffer(phrase, heard);
+    const user = userTurn(this.dialog, this.persona.name, phrase, heard, two ? "two" : uncertain ? "partial" : "none");
     this.askBuiltAt = this.deps.now();
     if (this.asking === null) {
       this.askedAt = this.deps.now();
       const quick = this.deps.quick;
       // with a result already in hand "ok, I am on it" is false: the answer brings it
+      // a bare "ok" needs no "ok, on it" (14/11: "Va bene, procedo" with nothing to do),
+      // and an ack built on a misread word says it aloud ("Capito, amen")  allow-italian: the quoted phrases are the real ones
       if (this.replies.length > 0) this.ackedRound = round;
-      else if (quick && this.mouth) {
+      else if (quick && this.mouth && !two && !onlyListening(phrase) && !onlyListening(heard)) {
         const t0 = this.deps.now();
         void quick(ackPrompt(phrase)).then((a) => this.onQuick(round, a, this.deps.now() - t0));
       }
