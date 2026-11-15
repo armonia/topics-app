@@ -197,8 +197,8 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     // really signed, by hand, because the tool would never mint it.
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const pub = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64url");
-    const carico = { v: 1, iid: IID, plan: "team", seats: 1, exp: Date.now() + 86_400_000, node: "a/b" };
-    const seg = Buffer.from(JSON.stringify(carico)).toString("base64url");
+    const badPayload = { v: 1, iid: IID, plan: "team", seats: 1, exp: Date.now() + 86_400_000, node: "a/b" };
+    const seg = Buffer.from(JSON.stringify(badPayload)).toString("base64url");
     const gettone = `${seg}.${sign(null, Buffer.from(seg, "ascii"), privateKey).toString("base64url")}`;
     const esito = verificaGettone(gettone, {
       chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: `prova-1:${pub}` }, []),
