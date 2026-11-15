@@ -242,9 +242,18 @@ unsafe fn row_title(r: &TableRow) -> id {
         msg_send![class!(NSFont), monospacedDigitSystemFontOfSize: 12.5f64, weight: 0.0f64],
         msg_send![class!(NSFont), systemFontOfSize: 10.0f64, weight: weight_semibold],
     );
+    let small_regular: id = msg_send![class!(NSFont), systemFontOfSize: 10.5f64];
     let out: id = msg_send![class!(NSMutableAttributedString), alloc];
     let out: id = msg_send![out, init];
     for (i, cell) in r.cells.iter().enumerate() {
+        // a cell past the columns is the row's second line (kind, owner, since), small and grey
+        if i > TABS.len() && !r.header {
+            let piece: id = msg_send![class!(NSAttributedString), alloc];
+            let piece: id = msg_send![piece, initWithString: ns(&format!("\n{cell}")), attributes: attrs(small_regular, dim, para)];
+            let _: () = msg_send![out, appendAttributedString: piece];
+            let _: () = msg_send![piece, release];
+            continue;
+        }
         let text = if i == 0 { cell.clone() } else { format!("\t{cell}") };
         let (font, color) = if r.header {
             (small, dim)

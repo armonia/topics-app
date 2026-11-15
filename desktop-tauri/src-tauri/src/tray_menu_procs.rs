@@ -120,7 +120,6 @@ fn level_word(l: &str) -> &'static str {
 fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     let detail = unit_detail(u);
-    kids.push(note(format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail })));
     if let Some(r) = Some(s(u, "returns")).filter(|r| !r.is_empty()) {
         kids.push(note(format!("come torna: {r}")));
     }
@@ -143,11 +142,12 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
             kids.push(with_icon("sf:lock", note(format!("{verb}: non da qui, {}", s(u, "returns")))));
         }
     }
+    let second_line = format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail });
     let c = cpu_of(u, cpu);
     let worst = flags_of(u, trust).iter().map(|f| s(f, "level")).fold("", |w, l| if l == "grave" || (l == "attenzione" && w != "grave") { l } else { w });
     let row = Node::Row {
         id: String::new(),
-        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB"))],
+        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line],
         header: false,
         children: kids,
     };
