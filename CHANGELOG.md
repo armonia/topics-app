@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.8 — 2026-11-15
+
+### Sotto il cofano
+- decorate the menu the status item receives, not its idle menu (#1101)
+
 ## 2.4.7 — 2026-11-15
 
 ### Sotto il cofano
