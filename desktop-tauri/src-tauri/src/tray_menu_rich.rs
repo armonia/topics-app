@@ -41,7 +41,7 @@ fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<N
                 kids.push(Node::Sep);
             }
             kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
+            card(&format!("machine:{}", m.id), draw_machine_card(m, details.iter().find(|d| d.id == m.id && !m.id.is_empty()), p), kids)
         })
         .collect()
 }

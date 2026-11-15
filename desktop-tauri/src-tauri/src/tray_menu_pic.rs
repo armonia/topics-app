@@ -201,6 +201,13 @@ impl Pic {
         self.text(Face::Sans, word, x + 16.0, cy + 3.7, 10.5, c, 1.0);
     }
 
+    /// A state pill with no dot, as the original tray draws it: the word on a tinted capsule.
+    pub fn pill_plain(&mut self, right: f32, cy: f32, word: &str, c: [u8; 3]) {
+        let w = Self::text_w(Face::Sans, word, 10.5) + 14.0;
+        self.fill_rrect(right - w, cy - 8.5, w, 17.0, 8.5, c, 0.18);
+        self.text(Face::Sans, word, right - w + 7.0, cy + 3.7, 10.5, c, 1.0);
+    }
+
     /// The rounded frame every card sits in.
     pub fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, p: Palette) {
         self.fill_rrect(x, y, w, h, 9.0, p.fg, 0.035);

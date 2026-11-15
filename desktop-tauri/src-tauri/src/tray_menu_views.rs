@@ -104,25 +104,6 @@ pub fn card_line(m: &MachineCard) -> String {
     extra.chain(Some(m.reason.clone()).filter(|r| !r.is_empty())).collect::<Vec<_>>().join(" · ")
 }
 
-/// Vertical layout of a machine card, in points.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CardLayout {
-    /// Baseline of the last legend row (GPU).
-    pub last_row: f32,
-    /// Baseline of the reason line.
-    pub reason_y: f32,
-    /// Height of the card's frame.
-    pub h: f32,
-}
-
-/// The four legend rows reach lower than the dial: the card ends under whichever is
-/// lower, and the reason line goes below both (it used to sit on the GPU row).
-pub fn card_layout(cy: f32, edge: f32, with_reason: bool) -> CardLayout {
-    let last_row = cy - edge + 12.0 + (DIAL_ROWS.len() as f32 - 1.0) * 17.0;
-    let body = (cy + 12.0).max(last_row + 4.0);
-    CardLayout { last_row, reason_y: body + 18.0, h: body + if with_reason { 26.0 } else { 10.0 } }
-}
-
 /// What kind of machine a card is, for its logo: this computer, a cloud server or a Windows PC.
 fn machine_glyph_of(m: &MachineCard) -> &'static str {
     let key = format!("{} {}", m.id, m.name).to_lowercase();
@@ -179,32 +160,93 @@ fn provider_mark(provider: &str, p: Palette) -> Option<(crate::tray_menu_pic::Ma
     crate::tray_menu_pic::Mask::from_png(bytes).map(|m| (m, ink))
 }
 
-/// The same card for every machine: icon, name, state badge, the half-circle
-/// dial (disk, memory, CPU and GPU) with its legend, and the reason line. A
-/// machine with no readings gets the same card with the bands switched off.
-pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
-    let (disc, band, gap) = (19.0_f32, 7.0_f32, 2.5_f32);
+/// A tiny dial with one band lit: the sign of a legend row, as the original tray draws it.
+fn mini_dial(pic: &mut Pic, cx: f32, cy: f32, lit: &str, color: [u8; 3], p: Palette) {
+    let (disc, band, gap) = (3.0_f32, 1.6_f32, 1.0_f32);
+    let r1 = disc + gap + band / 2.0;
+    let r2 = r1 + band + gap;
+    let on = |k: &str| if k == lit { 1.0 } else { 0.0 };
+    pic.wedge(cx, cy, disc, 1.0, p.fg, 0.16);
+    pic.ring(cx, cy, r1, band, 0.0, 1.0, p.fg, 0.16);
+    pic.ring(cx, cy, r2, band, 0.0, 0.5, p.fg, 0.16);
+    pic.ring(cx, cy, r2, band, 1.0, 0.5, p.fg, 0.16);
+    if on("disk") > 0.0 {
+        pic.wedge(cx, cy, disc, 1.0, color, 1.0);
+    }
+    if on("mem") > 0.0 {
+        pic.ring(cx, cy, r1, band, 0.0, 1.0, color, 1.0);
+    }
+    if on("cpu") > 0.0 {
+        pic.ring(cx, cy, r2, band, 0.0, 0.5, color, 1.0);
+    }
+    if on("gpu") > 0.0 {
+        pic.ring(cx, cy, r2, band, 1.0, 0.5, color, 1.0);
+    }
+}
+
+/// Does the machine measure hardware (the dial), or only something else (a server's spend)?
+fn has_hardware(m: &MachineCard) -> bool {
+    m.metrics.iter().any(|x| DIAL_ROWS.iter().any(|(k, _)| *k == x.key))
+}
+
+/// The same card for every machine, laid out as the original tray lays it out: no frame,
+/// the machine's logo and name with its state in a pill, the one line of why under the name,
+/// then the half-circle dial (disk, memory, CPU and GPU) with its legend of one tiny dial per
+/// row. A machine that measures no hardware (a cloud server) takes the service's own
+/// rows instead: the spend with its 24 hour chart and the state band.
+pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detail::MachineDetail>, p: Palette) -> Pic {
+    let (disc, band, gap) = (20.0_f32, 10.0_f32, 5.0_f32);
     let r1 = disc + gap + band / 2.0;
     let r2 = r1 + band + gap;
     let edge = r2 + band / 2.0;
-    let cx = CARD_X + 16.0 + edge;
-    let cy = 46.0 + edge;
     let line = card_line(m);
-    let CardLayout { reason_y, h, .. } = card_layout(cy, edge, !line.is_empty());
-    let mut pic = Pic::new(MENU_W, h + 6.0);
-    pic.frame(CARD_X, 3.0, CARD_W, h, p);
+    let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
+    let flat = !has_hardware(m).then_some(detail).flatten().filter(|d| crate::tray_menu_detail::has_graphics(d));
+    // local: the reason is its own line under the name; a remote machine says it after the name
+    let brake = m.local && !line.is_empty();
+    let top = if brake { 44.0 } else { 27.0 };
+    let dial_h = edge + 6.0 + 18.0;
+    let body_h = match (flat, has_hardware(m) || m.metrics.is_empty()) {
+        (Some(d), _) => crate::tray_menu_detail::detail_body_height(d),
+        (None, true) => dial_h,
+        (None, false) => 0.0,
+    };
+    let mut pic = Pic::new(MENU_W, top + body_h + 8.0);
     let head = tone(m.level);
-    draw_machine_glyph(&mut pic, m, CARD_X + 13.0, 12.0, p);
-    let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 22.0;
-    let name = Pic::fit(Face::Sans, &m.name, 13.0, CARD_W - 40.0 - badge_w - 40.0);
-    pic.text(Face::Sans, &name, CARD_X + 38.0, 26.0, 13.0, p.fg, 1.0);
+    draw_machine_glyph(&mut pic, m, 13.0, 4.0, p);
+    let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 14.0;
+    let name_w = MENU_W - 38.0 - 16.0 - badge_w - 12.0;
+    let name = Pic::fit(Face::Sans, &m.name, 12.5, name_w);
+    pic.text(Face::Sans, &name, 38.0, 17.0, 12.5, p.fg, 1.0);
+    if !m.local && !line.is_empty() {
+        let x = 38.0 + Pic::text_w(Face::Sans, &name, 12.5) + 8.0;
+        let room = (MENU_W - 16.0 - badge_w - 12.0 - x).max(0.0);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &line, 10.0, room), x, 16.5, 10.0, p.fg, p.dim * 0.8);
+    }
     if !m.badge.is_empty() {
         // a machine that is off or silent wears a grey pill: its tone is in the icon and the reason line
         let off = ["dorme", "spento", "fermo", "offline", "non risponde", "stopped", "asleep", "off", "not answering"].iter().any(|w| m.badge.eq_ignore_ascii_case(w));
-        pic.pill(CARD_X + CARD_W - 14.0, 21.0, &m.badge, if off { p.fg } else { head });
+        pic.pill_plain(MENU_W - 16.0, 12.5, &m.badge, if off { p.fg } else { head });
     }
+    if brake {
+        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
+        if let Some(mask) = system_symbol(if lvl >= 1 { "pause.circle.fill" } else { "clock.fill" }) {
+            pic.mask(38.0, 26.5, 11.0, &mask, c, a);
+        }
+        let text = Pic::fit(Face::Sans, &line, 10.5, MENU_W - 53.0 - 16.0);
+        pic.text(Face::Sans, &text, 53.0, 36.0, 10.5, c, a);
+    }
+    if let Some(d) = flat {
+        crate::tray_menu_detail::draw_detail_body(&mut pic, d, top, false, p);
+        return pic;
+    }
+    if !(has_hardware(m) || m.metrics.is_empty()) {
+        return pic;
+    }
+    let cx = 38.0 + edge + 6.0;
+    let cy = top + edge + 6.0;
     let find = |k: &str| m.metrics.iter().find(|x| x.key == k);
-    let track = 0.16;
+    let track = 0.11;
     let col = |x: Option<&Metric>| x.and_then(|x| x.pct.map(|_| tone(x.level)));
     let frac = |x: Option<&Metric>| x.and_then(|x| x.pct).map_or(0.0, |v| v as f32 / 100.0);
     pic.wedge(cx, cy, disc, 1.0, p.fg, track);
@@ -215,8 +257,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     if let Some(c) = col(find("mem")) {
         pic.ring(cx, cy, r1, band, 0.0, frac(find("mem")).max(0.02), c, 1.0);
     }
-    let g = gap / 2.0 / (std::f32::consts::PI * r2);
-    let half = 0.5 - g;
+    let half = 0.5 - 0.5 * gap / (std::f32::consts::PI * r2);
     for (k, key) in ["cpu", "gpu"].into_iter().enumerate() {
         let (from, dir) = if k == 0 { (0.0, 1.0) } else { (1.0, -1.0) };
         pic.ring(cx, cy, r2, band, from, from + dir * half, p.fg, track);
@@ -224,29 +265,30 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
             pic.ring(cx, cy, r2, band, from, from + dir * half * frac(find(key)).max(0.02), c, 1.0);
         }
     }
-    for (label, dx) in [("D", 0.0), ("M", -(r1 - band / 2.0)), ("C", -edge + 2.0), ("G", edge - 2.0)] {
-        let tw = Pic::text_w(Face::Sans, label, 7.0);
-        pic.text(Face::Sans, label, cx + dx - tw / 2.0, cy + 10.0, 7.0, p.fg, p.dim);
+    let outer = r2 + band / 2.0;
+    for (label, dx) in [("D", 0.0), ("M", -(r1 - band / 2.0)), ("C", -(outer - 1.0)), ("G", outer - 1.0)] {
+        let tw = Pic::text_w(Face::Sans, label, 10.0);
+        pic.text(Face::Sans, label, cx + dx - tw / 2.0, cy + 13.0, 10.0, p.fg, p.dim);
     }
-    // the legend: one row per band, a dot in the band's tone, the value, the service's note
-    let lx = cx + edge + 34.0;
-    for (i, (key, label)) in DIAL_ROWS.iter().enumerate() {
-        let y = cy - edge + 12.0 + i as f32 * 17.0;
+    // the legend, outside in: CPU, GPU, memory, disk; a tiny dial lit on the band, the label, the value, the note
+    let lx = cx + outer + 26.0;
+    let swap = find("swap").filter(|x| !x.value.is_empty());
+    for (i, (key, label)) in [("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Memoria"), ("disk", "Disco")].iter().enumerate() {
+        let y = top + i as f32 * 18.0;
         let x = find(key);
         let c = col(x).unwrap_or(p.fg);
-        pic.dot(lx, y - 3.5, 3.0, c, if x.and_then(|x| x.pct).is_some() { 1.0 } else { 0.3 });
-        pic.text(Face::SansRegular, label, lx + 10.0, y, 11.0, p.fg, p.dim);
+        mini_dial(&mut pic, lx + 7.0, y + 12.0, key, c, p);
+        pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
+        let has = x.and_then(|x| x.pct).is_some();
         let value = x.and_then(|x| x.pct).map_or("—".to_string(), |v| format!("{v}%"));
-        pic.text(Face::MonoBold, &value, lx + 74.0, y, 12.0, p.fg, if x.and_then(|x| x.pct).is_some() { 1.0 } else { 0.4 });
-        let note = Pic::fit(Face::SansRegular, x.map_or("", |x| x.note.as_str()), 10.5, CARD_X + CARD_W - 14.0 - (lx + 118.0));
-        pic.text(Face::SansRegular, &note, lx + 118.0, y, 10.5, p.fg, p.dim * 0.9);
-    }
-    if !line.is_empty() {
-        // the line takes the tone of the worst of the machine and the readings it names
-        let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
-        let text = Pic::fit(Face::SansRegular, &line, 11.0, CARD_W - 32.0);
-        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
-        pic.text(Face::SansRegular, &text, CARD_X + 16.0, reason_y, 11.0, c, a);
+        let vw = Pic::text_w(Face::MonoBold, &value, 11.5);
+        pic.text(Face::MonoBold, &value, lx + 100.0 - vw, y + 12.0, 11.5, if has { c } else { p.fg }, if has { 1.0 } else { 0.4 });
+        let (note, ncol, na) = match (*key, swap) {
+            ("mem", Some(s)) => (format!("swap {}", s.value), if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim }),
+            _ => (x.map_or(String::new(), |x| x.note.clone()), p.fg, p.dim),
+        };
+        let room = MENU_W - 18.0 - (lx + 108.0);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &note, 10.0, room), lx + 108.0, y + 12.0, 10.0, ncol, na);
     }
     pic
 }
