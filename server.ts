@@ -50,6 +50,7 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
+import { runStayLocalSweep } from "./server/services/stay-local-sweep";
 import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
@@ -69,7 +70,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
+import { endReattachLeg, finalizeStaleRowWhenFree } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
@@ -282,6 +283,7 @@ import {
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
 import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { repoIdentity } from "./server/lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
@@ -676,6 +678,22 @@ try {
 } catch (err) {
   // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
   console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
+}
+
+// The permanent "this Mac only" pins, decided once (`services/stay-local-sweep.ts`).
+// A pin with no expiry is never lifted by anything else, so a card whose text
+// names nothing mac-only stays stuck here for good. The sweep clears those and
+// says why on the thread; a card it already decided is left alone, so a person
+// who pins it again keeps the pin.
+try {
+  const sweep = runStayLocalSweep(db);
+  console.log(
+    `[Startup] stay-local sweep: scanned ${sweep.scanned}, cleared ${sweep.cleared}, ` +
+      `kept ${sweep.kept}, already decided ${sweep.skipped}`,
+  );
+} catch (err) {
+  // Non-fatal: a pin that outlives its reason costs a card its mobility, not the boot.
+  console.error("[Startup] stay-local sweep failed:", err);
 }
 
 // Init AI provider — pick the boot default:
@@ -1901,6 +1919,18 @@ const cloudNode = createCloudNodeClient({
   },
   statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
 });
+// ONE road to a node for everything that talks to one: the card lane below and
+// the sub-agent routes (`ctx.remoteNode`). The «Cloud Claude» machine answers on
+// the sessions API with its own token, never on a paired Topics with a token file.
+const remoteNodeRoad = {
+  readRun: (input: Parameters<typeof nodeClient.readRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+  cancelRun: (input: Parameters<typeof nodeClient.cancelRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
+  baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+  tokenOf: (machineId: string) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
+    ? CLOUD_NODE_TOKEN
+    : readNodeToken(ctx.STATE_DIR, machineId),
+};
+ctx.remoteNode = remoteNodeRoad;
 const cloudEnabled = cloudCredentialsPresent();
 if (cloudEnabled) {
   // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
@@ -2311,18 +2341,24 @@ const taskDispatcher = createTaskDispatcher({
   // Claude Code sessions API (`providers/claude-cloud/node.ts`), never to a paired Topics.
   node: {
     createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
-    readRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+    readRun: remoteNodeRoad.readRun,
     fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
-    cancelRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
-    baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-    tokenOf: (machineId) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
-      ? CLOUD_NODE_TOKEN
-      : readNodeToken(ctx.STATE_DIR, machineId),
+    cancelRun: remoteNodeRoad.cancelRun,
+    baseUrlOf: remoteNodeRoad.baseUrlOf,
+    tokenOf: remoteNodeRoad.tokenOf,
     delegatedTokenOf: (machineId, capabilityId) =>
       readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
+    // The same checkout the planter reads origin from: the node must sign the
+    // run's commits with it, or the land (LAND-13) refuses them as a foreign author.
+    gitIdentityOf: (projectId) => {
+      const path = projectPathForNode(projectId);
+      return path ? repoIdentity(path) : Promise.resolve(null);
+    },
+    // The Claude cloud signs its own branch: no checkout identity to pass or to require.
+    skipsGitIdentity: (baseUrl) => isCloudBaseUrl(baseUrl),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).
@@ -5584,7 +5620,7 @@ function runStaleStreamPass(): void {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: (args) => finalizeStaleRow(db, args),
+    finalizeMessage: (args) => finalizeStaleRowWhenFree(db, args),
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),

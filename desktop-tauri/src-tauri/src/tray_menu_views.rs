@@ -104,53 +104,149 @@ pub fn card_line(m: &MachineCard) -> String {
     extra.chain(Some(m.reason.clone()).filter(|r| !r.is_empty())).collect::<Vec<_>>().join(" · ")
 }
 
-/// Vertical layout of a machine card, in points.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CardLayout {
-    /// Baseline of the last legend row (GPU).
-    pub last_row: f32,
-    /// Baseline of the reason line.
-    pub reason_y: f32,
-    /// Height of the card's frame.
-    pub h: f32,
+/// What kind of machine a card is, for its logo: this computer, a cloud server or a Windows PC.
+fn machine_glyph_of(m: &MachineCard) -> &'static str {
+    let key = format!("{} {}", m.id, m.name).to_lowercase();
+    if m.local {
+        "apple.logo"
+    } else if ["hetzner", "cloud", "server", "nodo", "node"].iter().any(|w| key.contains(w)) {
+        "cloud"
+    } else {
+        "windows"
+    }
 }
 
-/// The four legend rows reach lower than the dial: the card ends under whichever is
-/// lower, and the reason line goes below both (it used to sit on the GPU row).
-pub fn card_layout(cy: f32, edge: f32, with_reason: bool) -> CardLayout {
-    let last_row = cy - edge + 12.0 + (DIAL_ROWS.len() as f32 - 1.0) * 17.0;
-    let body = (cy + 12.0).max(last_row + 4.0);
-    CardLayout { last_row, reason_y: body + 18.0, h: body + if with_reason { 26.0 } else { 10.0 } }
+/// The machine's logo in the menu's own ink, as the original tray draws it: the system's Apple logo,
+/// the Windows logo as it is, a cloud for a server.
+fn draw_machine_glyph(pic: &mut Pic, m: &MachineCard, x: f32, y: f32, p: Palette) {
+    let side = 17.0;
+    match machine_glyph_of(m) {
+        "windows" => pic.windows_logo(x + 2.0, y + 2.5, side - 4.0, p.fg, 1.0),
+        name => match system_symbol(name) {
+            Some(mask) => pic.mask(x, y, side, &mask, p.fg, 1.0),
+            // no system symbol to draw (not a Mac): a small display
+            None => {
+                pic.stroke_rrect(x + 1.0, y + 3.0, 15.0, 11.0, 2.5, 1.4, p.fg, 0.9);
+                pic.hline(x + 5.0, y + 17.0, 7.0, p.fg, 0.9);
+            }
+        },
+    }
 }
 
-/// The same card for every machine: icon, name, state badge, the half-circle
-/// dial (disk, memory, CPU and GPU) with its legend, and the reason line. A
-/// machine with no readings gets the same card with the bands switched off.
-pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
-    let (disc, band, gap) = (19.0_f32, 7.0_f32, 2.5_f32);
+/// A system symbol as a mask, drawn once per name.
+#[cfg(target_os = "macos")]
+fn system_symbol(name: &str) -> Option<crate::tray_menu_pic::Mask> {
+    static CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, Option<crate::tray_menu_pic::Mask>>>> = std::sync::Mutex::new(None);
+    CACHE.lock().ok()?.get_or_insert_with(Default::default).entry(name.to_string()).or_insert_with(|| crate::tray_menu_native::symbol_mask(name)).clone()
+}
+#[cfg(not(target_os = "macos"))]
+fn system_symbol(_name: &str) -> Option<crate::tray_menu_pic::Mask> {
+    None
+}
+
+/// The brand glyph of a provider (tinted as in the original tray), or the sign of a free provider.
+fn provider_mark(provider: &str, p: Palette) -> Option<(crate::tray_menu_pic::Mask, [u8; 3])> {
+    static ANTHROPIC: &[u8] = include_bytes!("../assets/tray-providers/anthropic.png");
+    static OPENAI: &[u8] = include_bytes!("../assets/tray-providers/openai.png");
+    static META: &[u8] = include_bytes!("../assets/tray-providers/meta.png");
+    let dark = p.fg[0] > 127;
+    let (bytes, ink) = match provider {
+        "claude" => (ANTHROPIC, [0xD9, 0x77, 0x57]),
+        "codex" => (OPENAI, p.fg),
+        "muse" => (META, if dark { [0x4D, 0xA3, 0xFF] } else { [0x00, 0x82, 0xFB] }),
+        "free" => return system_symbol("leaf").map(|m| (m, p.fg)),
+        _ => return system_symbol("circle").map(|m| (m, p.fg)),
+    };
+    crate::tray_menu_pic::Mask::from_png(bytes).map(|m| (m, ink))
+}
+
+/// A tiny dial with one band lit: the sign of a legend row, as the original tray draws it.
+fn mini_dial(pic: &mut Pic, cx: f32, cy: f32, lit: &str, color: [u8; 3], p: Palette) {
+    let (disc, band, gap) = (3.0_f32, 1.6_f32, 1.0_f32);
+    let r1 = disc + gap + band / 2.0;
+    let r2 = r1 + band + gap;
+    let on = |k: &str| if k == lit { 1.0 } else { 0.0 };
+    pic.wedge(cx, cy, disc, 1.0, p.fg, 0.16);
+    pic.ring(cx, cy, r1, band, 0.0, 1.0, p.fg, 0.16);
+    pic.ring(cx, cy, r2, band, 0.0, 0.5, p.fg, 0.16);
+    pic.ring(cx, cy, r2, band, 1.0, 0.5, p.fg, 0.16);
+    if on("disk") > 0.0 {
+        pic.wedge(cx, cy, disc, 1.0, color, 1.0);
+    }
+    if on("mem") > 0.0 {
+        pic.ring(cx, cy, r1, band, 0.0, 1.0, color, 1.0);
+    }
+    if on("cpu") > 0.0 {
+        pic.ring(cx, cy, r2, band, 0.0, 0.5, color, 1.0);
+    }
+    if on("gpu") > 0.0 {
+        pic.ring(cx, cy, r2, band, 1.0, 0.5, color, 1.0);
+    }
+}
+
+/// Does the machine measure hardware (the dial), or only something else (a server's spend)?
+fn has_hardware(m: &MachineCard) -> bool {
+    m.metrics.iter().any(|x| DIAL_ROWS.iter().any(|(k, _)| *k == x.key))
+}
+
+/// The same card for every machine, laid out as the original tray lays it out: no frame,
+/// the machine's logo and name with its state in a pill, the one line of why under the name,
+/// then the half-circle dial (disk, memory, CPU and GPU) with its legend of one tiny dial per
+/// row. A machine that measures no hardware (a cloud server) takes the service's own
+/// rows instead: the spend with its 24 hour chart and the state band.
+pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detail::MachineDetail>, p: Palette) -> Pic {
+    let (disc, band, gap) = (20.0_f32, 10.0_f32, 5.0_f32);
     let r1 = disc + gap + band / 2.0;
     let r2 = r1 + band + gap;
     let edge = r2 + band / 2.0;
-    let cx = CARD_X + 16.0 + edge;
-    let cy = 46.0 + edge;
     let line = card_line(m);
-    let CardLayout { reason_y, h, .. } = card_layout(cy, edge, !line.is_empty());
-    let mut pic = Pic::new(MENU_W, h + 6.0);
-    pic.frame(CARD_X, 3.0, CARD_W, h, p);
+    let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
+    let flat = (!has_hardware(m)).then_some(detail).flatten().filter(|d| crate::tray_menu_detail::has_graphics(d));
+    // local: the reason is its own line under the name; a remote machine says it after the name
+    let brake = m.local && !line.is_empty();
+    let top = if brake { 44.0 } else { 27.0 };
+    let dial_h = edge + 6.0 + 18.0;
+    let body_h = match (flat, has_hardware(m) || m.metrics.is_empty()) {
+        (Some(d), _) => crate::tray_menu_detail::detail_body_height(d),
+        (None, true) => dial_h,
+        (None, false) => 0.0,
+    };
+    let mut pic = Pic::new(MENU_W, top + body_h + 8.0);
     let head = tone(m.level);
-    // icon: a small display, in the tone of the state
-    pic.stroke_rrect(CARD_X + 14.0, 15.0, 15.0, 11.0, 2.5, 1.4, head, 0.9);
-    pic.hline(CARD_X + 18.0, 29.0, 7.0, head, 0.9);
-    let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 22.0;
-    let name = Pic::fit(Face::Sans, &m.name, 13.0, CARD_W - 40.0 - badge_w - 40.0);
-    pic.text(Face::Sans, &name, CARD_X + 38.0, 26.0, 13.0, p.fg, 1.0);
+    draw_machine_glyph(&mut pic, m, 13.0, 4.0, p);
+    let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 14.0;
+    let name_w = MENU_W - 38.0 - 16.0 - badge_w - 12.0;
+    let name = Pic::fit(Face::Sans, &m.name, 12.5, name_w);
+    pic.text(Face::Sans, &name, 38.0, 17.0, 12.5, p.fg, 1.0);
+    if !m.local && !line.is_empty() {
+        let x = 38.0 + Pic::text_w(Face::Sans, &name, 12.5) + 8.0;
+        let room = (MENU_W - 16.0 - badge_w - 12.0 - x).max(0.0);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &line, 10.0, room), x, 16.5, 10.0, p.fg, p.dim * 0.8);
+    }
     if !m.badge.is_empty() {
         // a machine that is off or silent wears a grey pill: its tone is in the icon and the reason line
         let off = ["dorme", "spento", "fermo", "offline", "non risponde", "stopped", "asleep", "off", "not answering"].iter().any(|w| m.badge.eq_ignore_ascii_case(w));
-        pic.pill(CARD_X + CARD_W - 14.0, 21.0, &m.badge, if off { p.fg } else { head });
+        pic.pill_plain(MENU_W - 16.0, 12.5, &m.badge, if off { p.fg } else { head });
     }
+    if brake {
+        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
+        if let Some(mask) = system_symbol(if lvl >= 1 { "pause.circle.fill" } else { "clock.fill" }) {
+            pic.mask(38.0, 26.5, 11.0, &mask, c, a);
+        }
+        let text = Pic::fit(Face::Sans, &line, 10.5, MENU_W - 53.0 - 16.0);
+        pic.text(Face::Sans, &text, 53.0, 36.0, 10.5, c, a);
+    }
+    if let Some(d) = flat {
+        crate::tray_menu_detail::draw_detail_body(&mut pic, d, top, false, p);
+        return pic;
+    }
+    if !(has_hardware(m) || m.metrics.is_empty()) {
+        return pic;
+    }
+    let cx = 38.0 + edge + 6.0;
+    let cy = top + edge + 6.0;
     let find = |k: &str| m.metrics.iter().find(|x| x.key == k);
-    let track = 0.16;
+    let track = 0.11;
     let col = |x: Option<&Metric>| x.and_then(|x| x.pct.map(|_| tone(x.level)));
     let frac = |x: Option<&Metric>| x.and_then(|x| x.pct).map_or(0.0, |v| v as f32 / 100.0);
     pic.wedge(cx, cy, disc, 1.0, p.fg, track);
@@ -161,8 +257,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     if let Some(c) = col(find("mem")) {
         pic.ring(cx, cy, r1, band, 0.0, frac(find("mem")).max(0.02), c, 1.0);
     }
-    let g = gap / 2.0 / (std::f32::consts::PI * r2);
-    let half = 0.5 - g;
+    let half = 0.5 - 0.5 * gap / (std::f32::consts::PI * r2);
     for (k, key) in ["cpu", "gpu"].into_iter().enumerate() {
         let (from, dir) = if k == 0 { (0.0, 1.0) } else { (1.0, -1.0) };
         pic.ring(cx, cy, r2, band, from, from + dir * half, p.fg, track);
@@ -170,29 +265,30 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
             pic.ring(cx, cy, r2, band, from, from + dir * half * frac(find(key)).max(0.02), c, 1.0);
         }
     }
-    for (label, dx) in [("D", 0.0), ("M", -(r1 - band / 2.0)), ("C", -edge + 2.0), ("G", edge - 2.0)] {
-        let tw = Pic::text_w(Face::Sans, label, 7.0);
-        pic.text(Face::Sans, label, cx + dx - tw / 2.0, cy + 10.0, 7.0, p.fg, p.dim);
+    let outer = r2 + band / 2.0;
+    for (label, dx) in [("D", 0.0), ("M", -(r1 - band / 2.0)), ("C", -(outer - 1.0)), ("G", outer - 1.0)] {
+        let tw = Pic::text_w(Face::Sans, label, 10.0);
+        pic.text(Face::Sans, label, cx + dx - tw / 2.0, cy + 13.0, 10.0, p.fg, p.dim);
     }
-    // the legend: one row per band, a dot in the band's tone, the value, the service's note
-    let lx = cx + edge + 34.0;
-    for (i, (key, label)) in DIAL_ROWS.iter().enumerate() {
-        let y = cy - edge + 12.0 + i as f32 * 17.0;
+    // the legend, outside in: CPU, GPU, memory, disk; a tiny dial lit on the band, the label, the value, the note
+    let lx = cx + outer + 26.0;
+    let swap = find("swap").filter(|x| !x.value.is_empty());
+    for (i, (key, label)) in [("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Memoria"), ("disk", "Disco")].iter().enumerate() {
+        let y = top + i as f32 * 18.0;
         let x = find(key);
         let c = col(x).unwrap_or(p.fg);
-        pic.dot(lx, y - 3.5, 3.0, c, if x.and_then(|x| x.pct).is_some() { 1.0 } else { 0.3 });
-        pic.text(Face::SansRegular, label, lx + 10.0, y, 11.0, p.fg, p.dim);
+        mini_dial(&mut pic, lx + 7.0, y + 12.0, key, c, p);
+        pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
+        let has = x.and_then(|x| x.pct).is_some();
         let value = x.and_then(|x| x.pct).map_or("—".to_string(), |v| format!("{v}%"));
-        pic.text(Face::MonoBold, &value, lx + 74.0, y, 12.0, p.fg, if x.and_then(|x| x.pct).is_some() { 1.0 } else { 0.4 });
-        let note = Pic::fit(Face::SansRegular, x.map_or("", |x| x.note.as_str()), 10.5, CARD_X + CARD_W - 14.0 - (lx + 118.0));
-        pic.text(Face::SansRegular, &note, lx + 118.0, y, 10.5, p.fg, p.dim * 0.9);
-    }
-    if !line.is_empty() {
-        // the line takes the tone of the worst of the machine and the readings it names
-        let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
-        let text = Pic::fit(Face::SansRegular, &line, 11.0, CARD_W - 32.0);
-        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
-        pic.text(Face::SansRegular, &text, CARD_X + 16.0, reason_y, 11.0, c, a);
+        let vw = Pic::text_w(Face::MonoBold, &value, 11.5);
+        pic.text(Face::MonoBold, &value, lx + 100.0 - vw, y + 12.0, 11.5, if has { c } else { p.fg }, if has { 1.0 } else { 0.4 });
+        let (note, ncol, na) = match (*key, swap) {
+            ("mem", Some(s)) => (format!("swap {}", s.value), if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim }),
+            _ => (x.map_or(String::new(), |x| x.note.clone()), p.fg, p.dim),
+        };
+        let room = MENU_W - 18.0 - (lx + 108.0);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &note, 10.0, room), lx + 108.0, y + 12.0, 10.0, ncol, na);
     }
     pic
 }
@@ -210,6 +306,10 @@ pub struct Meter {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Minor {
+    /// System symbol of the row (the service names lucide icons; see `quota_symbol`).
+    pub icon: String,
+    /// The right-hand text is a reset time: it wears the refresh arrow.
+    pub reset: bool,
     pub label: String,
     pub value: String,
     pub right: String,
@@ -223,6 +323,8 @@ pub struct QuotaCard {
     pub used: f32,
     pub state: String,
     pub state_level: u32,
+    /// System symbol of a state that has no pace dial (shield, cross...).
+    pub state_icon: String,
     /// Needle of the pace dial (0..2), when the pace is measured.
     pub needle: Option<f32>,
     pub five_hour: Option<Meter>,
@@ -240,11 +342,33 @@ fn meter_of(w: &Value, label: &str) -> Meter {
     }
 }
 
+/// The service's lucide icon names, as the system symbols the original tray maps them to.
+fn quota_symbol(name: &str) -> &'static str {
+    match name {
+        "clock" => "clock",
+        "circle-x" => "xmark.circle",
+        "circle-check" => "checkmark.circle",
+        "circle-pause" => "pause.circle",
+        "timer" => "timer",
+        "loader-circle" => "hourglass",
+        "triangle-alert" => "exclamationmark.triangle",
+        "coins" => "square.stack.3d.up",
+        "activity" => "waveform.path.ecg",
+        "gift" => "gift",
+        "refresh-cw" => "arrow.clockwise",
+        "sparkles" => "sparkles",
+        "shield-check" => "checkmark.shield",
+        "badge-check" => "checkmark.seal",
+        "key-round" => "key",
+        _ => "circle.dashed",
+    }
+}
+
 fn minor_of(label: &str, v: &Value) -> Option<Minor> {
     if v.is_null() {
         return None;
     }
-    Some(Minor { label: label.into(), value: text_of(v, "value"), right: text_of(v, "right"), level: level_of_tone(s(v, "tone")) })
+    Some(Minor { icon: quota_symbol(s(v, "icon")).into(), reset: v.get("reset").and_then(Value::as_bool).unwrap_or(false), label: label.into(), value: text_of(v, "value"), right: text_of(v, "right"), level: level_of_tone(s(v, "tone")) })
 }
 
 /// One card per account of `/api/board`: usable first, spent ones last.
@@ -257,14 +381,16 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
         let mut minors: Vec<Minor> = Vec::new();
         minors.extend(a.get("plan").and_then(|x| minor_of(s(x, "label").trim().is_empty().then_some("Piano").unwrap_or(s(x, "label")), x)));
         if let Some(e) = a.get("end").filter(|e| !e.is_null()) {
-            minors.push(Minor { label: "Fine".into(), value: s(e, "text").into(), right: String::new(), level: level_of_tone(s(e, "tone")) });
+            minors.push(Minor { icon: "clock".into(), reset: false, label: "Fine".into(), value: s(e, "text").into(), right: String::new(), level: level_of_tone(s(e, "tone")) });
         }
         if let Some(t) = a.get("tokens").filter(|t| !t.is_null()) {
-            minors.push(Minor { label: "Token".into(), value: text_of(t, "left"), right: text_of(t, "perDay"), level: 0 });
+            minors.push(Minor { icon: "square.stack.3d.up".into(), reset: false, label: "Token".into(), value: text_of(t, "left"), right: text_of(t, "perDay"), level: 0 });
         }
         for w in wins.iter().filter(|w| s(w, "key") != "5h" && s(w, "key") != "week") {
             let reset = s(w, "reset");
             minors.push(Minor {
+                icon: if s(w, "key") == "day" { "waveform.path.ecg" } else { "sparkles" }.into(),
+                reset: !reset.is_empty(),
                 label: s(w, "label").into(),
                 value: format!("{}%", num(w, "used").unwrap_or(0.0).round() as i64),
                 right: if reset.is_empty() { s(w, "note").into() } else { reset.into() },
@@ -272,7 +398,7 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
             });
         }
         if let Some(b) = a.get("bonus").filter(|b| !b.is_null()) {
-            minors.push(Minor { label: "Bonus".into(), value: format!("${}", num(b, "left").unwrap_or(0.0).round() as i64), right: s(b, "renews").into(), level: 0 });
+            minors.push(Minor { icon: "gift".into(), reset: false, label: "Bonus".into(), value: format!("${}", num(b, "left").unwrap_or(0.0).round() as i64), right: s(b, "renews").into(), level: 0 });
         }
         minors.extend(a.get("api").and_then(|x| minor_of(s(x, "label"), x)));
         let dial = st.get("dial").and_then(Value::as_bool).unwrap_or(false);
@@ -282,6 +408,7 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
             used: num(a, "used").unwrap_or(0.0) as f32,
             state: s(&st, "text").into(),
             state_level: level_of_tone(s(&st, "tone")),
+            state_icon: Some(s(&st, "icon")).filter(|i| !i.is_empty()).map(|i| quota_symbol(i).to_string()).unwrap_or_default(),
             needle: if dial { a.get("gauge").and_then(|g| num(g, "needle")).map(|n| n as f32) } else { None },
             five_hour: win("5h").map(|w| meter_of(w, "5 h")),
             week: win("week").map(|w| meter_of(w, "7 g")),
@@ -311,10 +438,13 @@ fn draw_meter(pic: &mut Pic, m: &Option<Meter>, label: &str, x: f32, y: f32, w: 
     let pct = m.as_ref().map_or("—".to_string(), |m| format!("{}%", m.used.round() as i64));
     let pw = pic.text(Face::MonoBold, &pct, x + 28.0, l1 + 1.0, 14.0, p.fg, a);
     if let Some(m) = m.as_ref().filter(|m| !m.reset.is_empty()) {
-        let room = w - 28.0 - pw - 8.0;
+        let room = w - 28.0 - pw - 8.0 - 12.0;
         let r = Pic::fit(Face::Mono, &m.reset, 10.5, room.max(0.0));
         let rw = Pic::text_w(Face::Mono, &r, 10.5);
         pic.text(Face::Mono, &r, x + w - rw, l1, 10.5, p.fg, p.dim);
+        if let Some(mask) = system_symbol("arrow.clockwise") {
+            pic.mask(x + w - rw - 12.0, l1 - 9.0, 9.0, &mask, p.fg, p.dim);
+        }
     }
     let c = m.as_ref().map_or(p.fg, |m| tone(m.level));
     pic.bar(x, y + 22.0, w, used, m.as_ref().and_then(|m| m.mark), c, p);
@@ -325,11 +455,16 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     let (ix, iw) = (x + Q_INSET, w - 2.0 * Q_INSET);
     // provider mark: its initial in a capsule, then the account
     let ty = y + Q_INSET + 11.0;
-    pic.fill_rrect(ix, ty - 10.0, 13.0, 13.0, 4.0, p.fg, 0.14);
-    let init: String = c.provider.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
-    pic.text(Face::Sans, &init, ix + 6.5 - Pic::text_w(Face::Sans, &init, 9.0) / 2.0, ty - 0.5, 9.0, p.fg, 1.0);
-    let who = Pic::fit(Face::Sans, &c.who, 11.5, iw - 18.0);
-    pic.text(Face::Sans, &who, ix + 18.0, ty, 11.5, p.fg, 1.0);
+    match provider_mark(&c.provider, p) {
+        Some((mark, ink)) => pic.mask(ix, ty - 11.0, 14.0, &mark, ink, 1.0),
+        None => {
+            pic.fill_rrect(ix, ty - 10.0, 13.0, 13.0, 4.0, p.fg, 0.14);
+            let init: String = c.provider.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
+            pic.text(Face::Sans, &init, ix + 6.5 - Pic::text_w(Face::Sans, &init, 9.0) / 2.0, ty - 0.5, 9.0, p.fg, 1.0);
+        }
+    }
+    let who = Pic::fit(Face::Sans, &c.who, 11.5, iw - 20.0);
+    pic.text(Face::Sans, &who, ix + 20.0, ty, 11.5, p.fg, 1.0);
     let sy = y + Q_INSET + 16.0 + 4.0;
     let st = tone(c.state_level);
     let tx;
@@ -341,6 +476,9 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
         pic.seg((gcx, gcy), (gcx + (r - 2.5) * a.cos(), gcy - (r - 2.5) * a.sin()), 1.8, st, 1.0);
         pic.dot(gcx, gcy, 2.0, st, 1.0);
         tx = ix + 33.0;
+    } else if let Some(mask) = Some(&c.state_icon).filter(|i| !i.is_empty()).and_then(|i| system_symbol(i)) {
+        pic.mask(ix, sy + 3.0, 14.0, &mask, st, 1.0);
+        tx = ix + 19.0;
     } else {
         pic.dot(ix + 6.0, sy + 11.0, 3.5, st, 1.0);
         tx = ix + 19.0;
@@ -357,14 +495,30 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     pic.hline(ix, yy - 4.0, iw, p.fg, 0.14);
     for m in &c.minors {
         let base = yy + 11.0;
-        pic.text(Face::SansRegular, &m.label, ix, base, 11.0, p.fg, p.dim);
-        let vx = ix + 40.0;
-        let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, 11.0, iw - 40.0), vx, base, 11.0, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
-        let room = ix + iw - (vx + vw + 8.0);
-        if !m.right.is_empty() && room > 16.0 {
-            let r = Pic::fit(Face::Mono, &m.right, 10.0, room);
+        if let Some(mask) = system_symbol(&m.icon) {
+            pic.mask(ix, base - 10.0, 11.0, &mask, p.fg, p.dim);
+        }
+        pic.text(Face::SansRegular, &m.label, ix + 15.0, base, 11.0, p.fg, p.dim);
+        let vx = ix + 54.0;
+        let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, 11.0, iw - 54.0), vx, base, 11.0, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
+        let arrow = if m.reset { 12.0 } else { 0.0 };
+        let room = ix + iw - (vx + vw + 8.0) - arrow;
+        // when it does not fit, the note loses its first word («sost.») before it is cut
+        let mut right = m.right.as_str();
+        if Pic::text_w(Face::Mono, right, 10.0) > room {
+            if let Some((_, rest)) = right.split_once(' ') {
+                right = rest;
+            }
+        }
+        if !right.is_empty() && room > 16.0 {
+            let r = Pic::fit(Face::Mono, right, 10.0, room);
             let rw = Pic::text_w(Face::Mono, &r, 10.0);
             pic.text(Face::Mono, &r, ix + iw - rw, base, 10.0, p.fg, p.dim);
+            if m.reset {
+                if let Some(mask) = system_symbol("arrow.clockwise") {
+                    pic.mask(ix + iw - rw - 12.0, base - 9.0, 9.0, &mask, p.fg, p.dim);
+                }
+            }
         }
         yy += MINOR_H;
     }

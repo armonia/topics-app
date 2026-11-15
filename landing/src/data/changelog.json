@@ -1,5 +1,64 @@
 [
   {
+    "version": "2.4.5",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "track a Bash the CLI itself moved to the background (#1066)",
+          "scope": "subagent-result"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.4",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [
+        {
+          "text": "native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)",
+          "scope": "tray"
+        },
+        {
+          "text": "account cards wear row icons, state icons and reset arrows as the original tray",
+          "scope": "tray"
+        },
+        {
+          "text": "state icons for queued and braked projects, provider icons in the limits submenu",
+          "scope": "tray"
+        },
+        {
+          "text": "process rows carry their second line as the original tray",
+          "scope": "tray"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "machine card flat-detail condition compiles",
+          "scope": "tray"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.3",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the cpu ceiling holds even the first request",
+          "scope": "heavy-slot"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.108",
     "date": "2026-11-14",
     "sections": {

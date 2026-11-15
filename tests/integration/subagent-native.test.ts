@@ -254,6 +254,26 @@ describe("a child is a chat on the Topics engine, not a CLI (SUBAGENT-18)", () =
     expect(rowOf(body.agentId as string)?.runtime).toBe("claude-code");
   });
 
+  // 15/11: 69 children had been sent to a CLI only because their cwd was not a
+  // project. Written to again, one comes back on the engine in its parent's
+  // project, told where its folder is, never as a CLI nobody asked for.
+  test("a CLI child of a folder outside any project comes back on the engine, with the folder as its first line", async () => {
+    const outside = testTmpDir("subagent-native-outside");
+    fs.mkdirSync(outside, { recursive: true });
+    const id = await legacyCliChild("fuori-progetto", { cwd: outside });
+    ctx.db.run("UPDATE subagents SET runtime_reason = 'fallback' WHERE id = ?", [id]);
+    await call(`${agents(PARENT)}/${id}/stop`, "POST");
+    ctx.db.run("UPDATE subagents SET state = 'stopped', claude_session_id = ? WHERE id = ?", ["00000000-0000-4000-8000-0000000000cc", id]);
+    const before = creates().length;
+    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "carry on" });
+    expect(res.status).toBe(200);
+    const sent = await res.json() as Record<string, unknown>;
+    expect(sent).toMatchObject({ ok: true, resumed: true, runtime: "topics" });
+    expect(creates().length).toBe(before);
+    const turn = await until("the migrated turn", () => turns.find((t) => t.sessionKey === sent.sessionKey));
+    expect(turn.text.startsWith(`Your parent asked you to work in ${outside}.`)).toBe(true);
+  });
+
   // 04/10: pop-demo kept writing to "arte-tappa-1", born on the CLI, and every
   // resume reopened a Claude Code. Now it comes back native, same id.
   test("a stopped CLI child, written to again, comes back on the engine with its task, not with --resume", async () => {
