@@ -64,7 +64,8 @@ test.beforeEach(async ({ request }) => {
 async function spawnSubAgent(request: APIRequestContext, name: string, cwd = "/tmp"): Promise<string> {
   const spawned = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/agents/spawn`, {
     headers: daemonAuthHeaders(),
-    data: { prompt: "wait for instructions", name, cwd },
+    // A PTY child: the CLI starts only when asked (15/11).
+    data: { prompt: "wait for instructions", name, cwd, runtime: "claude-code" },
   });
   expect(spawned.ok(), `spawn refused: ${spawned.status()} ${await spawned.text()}`).toBe(true);
   const id = ((await spawned.json()) as { agentId: string }).agentId;
