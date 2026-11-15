@@ -38,7 +38,7 @@ const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readFileSync(join(REPO, "server/services/task-dispatcher.ts"), "utf8");
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
 const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
-const mcp = readFileSync(join(REPO, "server/mcp/topics-mcp-server.ts"), "utf8");
+const mcp = readFileSync(join(REPO, "server/mcp/tool-definitions.ts"), "utf8");
 
 /** The source of ONE tool definition, from its `name:` to the next one's. */
 function mcpTool(nome: string): string {
@@ -65,7 +65,7 @@ function mcpOptionsLine(nome: string): string {
  * 2026-09-16: rule 5-bis says the constant is read by the kickoff envelope AND
  * by the `options` descriptions of the two comment tools, while the gate only
  * read the dispatcher. Measured mutant: with the interpolation removed from BOTH
- * descriptions in `server/mcp/topics-mcp-server.ts` (and the import with it,
+ * descriptions in `server/mcp/tool-definitions.ts` (and the import with it,
  * `grep -c RECOMMENDED_OPTION_RULE` = 0) the suite stayed at 368 pass / 0 fail.
  * That half is the one that carries the weight: on the live DB 1,446 of the
  * 1,451 comments with a ```question fence are NOT the first comment of their
