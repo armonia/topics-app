@@ -24,6 +24,10 @@
  */
 import { createPrivateKey, sign, type KeyObject } from "node:crypto";
 
+/** Stessa forma di `NODE_LABEL` in `server/lib/licenza.ts`: i due file non si
+ *  importano di proposito, e un test li tiene d'accordo. */
+const NODE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
 /** Il prefisso PKCS#8 di Ed25519. I 32 byte del seed, da soli, `node:crypto`
  *  non li accetta: vuole la struttura DER intorno. */
 const PREFISSO_PKCS8 = "302e020100300506032b657004220420";
@@ -82,6 +86,9 @@ export interface OpzioniConio {
   adesso: number;
   chiave: KeyObject;
   kid?: string;
+  /** Nodo cloud a cui è destinato («un gettone per nodo»). L'`installationId`
+   *  resta quello del Mac: il nodo ne dichiara l'identità, non ne ha una sua. */
+  nodo?: string;
 }
 
 /**
@@ -101,6 +108,9 @@ export function coniaGettone(o: OpzioniConio): string {
   if (!Number.isFinite(o.scadenza) || o.scadenza <= o.adesso) {
     throw new Error("conio: la scadenza deve essere nel futuro");
   }
+  if (o.nodo !== undefined && !NODE_LABEL.test(o.nodo)) {
+    throw new Error(`conio: etichetta del nodo non valida (${o.nodo})`);
+  }
 
   const carico = {
     v: 1 as const,
@@ -110,6 +120,7 @@ export function coniaGettone(o: OpzioniConio): string {
     exp: Math.round(o.scadenza),
     iat: Math.round(o.adesso),
     kid: o.kid ?? KID_DEFAULT,
+    ...(o.nodo ? { node: o.nodo } : {}),
   };
   const pCarico = Buffer.from(JSON.stringify(carico), "utf8").toString("base64url");
   const firma = sign(null, Buffer.from(pCarico, "ascii"), o.chiave);
@@ -121,6 +132,7 @@ export interface ReadLoad {
   seats: number;
   exp: number;
   kid?: string;
+  node?: string;
 }
 
 /**
@@ -144,6 +156,7 @@ export function leggiCaricoNonVerificato(gettone: string): ReadLoad | null {
       seats: o.seats,
       exp: o.exp,
       kid: typeof o.kid === "string" ? o.kid : undefined,
+      node: typeof o.node === "string" ? o.node : undefined,
     };
   } catch {
     return null;

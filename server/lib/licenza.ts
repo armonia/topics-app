@@ -270,7 +270,14 @@ export interface CaricoGettone {
   exp: number;
   iat?: number;
   kid?: string;
+  /** Etichetta del nodo cloud per cui è stato coniato («un gettone per nodo»).
+   *  Non cambia ciò che il gettone concede: serve a sapere A CHI è andato e a
+   *  riconiarne uno solo quando quel nodo ne ha bisogno. */
+  node?: string;
 }
+
+/** L'etichetta di un nodo: stessa forma di un nome host, mai testo libero. */
+export const NODE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
@@ -303,6 +310,9 @@ function leggiCarico(b: Buffer): CaricoGettone | null {
   if (r.plan !== "team") return null;
   if (typeof r.seats !== "number" || !Number.isFinite(r.seats)) return null;
   if (typeof r.exp !== "number" || !Number.isFinite(r.exp)) return null;
+  // Se c'è, l'etichetta del nodo deve avere la forma giusta: un campo storto
+  // non si ignora, si rifiuta, come ogni altro campo del carico.
+  if (r.node !== undefined && (typeof r.node !== "string" || !NODE_LABEL.test(r.node))) return null;
   return {
     v: 1,
     iid: r.iid,
@@ -311,6 +321,7 @@ function leggiCarico(b: Buffer): CaricoGettone | null {
     exp: r.exp,
     iat: typeof r.iat === "number" ? r.iat : undefined,
     kid: typeof r.kid === "string" ? r.kid : undefined,
+    node: typeof r.node === "string" ? r.node : undefined,
   };
 }
 

@@ -29,6 +29,9 @@ risorse che restano accese oltre la sua fase.
 - [ ] 0.10 Quota spostabile, sul Mac e senza spesa: quando la board torna a lavorare, sulle righe `[memsig]` di `~/.claude/jarvis/logs/topics-server.log` con `swap=sustained` e `inFlight>0`, mediana e p90 del tooling (tsserver, next-server, start-server, vite, Playwright, bun, Python, tsc, `claude_`) con e senza tsserver, e la quota di minuti in cui c'è. Verifica: i numeri scritti in proposal §Why al posto di «circa 0 GB»; se la mediana senza tsserver resta vicina a 0, la Fase 1 si ferma qui.
 - [ ] 0.11 Esiti in design (§D1, §D2, §D5, §D6, §D7, §D9) e in proposal §«Prima del codice» (ogni punto: chiuso con la misura, o il blocco specifico). Verifica: `bunx --bun @fission-ai/openspec validate cloud-nodes` exit 0.
 
+- Stato relay (15/11, ok di Attilio 19:40): Worker `topics-relay` ridistribuito da main `e62bc0e90`. Prima: deployment `512f0d40-3a2f-4c9c-9f0f-aa6dd9c27607` (versione `684b65db`, 14/09); dopo: `533f5cfd-f52a-46ed-9e1f-965d830eaf66` (versione `a91ee84e`). Rollback: `wrangler rollback 684b65db-9139-44d1-b08e-3cd1f19dc1da --name topics-relay`. Un nodo con gettone `conia-nodo` si collega al relay di produzione e il Mac lo raggiunge (200); vedi `docs/licenze-rilascio.md` §«Un gettone per nodo cloud».
+- [ ] 0.12 Blocco 3 (non di questo giro): un file oltre 16 MiB non passa dal relay in una sola risposta; spezzarlo con `Range` fra Mac e nodo (readRun e download di artefatti). Verifica: un file da 40 MiB letto da un nodo via relay, byte identici (hash) e nessuna risposta sopra 16 MiB.
+
 ## 1. Fase 1: un nodo permanente
 
 - [ ] 1.1 (Attilio approva la spesa) Nodo permanente `topics-node-1` su cx43, appena `GET /v1/server_types` lo dice `available:true`, creato con la ricetta della Fase 0, `pool_role = fixed`. Verifica: la riga nella vista con 8 vCPU, 16 GB, 0,0256 €/h, 15,99 €/mese.

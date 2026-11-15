@@ -27,8 +27,10 @@
  */
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { join } from "node:path";
-import { CHIAVI_INTEGRATE, caricaChiavi, verificaGettone } from "../../server/lib/licenza";
+import { CHIAVI_INTEGRATE, NODE_LABEL, caricaChiavi, verificaGettone } from "../../server/lib/licenza";
+import { leggiCaricoNonVerificato } from "../../scripts/conio-lib";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const STRUMENTO = join(RADICE, "scripts", "licenza.ts");
@@ -152,5 +154,59 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     });
     expect(esito.motivo).toBe("bad_signature");
     expect(esito.piano).toBe("free");
+  });
+
+  // ── un gettone PER NODO cloud, legato all'installazione del Mac ───────────
+  it("conia-nodo: un posto, 30 giorni, etichetta dentro, VALIDO sull'installazione del Mac", () => {
+    const { pub, priv } = coppia();
+    const r = esegui(["conia-nodo", IID, "topics-permanent-node"], { TOPICS_LICENSE_PRIVKEY: priv, TOPICS_LICENSE_KID: "prova-1" });
+    expect(r.status, r.stderr).toBe(0);
+    const gettone = r.stdout.split("\n").map((l) => l.trim()).find((l) => /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(l) && l.length > 80);
+    expect(gettone).toBeTruthy();
+
+    const carico = leggiCaricoNonVerificato(gettone!);
+    expect(carico?.node).toBe("topics-permanent-node");
+    expect(carico?.seats).toBe(1);
+    const giorni = ((carico?.exp ?? 0) - Date.now()) / 86_400_000;
+    expect(giorni).toBeGreaterThan(29);
+    expect(giorni).toBeLessThanOrEqual(30);
+
+    const chiavi = caricaChiavi({ TOPICS_LICENSE_PUBKEYS: pub }, []);
+    const sulMac = verificaGettone(gettone!, { chiavi, installationId: IID, ora: Date.now() });
+    expect(sulMac.motivo).toBe("valid");
+    expect(sulMac.accessoRemoto).toBe(true);
+    expect(sulMac.posti).toBe(1);
+    // Su un'altra installazione (un nodo che non dichiara quella del Mac) no.
+    const altrove = verificaGettone(gettone!, { chiavi, installationId: "ffffffffffffffffffffffff", ora: Date.now() });
+    expect(altrove.motivo).toBe("other_installation");
+    expect(altrove.accessoRemoto).toBe(false);
+    // E non ne esce il gettone in chiaro nel resoconto a schermo oltre alla riga del gettone stesso.
+    expect(r.stdout).toContain("nodo          : topics-permanent-node");
+  });
+
+  it("conia-nodo rifiuta un'etichetta che non è un nome host", () => {
+    const { priv } = coppia();
+    for (const nome of ["", "../x", "a b", "-x", "x".repeat(65)]) {
+      const r = esegui(["conia-nodo", IID, nome], { TOPICS_LICENSE_PRIVKEY: priv });
+      expect(r.status, `etichetta «${nome}» non doveva passare`).not.toBe(0);
+    }
+  });
+
+  it("un carico con `node` storto è rifiutato da chi verifica, anche se la firma è buona", () => {
+    // Stessa regola degli altri campi: non si interpreta, si rifiuta. Il
+    // gettone è firmato davvero, a mano, perché lo strumento non lo conierebbe.
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const pub = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64url");
+    const carico = { v: 1, iid: IID, plan: "team", seats: 1, exp: Date.now() + 86_400_000, node: "a/b" };
+    const seg = Buffer.from(JSON.stringify(carico)).toString("base64url");
+    const gettone = `${seg}.${sign(null, Buffer.from(seg, "ascii"), privateKey).toString("base64url")}`;
+    const esito = verificaGettone(gettone, {
+      chiavi: caricaChiavi({ TOPICS_LICENSE_PUBKEYS: `prova-1:${pub}` }, []),
+      installationId: IID,
+      ora: Date.now(),
+    });
+    expect(esito.motivo).toBe("malformed");
+    expect(esito.piano).toBe("free");
+    expect(NODE_LABEL.test("topics-permanent-node")).toBe(true);
   });
 });

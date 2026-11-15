@@ -27,6 +27,11 @@
  *   TOPICS_LICENSE_PRIVKEY=<base64> scripts/licenza.ts conia <installationId> [posti] [giorni]
  *       emette un gettone per QUELLA installazione. Default: 5 posti, 365 giorni.
  *
+ *   TOPICS_LICENSE_PRIVKEY=<base64> scripts/licenza.ts conia-nodo <installationId-del-Mac> <etichetta-nodo> [giorni]
+ *       un gettone PER NODO cloud: 1 posto, 30 giorni di default, legato
+ *       all'installazione del Mac (il nodo ne dichiara l'identità) e con
+ *       l'etichetta del nodo dentro. Si consegna per ssh, mai in user_data.
+ *
  *   scripts/licenza.ts ispeziona <gettone>
  *       legge un gettone senza verificarlo: serve a rispondere a «cosa ho
  *       mandato a quel cliente?» senza avere la chiave sottomano.
@@ -72,8 +77,18 @@ per qualunque installazione.
 `);
 }
 
-function conia(): void {
-  const [iid, postiRaw, giorniRaw] = resto;
+function conia(perNodo = false): void {
+  const [iid, ...altri] = resto;
+  // `conia-nodo <iid> <etichetta> [giorni]`: un posto solo, 30 giorni. Il nodo
+  // non aggiunge persone al gruppo e un gettone che vive in un server a ore non
+  // deve durare un anno.
+  const nodo = perNodo ? altri[0] : undefined;
+  const postiRaw = perNodo ? "1" : altri[0];
+  const giorniRaw = perNodo ? altri[1] ?? "30" : altri[1];
+  if (perNodo && !nodo) {
+    console.error("Serve l'etichetta del nodo (es. topics-permanent-node).");
+    process.exit(1);
+  }
   if (!iid) {
     console.error(`Serve l'installationId del cliente. Lo legge da sé: curl -sk https://…/api/license`);
     process.exit(1);
@@ -110,12 +125,13 @@ function conia(): void {
     adesso,
     chiave: chiave.chiave,
     kid: KID,
+    nodo,
   });
 
   console.log(`
 ── GETTONE ──────────────────────────────────────────────────────────────────
 installazione : ${iid}
-posti         : ${posti}
+posti         : ${posti}${nodo ? `\nnodo          : ${nodo}` : ""}
 scade         : ${new Date(scadenza).toISOString().slice(0, 10)}
 
 ${gettone}
@@ -155,6 +171,7 @@ function ispeziona(): void {
 switch (comando) {
   case "chiavi": chiavi(); break;
   case "conia": conia(); break;
+  case "conia-nodo": conia(true); break;
   case "ispeziona": ispeziona(); break;
   default:
     console.log(`Coniare una licenza.
@@ -164,6 +181,9 @@ switch (comando) {
 
   TOPICS_LICENSE_PRIVKEY=<base64url> scripts/licenza.ts conia <installationId> [posti] [giorni]
       emette un gettone per quella installazione (default 5 posti, 365 giorni)
+
+  TOPICS_LICENSE_PRIVKEY=<base64url> scripts/licenza.ts conia-nodo <installationId-del-Mac> <etichetta-nodo> [giorni]
+      un gettone per nodo cloud (1 posto, default 30 giorni)
 
   scripts/licenza.ts ispeziona <gettone>
       legge un gettone senza verificarlo
