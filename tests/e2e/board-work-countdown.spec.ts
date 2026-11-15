@@ -116,7 +116,9 @@ test.describe("Board: countdown and weight of work in progress", () => {
     await resetPaneStore(page.request, ["__board__"]);
     await page.goto("/");
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
-    await page.locator('[data-pane-id="__board__"]').first().click();
+    // On a phone the sidebar tile is not there: the pane store already opens the board.
+    const tile = page.locator('[data-pane-id="__board__"]').first();
+    if (await tile.isVisible({ timeout: 3_000 }).catch(() => false)) await tile.click();
     await expect(page.locator(`[data-task-card="${runningId}"]`)).toBeVisible({ timeout: 20_000 });
   }
 
