@@ -124,6 +124,21 @@ describe("measureIntegration", () => {
     expect(closed).toContain(`topics/integrazione-${out.commit!.slice(0, 8)}`);
   });
 
+  test("a checkout left behind by a cut-short measure, holding the same branch, does not block the next one", async () => {
+    const r = repo();
+    const first = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    const branch = `topics/integrazione-${first.commit!.slice(0, 8)}`;
+    // What the restart left: the checkout of the measure, on its branch, never removed.
+    const left = mkdtempSync(join(tmpdir(), "topics-integrazione-"));
+    roots.push(left);
+    rmSync(left, { recursive: true, force: true });
+    sh(r.work, "worktree", "add", "--quiet", "-b", branch, left, first.commit!);
+    const again = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    expect(again.verdict).toBe("pass");
+    expect(again.commit).toBe(first.commit!);
+    expect(sh(r.work, "worktree", "list").split("\n")).toHaveLength(1);
+  });
+
   test("a red is confirmed by one rerun of the failed jobs: a flake that passes the second time is green", async () => {
     const r = repo();
     let calls = 0; let reruns = 0;
