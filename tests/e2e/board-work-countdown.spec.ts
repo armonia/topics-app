@@ -20,12 +20,20 @@ import { expect, test, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { projectIdForPath } from "../../shared/board";
+
+/** A real folder: the board of a project exists only once a chat is bound to its path. */
+const PROJECT_DIR = mkdtempSync(join(tmpdir(), "work-countdown-"));
+mkdirSync(PROJECT_DIR, { recursive: true });
+const BOARD_ID = projectIdForPath(PROJECT_DIR);
 
 hermetic(test);
 
 test.use({ video: "on" });
 
-const BOARD_ID = "workcountdown-e2e1";
 const MIN = 60_000;
 const WIDTHS = [375, 768, 1440, 3440] as const;
 
@@ -51,7 +59,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
   }
 
   test.beforeAll(async ({ request, browser }) => {
-    const topic = await createTopic(request, `countdown-${stamp}`);
+    const topic = await createTopic(request, `countdown-${stamp}`, { projectPath: PROJECT_DIR });
     topicId = topic.id;
     const page = await browser.newPage({ baseURL: E2E_BASE });
     try {
