@@ -1,6 +1,6 @@
 /**
- * Deleting a worktree row: the topics bound to it forget the Claude session that
- * lived in the reaped checkout and degrade to their project path, still working.
+ * Deleting a worktree row: the topics bound to it keep their Claude session
+ * (the CLI resumes by id from any cwd) and degrade to their project path.
  * @covers WORKTREE-03, WORKTREE-14
  */
 import { describe, expect, test, beforeEach } from "bun:test";
@@ -12,9 +12,9 @@ import { createWorktreeStore } from "./worktree-store";
 //   topics.worktree_id       → worktrees(id)      ON DELETE SET NULL
 //   claude_code_sessions.session_key → topics(session_key) ON DELETE CASCADE
 // With foreign_keys ON, deleting a worktree row nulls the topic's worktree_id
-// but leaves the (now unresumable) claude_code_sessions row behind — that
-// leftover is exactly what freezes the topic on its last turn. worktree-store's
-// delete() must forget those sessions in the same step.
+// and leaves the claude_code_sessions row behind — that
+// row is KEPT on purpose: the transcript lives under ~/.claude/projects and the
+// CLI resumes it from the project folder, so the chat keeps its conversation.
 function seedDb(): Database {
   const db = new Database(":memory:");
   db.run("PRAGMA foreign_keys = ON");
@@ -83,13 +83,13 @@ function sessionKeys(): string[] {
     .map((r: any) => r.session_key);
 }
 
-describe("worktreeStore.delete — reap forgets orphaned sessions", () => {
-  test("forgets the Claude session of every topic bound to the reaped worktree", () => {
+describe("worktreeStore.delete — reap keeps the conversation", () => {
+  test("keeps the Claude session of every topic bound to the reaped worktree", () => {
     const store = createWorktreeStore(db);
     expect(store.delete("wt1")).toBe(true);
 
-    // The bound topic's session pointer is gone (would be unresumable anyway).
-    expect(sessionKeys()).toEqual(["topic:t2", "topic:t3"]);
+    // The bound topic keeps its session pointer: the next turn resumes it from the project.
+    expect(sessionKeys()).toEqual(["topic:t1", "topic:t2", "topic:t3"]);
     // The worktree row itself is gone.
     expect(db.prepare("SELECT id FROM worktrees WHERE id = 'wt1'").get()).toBeNull();
   });
@@ -110,7 +110,7 @@ describe("worktreeStore.delete — reap forgets orphaned sessions", () => {
     const store = createWorktreeStore(db);
     store.delete("wt1");
     // ON DELETE SET NULL: the topic is NOT deleted, just unbound — the next
-    // turn spawns fresh in the base project (seeded with the DB history recap).
+    // turn resumes its session in the base project.
     const row: any = db.prepare("SELECT worktree_id FROM topics WHERE id = 't1'").get();
     expect(row).not.toBeNull();
     expect(row.worktree_id).toBeNull();
