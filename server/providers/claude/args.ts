@@ -285,10 +285,15 @@ export const IMAGE_READ_GUARD_SETTINGS: { hooks: HooksBlock } = {
 export function delegationHookSettings(scriptPath: string): { hooks: HooksBlock } {
   return {
     hooks: {
-      PostToolUse: [{ hooks: [{ type: "command", command: `"${scriptPath}"`, timeout: 3 }] }],
+      // Only the tools the counter reads: the CLI does not even start the
+      // script on an Edit, and the wildcard matcher stays Topics' own.
+      PostToolUse: [{ matcher: DELEGATION_HOOK_MATCHER, hooks: [{ type: "command", command: `"${scriptPath}"`, timeout: 3 }] }],
     },
   };
 }
+
+/** Inline work plus the delegation tools, as one CLI matcher (a regex on the tool name). */
+export const DELEGATION_HOOK_MATCHER = "Bash|Read|Grep|Glob|Agent|Task|mcp__topics__run_command|mcp__topics__read_process_output|mcp__topics__spawn_agent";
 
 /** Quale dei due tagli applicare. Il perché sta accanto a `toolTrim`. */
 export type ToolTrim = "chat" | "dispatched";

@@ -7,11 +7,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  createDelegationTracker, delegationHookScript, delegationPolicy, DELEGATION_NUDGE,
+  createDelegationTracker, delegationHookScript, delegationPolicy, DELEGATION_NUDGE, DELEGATION_TOOL, INLINE_WORK_TOOL,
 } from "./delegation-policy";
 import { topicsAgentSystemPrompt } from "./topics-agent-prompt";
 import { nativeSystemPrompt } from "../providers/native/provider";
-import { buildClaudeArgs } from "../providers/claude/args";
+import { buildClaudeArgs, DELEGATION_HOOK_MATCHER } from "../providers/claude/args";
 
 const BIG = 200_000;
 
@@ -88,6 +88,16 @@ describe("CLI hook", () => {
     expect(nudge).toBeDefined();
     expect(nudge.async).toBeUndefined();
     expect(post.some((h: { command: string }) => h.command.includes("post-hook.sh"))).toBe(true);
+  });
+
+  test("the CLI matcher lets through exactly the tools the counter reads", () => {
+    const matcher = new RegExp(`^(${DELEGATION_HOOK_MATCHER})$`);
+    const cliNames = ["Bash", "Read", "Grep", "Glob", "Agent", "Task", "Edit", "Write", "TodoWrite", "WebFetch",
+      "mcp__topics__run_command", "mcp__topics__read_process_output", "mcp__topics__spawn_agent", "mcp__topics__update_goal_steps"];
+    for (const name of cliNames) {
+      const counted = INLINE_WORK_TOOL.test(name) || DELEGATION_TOOL.test(name);
+      expect([name, matcher.test(name)]).toEqual([name, counted]);
+    }
   });
 
   test("the generated script counts per session and answers with additionalContext", () => {
