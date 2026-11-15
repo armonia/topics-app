@@ -2066,6 +2066,13 @@ export interface DispatchCapacity {
    * the door open), or no reading (an old server): no verdict is drawn then.
    */
   admission?: DispatchAdmission | null;
+  /**
+   * Every overflow-reachable machine (the cloud row and paired nodes), with
+   * its declared seats and how many it is carrying now: lets a client tell
+   * "the Mac is full" apart from "the Mac is full AND there is nowhere else
+   * to send a card". Absent = no dispatcher, or an older server.
+   */
+  nodes?: { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[];
 }
 
 /**

@@ -86,7 +86,8 @@ export function system(p: VoicePersona, now: string): string {
     `Per ciò che richiede gli strumenti di ${assistant} (mail, calendario, file, messaggi, il computer, i lavori e le sessioni ` +
     "in corso, lo stato di qualcosa, ricerche sul web, dati di oggi, codice, chiamare qualcuno, correggere una cosa che " +
     `${assistant} ha fatto, valutare un documento) metti in «affida» il compito spiegato per intero, con il contesto della ` +
-    "telefonata, e in «di» tre o quattro parole («Ci guardo subito»). Il risultato arriva più tardi, anche minuti, e " +
+    "telefonata, e in «di» tre o quattro parole («Ci guardo subito»; se non sai ancora se si può fare, «Vedo se si può»: " +
+    "mai promettere l'esito prima del risultato). Il risultato arriva più tardi, anche minuti, e " +
     `${name} lo riceve anche su ${p.channel}. Non riaffidare ciò che è già stato affidato e non è ancora tornato: digli che ` +
     "ci stai lavorando.\n" +
     "Se la richiesta è vaga («dimmi tu», «novità?», «dimmi tutto») chiedigli su cosa, invece di avviare un lavoro.\n" +
@@ -97,14 +98,22 @@ export function system(p: VoicePersona, now: string): string {
   );
 }
 
-export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string, uncertain = false): string {
+/** How sure the transcript is: "partial" = whisper heard nothing, "two" = two readings of a short phrase that do not agree. */
+export type Doubt = "none" | "partial" | "two";
+
+export function userTurn(dialog: Dialog, name: string, phrase: string, heard: string, doubt: Doubt = "none"): string {
   let t = "";
   const past = dialog.render();
   if (past) t += `La telefonata finora:\n${past}\n\n`;
-  t += `${name} adesso ha detto: «${phrase.trim()}»`;
   const h = heard.trim();
+  if (doubt === "two") {
+    t += `${name} adesso ha detto una frase corta, sentita in due modi: «${phrase.trim()}» oppure «${h}».`;
+    t += "\n(Prendi la lettura che ha senso nel discorso; se nessuna ne ha, chiedigli in breve di ripetere. Non ripetere ad alta voce una parola che non ha senso.)";
+    return t;
+  }
+  t += `${name} adesso ha detto: «${phrase.trim()}»`;
   if (h && h.toLowerCase() !== phrase.trim().toLowerCase()) t += ` (la voce aveva capito: «${h}»)`;
-  if (uncertain) t += "\n(Trascrizione incerta: dal telefono è arrivato solo questo, il resto non si è sentito. Se non basta a capire, chiedigli in breve di ripetere, senza tirare a indovinare.)";
+  if (doubt === "partial") t += "\n(Trascrizione incerta: dal telefono è arrivato solo questo, il resto non si è sentito. Se non basta a capire, chiedigli in breve di ripetere, senza tirare a indovinare.)";
   return t;
 }
 
@@ -207,7 +216,7 @@ export function ackPrompt(phrase: string): [string, string] {
       "generica («Un attimo, vediamo», «Ci guardo subito»): mai inventare cosa controlli (lo schermo, i log, il sistema), " +
       "mai ripetere una parola che non ha senso (è il telefono che l'ha sentita male). «Hai ragione» solo se si lamenta " +
       "di te (aspetta da troppo, non hai capito, ti sei ripetuto): «Hai ragione, ci sto lavorando». Una domanda, anche " +
-      "insistente, non è una lamentela. Mai la risposta, mai numeri, nomi o fatti. " +
+      "insistente, non è una lamentela («spiegami cosa farai», «lo fai adesso?» → «Te lo spiego subito»). Mai la risposta, mai numeri, nomi o fatti. " +
       "Solo la frase.",
     `Ti ha detto: «${phrase.trim()}»`,
   ];

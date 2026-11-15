@@ -312,6 +312,10 @@ export function writeSplitRow(
       putToolOutputs(db, messageId, moved, stubbed, original);
     })();
   } catch (err) {
+    // A busy database refuses the whole-row rewrite too, after a second
+    // busy_timeout of stalled event loop. Let the caller decide when to retry.
+    const code = (err as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw err;
     warnThrottled("tool-output-store:write", `[tool-outputs] message ${messageId}: output kept in the row:`, err);
     writeRow(col.whole());
   }

@@ -361,6 +361,8 @@ export class Call extends CallAudio {
       return;
     }
     if (this.ended) return;
+    // whisper down ("\0") says nothing about the line: better a voice assumed than a goodbye over it
+    if (w !== "") this.present();
     if (w === "" || w === "\0") {
       if (w === "") this.emptySeq = seq;
       this.deps.log("whisper_vuoto", { frase: seq, errore: w !== "" });

@@ -33,6 +33,7 @@ import { childPhase, cliChildPhaseNow, noteChildSeeded, reportNativeChildTurn, r
 import { onTurnEnd, onTurnStart, type TurnStartMeta } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
 import { profileInstructions, type AgentProfile } from "./agent-profiles";
+import { isSqliteBusy, writeWhenFree } from "./sqlite-busy";
 import { engineToolsOfProfile } from "./subagent-tool-policy";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -726,8 +727,19 @@ function closeTurn(id: string, completed: boolean): void {
   runtimeOf(id).phase = "finished";
   const topic = retiredNow && completed ? deps?.getTopicBySessionKey(row.sessionKey) : null;
   if (deps && topic && !topic.archived && !isSubagentEngaged(db, id)) {
-    if (deps.archive) deps.archive(topic);
-    else deps.saveTopic({ ...topic, archived: true, updatedAt: new Date().toISOString() }, false);
+    // The state above is already `retired`, so no later tick would come back
+    // for the archive: a busy refusal is retried on its own.
+    // A retry reads the topic again, so a late one never writes back a stale copy.
+    const d = deps;
+    const sessionKey = row.sessionKey;
+    let first = true;
+    writeWhenFree(`archive of child ${id}`, () => {
+      const now = first ? topic : d.getTopicBySessionKey(sessionKey);
+      first = false;
+      if (!now || now.archived || isSubagentEngaged(getDatabase(), id)) return;
+      if (d.archive) d.archive(now);
+      else d.saveTopic({ ...now, archived: true, updatedAt: new Date().toISOString() }, false);
+    });
   }
 }
 
@@ -763,9 +775,26 @@ function watchWaitingChild(id: string, completed: boolean): void {
     // A turn of its own is open or being reported: that path closes it.
     if (driving.has(id) || adopting.has(id) || openTurn.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) return;
     if (stillWorkingFor(row.sessionKey)) return;
-    stopWatchingChild(id);
     // Its last turn was reported already: nothing new to say, only the slot to free.
-    closeTurn(id, completed);
+    // CLOSE FIRST, STOP WATCHING AFTER. A busy database refuses the close: the
+    // child is still `running`, so this interval is what tries again on its
+    // next tick. Stopping first left it `running` for good, and the throw went
+    // out of the interval to the net that takes the server down.
+    try {
+      closeTurn(id, completed);
+    } catch (err) {
+      if (!isSqliteBusy(err)) throw err;
+      d.log?.(`close of waiting child ${id}: database busy, tried again on the next tick`);
+      return;
+    }
+    // The store swallows its own write errors, so a busy `setSubagentState`
+    // does not throw: it leaves the row `running`. Read it back, and keep
+    // watching until the close is really on the row.
+    if (getSubagent(getDatabase(), id)?.state === "running") {
+      d.log?.(`close of waiting child ${id}: the row is still running, tried again on the next tick`);
+      return;
+    }
+    stopWatchingChild(id);
   }, deps.waitPollMs ?? 5_000);
   (timer as { unref?: () => void }).unref?.();
   waitWatches.set(id, timer);

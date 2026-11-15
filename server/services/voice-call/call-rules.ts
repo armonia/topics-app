@@ -195,6 +195,20 @@ export function onlyListening(text: string): boolean {
   return words.length > 0 && words.length <= 4 && words.every((w) => LISTENING.has(w));
 }
 
+/**
+ * Two readings of a short phrase with no word in common: neither can be trusted
+ * alone. On 14/11 "Dimmi tu" was "limitato" and "Dimitro" for whisper and right
+ * for Gemini, on 12/11 the other way round.  allow-italian: the quoted phrases are the real ones
+ */
+export function readingsDiffer(whisper: string, gemini: string): boolean {
+  const words = (t: string): string[] => t.toLowerCase().split(/[^\p{L}]+/u).filter(Boolean);
+  const w = words(whisper);
+  const g = words(gemini);
+  if (w.length === 0 || w.length > 3 || g.length === 0) return false;
+  const stem = (x: string): string => [...x].slice(0, 4).join("");
+  return w.filter((x) => g.some((y) => stem(y) === stem(x))).length * 2 < w.length;
+}
+
 /** "Wait a moment", "one second, I am looking for it": a silence they asked for. */
 export function asksToWait(text: string): boolean {
   return /\b(un attimo|un attimino|un secondo|un momento|aspetta|aspettami|attendi|resta in linea)\b/i.test(text);
