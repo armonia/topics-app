@@ -3146,9 +3146,20 @@ static HUB_PROCS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None)
 /// `tray_menu_native::decorate` gives it its image or its columns once the menu is installed.
 #[cfg(target_os = "macos")]
 fn hub_rich_item(app: &tauri::AppHandle, node: &tray_menu::Node) -> Option<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
+    hub_leaf(app, node, "")
+}
+
+/// Any node as a system item; `prefix` is the icon marker `tray_menu_native::decorate` turns into an image.
+#[cfg(target_os = "macos")]
+fn hub_leaf(app: &tauri::AppHandle, node: &tray_menu::Node, prefix: &str) -> Option<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
     use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
     static ROW_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let (title, id, enabled, children): (String, String, bool, &[tray_menu::Node]) = match node {
+        tray_menu::Node::Icon { icon, node } => return hub_leaf(app, node, &format!("{prefix}{}", tray_menu_native::icon_mark(icon))),
+        tray_menu::Node::Item { id, label, enabled } => {
+            (tray_label(label), if id.is_empty() { format!("note:{label}") } else { id.clone() }, *enabled, &[])
+        }
+        tray_menu::Node::Sub { label, children } => (tray_label(label), String::new(), true, children),
         tray_menu::Node::Card { key, png, w, h, children } => {
             (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
         }
@@ -3156,9 +3167,10 @@ fn hub_rich_item(app: &tauri::AppHandle, node: &tray_menu::Node) -> Option<Box<d
             let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             (tray_menu_native::register_row(n, cells, *header), if id.is_empty() { format!("row:{n}") } else { id.clone() }, true, children)
         }
-        _ => return None,
+        tray_menu::Node::Sep => return None,
     };
-    if children.is_empty() {
+    let title = format!("{prefix}{title}");
+    if children.is_empty() && !matches!(node, tray_menu::Node::Sub { .. }) {
         let it = MenuItemBuilder::with_id(id, title).enabled(enabled).build(app).ok()?;
         return Some(Box::new(it));
     }
@@ -3363,7 +3375,10 @@ fn rebuild_tray_menu(app: &tauri::AppHandle) {
             // nativo e della sidebar, non gesti nuovi.
             if rich {
                 // Same three closing rows as the original tray, with its shortcuts.
-                let row = |id: &str, title: &str, key: &str| MenuItemBuilder::with_id(id, title).accelerator(key).build(app);
+                let row = |id: &str, title: &str, key: &str| {
+                    let symbol = match id { "tray-show" => "macwindow", "tray-refresh" => "arrow.clockwise", _ => "power" };
+                    MenuItemBuilder::with_id(id, format!("{}{title}", tray_menu_native::icon_mark(&format!("sf:{symbol}")))).accelerator(key).build(app)
+                };
                 if let (Ok(open), Ok(refresh), Ok(quit)) = (row("tray-show", "Apri Topics", "CmdOrCtrl+D"), row("tray-refresh", "Aggiorna", "CmdOrCtrl+R"), row("tray-quit", "Esci", "CmdOrCtrl+Q")) {
                     mb = mb.item(&open).item(&refresh).item(&quit);
                 }

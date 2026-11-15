@@ -112,7 +112,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
-    m.push(sub("Altri abbonamenti e opzioni", more));
+    m.push(crate::tray_menu::with_icon("sf:slider.horizontal.3", sub("Altri abbonamenti e opzioni", more)));
     m.extend(automation_nodes(&snap.automations, now, local_offset_secs()));
     if let Some(b) = snap.backup.as_deref().and_then(|b| backup_card(b, now)) {
         m.push(Node::Sep);
@@ -120,7 +120,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     }
     // this menu is only drawn while the service answers, so its dashboard is always one click away
     m.push(Node::Sep);
-    m.push(item("dashboard-open", "Apri dashboard"));
+    m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
     m
 }
 
