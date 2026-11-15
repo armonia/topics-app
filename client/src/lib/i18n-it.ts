@@ -2309,6 +2309,8 @@ const IT: Dict = {
   'board.composer.sendTodoTitle': "Crea il task in Todo (l'agent parte da lì)",
   'board.composer.sendBacklogTitle': 'Crea il task in Backlog (non parte nessun agent)',
   'common.project': 'Progetto',
+  'chat.reserve.continue': 'Continua sulla riserva',
+  'chat.reserve.continueTitle': "Resta solo l'ultimo abbonamento: lo sblocca fino al primo azzeramento e rimanda il messaggio",
   'chat.turnError.details': 'Dettagli tecnici',
   'chat.turnError.copy': 'Copia i dettagli',
   'chat.turnError.detailsTruncated': 'Dettagli tecnici (payload salvato troncato)',
