@@ -78,6 +78,14 @@ describe("heavy slot broker", () => {
     expect(broker.request({ label: "a" }).state).toBe("waiting");
   });
 
+  test("cpu over the ceiling holds even the first request", () => {
+    const { broker, state } = rig({ availableMemGB: 20, cpuPct: 95 });
+    expect(broker.request({ label: "a" }).state).toBe("waiting");
+    state.pressure = { availableMemGB: 20, cpuPct: 10 };
+    const again = broker.status().waiting[0]!;
+    expect(broker.request({ label: "a", id: again.id }).state).toBe("granted");
+  });
+
   test("a waiter that stops polling leaves the line", () => {
     const { broker, state } = rig(undefined, 1);
     broker.request({ label: "a" });

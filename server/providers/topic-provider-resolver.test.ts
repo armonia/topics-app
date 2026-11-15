@@ -4,7 +4,7 @@
  * @covers AICTRL-01, MSEL-06
  */
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { createTopicProviderResolver, topicsNativeModels } from './topic-provider-resolver';
 import type { ProvidersSnapshot } from '../../shared/types';
@@ -69,7 +69,11 @@ describe('il registry produttivo porta i modelli del motore nativo', () => {
 
 it('il registry di topics.ts passa da questa fabbrica, mai da un resolver nudo', () => {
   // Secondario: sopra si prova che il cancello morde, qui che la produzione lo monta. Asserzioni su booleani perche' un `toContain` fallito stamperebbe 3000 righe nel log. allow-italian: dice il confine di questa prova e perche' e' scritta cosi'
-  const source = readFileSync(join(import.meta.dir, '../routes/topics.ts'), 'utf8');
+  const routes = join(import.meta.dir, '../routes');
+  const source = readFileSync(join(routes, 'topics.ts'), 'utf8');
   expect(source.includes('createTopicProviderResolver')).toBe(true);
-  expect(/resolveTopicProvider\s*\(/.test(source)).toBe(false);
+  // The router is split into topics-*.ts siblings: a bare resolver in any of them is the same hole.
+  const siblings = readdirSync(routes).filter((f) => /^topics(-[\w-]+)?\.ts$/.test(f));
+  expect(siblings.length).toBeGreaterThan(1);
+  for (const f of siblings) expect(/resolveTopicProvider\s*\(/.test(readFileSync(join(routes, f), 'utf8'))).toBe(false);
 });
