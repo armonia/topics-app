@@ -92,6 +92,17 @@ describe('a partial output writes only on a row still running', () => {
     // No status yet reads as pending, which is running for the row too.
     expect(withPartialResult(row(undefined, ''), 'test 1').result).toBe('test 1');
   });
+
+  test('an open question keeps its status and form through a partial and a re-announcement', () => {
+    const open: ToolCall = {
+      id: 'tu_open', name: 'ask_user_question', args: {}, status: 'waiting_for_input',
+      userInputSchema: { kind: 'questions', questions: [] },
+    };
+    expect(withPartialResult(open, 'late tail')).toBe(open);
+    const kept = withToolAnnouncement(open, { ...open, status: 'running' });
+    expect(kept.status).toBe('waiting_for_input');
+    expect(kept.userInputSchema).toBe(open.userInputSchema);
+  });
 });
 
 describe('a stale answer does not reopen a tool that returned', () => {
