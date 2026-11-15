@@ -188,6 +188,20 @@ describe("writeSplitRow", () => {
     expect(parsedRow(d, "other")).toEqual(blocks);
   });
 
+  test("a busy database is not retried in place: the refusal goes to the caller after one attempt", () => {
+    const d = db();
+    const col = blocksColumn([shell("t1", big("o"))], true);
+    let calls = 0;
+    const busy = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+    expect(() =>
+      writeSplitRow(d, "m1", col, () => {
+        calls++;
+        throw busy;
+      }),
+    ).toThrow(busy);
+    expect(calls).toBe(1);
+  });
+
   test("a stored body that does not rebuild the row rolls the split back", () => {
     const d = db();
     const blocks = [shell("t1", big("o"))];
