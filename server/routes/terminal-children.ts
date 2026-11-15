@@ -52,7 +52,27 @@ configureSubagentRuntime({
   },
   broadcast: () => broadcastTerminalSessions(),
   handler: () => subAgentExitHandler,
+  machineRoom: () => childMachineRoom(),
 });
+
+/**
+ * Il posto di un figlio in più, deciso dalla memoria e non da un numero:
+ * l'ammissione delle card prezzata per un figlio, letta SOLO sui suoi assi di
+ * memoria (`floor` = pavimento di RAM e disco, `memory` = quota del libero).
+ * La CPU no: un figlio nativo passa il turno ad aspettare il modello, e un
+ * carico alto del Mac non deve tornare a fare da tetto fisso sotto altro nome.
+ */
+function childMachineRoom(): { admit: boolean; reason: string } | null {
+  const a = childAdmissionPreview?.() ?? null;
+  if (!a || a.admit || (a.blockedBy !== "memory" && a.blockedBy !== "floor")) return a ? { admit: true, reason: "" } : null;
+  const gb = (n: number | null | undefined) => (typeof n === "number" ? `${n.toFixed(1)} GB` : "?");
+  const reason = a.blockedBy === "floor"
+    ? (a.reason ?? "memory or disk floor")
+    : a.memClause === "footprint"
+      ? `Topics holds ${gb(a.ourMemGB)} of its ${gb(a.usableMemGB)} ceiling`
+      : `a child needs ${gb(a.costMemGB)}, ${gb(a.freeQuotaMemGB)} free for Topics`;
+  return { admit: false, reason };
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────

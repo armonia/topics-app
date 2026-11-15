@@ -60,6 +60,12 @@ export interface SubagentRuntimeDeps {
   broadcast(): void;
   /** Where a result for a chat parent goes (`setSubAgentExitHandler`). */
   handler(): ((info: SubAgentExitInfo) => void) | null;
+  /**
+   * The machine's answer for ONE more child: the dispatcher's gate priced for
+   * a sub-agent (`childAdmissionPreview`). Null or absent = the machine cannot
+   * be measured, which lets the child through, as the dispatcher does.
+   */
+  machineRoom?(): { admit: boolean; reason: string } | null;
 }
 
 let configured: SubagentRuntimeDeps | null = null;
@@ -499,8 +505,17 @@ function sweepDormantChildRows(now = Date.now()): void {
 }
 
 
-/** Max live sub-agents on the whole machine (choice 4): every child is one more Claude CLI in RAM. */
-const MAX_LIVE_SUBAGENTS = 6;
+/**
+ * Il tetto dei figli su tutta la macchina non è più un numero: è la memoria.
+ *
+ * Era 6 (scelta 4 di subagent-tool-standard, 01/10) quando ogni figlio era
+ * una CLI di Claude da ~300 MB. Dal 04/10 i figli girano sul motore e pesano
+ * 40-60 MB: il 15/11 sei figli nativi, uno dei quali al lavoro da sei ore,
+ * tenevano tutti i posti con 22 GB liberi, e ogni chat che delegava riceveva
+ * un 429. Ora decide la stessa ammissione delle card, prezzata per un figlio
+ * (`machineRoom`). Contro un genitore che si riproduce restano i 5 figli per
+ * genitore e la profondità 2.
+ */
 
 /**
  * Why a new child of `parentKey` cannot start, or null (SUBAGENT-15). Counted
@@ -517,10 +532,10 @@ export function subagentLimitRefusal(parentKey: string, live: { depth: number; c
   }
   const mine = new Set([...runningSubagents(db, parentKey).map((r) => r.id), ...live.childIds]);
   if (mine.size >= MAX_CHILDREN_PER_PARENT) return `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`;
-  const all = runningSubagents(db);
-  if (all.length >= MAX_LIVE_SUBAGENTS) {
-    const holders = all.map((r) => `"${r.name}" (${r.parentSessionKey})`).join(", ");
-    return `machine-wide limit of ${MAX_LIVE_SUBAGENTS} live sub-agents reached; holding the slots: ${holders}. Stop one with stop_agent, or wait for one to finish.`;
+  let room: { admit: boolean; reason: string } | null = null;
+  try { room = configured?.machineRoom?.() ?? null; } catch { /* unmeasurable: lets it through */ }
+  if (room && !room.admit) {
+    return `no memory for another sub-agent right now (${room.reason}; ${runningSubagents(db).length} live). Wait for one to finish, or stop one with stop_agent.`;
   }
   return null;
 }
