@@ -4661,6 +4661,9 @@
       "titolo",
       "titoloMigliore"
     ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
+    ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
       "fuori"

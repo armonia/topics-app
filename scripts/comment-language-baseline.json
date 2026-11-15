@@ -1356,6 +1356,8 @@
     "server/services/task-tab-teardown.ts": 71,
     "server/services/task-title.test.ts": 21,
     "server/services/task-title.ts": 54,
+    "server/services/tasks-checks.ts": 11,
+    "server/services/tasks-service-types.ts": 215,
     "server/services/tasks-test-db.test.ts": 19,
     "server/services/tasks-test-db.ts": 17,
     "server/services/tasks.archive-restore.test.ts": 9,
