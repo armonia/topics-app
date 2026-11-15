@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.11",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.10",
     "date": "2026-11-15",
     "sections": {
