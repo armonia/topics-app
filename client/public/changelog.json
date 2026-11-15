@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.3",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "job con Playwright fissati a ubuntu-24.04 (#1049)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.2",
     "date": "2026-11-15",
     "sections": {
