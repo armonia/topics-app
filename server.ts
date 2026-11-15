@@ -1919,6 +1919,18 @@ const cloudNode = createCloudNodeClient({
   },
   statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
 });
+// ONE road to a node for everything that talks to one: the card lane below and
+// the sub-agent routes (`ctx.remoteNode`). The «Cloud Claude» machine answers on
+// the sessions API with its own token, never on a paired Topics with a token file.
+const remoteNodeRoad = {
+  readRun: (input: Parameters<typeof nodeClient.readRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+  cancelRun: (input: Parameters<typeof nodeClient.cancelRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
+  baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+  tokenOf: (machineId: string) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
+    ? CLOUD_NODE_TOKEN
+    : readNodeToken(ctx.STATE_DIR, machineId),
+};
+ctx.remoteNode = remoteNodeRoad;
 const cloudEnabled = cloudCredentialsPresent();
 if (cloudEnabled) {
   // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
@@ -2329,13 +2341,11 @@ const taskDispatcher = createTaskDispatcher({
   // Claude Code sessions API (`providers/claude-cloud/node.ts`), never to a paired Topics.
   node: {
     createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
-    readRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+    readRun: remoteNodeRoad.readRun,
     fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
-    cancelRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
-    baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-    tokenOf: (machineId) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
-      ? CLOUD_NODE_TOKEN
-      : readNodeToken(ctx.STATE_DIR, machineId),
+    cancelRun: remoteNodeRoad.cancelRun,
+    baseUrlOf: remoteNodeRoad.baseUrlOf,
+    tokenOf: remoteNodeRoad.tokenOf,
     delegatedTokenOf: (machineId, capabilityId) =>
       readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,

@@ -14,6 +14,9 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
+import { stopRemoteChild } from "../lib/subagent-remote-stop";
+import { emptyRemoteChildLog, readRemoteChild, type RemoteChildLog } from "../lib/subagent-remote-read";
+import { readNodeToken } from "../services/node-client";
 import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
@@ -95,6 +98,25 @@ const idempotencyCache = createIdempotencyCache();
 
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
+  // The road to a child's run on a node: the server's own (`ctx.remoteNode`,
+  // «Cloud Claude» included) once it is wired, read at each call because the
+  // server wires it after this router is built. Without it, a paired Topics
+  // node through its token file, the only kind a bare context knows.
+  const remoteRoad = () => ctx.remoteNode ?? {
+    baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+    tokenOf: (machineId: string) => readNodeToken(ctx.STATE_DIR, machineId),
+    readRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["readRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.readRun(input)
+      : Promise.reject(new Error("no node client configured")),
+    cancelRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["cancelRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.cancelRun(input)
+      : Promise.reject(new Error("no node client configured")),
+  };
+  // One log per remote child run, the output `read_agent` pages through by
+  // index (`subagent-remote-read.ts`). In memory: a restart starts each log
+  // again from what the node still reports, which is all of it on a paired
+  // Topics and the pending part on the cloud.
+  const remoteChildLogs = new Map<string, RemoteChildLog>();
   setTerminalBroadcast(ctx.broadcastToAll);
   setTerminalWorktreeStore(ctx.worktreeStore);
   if (tracker) setTerminalTracker(tracker);
@@ -852,6 +874,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         {
           // A native child: the next turn of its chat, whatever its state.
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): the node's run is one-shot, same as a card's — there is no
+          // "send more input" on it, so this is a clear refusal, not a 404.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            return errorResponse(409, `sub-agent "${row.name}" runs on a paired node: it cannot take more input mid-run, stop it and spawn a new one`);
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             if (!input) return errorResponse(400, "input (string) is required");
@@ -931,6 +960,25 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(readM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): its output is the node's own report on the run, not a local
+          // transcript.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            const since = Number(url.searchParams.get("since") || "0");
+            const logKey = `${row.remoteMachineId}:${row.remoteRunId}`;
+            const log = remoteChildLogs.get(logKey) ?? emptyRemoteChildLog();
+            remoteChildLogs.set(logKey, log);
+            const result = await readRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              log,
+              since,
+              ...remoteRoad(),
+            });
+            if (!result.ok) return errorResponse(502, result.reason);
+            return json(result);
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));
@@ -963,6 +1011,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(stopM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): no local process to stop, no native chat either — `cancelRun`
+          // there is the whole of "stop" for it.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            await stopRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              ...remoteRoad(),
+            });
+            remoteChildLogs.delete(`${row.remoteMachineId}:${row.remoteRunId}`);
+            setSubagentState(getDatabase(), agentId, "stopped");
+            return json({ ok: true, branch: row.branch });
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             await stopNativeChild(row, { archive: true });
