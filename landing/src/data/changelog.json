@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.3",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "the cpu ceiling holds even the first request",
+          "scope": "heavy-slot"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.3.108",
     "date": "2026-11-14",
     "sections": {

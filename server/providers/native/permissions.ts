@@ -30,11 +30,38 @@
  * riga di configurazione non deve poter lanciare `rm -rf`.
  */
 
+import { isAbsolute, relative, resolve } from "path";
+import { tmpdir } from "os";
 import type { AutonomyLevel } from "../../../shared/types";
 
 export type ToolDecision =
   | { allow: true }
   | { allow: false; reason: string };
+
+/**
+ * What THIS turn may remove or overwrite beyond the generic `/tmp` exception
+ * below: its own scratch folder, and whatever it already created.
+ *
+ * Both fields are paths the CALLER resolved (`agent-loop.ts`, which knows the
+ * tool's cwd); `decide` only compares strings, it never touches the
+ * filesystem, so a target that does not exist yet is judged the same as one
+ * that does.
+ */
+export type TurnScope = {
+  tempDir?: string;
+  createdPaths?: ReadonlySet<string>;
+};
+
+/** `/tmp/topics-turn-<id>`, one per call to `runAgentTurn`. */
+export function turnTempDir(turnId: string): string {
+  return resolve(tmpdir(), `topics-turn-${turnId}`);
+}
+
+/** True when the absolute path `abs` sits inside (or is) `dir`. */
+function insideDir(abs: string, dir: string): boolean {
+  const rel = relative(resolve(dir), abs);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 /** Il livello di chi non ha scelto. Vedi l'intestazione: non è `yolo`. */
 export const DEFAULT_AUTONOMY: AutonomyLevel = "auto-apply";
@@ -92,22 +119,68 @@ const RM_ROOT = /\brm\s+.*(\s|^)(\/|~|\$HOME)(\s|$)/;
 const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders)\/[^\s]+$/;
 
 /**
- * Returns the reason when an `rm` segment is dangerous, otherwise null.
- * An rm whose targets all sit under a temp root (no `..`) only removes the
- * turn's own temporaries, so it passes.
+ * True when `target` is something this turn is allowed to remove: a path
+ * under the generic `/tmp`-style roots, under THIS turn's own temp folder, or
+ * a path this turn itself created (tracked in `scope.createdPaths`).
+ *
+ * Relative targets (no leading `/`) never qualify: `decide` has no cwd to
+ * resolve them against, and guessing one would be the widening this guard
+ * exists to avoid.
  */
-function rmReason(segment: string): string | null {
+function targetAllowed(target: string, scope?: TurnScope): boolean {
+  if (target.includes("..")) return false;
+  if (TEMP_ROOT.test(target)) return true;
+  if (!isAbsolute(target)) return false;
+  const abs = resolve(target);
+  if (scope?.tempDir && insideDir(abs, scope.tempDir)) return true;
+  if (scope?.createdPaths?.has(abs)) return true;
+  return false;
+}
+
+/**
+ * Returns the reason when an `rm` segment is dangerous, otherwise null.
+ * An rm whose targets all sit under a temp root, the turn's own temp folder,
+ * or files the turn created, only removes what the turn owns, so it passes.
+ */
+function rmReason(segment: string, scope?: TurnScope): string | null {
   const forced = RM_FORCED.test(segment);
   const root = RM_ROOT.test(segment);
   if (!forced && !root) return null;
   const args = segment.slice(segment.search(/\brm\b/)).split(/\s+/).slice(1);
   const targets = args.filter((a) => !a.startsWith("-"));
   const unquoted = targets.map((t) => t.replace(/^["']|["']$/g, ""));
-  const allTemp =
-    unquoted.length > 0 &&
-    unquoted.every((t) => TEMP_ROOT.test(t) && !t.includes(".."));
-  if (allTemp) return null;
+  const allOwned = unquoted.length > 0 && unquoted.every((t) => targetAllowed(t, scope));
+  if (allOwned) return null;
   return root ? "rm sulla radice o sulla home" : "rm ricorsivo o forzato";
+}
+
+const MKDIR_CALL = /\bmkdir\b([^;&|\n]*)/g;
+const WORKTREE_ADD_CALL = /\bgit\s+worktree\s+add\s+([^;&|\n]*)/g;
+
+/**
+ * Best-effort paths a successful `bash` call just created, absolute and
+ * resolved against `cwd`: `mkdir` (any flags, any number of targets) and
+ * `git worktree add` (the path argument, skipping its own flags).
+ *
+ * This is NOT a shell parser — quoting, substitution and `&&` chains inside a
+ * single segment can still fool it — so it only WIDENS what `targetAllowed`
+ * accepts, never narrows: missing a path here just means that path stays
+ * closed to a later `rm`, the safe direction to be wrong in.
+ */
+export function pathsCreatedBy(command: string, cwd: string): string[] {
+  const found: string[] = [];
+  for (const m of command.matchAll(MKDIR_CALL)) {
+    for (const arg of m[1]!.trim().split(/\s+/)) {
+      if (!arg || arg.startsWith("-")) continue;
+      found.push(isAbsolute(arg) ? resolve(arg) : resolve(cwd, arg));
+    }
+  }
+  for (const m of command.matchAll(WORKTREE_ADD_CALL)) {
+    const args = m[1]!.trim().split(/\s+/);
+    const path = args.find((a) => !a.startsWith("-"));
+    if (path) found.push(isAbsolute(path) ? resolve(path) : resolve(cwd, path));
+  }
+  return found;
 }
 
 /**
@@ -121,6 +194,7 @@ export function decide(
   tool: string,
   input: Record<string, unknown>,
   level: AutonomyLevel = DEFAULT_AUTONOMY,
+  scope?: TurnScope,
 ): ToolDecision {
   if (READ_ONLY.has(tool)) return { allow: true };
 
@@ -139,7 +213,7 @@ export function decide(
   if (tool === "bash") {
     const cmd = String(input.command ?? "");
     for (const seg of cmd.split(/[;&|\n]+/)) {
-      const what = rmReason(seg);
+      const what = rmReason(seg, scope);
       if (what) {
         return {
           allow: false,
@@ -168,4 +242,25 @@ export function decide(
 /** Il livello di una topic, normalizzato. Un valore sconosciuto cade sul default. */
 export function levelFor(raw: string | null | undefined): AutonomyLevel {
   return raw === "ask" || raw === "auto-apply" || raw === "yolo" ? raw : DEFAULT_AUTONOMY;
+}
+
+/**
+ * The turn now owns what a SUCCESSFUL tool call just made, so a later `rm` on
+ * that path is cleanup of its own work (RT-07). Called by the loop after each
+ * non-error result; a failed write or `mkdir` created nothing to own.
+ */
+export function recordTurnCreatedPaths(
+  created: Set<string>,
+  tool: string,
+  input: Record<string, unknown>,
+  workspace: string,
+): void {
+  if (tool === "write_file" || tool === "edit_file") {
+    const raw = String(input.path ?? "");
+    if (raw) created.add(isAbsolute(raw) ? resolve(raw) : resolve(workspace, raw));
+  } else if (tool === "bash") {
+    const cwd = input.cwd ? String(input.cwd) : workspace;
+    const abs = isAbsolute(cwd) ? resolve(cwd) : resolve(workspace, cwd);
+    for (const p of pathsCreatedBy(String(input.command ?? ""), abs)) created.add(p);
+  }
 }
