@@ -2980,6 +2980,8 @@ const EN = {
   'board.card.createdByCron': 'schedule {name}',
   'board.card.createdByMe': 'you',
   'board.card.createdByApi': 'agent',
+  'board.card.channelTitle': "Jarvis's work from the {channel} channel «{name}». Click to open the channel chat.",
+  'board.card.channelJarvis': 'Jarvis',
   'board.card.createdByTitle': 'Opened by {who}. Whoever opened a card is who has to close it.',
   'board.card.incomplete': 'incomplete',
   'board.card.incompleteTitle': 'An agent opened this card without: {missing}',

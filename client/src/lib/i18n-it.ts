@@ -3335,6 +3335,8 @@ const IT: Dict = {
   'board.card.createdByCron': 'pianificazione {name}',
   'board.card.createdByMe': 'tu',
   'board.card.createdByApi': 'agente',
+  'board.card.channelTitle': 'Lavoro di Jarvis dal canale {channel} «{name}». Clicca per aprire la chat del canale.',
+  'board.card.channelJarvis': 'Jarvis',
   'board.card.createdByTitle': 'Aperta da {who}. Chi apre una card è chi deve chiuderla.',
   'board.card.incomplete': 'incompleta',
   'board.card.incompleteTitle': 'Un agente ha aperto questa card senza: {missing}',

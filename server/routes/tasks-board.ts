@@ -553,6 +553,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             createdSource: resolveCreatedSource(req, body),
             bar: typeof body?.bar === "string" ? body.bar : null,
             originTopicId: knownTopicId(ctx.db, body?.originTopicId ?? body?.origin_topic_id),
+            // The Jarvis channel chat the work is followed in: display only, no wake and no state move.
+            channelTopicId: knownTopicId(ctx.db, body?.channelTopicId ?? body?.channel_topic_id),
             // The workflow column it is born in; absent = the server decides.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
             // A card born in review: the question that lets it be born in Human review.

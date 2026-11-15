@@ -11,6 +11,9 @@ import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { DANGER_TEXT, POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { STATUS_CHIP } from '@/lib/statusVisual';
 import { MorphText } from '../Shared/MorphText';
+import { useToast } from '../Shared/Toast';
+import { channelChip } from './channelChip';
+import { ChannelChipView } from './ChannelChipView';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { showsStoppedChip } from './stoppedChip';
 import { DISPATCH_CHIP } from './constants';
@@ -51,6 +54,8 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
   titleDraft: string;
   tr: (key: string, vars?: Record<string, string | number>) => string;
 }) {
+  const toast = useToast();
+  const channel = task ? channelChip(task, tr) : null;
   return (
       <div className="border-b border-app-border px-3 py-3">
         {task?.parentTaskId && onOpenTask && (
@@ -99,6 +104,13 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
               // Same rule as the card, one module: `stoppedChip.ts`.
               <span className={`shrink-0 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`} title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
             ) : null}
+          </div>
+        )}
+        {/* The channel Jarvis follows this work in (Discord, WhatsApp): a line
+            of its own so the project name above never gives up width for it. */}
+        {channel && (
+          <div className="mb-1.5 flex min-w-0">
+            <ChannelChipView chip={channel} jarvis={tr('board.card.channelJarvis')} notify={toast.error} />
           </div>
         )}
         <Menu

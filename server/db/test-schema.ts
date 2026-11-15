@@ -182,6 +182,7 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261103130000: channel, display-only origin chat, acceptance bar, contract marker.
   created_source TEXT,
   origin_topic_id TEXT,
+  channel_topic_id TEXT,
   bar TEXT,
   created_missing TEXT,
   -- 20261110140000: when the dispatcher's "this Mac only" pin expires.
@@ -288,7 +289,7 @@ export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT);
+CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT, icon TEXT);
 CREATE TABLE IF NOT EXISTS machines (id TEXT PRIMARY KEY, base_url TEXT, slots INTEGER);
 ${APP_SETTINGS_DDL}
 ${TERMINAL_SESSIONS_DDL};

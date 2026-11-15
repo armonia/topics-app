@@ -14,6 +14,7 @@
  *
  * `tasks.ts` re-exports all four, so every existing import keeps working.
  */
+import type { ChannelKind } from "../../shared/channel-origin";
 import type { CheckRun } from "./review-checks";
 import type { TaskLabelRow } from "../../shared/task-labels";
 import type {
@@ -263,6 +264,12 @@ export interface Task {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
+  /**
+   * The Jarvis channel the work came from, only while that chat exists: the linked
+   * channel chat (`channel_topic_id`), else the opener chat when it is a channel chat.
+   * Display only: it grants nothing and wakes nothing.
+   */
+  channel?: { topicId: string; name: string; kind: ChannelKind };
   /**
    * The workflow column the card sits in when it is not the default one of its
    * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
@@ -517,6 +524,8 @@ export interface CreateTaskInput {
    * `createdByTopicId` it carries no power, so a caller may name it.
    */
   originTopicId?: string | null;
+  /** The Jarvis channel chat the work is followed in (`channel_topic_id`): DISPLAY only, wakes and moves nothing. */
+  channelTopicId?: string | null;
   /** The executable acceptance bar. */
   bar?: string | null;
   /**
@@ -580,6 +589,8 @@ export interface UpdateTaskPatch {
   bar?: string | null;
   /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */
   createdSource?: string | null;
+  /** The Jarvis channel chat the work is followed in, linked after birth; null clears. Display only. */
+  channelTopicId?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;
