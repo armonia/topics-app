@@ -321,12 +321,11 @@ describe("removeDirReporting", () => {
 describe("call sites keep the guards", () => {
   const read = (p: string) => readFileSync(join(import.meta.dir, p), "utf8");
   test("the routes go through the reporting helpers", () => {
-    const terminal = read("routes/terminal.ts");
-    expect(terminal).toContain("dispatchBridgeLine(");
-    expect(terminal).toContain("settleExitedSessionRow(getDatabase,");
-    expect(terminal).toContain("killChildren(");
+    expect(read("routes/terminal-bridge-socket.ts")).toContain("dispatchBridgeLine(");
+    expect(read("routes/terminal-bridge-messages.ts")).toContain("settleExitedSessionRow(getDatabase,");
+    expect(read("routes/terminal-registry.ts")).toContain("killChildren(");
     expect(read("routes/processes.ts")).toContain("drainOutput(stream, processId,");
-    expect(read("routes/chat.ts")).toContain("attachMediaOfTurn(");
+    expect(read("routes/chat-finalize.ts")).toContain("attachMediaOfTurn(");
     expect(read("../scripts/install-claude-hooks.ts")).toContain("removeDirReporting(");
   });
 });
