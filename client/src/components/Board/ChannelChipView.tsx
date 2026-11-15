@@ -41,7 +41,7 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
       {chip.segments.map((seg, i) => {
         const last = i === chip.segments.length - 1;
         // Ends keep their text; the middle piece is the one that gives way on a narrow card.
-        const shrink = full ? '' : i > 0 && !last ? 'min-w-0 shrink-[8] truncate' : 'min-w-0 truncate';
+        const shrink = full ? '' : i > 0 && !last ? 'min-w-[3rem] shrink-[4] truncate' : 'min-w-0 shrink-[0.3] truncate';
         return (
           <Fragment key={i}>
             {i > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}
