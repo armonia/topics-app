@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.12",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una corsa parcheggiata sul nodo non blocca più la card (#1108)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.11",
     "date": "2026-11-15",
     "sections": {
