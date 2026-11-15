@@ -193,8 +193,11 @@ test.describe("Board: countdown and weight of work in progress", () => {
       test(`surfaces at ${width}px, ${scheme} theme`, async ({ page }) => {
         await page.emulateMedia({ colorScheme: scheme });
         await page.setViewportSize({ width, height: width < 800 ? 812 : 900 });
+        // A chat of its own, outside any project group, so the sidebar lists it at the top level.
+        const chatTopic = await createTopic(page.request, `countdown-chat-${stamp}-${width}-${scheme}`);
+        const chatTopicId = chatTopic.id;
         // The chat's own strip reads its children from this route.
-        await page.route(new RegExp(`/api/topics/${topicId}/live-work$`), (route) => route.fulfill({
+        await page.route(new RegExp(`/api/topics/${chatTopicId}/live-work$`), (route) => route.fulfill({
           json: {
             rows: [{
               kind: "agent", id: "child-1", name: "Reviewer", runtime: "cli", state: "working", preview: "Bash: bun test",
@@ -231,11 +234,12 @@ test.describe("Board: countdown and weight of work in progress", () => {
         // The parent chat, with the sub-agent row under it (the phone at 375 included).
         // The topic helper reloads and picks the chat from the sidebar: the sheet comes back first.
         if (width < 800 && (await sidebar.getAttribute("data-drawer")) === "closed") await page.keyboard.press("ControlOrMeta+b");
-        await openTopic(page, new RegExp(`countdown-${stamp}`));
+        await openTopic(page, new RegExp(chatTopic.name));
         const strip = page.getByTestId("subagents-strip");
         await expect(strip).toBeVisible({ timeout: 15_000 });
         await expect(strip.getByTestId("work-meter")).toBeVisible();
         await page.screenshot({ path: `${SHOTS}/chat-subagents-${width}-${scheme}.png` });
+        await deleteTopic(page.request, chatTopicId).catch(() => {});
       });
     }
   }
