@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.3 — 2026-11-15
+
+### Sotto il cofano
+- job con Playwright fissati a ubuntu-24.04 (#1049)
+
 ## 2.4.2 — 2026-11-15
 
 ### Sotto il cofano
