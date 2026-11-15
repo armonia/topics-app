@@ -26,7 +26,7 @@ jobs:
   # da ogni shard. Il fallback a --shard=i/4 e' conservato: se il piano non c'e',
   # la suite gira lo stesso.
   prepare-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       plan-ok: ${{ steps.plan.outputs.ok }}
     steps:
@@ -77,7 +77,7 @@ jobs:
           retention-days: 1
 
   e2e-full:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: prepare-e2e
     strategy:
       fail-fast: false
