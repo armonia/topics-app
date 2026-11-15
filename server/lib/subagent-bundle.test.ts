@@ -159,6 +159,31 @@ describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
     expect(git(parent, "rev-parse", "topics/shared")).toBe(parentTip);
   });
 
+  it("un ramo in checkout nel genitore non viene spostato sotto i file aperti, anche se in avanti", async () => {
+    const parent = tempDir("subagent-parent-");
+    git(parent, "init", "-q", "-b", "main");
+    writeFileSync(join(parent, "a.txt"), "base\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "base");
+    git(parent, "switch", "-q", "-c", "topics/open");
+    const bundle = await snapshotParentAsBundle({ repoPath: parent, snapshotBranch: "topics/s-open" });
+    const node = tempDir("subagent-node-");
+    await materializeChildCheckout({ targetDir: node, branch: "topics/s-open", bytes: bundle! });
+    git(node, "switch", "-q", "-c", "topics/open");
+    writeFileSync(join(node, "b.txt"), "child\n");
+    git(node, "add", ".");
+    git(node, "commit", "-q", "-m", "child");
+    const { bundleBranch } = await import("../services/branch-on-origin");
+    const back = await bundleBranch(node, "topics/open");
+    const before = git(parent, "rev-parse", "topics/open");
+
+    expect(await plantCarriedBranch(parent, "topics/open", back!)).toEqual({ ok: true });
+    const adopted = await adoptCarriedBranch({ repoPath: parent, branch: "topics/open" });
+    expect(adopted.ok).toBe(false);
+    expect(git(parent, "rev-parse", "topics/open")).toBe(before);
+    expect(git(parent, "status", "--porcelain")).toBe("");
+  });
+
   it("repo senza origin: bundleBranch cade sulla storia intera, non fallisce", async () => {
     const parent = tempDir("subagent-parent-");
     git(parent, "init", "-q", "-b", "main");

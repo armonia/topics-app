@@ -1235,7 +1235,7 @@ A child that may go remote SHALL take the first online paired node with a free s
 
 ### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
 
-The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten. Both legs SHALL work on a repository with no `origin`.
+The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten, and so SHALL a parent branch checked out in the parent or in one of its worktrees. Both legs SHALL work on a repository with no `origin`.
 
 #### Scenario: Round trip on a repo with no origin
 - **GIVEN** a parent repo with no `origin` and an uncommitted change
