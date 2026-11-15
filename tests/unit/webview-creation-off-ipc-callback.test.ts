@@ -93,7 +93,7 @@ function parse(source: string): Fn[] {
       body,
       command: isCommand,
       asyncCommand:
-        (attr?.[1] ?? "").includes("async") || /^[^(]*\basync[ \t]+fn\b/.test(signature),
+        (attr?.[1] ?? "").includes("async") || /^(?:pub(?:\([^)]*\))?[ \t]+)?[^(]*\basync[ \t]+fn\b/.test(signature),
     };
   });
 }

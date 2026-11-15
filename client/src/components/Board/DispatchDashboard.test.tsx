@@ -466,7 +466,7 @@ describe('cruscotto auto-dispatch: le card spostate perché il Mac era pieno', (
     const moved = overflowedCards(tasks);
     expect(moved).toEqual([{ id: 'm', title: 'Sistema il login', node: 'Cloud Claude' }]);
     const html = renderToStaticMarkup(<DispatchDashboardView capacity={capacity} snapshot={snapshot} queue={[]} moved={moved} now={NOW} />);
-    expect(text(html)).toContain('Sistema il login· spostata su Cloud Claude: Mac pieno');
+    expect(text(html)).toContain('Sistema il login· spostata su Cloud Claude: posto libero lì');
     expect(html.match(/data-testid="dispatch-dashboard-moved-row"/g)).toHaveLength(1);
   });
 });

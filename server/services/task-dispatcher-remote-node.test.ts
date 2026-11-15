@@ -318,6 +318,8 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
       machine_name: "Portatile",
       node_base_url: BASE_URL,
       origin_url: "git@github.com:acme/alpha.git",
+      git_author_name: "Ada Lovelace",
+      git_author_email: "ada@example.test",
     });
     expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
     expect(h.created[0].body).toEqual({
@@ -352,6 +354,33 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
     // The slot is free again: the retry is not blocked by a ghost run.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("no git identity on this checkout: the card is parked and never reaches the node (LAND-13)", async () => {
+    const hook = hookFake({ ok: true });
+    const h = harness({ hooks: hook.runner, gitIdentityOf: async () => null });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(0);
+    expect(h.calls).toEqual([]);
+    const t = h.task();
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("blocked");
+    const note = h.comments().map((c) => c.content).join("\n");
+    expect(note).toContain("non ha un'identità git");
+  });
+
+  it("no git identity but a lane that signs its own branch (Claude cloud): the gate lets the card through", async () => {
+    const hook = hookFake({ ok: true });
+    const h = harness({ hooks: hook.runner, gitIdentityOf: async () => null, skipsGitIdentity: () => true });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(1);
+    expect(h.task().dispatchState).not.toBe("blocked");
   });
 
   it("two vetoes in a row open the wake breaker: the node stops being a sleeping target", async () => {

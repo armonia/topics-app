@@ -95,7 +95,7 @@ describe("deadlines for legitimate long work", () => {
   });
 
   test("the publish push uses the long deadline", () => {
-    const src = readFileSync(join(import.meta.dir, "tasks.ts"), "utf8");
+    const src = readFileSync(join(import.meta.dir, "tasks-deploy.ts"), "utf8");
     expect(src).toContain('runGitCap(path, ["push", "origin", branch], SPAWN_TIMEOUT.long)');
   });
 });

@@ -50,6 +50,7 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
+import { runStayLocalSweep } from "./server/services/stay-local-sweep";
 import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
@@ -282,6 +283,7 @@ import {
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
 import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { repoIdentity } from "./server/lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
@@ -676,6 +678,22 @@ try {
 } catch (err) {
   // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
   console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
+}
+
+// The permanent "this Mac only" pins, decided once (`services/stay-local-sweep.ts`).
+// A pin with no expiry is never lifted by anything else, so a card whose text
+// names nothing mac-only stays stuck here for good. The sweep clears those and
+// says why on the thread; a card it already decided is left alone, so a person
+// who pins it again keeps the pin.
+try {
+  const sweep = runStayLocalSweep(db);
+  console.log(
+    `[Startup] stay-local sweep: scanned ${sweep.scanned}, cleared ${sweep.cleared}, ` +
+      `kept ${sweep.kept}, already decided ${sweep.skipped}`,
+  );
+} catch (err) {
+  // Non-fatal: a pin that outlives its reason costs a card its mobility, not the boot.
+  console.error("[Startup] stay-local sweep failed:", err);
 }
 
 // Init AI provider — pick the boot default:
@@ -2323,6 +2341,14 @@ const taskDispatcher = createTaskDispatcher({
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
+    // The same checkout the planter reads origin from: the node must sign the
+    // run's commits with it, or the land (LAND-13) refuses them as a foreign author.
+    gitIdentityOf: (projectId) => {
+      const path = projectPathForNode(projectId);
+      return path ? repoIdentity(path) : Promise.resolve(null);
+    },
+    // The Claude cloud signs its own branch: no checkout identity to pass or to require.
+    skipsGitIdentity: (baseUrl) => isCloudBaseUrl(baseUrl),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).
