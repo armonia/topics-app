@@ -123,6 +123,62 @@ pub fn card_layout(cy: f32, edge: f32, with_reason: bool) -> CardLayout {
     CardLayout { last_row, reason_y: body + 18.0, h: body + if with_reason { 26.0 } else { 10.0 } }
 }
 
+/// What kind of machine a card is, for its logo: this computer, a cloud server or a Windows PC.
+fn machine_glyph_of(m: &MachineCard) -> &'static str {
+    let key = format!("{} {}", m.id, m.name).to_lowercase();
+    if m.local {
+        "apple.logo"
+    } else if ["hetzner", "cloud", "server", "nodo", "node"].iter().any(|w| key.contains(w)) {
+        "cloud"
+    } else {
+        "windows"
+    }
+}
+
+/// The machine's logo in the menu's own ink, as the original tray draws it: the system's Apple logo,
+/// the Windows logo as it is, a cloud for a server.
+fn draw_machine_glyph(pic: &mut Pic, m: &MachineCard, x: f32, y: f32, p: Palette) {
+    let side = 17.0;
+    match machine_glyph_of(m) {
+        "windows" => pic.windows_logo(x + 2.0, y + 2.5, side - 4.0, p.fg, 1.0),
+        name => match system_symbol(name) {
+            Some(mask) => pic.mask(x, y, side, &mask, p.fg, 1.0),
+            // no system symbol to draw (not a Mac): a small display
+            None => {
+                pic.stroke_rrect(x + 1.0, y + 3.0, 15.0, 11.0, 2.5, 1.4, p.fg, 0.9);
+                pic.hline(x + 5.0, y + 17.0, 7.0, p.fg, 0.9);
+            }
+        },
+    }
+}
+
+/// A system symbol as a mask, drawn once per name.
+#[cfg(target_os = "macos")]
+fn system_symbol(name: &str) -> Option<crate::tray_menu_pic::Mask> {
+    static CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, Option<crate::tray_menu_pic::Mask>>>> = std::sync::Mutex::new(None);
+    CACHE.lock().ok()?.get_or_insert_with(Default::default).entry(name.to_string()).or_insert_with(|| crate::tray_menu_native::symbol_mask(name)).clone()
+}
+#[cfg(not(target_os = "macos"))]
+fn system_symbol(_name: &str) -> Option<crate::tray_menu_pic::Mask> {
+    None
+}
+
+/// The brand glyph of a provider (tinted as in the original tray), or the sign of a free provider.
+fn provider_mark(provider: &str, p: Palette) -> Option<(crate::tray_menu_pic::Mask, [u8; 3])> {
+    static ANTHROPIC: &[u8] = include_bytes!("../assets/tray-providers/anthropic.png");
+    static OPENAI: &[u8] = include_bytes!("../assets/tray-providers/openai.png");
+    static META: &[u8] = include_bytes!("../assets/tray-providers/meta.png");
+    let dark = p.fg[0] > 127;
+    let (bytes, ink) = match provider {
+        "claude" => (ANTHROPIC, [0xD9, 0x77, 0x57]),
+        "codex" => (OPENAI, p.fg),
+        "muse" => (META, if dark { [0x4D, 0xA3, 0xFF] } else { [0x00, 0x82, 0xFB] }),
+        "free" => return system_symbol("leaf").map(|m| (m, p.fg)),
+        _ => return system_symbol("circle").map(|m| (m, p.fg)),
+    };
+    crate::tray_menu_pic::Mask::from_png(bytes).map(|m| (m, ink))
+}
+
 /// The same card for every machine: icon, name, state badge, the half-circle
 /// dial (disk, memory, CPU and GPU) with its legend, and the reason line. A
 /// machine with no readings gets the same card with the bands switched off.
@@ -138,9 +194,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(CARD_X, 3.0, CARD_W, h, p);
     let head = tone(m.level);
-    // icon: a small display, in the tone of the state
-    pic.stroke_rrect(CARD_X + 14.0, 15.0, 15.0, 11.0, 2.5, 1.4, head, 0.9);
-    pic.hline(CARD_X + 18.0, 29.0, 7.0, head, 0.9);
+    draw_machine_glyph(&mut pic, m, CARD_X + 13.0, 12.0, p);
     let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 22.0;
     let name = Pic::fit(Face::Sans, &m.name, 13.0, CARD_W - 40.0 - badge_w - 40.0);
     pic.text(Face::Sans, &name, CARD_X + 38.0, 26.0, 13.0, p.fg, 1.0);
@@ -325,11 +379,16 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     let (ix, iw) = (x + Q_INSET, w - 2.0 * Q_INSET);
     // provider mark: its initial in a capsule, then the account
     let ty = y + Q_INSET + 11.0;
-    pic.fill_rrect(ix, ty - 10.0, 13.0, 13.0, 4.0, p.fg, 0.14);
-    let init: String = c.provider.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
-    pic.text(Face::Sans, &init, ix + 6.5 - Pic::text_w(Face::Sans, &init, 9.0) / 2.0, ty - 0.5, 9.0, p.fg, 1.0);
-    let who = Pic::fit(Face::Sans, &c.who, 11.5, iw - 18.0);
-    pic.text(Face::Sans, &who, ix + 18.0, ty, 11.5, p.fg, 1.0);
+    match provider_mark(&c.provider, p) {
+        Some((mark, ink)) => pic.mask(ix, ty - 11.0, 14.0, &mark, ink, 1.0),
+        None => {
+            pic.fill_rrect(ix, ty - 10.0, 13.0, 13.0, 4.0, p.fg, 0.14);
+            let init: String = c.provider.chars().next().map(|ch| ch.to_uppercase().to_string()).unwrap_or_default();
+            pic.text(Face::Sans, &init, ix + 6.5 - Pic::text_w(Face::Sans, &init, 9.0) / 2.0, ty - 0.5, 9.0, p.fg, 1.0);
+        }
+    }
+    let who = Pic::fit(Face::Sans, &c.who, 11.5, iw - 20.0);
+    pic.text(Face::Sans, &who, ix + 20.0, ty, 11.5, p.fg, 1.0);
     let sy = y + Q_INSET + 16.0 + 4.0;
     let st = tone(c.state_level);
     let tx;

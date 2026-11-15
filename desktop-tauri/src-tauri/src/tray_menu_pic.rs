@@ -32,6 +32,39 @@ pub fn tone(level: u32) -> [u8; 3] {
     .0
 }
 
+/// A glyph as coverage only (0..255 per pixel): painted in any colour, like a template image.
+#[derive(Clone)]
+pub struct Mask {
+    pub w: u32,
+    pub h: u32,
+    pub alpha: Vec<u8>,
+}
+
+impl Mask {
+    /// The alpha channel of a PNG (the brand glyphs and the rendered system symbols are RGBA).
+    pub fn from_png(bytes: &[u8]) -> Option<Mask> {
+        let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().ok()?;
+        let mut buf = vec![0; reader.output_buffer_size()?];
+        let info = reader.next_frame(&mut buf).ok()?;
+        let n = match info.color_type {
+            png::ColorType::Rgba => 4,
+            png::ColorType::GrayscaleAlpha => 2,
+            _ => return None,
+        };
+        let alpha = buf[..info.buffer_size()].chunks(n).map(|px| px[n - 1]).collect();
+        Some(Mask { w: info.width, h: info.height, alpha })
+    }
+
+    fn at(&self, x: f32, y: f32) -> f32 {
+        let (fx, fy) = ((x * self.w as f32 - 0.5).max(0.0), (y * self.h as f32 - 0.5).max(0.0));
+        let (x0, y0) = ((fx as u32).min(self.w - 1), (fy as u32).min(self.h - 1));
+        let (x1, y1) = ((x0 + 1).min(self.w - 1), (y0 + 1).min(self.h - 1));
+        let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+        let g = |x: u32, y: u32| self.alpha[(y * self.w + x) as usize] as f32 / 255.0;
+        (g(x0, y0) * (1.0 - tx) + g(x1, y0) * tx) * (1.0 - ty) + (g(x0, y1) * (1.0 - tx) + g(x1, y1) * tx) * ty
+    }
+}
+
 pub struct Pic {
     pub cv: Canvas,
     pub w: f32,
@@ -74,6 +107,22 @@ impl Pic {
         self.paint((x - 1.0, y - 1.0, x + w + 1.0, y + h + 1.0), |px, py| {
             (lw * SCALE / 2.0 + 0.5 - Self::rrect_sdf(px, py, (x, y, w, h, r)).abs() * SCALE).clamp(0.0, 1.0)
         }, c, a);
+    }
+
+    /// A glyph fitted in the `side` square at (x, y), centred, in colour `c`.
+    pub fn mask(&mut self, x: f32, y: f32, side: f32, m: &Mask, c: [u8; 3], a: f32) {
+        let k = side / m.w.max(m.h) as f32;
+        let (w, h) = (m.w as f32 * k, m.h as f32 * k);
+        let (x0, y0) = (x + (side - w) / 2.0, y + (side - h) / 2.0);
+        self.paint((x0, y0, x0 + w, y0 + h), |px, py| m.at((px - x0) / w, (py - y0) / h), c, a);
+    }
+
+    /// The Windows logo as it is: four squares with a thin gap.
+    pub fn windows_logo(&mut self, x: f32, y: f32, side: f32, c: [u8; 3], a: f32) {
+        let (sq, gap) = (side * 11.377 / 24.0, side * 1.246 / 24.0);
+        for (i, j) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+            self.fill_rrect(x + i * (sq + gap), y + j * (sq + gap), sq, sq, 0.0, c, a);
+        }
     }
 
     pub fn dot(&mut self, cx: f32, cy: f32, r: f32, c: [u8; 3], a: f32) {
