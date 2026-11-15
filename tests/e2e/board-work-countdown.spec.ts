@@ -229,6 +229,8 @@ test.describe("Board: countdown and weight of work in progress", () => {
           await page.keyboard.press("Escape");
         }
         // The parent chat, with the sub-agent row under it (the phone at 375 included).
+        // The topic helper reloads and picks the chat from the sidebar: the sheet comes back first.
+        if (width < 800 && (await sidebar.getAttribute("data-drawer")) === "closed") await page.keyboard.press("ControlOrMeta+b");
         await openTopic(page, new RegExp(`countdown-${stamp}`));
         const strip = page.getByTestId("subagents-strip");
         await expect(strip).toBeVisible({ timeout: 15_000 });
