@@ -89,6 +89,7 @@ fn tray_every_closable_row_offers_both_close_and_force_close() {
             match x {
                 Node::Item { id, .. } if !id.is_empty() => out.push(id.clone()),
                 Node::Sub { children, .. } | Node::Row { children, .. } => ids(children, out),
+                Node::Icon { node, .. } => ids(std::slice::from_ref(&**node), out),
                 _ => {}
             }
         }
@@ -97,4 +98,13 @@ fn tray_every_closable_row_offers_both_close_and_force_close() {
     ids(&nodes, &mut found);
     assert!(found.contains(&"proc-close:app:a".to_string()) && found.contains(&"proc-force:app:a".to_string()), "{found:?}");
     assert!(!found.contains(&"proc-force:svc:b".to_string()), "a service that is not closable has no force row");
+}
+
+#[test]
+fn tray_rows_carry_the_icon_of_their_kind() {
+    let app = serde_json::json!({"type": "app", "bundle": "/Applications/Example.app"});
+    assert_eq!(unit_icon(&app, ""), "app:/Applications/Example.app");
+    assert_eq!(unit_icon(&app, "grave"), "sf:exclamationmark.shield.fill");
+    assert_eq!(unit_icon(&serde_json::json!({"type": "servizio"}), ""), "sf:gearshape");
+    assert_eq!(unit_icon(&serde_json::json!({"type": "app"}), ""), "sf:app", "an app with no bundle falls back to the kind sign");
 }
