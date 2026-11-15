@@ -2451,6 +2451,18 @@
       "riga",
       "totale"
     ],
+    "server/app-context/message-store.ts": [
+      "deleteMessageSubtree",
+      "riusabile",
+      "subtree"
+    ],
+    "server/app-context/statements.ts": [
+      "arr",
+      "stmts"
+    ],
+    "server/app-context/stream-store.ts": [
+      "eraPermesso"
+    ],
     "server/boot-orphan-scan.test.ts": [
       "inCorso",
       "ins",
@@ -3392,6 +3404,19 @@
       "verdetto",
       "verdettoDaApporre"
     ],
+    "server/mcp/agent-calls.ts": [
+      "buf"
+    ],
+    "server/mcp/chat-calls.ts": [
+      "buf"
+    ],
+    "server/mcp/task-calls.ts": [
+      "anteprima"
+    ],
+    "server/mcp/tool-definitions.ts": [
+      "MODIFICA",
+      "SOLA_LETTURA"
+    ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
       "dec"
@@ -3403,12 +3428,6 @@
       "gambe",
       "invisibile",
       "subito"
-    ],
-    "server/mcp/topics-mcp-server.ts": [
-      "MODIFICA",
-      "SOLA_LETTURA",
-      "anteprima",
-      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
@@ -4986,17 +5005,11 @@
     "server/utils.ts": [
       "Osservatore",
       "TipoFrameProgetto",
-      "arr",
       "chiave",
       "chiuse",
-      "deleteMessageSubtree",
-      "eraPermesso",
       "fresche",
       "osservatori",
-      "riusabile",
-      "serializzati",
-      "stmts",
-      "subtree"
+      "serializzati"
     ],
     "server/utils/executable.ts": [
       "semver"

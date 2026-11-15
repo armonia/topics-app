@@ -3,7 +3,6 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { httpJson } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
-import { error, send } from "./jsonrpc";
 import { ASK_RETRY_BACKOFF_MS, ASK_TRANSPORT_GRACE_MS, sleep } from "./ask-calls";
 
 /**

@@ -2,7 +2,6 @@ import { httpJson } from "./topics-http";
 import { subagentWakeText } from "../services/subagent-wake";
 import type { SubAgentResult } from "../lib/subagent-result";
 import type { ParsedArgs } from "./topics-http";
-import { send } from "./jsonrpc";
 import { SPAWN_WORKTREE_TIMEOUT_MS } from "./goal-calls";
 
 // --- Sub-agent orchestration bridge ---------------------------------------

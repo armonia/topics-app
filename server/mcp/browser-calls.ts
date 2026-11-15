@@ -1,7 +1,6 @@
 import { READ_ONLY_BROWSER_ENDPOINTS } from "../browser-tool-spec";
 import { bridgeAuthHeaders, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
-import { error } from "./jsonrpc";
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,

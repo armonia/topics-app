@@ -1,7 +1,6 @@
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { httpJson } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
-import { send } from "./jsonrpc";
 import { type RunScriptResp } from "./task-calls";
 
 /**

@@ -52,6 +52,11 @@ const SKIP_FILE = /\.(test|spec|e2e)\.[cm]?tsx?$/;
  */
 const PROMPT_SURFACES = new Set([
   "server/mcp/topics-mcp-server.ts", // MCP tool schemas handed to the agent
+  "server/mcp/tool-definitions.ts", // moved out of topics-mcp-server.ts: the same schemas
+  "server/mcp/agent-calls.ts", // moved out of topics-mcp-server.ts: text returned to the agent
+  "server/mcp/chat-calls.ts",
+  "server/mcp/goal-calls.ts",
+  "server/mcp/task-calls.ts",
   "server/browser-tool-spec.ts", // browser_* tool descriptions
   "server/context/assemble.ts", // the awareness/context prefix
   "server/services/task-model-picker.ts", // the model+effort classifier prompt

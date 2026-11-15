@@ -31,14 +31,14 @@ import { answerResourceMethod, callShowView, showViewCallResult } from "./view-t
 import { topicsHome } from "../services/daemon-state";
 import type { ParsedArgs } from "./topics-http";
 import { type JsonRpcNotification, type JsonRpcRequest, type JsonRpcResponse, error, progressNotification, progressTokenOf, send } from "./jsonrpc";
-import { isToolAllowedForProfile, toolsForProfile } from "./tool-definitions";
+import { isToolAllowedForProfile, toolsForProfile } from "./tool-profiles";
 import { callBrowserBridge, callCloseBrowserPane, callFocusBrowserTab, callImportChrome, callListBrowserTabs, callOpenBrowserPane } from "./browser-calls";
 import { callCloseGoal, callGetGoal, callMoveToProject, callRunScript, callSetGoal, callUpdateGoalSteps } from "./goal-calls";
 import { callCreateProject, callListAgents, callNewTopic, callOpenProject, callReadAgent, callSendToAgent, callSpawnAgent, callStopAgent, callSwitchTopic } from "./agent-calls";
 import { callReadChatMessages, callSendChatMessage } from "./chat-calls";
 import { callCommentGlobalTask, callCommentTask, callCreateGlobalTask, callCreateTask, callGetGlobalTask, callGetTask, callLabelTask, callListGlobalTasks, callListProcesses, callListTasks, callReadProcessOutput, callResolveTab, callStopProcess, callUpdateGlobalTask, callUpdateTask, callWaitForCondition, callWaitForProcess } from "./task-calls";
 import { callApprovalPrompt, callAskUserQuestion } from "./ask-calls";
-export { isToolAllowedForProfile, toolsForProfile } from "./tool-definitions";
+export { isToolAllowedForProfile, toolsForProfile } from "./tool-profiles";
 export { ASK_LEG_MS, ASK_MAX_LEGS, ASK_TRANSPORT_GRACE_MS, PERMISSION_ECHO_MAX_BYTES, PERMISSION_MAX_LEGS, callApprovalPrompt, callAskUserQuestion } from "./ask-calls";
 export { RESTART_NOTICE_OPENING, callReadChatMessages, callSendChatMessage } from "./chat-calls";
 export { callCreateProject, callListAgents, callNewTopic, callOpenProject, callReadAgent, callSendToAgent, callSpawnAgent, callStopAgent, callSwitchTopic } from "./agent-calls";

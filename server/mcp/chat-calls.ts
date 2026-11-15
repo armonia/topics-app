@@ -1,6 +1,5 @@
 import { bridgeAuthHeaders, HttpAnswerError, httpJson, loopbackInit } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
-import { error, send } from "./jsonrpc";
 
 /** How a turn ended, when it was not a finished answer (`turn` frame, chat route). */
 interface TurnEndFrame { end: string; cause?: string }

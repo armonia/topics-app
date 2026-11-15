@@ -11,45 +11,27 @@ import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStor
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
 import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
-import { createSwapFreezer, oneLine } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
-import { setActiveSwapFreezer, setSwapFreezeBroadcast, announceSwapFreeze, swapFreezeViews, isSwapFreezeHold, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
+import { swapFreezeViews, swapFrozenMsSince } from "./server/lib/swap-freeze-hold";
 import { createMemoryPressureSignal } from "./server/services/memory-pressure";
-import { readProcessStates, readProcessTable, readStartTimes } from "./server/lib/process-snapshot";
-import { createXpcAttribution, printPidDomain } from "./server/lib/xpc-attribution";
-import { establishedPeers, outsidePeersOf } from "./server/lib/tree-network-peers";
-import { appendFrozenNote, stdoutFileOf } from "./server/lib/background-shell-output";
-import { backgroundBashFor, foregroundBashFor } from "./server/lib/background-bash-record";
-import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-command-registry";
-import { listSessionCliPids } from "./server/providers/session-pids";
+import { readStartTimes } from "./server/lib/process-snapshot";
 import { getAccessToken, recoverAfter401 } from "./server/providers/native/auth";
 import { createModelProxyListener, modelProxyPort } from "./server/services/model-proxy";
 import { bootExternalProxy, externalProxyPort, type BootedExternalProxy } from "./server/services/external-proxy";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
-import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
-import type { WakeEvent } from "./shared/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase, refreshPlannerStats } from "./server/db";
 import { startToolOutputBackfill } from "./server/lib/tool-output-store";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
 import { classifyStaticAsset, pickPrecompressed } from "./server/static-assets";
-import {
-  acquireLock, releaseLock, writeState, readState, topicsHome,
-  uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv,
-  listenWithSquatterFallback, PortTakenError,
-} from "./server/services/daemon-state";
-import {
-  startUiStateBackupTicker, snapshotUiStateNow,
-} from "./server/services/ui-state-backup";
+import { acquireLock, releaseLock, writeState, readState, topicsHome, uptimeMsSince, LiveLockError, worktreeIsolationHome, worktreeIsolationEnv, listenWithSquatterFallback, PortTakenError } from "./server/services/daemon-state";
+import { startUiStateBackupTicker, snapshotUiStateNow } from "./server/services/ui-state-backup";
 import { purgeOrphanTopicRefs } from "./server/services/ui-state-orphan-cleanup";
 import { repairCanonicalPaneState } from "./server/services/ui-state-canonical-repair";
-import {
-  sweepArchivedTaskBrowserState,
-  teardownArchivedTaskBrowserState,
-} from "./server/services/task-tab-teardown";
+import { sweepArchivedTaskBrowserState, teardownArchivedTaskBrowserState } from "./server/services/task-tab-teardown";
 import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
@@ -68,7 +50,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
+import { finalizeStaleRow } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
@@ -104,7 +86,7 @@ import { createGoalsRouter } from "./server/routes/goals";
 import { createPlanRouter } from "./server/routes/plan";
 import { createContextPreviewRouter } from "./server/routes/context-preview";
 import { createTaskService, projectIdForPath } from "./server/services/tasks";
-import { mainPushGit, pushMainToOrigin, sweepUnpushedMains } from "./server/services/main-on-origin";
+import { pushMainToOrigin } from "./server/services/main-on-origin";
 import { configureChannelOriginCards } from "./server/lib/channel-origin-cards";
 import { createScheduledCards } from "./server/services/scheduled-cards";
 import { createExternalSessionsService } from "./server/services/external-sessions";
@@ -113,17 +95,17 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { availableMemGB, budgetSample, computeDispatchCapacity, governorRead, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { createDispatchMemoryHistory } from "./server/services/dispatch-memory-history";
 import { createDispatchMemoryInputs, createDispatchResourceBlockFromInputs } from "./server/services/dispatch-memory-inputs";
-import { fleetLoadSync, fleetSessionCoreUnits, getFleetUsage, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
+import { fleetLoadSync, fleetSessionCoreUnits, getFleetUsage, procFootprintKB } from "./server/lib/fleet-usage";
 import { cardMemPeakGB, recentCardMemPeaksGB, treeFootprintKB } from "./server/lib/card-memory-peaks";
 import { machineCores } from "./server/lib/machine-cores";
-import { createBudgetGovernor, freezableRuns, liveCheckTreeGB, setActiveBudgetGovernor, signalProcessTree } from "./server/services/budget-governor";
-import { createSwapBrake, killCheckTree, stopReviewChecks } from "./server/services/review-checks-brakes";
+import { freezableRuns, liveCheckTreeGB } from "./server/services/budget-governor";
+import { stopReviewChecks } from "./server/services/review-checks-brakes";
 import { awaitCiEvidence } from "./server/services/ci-evidence";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "./server/services/branch-inventory";
 import { createTaskAutoMerge, worktreeDirtProbe, worktreeRealDirt } from "./server/services/task-automerge";
@@ -133,7 +115,7 @@ import { createPreviewBrowser } from "./server/services/preview-browser";
 import { recordServerSpawn } from "./server/lib/spawn-metrics";
 import { makeSheetWriter } from "./server/services/delivery-sheet";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees, listOwnedScripts } from "./server/routes/processes";
-import { getDescendantPids, killProcessTree } from "./server/lib/process-tree";
+import { killProcessTree } from "./server/lib/process-tree";
 import { killAgentProcessTree } from "./server/lib/kill-agent-tree";
 import { branchExistsInRepo, branchStatusFromRepo, commitIsAncestor, commitStatusFromRepo, resolveCommit, worktreeDiffStat } from "./server/services/branch-status";
 import { deliveryPointer } from "./server/services/own-commits";
@@ -167,7 +149,6 @@ import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from 
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
-import { buildPresenceSnapshot } from "./server/presence";
 import { SERVER_VERSION, SERVER_PROTOCOL_VERSION, SERVER_CAPABILITIES } from "./server/ws-capabilities";
 import { createActivityRouter } from "./server/routes/activity";
 import { createDashboardRouter } from "./server/routes/dashboard";
@@ -185,24 +166,14 @@ import { createLicenseRouter } from "./server/routes/license";
 import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billing";
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
-import { initProvider, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
-import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
+import { initProvider, getDefaultProviderName, stopAllProviders, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
+import { sessionAttentionBackground, sessionHasBackgroundWork, sessionsWithBackgroundWork } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { sessionKeyOfBrokerId, nativeDetachedEnabled, openRowSince } from "./server/providers/native/detached-turn";
-import { classifyNativeBootSessions, pickTurnOwner, type TurnOwnerClaim } from "./server/lib/boot-native-turns";
-// The checkout's HEAD when this process started. Read once: the scripts that
-// move the checkout compare it with what they asked for.
-const BOOT_COMMIT: string | null = (() => {
-  try {
-    const out = Bun.spawnSync(["git", "-C", import.meta.dir, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
-    const sha = out.stdout.toString().trim();
-    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
-  } catch { return null; }
-})();
-import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
+import { classifyNativeBootSessions } from "./server/lib/boot-native-turns";
+import { cancelled } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
-import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
-import { raceReadAgainstTurnEnd } from "./server/providers/race-read-turn-end";
+import { recordTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
@@ -211,7 +182,7 @@ import { commandBackgroundWork, commandWakeState, createProcessesRouter, isChatS
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { startSubagentWakes } from "./server/services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot, configureNativeSubagents } from "./server/lib/native-subagents";
-import { awaitsForegroundChild, subagentWakeOwed } from "./server/lib/subagent-runtime";
+import { subagentWakeOwed } from "./server/lib/subagent-runtime";
 import { createTasksRouter, ownBranchFiles, ownCommitFiles, runGitCap } from "./server/routes/tasks";
 import { landingFiles, referencedByTheJudge } from "./server/services/landing-files";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -224,7 +195,7 @@ import { withCommandTask } from "./server/attention/background-tasks";
 import { observeCommandChanged } from "./server/lib/command-background";
 import { attentionBootReader } from "./server/attention/boot-reader";
 import { chatBackgroundChanged, chatSubjectOfSession, configureAttentionWire, wireHumanHolds } from "./server/attention/wire";
-import { closeSystemCycle, openSystemCycle, recordSystemNotice } from "./server/attention/system-notices";
+import { recordSystemNotice } from "./server/attention/system-notices";
 import { isAttentionSubject, terminalSubject, topicSubject } from "./shared/attention";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
 import { createProvidersRouter } from "./server/routes/providers";
@@ -232,14 +203,7 @@ import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
-import {
-  resolveAiProvider,
-  getAppSettings,
-  resolveOutputLanguage,
-  resolveDiscordPresenceEnabled,
-  resolveDiscordDetailLevel,
-  resolveAgentRuntime,
-} from "./server/services/app-settings";
+import { resolveAiProvider, getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, resolveDiscordDetailLevel, resolveAgentRuntime } from "./server/services/app-settings";
 import { createProfileRouter } from "./server/routes/profile";
 import { createPublicProfileHandler } from "./server/routes/public-profile";
 import { startDiscordPresence } from "./server/services/discord-presence";
@@ -249,17 +213,11 @@ import { createE2eRouter } from "./server/routes/e2e";
 import { createTabsRouter } from "./server/routes/tabs";
 import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
-import { evaluateAuth, isAllowedHost, isDesktopShellOrigin, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
+import { evaluateAuth, isAllowedHost, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
-import { compressJson } from "./server/lib/compress-json";
-import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
-import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
-import { keepLiveTranscripts, restoreSweptTranscript } from "./server/lib/transcript-keeper";
-import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
@@ -267,46 +225,55 @@ import { createMachinesRouter, revokeRemoteDelegatedCapability } from "./server/
 import { createNodesRouter } from "./server/routes/nodes";
 import { hostname as osHostname, tmpdir as osTmpdir, totalmem as osTotalmem } from "node:os";
 import { createNodeClient, readDelegatedNodeToken, readNodeToken } from "./server/services/node-client";
-import { createNodeProbe } from "./server/services/node-heartbeat";
 import { appendDelegatedRunAudit, delegatedPolicyForTask } from "./server/lib/delegated-agent-start";
 import { createNodeBranchPlanter } from "./server/services/node-branch-plant";
 import { projectPathOfAnyId } from "./server/lib/project-identity";
 import { CloudApi } from "./server/providers/claude-cloud/api";
 import { credentialsFor } from "./server/providers/claude-cloud/creds";
-import {
-  CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN,
-  cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
-} from "./server/providers/claude-cloud/node";
+import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN, cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug } from "./server/providers/claude-cloud/node";
 import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
 import { startDevBundleReload, readBundleRev, stampBundleRev } from "./server/lib/dev-bundle-reload";
 import { startBundleProbe } from "./server/lib/bundle-probe";
+import { cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
+import { humanHoldAgeMs } from "./server/lib/human-hold";
+import { internalRequest, STOP_CAUSE_HEADER } from "./server/lib/abort-cause";
+import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
+import { keepDeliveryCommit } from "./server/services/delivery-ref-keep";
+import { decodeCol } from "./shared/message-blob";
+import { TURN_ERROR_PREFIX } from "./shared/board";
+import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
+import type { ChatGoalLoop } from "./server/services/goal-continuation";
+import { createBrowserWsPresence } from "./server/boot/browser-ws-presence";
+import { createHeadlessTurns } from "./server/boot/headless-turns";
+import { createNodeHeartbeat } from "./server/boot/node-heartbeat";
+import { createHttpCors } from "./server/boot/http-cors";
+import { createHttpWrappers } from "./server/boot/http-wrappers";
+import { createMemoryGovernor } from "./server/boot/memory-governor";
+import { createSurvivorReattach } from "./server/boot/survivor-reattach";
+import { createLandingAudit } from "./server/boot/landing-audit";
+// The checkout's HEAD when this process started. Read once: the scripts that
+// move the checkout compare it with what they asked for.
+const BOOT_COMMIT: string | null = (() => {
+  try {
+    const out = Bun.spawnSync(["git", "-C", import.meta.dir, "rev-parse", "HEAD"], { stdout: "pipe", stderr: "ignore" });
+    const sha = out.stdout.toString().trim();
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+  } catch { return null; }
+})();
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
 // sola domanda era il difetto.
-import { cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
 // La porta unica di «questo turno aspetta una PERSONA». Le due sorgenti di
 // silenzio legittimo sono una domanda a schermo E una richiesta di permesso a
 // schermo: qui dentro tre punti ne conoscevano solo la prima, che è esattamente
 // la deriva che `human-hold.ts` è stato scritto per impedire — e che la sua
 // docstring nomina, elencando «lo spazzino degli stream fermi» fra i sei posti.
-import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // PASSIVE STALL DETECTOR: silence past `dispatchIdleMin` no longer cuts a turn
 // by itself — it asks a cheap judge first, and only a "stuck" verdict recycles
 // it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
 // is downgraded to a reporting-only comparison below.
-import { armStallDetector } from "./server/lib/stall-detector";
-import { judgeStall } from "./server/lib/stall-judge";
-import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
-import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
-import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
-import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
-import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
-import { decodeCol } from "./shared/message-blob";
-import { budgetShare, capMode, TURN_ERROR_PREFIX } from "./shared/board";
-import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
-import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -467,56 +434,7 @@ const { PORT, PUBLIC_DIR, wsClients, broadcastToAll, broadcastToTopic, broadcast
  *  `GET /` handler. */
 let lastGoodShell: { html: string; rev: string } | null = null;
 
-// Phase 30 BROWSER-CHAT-03 — registry of active /ws/browser/:contextId
-// connections keyed by contextId. Multiple panels may watch the same context
-// (UI plus E2E spies); the broadcast iterates the whole set. Populated by the
-// websocket.open browser branch and cleaned by websocket.close.
-const browserWsClients = new Map<string, Set<ServerWebSocket<WSData>>>();
-
-// Make that registry observable on `/api/system/status`, next to `wsClients`.
-// Two numbers, because they fail apart: `sockets` stuck above zero with every
-// pane closed means a `close` handler did not run; `contexts` stuck with
-// `sockets` at zero means the empty-Set delete did not. Cheap - the Map holds
-// one entry per open pane, so this walk is a handful of iterations per poll.
-ctx.browserWsCounts = () => {
-  let sockets = 0;
-  for (const set of browserWsClients.values()) sockets += set.size;
-  return { contexts: browserWsClients.size, sockets };
-};
-
-// Cross-window presence: broadcast the FULL list of windows that have declared
-// their presence (via `hello`/`presence:announce`) plus the topics each holds.
-// A full-snapshot (not deltas) is trivially idempotent across reconnects; the
-// list self-heals because a dead socket drops out of `wsClients` before its
-// close handler re-broadcasts. Purely WS-ephemeral — nothing is persisted.
-// The dedup/build logic is pure in server/presence.ts (unit-tested).
-function broadcastPresence() {
-  const windows = buildPresenceSnapshot(
-    (function* () {
-      // `alive`: un socket mezzo aperto (chiuso lato client senza che il close
-      // handler sia scattato) restava una "finestra" per sempre — `wsClients`
-      // lo ripulisce solo per quella via. Tutte le altre vie di broadcast qui
-      // dentro filtrano già su readyState; questa era l'unica che non lo faceva.
-      for (const client of wsClients) yield { ...client.data, alive: client.readyState === 1 };
-    })(),
-  );
-  broadcastToAll({ type: 'presence:windows', windows });
-}
-
-function broadcastToBrowserWs(contextId: string, msg: BrowserWsMessage, except?: { data: unknown } | null): void {
-  const set = browserWsClients.get(contextId);
-  if (!set || set.size === 0) return;
-  const payload = JSON.stringify(msg);
-  for (const ws of set) {
-    if (ws.readyState !== 1 || (except && ws === except)) continue;
-    try {
-      ws.send(payload);
-    } catch (err: unknown) {
-      const m = err instanceof Error ? err.message : String(err);
-      console.warn(`[broadcastToBrowserWs] send failed for ${contextId}:`, m);
-    }
-  }
-}
+const { browserWsClients, broadcastPresence, broadcastToBrowserWs } = createBrowserWsPresence({ wsClients, broadcastToAll, ctx });
 
 // The Mac's native pane as the source of a context's DOM mirror: every viewer
 // mirrors THAT page and the server's Chromium stays off (browser-host-mirror.ts).
@@ -1253,322 +1171,7 @@ try { dispatcherSvc.recheckRecentDeliveries(new Date(Date.now() - 10 * 60_000).t
   console.warn("[tasks] delivery notes not rechecked at boot:", err);
 }
 
-/** Stops a turn from inside the server. The cause is required and is never
- *  `user` unless a person pressed something: see lib/abort-cause.ts (card C9). */
-async function abortHeadlessTurn(sessionKey: string, cause: StopCause): Promise<void> {
-  const req = internalAbortRequest(sessionKey, cause);
-  try {
-    await topicsRouter(req, new URL(req.url), "/api/chat/abort", "POST");
-  } catch { /* best-effort */ }
-}
-
-/**
- * Una risposta di ERRORE della route ha comunque un corpo — JSON, non SSE. Il
- * controllo `!resp.body` non la vede, quindi il drain qui sotto la mangiava
- * tutta senza incontrare `[DONE]`, e il `takeTurnEnd(…) ?? { end: "end_turn" }`
- * finale la dichiarava una fine normale: un turno mai partito, riportato al
- * dispatcher come consegnato.
- *
- * Non è teorico. `runHeadlessReattach` manda `messages: []` e la route lo
- * respingeva con 400 «messages array required» (verificato: `curl` su
- * :3333 → HTTP 400): l'adozione dei turni sopravvissuti a un riavvio non è mai
- * partita, e a nessuno risultava perché tornava `end_turn`. Da oggi c'è anche
- * il 409 «turno già in volo», che qui vuol dire la stessa cosa: non abbiamo
- * guidato niente.
- */
-function rejectedTurn(resp: Response, what: string): TurnEndInfo | null {
-  if (resp.ok) return null;
-  // Il 409 NON è un guasto: la sessione sta già rispondendo, e i tre consumatori
-  // dello stesso status devono dire la stessa cosa (il client riaccoda, l'MCP
-  // risponde «riprova quando ha finito»). Appiattirlo su `provider-error`
-  // bruciava un tentativo al dispatcher e finiva in park FAILED — un task
-  // dichiarato fallito solo perché è arrivato mentre l'agente parlava.
-  if (resp.status === 409) {
-    return {
-      end: "cancelled",
-      cause: "turn-in-flight",
-      detail: `POST ${what} → HTTP 409 (stream già in volo)`,
-    };
-  }
-  // Il corpo si consuma senza rimorsi: da qui si torna indietro comunque.
-  return {
-    end: "error",
-    cause: "provider-error",
-    detail: `POST ${what} → HTTP ${resp.status}`,
-  };
-}
-
-// Fallback when a caller doesn't pass `idleMs` (e.g. the boot sweep's
-// mid-turn reattach, which isn't a board task and has no `dispatchIdleMin`
-// setting to read) — matches `BoardSettings.dispatchIdleMin`'s own default.
-const DEFAULT_STALL_IDLE_MS = 5 * 60_000;
-/** After the route has deposited the end, how long a silent SSE body is still trusted to close on its own. */
-const HEADLESS_END_GRACE_MS = 20_000;
-
-/**
- * The transcript TAIL the stall judge reads: the last few local messages,
- * newest last, capped so the judge call stays cheap. `null` when there is
- * nothing to read — the caller treats that as "alive" (never recycle blind).
- */
-function stallTranscriptTail(sessionKey: string): string | null {
-  try {
-    const msgs = ctx.loadLocalMessages(sessionKey, { withBlocks: false });
-    if (msgs.length === 0) return null;
-    const tail = msgs.slice(-6).map((m) => {
-      const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
-      return `${m.role}: ${text.length > 1500 ? text.slice(-1500) : text}`;
-    });
-    return tail.join("\n---\n").slice(-6000) || null;
-  } catch { return null; }
-}
-
-/** One cheap haiku call, in the shape `judgeStall` expects. */
-async function stallJudgeComplete(prompt: string): Promise<string> {
-  const provider = getProvider("claude-code");
-  const res = await provider.complete([{ role: "user", content: prompt }], { model: "claude-haiku-4-5", purpose: "stall-judge" });
-  return res.content ?? "";
-}
-
-/**
- * ONE WATCHER FOR BOTH HEADLESS ENTRIES (fresh turn and reattach): the stall
- * judge, the drain, the end-deposit race. It used to live twice, and the two
- * copies drifted by a word each; `tag` is the only thing that differed.
- *
- * The turn self-drives server-side (consumeGateway) whether or not we read the
- * SSE mirror; we drain it only to learn when the turn ENDS (the reconciliation
- * signal). No wall-clock kill: a PASSIVE stall detector watches for silence
- * past `idleMs` and asks a cheap judge before ever touching the turn.
- *
- * EVERY CHUNK THAT ARRIVES IS A SIGN OF LIFE, and the cap has to know it. This
- * drain existed only to learn WHEN the turn ends; it also says THAT it is still
- * going, and nobody was looking. Without it the cap was a wall clock and it cut
- * healthy turns: 60 times, the last on 2026-08-21 at 00:37.
- *
- * THE END IS THE DEPOSIT, NOT THE CLOSE OF THE BODY. On 2026-09-04 (c8039b35)
- * the route finalized the turn - row written, end deposited, `[Media]` line
- * out - and this reader kept waiting on a body that never closed: the run
- * stayed "in flight", the card's continuation parked behind it, and
- * `restart-when-idle` waited an hour for a turn that did not exist. Once the
- * end is deposited and the body has been silent for the grace, the turn is
- * over for us too.
- */
-async function watchHeadlessBody(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  sessionKey: string,
-  opts: { timeoutMs: number; idleMs?: number },
-  tag: "" | " (reattach)",
-): Promise<TurnEndInfo> {
-  let stalled = false;
-  let lastRearm: string | null = null;
-  const t0 = Date.now();
-  const detector = armStallDetector({
-    idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
-    isWaitingForHuman: () => isHumanHold(sessionKey),
-    isWaitingForChecks: () => isChecksHold(sessionKey),
-    // A command of this session is STOPped by us: that silence is ours.
-    isFrozen: () => isSwapFreezeHold(sessionKey),
-    // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the
-    // model's own. The same bound as every other clock that kills the child:
-    // the judge's recycle is a SIGINT, and it takes the work with it.
-    isWaitingForBackground: stallBackgroundHold(sessionKey),
-    // A foreground spawn_agent waiting for its child: our own wait as well.
-    isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
-    getTail: () => stallTranscriptTail(sessionKey),
-    judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
-    // Once per change of reason: a hold lasting an hour rearmed every five
-    // minutes and wrote the same line twelve times.
-    onRearm: (reason) => {
-      if (reason === lastRearm) return;
-      lastRearm = reason;
-      console.log(
-        reason === "human"
-          ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-          : reason === "freeze"
-            ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
-          : reason === "background"
-            ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
-          : reason === "subagent"
-            ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
-          : reason === "checks"
-            ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
-            : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
-      );
-    },
-    onStuck: () => {
-      stalled = true;
-      console.warn(`[turn] stall detector recycling ${sessionKey}${tag}: judge found it stuck`);
-      abortHeadlessTurn(sessionKey, "stall").catch(() => {});
-      reader.cancel().catch(() => {});
-    },
-  });
-  try {
-    while (true) {
-      const { done, value } = await raceReadAgainstTurnEnd(
-        () => reader.read(),
-        () => peekTurnEnd(sessionKey),
-        HEADLESS_END_GRACE_MS,
-      );
-      if (done) {
-        if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
-        break;
-      }
-      // A ping is no sign of life. It means the route has not finalized, so it rightly holds
-      // off the end grace: an end deposited meanwhile is a superseded turn's, or not final yet.
-      if (isSseCommentOnly(value)) continue;
-      detector.noteActivity();
-      // A new stretch of silence logs its first rearm again.
-      lastRearm = null;
-    }
-  }
-  finally {
-    detector.clear();
-    try { reader.releaseLock(); } catch { /* already released */ }
-    // `dispatchTimeoutMin` DECLASSED TO REPORTING ONLY: no cut, just a log.
-    if (opts.timeoutMs && Date.now() - t0 > opts.timeoutMs) {
-      console.warn(`[turn] ${sessionKey}${tag}: over dispatchTimeoutMin (${Math.round(opts.timeoutMs / 60_000)}min) - reporting only, no cut (${Math.round((Date.now() - t0) / 60_000)}min elapsed)`);
-    }
-  }
-  // The stall verdict is OURS: it outranks whatever end the route deposited in
-  // the meantime (the abort we sent lands after it).
-  if (stalled) {
-    takeTurnEnd(sessionKey);
-    return cancelled("stall", `idle stall detector${tag}: judge found the session stuck (idle ${opts.idleMs ?? DEFAULT_STALL_IDLE_MS}ms)`);
-  }
-  // The route deposited the WHY while finalizing; the drain ends on `[DONE]`,
-  // which finalization writes afterwards. If it is missing, the turn is over anyway.
-  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
-}
-
-async function runHeadlessTurn(
-  sessionKey: string,
-  content: string,
-  opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean"; dispatchedFor?: string[] },
-): Promise<TurnEndInfo> {
-  const url = new URL("http://localhost/api/chat");
-  // Butta via un eventuale residuo: una fine depositata e mai ritirata è di un
-  // turno vecchio, e attribuirla a questo sarebbe la bugia che 0.4 elimina.
-  takeTurnEnd(sessionKey);
-  // contextMode "lean" (resume/continuation): the chat route skips re-injecting
-  // the heavy context envelope (CLAUDE.md/README/memory/…) since the persistent
-  // CLI session already has it — see assembleTopicContext(leanContext).
-  // `dispatched`: è un turno d'AGENTE guidato dalla board, non una chat umana.
-  // La route lo rimanda sul `stream:end` di completamento così la push di fine
-  // risposta lo esclude (decine di turni d'agente = spam).
-  // `dispatchedFor`: the ids of the card comments this envelope delivers, so
-  // the row carries them and nobody has to read them back out of the text.
-  const body = JSON.stringify({
-    sessionKey, messages: [{ role: "user", content }],
-    contextMode: opts.contextMode ?? "full", dispatched: true,
-    ...(opts.dispatchedFor?.length ? { dispatchedFor: opts.dispatchedFor } : {}),
-  });
-  const resp = await topicsRouter(
-    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
-    url, "/api/chat", "POST",
-  );
-  // Nessuno stream = la route non ha nemmeno iniziato il turno: è un guasto,
-  // non una fine normale (dirla `end_turn` sarebbe la solita bugia).
-  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat" };
-  const rejected = rejectedTurn(resp, "/api/chat");
-  if (rejected) return rejected;
-  return watchHeadlessBody(resp.body.getReader(), sessionKey, opts, "");
-}
-
-/**
- * Which provider still runs a turn for this session in the AI broker, if any.
- *
- * Two can: `claude-code` (the CLI, under the session key) and the native
- * runtime (its turn process, under `native:<session key>`). The native one
- * also claims a dead store whose row is still open, so when both claim, the
- * one whose process is alive wins (`pickTurnOwner`).
- */
-async function liveTurnOwner(sessionKey: string): Promise<"topics" | "claude-code" | null> {
-  const claims: TurnOwnerClaim[] = [];
-  for (const name of ["topics", "claude-code"] as const) {
-    const p = tryGetProvider(name) as unknown as { hasLiveSession?: (sk: string) => Promise<boolean>; liveDetachedSessions?: () => Promise<Set<string>> } | undefined;
-    try {
-      if (typeof p?.hasLiveSession !== "function" || !(await p.hasLiveSession(sessionKey))) continue;
-      // claude-code claims only a live child; the native runtime says which of its claims are alive.
-      const alive = typeof p.liveDetachedSessions === "function" ? (await p.liveDetachedSessions()).has(sessionKey) : true;
-      claims.push({ name, claims: true, alive });
-    } catch { /* this provider cannot tell: ask the next */ }
-  }
-  return pickTurnOwner(claims);
-}
-
-// Reattach variant: POST /api/chat with mode:"reattach" and NO user message —
-// the route calls provider.reattach (adopt the surviving broker turn) instead of
-// sendChat. Same SSE drain to learn when the turn ends. Used by the dispatcher's
-// reconcile REATTACH branch after a server restart.
-async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number; idleMs?: number }, provider: string = "claude-code"): Promise<TurnEndInfo> {
-  const url = new URL("http://localhost/api/chat");
-  // Il provider si DICHIARA, non si lascia indovinare alla rotta.
-  //
-  // `resolveProvider` risponde «con chi vorrebbe parlare questa topic», e senza
-  // un `provider` nel corpo cade sul default della macchina. Ma un riattacco
-  // non sceglie: adotta un turno che sta già girando, e qui il proprietario è
-  // `claude-code` per COSTRUZIONE — entrambi i chiamanti lo sanno già.
-  // `hasLiveSession` (poco sopra) interroga esplicitamente `claude-code`, e il
-  // setaccio di boot `reattachSurvivingChatTurns` enumera lo store del broker
-  // ai-bridge, che è del provider claude-code e di nessun altro.
-  //
-  // Senza questa riga, su una macchina il cui default è il runtime nativo
-  // (`topics`, che non ha `reattach`), ogni riadozione finiva su `sendChat` con
-  // un messaggio VUOTO: un turno fabbricato che rispondeva «Ciao! Come posso
-  // aiutarti?» e si sedeva in chat al posto della risposta vera. Nove volte in
-  // quindici minuti su topic:9fe7a291 il 2026-08-18, una per riavvio del
-  // server. La rotta adesso rifiuta quel caso (501 `reattach_unsupported`),
-  // ma la cura sta qui: chi conosce il proprietario lo scrive.
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "reattach", dispatched: true, provider });
-  // Stesso patto di runHeadlessTurn: residuo via prima di iniziare.
-  takeTurnEnd(sessionKey);
-  const resp = await topicsRouter(
-    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
-    url, "/api/chat", "POST",
-  );
-  // Nessuno stream = il turno adottato non c'era più: non è una fine normale.
-  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (reattach)" };
-  const rejected = rejectedTurn(resp, "/api/chat (reattach)");
-  if (rejected) return rejected;
-  return watchHeadlessBody(resp.body.getReader(), sessionKey, opts, " (reattach)");
-}
-
-/**
- * Il gemello di `runHeadlessReattach` per il turno che la CLI apre DA SOLA
- * (`Monitor` che consegna). Stessa route, stesso drenaggio SSE, stessa lettura
- * della fine: cambia solo il `mode`, perché cambia solo COME ci si attacca —
- * il provider ha già gli eventi in mano, non c'è nessuno store da rileggere.
- *
- * Nessun tetto a orologio come negli altri due: quel tetto è la promessa fatta
- * al DISPATCHER, che aspetta un verdetto per una card. Qui non aspetta nessuno —
- * è una risposta che arriva in chat mentre l'utente fa altro — e imporre una
- * scadenza vorrebbe dire troncare la risposta di un Monitor che si è messo a
- * lavorare sul serio. Il turno finisce quando finisce; le reti che lo chiudono
- * comunque (watchdog d'inattività del provider, sweeper StaleStream) sono le
- * stesse di ogni altro turno di chat.
- */
-async function runHeadlessWoken(sessionKey: string, source: WakeEvent[] = []): Promise<TurnEndInfo> {
-  const url = new URL("http://localhost/api/chat");
-  // Il provider si DICHIARA, per la stessa ragione del riattacco: senza, si
-  // cade sul default della macchina e la sveglia di claude-code finirebbe a
-  // bussare a un provider che non possiede quel figlio.
-  // `wokenSource`: what woke the CLI, a Monitor's event or a task's report
-  // (`claude/wake-source.ts`). It travels to the chat row, which without it
-  // shows an answer with no provenance.
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code", ...(source.length > 0 ? { wokenSource: source } : {}) });
-  // Stesso patto degli altri due: residuo via prima di iniziare.
-  takeTurnEnd(sessionKey);
-  const resp = await topicsRouter(
-    new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }),
-    url, "/api/chat", "POST",
-  );
-  if (!resp || !resp.body) return { end: "error", cause: "provider-error", detail: "no stream from /api/chat (woken)" };
-  const rejected = rejectedTurn(resp, "/api/chat (woken)");
-  if (rejected) return rejected;
-  const reader = resp.body.getReader();
-  try { while (true) { const { done } = await reader.read(); if (done) break; } }
-  finally { try { reader.releaseLock(); } catch { /* already released */ } }
-  return takeTurnEnd(sessionKey) ?? { end: "end_turn" };
-}
+const { abortHeadlessTurn, runHeadlessTurn, liveTurnOwner, runHeadlessReattach, runHeadlessWoken } = createHeadlessTurns({ ctx, topicsRouter, isChecksHold });
 
 // Ad-hoc dirs the server already references: topic projectPaths + terminal
 // cwds. Most boards belong to projects opened this way (folder picker, Claude
@@ -3242,64 +2845,7 @@ const nodesRouter = createNodesRouter(ctx, {
 });
 void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-// Phase D — heartbeat ticker. Upserts the local machine row every 30 s
-// and flips other machines that haven't checked in for 5 minutes to
-// `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const STALE_THRESHOLD_MS = 5 * 60_000;
-// A paired node (the PC) never calls us, so the ticker asks it (`node-heartbeat.ts`). The probe has
-// its own client: a short deadline, because a hung tunnel must not hold a round for ever.
-const probeNodes = createNodeProbe({
-  list: () => ctx.machineStore.list(),
-  client: createNodeClient({
-    fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(5_000) }),
-    now: () => Date.now(),
-    wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    version: SERVER_VERSION,
-    hostname: osHostname(),
-  }),
-  tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
-  touch: (machineId) => ctx.machineStore.touchNode(machineId),
-  onRefreshed: (machine) => ctx.broadcastToAll({ type: "machine:upserted", machine, payload_version: 1 }),
-  isCloud: isCloudBaseUrl,
-  log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
-});
-function tickHeartbeat() {
-  try {
-    const local = ctx.machineStore.upsertLocal();
-    ctx.broadcastToAll({ type: "machine:upserted", machine: local, payload_version: 1 });
-    // La macchina cloud non manda heartbeat: è viva finché c'è la sua riga, quindi la
-    // rinfreschiamo noi, o dopo 5 minuti la card direbbe «non risponde» su un servizio vivo.
-    // Solo se il cloud è acceso QUI: una riga rimasta da un avvio di prima, a cloud spento,
-    // deve diventare «non risponde» col giro normale invece di restare in linea.
-    // And only while the account has an active cloud environment: without one the node
-    // answers but can start nothing (30/10: the Keychain login moved to an account with no
-    // environments), and "online" sent cards there. Asked from here, at most every 5 minutes.
-    const cloud = cloudEnabled ? ctx.machineStore.getByHostname(CLOUD_NODE_HOST) : null;
-    if (cloud && isCloudBaseUrl(cloud.baseUrl)) {
-      void cloudNode.probeEnvironment();
-      const env = cloudNode.environmentReady();
-      if (env && !env.ok) {
-        const off = ctx.machineStore.markNodeOffline(cloud.id);
-        if (off) {
-          console.warn(`[claude-cloud] offline: ${env.reason}`);
-          ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
-        }
-      } else {
-        ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
-      }
-    }
-    probeNodes();
-    const flipped = ctx.machineStore.markStaleOffline(STALE_THRESHOLD_MS);
-    for (const m of flipped) {
-      ctx.broadcastToAll({ type: "machine:updated", machine: m, payload_version: 1 });
-    }
-  } catch (err) {
-    console.warn("[Heartbeat] tick failed:", err);
-  }
-}
-tickHeartbeat();
-const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+const { heartbeatTimer } = createNodeHeartbeat({ ctx, cloudNode, cloudEnabled });
 
 // I registri d'accordo col fatto, a ogni avvio.
 //
@@ -3604,79 +3150,7 @@ const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
 
-// PORTING-PLAN.md Tier 1 — CORS for the Tauri desktop shell, which serves the UI
-// locally (tauri://localhost) and calls this server cross-origin for /api + /ws.
-// Provably a no-op for the existing web/Electron clients: their Origin is never a
-// tauri/desktop origin, so corsAllowOrigin() returns "" and nothing is added.
-function corsAllowOrigin(req: Request): string {
-  const origin = req.headers.get("origin") || "";
-  // macOS WKWebView → tauri://localhost; Windows WebView2 → http(s)://tauri.localhost
-  return isDesktopShellOrigin(origin) ? origin : "";
-}
-function applyDesktopCors(req: Request, resp: Response): void {
-  const origin = corsAllowOrigin(req);
-  if (!origin) return;
-  resp.headers.set("Access-Control-Allow-Origin", origin);
-  resp.headers.set("Vary", "Origin");
-}
-function corsPreflightHeaders(req: Request, origin: string): Record<string, string> {
-  // Reflect whatever headers the request wants to send: origin is already
-  // gated to the desktop-shell origins, and a fixed list rots — it silently
-  // blocked every PUT carrying X-Client-Id (pane/layout sync), so the desktop
-  // never persisted state except via the header-less sendBeacon teardown path.
-  const requested = req.headers.get("access-control-request-headers");
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": requested || "Content-Type, Authorization",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin, Access-Control-Request-Headers",
-  };
-}
-
-/**
- * Confronto a tempo costante fra due stringhe già validate come esadecimali di
- * lunghezza fissa. `timingSafeEqual` lancia se i buffer hanno lunghezze diverse,
- * quindi la disuguaglianza di lunghezza si tratta prima e senza chiamarlo. Usato
- * solo dal ramo `/__daemon/*`: dopo la change `lan-open-same-origin` è l'unico
- * segreto che il server confronta.
- */
-function timingSafeEqualStr(presented: string, expected: string | null | undefined): boolean {
-  if (!expected) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-/**
- * Le opzioni del server, estratte perché servono a DUE ascoltatori.
- *
- * Il secondo è quello del tunnel, e non è una copia del primo con un numero
- * diverso: è la stessa identica macchina raggiunta da un'altra porta. Deve
- * esserlo, o le due strade divergerebbero — e quella che diverge in silenzio è
- * sempre la meno usata, cioè proprio il tunnel.
- *
- * Delegare invece di condividere non funziona, ed è stato misurato: passando le
- * richieste al primo server con `server.fetch(req)`, il gestore riceve
- * `undefined` al posto dell'istanza e `server.upgrade` esplode. In un'app che
- * vive sul WebSocket sarebbe stato metà prodotto.
- */
-/**
- * Is there a network between us and whoever is asking?
- *
- * The one question both compression paths ask, HTTP and WebSocket alike, so it
- * is written once. Deliberately NOT `isLocalTransport`: that one asks who we
- * trust, and for it the tunnel is remote even with the peer at 127.0.0.1. Here
- * the tunnel is local, because the socket on its other end belongs to
- * `relay-client.ts` on this very machine, which inflates whatever we compress
- * before passing it on. See `server/lib/compress-json.ts`.
- */
-function isRemotePeer(req: Request, srv: { requestIP(req: Request): { address: string } | null }): boolean {
-  return !isLoopbackAddress(srv.requestIP(req)?.address ?? null);
-}
-
-// The /api/* routers in precedence order: see server/route-table.ts.
+const { corsAllowOrigin, applyDesktopCors, corsPreflightHeaders, timingSafeEqualStr, isRemotePeer } = createHttpCors();
 const apiRouteTable = buildRouteTable({
   topicsRouter,
   orchestratorSessionsRouter,
@@ -5216,56 +4690,7 @@ const opzioniServer = {
   // intatto per lo spread nell'ascoltatore del tunnel.
 } satisfies Parameters<typeof Bun.serve<WSData>>[0];
 
-/**
- * JSON responses leave compressed toward whoever is NOT local.
- *
- * The real handler is left alone: it is wrapped once, here, where every response
- * of both listeners goes through. The reasoning for the rule, and for why
- * loopback stays raw, lives in `server/lib/compress-json.ts`. In short:
- * `/api/history` for a working topic weighs 5.17 MB and 1.39 MB compressed, but
- * the 60 ms of CPU that buys only buys a second and a half when there is a
- * network in between.
- */
-function withJsonCompression(
-  handler: typeof opzioniServer.fetch,
-): typeof opzioniServer.fetch {
-  return async function (this: unknown, req, srv) {
-    const res = await handler.call(this as never, req, srv);
-    // `undefined` means the WebSocket upgrade succeeded: there is no HTTP
-    // response to compress.
-    if (!res) return res;
-    return compressJson(req, res, isRemotePeer(req, srv));
-  } as typeof opzioniServer.fetch;
-}
-
-/**
- * One line per completed `/api/*` request: timestamp, status, duration.
- *
- * Before this the log had a start line for every API request (`[HTTP] -> GET
- * /x`, no time, no outcome) and a completion line ONLY for 404s: under load you
- * could not tell which route was slow or whether a request ever finished, and
- * the file was mostly the 2s viewer poll. The outcome is what a log is for, so
- * the start line is gone and the completion line is here, outside every
- * handler, where every response of both listeners passes. `logRequest`
- * (server/utils.ts, server/lib/http-log.ts) owns the format and keeps the
- * chatty routes quiet unless they fail or are slow.
- *
- * `undefined` is a WebSocket upgrade: no response, nothing to log.
- */
-function withHttpLog(
-  handler: typeof opzioniServer.fetch,
-): typeof opzioniServer.fetch {
-  return async function (this: unknown, req, srv) {
-    const t0 = Date.now();
-    const res = await handler.call(this as never, req, srv);
-    if (res) {
-      const pathname = new URL(req.url).pathname;
-      if (pathname.startsWith("/api/")) logRequest(req.method, pathname, res.status, t0);
-    }
-    return res;
-  } as typeof opzioniServer.fetch;
-}
-
+const { withJsonCompression, withHttpLog } = createHttpWrappers({ isRemotePeer, logRequest });
 const fetchCompresso = withHttpLog(withJsonCompression(opzioniServer.fetch));
 
 // ─── Bind, then ask who is there ────────────────────────────────────────────
@@ -5533,237 +4958,7 @@ function sweepStaleChecksLights(): void {
   });
 }
 
-// Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
-// agent turn died with the previous process; then poll to fill free slots on
-// boards with auto_dispatch on (also the safety net if a →todo hook is missed).
-// Con auto_dispatch OFF è il TICK a essere un no-op, non l'intera reconcile: il
-// recupero degli orfani gira comunque, ed è voluto — una board spenta non
-// reclama, ma deve poter liberare le sue card ferme (la riga qui diceva
-// "reconcile() is a no-op", e ha mandato a caccia nel posto sbagliato chi
-// cercava perché sette fantasmi `queued` non venissero mai recuperati).
-const DISPATCH_POLL_MS = 10_000;
-
-/**
- * THE GOVERNOR OF WHAT IS ALREADY RUNNING, on the same ten-second beat as the
- * dispatch poll.
- *
- * The admission gate decides what STARTS; this one decides what keeps running.
- * Same beat on purpose: two clocks reading the same machine would take turns
- * describing two different instants, and the freeze would fight the admission.
- * Only in "by resources" mode, because a budget nobody set is not a budget:
- * `read()` returning `null` means "not measurable", and a governor that cannot
- * measure freezes nothing.
- */
-/** When the governor stopped each native command, to hand the deadline back what the pause took. */
-const governorFrozenAt = new Map<number, number>();
-/**
- * The commands the agents run inside their own tree, screened by the swap
- * freezer's own rules, as targets for the CPU governor. A native command has a
- * deadline that must stop counting while it is stopped; a background shell has
- * none. The "frozen for swap" line in the shell's output is NOT written: it names
- * a cause that is not this one.
- */
-async function agentCommandsForGovernor() {
-  return (await swapFreezer.freezableCommands()).map(({ root, startedAt }) => ({
-    id: `cmd:${root.pid}`,
-    pid: root.pid,
-    name: oneLine(root.command, 60),
-    taskId: root.taskId ?? undefined,
-    startedAt,
-    ...(root.kind === "native" ? {
-      onFreeze: () => { governorFrozenAt.set(root.pid, Date.now()); nativeCommandByPid(root.pid)?.onFreeze(); },
-      onThaw: () => {
-        const at = governorFrozenAt.get(root.pid);
-        governorFrozenAt.delete(root.pid);
-        nativeCommandByPid(root.pid)?.onThaw(at === undefined ? 0 : Date.now() - at);
-      },
-    } : {}),
-  }));
-}
-const budgetGovernor = createBudgetGovernor({
-  read: () => {
-    try {
-      const cap = dispatcherSvc.getGlobalCap();
-      if (capMode(cap) !== "resources") return null;
-      const fleet = fleetLoadSync();
-      if (!fleet) return null;
-      const share = budgetShare(cap);
-      return governorRead(fleet, share, memSignal.latestAvailGB(), machineCores(), osTotalmem() / 1e9, turniInVolo());
-    } catch { return null; }
-  },
-  signalTree: signalProcessTree,
-  agentCommands: agentCommandsForGovernor,
-  // Same ledger as the swap freezer: a tree the governor stopped is continued
-  // at the next boot if this server dies first (`thawLedgerAtBoot`).
-  record: async (id, pid) => {
-    const pids = [pid, ...(await getDescendantPids(pid, { fresh: true }))];
-    const starts = await readStartTimes(pids);
-    const rootLstart = starts?.get(pid);
-    if (!starts || !rootLstart) throw new Error(`no identity for pid ${pid}`);
-    const treeId = `governor:${id}`;
-    swapFreezeLedger.begin({ treeId, sessionKey: treeId, frozenAt: Date.now(), root: { pid, lstart: rootLstart } });
-    swapFreezeLedger.addBatch(treeId, {
-      groups: [{ pgid: pid, leaderLstart: rootLstart }],
-      pids: pids.flatMap((p) => (starts.get(p) ? [{ pid: p, lstart: starts.get(p)! }] : [])),
-    });
-  },
-  release: (id) => swapFreezeLedger.release(`governor:${id}`),
-  log: (m) => console.log(`[budget] ${m}`),
-  note: (taskId, text) => {
-    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
-    catch { /* a note that cannot be written must not stop the freeze */ }
-  },
-});
-setActiveBudgetGovernor(budgetGovernor);
-
-taskDispatcher.reconcile({ reason: "boot" }).catch((err) => console.error("[dispatcher] boot reconcile failed", err));
-/** Under sustained swap the youngest heavy check round is interrupted, never red, and restarts by itself. */
-const swapBrake = createSwapBrake({
-  kill: killCheckTree,
-  note: (taskId, text) => {
-    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
-    catch { /* a note that cannot be written must not stop the brake */ }
-  },
-  log: (line) => console.warn(line),
-});
-
-/**
- * AND UNDER THE SAME SWAP, THE HEAVIEST COMMAND AN AGENT LAUNCHED IN THE
- * BACKGROUND IS FROZEN (`server/services/swap-freeze.ts`).
- *
- * Order on the beat: the brake first (it kills a check round, which gives memory
- * back and restarts by itself), the freezer only when the brake found nothing.
- * The two share one 120 s window, so neither measures the other's effect.
- */
-const swapFreezeXpc = createXpcAttribution({ print: printPidDomain });
-/** The card a session works on, the same reading `isChecksHold` makes. */
-function taskIdForSessionKey(sessionKey: string): string | null {
-  const prefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
-  if (!prefix) return null;
-  try {
-    const row = db.prepare(
-      `SELECT id FROM tasks WHERE assigned_topic_id LIKE ? AND status IN ('in_progress','review') LIMIT 1`,
-    ).get(prefix + "%") as { id: string } | null;
-    return row?.id ?? null;
-  } catch { return null; }
-}
-/** Every agent with a CLI alive: panes first, then the chats. */
-function agentSessionRefs() {
-  const refs: Array<{
-    sessionKey: string; cliPid: number; topicId: string | null; terminalId: string | null;
-    taskId: string | null; backgroundBash: { command: string; startedAt: number }[]; foregroundBash: string[];
-  }> = [];
-  const seen = new Set<string>();
-  for (const pty of getAgentPtyCliPids()) {
-    seen.add(pty.sessionId);
-    refs.push({
-      sessionKey: pty.sessionId, cliPid: pty.pid, topicId: pty.topicId, terminalId: pty.sessionId,
-      taskId: taskIdForSessionKey(pty.sessionId),
-      backgroundBash: pty.claudeSessionId ? backgroundBashFor(pty.claudeSessionId) : [],
-      foregroundBash: pty.claudeSessionId ? foregroundBashFor(pty.claudeSessionId) : [],
-    });
-  }
-  for (const { sessionKey, pid } of listSessionCliPids()) {
-    if (!sessionKey || pid <= 0 || seen.has(sessionKey)) continue;
-    const claudeSessionId = (() => {
-      try { return claudeSessionTracker.getSessionByKey(sessionKey)?.claudeSessionId ?? null; } catch { return null; }
-    })();
-    refs.push({
-      sessionKey, cliPid: pid,
-      topicId: (() => { try { return ctx.getTopicBySessionKey(sessionKey)?.id ?? null; } catch { return null; } })(),
-      terminalId: null,
-      taskId: taskIdForSessionKey(sessionKey),
-      backgroundBash: claudeSessionId ? backgroundBashFor(claudeSessionId) : [],
-      foregroundBash: claudeSessionId ? foregroundBashFor(claudeSessionId) : [],
-    });
-  }
-  return refs;
-}
-/** Where a frozen background shell writes, captured while it is still readable. */
-const frozenShellOutputs = new Map<number, string>();
-const swapFreezer = createSwapFreezer({
-  processTable: readProcessTable,
-  footprintKB: procFootprintKB,
-  residentKB: procResidentKB,
-  lstartOf: readStartTimes,
-  statOf: readProcessStates,
-  signal: (pid, sig) => { process.kill(pid, sig); },
-  sessions: agentSessionRefs,
-  natives: () => listNativeCommands().map((n) => ({
-    sessionKey: n.sessionKey,
-    pid: n.pid,
-    command: n.command,
-    topicId: (() => { try { return ctx.getTopicBySessionKey(n.sessionKey)?.id ?? null; } catch { return null; } })(),
-    terminalId: null,
-    taskId: taskIdForSessionKey(n.sessionKey),
-  })),
-  guardRoles: (rows) => {
-    const cliPids = [
-      ...getAgentPtyCliPids().map((p) => p.pid),
-      ...listSessionCliPids().map((p) => p.pid),
-    ];
-    return { serverPid: process.pid, sidecarPids: sidecarPidsNow(rows), cliPids };
-  },
-  xpcServicePids: (appPid, appCommand, commandOf) => swapFreezeXpc.servicePidsOf(appPid, appCommand, commandOf),
-  // `null` travels: an `lsof` that did not answer is not a tree with no clients.
-  outsidePeers: async (pids) => {
-    const rows = await establishedPeers();
-    return rows === null ? null : outsidePeersOf(rows, new Set(pids));
-  },
-  ledger: swapFreezeLedger,
-  log: (line) => console.warn(line),
-  // The same census the first-card exemption of the dispatcher reads: cards in
-  // flight plus pre-review check runs.
-  ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),
-  note: (taskId, text) => {
-    try { dispatcherSvc.addComment({ taskId, author: "system", kind: "service", content: text }); }
-    catch { /* a note that cannot be written must not stop the freeze */ }
-  },
-  onFreezeTree: (root) => {
-    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onFreeze(); } catch { /* the freeze holds anyway */ } return; }
-    // The agent is told through the file its own `BashOutput` reads, and the
-    // path has to be resolved while the shell is still there to be asked.
-    void stdoutFileOf(root.pid).then((path) => { if (path) frozenShellOutputs.set(root.pid, path); }).catch(() => {});
-  },
-  onThawTree: (root, frozenMs) => {
-    if (root.kind === "native") { try { nativeCommandByPid(root.pid)?.onThaw(frozenMs); } catch { /* it resumes anyway */ } return; }
-    const path = frozenShellOutputs.get(root.pid);
-    frozenShellOutputs.delete(root.pid);
-    if (path) appendFrozenNote(path, frozenMs);
-  },
-  announce: (event) => {
-    announceSwapFreeze();
-    try {
-      // A fact about the Mac, not about the chat that owns the command: a row of
-      // kind `system`, one per freeze cycle, the thaw rewriting the freeze's row
-      // (notifications-redesign, ATTN-10, defect D5).
-      const it = event.view;
-      const key = `swap-freeze:${it.id}`;
-      if (event.kind === "frozen") {
-        openSystemCycle(key, {
-          title: `Congelato: ${it.command}`, // allow-italian: notification history is written in Italian like every other row
-          body: `Il Mac e' in swap: il comando tiene ${it.footprintGB.toFixed(1)} GB e riprende entro 10 minuti.`, // allow-italian: same row
-        });
-      } else {
-        closeSystemCycle(key, {
-          title: `Congelato e ripreso: ${it.command}`, // allow-italian: same row
-          body: `Ripreso dopo ${Math.round(event.frozenMs / 1000)} s (${event.reason}).`, // allow-italian: same row
-        });
-      }
-    } catch { /* a notification that cannot be written must not stop the freeze */ }
-  },
-});
-setActiveSwapFreezer(swapFreezer);
-setSwapFreezeBroadcast((views) => broadcastToAll({ type: "swap-freeze:state", views }));
-/** The sidecars (pty bridge, ai-bridge, webrtc), found on the freezer's own table
- *  by the socket paths they registered themselves with `registerFleetSocket`. */
-function sidecarPidsNow(rows: readonly { pid: number; command: string }[]): number[] {
-  const paths = registeredFleetSocketPaths();
-  if (paths.length === 0) return [];
-  return rows
-    .filter((row) => row.pid !== process.pid && paths.some((sock) => row.command.includes(sock)))
-    .map((row) => row.pid);
-}
+const { DISPATCH_POLL_MS, budgetGovernor, swapBrake, swapFreezer } = createMemoryGovernor({ broadcastToAll, db, ctx, claudeSessionTracker, dispatcherSvc, turniInVolo, checksGateRunningCount, swapFreezeLedger, memSignal, taskDispatcher });
 
 /** The `[memsig]` line goes out once a minute on the 10 s beat. */
 const MEMSIG_EVERY_MS = 60_000;
@@ -5838,471 +5033,7 @@ const dispatchTimer = setInterval(() => {
   } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 
-// Chat reload-resilience: adopt broker-surviving CHAT turns after a restart.
-// A graceful shutdown/hot-reload DETACHES chat children into the ai-bridge
-// daemon instead of killing them (claude-code stop()); this sweep re-adopts
-// any that were MID-TURN (a partial assistant message exists) so the turn
-// streams on as if nothing happened. Everything else alive in the daemon is
-// REAPED: an idle child costs RAM forever and loses nothing when killed —
-// the next sendChat respawns it with --resume on the same claude_session_id.
-// Without the reap, detach-on-shutdown would leak one orphan child per chat
-// per lifetime (observed: dispatch children from July 18-19 still alive).
-// The dispatcher's reconcile above already REATTACHes the turns of
-// in_progress board tasks — those sessionKeys are left strictly alone so two
-// handlers never race over one child.
-async function reattachSurvivingChatTurns(): Promise<void> {
-  // An adopted turn keeps its hold until its leg ends (the route holds it from
-  // `startStream` on); every other broker session is decided when this returns.
-  const adopted = new Set<string>();
-  try { await reattachSurvivors(adopted); }
-  finally { for (const sk of [...brokerBootHolds]) if (!adopted.has(sk)) releaseBootHold(sk); }
-}
-async function reattachSurvivors(adopted: Set<string>): Promise<void> {
-  if (!aiBridgeEnabled()) return;
-  const client = getAiBridgeClient();
-  let sessions: Awaited<ReturnType<typeof client.list>>;
-  try { sessions = await client.list(); } catch { return; } // no daemon → nothing survived
-  const live = sessions.filter((s) => s.alive && s.id.startsWith("topic:"));
-  // Native turns: one process per turn under `native:<session key>`. Alive =
-  // still working; dead with a journal and a row still open = it ended while
-  // no server listened, and the reattach reads its ending from the store.
-  const native = sessions
-    .map((s) => ({ s, sk: sessionKeyOfBrokerId(s.id) }))
-    .filter((x): x is { s: typeof sessions[number]; sk: string } => !!x.sk && nativeDetachedEnabled() && (x.s.alive || (nativeEndedWhileDown.has(x.sk) && midTurnAtBoot.has(x.sk))));
-  if (live.length === 0 && native.length === 0) return;
-  const dispatcherClaimed = new Set<string>();
-  try {
-    const rows = ctx.db.query(
-      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
-    ).all() as Array<{ t: string }>;
-    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
-  } catch (err) {
-    console.warn("[chat-reattach] dispatcher claim query failed (skipping reap for safety):", err);
-    return;
-  }
-  for (const { s, sk } of native) {
-    if (dispatcherClaimed.has(sk)) continue; // the dispatcher's reconcile owns it
-    const topic = ctx.getTopicBySessionKey(sk);
-    if (!topic || topic.archived) {
-      // A dead store too: left behind, a later turn of the same key took it for its own.
-      console.log(`[chat-reattach] ending native turn ${sk}: ${topic ? "archived topic" : "topic gone"}`);
-      try { client.kill(s.id); } catch { /* daemon hiccup: its orphan grace collects it */ }
-      continue;
-    }
-    console.log(`[chat-reattach] adopting native turn ${sk} (${s.alive ? "still running" : "ended while the server was down"})`);
-    adopted.add(sk);
-    runHeadlessReattach(sk, { timeoutMs: 30 * 60_000 }, "topics")
-      .then((end) => { if (end.end !== "end_turn") console.warn(`[chat-reattach] ${sk}: ${describeTurnEnd(end)}`); })
-      .catch((err) => console.warn(`[chat-reattach] ${sk} failed:`, err?.message ?? err))
-      // The leg lasts the whole turn here: the native reattach follows the
-      // journal to its end, a question on screen included.
-      .finally(() => releaseBootHold(sk));
-  }
-  // Mid-turn signal captured BEFORE the startup partial-reset above wiped it.
-  for (const s of live) {
-    if (dispatcherClaimed.has(s.id)) continue; // the dispatcher's reconcile owns it
-    const topic = ctx.getTopicBySessionKey(s.id);
-    const adoptable = !!topic && !topic.archived;
-    // Il DB dice «nessun turno»? Non basta per uccidere. `partial` è l'OMBRA
-    // del turno, non il turno: si perde in tutti i modi (finalizzazioni,
-    // riattacchi, la route della storia), e quando si perde su una sessione
-    // ferma su una DOMANDA il reap ammazza la domanda — pannello vivo che
-    // diventa un bottone Retry, osservato su topic:ed2070df. Lo store del
-    // broker sa la verità: prima di uccidere, gliela si chiede.
-    let brokerSays: "open" | "idle" | "unknown" = "unknown";
-    if (adoptable && !midTurnAtBoot.has(s.id)) {
-      try {
-        const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string, opts?: { park?: boolean }) => Promise<"open" | "idle" | "unknown"> } | undefined;
-        // `park: true` è la promessa che qui sotto manteniamo davvero: se la
-        // risposta è «open» si riadotta, nella riga dopo. Senza, ogni sessione
-        // si faceva spedire l'intero store DUE volte al boot — una per questa
-        // sonda e una per la fase 1 della riadozione, tutte sull'unico socket
-        // del ponte e tutte prima che l'utente veda qualcosa.
-        brokerSays = (await prov?.brokerTurnState?.(s.id, { park: true })) ?? "unknown";
-      } catch (err) {
-        console.warn(`[chat-reattach] broker turn probe failed for ${s.id} (skipping reap for safety):`, err);
-        brokerSays = "unknown";
-      }
-      if (brokerSays === "unknown") {
-        // Nessuna prova di inattività: si lascia stare. Costa un figlio vivo
-        // fino al prossimo boot, che è incomparabilmente meno di un turno vivo
-        // ucciso per un dubbio.
-        console.warn(`[chat-reattach] leaving ${s.id} alone: the broker could not tell whether a turn is in flight`);
-        continue;
-      }
-    }
-    if (adoptable && (midTurnAtBoot.has(s.id) || brokerSays === "open")) {
-      const why = midTurnAtBoot.has(s.id) ? "partial in DB" : "store del broker aperto";
-      console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id} (${why})`);
-      adopted.add(s.id);
-      runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
-        // Il turno adottato finisce comunque: se non è finito bene, il log dice
-        // PERCHÉ invece di tacere (0.4).
-        .then((end) => {
-          if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
-        })
-        .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
-        // The leg is over, the TURN may not be: a child parked on
-        // `ask_user_question` stays open for hours, and the mute replay that
-        // reattaches to it lasts a moment. `endReattachLeg` asks the broker,
-        // then lights the leg's row again, or closes what is still open,
-        // explains it and tells the open windows.
-        .finally(() => { releaseBootHold(s.id); return endReattachLeg(ctx, s.id, tryGetProvider("claude-code")); });
-      continue;
-    }
-    // Idle / archived / deleted-topic session: reap. Guard against a send
-    // that raced in during boot and already owns the child.
-    try {
-      const prov = tryGetProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
-      if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
-    } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
-    // No turn, but the probe above found the work its last turn left running
-    // and kept the session attached as its process: reaping it would kill that
-    // work, and leave a process in the map for a child that no longer exists.
-    try {
-      const prov = tryGetProvider("claude-code") as { ownsSession?: (sk: string) => boolean } | undefined;
-      if (adoptable && prov?.ownsSession?.(s.id)) {
-        console.log(`[chat-reattach] keeping ${s.id}: no turn in flight, but its background work is still running`);
-        continue;
-      }
-    } catch { /* provider not up yet: nothing was kept */ }
-    // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap
-    // si rivelerà di nuovo sbagliato, il log deve dire da quale delle due fonti
-    // è arrivata la bugia, non solo che qualcuno è stato ucciso.
-    const why = topic
-      ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
-      : "topic gone";
-    console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
-    // Its background work past the bound (listed tasks, armed crons) dies with it: the chat says so.
-    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => Array<{ tasks: string[]; why: "silent"; cron?: true }> } | undefined)?.takeSilentBackground?.(s.id) ?? [];
-    if (topic) for (const closed of silent) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", ...closed });
-    try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
-  }
-}
-// Boot reconcile of ORPHANED "working" phases — the keystone of "no chat sits
-// stuck spinning for an hour". A hard outage (a launchd bootout, a crash) kills
-// the ai-bridge child MID-TURN; `claude_code_sessions.phase` stays frozen on a
-// busy-spinner phase (starting/running/tool-running) that never returns to
-// terminal, so the loading dots spin forever. The reaper DOES clear it — but a
-// chat session has no PTY idle signal, so the running→dormant demote only fires
-// after `abandonedTimeoutMs` (~60 min of frozen updatedAt): exactly the "fermo
-// 1h55m" the user saw. This closes that window to ~0 by demoting, at boot, every
-// busy-phase topic session the broker CONFIRMS has no live child.
-//
-// Load-bearing safety (mirrors the partial-sweep invariant above): we ONLY act
-// on a CONFIRMED alive-set. If the broker list is unavailable after retries we
-// do NOTHING — a genuinely long turn (a live child the daemon just hasn't
-// answered for yet) must never be wrongly demoted; the 60-min reaper stays as
-// the backstop. Dispatcher-claimed sessions (in_progress board tasks) are left
-// to the dispatcher's own reconcile so the two never race over one session.
-async function reconcileOrphanedBusyPhases(): Promise<void> {
-  // 1) Authoritative alive-set (same retry/confirm contract as the partial sweep).
-  let aliveSet = new Set<string>();
-  let listConfirmed = false;
-  if (aiBridgeEnabled()) {
-    const client = getAiBridgeClient();
-    for (let attempt = 0; attempt < 4 && !listConfirmed; attempt++) {
-      try {
-        await client.ensureConnected();
-        const sessions = await client.list();
-        aliveSet = new Set(sessions.filter((s) => s.alive && s.id.startsWith("topic:")).map((s) => s.id));
-        listConfirmed = true;
-      } catch {
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    if (!listConfirmed) {
-      console.warn("[busy-reconcile] broker list unavailable after retries — skipping (60-min reaper remains the backstop); refusing to demote possibly-live turns");
-      return;
-    }
-  } else {
-    listConfirmed = true; // no daemon → no live child possible → every busy phase is orphaned
-  }
-
-  // 2) Dispatcher-claimed sessions are owned by taskDispatcher.reconcile() — hands off.
-  const dispatcherClaimed = new Set<string>();
-  try {
-    const rows = ctx.db.query(
-      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
-    ).all() as Array<{ t: string }>;
-    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
-  } catch (err) {
-    console.warn("[busy-reconcile] dispatcher claim query failed — skipping for safety:", err);
-    return;
-  }
-
-  // 3) Every non-archived topic session pinned on a busy-spinner phase.
-  const placeholders = BUSY_SPINNER_PHASES.map(() => "?").join(",");
-  let busyRows: Array<{ sk: string; csid: string | null; phase: string }> = [];
-  try {
-    busyRows = ctx.db.query(
-      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
-       FROM claude_code_sessions s
-       JOIN topics t ON t.session_key = s.session_key
-       WHERE s.phase IN (${placeholders}) AND (t.archived IS NULL OR t.archived = 0)`,
-    ).all(...BUSY_SPINNER_PHASES) as Array<{ sk: string; csid: string | null; phase: string }>;
-  } catch (err) {
-    console.warn("[busy-reconcile] busy-phase query failed:", err);
-    return;
-  }
-
-  let demoted = 0;
-  for (const row of busyRows) {
-    if (aliveSet.has(row.sk)) continue;            // live child → real turn, leave it
-    if (dispatcherClaimed.has(row.sk)) continue;   // dispatcher owns it
-    if (!row.csid) continue;                       // can't address the tracker without a claude_session_id
-    // Provably orphaned: demote phase→dormant (persists + broadcasts session:state,
-    // stopping the spinner on every live client without a reload).
-    const changed = claudeSessionTracker.noteDormant(row.csid);
-    if (!changed) continue;
-    demoted++;
-    console.log(`[busy-reconcile] demoted orphaned ${row.phase} session ${row.sk} (csid ${row.csid.slice(0, 8)}) → dormant`);
-    // Nudge any client still holding a local stream view (the server has no
-    // in-RAM stream after a restart, so this is idempotent/harmless).
-    const topicId = ctx.getTopicBySessionKey(row.sk)?.id;
-    broadcastToAll({ type: "stream:end", sessionKey: row.sk, topicId, reason: "server_restart_reconcile" });
-  }
-  if (busyRows.length > 0) {
-    console.log(`[busy-reconcile] scanned ${busyRows.length} busy-phase session(s), demoted ${demoted} orphaned (aliveSet ${aliveSet.size}, listConfirmed=${listConfirmed})`);
-  }
-}
-
-// ── Orphaned-transcript reconcile — un-stick topics whose session can't resume ──
-// A topic runs its Claude session in a cwd (its project, or a bound worktree);
-// Claude stores the transcript under ~/.claude/projects/<encoded-cwd>/<id>.jsonl.
-// When a bound worktree is later reaped the topic degrades to its base project
-// path (the FK nulls worktree_id) but its claude_code_sessions row still points
-// at a claude_session_id whose transcript lived under the *worktree* dir — gone
-// with the checkout. `--resume` in the base cwd then looks where the transcript
-// ISN'T and fails; the topic sits frozen on its last turn (the "quadra" freeze).
-// worktree-store.delete now forgets those sessions at reap time, but topics
-// orphaned BEFORE that fix — or by any other path that moves a cwd out from under
-// a session — still carry a doomed pointer. This boot sweep forgets any topic
-// session whose transcript is missing at the cwd the provider will actually use,
-// so its next turn spawns fresh in the base project (seeded with the DB history
-// recap). Visible chat + any on-disk transcript are untouched.
-const ORPHAN_TRANSCRIPT_GRACE_MS = 5 * 60 * 1000;
-function reconcileOrphanedTranscripts(): void {
-  // Never disturb a session a dispatched task is actively running.
-  const dispatcherClaimed = new Set<string>();
-  try {
-    const rows = ctx.db
-      .query(
-        "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
-      )
-      .all() as Array<{ t: string }>;
-    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
-  } catch (err) {
-    console.warn("[orphan-transcript] dispatcher claim query failed — skipping for safety:", err);
-    return;
-  }
-
-  // A branch waiting for its first turn has no transcript yet, by design.
-  let pendingForks: Set<string>;
-  try {
-    pendingForks = pendingForkSessions(ctx.db);
-  } catch (err) {
-    console.warn("[orphan-transcript] pending fork query failed — skipping for safety:", err);
-    return;
-  }
-
-  let rows: Array<{ sk: string; csid: string | null; updated_at: string | null }> = [];
-  try {
-    rows = ctx.db
-      .query(
-        `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.updated_at AS updated_at
-         FROM claude_code_sessions s
-         JOIN topics t ON t.session_key = s.session_key
-         WHERE s.claude_session_id IS NOT NULL AND (t.archived IS NULL OR t.archived = 0)`,
-      )
-      .all() as Array<{ sk: string; csid: string | null; updated_at: string | null }>;
-  } catch (err) {
-    console.warn("[orphan-transcript] query failed:", err);
-    return;
-  }
-
-  const now = Date.now();
-  let forgotten = 0;
-  for (const row of rows) {
-    if (!row.csid) continue;
-    if (dispatcherClaimed.has(row.sk)) continue;
-    if (pendingForks.has(row.csid)) continue;
-    const topic = ctx.getTopicBySessionKey(row.sk);
-    const cwd = ctx.resolveTopicCwd(topic);
-    // Missing because the CLI's 30-day cleanup deleted it is not dead: the kept
-    // link puts it back, and the session resumes (lib/transcript-keeper.ts).
-    restoreSweptTranscript(ctx.db, cwd, row.csid, `boot ${row.sk}`);
-    if (
-      !isTranscriptOrphaned({
-        cwd,
-        claudeSessionId: row.csid,
-        updatedAtMs: row.updated_at ? Date.parse(row.updated_at) : 0,
-        nowMs: now,
-        graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
-        transcriptExists: existsSync,
-      })
-    )
-      continue;
-    // Provably unresumable: the transcript isn't where `--resume` will look.
-    // Broadcast a terminal `session:state` (dormant) BEFORE deleting the row —
-    // noteDormant reads the row from the DB, so it must run while it still
-    // exists. This is what clears the PHANTOM in a long-lived client: `stream:end`
-    // only quiets the in-chat streaming spinner (signals.ts); the sidebar/tab
-    // phase (running / "your turn" fill) lives in the session-state map and is
-    // cleared only by a fresh `session:state` or a re-bootstrap. Without this a
-    // client that missed the terminating frame shows the topic "stuck working"
-    // until it happens to reload — exactly the quadra symptom. dormant renders as
-    // no-fill/no-spinner (idle), and the row is deleted right after so the next
-    // bootstrap drops the session entirely and the next turn spawns fresh.
-    claudeSessionTracker.noteDormant(row.csid);
-    try {
-      ctx.db.run("DELETE FROM claude_code_sessions WHERE session_key = ?", [row.sk]);
-    } catch (err) {
-      console.warn(`[orphan-transcript] failed to forget ${row.sk}:`, err);
-      continue;
-    }
-    claudeSessionTracker.dropTerminalSession(row.csid); // drop the in-mem cache copy
-    forgotten++;
-    console.log(
-      `[orphan-transcript] forgot unresumable session ${row.sk} (csid ${row.csid.slice(0, 8)}) — transcript gone at ${cwd}; next turn spawns fresh`,
-    );
-    // Nudge any client still holding a spinner/stream view (idempotent).
-    broadcastToAll({ type: "stream:end", sessionKey: row.sk, topicId: topic?.id, reason: "orphan_transcript_reconcile" });
-  }
-  if (rows.length > 0) {
-    console.log(`[orphan-transcript] scanned ${rows.length} topic session(s), forgot ${forgotten} unresumable`);
-  }
-}
-
-// ── Transcript keeper ── a second name for every resumable session's CLI
-// transcript, so the CLI's own 30-day cleanup cannot take a session Topics
-// still resumes (lib/transcript-keeper.ts). At boot, after the sweeps above, and
-// every six hours: the cleanup needs thirty idle days, any pass in between holds.
-const TRANSCRIPT_KEEP_EVERY_MS = 6 * 60 * 60 * 1000;
-function keepTranscriptsNow(why: string): void {
-  try {
-    const { kept, pruned } = keepLiveTranscripts(ctx.db);
-    if (kept || pruned) console.log(`[transcript-keeper] ${why}: ${kept} kept, ${pruned} dropped`);
-  } catch (err) {
-    console.warn(`[transcript-keeper] ${why}: pass failed:`, err);
-  }
-}
-setInterval(() => keepTranscriptsNow("periodic"), TRANSCRIPT_KEEP_EVERY_MS).unref?.();
-
-// ── Archived-topic reconcile — le fasi che nessuna superficie può spegnere ──
-// Il gemello di riparazione di `parkTopicSession` (lib/session-parking.ts): il
-// parcheggio all'archiviazione tiene pulito da qui in avanti, ma le sessioni
-// GIÀ trapelate non le ri-archivierà nessuno. Al 2026-08-09 erano 28 — 20 ferme
-// su `awaiting-user`, ultima attività a metà luglio — servite dentro le 206 di
-// `/api/claude-sessions` a ogni bootstrap del client.
-//
-// Diversamente dai due sweep qui sopra, questo NON consulta il broker: una fase
-// viva su un topic archiviato è sbagliata comunque, anche se un figlio fosse
-// vivo (nessuna superficie la mostra, nessun gesto la spegne). Resta però la
-// stessa cortesia verso il dispatcher: un task in corso possiede la sua
-// sessione, e un topic dei tentativi archiviato mentre il task lavora non va
-// toccato sotto i piedi. `noteDormant` è soft — non uccide niente, e il primo
-// hook o riga di transcript rianima.
-function reconcileArchivedTopicSessions(): void {
-  const dispatcherClaimed = new Set<string>();
-  try {
-    const rows = ctx.db.query(
-      "SELECT assigned_topic_id AS t FROM tasks WHERE status = 'in_progress' AND assigned_topic_id IS NOT NULL",
-    ).all() as Array<{ t: string }>;
-    for (const row of rows) dispatcherClaimed.add(`topic:${row.t.slice(0, 8)}`);
-  } catch (err) {
-    console.warn("[archived-sessions] dispatcher claim query failed — skipping for safety:", err);
-    return;
-  }
-
-  let rows: Array<{ sk: string; csid: string | null; phase: string }> = [];
-  try {
-    rows = ctx.db.query(
-      `SELECT s.session_key AS sk, s.claude_session_id AS csid, s.phase AS phase
-       FROM claude_code_sessions s
-       JOIN topics t ON t.session_key = s.session_key
-       WHERE t.archived = 1 AND s.phase NOT IN ('dormant', 'completed', 'error')`,
-    ).all() as Array<{ sk: string; csid: string | null; phase: string }>;
-  } catch (err) {
-    console.warn("[archived-sessions] query failed:", err);
-    return;
-  }
-
-  let parked = 0;
-  for (const row of rows) {
-    if (!row.csid) continue;
-    if (dispatcherClaimed.has(row.sk)) continue;
-    if (claudeSessionTracker.noteDormant(row.csid)) parked += 1;
-  }
-  if (rows.length > 0) {
-    console.log(`[archived-sessions] ${rows.length} sessione/i viva/e su topic archiviati, ${parked} parcheggiata/e → dormant`);
-  }
-}
-
-// ── IL TURNO CHE NASCE DA SOLO ────────────────────────────────────────────
-//
-// Un `Monitor` armato dall'agente («avvisami quando il build finisce») consegna
-// il suo evento aprendo un TURNO NUOVO: la CLI risveglia il figlio da sola e
-// produce una risposta vera, senza che nessuno abbia scritto niente. Misurato il
-// 20/08/2026 (CLI 2.1.237, stessa argv di Topics) — la traccia sta accanto a
-// `onWokenTurn` in providers/claude-code.ts.
-//
-// Fino a qui quella risposta si perdeva: nasce dopo un `result`, e dopo un
-// `result` nessuno ascolta più quella sessione. Il tool funzionava, la sua
-// risposta era invisibile — ed è per questo che il Monitor sembrava «perso».
-//
-// La cura riusa la macchina che già esiste. Un turno risvegliato è, per tutto
-// ciò che viene dopo, identico a uno riadottato dopo un riavvio: nessun
-// messaggio da mandare, una riga da riempire, uno stream da finalizzare. Quindi
-// si passa dalla STESSA route, con `mode: "woken"`, e non da una seconda copia
-// della finalizzazione.
-//
-// Fire-and-forget con la sua rete: se l'adozione fallisce (il turno è finito
-// mentre aprivamo la riga, o l'utente ha scritto e ha vinto lui) il log lo dice
-// e la sessione resta esattamente com'era.
-function adottaTurniRisvegliati(): void {
-  // Si arma sulla CLASSE, non su un'istanza. Al boot `claude-code` non è ancora
-  // registrato — `initProvider` lancia `initProviders()` fire-and-forget, ed è
-  // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
-  // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
-  // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
-  ClaudeCodeProvider.observeWokenTurns((sessionKey, source, abandon) => {
-    const topic = ctx.getTopicBySessionKey(sessionKey);
-    // A task agent's topic is born archived yet is alive while its task runs:
-    // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
-    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id));
-    if (verdict !== "adopt") {
-      // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
-      // in un posto che l'utente non ha. `false` tells the provider to drop
-      // the turn, so it never lands in the next turn somebody asks for.
-      console.log(`[woken] ${sessionKey}: turno spontaneo su una topic assente o archiviata — lasciato cadere`);
-      return false;
-    }
-    console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
-    // L'ATTESA È FINITA, e va detto PRIMA di guidare il turno.
-    //
-    // `monitorArmed` è ciò che tiene la sessione in `watching` attraverso lo
-    // `Stop` di fine turno (vedi `applyHook`): serviva a non far sembrare
-    // inattiva una chat che stava sorvegliando un build. Adesso il Monitor ha
-    // consegnato, quindi la sorveglianza è chiusa — e se il flag restasse
-    // acceso, lo `Stop` di QUESTO turno rimetterebbe la chat in `watching` con
-    // nessuno che guarda più niente: una spia accesa per sempre, che è peggio
-    // di una spia che non si accende mai.
-    try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
-    catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
-    // Whatever the outcome, give the held turn up once the route is done with
-    // it. After a real adoption the buffer is already drained and `abandon`
-    // does nothing; when the route refused before adopting (a 4xx/5xx, a
-    // throw) it drops the turn instead of leaving it for the next sender.
-    void runHeadlessWoken(sessionKey, source)
-      .then((end) => {
-        if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
-      })
-      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err))
-      .finally(abandon);
-    return true;
-  });
-}
+const { reattachSurvivingChatTurns, reconcileOrphanedBusyPhases, reconcileOrphanedTranscripts, keepTranscriptsNow, reconcileArchivedTopicSessions, adottaTurniRisvegliati } = createSurvivorReattach({ runHeadlessReattach, runHeadlessWoken, broadcastToAll, ctx, claudeSessionTracker, midTurnAtBoot, nativeEndedWhileDown, brokerBootHolds, releaseBootHold });
 adottaTurniRisvegliati();
 
 // One context for every sweep. Beyond the live stream, the sweep asks the
@@ -6496,131 +5227,7 @@ scheduleHoldRecheck();
 const worktreeGcBoot = setTimeout(() => { void worktreeGc.runWorktreeGc(); }, worktreeGc.bootDelayMs);
 const worktreeGcTimer = setInterval(() => { void worktreeGc.runWorktreeGc(); }, worktreeGc.intervalMs);
 
-// ── Landing audit: "done" must mean "è nel prodotto" ───────────────────────
-// The GC above decides what is safe to DESTROY; this decides what has actually
-// ARRIVED. They are different questions, and the 19/07 loss lived in the gap:
-// the task said done, the branch was gone, the code was nowhere.
-//
-// Two steps per pass:
-//  1. BACKFILL — any review/done task with a live branch worktree but no
-//     recorded delivery gets its own most recent commit recorded now. Covers the
-//     paths that bypass the route PATCH (system-delivery from the dispatcher) and
-//     every task that predates the delivery snapshot.
-//  2. AUDIT — compare each recorded commit against main by CONTENT and stamp
-//     the verdict; the edge into `unlanded` posts a comment on the task.
-/**
- * Il cablaggio della passata di backfill: il COSA sta in
- * `services/delivery-backfill.ts`, qui restano solo le dipendenze vere.
- */
-function backfillDeliveries(): Promise<void> {
-  return backfillDeliveriesPass({
-    db: ctx.db,
-    projectStore: ctx.projectStore,
-    svc: dispatcherSvc,
-    workspaceDir: DISPATCH_WORKSPACE_DIR,
-    extraPaths: dispatchExtraPaths,
-    buildProjectCandidates,
-    deliveryBranchDeps,
-    resolveDeliveryBranch,
-    deliveryPointer,
-    worktreeDiffStat,
-    keepDeliveryCommit,
-  });
-}
-
-const LANDING_AUDIT_INTERVAL_MS = 30 * 60_000;
-
-/**
- * Il cablaggio dell'audit: il COSA sta in `services/landing-audit-pass.ts`, qui
- * restano i cinque riferimenti che vivono davvero in questo file.
- */
-const auditWiring: AuditWiring = {
-  projectStore: ctx.projectStore,
-  workspaceDir: DISPATCH_WORKSPACE_DIR,
-  extraPaths: dispatchExtraPaths,
-  svc: dispatcherSvc as unknown as AuditWiring["svc"],
-  broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-  backfill: backfillDeliveries,
-};
-/**
- * THE BROOM OVER THE DELIVERY REFS, on the same pass as the audit and never on
- * a timer of its own: both walk the repositories, and two sweeps on the same
- * git are one collision waiting for the night nobody is watching.
- *
- * `TOPICS_DELIVERY_REF_RETENTION_DAYS=0` keeps every delivery reachable for
- * ever, which is a legitimate choice on a small board: a ref is 41 bytes, what
- * it pins is an object graph that then never shrinks.
- */
-const DELIVERY_REF_RETENTION = Number(
-  process.env.TOPICS_DELIVERY_REF_RETENTION_DAYS ?? DELIVERY_REF_RETENTION_DAYS,
-);
-async function pruneKeptDeliveries(): Promise<void> {
-  if (!Number.isFinite(DELIVERY_REF_RETENTION) || DELIVERY_REF_RETENTION <= 0) return;
-  const vita = ctx.db.prepare("SELECT status, completed_at AS completedAt FROM tasks WHERE id = ?");
-  const visti = new Set<string>();
-  for (const p of ctx.projectStore.list()) {
-    const path = p.path;
-    if (!path || visti.has(path) || !existsSync(path)) continue;
-    visti.add(path);
-    try {
-      const summary = await pruneDeliveryRefs({
-        repoPath: path,
-        retentionDays: DELIVERY_REF_RETENTION,
-        // A card the database does not know is KEPT, not dropped: see the
-        // decision in `delivery-ref-keep.ts`. One repository can carry the
-        // deliveries of more than one board.
-        lifeOf: (taskId) => {
-          const row = vita.get(taskId) as { status?: string; completedAt?: string | null } | undefined;
-          return { status: row?.status ?? null, completedAt: row?.completedAt ?? null };
-        },
-      });
-      if (summary && summary.dropped.length > 0) {
-        console.log(`[delivery-refs] ${summary.dropped.length} ref lasciati cadere, ${summary.kept} tenuti { repo: ${path} }`);
-      }
-    } catch (err) {
-      console.warn("[delivery-refs] potatura fallita", err);
-    }
-  }
-}
-
-const runLandingAudit = async () => {
-  await runLandingAuditPass(auditWiring);
-  await pruneKeptDeliveries();
-};
-const auditOneLanding = (taskId: string) => auditOneLandingPass(auditWiring, taskId);
-
-// Offset from the GC pass so the two git sweeps don't collide on the same repo.
-const landingAuditBoot = setTimeout(runLandingAudit, 180_000);
-const landingAuditTimer = setInterval(runLandingAudit, LANDING_AUDIT_INTERVAL_MS);
-
-// ── LANDS LEFT BEHIND GO BACK TO ORIGIN. The push after a land can fail
-// (network, port 22 timing out on 10/11): every 10 minutes each project repo
-// retries, fast-forward only, and once main is on origin its `unpushed` cards
-// turn `landed`. Every repo, not only those with marked cards: a land made by
-// a server without this fix is behind all the same, and that is the measured case.
-const sweepUnpushedLands = async () => {
-  const repos = new Set<string>();
-  try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
-  const pending = ctx.db.prepare(
-    "SELECT id, project_id FROM tasks WHERE landing_state = 'unpushed' AND archived = 0",
-  ).all() as Array<{ id: string; project_id: string }>;
-  await sweepUnpushedMains([...repos], (repo, n) => {
-    const pid = projectIdForPath(repo);
-    if (n > 0) console.log(`[land-push] ${n} commit di main portati su origin { repo: ${repo} }`);
-    for (const t of pending.filter((p) => p.project_id === pid)) {
-      dispatcherSvc.recordLandingState({ taskId: t.id, state: "landed", checkedAt: new Date().toISOString(), witnessed: true });
-      try {
-        dispatcherSvc.addComment({ taskId: t.id, author: "system", kind: "service", content: "Main portato su origin: il land ora è anche su GitHub." });
-      } catch { /* the line is a courtesy */ }
-      const cur = dispatcherSvc.get(t.id)?.task;
-      if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
-    }
-  }, mainPushGit).then((out) => {
-    for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
-  });
-};
-setTimeout(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 240_000).unref?.();
-setInterval(() => { void sweepUnpushedLands().catch((e) => console.warn("[land-push] spazzata fallita", e)); }, 10 * 60_000).unref?.();
+const { auditOneLanding, landingAuditBoot, landingAuditTimer } = createLandingAudit({ broadcastToAll, ctx, DISPATCH_WORKSPACE_DIR, dispatcherSvc, dispatchExtraPaths, listSelectableProjectDirs, deliveryBranchDeps });
 
 // `requestIP` vive sull'istanza del server, che nasce dopo il contesto: si
 // aggancia qui, cosi' le rotte che devono distinguere loopback da remoto
@@ -7567,3 +6174,32 @@ async function gracefulShutdown(signal: string) {
 // Init is complete: repoint the early-registered signal listeners (top of
 // file) from the exit-clean stub to the real teardown.
 onTermSignal = (signal) => { void gracefulShutdown(signal); };
+
+/** What the modules under `server/boot/` read from this file: each field is typed from the binding it names. */
+export type BootScope = {
+  DISPATCH_WORKSPACE_DIR: typeof DISPATCH_WORKSPACE_DIR;
+  broadcastToAll: typeof broadcastToAll;
+  brokerBootHolds: typeof brokerBootHolds;
+  checksGateRunningCount: (() => number) | null;
+  claudeSessionTracker: typeof claudeSessionTracker;
+  cloudEnabled: typeof cloudEnabled;
+  cloudNode: typeof cloudNode;
+  ctx: typeof ctx;
+  db: typeof db;
+  deliveryBranchDeps: typeof deliveryBranchDeps;
+  dispatchExtraPaths: typeof dispatchExtraPaths;
+  dispatcherSvc: typeof dispatcherSvc;
+  isChecksHold: typeof isChecksHold;
+  listSelectableProjectDirs: typeof listSelectableProjectDirs;
+  logRequest: typeof logRequest;
+  memSignal: typeof memSignal;
+  midTurnAtBoot: typeof midTurnAtBoot;
+  nativeEndedWhileDown: typeof nativeEndedWhileDown;
+  opzioniServer: typeof opzioniServer;
+  releaseBootHold: typeof releaseBootHold;
+  swapFreezeLedger: typeof swapFreezeLedger;
+  taskDispatcher: typeof taskDispatcher;
+  topicsRouter: typeof topicsRouter;
+  turniInVolo: typeof turniInVolo;
+  wsClients: typeof wsClients;
+};
