@@ -11,9 +11,10 @@ import type { AppContext } from "../types";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
+import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
-import { isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
+import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import type { TaskDispatcher } from "../services/task-dispatcher";
@@ -29,8 +30,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
-import { readBoardWorkflow, readOwnWorkflowPreset } from "../services/board-workflow";
-import { STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId } from "../../shared/workflow";
+import { readBoardWorkflow, readOwnWorkflowPreset, readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
+import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId, parsePersonPaths, type WorkflowPresetId } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -275,24 +276,48 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
     if (bWorkflow) {
       const scope = bWorkflow.projectId;
+      // `rules` = the CI switch and the board's paths a person must look at,
+      // resolved; `ownRules` = this scope's row. PUT takes any of `preset`,
+      // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
+      // keys present are written, `null` = inherit.
+      const view = () => ({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope), rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
       if (method === "GET") {
-        try { return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) }); }
+        try { return json(view()); }
         catch (e) { return fail(e); }
       }
       if (method === "PUT") {
-        const body = (await readJSON(req)) as { preset?: unknown } | null;
-        const preset = body?.preset;
-        if (preset !== null && !isWorkflowPresetId(preset)) {
+        const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
+        const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
+        if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
+          return json({ error: "nothing to write: send preset, ciPhase or personPaths", code: "invalid_input" }, 400);
+        }
+        const preset = body.preset;
+        if (has("preset") && preset !== null && !isWorkflowPresetId(preset)) {
           return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
         }
+        if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
+          return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
+        }
+        const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
+        if (has("personPaths") && body.personPaths !== null && personPaths === null) {
+          return json({ error: `personPaths must be a list of at most ${MAX_PERSON_PATHS} { pattern, why }`, code: "invalid_input" }, 400);
+        }
         try {
+          if (has("ciPhase") || has("personPaths")) {
+            writeWorkflowRules(ctx.db, scope, {
+              ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
+              ...(has("personPaths") ? { personPaths } : {}),
+            }, new Date().toISOString());
+          }
           // Through the service: the cards whose column the new workflow does
           // not have go back to the default one, and the attention state reads
           // them again (a card in review there waits on the person).
-          for (const task of svc.applyBoardWorkflow({ scope, preset })) {
-            broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+          if (has("preset")) {
+            for (const task of svc.applyBoardWorkflow({ scope, preset: preset as WorkflowPresetId | null })) {
+              broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+            }
           }
-          return json({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope) });
+          return json(view());
         } catch (e) { return fail(e); }
       }
     }
@@ -785,9 +810,21 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // branch is not on main yet is a land: it enters the phase and closes when main confirms it.
         const cur = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task;
         // `force` is the person overriding a red: an explicit gesture, it does not go through the phase's bounce.
-        if (cur && cur.status === "review" && cur.deliveryBranch && cur.landingState !== "landed" && typeof body?.comment !== "string"
-          && body?.force !== true && enterCiPhase(bReview.projectId, bReview.taskId)) {
-          return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+        // An approval WITH a comment is still an approval: it went done and landed straight, past the
+        // phase (2882b9fb, 14/11, main red on the bundle). Only "Landa e pubblica" goes online directly.
+        const said = typeof body?.comment === "string" ? body.comment.trim() : "";
+        // "Already on main" is a merge a land saw, not a deduced `landed` (c2908b93): that one enters the phase.
+        if (cur && cur.status === "review" && cur.deliveryBranch && !landedOnMain(ctx.db, cur)
+          && !isPublishActionLabel(said) && body?.force !== true) {
+          // The words go in BEFORE the phase starts: written after, they would read as the person speaking up
+          // during the phase, which stops it. Written twice they are one row (author + content dedupe).
+          if (said && !isLandActionLabel(said)) {
+            try { svc.addComment({ taskId: bReview.taskId, author: HUMAN, content: said, projectId: bReview.projectId, origin: actionOrigin }); }
+            catch { /* the phase is what matters */ }
+          }
+          if (enterCiPhase(bReview.projectId, bReview.taskId)) {
+            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+          }
         }
       }
       try {

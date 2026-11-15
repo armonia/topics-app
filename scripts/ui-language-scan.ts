@@ -60,6 +60,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-attention-en.ts",
   "client/src/lib/i18n-automations-it.ts",
   "client/src/lib/i18n-automations-en.ts",
+  "client/src/lib/i18n-dashboard-it.ts",
+  "client/src/lib/i18n-dashboard-en.ts",
   "client/src/lib/i18n-hub-context-it.ts",
   "client/src/lib/i18n-hub-context-en.ts",
   "client/src/lib/i18n-features-it.ts",

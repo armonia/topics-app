@@ -1218,6 +1218,18 @@ html {
   word-break: break-all;
 }
 
+/* Table cells break only BETWEEN words. `.message-content` asks for
+   `overflow-wrap: anywhere` (plus the legacy `word-break: break-word`), and both
+   drop a column's min-content width to ONE letter: on a phone the table layout
+   squeezed every column down to «col/onna», «sec/on/do». Here the minimum is the
+   longest word again; a table that still does not fit scrolls inside its own
+   `overflow-x-auto` wrapper instead of breaking words. */
+.message-content .md-cell {
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: manual;
+}
+
 /* Ensure form inputs never overflow their container */
 textarea, input[type="text"] {
   max-width: 100%;

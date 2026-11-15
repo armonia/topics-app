@@ -75,6 +75,7 @@ describe('terminal PTY kill diagnostics', () => {
   test('the exit handler takes the code from the park rule, and the park marks itself', () => {
     expect(ROUTES).toContain('const exitCode = recordedExitCode(msg.exitCode, parkedByServer.delete(msg.id));');
     expect(ROUTES).toContain("parkedByServer.add(id);\n  sendTerminalKill(id, 'park',");
-    expect(ROUTES).toContain("exit_code = ? WHERE id = ?\", [exitCode, msg.id]");
+    expect(ROUTES).toContain("settleExitedSessionRow(getDatabase, { id: msg.id, resumable: canResume, exitCode })");
+    expect(readFileSync(resolve(import.meta.dir, "terminal-guards.ts"), "utf8")).toContain("exit_code = ? WHERE id = ?\", [row.exitCode, row.id]");
   });
 });

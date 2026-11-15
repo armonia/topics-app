@@ -8,6 +8,11 @@
 import { expect, test } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
+import { openUserMenuLevel } from "./helpers/user-menu";
+import { openProfileMenu } from "./helpers/open-perf-panel";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 
 hermetic(test);
 
@@ -88,4 +93,47 @@ test("dal menu utente si apre Strumenti: autorizza, parcheggia, rimonta, aggiorn
   });
   await pageEl.getByTestId("agent-tools-open-automations").click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toContain("automations");
+});
+
+// Evidence for the card: the Tools level next to the Devices level at four widths, realistic data.
+const SHOT_DIR = join(homedir(), ".topics", "media", "strumenti-572f8a09");
+
+test("screenshots: Strumenti accanto a Dispositivi a 375, 768, 1440 e 3440", async ({ page }) => {
+  mkdirSync(SHOT_DIR, { recursive: true });
+  const mcp = [
+    ...["docs", "github", "linear", "browser", "database"].map((name, i) => ({ name: `${name}-server`, state: "active", transport: "http", toolCount: 4 + i * 3, source: "~/.claude.json", parkedByUser: false })),
+    { name: "mail-server", state: "needs-auth", transport: "http", toolCount: 0, reason: "Sign-in required.", source: "~/.claude.json", parkedByUser: false },
+    { name: "broken-server", state: "failed", transport: "stdio", toolCount: 0, reason: "Process exited with code 1.", source: "~/.claude.json", parkedByUser: false },
+    { name: "old-server", state: "parked", transport: "stdio", toolCount: 0, reason: "Parked from the Tools page.", source: "~/.claude.json", parkedByUser: true },
+  ];
+  const skills = ["commit", "review", "deploy-checklist", "design-system-audit", "release-notes", "database-migration", "security-sweep"].map((name) => ({
+    name, description: `A fairly long description of what the ${name} skill does for the agent`, source: "~/.agents/skills",
+  }));
+  const clis = [
+    { id: "claude-code", name: "Claude Code", installed: true, path: "/usr/bin/claude", install: "npm i -g claude" },
+    { id: "codex", name: "Codex", installed: true, path: "/usr/bin/codex", install: "npm i -g codex" },
+    { id: "muse", name: "Muse", installed: false, path: "", install: "npm i -g muse" },
+  ];
+  const sources = [
+    { kind: "mcp", label: "~/.claude.json", found: true, extra: false },
+    { kind: "skills", label: "~/.agents/skills", found: true, extra: false },
+    { kind: "skills", label: "~/work/team-skills", found: true, extra: true },
+  ];
+  await page.route("**/api/agent-tools", (route) => route.fulfill({ json: { mcp, skills, clis, sources } }));
+
+  for (const width of [375, 768, 1440, 3440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await goToApp(page);
+    await openProfileMenu(page);
+    await page.getByTestId("topics-menu-agent-tools").click();
+    const tools = page.getByTestId("agent-tools-page");
+    await expect(tools).toBeVisible({ timeout: 10_000 });
+    await expect(tools.getByTestId("agent-tools-mcp-github-server")).toBeVisible();
+    await page.screenshot({ path: join(SHOT_DIR, `strumenti-${width}.png`) });
+    // No horizontal overflow of the page at any width.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await goToApp(page);
+    await expect(await openUserMenuLevel(page, "devices")).toBeVisible();
+    await page.screenshot({ path: join(SHOT_DIR, `dispositivi-${width}.png`) });
+  }
 });

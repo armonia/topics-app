@@ -1,5 +1,434 @@
 [
   {
+    "version": "2.4.2",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "«Continua sulla riserva» sul turno fermato dal motore degli account (#1024)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.0",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an integration checkout left by a restart no longer blocks the next measure (#1019)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "gli agenti di Topics passano il lavoro di esplorazione a sottoagenti e swarm (SUBAGENT-24)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.118",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: la frase rapida non dice «hai ragione» a una domanda, e il cervello non promette l'esito prima del risultato (#1017)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.117",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "banco voce: «chiede_se_ce», per lo scenario di rumore della stanza dopo un risultato (#1015)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.116",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il ramo di integrazione della board non è lavoro altrui (#1002)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fill the data the Rust menu lacked against the Swift one",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "move the local clock helpers out of tray_menu.rs to stay under the size baseline",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "mark quoted menu wording in comments",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i rami vecchi della card non tolgono i suoi commit (#1005)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.115",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.114",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "sei difetti trovati girando ogni schermata a 375px (#967)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.113",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: ciò che dice sopra il saluto si sente (#991)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "le regole del workflow della board si scrivono e tornano dopo il ricarico (DROP-09) (#995)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "voice-call: conversazione più fluida (ascolto, silenzi, linea caduta, frasi dette piano) (#996)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.112",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una misura che il quadrante non mostra va nella riga sotto (#979)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fase CI e «chi deve guardare» diventano regole del workflow (#992)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "menu grafico completo (tabella processi, dettaglio PC e server, backup, progetti, limiti, dashboard)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.111",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: la frase rapida non inventa cosa controlla e non scambia una domanda per una lamentela (#990)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.110",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Chiamate vocali in Topics: il canale porta solo l'audio (#987)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.109",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Artifact purge survives a GitHub 500 on one delete (#983)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-14 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "DESIGN.md nel formato di Google, memoria del gusto di Attilio (#984)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.108",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/ghostly-peacock (card c2908b93) (#971)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.106",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "i nodi server con la stessa card del Mac, senza doppioni e senza righe sovrapposte (#975)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.104",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "riprova dopo timeout Windows non legato al menu tray",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fase CI: card già su main chiuse, Approva con commento in fase (#972)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.103",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [
+        {
+          "it": "card state glyph family, live spinning half pie and failed variant",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "chat task card uses the phase glyph map, tray colours match dark tokens",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "GET land answers «fase CI» over an older settled ticket (#963)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "disegno delle schede macchina, quote e backup per il menu (card 1aba05b4)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "wip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "menu ricco, tabella progetti, glue AppKit, lato client",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Agent tools page uses the compact user-menu row styles, with e2e screenshots next to Devices (card 572f8a09)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.102",
     "date": "2026-11-14",
     "sections": {
@@ -12,6 +441,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Preview rule: screenshots and clips come from the e2e spec, not a blanket browser ban",
+          "en": "",
+          "scope": null
         },
         {
           "it": "fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)",
@@ -293,6 +727,12 @@
           "breaking": false
         },
         {
+          "it": "unify status colours and icons",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
           "it": "a machine-wide queue for heavy commands, served by Topics",
           "en": "",
           "scope": "heavy-slot",
@@ -352,6 +792,12 @@
           "it": "hold the client close until its write queue drains",
           "en": "",
           "scope": "relay",
+          "breaking": false
+        },
+        {
+          "it": "drain survives a failing sink, exit row settles inside its guard, forget-site reports a failed save (card 79272a55)",
+          "en": "",
+          "scope": "server",
           "breaking": false
         },
         {
@@ -645,6 +1091,12 @@
           "scope": null
         },
         {
+          "it": "trace silent-catch test (card 30f7c880), cover chat call site, drop inert delete",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
           "it": "unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)",
           "en": "",
           "scope": null,
@@ -820,6 +1272,12 @@
           "breaking": false
         },
         {
+          "it": "SILENT-CATCH-01, the requirement the silent-catch test declares (card 30f7c880)",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
           "it": "Add backup-residue to qa-gate loop",
           "en": "",
           "scope": null
@@ -973,6 +1431,12 @@
           "breaking": false
         },
         {
+          "it": "catches that swallowed real errors now report them",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
           "it": "the shipped boot.js matches its source again",
           "en": "",
           "scope": "boot",
@@ -1098,6 +1562,12 @@
           "it": "rename a helper in the guard to an English word",
           "en": "",
           "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "silent-catch sites fail for real; warnThrottled forgets expired keys",
+          "en": "",
+          "scope": "server",
           "breaking": false
         },
         {
