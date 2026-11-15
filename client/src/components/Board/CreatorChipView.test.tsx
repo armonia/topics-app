@@ -143,7 +143,7 @@ describe('Jarvis as the agent (the avatar slot, apart from the channel chip)', (
     expect(creatorChip({ createdBy: 'human', createdSource: null, openerName: null, openerTopicId: null, channel }, jTr)?.jarvis).toBe(false);
   });
   test('draws the avatar and his name in the one accent, in the same chip component', () => {
-    const chip = creatorChip({ createdBy: 'agent:jarvis', createdSource: null, openerName: null, openerTopicId: 'op-1' }, jTr)!;
+    const chip = creatorChip({ createdBy: 'agent:jarvis', createdSource: undefined, openerName: undefined, openerTopicId: 'op-1' }, jTr)!;
     const html = renderToStaticMarkup(<CreatorChipView chip={chip} />);
     expect(html).toContain('data-testid="card-created-by"');
     expect(html).toContain('data-created-by-jarvis="true"');
