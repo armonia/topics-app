@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.11 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)
+- un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)
+
 ## 2.4.10 — 2026-11-15
 
 ### Sotto il cofano
