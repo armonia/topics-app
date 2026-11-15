@@ -1021,6 +1021,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
               runId: row.remoteRunId,
               ...remoteRoad(),
             });
+            remoteChildLogs.delete(`${row.remoteMachineId}:${row.remoteRunId}`);
             setSubagentState(getDatabase(), agentId, "stopped");
             return json({ ok: true, branch: row.branch });
           }

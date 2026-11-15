@@ -72,7 +72,10 @@ export async function readRemoteChild(input: ReadRemoteChildInput): Promise<Read
     log.texts.push(c.content);
     if (!log.lastAt || c.createdAt > log.lastAt) log.lastAt = c.createdAt;
   }
-  const from = Math.max(0, Math.min(Math.trunc(input.since) || 0, log.texts.length));
+  // A `since` past the end means this log was born again (the Map lives in memory and the server
+  // restarted): replaying from 0 shows something twice, clamping to the end would lose it for good.
+  const asked = Math.max(0, Math.trunc(input.since) || 0);
+  const from = asked > log.texts.length ? 0 : asked;
   const events = log.texts.slice(from).map((text) => ({ type: "assistant" as const, text }));
   return { ok: true, events, nextOffset: log.texts.length, source: "node" };
 }

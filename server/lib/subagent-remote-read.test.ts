@@ -46,6 +46,17 @@ describe("readRemoteChild", () => {
     expect(second.ok && second.events).toEqual([]);
   });
 
+  it("dopo un riavvio il log riparte vuoto: un since oltre la fine rilegge da capo invece di perdere", async () => {
+    const reborn = emptyRemoteChildLog();
+    const comments = [
+      { id: "x", content: "pendente", createdAt: "2026-11-15T11:00:00.000Z" },
+      { id: "y", content: "consegna", createdAt: "2026-11-15T11:00:01.000Z" },
+    ];
+    const result = await readRemoteChild({ ...base, log: reborn, since: 5, readRun: pairedNode(comments) });
+    expect(result.ok && result.events.map((e) => e.text)).toEqual(["pendente", "consegna"]);
+    expect(result.ok && result.nextOffset).toBe(2);
+  });
+
   it("nodo che non risponde: ok false col motivo, nessuna eccezione", async () => {
     const result = await readRemoteChild({ ...base, log: emptyRemoteChildLog(), since: 0, readRun: async () => { throw new Error("unreachable"); } });
     expect(result.ok).toBe(false);
