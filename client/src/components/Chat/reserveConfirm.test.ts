@@ -4,6 +4,8 @@
  * The account engine stops a turn with `reserve_confirmation_required` when only the last subscription is left
  * (hub-service `sb/reserve.rs`). Topics recognises that answer, and only that one, and the yes goes to the
  * engine before the message is sent again: a resend without the yes would stop on the same wall.
+ *
+ * @covers CHAT-REL-07
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { isReserveStop, confirmReserve, RESERVE_ERROR_TYPE } from './reserveConfirm';
