@@ -98,6 +98,20 @@ const idempotencyCache = createIdempotencyCache();
 
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
+  // The road to a child's run on a node: the server's own (`ctx.remoteNode`,
+  // «Cloud Claude» included) once it is wired, read at each call because the
+  // server wires it after this router is built. Without it, a paired Topics
+  // node through its token file, the only kind a bare context knows.
+  const remoteRoad = () => ctx.remoteNode ?? {
+    baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+    tokenOf: (machineId: string) => readNodeToken(ctx.STATE_DIR, machineId),
+    readRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["readRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.readRun(input)
+      : Promise.reject(new Error("no node client configured")),
+    cancelRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["cancelRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.cancelRun(input)
+      : Promise.reject(new Error("no node client configured")),
+  };
   setTerminalBroadcast(ctx.broadcastToAll);
   setTerminalWorktreeStore(ctx.worktreeStore);
   if (tracker) setTerminalTracker(tracker);
@@ -947,15 +961,12 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           if (row?.remoteMachineId && row.remoteRunId) {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             const since = url.searchParams.get("since") || undefined;
+            const road = remoteRoad();
             const result = await readRemoteChild({
               machineId: row.remoteMachineId,
               runId: row.remoteRunId,
               since,
-              baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-              tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
-              readRun: (input) => ctx.nodeClient
-                ? ctx.nodeClient.readRun(input)
-                : Promise.reject(new Error("no node client configured")),
+              ...road,
             });
             if (!result.ok) return errorResponse(502, result.reason);
             return json(result);
@@ -1000,9 +1011,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             await stopRemoteChild({
               machineId: row.remoteMachineId,
               runId: row.remoteRunId,
-              baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-              tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
-              cancelRun: (input) => ctx.nodeClient ? ctx.nodeClient.cancelRun(input) : Promise.resolve(),
+              ...remoteRoad(),
             });
             setSubagentState(getDatabase(), agentId, "stopped");
             return json({ ok: true, branch: row.branch });

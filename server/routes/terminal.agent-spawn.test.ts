@@ -224,7 +224,7 @@ test("read_agent on a child whose run lives on a paired node reads the node's re
       nodeClient: {
         readRun: async (input: { baseUrl: string; token: string; runId: string; since?: string }) => {
           readCalls.push(input);
-          return { comments: [{ content: "working on it", createdAt: "2026-11-15T12:00:00.000Z" }] };
+          return { comments: [{ id: "c-1", content: "working on it", createdAt: "2026-11-15T12:00:00.000Z" }] };
         },
       },
     } as unknown as AppContext;
@@ -244,7 +244,7 @@ test("read_agent on a child whose run lives on a paired node reads the node's re
     expect(body).toEqual({
       ok: true,
       events: [{ type: "assistant", text: "working on it" }],
-      nextOffset: "2026-11-15T12:00:00.000Z",
+      nextOffset: "2026-11-15T12:00:00.000Z|c-1",
       source: "node",
     });
   } finally {

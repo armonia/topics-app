@@ -425,6 +425,17 @@ export interface AppContext {
    * be provable without a second server on the network.
    */
   nodeClient?: import("./services/node-client").NodeClient;
+  /**
+   * The road to a node's runs that the card lane uses too, «Cloud Claude»
+   * included (its own client and token): what a sub-agent route needs to
+   * read or stop a child running on a node. Unset until the server wires it.
+   */
+  remoteNode?: {
+    readRun: import("./services/node-client").NodeClient["readRun"];
+    cancelRun: import("./services/node-client").NodeClient["cancelRun"];
+    baseUrlOf: (machineId: string) => string | null;
+    tokenOf: (machineId: string) => string | null;
+  };
 
   // Paths
   PORT: number;
