@@ -16,7 +16,7 @@
  *
  * @covers KANBAN-63
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
@@ -50,24 +50,19 @@ test.describe("Board: countdown and weight of work in progress", () => {
   /** Agent time of the running card, ms: grows between feed reads. */
   let runningMs = 5 * MIN;
 
-  async function seed(page: Page, text: string, status: string): Promise<string> {
-    const res = await page.request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, { data: { text, status } });
-    expect(res.ok(), `the board API refused to seed "${text}"`).toBe(true);
+  async function seed(request: APIRequestContext, text: string, status: string): Promise<string> {
+    const res = await request.post(`${E2E_BASE}/api/boards/${BOARD_ID}/tasks`, { data: { text, status } });
+    expect(res.ok(), `the board API refused to seed "${text}": ${await res.text()}`).toBe(true);
     const { id } = (await res.json()) as { id: string };
     created.push(id);
     return id;
   }
 
-  test.beforeAll(async ({ request, browser }) => {
+  test.beforeAll(async ({ request }) => {
     const topic = await createTopic(request, `countdown-${stamp}`, { projectPath: PROJECT_DIR });
     topicId = topic.id;
-    const page = await browser.newPage({ baseURL: E2E_BASE });
-    try {
-      for (let i = 0; i < 5; i++) await seed(page, `Closed ${i} ${stamp}`, "done");
-      runningId = await seed(page, `Running ${stamp}`, "in_progress");
-    } finally {
-      await page.close();
-    }
+    for (let i = 0; i < 5; i++) await seed(request, `Closed ${i} ${stamp}`, "done");
+    runningId = await seed(request, `Running ${stamp}`, "in_progress");
     const topics = (await (await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true })).json()) as { topics: Record<string, { sessionKey?: string }> };
     sessionKey = topics.topics[topicId]?.sessionKey ?? "";
     expect(sessionKey, "the seeded topic has no session key").not.toBe("");
