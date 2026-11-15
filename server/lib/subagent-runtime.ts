@@ -506,15 +506,14 @@ function sweepDormantChildRows(now = Date.now()): void {
 
 
 /**
- * Il tetto dei figli su tutta la macchina non è più un numero: è la memoria.
+ * The machine-wide cap on children is memory, not a number.
  *
- * Era 6 (scelta 4 di subagent-tool-standard, 01/10) quando ogni figlio era
- * una CLI di Claude da ~300 MB. Dal 04/10 i figli girano sul motore e pesano
- * 40-60 MB: il 15/11 sei figli nativi, uno dei quali al lavoro da sei ore,
- * tenevano tutti i posti con 22 GB liberi, e ogni chat che delegava riceveva
- * un 429. Ora decide la stessa ammissione delle card, prezzata per un figlio
- * (`machineRoom`). Contro un genitore che si riproduce restano i 5 figli per
- * genitore e la profondità 2.
+ * It was 6 (choice 4 of subagent-tool-standard, 01/10) when every child was a
+ * Claude CLI of ~300 MB. Since 04/10 children run on the engine at 40-60 MB:
+ * on 15/11 six native children, one of them working for six hours, held every
+ * slot with 22 GB free, and every chat that delegated got a 429. Now the cards'
+ * admission decides, priced for one child (`machineRoom`). Against a parent
+ * that keeps spawning, the 5 children per parent and the depth of 2 remain.
  */
 
 /**

@@ -56,11 +56,11 @@ configureSubagentRuntime({
 });
 
 /**
- * Il posto di un figlio in più, deciso dalla memoria e non da un numero:
- * l'ammissione delle card prezzata per un figlio, letta SOLO sui suoi assi di
- * memoria (`floor` = pavimento di RAM e disco, `memory` = quota del libero).
- * La CPU no: un figlio nativo passa il turno ad aspettare il modello, e un
- * carico alto del Mac non deve tornare a fare da tetto fisso sotto altro nome.
+ * Room for one more child, decided by memory and not by a number: the cards'
+ * admission priced for a child, read ONLY on its memory axes (`floor` = the
+ * RAM and disk floor, `memory` = the free-memory quota). Not the CPU: a native
+ * child spends its turn waiting on the model, and a busy Mac must not come
+ * back as a fixed cap under another name.
  */
 function childMachineRoom(): { admit: boolean; reason: string } | null {
   const a = childAdmissionPreview?.() ?? null;
