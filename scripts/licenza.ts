@@ -27,10 +27,10 @@
  *   TOPICS_LICENSE_PRIVKEY=<base64> scripts/licenza.ts conia <installationId> [posti] [giorni]
  *       emette un gettone per QUELLA installazione. Default: 5 posti, 365 giorni.
  *
- *   TOPICS_LICENSE_PRIVKEY=<base64> scripts/licenza.ts conia-nodo <installationId-del-Mac> <etichetta-nodo> [giorni]
- *       un gettone PER NODO cloud: 1 posto, 30 giorni di default, legato
- *       all'installazione del Mac (il nodo ne dichiara l'identità) e con
- *       l'etichetta del nodo dentro. Si consegna per ssh, mai in user_data.
+ *   TOPICS_LICENSE_PRIVKEY=<base64> scripts/licenza.ts conia-nodo <Mac-installationId> <node-label> [days]
+ *       one token PER cloud node: 1 seat, 30 days by default, bound to the
+ *       Mac's installation (the node declares that identity) and carrying the
+ *       node label. Delivered over ssh, never in user_data.
  *
  *   scripts/licenza.ts ispeziona <gettone>
  *       legge un gettone senza verificarlo: serve a rispondere a «cosa ho
@@ -79,9 +79,8 @@ per qualunque installazione.
 
 function conia(perNodo = false): void {
   const [iid, ...altri] = resto;
-  // `conia-nodo <iid> <etichetta> [giorni]`: un posto solo, 30 giorni. Il nodo
-  // non aggiunge persone al gruppo e un gettone che vive in un server a ore non
-  // deve durare un anno.
+  // `conia-nodo <iid> <label> [days]`: one seat, 30 days. A node adds nobody to
+  // the group, and a token living on an hourly server must not last a year.
   const nodo = perNodo ? altri[0] : undefined;
   const postiRaw = perNodo ? "1" : altri[0];
   const giorniRaw = perNodo ? altri[1] ?? "30" : altri[1];

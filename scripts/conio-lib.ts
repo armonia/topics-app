@@ -24,8 +24,8 @@
  */
 import { createPrivateKey, sign, type KeyObject } from "node:crypto";
 
-/** Stessa forma di `NODE_LABEL` in `server/lib/licenza.ts`: i due file non si
- *  importano di proposito, e un test li tiene d'accordo. */
+/** Same shape as `NODE_LABEL` in `server/lib/licenza.ts`: the two files do not
+ *  import each other on purpose, and a test keeps them in agreement. */
 const NODE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /** Il prefisso PKCS#8 di Ed25519. I 32 byte del seed, da soli, `node:crypto`
@@ -86,8 +86,8 @@ export interface OpzioniConio {
   adesso: number;
   chiave: KeyObject;
   kid?: string;
-  /** Nodo cloud a cui è destinato («un gettone per nodo»). L'`installationId`
-   *  resta quello del Mac: il nodo ne dichiara l'identità, non ne ha una sua. */
+  /** Cloud node the token is meant for (one token per node). `installationId`
+   *  stays the Mac's: the node declares that identity, it has none of its own. */
   nodo?: string;
 }
 

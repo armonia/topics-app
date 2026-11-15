@@ -156,7 +156,7 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     expect(esito.piano).toBe("free");
   });
 
-  // ── un gettone PER NODO cloud, legato all'installazione del Mac ───────────
+  // ── one token PER cloud node, bound to the Mac's installation ─────────────
   it("conia-nodo: un posto, 30 giorni, etichetta dentro, VALIDO sull'installazione del Mac", () => {
     const { pub, priv } = coppia();
     const r = esegui(["conia-nodo", IID, "topics-permanent-node"], { TOPICS_LICENSE_PRIVKEY: priv, TOPICS_LICENSE_KID: "prova-1" });
@@ -176,11 +176,11 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
     expect(sulMac.motivo).toBe("valid");
     expect(sulMac.accessoRemoto).toBe(true);
     expect(sulMac.posti).toBe(1);
-    // Su un'altra installazione (un nodo che non dichiara quella del Mac) no.
+    // On another installation (a node that does not declare the Mac's) it is refused.
     const altrove = verificaGettone(gettone!, { chiavi, installationId: "ffffffffffffffffffffffff", ora: Date.now() });
     expect(altrove.motivo).toBe("other_installation");
     expect(altrove.accessoRemoto).toBe(false);
-    // E non ne esce il gettone in chiaro nel resoconto a schermo oltre alla riga del gettone stesso.
+    // The summary names the node.
     expect(r.stdout).toContain("nodo          : topics-permanent-node");
   });
 
@@ -193,8 +193,8 @@ describe("licenza · chi conia e chi verifica parlano la stessa lingua", () => {
   });
 
   it("un carico con `node` storto è rifiutato da chi verifica, anche se la firma è buona", () => {
-    // Stessa regola degli altri campi: non si interpreta, si rifiuta. Il
-    // gettone è firmato davvero, a mano, perché lo strumento non lo conierebbe.
+    // Same rule as the other fields: rejected, not interpreted. The token is
+    // really signed, by hand, because the tool would never mint it.
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const pub = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64url");
     const carico = { v: 1, iid: IID, plan: "team", seats: 1, exp: Date.now() + 86_400_000, node: "a/b" };
