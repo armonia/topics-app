@@ -28,10 +28,10 @@ describe("cloud node recipe", () => {
     expect(recipe.indexOf("DEBIAN_FRONTEND")).toBeLessThan(recipe.indexOf("10-keys-only.conf"));
   });
 
-  test("does not hardcode a placeholder commit identity", () => {
+  test("writes no identity at all: it is set per run, from the checkout the dispatcher reads (card 5d361c3d)", () => {
     expect(recipe).not.toContain("node@topics.invalid");
-    expect(recipe).toContain("user.email @GIT_EMAIL@");
-    expect(recipe).toContain("user.name @GIT_NAME@");
+    expect(recipe).not.toContain("git config --global user.name");
+    expect(recipe).not.toContain("git config --global user.email");
   });
 
   test("a commit made on the node with the origin identity passes the attribution gate", async () => {

@@ -125,10 +125,13 @@ describe("path 6: an unclaimed answer meets a busy database", () => {
 });
 
 describe("paths 3, 4, 5, 7: the chat route", () => {
-  const chat = readFileSync(join(import.meta.dir, "../routes/chat.ts"), "utf8");
+  // The chat route lives in several files: the timers, the finalize, the handler and the fallback.
+  const chat = ["chat.ts", "chat-timers.ts", "chat-finalize.ts", "chat-handler.ts", "chat-fallback.ts"]
+    .map((name) => readFileSync(join(import.meta.dir, "../routes", name), "utf8"))
+    .join("\n");
   test("the grace and the hard timeout close the row through writeWhenFree", () => {
-    expect(chat).toContain("writeWhenFree(`grace-expiry close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks,");
-    expect(chat).toContain("writeWhenFree(`hard-timeout close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks,");
+    expect(chat).toContain("writeWhenFree(`grace-expiry close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: turn.fullContent, blocks: graceBlocks,");
+    expect(chat).toContain("writeWhenFree(`hard-timeout close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: turn.fullContent, blocks: hardBlocks,");
   });
   test("the deferred auto-bind goes through writeWhenFree", () => {
     expect(chat).toContain("writeWhenFree(`auto-bind of ${matchedTopic!.id}`, () => autoBindProject(matchedTopic!))");

@@ -166,6 +166,9 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   machine_id: { to: "machineId", read: asRefOrNull },
   // "This Mac only": the overflow dispatch never moves the card elsewhere.
   stayLocal: { to: "stayLocal", read: asBoolean },
+  // Why a permanent (no `stayLocalUntil`) pin holds — recorded on the thread
+  // by `tasks.ts`'s update path, not applied here by itself.
+  stayLocalReason: { to: "stayLocalReason", read: asStringOrNull },
   blockedByTaskId: { to: "blockedByTaskId", read: asRefOrNull },
   reuseBlockerContext: { to: "reuseBlockerContext", read: asBoolean },
   planFirst: { to: "planFirst", read: asBoolean },
