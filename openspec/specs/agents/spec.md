@@ -1219,6 +1219,20 @@ Before a `spawn_agent` child can run on a paired node, `decideRemoteSpawn` (`ser
 - **WHEN** the decision is asked
 - **THEN** it answers local, with the reason that a node has nothing to check out
 
+### Requirement: SUBAGENT-27 — A child on a node takes the first free seat and is stopped, read and refused like a node run
+
+A child that may go remote SHALL take the first online paired node with a free seat on `machines.slots` (`pickNodeForChild`, `server/lib/subagent-remote-run.ts`), else stay on this Mac. Its run SHALL start through the same `createRun` door a card uses, and the child row SHALL record the node and run (`subagents.remote_machine_id`, `remote_run_id`, both or neither). On such a child `stop_agent` SHALL cancel the run on the node and mark the child stopped here even when the node cannot be reached, `read_agent` SHALL return the node's report on the run, and `send_to_agent` SHALL be refused with 409, since a node run takes no input mid-run.
+
+#### Scenario: Every node is full
+- **GIVEN** two online nodes whose children already fill their slots
+- **WHEN** a seat is picked for a new child
+- **THEN** none is picked and the child stays on this Mac
+
+#### Scenario: Stop while the node is down
+- **GIVEN** a remote child whose node does not answer
+- **WHEN** `stop_agent` is called on it
+- **THEN** the call answers ok and the child reads stopped here
+
 ### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
 
 The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten, and so SHALL a parent branch checked out in the parent or in one of its worktrees. Both legs SHALL work on a repository with no `origin`.

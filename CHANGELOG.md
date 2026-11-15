@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.13 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)
+
+## 2.4.12 — 2026-11-15
+
+### Sotto il cofano
+- una corsa parcheggiata sul nodo non blocca più la card (#1108)
+- Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)
+
 ## 2.4.11 — 2026-11-15
 
 ### Sotto il cofano
