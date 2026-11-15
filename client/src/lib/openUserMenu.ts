@@ -18,6 +18,8 @@ export const OPEN_USER_MENU_EVENT = 'topics:open-user-menu';
 export type UserMenuLevel =
   | 'plan'
   | 'devices'
+  /** The agents' tools page (MCP, skills, CLIs). */
+  | 'tools'
   /** Devices, with its Machines section open. */
   | 'nodes'
   | 'appearance'

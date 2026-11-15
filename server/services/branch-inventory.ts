@@ -25,7 +25,8 @@
 
 import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { runGit as defaultRunGitLib } from "../lib/run-git";
 
 /**
  * THE SCAN, kept apart from the pairing so that both halves can be measured.
@@ -67,8 +68,8 @@ export async function run(cwd: string, args: string[], runGit?: GitRunner): Prom
     try { const r = await runGit(cwd, args); return { code: r.code, stdout: r.stdout }; }
     catch { return { code: 1, stdout: "" }; }
   }
-  const r = await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query });
-  return { code: r.exitCode ?? 1, stdout: r.stdout };
+  const r = await defaultRunGitLib(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query });
+  return { code: r.code, stdout: r.stdout };
 }
 
 /** Local branches that are not merged into the repo's base branch, and how far ahead. */

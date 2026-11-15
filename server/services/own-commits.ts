@@ -26,7 +26,8 @@
 
 import type { TaskFile } from "../../shared/task-labels";
 import { RESIDUE_SUBJECT } from "./worktree-residue";
-import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 
 export interface GitRunResult {
   code: number;
@@ -94,16 +95,9 @@ function refName(name: string): string {
  * iniettano uno finto si troverebbero metà delle domande sul git vero.
  */
 export async function defaultRunGit(cwd: string, args: string[], opts?: GitRunEnv): Promise<GitRunResult> {
-  const r = await runBounded(["git", "-C", cwd, ...args], {
-    stderr: "pipe",
-    timeoutMs: SPAWN_TIMEOUT.query,
-    ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
-  });
-  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
   // A timeout is not "exit 1": `commitIsIn` reads 1 as "verified outside" and
-  // acts on it, while "could not answer" must stay `null`. 124 is the
-  // convention of `timeout(1)`; any code other than 0 and 1 is "no answer".
-  return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr };
+  // acts on it, while "could not answer" must stay `null`. `runGit` answers 124.
+  return runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query, ...(opts?.env ? { env: opts.env } : {}) });
 }
 
 function lines(out: string): string[] {
@@ -148,7 +142,19 @@ export async function commitIsIn(
 }
 
 /**
- * Gli altri branch locali: tutti tranne questo e quello d'integrazione. Sono i
+ * Prefix of the board's integration branches (`integration-measure.ts`): main plus the
+ * accepted cards of a batch, merged for one CI run. Such a branch holds the cards' own
+ * commits by construction, so subtracting it made every card of the batch look like
+ * it had no commits of its own (14/11: three lands refused as «unisolable»). It is
+ * never another session's work.
+ */
+export const INTEGRATION_BRANCH_PREFIX = "topics/integrazione-";
+
+/**
+ * The other local branches: all but this one, main, the card's own branches and
+ * the board's integration branches.
+ *
+ * Sono i
  * ref da cui si SOTTRAE, e servono anche a chi compone il messaggio per l'umano
  * (il cherry-pick suggerito dal land li elenca).
  *
@@ -164,7 +170,8 @@ export async function otherLocalBranches(
   const res = await run(repoPath, ["for-each-ref", "--format=%(refname)", "refs/heads/"]);
   if (res.code !== 0) return null;
   const excluded = new Set([refName(branch), refName(opts.mainRef ?? "main"), ...(opts.ownRefs ?? []).map(refName)]);
-  return lines(res.stdout).filter((r) => !excluded.has(r));
+  const integration = refName(INTEGRATION_BRANCH_PREFIX);
+  return lines(res.stdout).filter((r) => !excluded.has(r) && !r.startsWith(integration));
 }
 
 /**

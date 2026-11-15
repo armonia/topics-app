@@ -282,6 +282,8 @@ export const DESCRIBE_ELEMENT_FN = (p: DescribeElementOptions): ElementDescripti
 
   // --- HTML potato ---
   const VOID = ',area,base,br,col,embed,hr,img,input,link,meta,param,source,track,wbr,';
+  // Own escape on purpose: this function is serialized with `toString()` and
+  // cannot reference `escapeHtml` (see the header), and it leaves `'` alone.
   const escText = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const escAttr = (s: string): string => escText(s).replace(/"/g, '&quot;');

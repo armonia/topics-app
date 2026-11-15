@@ -53,6 +53,8 @@ let boardId: string;
 let mainSha: string;
 let deliverySha: string;
 let failNodeBoardDelete = false;
+/** Per-run worktree stubs (KANBAN-76 part 2), keyed by run id; empty by default. */
+const worktreeByTask = new Map<string, { absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached" }>();
 
 async function call(
   method: string,
@@ -159,6 +161,7 @@ beforeAll(async () => {
       return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
     },
     taskModels: () => ["gpt-5", "gpt-mini"],
+    worktreeOfTask: (taskId) => worktreeByTask.get(taskId) ?? null,
   });
 });
 
@@ -323,6 +326,23 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(createTaskService(ctx.db).get(runId)!.comments.filter((c) => c.kind === "service").length).toBe(1);
   });
 
+  // 13/11: a resend answered with the finished copy replayed its old delivery.
+  test("POST on a live copy that is already in review archives it and starts a new run; one still working stays idempotent", async () => {
+    const first = await mirror("origin-task-resend");
+    expect(first.status).toBe(201);
+    ctx.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = ?", [first.body.runId]);
+    const retry = await mirror("origin-task-resend");
+    expect(retry.status).toBe(200);
+    expect(retry.body.runId).toBe(first.body.runId);
+
+    ctx.db.run("UPDATE tasks SET status = 'review', dispatch_state = 'delivered' WHERE id = ?", [first.body.runId]);
+    const again = await mirror("origin-task-resend");
+    expect(again.status).toBe(201);
+    expect(again.body.runId).not.toBe(first.body.runId);
+    const old = ctx.db.query("SELECT archived FROM tasks WHERE id = ?").get(first.body.runId) as { archived: number };
+    expect(old.archived).toBe(1);
+  });
+
   // df5fd8c5, 30/10: a card with a branch of its own restarted from main on the other machine.
   test("il ramo base della card d'origine arriva sulla card specchio; un nome non valido è rifiutato", async () => {
     // Origin is unreachable from this checkout (a fake ssh URL): the branch rides as a bundle.
@@ -411,7 +431,11 @@ describe("nodes routes: ingress of a mirrored card", () => {
   });
 
   test("il bundle passa git bundle verify e pianta il ramo in un secondo clone", async () => {
-    const { body } = await mirror("origin-task-2");
+    const { body } = await mirror("origin-task-bundle");
+    const { createTaskService } = await import("../../server/services/tasks");
+    const svc = createTaskService(ctx.db);
+    svc.update({ taskId: body.runId, actor: "human", by: "user", patch: { status: "review" }, projectId: boardId });
+    svc.recordDelivery({ taskId: body.runId, branch: DELIVERY_BRANCH, commit: deliverySha, stat: { filesChanged: 1, insertions: 1, deletions: 0 } });
     const resp = await call("GET", `/api/nodes/runs/${body.runId}/bundle`);
     expect(resp.status).toBe(200);
     expect(resp.headers.get("content-type")).toBe("application/octet-stream");
@@ -438,6 +462,35 @@ describe("nodes routes: ingress of a mirrored card", () => {
     const never = await mirror("origin-task-4");
     const noBranch = await call("GET", `/api/nodes/runs/${never.body.runId}/bundle`);
     expect(await noBranch.json()).toEqual({ empty: true, baseSha: mainSha });
+  });
+
+  test("worktree passato a un ramo nuovo: il ramo registrato, fermo, non si consegna come se fosse nuovo", async () => {
+    const wtPath = join(ROOT, "node-worktree-switched");
+    const registered = "topics/registered-branch";
+    const actual = "topics/registered-branch-actual";
+    git(REPO, "worktree", "add", "-q", "-b", registered, wtPath, "main");
+    git(wtPath, "checkout", "-q", "-b", actual);
+    appendFileSync(join(wtPath, "README.md"), "committed on a branch the task never registered\n");
+    git(wtPath, "commit", "-q", "-am", "actual node work");
+
+    const { body } = await mirror("origin-task-head-mismatch");
+    worktreeByTask.set(body.runId, { absPath: wtPath, branchName: registered, mode: "branch" });
+    try {
+      const { createTaskService } = await import("../../server/services/tasks");
+      createTaskService(ctx.db).recordDelivery({ taskId: body.runId, branch: registered, commit: null });
+
+      const run = await (await call("GET", `/api/nodes/runs/${body.runId}`)).json();
+      expect(run.deliveryBranch).toBeNull();
+      expect(run.deliveryCommit).toBeNull();
+      expect(run.reason).toContain(actual);
+      expect(run.reason).toContain(registered);
+
+      const bundle = await call("GET", `/api/nodes/runs/${body.runId}/bundle`);
+      expect(await bundle.json()).toEqual({ empty: true, baseSha: mainSha });
+    } finally {
+      worktreeByTask.delete(body.runId);
+      git(REPO, "worktree", "remove", "-f", wtPath);
+    }
   });
 
   test("DELETE archivia, e' idempotente, e libera la chiave per una corsa nuova", async () => {

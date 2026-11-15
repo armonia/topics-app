@@ -31,6 +31,8 @@ interface Call { url: string; method: string; body: unknown }
 let calls: Call[] = [];
 /** The hydrating GET, in flight: the test lands it when it wants to. */
 let pendingGet: { resolve: (v: unknown) => void; reject: (e: Error) => void } | null = null;
+/** `storage` listeners the hook registered, so a test can fire one by hand. */
+let storageListeners: Array<(e: StorageEvent) => void> = [];
 const realFetch = (globalThis as { fetch?: typeof fetch }).fetch;
 const realLocalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 const realWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -43,6 +45,7 @@ function installFakes(): void {
     removeItem: (k: string) => { delete store[k]; },
   };
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  storageListeners = [];
   // The minimum stand-in: the hook subscribes to `storage` for cross-tab sync.
   // It MUST be removed in `afterEach`, and that is not fussiness - a fake
   // `window` left on the runtime has already produced, in this repository, a
@@ -50,7 +53,14 @@ function installFakes(): void {
   // its own process).
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
-    value: { localStorage: storage, addEventListener: () => {}, removeEventListener: () => {} },
+    value: {
+      localStorage: storage,
+      addEventListener: (type: string, h: (e: StorageEvent) => void) => { if (type === 'storage') storageListeners.push(h); },
+      removeEventListener: (type: string, h: (e: StorageEvent) => void) => {
+        if (type !== 'storage') return;
+        storageListeners = storageListeners.filter((l) => l !== h);
+      },
+    },
   });
   calls = [];
   pendingGet = null;
@@ -190,6 +200,38 @@ describe('useServerState: no PUT before the GET has answered', () => {
     jest.advanceTimersByTime(300);
     await settle();
     expect(puts().map((c) => c.body)).toEqual([false]);
+    s.unmount();
+  });
+});
+
+describe('useServerState: cross-tab `storage` event with a malformed value', () => {
+  test('a non-JSON newValue is ignored, not applied as the next state', async () => {
+    keyForCase = 'claude-prefs-skip-e';
+    const s = mountSkipPermissions();
+    await settle();
+    pendingGet!.resolve({ value: false, payload_version: 2, server_seq: 7 });
+    await settle();
+    expect(s.now()).toBe(false);
+
+    expect(storageListeners.length).toBeGreaterThan(0);
+    storageListeners.forEach((h) => h({ key: 'claude-skip-permissions', newValue: 'not json' } as StorageEvent));
+    await settle();
+
+    // Malformed JSON must not reach `applyFromServer`: the value stays what it was.
+    expect(s.now(), 'a parse failure leaves the current value in place').toBe(false);
+    s.unmount();
+  });
+
+  test('a well-formed newValue from another tab is still applied', async () => {
+    keyForCase = 'claude-prefs-skip-f';
+    const s = mountSkipPermissions();
+    await settle();
+    pendingGet!.resolve({ value: false, payload_version: 2, server_seq: 7 });
+    await settle();
+
+    storageListeners.forEach((h) => h({ key: 'claude-skip-permissions', newValue: 'true' } as StorageEvent));
+    await settle();
+    expect(s.now(), 'a valid cross-tab value is still applied').toBe(true);
     s.unmount();
   });
 });

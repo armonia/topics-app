@@ -29,13 +29,13 @@ const WIDTH_BLOCK = GEOMETRY.slice(GEOMETRY.indexOf('export const COLUMN_WIDTH')
 
 describe('il tasto della vista lista, accanto alla ricerca', () => {
   test('esiste, ed è un aria-pressed booleano su boardLayout', () => {
-    expect(PANE).toContain('<DetailSlider value={detail} onChange={setDetail} />');
+    expect(PANE).toContain('<DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />');
     expect(PANE).toContain("const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';");
   });
 
   test('la scelta è persistita, non solo in memoria del componente', () => {
     expect(PANE).toContain('useState(readDetailLevel)');
-    expect(PANE).toContain('localStorage.setItem(DETAIL_STORAGE_KEY, detail)');
+    expect(PANE).toContain('localStorage.setItem(DETAIL_STORAGE_KEY, storedDetail)');
   });
 
   test('la vista raggiunge davvero le colonne', () => {

@@ -5,6 +5,13 @@
 # Hetzner serve user_data alla VM per tutta la sua vita.
 set -u
 export DEBIAN_FRONTEND=noninteractive
+# sshd: keys only, and dead sessions free the tunnel's reverse ports within ~45 s.
+# Without the client-alive drop-in a dead client session keeps -R 127.0.0.1:3301 bound
+# and every new tunnel dies on ExitOnForwardFailure.
+mkdir -p /etc/ssh/sshd_config.d
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\n' > /etc/ssh/sshd_config.d/10-keys-only.conf
+printf 'ClientAliveInterval 15\nClientAliveCountMax 3\n' > /etc/ssh/sshd_config.d/20-client-alive.conf
+sshd -t && systemctl reload ssh
 apt-get update -qq
 apt-get install -y -qq @APT@ lsof curl ca-certificates
 # node con la major del Mac, come offload-hetzner
@@ -17,8 +24,10 @@ loginctl enable-linger topics
 cat > /home/topics/setup.sh <<'EOS'
 set -ex
 cd ~
-git config --global user.name "Topics node"
-git config --global user.email "node@topics.invalid"
+# Commits made on the node carry the identity of the origin repo (filled in by node-pool
+# from the Mac checkout), otherwise the land attribution gate refuses them.
+git config --global user.name @GIT_NAME@
+git config --global user.email @GIT_EMAIL@
 git clone -q https://github.com/armonia/topics-app topics-app
 cd topics-app && git checkout -q @COMMIT@
 bash scripts/install-bun.sh

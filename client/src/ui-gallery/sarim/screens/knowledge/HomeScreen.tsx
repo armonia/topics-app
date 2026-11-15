@@ -149,7 +149,7 @@ export function HomeScreen({ ctx, section }: { ctx: ScreenCtx; section: Extract<
       { id: 'law', name: l.saved.law, tokens: [{ id: 'p2', field: 'tipo', op: 'is', value: 'law' }] },
       { id: 'procedure', name: l.saved.procedure, tokens: [{ id: 'p3', field: 'tipo', op: 'is', value: 'procedure' }] },
     ]
-    : []), [section, l]);
+    : []), [isRules, l]);
   const list = useListFilters(ctx, { key: `sarim.k.filters.${section}`, items: docs, schema, presets });
   const shown = list.items;
   /* When every document on show comes from the same issuer the column repeats one name on each row: it is left out. */

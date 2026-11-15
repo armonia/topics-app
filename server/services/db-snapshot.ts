@@ -9,11 +9,16 @@
  * cambia lo stato, e `grid-split` si rompe solo dopo ~196 test — non dopo il suo
  * vero predecessore. Non è un'asserzione sbagliata: è contaminazione cumulativa.
  *
- * La cura strutturale sarebbe "un DB per test" (è il `TODO(e2e-isolation)` in
- * `playwright.config.ts`). Un DB per test però vuol dire un processo server per
- * test: il server tiene una sola connessione aperta per tutta la sua vita.
- * Questo modulo ottiene lo stesso risultato senza riaccendere nulla — svuota
- * ogni tabella e ci riscrive dentro la fotografia, dentro UNA transazione.
+ * La cura strutturale sarebbe "un DB per test". Un DB per test però vuol dire
+ * un processo server per test: il server tiene una sola connessione aperta
+ * per tutta la sua vita. Questo modulo ottiene lo stesso risultato senza
+ * riaccendere nulla — svuota ogni tabella e ci riscrive dentro la fotografia,
+ * dentro UNA transazione.
+ *
+ * Isolation stays PER FILE (every file restarts from this snapshot, see
+ * `fixtures/hermetic.ts`); inside a file, specs that need it seed their own
+ * project/topic PER TEST (e.g. `helpers/file-project.ts`), not in the file's
+ * `beforeAll`.
  *
  * Perché tutte le tabelle e non solo `ui_state`: perché la contaminazione non
  * passa solo di lì. Passa dalle topic archiviate che i locator per nome

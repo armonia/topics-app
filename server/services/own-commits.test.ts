@@ -122,6 +122,46 @@ describe("own-commits — su git vero", () => {
     expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
   });
 
+  test("the board's integration branch holds the card's commits but is never foreign work", async () => {
+    // 14/11: a measure cut by a restart left `topics/integrazione-*` in refs/heads, with
+    // the card merged in; the land subtracted it and found zero own commits.
+    git(repo, "checkout", "-q", "-b", "topics/card-lotto", "main");
+    commit(repo, "lotto.txt", "x\n", "commit della card");
+    git(repo, "checkout", "-q", "-b", "topics/integrazione-0123abcd", "topics/card-lotto");
+    git(repo, "checkout", "-q", "main");
+    const others = await otherLocalBranches(repo, "topics/card-lotto");
+    expect(others).not.toContain("refs/heads/topics/integrazione-0123abcd");
+    expect(await countOwnCommits(repo, "topics/card-lotto", { others: others! })).toBe(1);
+  });
+
+  test("a re-delivery on a fresh branch with no new commit still points at the card's own commit", async () => {
+    // 14/11, 19d684fb and 30f7c880: the node planted the same commit on a new branch; the
+    // capture subtracted the card's previous branch and recorded «no commit of its own».
+    git(repo, "checkout", "-q", "-b", "topics/consegna-vecchia", "main");
+    commit(repo, "rc.txt", "r\n", "lavoro della card");
+    const sha = git(repo, "rev-parse", "HEAD").trim();
+    git(repo, "branch", "topics/consegna-nuova", "topics/consegna-vecchia");
+    git(repo, "checkout", "-q", "main");
+    const own = await deliveryPointer(repo, "topics/consegna-nuova", { ownRefs: ["topics/consegna-vecchia"] });
+    expect(own?.commit).toBe(sha);
+    // Without the card's own branches the pointer is empty: the defect.
+    expect((await deliveryPointer(repo, "topics/consegna-nuova"))?.commit).toBeNull();
+  });
+
+  test("an older delivery branch of the same card (ancestor) does not hide its commits", async () => {
+    git(repo, "checkout", "-q", "-b", "topics/old-delivery", "main");
+    commit(repo, "oa.txt", "a\n", "card commit A");
+    git(repo, "checkout", "-q", "-b", "topics/new-delivery", "topics/old-delivery");
+    commit(repo, "ob.txt", "b\n", "card commit B");
+    git(repo, "checkout", "-q", "main");
+    const own = ["topics/old-delivery"];
+    const others = await otherLocalBranches(repo, "topics/new-delivery", { ownRefs: own });
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: others! })).toBe(2);
+    // Mutation check: without the own-refs filter the old branch is subtracted and A is lost.
+    const unfiltered = await otherLocalBranches(repo, "topics/new-delivery");
+    expect(await countOwnCommits(repo, "topics/new-delivery", { others: unfiltered! })).toBe(1);
+  });
+
   test("i commit propri arrivano dal più recente: il primo è il puntatore di consegna", async () => {
     const own = await listOwnCommits(repo, "topics/doppia");
     expect(own?.map((sha) => subject(repo, sha))).toEqual(["secondo mio", "primo mio"]);
@@ -506,5 +546,44 @@ describe("own-commits — il residuo della potatura non è un commit proprio", (
     // Se un metacarattere del soggetto venisse interpretato, il filtro
     // cambierebbe in silenzio ciò che toglie. `--fixed-strings` lo impedisce.
     expect(RESIDUE_SUBJECT).toBe("Residuo non committato, messo al sicuro dalla potatura");
+  });
+});
+
+describe("own-commits: repeated deliveries of one card", () => {
+  let repo: string;
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "own-commits-chain-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    commit(repo, "a.txt", "base\n", "base");
+    // A <- B <- C are three successive deliveries of one card (prior = B).
+    git(repo, "checkout", "-q", "-b", "topics/del-a", "main");
+    commit(repo, "1.txt", "1\n", "own one");
+    git(repo, "checkout", "-q", "-b", "topics/del-b");
+    commit(repo, "2.txt", "2\n", "own two");
+    git(repo, "checkout", "-q", "-b", "topics/del-c");
+    commit(repo, "3.txt", "3\n", "own three");
+    git(repo, "checkout", "-q", "main");
+  }, 60_000);
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("every earlier delivery branch listed as own counts its commits as own", async () => {
+    const onlyPrior = await otherLocalBranches(repo, "topics/del-c", { ownRefs: ["topics/del-b"] });
+    expect(await countOwnCommits(repo, "topics/del-c", { others: onlyPrior! })).toBe(2);
+    const all = await otherLocalBranches(repo, "topics/del-c", { ownRefs: ["topics/del-b", "topics/del-a"] });
+    expect(await countOwnCommits(repo, "topics/del-c", { others: all! })).toBe(3);
+  });
+
+  test("a branch that is not the card's own still blocks its commits", async () => {
+    // A foreign branch the card did not deliver on, with a commit the card inherited.
+    git(repo, "checkout", "-q", "-b", "topics/stranger", "topics/del-c");
+    commit(repo, "x.txt", "x\n", "foreign");
+    git(repo, "checkout", "-q", "-b", "topics/del-d", "topics/stranger");
+    commit(repo, "4.txt", "4\n", "own four");
+    git(repo, "checkout", "-q", "main");
+    const others = await otherLocalBranches(repo, "topics/del-d", { ownRefs: ["topics/del-a", "topics/del-b", "topics/del-c"] });
+    expect(others).toContain("refs/heads/topics/stranger");
+    expect(await countOwnCommits(repo, "topics/del-d", { others: others! })).toBe(1);
   });
 });

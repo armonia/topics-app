@@ -149,3 +149,30 @@ export function trayBoardAttention(groups: readonly TrayGroup[]): number {
 /** Gli stati che la tray NON mostra, dichiarati invece che dedotti dal filtro. */
 export const TRAY_HIDDEN_STATUSES: readonly TaskStatus[] =
   TASK_STATUSES.filter((s): s is TaskStatus => !(TRAY_GROUP_ORDER as readonly string[]).includes(s));
+
+/** The agents of the menu-bar strip, counted by state (card 066276b6). */
+export interface TrayAgentStates {
+  working: number;
+  review: number;
+  waiting: number;
+  stopped: number;
+}
+
+/**
+ * One criterion per state, the same words as the app's status glyphs:
+ * working = subjects whose attention tier is `working`; review = the cards
+ * that wait for a person's review; waiting = a question on a card or a chat
+ * that needs an answer; stopped = a parked card or a chat that ended in error.
+ */
+export function trayAgentStates(
+  groups: readonly TrayGroup[],
+  subjects: { working: number; needsYou: number; error: number },
+): TrayAgentStates {
+  const of = (status: string) => groups.find((g) => g.status === status)?.count ?? 0;
+  return {
+    working: subjects.working,
+    review: of("review"),
+    waiting: of("question") + subjects.needsYou,
+    stopped: of("parked") + subjects.error,
+  };
+}

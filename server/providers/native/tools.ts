@@ -38,6 +38,8 @@ import { imageCaption, type ToolImage } from "./image-normalize";
 import { insideAnyRoot, loadWriteRoots } from "./write-roots";
 
 import { expandHome } from "../../lib/expand-home";
+import { isHeavyCommand, heavyLabel } from "../../lib/heavy-command";
+import { acquireHeavySlotForCommand } from "../../services/heavy-slot-default";
 /**
  * Who hears a command start and end, besides this process's registry. A turn
  * in its own process (`turn-host.ts`) journals them, so the server's swap
@@ -386,12 +388,22 @@ async function runCommand(
   // un risultato che nessuno leggerà, sul cammino di uno spegnimento che ha
   // fretta. Si risponde subito, e con la ragione.
   if (signal?.aborted) return { out: MOTIVO_ANNULLATO, code: null, annullato: true };
+  // A heavy command stands in the machine-wide line first (fail-open: any
+  // trouble with the broker and it just starts), and frees its place when it ends.
+  const heavyLease = owner?.command && isHeavyCommand(owner.command)
+    ? await acquireHeavySlotForCommand({ label: heavyLabel(owner.command), signal })
+    : null;
+  if (signal?.aborted) { heavyLease?.release(); return { out: MOTIVO_ANNULLATO, code: null, annullato: true }; }
   return new Promise((res) => {
     // An agent's command runs at agent priority (nice 15, `utility` QoS, see
     // server/lib/low-priority.ts) and in the agent's environment (lib/agent-env.ts):
     // with no `env`, Bun hands it the server's launch environment, secrets included.
     const argv = lowPriorityArgv([cmd, ...args]);
     const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"], env: agentBaseEnv() });
+    if (heavyLease) {
+      child.once("exit", () => heavyLease.release());
+      child.once("error", () => heavyLease.release());
+    }
     let out = "";
     let annullato = false;
     let closed = false;

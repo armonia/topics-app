@@ -1185,6 +1185,20 @@ person in its own channel. A chat that is not a child keeps the tool.
 - **WHEN** the tool policy is asked about that tool
 - **THEN** it is refused, while the child's other granted tools stay allowed
 
+### Requirement: SUBAGENT-24 — A session that can delegate is told when, and reminded after a long inline run
+
+A headless Topics session (claude-code chat or card, native engine chat with a project) that can call `spawn_agent` SHALL carry the delegation policy (`server/lib/delegation-policy.ts`) in its system prompt: delegate exploring, reading logs and running suites; send independent pieces 2-4 at once; give each child a self-contained mandate; ask for paths, line ranges and exit codes back. After 25 inline work calls (shell, read, search, process output) in a row without a delegation, on a context of at least 120k tokens, the session SHALL get one reminder in its tool results: through a synchronous `PostToolUse` hook on the CLI, as a text block on the native engine, the count carried across a detached turn. A delegation SHALL reset the count. A child at the depth cap, the global coordinator, a chat with no project and an interactive terminal pane SHALL get neither. `TOPICS_DELEGATION_NUDGE=off` turns the reminder off.
+
+#### Scenario: A long inline run on a big context
+- **GIVEN** a headless session at 200k tokens of context
+- **WHEN** it makes its 25th inline work call in a row without calling `spawn_agent`
+- **THEN** the tool results of that call carry the reminder, and the next one comes 25 calls later
+
+#### Scenario: A child at the depth cap
+- **GIVEN** a sub-agent whose depth is at the cap
+- **WHEN** its session is spawned
+- **THEN** its system prompt has no delegation policy and no reminder hook is registered
+
 ### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
 
 The channel titles are read once per window, but only a successful answer counts as the read. A non-ok response, or a body without `titles`, SHALL leave the cache empty so the next mount asks again; it SHALL NOT latch an empty object for the rest of the window.
@@ -1193,3 +1207,12 @@ The channel titles are read once per window, but only a successful answer counts
 - **GIVEN** `/api/agent-channels` answers with a non-ok status on the first mount
 - **WHEN** the hook mounts again
 - **THEN** it asks the endpoint again and shows the titles it returns
+
+### Requirement: AGENT-TOOLS-01 — The agents' tools are one inventory, shown in the user menu
+
+The user menu SHALL have an «Agent tools» page listing MCP servers (active, parked, needing sign-in, failed, each with its reason), the skills found on disk and the agent CLIs. It reads `GET /api/agent-tools`, the same inventory `topics tools` prints for agents. Sources are standard locations plus extra files and folders the person adds; no machine-specific path is built in.
+
+#### Scenario: Authorizing a server that needs sign-in
+- **GIVEN** the page lists an MCP server in state needs-auth
+- **WHEN** the person presses Authorize and the sign-in completes
+- **THEN** the page shows that server as active

@@ -225,7 +225,7 @@ export function overflowMachinesFrom(input: {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
       ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false }
-      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots ? { slots: m.slots } : {}) });
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}) });
   }
   return out;
 }

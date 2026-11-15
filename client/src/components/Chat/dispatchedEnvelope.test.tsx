@@ -66,7 +66,7 @@ function markup(msg: Partial<ChatMessage>): string {
   return renderToStaticMarkup(
     <MessageBubble
       msg={full} idx={0} topic={topic} copiedMsgId={null} isCompact={false} fontSize={14}
-      isMobile={false} onReply={noop} onCopy={noop} onTogglePin={noop} onEdit={noop}
+      onReply={noop} onCopy={noop} onTogglePin={noop} onEdit={noop}
     />,
   );
 }

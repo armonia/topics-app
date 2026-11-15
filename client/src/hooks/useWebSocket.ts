@@ -299,8 +299,14 @@ export function useWebSocket(): UseWebSocketReturn {
     };
 
     ws.onmessage = (event) => {
+      let raw: unknown;
       try {
-        const raw = JSON.parse(event.data);
+        raw = JSON.parse(event.data);
+      } catch (err) {
+        console.warn('[WS:inbound] failed to parse frame', err);
+        return;
+      }
+      try {
 
         // IL POLSO. Il `pong` e' l'unica prova che dall'altra parte c'e' ancora
         // qualcuno, e si data QUI, prima di ogni altra cosa: un frame di
@@ -369,9 +375,11 @@ export function useWebSocket(): UseWebSocketReturn {
 
         // Forward to all handlers
         for (const handler of handlersRef.current) {
-          try { handler(data); } catch {}
+          try { handler(data); } catch (e) { console.error('[WS:inbound] handler threw', e); }
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[WS:inbound] failed to dispatch frame', err);
+      }
     };
 
     ws.onclose = perdiIlFilo;

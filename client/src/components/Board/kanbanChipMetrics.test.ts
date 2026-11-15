@@ -37,7 +37,7 @@ const withoutProse = (s: string) => s
 const read = (f: string) => withoutProse(readFileSync(join(import.meta.dir, f), 'utf8'));
 
 const code = read('ProjectFilterPicker.tsx');
-const topBar = read('KanbanBoardPane.tsx');
+const topBar = read('InlineFilters.tsx');
 
 describe('the project chips: one width, one icon box', () => {
   it('no chip spells its own max width: the two caps were 11rem and 13rem', () => {

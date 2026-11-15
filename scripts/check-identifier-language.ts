@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // cancelled: the exact value of GitHub's run `conclusion` field, so it cannot be renamed to the American spelling (`server/services/ci-supersede.ts`).
+  "cancelled",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.
@@ -94,6 +96,8 @@ export const PROJECT_WORDS = new Set([
   "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // callee: the person a call on behalf rings, a field of the voice bridge protocol (`server/services/voice-call/prompts.ts`).
+  "callee",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
   "tps",
   // readout: what one machine reports about itself (its processes, its sleep

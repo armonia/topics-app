@@ -35,6 +35,8 @@ interface Props {
    * falls back to its one-line row.
    */
   renderTaskCard?: (taskId: string) => ReactNode | null;
+  /** The board's filters: a card they hide is hidden here too. Absent = no filter active. */
+  isVisible?: ((taskId: string) => boolean) | null;
 }
 
 const INPUT = 'rounded-md border border-app-border bg-surface px-2 py-1 text-compact text-app-text outline-none focus-visible:border-primary';
@@ -84,7 +86,7 @@ function SignalBadges({ signals }: { signals: readonly PlanSignal[] }) {
 
 const shortDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
-export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
+export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard, isVisible }: Props) {
   const tr = useT();
   // The same folded set as the Kanban lanes: a project folded there is folded here.
   const { collapsed, toggle: toggleCollapsed } = useCollapsedProjects();
@@ -131,7 +133,12 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
             ? 'group/card relative flex items-start gap-1.5 py-0.5'
             : `group/card relative flex items-center gap-1.5 rounded-md py-0.5 pr-1 hover:bg-app-hover/60 ${nested ? 'pl-5' : 'pl-1'}`}>
           {/* The status sign on both shapes: in the Plan no column says it. */}
-          <StatusIcon status={c.status} className={`h-3 w-3 shrink-0 ${boardCard ? 'mt-2.5' : ''}`} />
+          {/* A failed dispatch is its own glyph (red ring with the cross), as on the Board and in chat. */}
+          <StatusIcon
+            status={c.status !== 'done' && c.dispatchState === 'failed' ? 'failed' : c.status}
+            live={c.dispatchState === 'working'}
+            className={`h-3 w-3 shrink-0 ${boardCard ? 'mt-2.5' : ''}`}
+          />
           {boardCard ? (
             // The facts the Plan adds go UNDER the card, not beside it: beside, they
             // narrowed it, and cards of one tile had different widths.
@@ -163,7 +170,7 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard }: Props) {
   /** A list of cards that stays short: the busiest first, the rest behind «+N». */
   const CardList = ({ id, cards, project }: { id: string; cards: PlanCard[]; project: PlanProject }) => {
     const all = open.has(`all:${id}`);
-    const sorted = sortForPlan(cards);
+    const sorted = sortForPlan(isVisible ? cards.filter((c) => isVisible(c.id)) : cards);
     const shown = all ? sorted : sorted.slice(0, CARDS_SHOWN);
     return (
       <div className="flex flex-col">

@@ -307,7 +307,10 @@ export function loadPersistedState(
   try {
     const lraw = localStorage.getItem(layoutStorageKey(projectPath));
     if (lraw) layout = sanitizeLayout(JSON.parse(lraw));
-  } catch {}
+  } catch (e) {
+    // corrupt layout cache: layout is local-only, start with the default layout
+    console.warn('[projectPersistence] corrupt layout cache, resetting to default layout', e);
+  }
   // Only this synchronous mount read seeds React state; the server snapshot
   // delivered through `onUpdate` is left as it is.
   const nonChatPanes = withSessionOnlyPanes(projectPath, tabState?.nonChatPanes ?? []);

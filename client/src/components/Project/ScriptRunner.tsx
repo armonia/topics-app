@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TREE_ROW_CARD } from '@/lib/selectionStyles';
-import { Play, Square, Hourglass } from 'lucide-react';
+import { Link2, Play, Square } from 'lucide-react';
 import { scriptsApi } from '../../lib/api';
 import { useDetectedScripts } from '../../hooks/useDetectedScripts';
 import type { DetectedScript } from '../../types';
@@ -48,7 +48,7 @@ function AwaitedChip({ watchers }: { watchers?: { label: string; since: string; 
       className="flex items-center gap-1 text-mini uppercase tracking-wide px-1 py-px rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 flex-shrink-0"
       title={`${testa}\n${chi}`}
     >
-      <Hourglass size={9} className="animate-pulse" />
+      <Link2 size={9} className="animate-pulse" />
       {tr('processes.awaited.chip')}
     </span>
   );

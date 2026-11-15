@@ -28,6 +28,7 @@
 import type { ToolCallDetail } from "./types";
 import { isPlanFile } from "./plan-file";
 import { batchEditUnifiedDiff } from "./multi-edit-diff";
+import { taskToolCall } from "./task-tool";
 import { normalizeViewSpec, viewIdFromResult } from "./views";
 
 /**
@@ -567,6 +568,20 @@ export function deriveToolDetail(
       processId: s(a.process_id) ?? s(a.processId) ?? "",
       ...(s(a.until) ? { until: s(a.until)! } : {}),
       ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // A call on a card of the board: the transcript draws the card itself.
+  const cardCall = taskToolCall(name, args ? a : undefined, result);
+  if (cardCall) {
+    return {
+      type: "task_card",
+      tool: cardCall.tool,
+      action: cardCall.action,
+      ...(cardCall.taskId ? { taskId: cardCall.taskId } : {}),
+      ...(cardCall.reason ? { reason: cardCall.reason } : {}),
+      ...(args ? { args: a } : {}),
       ...(result ? { result } : {}),
     };
   }

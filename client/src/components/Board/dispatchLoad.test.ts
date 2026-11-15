@@ -317,7 +317,7 @@ describe('loadAdvice', () => {
   });
 
   test('the chip draws what loadAdvice says, not its own arithmetic', () => {
-    const src = readFileSync(join(import.meta.dir, 'KanbanBoardPane.tsx'), 'utf8');
+    const src = readFileSync(join(import.meta.dir, 'BoardToolbarControls.tsx'), 'utf8');
     const chip = src.slice(src.indexOf('function LoadAdviceChip'), src.indexOf('function MissionsMenu'));
     expect(chip).toContain('loadAdvice(');
     expect(chip).not.toMatch(/-\s*cap\.recommended/);

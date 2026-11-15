@@ -46,7 +46,6 @@ import type { PaneContextTarget } from './browserDevTypes';
 export const PANE_CONTEXT_HOOK_JS =
   "if(!window.__topicsCtxHook1){window.__topicsCtxHook1=1;window.__topicsCtx=null;window.__topicsCtxSeq=0;" +
   "addEventListener('contextmenu',function(e){try{" +
-  "e.preventDefault();" +
   "var n=e.target,el=n&&n.nodeType===1?n:(n&&n.parentElement)||null;" +
   "var a=el&&el.closest?el.closest('a[href]'):null;" +
   "var im=el&&el.closest?el.closest('img'):null;" +
@@ -58,6 +57,10 @@ export const PANE_CONTEXT_HOOK_JS =
   "window.__topicsCtxSeq++;" +
   "window.__topicsCtx={x:Math.round(e.clientX),y:Math.round(e.clientY)," +
   "selection:sel.slice(0,200),linkUrl:href,imageUrl:src,seq:window.__topicsCtxSeq};" +
+  // preventDefault runs LAST, once the probe above has actually produced a
+  // buffer: if anything throws first, the native menu is never suppressed,
+  // and the right click opens WebKit's own menu instead of nothing.
+  "e.preventDefault();" +
   "}catch(err){}},true);}";
 
 /** L'espressione che DRENA il buffer, da incastonare nel payload del poll

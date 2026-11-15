@@ -6,11 +6,17 @@ import {
   AI_REVIEW_RETRY_MS,
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_AI_REVIEW,
+  STAGE_CI,
   isWorkflowPresetId,
+  parsePersonPaths,
   resolveWorkflow,
+  resolveWorkflowRules,
   stageForDelivery,
   type BoardWorkflow,
+  type PersonPath,
   type WorkflowPresetId,
+  type WorkflowRules,
+  type WorkflowRulesRow,
 } from "../../shared/workflow";
 
 /**
@@ -57,6 +63,55 @@ export function writeBoardWorkflow(db: Database, scope: string, preset: Workflow
     `INSERT INTO board_workflows (scope, preset, updated_at) VALUES (?, ?, ?)
      ON CONFLICT(scope) DO UPDATE SET preset = excluded.preset, updated_at = excluded.updated_at`,
   ).run(scope, preset, nowIso);
+}
+
+/**
+ * The `board_workflow_rules` table (migration 20261114120000): the CI switch
+ * and the board's paths a person must look at. Like the presets, a database
+ * without the table reads as no row, and no row is the default (CI phase on,
+ * generic paths only).
+ */
+export function readOwnWorkflowRules(db: Database, scope: string): WorkflowRulesRow | null {
+  try {
+    const r = db.prepare("SELECT ci_phase, person_paths FROM board_workflow_rules WHERE scope = ?").get(scope) as { ci_phase: number | null; person_paths: string | null } | null;
+    if (!r) return null;
+    let personPaths: PersonPath[] | null = null;
+    if (r.person_paths) {
+      try { personPaths = parsePersonPaths(JSON.parse(r.person_paths)); } catch { personPaths = null; }
+      // A stored list that no longer reads is not "no paths": that would let the board's
+      // interface land alone. It fails the read, and the land asks a person.
+      if (personPaths === null) throw new Error(`board_workflow_rules: unreadable person_paths for ${scope}`);
+    }
+    return { ciPhase: r.ci_phase === null ? null : r.ci_phase === 1, personPaths };
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("board_workflow_rules:")) throw e;
+    return null;
+  }
+}
+
+export function readWorkflowRules(db: Database, projectId: string): WorkflowRules {
+  const global = readOwnWorkflowRules(db, GLOBAL_WORKFLOW_SCOPE);
+  if (projectId === GLOBAL_WORKFLOW_SCOPE) return resolveWorkflowRules({ global });
+  return resolveWorkflowRules({ project: readOwnWorkflowRules(db, projectId), global });
+}
+
+/** Writes the fields present in `patch` (`null` = inherit); a row left with nothing is removed. */
+export function writeWorkflowRules(db: Database, scope: string, patch: WorkflowRulesRow, nowIso: string): void {
+  if (!scope) throw new Error("scope is required");
+  if (patch.personPaths != null && parsePersonPaths(patch.personPaths) === null) throw new Error("invalid personPaths");
+  const cur = readOwnWorkflowRules(db, scope) ?? {};
+  const next: WorkflowRulesRow = {
+    ciPhase: patch.ciPhase !== undefined ? patch.ciPhase : cur.ciPhase ?? null,
+    personPaths: patch.personPaths !== undefined ? patch.personPaths : cur.personPaths ?? null,
+  };
+  if (next.ciPhase == null && (next.personPaths == null || next.personPaths.length === 0)) {
+    db.prepare("DELETE FROM board_workflow_rules WHERE scope = ?").run(scope);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO board_workflow_rules (scope, ci_phase, person_paths, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(scope) DO UPDATE SET ci_phase = excluded.ci_phase, person_paths = excluded.person_paths, updated_at = excluded.updated_at`,
+  ).run(scope, next.ciPhase == null ? null : next.ciPhase ? 1 : 0, next.personPaths?.length ? JSON.stringify(parsePersonPaths(next.personPaths)) : null, nowIso);
 }
 
 /**
@@ -168,6 +223,8 @@ export function clearAiReviewReminderStamp(db: Database, taskId: string, stampIs
 export function checkStage(
   columns: BoardWorkflow["columns"], stage: string, status: string | undefined,
 ): { stage: string | null } | { error: string } {
+  // The CI column is entered by accepting the work (Approva, Landa), never by naming it: a drag there would skip the land.
+  if (stage === STAGE_CI) return { error: `the "${STAGE_CI}" column is entered by approving or landing the card, not by moving it there` };
   const col = columns.find((c) => c.id === stage);
   if (!col) return { error: `stage "${stage}" is not a column of this board's workflow (${columns.map((c) => c.id).join(", ")})` };
   if (status !== undefined && status !== col.base) return { error: `stage "${stage}" holds cards in status "${col.base}", not "${status}"` };

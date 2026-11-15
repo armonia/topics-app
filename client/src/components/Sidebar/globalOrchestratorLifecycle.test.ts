@@ -10,7 +10,7 @@ const SIDEBAR_DIR = import.meta.dir;
 const read = (...path: string[]) => readFileSync(join(SIDEBAR_DIR, ...path), 'utf8');
 
 const lifecycle = read('..', '..', 'hooks', 'usePanelLifecycle.ts');
-const app = read('..', '..', 'App.tsx');
+const app = read('..', '..', 'App.tsx') + read('..', '..', 'app', 'useDeferredActions.ts');
 const topicItem = read('TopicItem.tsx');
 const topicTree = read('TopicTree.tsx');
 const contextMenu = read('..', 'Modals', 'ContextMenu.tsx');

@@ -70,6 +70,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
   const [status, setStatus] = useState<string>('running');
   const [exitCode, setExitCode] = useState<number | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [stopError, setStopError] = useState(false);
   // Pane-mount fallback only: replaced by the REAL process start time from
   // the registry as soon as it loads (below). Without that, opening the log
   // of a long-running/detected process showed a duration restarting from 0s.
@@ -204,7 +205,11 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
   const handleStop = useCallback(async () => {
     try {
       await scriptsApi.stop(processId);
-    } catch {}
+      setStopError(false);
+    } catch (e) {
+      console.error('[process-log] stop failed', e);
+      setStopError(true);
+    }
   }, [processId]);
 
   const statusColor = status === 'running'
@@ -247,8 +252,14 @@ export function ProcessLogPane({ processId, scriptName, onMessage, onClose }: Pr
             {tr('processlog.lines', { n: offset })}
           </span>
         )}
+        {status === 'running' && stopError && (
+          <span data-testid="process-log-stop-error" className="text-mini text-red-500" role="alert">
+            {tr('processlog.stopFailed')}
+          </span>
+        )}
         {status === 'running' && (
           <button
+            data-testid="process-log-stop"
             onClick={handleStop}
             className="flex items-center gap-1 px-2 py-0.5 text-mini text-red-500 hover:bg-red-500/10 rounded transition-colors"
             title={tr('processlog.stopTitle')}

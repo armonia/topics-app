@@ -8,7 +8,14 @@ export function useStorageSync<T = unknown>(key: string, onUpdate: (value: T) =>
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key !== key || !e.newValue) return;
-      try { onUpdate(JSON.parse(e.newValue) as T); } catch {}
+      let value: T;
+      try {
+        value = JSON.parse(e.newValue) as T;
+      } catch (err) {
+        console.warn('[storage-sync] failed to parse stored value', err);
+        return;
+      }
+      onUpdate(value);
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);

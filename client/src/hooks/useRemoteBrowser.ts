@@ -1679,5 +1679,5 @@ function rememberFramable(url: string, framable: boolean): void {
     clearDownloads,
     consoleSummary,
     clearConsole,
-  }), [state, framable, consoleSummary, clearConsole, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
+  }), [state, framable, consoleSummary, clearConsole, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, ownSize, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }

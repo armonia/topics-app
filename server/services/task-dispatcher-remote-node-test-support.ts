@@ -79,7 +79,7 @@ export interface NodeFakeOptions {
   readRun?: (runId: string) => Promise<NodeRunReport>;
   cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
-  planted?: { planted: boolean; commit: string | null; reason: string | null };
+  planted?: { planted: boolean; commit: string | null; commitCount: number; reason: string | null };
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
   projectPathOf?: (projectId: string) => string | null;
@@ -122,7 +122,7 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {
       plantedWith.push({ branch, baseSha, bundleBytes: bundle ? bundle.length : null });
-      return o.planted ?? { planted: true, commit: "c0ffeec0ffee", reason: null };
+      return o.planted ?? { planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null };
     },
   };
   return { node, calls, created, plantedWith };

@@ -124,7 +124,7 @@ function harness(floor: ResourceFloorVerdict) {
       nameOf: () => "Portatile",
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
     },
     now: () => now,
     graceMs: 0,

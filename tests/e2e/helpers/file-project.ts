@@ -55,7 +55,11 @@ export type FileProject = {
  * `realpathSync` on a missing path throws.
  */
 export function canonicalTmpDir(prefix: string): string {
-  return join(canonicalTmpRoot(), `${prefix}-${Date.now()}`);
+  // `Date.now()` alone collides when two tests (now one per test, not one
+  // per file) create their project folder in the same millisecond — the
+  // random suffix matches the one `topicName` already carries below.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return join(canonicalTmpRoot(), `${prefix}-${Date.now()}-${suffix}`);
 }
 
 /**
@@ -146,7 +150,11 @@ export async function seedFileProject(
   label: string,
 ): Promise<FileProject> {
   const tmpDir = canonicalTmpDir(`e2e-files-${label}`);
-  const topicName = `e2e-file-explorer-${label}`;
+  // Unique per call, not just per label: callers now seed one project PER
+  // TEST (not once per file in `beforeAll`), so two tests in the same file
+  // each need their own topic name — a shared static name would make the
+  // tree lookup in `gotoProject` ambiguous the moment both exist at once.
+  const topicName = `e2e-file-explorer-${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   mkdirSync(`${tmpDir}/src`, { recursive: true });
 

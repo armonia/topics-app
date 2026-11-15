@@ -119,6 +119,16 @@ const mcpSchema = z.object({
   result: z.optional(z.string()),
 });
 
+const taskCardSchema = z.object({
+  type: z.literal('task_card'),
+  tool: z.string(),
+  action: z.enum(['created', 'moved', 'delivered', 'resent', 'closed', 'landed', 'commented', 'read', 'reviewed']),
+  taskId: z.optional(z.string()),
+  reason: z.optional(z.string()),
+  args: z.optional(z.record(z.string(), z.unknown())),
+  result: z.optional(z.string()),
+});
+
 const monitorSchema = z.object({
   type: z.literal('monitor'),
   description: z.string(),
@@ -250,6 +260,7 @@ export const toolCallDetailSchema = z.discriminatedUnion('type', [
   subAgentSchema,
   planSchema,
   mcpSchema,
+  taskCardSchema,
   monitorSchema,
   waitSchema,
   bashOutputSchema,
