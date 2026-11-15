@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.13",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.12",
     "date": "2026-11-15",
     "sections": {
