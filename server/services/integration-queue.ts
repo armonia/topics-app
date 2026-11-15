@@ -51,6 +51,13 @@ export interface IntegrationQueueDeps {
   giveUp?(projectId: string, taskId: string, why: string): void;
   /** Is the card still waiting for this (in review, intent set, nothing changed)? Read before every step. */
   stillWanted(projectId: string, taskId: string): boolean;
+  /**
+   * A card whose own delivery has no green bar on its exact commit is measured ALONE, never inside a batch.
+   * 15/11: 819c9836 broke a unit test nobody had run on its commit and sat in four rounds in a row (6, 3, 2
+   * cards, ~20 minutes of CI each): every card measured with it paid for its red and waited behind it, which
+   * from outside looks like a land that never ends. Alone, the unproven card costs one round and only itself.
+   */
+  solo?(projectId: string, taskId: string): boolean;
   note?(taskId: string, text: string): void;
   log?(line: string): void;
   maxBatch?: number;
@@ -101,8 +108,17 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     const l = lane(projectId);
     for (let i = l.length - 1; i >= 0; i--) if (!deps.stillWanted(projectId, l[i]!)) l.splice(i, 1);
     if (!l.length) return [];
+    const isSolo = (id: string) => deps.solo?.(projectId, id) === true;
+    if (isSolo(l[0]!)) return l.splice(0, 1);
     const size = Math.min(maxBatch, limit.get(l[0]!) ?? maxBatch);
-    return l.splice(0, size);
+    // The cards with a proven bar are batched past the unproven ones, which wait their own round.
+    const batch: string[] = [];
+    for (let i = 0; i < l.length && batch.length < size;) {
+      if (isSolo(l[i]!)) { i++; continue; }
+      batch.push(l[i]!);
+      l.splice(i, 1);
+    }
+    return batch;
   }
 
   async function round(projectId: string, batch: string[]): Promise<void> {
