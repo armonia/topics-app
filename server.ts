@@ -2330,6 +2330,8 @@ const taskDispatcher = createTaskDispatcher({
       const path = projectPathForNode(projectId);
       return path ? repoIdentity(path) : Promise.resolve(null);
     },
+    // The Claude cloud signs its own branch: no checkout identity to pass or to require.
+    skipsGitIdentity: (baseUrl) => isCloudBaseUrl(baseUrl),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).

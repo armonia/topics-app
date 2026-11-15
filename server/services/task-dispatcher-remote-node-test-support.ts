@@ -87,6 +87,8 @@ export interface NodeFakeOptions {
   originUrlOf?: () => Promise<string | null>;
   /** The checkout's git identity; absent = a configured one (the historical, ungated behaviour). `null` = none configured. */
   gitIdentityOf?: () => Promise<{ name: string; email: string } | null>;
+  /** Lanes that skip the identity gate; absent = none. */
+  skipsGitIdentity?: () => boolean;
 }
 
 export function nodeFake(o: NodeFakeOptions = {}) {
@@ -121,6 +123,7 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     localMachineId: () => "questa-macchina",
     originUrlOf: o.originUrlOf ?? (async () => "git@github.com:acme/alpha.git"),
     gitIdentityOf: o.gitIdentityOf ?? (async () => ({ name: "Ada Lovelace", email: "ada@example.test" })),
+    ...(o.skipsGitIdentity ? { skipsGitIdentity: o.skipsGitIdentity } : {}),
     ...(o.hooks ? { hooks: o.hooks } : {}),
     ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {

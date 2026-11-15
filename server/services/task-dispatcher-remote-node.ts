@@ -84,6 +84,12 @@ export interface NodeDeps {
    * refuses a foreign author. Absent = no gate, the historical behaviour.
    */
   gitIdentityOf?: (projectId: string) => Promise<{ name: string; email: string } | null>;
+  /**
+   * A lane whose commits are not signed by this identity (the Claude cloud
+   * signs its own branch): the gate above does not apply to it. Absent = every
+   * lane needs the identity.
+   */
+  skipsGitIdentity?: (baseUrl: string) => boolean;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
   /**
    * Makes sure a card's own branch is on origin, pushing it when this checkout
@@ -422,7 +428,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // Missing identity is not a silent node (retrying changes nothing), so it
     // parks the card with the fix in words instead of deferring.
     const gitIdentity = await Promise.resolve(node.gitIdentityOf?.(task.projectId) ?? null).catch(() => null);
-    if (node.gitIdentityOf && !gitIdentity) {
+    if (node.gitIdentityOf && !gitIdentity && !node.skipsGitIdentity?.(baseUrl)) {
       parkNodeCard(
         task,
         `Questa card è assegnata al nodo «${name}», ma questo checkout non ha un'identità git (\`git config user.name\`/` +

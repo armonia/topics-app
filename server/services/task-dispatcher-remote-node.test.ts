@@ -371,6 +371,17 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     expect(note).toContain("non ha un'identità git");
   });
 
+  it("no git identity but a lane that signs its own branch (Claude cloud): the gate lets the card through", async () => {
+    const hook = hookFake({ ok: true });
+    const h = harness({ hooks: hook.runner, gitIdentityOf: async () => null, skipsGitIdentity: () => true });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(1);
+    expect(h.task().dispatchState).not.toBe("blocked");
+  });
+
   it("two vetoes in a row open the wake breaker: the node stops being a sleeping target", async () => {
     // 2026-11-10: the PC stuck at the login screen got 17 cards in half an hour.
     wakeBreaker.success(MACHINE);
