@@ -58,6 +58,20 @@ export async function measureIntegration(
   if (!base) return unmeasured("origin/main non si risolve in questo repo");
   const baseDate = (await deps.git(repoPath, ["show", "-s", "--format=%ct", base])).out.trim();
 
+  // A measure cut short by a restart leaves its checkout behind, still holding its branch. The next
+  // measure of the same cards gets the same sha, so the same branch name, and `switch -C` refuses it
+  // while that checkout lives: the card stays "unmeasured" for every sweep (14/11, 3 hours). The queue
+  // is serial per repo, so any integration checkout found here is a leftover.
+  const listed = (await deps.git(repoPath, ["worktree", "list", "--porcelain"])).out;
+  for (const line of listed.split("\n")) {
+    const path = line.startsWith("worktree ") ? line.slice("worktree ".length).trim() : "";
+    if (path && /(^|\/)topics-integrazione-[^/]+$/.test(path)) {
+      await deps.git(repoPath, ["worktree", "remove", "--force", path]);
+      rmSync(path, { recursive: true, force: true });
+    }
+  }
+  await deps.git(repoPath, ["worktree", "prune"]);
+
   const dir = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), "topics-integrazione-"));
   const added = await deps.git(repoPath, ["worktree", "add", "--detach", "--quiet", dir, base]);
   if (added.code !== 0) {
