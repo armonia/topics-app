@@ -188,6 +188,17 @@ describe("writeSplitRow", () => {
     expect(parsedRow(d, "other")).toEqual(blocks);
   });
 
+  test("a busy database is not retried whole on the spot: the refusal goes to the caller, once", () => {
+    const d = db();
+    const blocks = [shell("t1", big("o"))];
+    let calls = 0;
+    const busy = Object.assign(new Error("database is locked"), { name: "SQLiteError", code: "SQLITE_BUSY", errno: 5 });
+    expect(() => writeSplitRow(d, "m1", blocksColumn(blocks, true), () => { calls++; throw busy; })).toThrow("database is locked");
+    // One attempt: the whole-row fallback would have waited a second busy_timeout for the same lock.
+    expect(calls).toBe(1);
+    expect(sideRows(d)).toBe(0);
+  });
+
   test("a stored body that does not rebuild the row rolls the split back", () => {
     const d = db();
     const blocks = [shell("t1", big("o"))];
