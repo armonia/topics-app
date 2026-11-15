@@ -3005,7 +3005,7 @@ const EN = {
   'board.card.assigneeTitle': 'Closed by {name}',
   'board.card.assigneeNameOnly': 'name only',
   'board.card.assigneeNameOnlyTitle': '{name} is only the name on the card: the conductor closes it, nothing is asked of them.',
-  'board.card.needsInputWhy': 'The agent ended the turn on a question: open it in the thread and answer.',
+  'board.card.needsInputWhy': 'Question not recorded. Open the thread to check.',
   'board.card.dueOverdueTitle': 'Past its due date: {date}',
   'board.card.runComputerTitle': 'Delegated run executed on {name}',
 
