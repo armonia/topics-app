@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-116
+ */
 import { describe, expect, test } from "bun:test";
 import { classifyOrigin, classifyStayLocal } from "./stay-local-audit";
 import {

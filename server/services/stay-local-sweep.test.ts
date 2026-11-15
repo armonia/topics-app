@@ -4,6 +4,7 @@
  * a mac-only card keeps its pin, a pure-code card loses it and gets exactly
  * one reason line, a second pass writes nothing, and a pin with an expiry is
  * never touched.
+ * @covers KANBAN-116
  */
 import { test, expect } from "bun:test";
 import type { Database } from "bun:sqlite";

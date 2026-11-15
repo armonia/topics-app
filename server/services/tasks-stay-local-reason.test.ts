@@ -3,7 +3,7 @@
  * the thread, whoever writes it: a person through the API, or the
  * dispatcher's own mac-only-path branch (which carries its own full
  * explanation and must not get a second, generic one on top).
- * @covers card 50a5a6c9-34ca-4ecc-b3f6-4fb76dbe0a21, PR #904 review feedback
+ * @covers KANBAN-116
  */
 import { test, expect } from "bun:test";
 import { freshDb, svc, PID } from "./tasks-test-db";
