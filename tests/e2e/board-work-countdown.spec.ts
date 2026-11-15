@@ -20,6 +20,7 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 import { hermetic } from "./fixtures/hermetic";
 import { createTopic, deleteTask, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
+import { openTopic } from "./helpers";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,6 +36,8 @@ hermetic(test);
 test.use({ video: "on" });
 
 const MIN = 60_000;
+/** Where the evidence lands: the CI uploads this folder as an artifact. */
+const SHOTS = "test-results/countdown-shots";
 const WIDTHS = [375, 768, 1440, 3440] as const;
 
 type FeedTask = Record<string, unknown> & { id: string };
@@ -165,7 +168,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
 
   for (const scheme of ["light", "dark"] as const) {
     for (const width of WIDTHS) {
-      test(`card at ${width}px, ${scheme} theme`, async ({ page }, testInfo) => {
+      test(`card at ${width}px, ${scheme} theme`, async ({ page }) => {
         await page.emulateMedia({ colorScheme: scheme });
         await page.setViewportSize({ width, height: width < 800 ? 812 : 900 });
         await openBoard(page);
@@ -179,7 +182,52 @@ test.describe("Board: countdown and weight of work in progress", () => {
         );
         expect(box).not.toBeNull();
         for (const right of chips) expect(right).toBeLessThanOrEqual((box as { x: number; width: number }).x + (box as { x: number; width: number }).width + 1);
-        await page.screenshot({ path: testInfo.outputPath(`work-countdown-${width}-${scheme}.png`) });
+        await page.screenshot({ path: `${SHOTS}/card-${width}-${scheme}.png` });
+      });
+    }
+  }
+
+  /** The same running card, drawn on every other surface the countdown and the weight reach. */
+  for (const scheme of ["light", "dark"] as const) {
+    for (const width of WIDTHS) {
+      test(`surfaces at ${width}px, ${scheme} theme`, async ({ page }) => {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.setViewportSize({ width, height: width < 800 ? 812 : 900 });
+        // The chat's own strip reads its children from this route.
+        await page.route(new RegExp(`/api/topics/${topicId}/live-work$`), (route) => route.fulfill({
+          json: {
+            rows: [{
+              kind: "agent", id: "child-1", name: "Reviewer", runtime: "cli", state: "working", preview: "Bash: bun test",
+              startedAt: new Date(Date.now() - 4 * MIN).toISOString(), estimateMs: 12 * MIN,
+              weight: { usedTokens: 90_000, windowTokens: 1_000_000, estimated: false, billableTokens: 40_000, cacheReadTokens: 0, costCents: 30 },
+            }],
+          },
+        }));
+        await openBoard(page);
+        // Sidebar: the board counts and the running line.
+        const sidebar = page.locator('[aria-label="Topics sidebar"]');
+        if (await sidebar.isVisible()) await sidebar.screenshot({ path: `${SHOTS}/sidebar-${width}-${scheme}.png` });
+        // Drawer with the exact weight and the sum of the children.
+        await page.locator(`[data-task-card="${runningId}"]`).click();
+        const drawer = page.getByTestId("task-detail-drawer");
+        await expect(drawer).toBeVisible({ timeout: 15_000 });
+        await drawer.getByTestId("task-details-toggle").click();
+        await expect(page.getByTestId("session-weight")).toBeVisible({ timeout: 15_000 });
+        await page.screenshot({ path: `${SHOTS}/drawer-${width}-${scheme}.png` });
+        // Bell: the list of what waits and what works.
+        await page.keyboard.press("Escape");
+        const bell = page.getByTestId("inbox-button").first();
+        if (await bell.isVisible().catch(() => false)) {
+          await bell.click();
+          await page.screenshot({ path: `${SHOTS}/bell-${width}-${scheme}.png` });
+          await page.keyboard.press("Escape");
+        }
+        // The parent chat, with the sub-agent row under it (the phone at 375 included).
+        await openTopic(page, new RegExp(`countdown-${stamp}`));
+        const strip = page.getByTestId("subagents-strip");
+        await expect(strip).toBeVisible({ timeout: 15_000 });
+        await expect(strip.getByTestId("work-meter")).toBeVisible();
+        await page.screenshot({ path: `${SHOTS}/chat-subagents-${width}-${scheme}.png` });
       });
     }
   }
