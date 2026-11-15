@@ -106,7 +106,7 @@ import {
 // Re-exported because tests and callers have always imported these from this module.
 export {
   cleanupMcpConfigForSession, getOrCreateClaudeSessionId, getTopicSpawnOverridesForSession,
-  mcpConfigPathForSession, planClaudeSessionStart, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
+  planClaudeSessionStart, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
 } from "./claude-code-session";
 
 // ============ Config ============

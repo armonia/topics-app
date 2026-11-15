@@ -15,7 +15,7 @@ import { type DispatchWork } from "../../shared/provider-hold";
 import type { StopCause } from "../lib/abort-cause";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 
-export interface SessionActivity { name: string; input?: unknown; since: number }
+interface SessionActivity { name: string; input?: unknown; since: number }
 
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
