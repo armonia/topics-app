@@ -5,7 +5,7 @@
  * proven here is what the spawn makes of it: the first start forks the parent
  * at the point and carries no recap; once the branch has a transcript it is an
  * ordinary resume, and once its first start said `system/init` it is one from
- * any cwd; a session forgotten by `/clear`, a worktree reap or a recovery
+ * any cwd; a session forgotten by `/clear` or a recovery
  * never forks again; and a refused fork start is a recovery that restarts
  * fresh with the recap, not a crash.
  *
@@ -156,16 +156,22 @@ describe("a forked chat's spawn", () => {
     expect(plan.needsHistoryReplay).toBe(false);
   });
 
-  test("a worktree reap forgets the session: fresh, with the recap of the copy and the branch's turns", () => {
+  test("a worktree reap keeps the session: the chat resumes it from the project folder, no fork and no recap", () => {
     const db = getDatabase();
     db.prepare("INSERT INTO projects (id, name, slug, path, created_at, updated_at) VALUES ('pr', 'p', 'p', ?, ?, ?)").run(workspace, NOW, NOW);
     db.prepare("INSERT INTO worktrees (id, project_id, name, mode, abs_path, status, created_at, updated_at) VALUES ('wt', 'pr', 'w', 'branch', ?, 'ready', ?, ?)").run(join(workspace, "wt"), NOW, NOW);
     db.prepare("UPDATE topics SET worktree_id = 'wt' WHERE session_key = ?").run(SK);
     createWorktreeStore(db).delete("wt");
     appendPrompt();
+    // The CLI resumes a session by id from any cwd, so the reap has no reason
+    // to drop it: forgetting it would cost the chat its own conversation.
     const plan = planClaudeSessionStart(SK, workspace);
-    expectFreshWithoutFork(plan);
-    expect(plan.needsHistoryReplay).toBe(true);
+    expect(plan.claudeSessionId).toBe(BRANCH);
+    expect(plan.isNewSession).toBe(false);
+    // This branch never started, so its fork is still pending and untouched by the reap.
+    expect(plan.forkFrom).toEqual({ sessionId: PARENT, atUuid: POINT });
+    expect(argvOf(plan).slice(-2)).toEqual(["--session-id", BRANCH]);
+    expect(plan.needsHistoryReplay).toBe(false);
   });
 
   for (const refusal of [
