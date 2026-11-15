@@ -1,4 +1,5 @@
 /**
+ * @covers CHAT-PERSIST-02
  * A resume that nobody awaits (the reconcile poll, the retry and slot timers,
  * a feedback queued during a turn) writes its first chip inside a try/finally
  * with no catch. A busy database there used to become an unhandled rejection,

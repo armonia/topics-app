@@ -1,4 +1,5 @@
 /**
+ * @covers CHAT-PERSIST-02
  * A native child waiting on its own work is looked at again every
  * `waitPollMs` (`watchWaitingChild`). When the database refuses the close as
  * busy, the throw must not leave the interval: that is the net that takes the

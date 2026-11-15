@@ -1,4 +1,5 @@
 /**
+ * @covers CHAT-PERSIST-02
  * A busy database must not take the server down from a timer or from a promise
  * nobody awaits (card 629398ee). The helpers are proved here in-process, the
  * exit codes in a child process (`sqlite-busy.paths.fixture.ts`), and each
