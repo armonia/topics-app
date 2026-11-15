@@ -50,6 +50,7 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
+import { runStayLocalSweep } from "./server/services/stay-local-sweep";
 import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
@@ -676,6 +677,22 @@ try {
 } catch (err) {
   // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
   console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
+}
+
+// The permanent "this Mac only" pins, decided once (`services/stay-local-sweep.ts`).
+// A pin with no expiry is never lifted by anything else, so a card whose text
+// names nothing mac-only stays stuck here for good. The sweep clears those and
+// says why on the thread; a card it already decided is left alone, so a person
+// who pins it again keeps the pin.
+try {
+  const sweep = runStayLocalSweep(db);
+  console.log(
+    `[Startup] stay-local sweep: scanned ${sweep.scanned}, cleared ${sweep.cleared}, ` +
+      `kept ${sweep.kept}, already decided ${sweep.skipped}`,
+  );
+} catch (err) {
+  // Non-fatal: a pin that outlives its reason costs a card its mobility, not the boot.
+  console.error("[Startup] stay-local sweep failed:", err);
 }
 
 // Init AI provider — pick the boot default:

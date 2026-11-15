@@ -653,7 +653,7 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 860,
 
-    "server/services/task-dispatcher-overflow.test.ts": 1241,
+    "server/services/task-dispatcher-overflow.test.ts": 1439,
 
     "server/services/task-dispatcher-remote-node.test.ts": {
       "lines": 1261,
