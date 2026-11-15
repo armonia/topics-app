@@ -46,7 +46,7 @@ describe("sessionWeight", () => {
   test("percent, compaction headroom and children", () => {
     const w = sessionWeight({
       usedTokens: 100_000, windowTokens: 200_000, billableTokens: 185, cacheReadTokens: 1500, costCents: 40,
-      children: { count: 2, billableTokens: 15, costCents: 10 },
+      subAgents: { count: 2, billableTokens: 15, costCents: 10 },
     });
     expect(w.percent).toBe(50);
     expect(w.untilCompactionTokens).toBe(80_000);
@@ -97,8 +97,8 @@ describe("foldChildren and ownOfCounter", () => {
     expect(foldChildren([])).toEqual({ count: 0, billableTokens: 0, costCents: 0 });
   });
   test("the counter already carries the children: own is what is left", () => {
-    expect(ownOfCounter(1000, { billableTokens: 300 })).toBe(700);
-    expect(ownOfCounter(100, { billableTokens: 300 })).toBe(0);
+    expect(ownOfCounter(1000, 300)).toBe(700);
+    expect(ownOfCounter(100, 300)).toBe(0);
   });
 });
 

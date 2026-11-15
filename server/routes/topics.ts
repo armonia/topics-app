@@ -36,7 +36,7 @@ import { createBrowserBridgeRouter } from "./browser-bridge";
 import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
-import { liveWorkOf } from "./live-work";
+import { liveChildrenOf, liveWorkOf } from "./live-work";
 import { getSessionContext } from "../db/session-context";
 import { noteUnreadChanged, setClosed, turnEnded } from "../attention/store";
 import { topicSubject } from "../../shared/attention";
@@ -3405,6 +3405,9 @@ export function createTopicsRouter(
         return json([...commands, ...subagentProcesses(sessions)]);
       } catch { return json(commands); }
     }
+
+    // Every sub-agent at work, over all chats: for the surfaces that are not under one chat.
+    if (method === "GET" && pathname === "/api/live-work") return json(liveChildrenOf(ctx));
 
     {
       // The strip under the chat: what works for it now (chat-live-work).

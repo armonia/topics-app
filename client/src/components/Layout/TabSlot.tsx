@@ -26,6 +26,8 @@ import { FolderTree } from 'lucide-react';
 import type { PaneType } from '../../types';
 import { tabSlotCommand, tabSlotSignal } from '../../lib/tabSlot';
 import { useT } from '../../hooks/useT';
+import { useChildRow } from '../../state/childWork';
+import { workLine } from '../../lib/workLine';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -320,6 +322,8 @@ export function TabLabel({
   const lastActivityAt = useSubjectLastActivity(subjectId ?? undefined);
   const projectStart = useProjectWorkStart(projectPath);
   const [hoveredAt, setHoveredAt] = useState(0);
+  // A sub-agent's own tab: what is left of its work and what it weighs, from the rows its chat's strip shows.
+  const child = useChildRow(subjectId);
   let elapsed = '';
   if (hoveredAt > 0) {
     if (projectStart) {
@@ -334,6 +338,10 @@ export function TabLabel({
           : tr('activity.finishedAgo', { label });
       }
     }
+  }
+  if (child && hoveredAt > 0) {
+    const line = workLine(tr, { estimateMs: child.estimateMs, elapsedMs: hoveredAt - Date.parse(child.startedAt), weight: child.weight });
+    if (line) elapsed = elapsed ? `${elapsed}\n${line}` : line;
   }
   return (
     <span

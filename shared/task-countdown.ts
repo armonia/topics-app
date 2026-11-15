@@ -64,7 +64,7 @@ export interface SessionWeightInput {
   cacheReadTokens: number;
   costCents: number;
   /** Sum of the same figures over the child sessions. */
-  children?: { count: number; billableTokens: number; costCents: number };
+  subAgents?: { count: number; billableTokens: number; costCents: number };
   /** Share of the window at which compaction is called for (0..1); defaults to the shared critical threshold. */
   compactAt?: number;
 }
@@ -87,7 +87,7 @@ export interface SessionWeight {
 }
 
 export function sessionWeight(i: SessionWeightInput): SessionWeight {
-  const kids = i.children ?? { count: 0, billableTokens: 0, costCents: 0 };
+  const kids = i.subAgents ?? { count: 0, billableTokens: 0, costCents: 0 };
   const measured = i.usedTokens != null && i.windowTokens != null && i.windowTokens > 0;
   const percent = measured ? Math.min(100, Math.round(((i.usedTokens as number) / (i.windowTokens as number)) * 1000) / 10) : null;
   const limit = measured ? Math.round((i.windowTokens as number) * (i.compactAt ?? CONTEXT_CRITICAL_PERCENT / 100)) : null;
@@ -162,8 +162,8 @@ export function foldChildren(rows: readonly ChildWeightRow[]): { count: number; 
  * part is what is left after taking them out: summing the children again on
  * top of the counter would count them twice.
  */
-export function ownOfCounter(counter: number, children: { billableTokens: number }): number {
-  return Math.max(0, counter - children.billableTokens);
+export function ownOfCounter(counter: number, childrenShare: number): number {
+  return Math.max(0, counter - childrenShare);
 }
 
 /** Median agent time per project, from the closed cards: the estimate a card in progress starts from. */

@@ -11,11 +11,13 @@
  * messages (`isGuestAllowedPath`).
  */
 import type { AppContext, StoredMessage, Topic } from "../types";
-import type { LiveWork } from "../../shared/live-work";
+import type { ChildAgentRow, LiveChildren, LiveWork, LiveWorkRow } from "../../shared/live-work";
 import { getDatabase } from "../db";
 import { endedSubagents, runningSubagents } from "../lib/subagent-store";
 import { childPhase } from "../lib/subagent-runtime";
 import { liveWorkRows, endedTtlMs } from "../lib/live-work";
+import { childEstimateMs, cliChildWeight, nativeChildWeight } from "../lib/child-weight";
+import { getSubagent } from "../lib/subagent-store";
 import { summarizeToolInput } from "../services/task-dispatcher";
 import { liveCommandsOf } from "./processes";
 import { liveCliChildren } from "./terminal";
@@ -56,19 +58,55 @@ function lastActivityOf(ctx: AppContext, sessionKey: string | null): string {
 export function liveWorkOf(ctx: AppContext, topic: Pick<Topic, "id" | "sessionKey">): LiveWork {
   const db = getDatabase();
   const parentKey = topic.sessionKey;
-  return {
-    rows: liveWorkRows({
-      cli: liveCliChildren(parentKey).map(({ tool, ...c }) => ({ ...c, preview: tool ? toolLine(tool.name, tool.input) : "" })),
-      native: runningSubagents(db, parentKey).filter((r) => r.runtime === "topics").map((r) => ({
-        id: r.id, name: r.name, createdAt: r.createdAt, sessionKey: r.sessionKey,
-        phase: childPhase(r.id), preview: lastActivityOf(ctx, r.sessionKey),
-      })),
-      // An ended row says «finished»: its last line is not read for a minute of check.
-      ended: endedSubagents(db, parentKey).map((r) => ({
-        id: r.id, name: r.name, createdAt: r.createdAt, runtime: r.runtime === "topics" ? "topics" as const : "cli" as const,
-        sessionKey: r.sessionKey, endedAt: r.endedAt, reportedAt: r.reportedAt, preview: "",
-      })),
-      commands: liveCommandsOf(topic.id),
-    }, Date.now(), endedTtlMs()),
+  const rows = liveWorkRows({
+    cli: liveCliChildren(parentKey).map(({ tool, ...c }) => ({ ...c, preview: tool ? toolLine(tool.name, tool.input) : "" })),
+    native: runningSubagents(db, parentKey).filter((r) => r.runtime === "topics").map((r) => ({
+      id: r.id, name: r.name, createdAt: r.createdAt, sessionKey: r.sessionKey,
+      phase: childPhase(r.id), preview: lastActivityOf(ctx, r.sessionKey),
+    })),
+    // An ended row says «finished»: its last line is not read for a minute of check.
+    ended: endedSubagents(db, parentKey).map((r) => ({
+      id: r.id, name: r.name, createdAt: r.createdAt, runtime: r.runtime === "topics" ? "topics" as const : "cli" as const,
+      sessionKey: r.sessionKey, endedAt: r.endedAt, reportedAt: r.reportedAt, preview: "",
+    })),
+    commands: liveCommandsOf(topic.id),
+  }, Date.now(), endedTtlMs());
+  return { rows: withWeight(db, rows) };
+}
+
+/**
+ * Each agent row with what it weighs and how long a child of its kind takes,
+ * both from what the server already measured (see `lib/child-weight.ts`). A
+ * row with nothing measured keeps no field: the strip then draws neither.
+ */
+function withWeight(db: ReturnType<typeof getDatabase>, rows: LiveWorkRow[]): LiveWorkRow[] {
+  const estimate = new Map<string, number | undefined>();
+  const estimateOf = (runtime: "topics" | "claude-code") => {
+    if (!estimate.has(runtime)) estimate.set(runtime, childEstimateMs(db, runtime));
+    return estimate.get(runtime);
   };
+  return rows.map((r) => {
+    if (r.kind !== "agent") return r;
+    const child = getSubagent(db, r.id);
+    if (!child) return r;
+    const weight = (child.runtime === "topics" ? nativeChildWeight(db, child) : cliChildWeight(child)) ?? undefined;
+    const est = r.state === "ended" ? undefined : estimateOf(child.runtime);
+    return { ...r, ...(weight ? { weight } : {}), ...(est ? { estimateMs: est } : {}) };
+  });
+}
+
+/**
+ * The agent rows of every chat that has a sub-agent running, each with its
+ * chat's id. One pass over the running children, then the chat's own rows:
+ * the same ones its strip shows, so no surface can say another thing.
+ */
+export function liveChildrenOf(ctx: AppContext): LiveChildren {
+  const parents = new Set(runningSubagents(getDatabase()).map((r) => r.parentSessionKey));
+  const agents: ChildAgentRow[] = [];
+  for (const key of parents) {
+    const topic = ctx.getTopicBySessionKey?.(key) ?? null;
+    if (!topic) continue; // a child of a child (its parent is a terminal): no chat to name
+    for (const row of liveWorkOf(ctx, topic).rows) if (row.kind === "agent") agents.push({ ...row, parentTopicId: topic.id });
+  }
+  return { agents };
 }

@@ -51,6 +51,7 @@ import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
 import { TaskCountdown } from './TaskCountdown';
 import { TaskContextChip } from './TaskContextChip';
+import { TaskChildrenChip } from './TaskChildrenChip';
 import { estimatesByProject } from '../../../../shared/task-countdown';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
@@ -2000,7 +2001,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
           ><span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}<span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">{task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}<span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
         ) : null}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
