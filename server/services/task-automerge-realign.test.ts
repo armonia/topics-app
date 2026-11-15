@@ -686,4 +686,20 @@ describe("a branch squash-merged before main moved on is not landed again", () =
     expect(res.status).toBe("merged");
     expect(git(repo, "show", "main:card.txt")).toBe("card\n");
   }, WITH_REAL_GIT);
+
+  test("main took back ONE of the branch's two edits in a file: that edit is real work, not «nothing»", async () => {
+    const lines = (a: string, b: string) => ["a", a, "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", b, "z"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", lines("fix", "feature")]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", lines("fix (card)", "feature (card)")]],
+    });
+    // The squash, then main removes only the feature edit.
+    commit(repo, "shared.txt", lines("fix (card)", "feature (card)"), "Card work (#1106)");
+    commit(repo, "shared.txt", lines("fix (card)", "feature"), "main: drop the feature");
+
+    const res = await landOn(repo).tryMerge("t1", "Card partly reverted on main");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
 });

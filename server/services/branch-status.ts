@@ -21,7 +21,7 @@
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
-import { changeUndoneOn } from "./change-undone";
+import { changeUndoneOn, someHunkUndoneOn } from "./change-undone";
 import { runGit } from "../lib/run-git";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
@@ -366,18 +366,11 @@ export async function branchContentWasOnMain(
     if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", base, sha], runGit)) !== 0) continue;
     const same = await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, sha, "--", ...literal], runGit);
     if (same !== 0) continue;
-    // C held the work, but main may have taken it back since (a `git revert C` after a bad
-    // deploy): then landing again is real work, and "nothing" would close the card without it.
-    // Every commit after C that touched those files must still differ from the fork point on
-    // every one of them; a file back at `base` is a revert, whatever came after it.
-    const after = candidates.slice(0, candidates.indexOf(sha));
-    for (const later of after) {
-      const differing = (await gitOut(repoPath, [
-        "-c", "core.precomposeunicode=false", "diff", "--name-only", "-z", "--no-renames", base, later, "--", ...literal,
-      ], runGit)).split("\0").filter((p) => p.length > 0);
-      if (differing.length < changed.length) return false;
-    }
-    return true;
+    // C held the work, but main may have taken some of it back since (a `git revert C`, or one
+    // edit of two removed from a file): then landing again is real work, and "nothing" would
+    // close the card without it. Asked hunk by hunk, so an edit undone inside a busy file counts;
+    // "cannot tell" is not a yes.
+    return (await someHunkUndoneOn(repoPath, base, branch, mainRef, literal, runGit)) === false;
   }
   return false;
 }
