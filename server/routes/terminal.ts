@@ -15,6 +15,7 @@ import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
 import { stopRemoteChild } from "../lib/subagent-remote-stop";
+import { readRemoteChild } from "../lib/subagent-remote-read";
 import { readNodeToken } from "../services/node-client";
 import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
@@ -854,6 +855,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         {
           // A native child: the next turn of its chat, whatever its state.
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): the node's run is one-shot, same as a card's — there is no
+          // "send more input" on it, so this is a clear refusal, not a 404.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            return errorResponse(409, `sub-agent "${row.name}" runs on a paired node: it cannot take more input mid-run, stop it and spawn a new one`);
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             if (!input) return errorResponse(400, "input (string) is required");
@@ -933,6 +941,25 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(readM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): its output is the node's own report on the run, not a local
+          // transcript.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            const since = url.searchParams.get("since") || undefined;
+            const result = await readRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              since,
+              baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+              tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+              readRun: (input) => ctx.nodeClient
+                ? ctx.nodeClient.readRun(input)
+                : Promise.reject(new Error("no node client configured")),
+            });
+            if (!result.ok) return errorResponse(502, result.reason);
+            return json(result);
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));

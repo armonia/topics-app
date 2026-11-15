@@ -231,6 +231,32 @@ export function pickNodeForChild(nodes: readonly ChildNodeCandidate[]): ChildNod
   return nodes.find((n) => n.online && n.load < n.slots) ?? null;
 }
 
+export type StartRemoteChildRunResult = { ok: true; runId: string } | { ok: false; reason: string };
+
+/**
+ * STARTS THE CHILD'S RUN on the node `pickNodeForChild` picked: `POST
+ * /api/nodes/runs` (`node-client.ts#createRun`), the same door a card's
+ * remote launch already uses.
+ *
+ * `body` is handed in whole, not built here: it carries the git transport
+ * (`branchBundle`/`baseBranch`, sottoagenti-nodo trace 3, a sibling card not
+ * landed yet) and this file never imports that either — same discipline as
+ * `pickNodeForChild` not importing the eligibility decision.
+ */
+export async function startRemoteChildRun(input: {
+  node: ChildNodeCandidate;
+  body: CreateRunBody;
+  baseUrlOf: (machineId: string) => string | null;
+  tokenOf: (machineId: string) => string | null;
+  createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
+}): Promise<StartRemoteChildRunResult> {
+  const baseUrl = input.baseUrlOf(input.node.machineId);
+  const token = input.tokenOf(input.node.machineId);
+  if (!baseUrl || !token) return { ok: false, reason: "node address or token unavailable" };
+  const { runId } = await input.createRun({ baseUrl, token, body: input.body });
+  return { ok: true, runId };
+}
+
 // The three chips this lane writes. Plain literals in the dispatcher too: they
 // are the same three strings the board renders, not a shared enum.
 const CHIP_WORKING = "working";
