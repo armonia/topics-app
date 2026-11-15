@@ -1,3 +1,7 @@
+/**
+ * The proof rules that link an open card to its Jarvis channel chat.
+ * @covers KANBAN-05
+ */
 import { describe, expect, test } from "bun:test";
 import { chatsByName, chatsForDiscordId, judge } from "./backfill-card-channel";
 

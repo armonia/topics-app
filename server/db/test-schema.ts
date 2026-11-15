@@ -182,7 +182,6 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261103130000: channel, display-only origin chat, acceptance bar, contract marker.
   created_source TEXT,
   origin_topic_id TEXT,
-  channel_topic_id TEXT,
   bar TEXT,
   created_missing TEXT,
   -- 20261110140000: when the dispatcher's "this Mac only" pin expires.
@@ -206,7 +205,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261114010000: who decided the work goes to main ('human' | 'auto'), kept across a bounce.
   land_intent TEXT CHECK (land_intent IN ('human', 'auto')),
   land_intent_at TEXT,
-  land_intent_commit TEXT
+  land_intent_commit TEXT,
+  -- 20261115120000: the Jarvis channel chat the work is followed in (display only).
+  channel_topic_id TEXT
 )`;
 
 /**

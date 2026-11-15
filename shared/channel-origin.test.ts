@@ -1,3 +1,7 @@
+/**
+ * Which Jarvis channel a chat belongs to, from its brand icon.
+ * @covers KANBAN-05
+ */
 import { describe, expect, test } from "bun:test";
 import { channelKindOfIcon } from "./channel-origin";
 

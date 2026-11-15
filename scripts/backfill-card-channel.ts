@@ -50,7 +50,7 @@ const normalize = (s: string): string => s.toLowerCase().replace(/^#/, "").repla
 /**
  * The chat of Jarvis' own conversation in a Discord channel or thread: keys of the
  * form `discord:<channel>:<thread>`. The same thread also has a `visione:` key (the
- * other agent's chat) and a `jarvis:discord:` one (the «lavoro di Jarvis» chat): those
+ * other agent's chat) and a `jarvis:discord:` one (the "Jarvis work" chat): those
  * are other chats, not the channel, and would make every link ambiguous.
  */
 export function chatsForDiscordId(conv: ConvMap, id: string): Set<string> {
