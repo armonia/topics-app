@@ -1,10 +1,40 @@
 [
   {
-    "version": "2.4.3",
+    "version": "2.4.4",
     "date": "2026-11-15",
     "sections": {
       "new": [],
       "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-15 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "topics/cheery-orbit (card 475724bc) (#868)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.3",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "the cpu ceiling holds even the first request",
+          "en": "",
+          "scope": "heavy-slot",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
