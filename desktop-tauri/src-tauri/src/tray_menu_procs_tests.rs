@@ -77,3 +77,24 @@ fn ps_output_becomes_a_cpu_map() {
     let m = crate::tray_menu::parse_ps("    1   0.0\n  345  12,5\nbad line\n");
     assert_eq!((m.get(&1), m.get(&345), m.len()), (Some(&0.0), Some(&12.5), 2));
 }
+
+#[test]
+fn tray_every_closable_row_offers_both_close_and_force_close() {
+    let t = dump_text(&procs_table(&snap()));
+    let app = &t[t.find("App A |").unwrap()..];
+    assert!(app.contains("Chiudi app…") && app.contains("Forza chiusura…"), "{t}");
+    let nodes = procs_table(&snap());
+    fn ids(n: &[Node], out: &mut Vec<String>) {
+        for x in n {
+            match x {
+                Node::Item { id, .. } if !id.is_empty() => out.push(id.clone()),
+                Node::Sub { children, .. } | Node::Row { children, .. } => ids(children, out),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    ids(&nodes, &mut found);
+    assert!(found.contains(&"proc-close:app:a".to_string()) && found.contains(&"proc-force:app:a".to_string()), "{found:?}");
+    assert!(!found.contains(&"proc-force:svc:b".to_string()), "a service that is not closable has no force row");
+}
