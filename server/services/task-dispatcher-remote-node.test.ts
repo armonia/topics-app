@@ -208,6 +208,37 @@ describe("la card parte sul nodo, non qui", () => {
     expect(order[1]).toBe("create");
   });
 
+  it("restart with an open run whose chip the poll copied from the node (needs_input): requeued, old run cancelled", async () => {
+    const h = harness();
+    h.seed();
+    await dispatch(h);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+
+    // The poll copied the node's chip onto the card; a chip filter would have called this one done.
+    h.db.run("UPDATE tasks SET dispatch_state = 'needs_input' WHERE id = ?", [TASK]);
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+
+    // The reconcile's own tick takes the requeued card straight out again.
+    await dispatch(h2);
+    const order = h2.calls.filter((c) => c === "create" || c.startsWith("cancel"));
+    expect(order).toEqual(["cancel:run-1", "create"]);
+  });
+
+  it("a done card dragged back to In Progress by hand, with no open run, is not relaunched after a restart", async () => {
+    const h = harness();
+    h.seed();
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = ?", [TASK]);
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    await dispatch(h2);
+
+    expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
+    expect(h.task().status).toBe("in_progress");
+  });
+
   it("a un dispositivo ospite confinato la discussione del proprietario NON viaggia", async () => {
     const h = harness({}, { delegatedPolicyForTask: () => delegatedPolicy() });
     h.seed();

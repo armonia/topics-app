@@ -200,6 +200,8 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   same_tip_bounces INTEGER NOT NULL DEFAULT 0,
   -- 20261113140000: the run this card last created on a paired node.
   node_run_id TEXT,
+  -- 20261115220000: 1 while that run is still open on the node.
+  node_run_open INTEGER NOT NULL DEFAULT 0,
   -- 20261113150000: all the delivery branches the card left behind, space separated.
   past_delivery_branches TEXT,
   -- 20261114010000: who decided the work goes to main ('human' | 'auto'), kept across a bounce.

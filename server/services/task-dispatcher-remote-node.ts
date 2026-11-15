@@ -915,6 +915,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The slot goes first: the run is over on the node, and what follows is
     // bookkeeping this board owes the card, not a run to keep polling.
     inFlight.delete(taskId);
+    svc.closeNodeRun(taskId);
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
@@ -1195,6 +1196,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
+    // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
+    // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
+    // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
+    if (!svc.nodeRunIsOpen(task.id)) return false;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
