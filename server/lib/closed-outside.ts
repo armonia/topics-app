@@ -18,6 +18,7 @@ import type { ContentBlock, TurnEndCause } from "../../shared/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import type { AIProvider } from "../providers/types";
 import { threadChangedFrame } from "./boot-partial-sweep";
+import { type WriteWhenFreeOptions, writeWhenFree } from "./sqlite-busy";
 import { timelineWithInterruptedVerdict } from "./interrupted-turn-block";
 import { spiegaTurnoTroncato } from "./turno-troncato";
 
@@ -45,6 +46,21 @@ export function finalizeStaleRow(
     // away the turn for not understanding it.
     console.warn(`[StaleStream] verdict not written on ${messageId}:`, err);
   }
+}
+
+/**
+ * `finalizeStaleRow` as the sweep's timer calls it: a busy database defers the
+ * write instead of throwing out of the timer. Skipping the pass would not do:
+ * `endStream` already took the stream out of the map, so no later pass would
+ * see this row again. The write is idempotent (same columns, same values; the
+ * verdict refuses a timeline already explained), so it is simply run again.
+ */
+export function finalizeStaleRowWhenFree(
+  db: Database,
+  args: Parameters<typeof finalizeStaleRow>[1],
+  opts?: WriteWhenFreeOptions,
+): void {
+  writeWhenFree(`stale-stream close of ${args.messageId}`, () => finalizeStaleRow(db, args), opts);
 }
 
 /**

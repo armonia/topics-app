@@ -4353,6 +4353,25 @@ timeline lo dichiara (`mirroredInBlocks`), invece di farlo indovinare alla riga.
 - **GIVEN** una riga che porta `blocks`
 - **THEN** `tool_calls` SHALL restare vuota e i tool SHALL essere letti dalla timeline
 
+### Requirement: CHAT-PERSIST-02 — Un database occupato non spegne il server
+
+Una scrittura SQLite raggiunta da un timer, da un intervallo o da una promise
+che nessuno aspetta NON SHALL far uscire il processo quando il database la
+rifiuta come occupato (`SQLITE_BUSY` o `SQLITE_LOCKED` oltre `busy_timeout`).
+La scrittura SHALL essere riprovata più tardi, oppure il giro SHALL essere
+saltato con un avviso quando un giro successivo la rifà. Ogni altro errore
+SHALL comportarsi come prima.
+
+#### Scenario: un timer incontra il lock
+- **GIVEN** un'altra connessione che tiene il lock di scrittura
+- **WHEN** un timer scrive e il database la rifiuta come occupato
+- **THEN** il processo SHALL restare su e la scrittura SHALL arrivare quando il lock viene lasciato
+
+#### Scenario: una promise senza await incontra il lock
+- **GIVEN** una promise lanciata senza await che scrive
+- **WHEN** il database la rifiuta come occupato
+- **THEN** il rifiuto SHALL diventare un avviso, non un rifiuto non gestito
+
 ### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
 
 Quando il sistema chiude un turno che non è arrivato in fondo, il messaggio SHALL
