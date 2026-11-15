@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.7",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.6",
     "date": "2026-11-15",
     "sections": {
