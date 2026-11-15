@@ -274,8 +274,8 @@ function variantsOf(schema: any): any[] {
 }
 
 describe('schema completeness', () => {
-  test('exactly 25 variants in the union', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(25);
+  test('exactly 26 variants in the union', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(26);
   });
 
   test('all variant discriminators are unique', () => {
@@ -298,6 +298,7 @@ describe('schema completeness', () => {
         'fetch',
         'todo',
         'sub_agent',
+        'task_card',
         'plan',
         'mcp',
         'monitor',

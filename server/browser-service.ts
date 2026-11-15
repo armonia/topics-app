@@ -361,7 +361,7 @@ export interface BrowserService {
    *  che il dialogo ha mostrato) prima dal contesto vivo e poi da `storage.json`.
    *  In quest'ordine: pulire solo il file lascerebbe l'identità viva in RAM, e
    *  il primo autosave la riscriverebbe sul disco appena pulito. */
-  forgetSite(id: string, displayNames: string[]): Promise<{ supported: boolean; removed: number }>;
+  forgetSite(id: string, displayNames: string[]): Promise<{ supported: boolean; removed: number; error?: string }>;
   /** Engine switch (task 54601eeb): remember the engine a context must be
    *  (re)created on. Consulted by createContext — so a switch is: setEngineHint →
    *  destroyContext → (client remounts) → getOrCreate → createContext picks it up.
@@ -1555,6 +1555,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         await saveStorageState(id, next);
       } catch (err: any) {
         console.warn(`[BrowserService] forgetSite(${id}) save failed:`, err?.message ?? err);
+        return { supported: true, removed: 0, error: String(err?.message ?? err) };
       }
       return { supported: true, removed };
     },

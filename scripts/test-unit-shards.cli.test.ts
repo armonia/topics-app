@@ -37,6 +37,7 @@ interface FakeCall {
   topicsHome: string | null;
   ci: string | null;
   gateHeld: string | null;
+  gateSlotDir: string | null;
   timeSlack: string | null;
   runId: string | null;
   gateMaxRunMs: string | null;
@@ -97,7 +98,7 @@ const record = {
   tmpdir: process.env.TMPDIR ?? null, tmp: process.env.TMP ?? null, temp: process.env.TEMP ?? null,
   dataDir: process.env.DATA_DIR ?? null, topicsDataDir: process.env.TOPICS_DATA_DIR ?? null,
   topicsHome: process.env.TOPICS_HOME ?? null,
-  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null,
+  ci: process.env.CI ?? null, gateHeld: process.env.TOPICS_GATE_HELD ?? null, gateSlotDir: process.env.TOPICS_GATE_SLOT_DIR ?? null,
   timeSlack: process.env.TOPICS_TEST_TIME_SLACK ?? null, runId: process.env.TOPICS_TEST_RUN_ID ?? null,
   gateMaxRunMs: process.env.TOPICS_GATE_MAX_RUN_MS ?? null,
   stdoutIsFile: stat1.isFile(), stdoutIsPipe: stat1.isFIFO() || stat1.isSocket(),
@@ -121,6 +122,8 @@ if (isRed) process.exit(7);
   if (options.timeoutMs !== undefined) env.TOPICS_TEST_TIMEOUT_MS = options.timeoutMs;
   if (options.shards !== undefined) env.TOPICS_UNIT_SHARDS = options.shards;
   delete env.TOPICS_UNIT_JUNIT_OUT;
+  // The outer runner sets it for this very file; the inner one must start from a bare environment.
+  delete env.TOPICS_GATE_SLOT_DIR;
   if (options.junitOut !== undefined) env.TOPICS_UNIT_JUNIT_OUT = options.junitOut;
   env.PATH = `${dir}${delimiter}${env.PATH ?? ""}`;
   env.TOPICS_GATE_HELD = "unit-shards-cli-fixture";
@@ -246,10 +249,22 @@ describe("unit shards CLI", () => {
         // The fake reads the file from the last argument: it must be the real file, not a flag.
         expect(call.args[call.args.length - 1]).toBe(call.file);
         expect(ALL_FILES).toContain(call.file);
+        // The preload claims the outfile inside the gate-slot folder: it must be the file's own
+        // scratch, never the machine-wide /tmp/topics-gate-slots (a leak the CI run turns red).
+        expect(call.gateSlotDir).toBe(`${call.tmpdir}/slots`);
       }
       expect(existsSync(junit)).toBe(true);
     } finally {
       rmSync(junit, { force: true });
+    }
+  });
+
+  test("the children's gate slot dir lives inside the run root, never in the real temp root", () => {
+    const result = runRunner({ files: ALL_FILES });
+    expect(result.code).toBe(0);
+    for (const call of result.calls) {
+      expect(call.gateSlotDir).not.toBeNull();
+      expect(call.gateSlotDir!.startsWith(join(tmpdir(), "tu-"))).toBe(true);
     }
   });
 

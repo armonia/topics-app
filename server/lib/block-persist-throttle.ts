@@ -79,8 +79,8 @@ export interface BlockPersistThrottle {
   hasPending(): boolean;
   /** Drop the pending timer without writing. */
   dispose(): void;
-  /** Diagnostics for the tests: how many writes went through, and how many were deferred. */
-  readonly stats: { writes: number; deferred: number };
+  /** Diagnostics for the tests: writes that went through, deferred ones, and deferred ones retried after a lock timeout. */
+  readonly stats: { writes: number; deferred: number; busyRetries: number };
 }
 
 export interface BlockPersistThrottleOptions {
@@ -88,12 +88,18 @@ export interface BlockPersistThrottleOptions {
   write: () => void;
 }
 
+/** SQLITE_BUSY and its extended codes: the write lock was not obtained within busy_timeout. */
+function isLockTimeout(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code.startsWith("SQLITE_BUSY");
+}
+
 export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): BlockPersistThrottle {
   let lastSize = -1;
   let pendingSize: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let releaseClose: (() => void) | null = null;
-  const stats = { writes: 0, deferred: 0 };
+  const stats = { writes: 0, deferred: 0, busyRetries: 0 };
 
   const clearTimer = () => {
     if (timer !== null) {
@@ -107,9 +113,16 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
   const doWrite = (size: number) => {
     clearTimer();
     pendingSize = null;
+    try {
+      opts.write();
+    } catch (err) {
+      // The row was not written, so the change is still owed: whoever catches
+      // this (the timer below, or the caller of persist/flush) can retry it.
+      pendingSize = size;
+      throw err;
+    }
     lastSize = size;
     stats.writes++;
-    opts.write();
   };
 
   const schedule = () => {
@@ -117,7 +130,21 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
     const delay = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, Math.floor(Math.max(lastSize, 0) / BYTES_PER_MS)));
     timer = setTimeout(() => {
       timer = null;
-      if (pendingSize !== null) doWrite(pendingSize);
+      if (pendingSize === null) return;
+      try {
+        doWrite(pendingSize);
+      } catch (err) {
+        // Nobody is above this callback but the uncaught-exception handler,
+        // which kills the server on anything that is not a socket hang-up.
+        // A lock timeout is not a bug: another connection held the write lock
+        // past busy_timeout (seen with a WAL replicator checkpointing on a
+        // machine at load 200). The deferred write serializes the live array,
+        // so trying again later loses nothing.
+        if (!isLockTimeout(err)) throw err;
+        stats.busyRetries++;
+        console.warn(`[block-persist] row locked by another writer, write retried later (${stats.busyRetries} so far)`);
+        schedule();
+      }
     }, delay);
     // A pending write must never keep the process alive on its own: the turn
     // that owns it is what decides how long this server stays up.

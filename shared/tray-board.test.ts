@@ -5,6 +5,8 @@ import { describe, expect, test } from "bun:test";
 import {
   TRAY_GROUP_ORDER,
   TRAY_HIDDEN_STATUSES,
+  trayAgentStates,
+  type TrayGroup,
   trayBoardAttention,
   trayBoardGroups,
   trayLitGroups,
@@ -114,5 +116,21 @@ describe("trayTitle", () => {
 
   test("gli a capo e gli spazi doppi diventano uno spazio: una riga di menu è una riga", () => {
     expect(trayTitle("prima\n\nseconda   terza")).toBe("prima seconda terza");
+  });
+});
+
+describe("trayAgentStates", () => {
+  test("counts each state from its own source", () => {
+    const groups: TrayGroup[] = [
+      { status: "review", count: 3, rows: [] },
+      { status: "question", count: 2, rows: [] },
+      { status: "parked", count: 1, rows: [] },
+    ];
+    expect(trayAgentStates(groups, { working: 5, needsYou: 4, error: 2 })).toEqual({
+      working: 5,
+      review: 3,
+      waiting: 6,
+      stopped: 3,
+    });
   });
 });

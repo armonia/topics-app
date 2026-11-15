@@ -69,6 +69,59 @@ function shaIsSafe(sha: string): boolean {
   return /^[0-9a-f]{7,64}$/i.test(sha);
 }
 
+/** `origin/main`, or whatever `origin/HEAD` actually points at — same fallback as `delivery-facts.ts`. */
+async function originDefaultBranchRef(repo: string, runGit: GitRunner): Promise<string> {
+  const head = await runGit(repo, ["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]);
+  const remoteHead = head.stdout.trim();
+  if (head.code === 0 && remoteHead) return remoteHead;
+  for (const candidate of ["origin/main", "origin/master"]) {
+    const r = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/remotes/${candidate}`]);
+    if (r.code === 0) return candidate;
+  }
+  return "origin/main";
+}
+
+/**
+ * `sha` carries nothing of the card's own: either it is the board's own
+ * realign merge (`task-automerge.ts`'s "Riporta <main> nel ramo prima del land" allow-italian: quoting the literal commit message the board writes
+ * — a merge whose non-first parents are already on the default branch,
+ * so its only content is what the branch already shared with it), or the
+ * commit itself already sits on the default branch under another name. A
+ * commit that is neither is the card's own work, and the delivery is refused.
+ */
+async function isBoardRealignOnly(repo: string, runGit: GitRunner, sha: string, mainRef: string): Promise<boolean> {
+  const parents = (await runGit(repo, ["rev-list", "--parents", "-n", "1", sha])).stdout.trim().split(/\s+/);
+  const mergedParents = parents.slice(2); // [0] is `sha` itself, [1] is the first parent.
+  if (mergedParents.length > 0) {
+    const checks = await Promise.all(
+      mergedParents.map((p) => runGit(repo, ["merge-base", "--is-ancestor", p, mainRef])),
+    );
+    if (checks.every((r) => r.code === 0)) return true;
+  }
+  return (await runGit(repo, ["merge-base", "--is-ancestor", sha, mainRef])).code === 0;
+}
+
+/**
+ * The path of the worktree that has `branch` checked out, when this is a
+ * linked worktree checkout (KANBAN-76 follow-up): the checks worktree for
+ * this same card (`topics-node-checks/<id>`) keeps the card's own branch
+ * checked out, and moving the ref under that checkout's feet would desync it.
+ */
+async function worktreeCheckingOutBranch(repo: string, runGit: GitRunner, branch: string): Promise<string | null> {
+  const list = await runGit(repo, ["worktree", "list", "--porcelain"]);
+  if (list.code !== 0) return null;
+  let currentPath: string | null = null;
+  for (const line of list.stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice("worktree ".length).trim();
+    } else if (line.startsWith("branch ") && currentPath) {
+      if (line.slice("branch ".length).trim() === `refs/heads/${branch}`) return currentPath;
+      currentPath = null;
+    }
+  }
+  return null;
+}
+
 async function defaultWriteBundle(bytes: Uint8Array): Promise<{ file: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "topics-node-bundle-"));
   const file = join(dir, `${randomBytes(6).toString("hex")}.bundle`);
@@ -157,7 +210,64 @@ export function createNodeBranchPlanter(deps: NodeBranchPlantDeps): NodeBranchPl
         // rewriting a branch of the same name that already carries work here.
         const fetched = await runGit(repo, ["fetch", file, `${branch}:refs/heads/${branch}`]);
         if (fetched.code !== 0) {
-          return { planted: false, commit: null, commitCount: 0, reason: `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}` };
+          const baseReason = `git fetch dal bundle è fallito: ${(fetched.stderr ?? "").trim()}`;
+          // The branch restarted on the node from its OWN bundle base, without
+          // the realign merge the board had put on the local branch before the
+          // previous round (KANBAN-76 follow-up). Non-fast-forward is still the
+          // right refusal when the local branch carries anything else: only a
+          // local branch whose own-extra commits are ALL board realign merges
+          // (or already on the default branch) is safe to fast-forward past.
+          const localTip = (await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`])).stdout.trim();
+          if (!localTip) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          // The bundle's own tip, read from the bundle header: never FETCH_HEAD,
+          // which is one slot per checkout and can be overwritten by a second
+          // delivery (another card, another node) landing on this same repo at
+          // the same time (review of the first round of this card).
+          const headsOut = await runGit(repo, ["bundle", "list-heads", file, `refs/heads/${branch}`]);
+          const newTip = (headsOut.stdout.trim().split("\n")[0] ?? "").split(/\s+/)[0] ?? "";
+          if (headsOut.code !== 0 || !newTip) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+          // Pull the objects onto a ref of our own, never FETCH_HEAD, for the
+          // same reason as above.
+          const tempRef = `refs/topics/incoming/${randomBytes(6).toString("hex")}`;
+          try {
+            const tempFetch = await runGit(repo, ["fetch", file, `${branch}:${tempRef}`]);
+            if (tempFetch.code !== 0) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+            const extrasOut = await runGit(repo, ["rev-list", `${newTip}..${localTip}`]);
+            const extras = extrasOut.code === 0 ? extrasOut.stdout.trim().split("\n").filter(Boolean) : null;
+            if (extras === null) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+            const mainRef = await originDefaultBranchRef(repo, runGit);
+            for (const extra of extras) {
+              if (await isBoardRealignOnly(repo, runGit, extra, mainRef)) continue;
+              const subject = (await runGit(repo, ["log", "-1", "--format=%s", extra])).stdout.trim();
+              return {
+                planted: false, commit: null, commitCount: 0,
+                reason: `${baseReason} (il ramo locale ha un commit che non è una fusione di riallineamento: ${extra.slice(0, 8)} «${subject}»)`,
+              };
+            }
+            // Every local-only commit was only a realign of the board, or already
+            // on the default branch: moving the branch onto the bundle's tip loses
+            // nothing of the card's own. But the branch may be checked out in a
+            // linked worktree (the checks worktree for this same card): moving
+            // the ref under that checkout's feet would desync it, so a clean one
+            // is detached first and a dirty one is refused instead.
+            const worktreePath = await worktreeCheckingOutBranch(repo, runGit, branch);
+            if (worktreePath) {
+              const dirty = (await runGit(worktreePath, ["status", "--porcelain"])).stdout.trim().length > 0;
+              if (dirty) {
+                return {
+                  planted: false, commit: null, commitCount: 0,
+                  reason: `${baseReason} (il ramo è checked out in un worktree sporco: ${worktreePath})`,
+                };
+              }
+              const detached = await runGit(worktreePath, ["switch", "--detach", "-q"]);
+              if (detached.code !== 0) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+            }
+            const moved = await runGit(repo, ["update-ref", `refs/heads/${branch}`, newTip]);
+            if (moved.code !== 0) return { planted: false, commit: null, commitCount: 0, reason: baseReason };
+            return { planted: true, commit: newTip, commitCount: await commitsAboveBase(newTip), reason: null };
+          } finally {
+            await runGit(repo, ["update-ref", "-d", tempRef]);
+          }
         }
         const tip = await runGit(repo, ["rev-parse", "--verify", "-q", `refs/heads/${branch}`]);
         const resolved = tip.code === 0 ? tip.stdout.trim() || null : null;

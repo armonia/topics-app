@@ -326,6 +326,23 @@ describe("nodes routes: ingress of a mirrored card", () => {
     expect(createTaskService(ctx.db).get(runId)!.comments.filter((c) => c.kind === "service").length).toBe(1);
   });
 
+  // 13/11: a resend answered with the finished copy replayed its old delivery.
+  test("POST on a live copy that is already in review archives it and starts a new run; one still working stays idempotent", async () => {
+    const first = await mirror("origin-task-resend");
+    expect(first.status).toBe(201);
+    ctx.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = 'working' WHERE id = ?", [first.body.runId]);
+    const retry = await mirror("origin-task-resend");
+    expect(retry.status).toBe(200);
+    expect(retry.body.runId).toBe(first.body.runId);
+
+    ctx.db.run("UPDATE tasks SET status = 'review', dispatch_state = 'delivered' WHERE id = ?", [first.body.runId]);
+    const again = await mirror("origin-task-resend");
+    expect(again.status).toBe(201);
+    expect(again.body.runId).not.toBe(first.body.runId);
+    const old = ctx.db.query("SELECT archived FROM tasks WHERE id = ?").get(first.body.runId) as { archived: number };
+    expect(old.archived).toBe(1);
+  });
+
   // df5fd8c5, 30/10: a card with a branch of its own restarted from main on the other machine.
   test("il ramo base della card d'origine arriva sulla card specchio; un nome non valido è rifiutato", async () => {
     // Origin is unreachable from this checkout (a fake ssh URL): the branch rides as a bundle.
@@ -414,7 +431,11 @@ describe("nodes routes: ingress of a mirrored card", () => {
   });
 
   test("il bundle passa git bundle verify e pianta il ramo in un secondo clone", async () => {
-    const { body } = await mirror("origin-task-2");
+    const { body } = await mirror("origin-task-bundle");
+    const { createTaskService } = await import("../../server/services/tasks");
+    const svc = createTaskService(ctx.db);
+    svc.update({ taskId: body.runId, actor: "human", by: "user", patch: { status: "review" }, projectId: boardId });
+    svc.recordDelivery({ taskId: body.runId, branch: DELIVERY_BRANCH, commit: deliverySha, stat: { filesChanged: 1, insertions: 1, deletions: 0 } });
     const resp = await call("GET", `/api/nodes/runs/${body.runId}/bundle`);
     expect(resp.status).toBe(200);
     expect(resp.headers.get("content-type")).toBe("application/octet-stream");

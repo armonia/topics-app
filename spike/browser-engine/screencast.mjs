@@ -31,15 +31,16 @@ const main = async () => {
     await sleep(500);
 
     // --- Page.startScreencast (jpeg, everyNthFrame:1) ---
-    let frames = 0, bytes = 0, firstAt = 0, lastAt = 0;
+    let frames = 0, bytes = 0, firstAt = 0, lastAt = 0, failedAcks = 0;
     sess.on("Page.screencastFrame", async (p) => {
       const t = now();
       if (!firstAt) firstAt = t;
       lastAt = t;
       frames++;
       bytes += Buffer.byteLength(p.data, "base64");
-      // must ack or the stream stalls
-      try { await sess.send("Page.screencastFrameAck", { sessionId: p.sessionId }); } catch {}
+      // A failed ack mid-run silently lowers the fps this spike reports: it
+      // still must not throw out of this handler, but it is counted.
+      try { await sess.send("Page.screencastFrameAck", { sessionId: p.sessionId }); } catch { failedAcks++; }
     });
     await sess.send("Page.startScreencast", { format: "jpeg", quality: 70, everyNthFrame: 1, maxWidth: 1280, maxHeight: 720 });
     await sleep(DUR);
@@ -50,6 +51,7 @@ const main = async () => {
       fps: +(frames / span).toFixed(1),
       avgFrameKB: frames ? +((bytes / frames) / 1024).toFixed(1) : 0,
       totalMB: +(bytes / 1048576).toFixed(2),
+      failedAcks,
     };
 
     await sleep(300);

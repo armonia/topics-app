@@ -73,7 +73,25 @@ async function measure(page: Page) {
 test("MOBILE-LIST — la lista parte dalla safe area e scorre sotto header e footer", async ({ page }) => {
   await page.goto(E2E_BASE);
   await expect(page.locator(BAR)).toBeVisible();
-  await expect.poll(async () => (await measure(page)).rows).toBeGreaterThan(8);
+  // THE LIST IS A LAZY CHUNK, THE BUTTON ROW IS NOT.
+  //
+  // `TopicTree` enters through `lazyWarm(loadTopicTree)` (App.tsx), so until
+  // its chunk lands the column holds the Suspense skeleton, and the skeleton
+  // has no `.sidebar-column`: the scroller every measurement here reads does
+  // not exist yet. The mobile bar ships in the first bundle and is visible
+  // well before that, so waiting on the bar was waiting on the wrong thing.
+  //
+  // And `expect.poll` did not rescue it: a value it can compare gets retried,
+  // an exception thrown inside the polled function does not. The first
+  // attempt landing on the skeleton therefore killed the test outright, which
+  // is the `null is not an object (evaluating 'scroller.querySelectorAll')`
+  // seen in CI.
+  //
+  // The wait is on the real condition instead, and with locators, which
+  // retry by contract: the scroller attached, then the rows in it.
+  const treeRows = page.locator(`${SCROLLER} [role="treeitem"]`);
+  await expect(page.locator(SCROLLER)).toBeAttached();
+  await expect.poll(() => treeRows.count()).toBeGreaterThan(8);
 
   const atRest = await measure(page);
   console.log("RIPOSO", JSON.stringify(atRest));

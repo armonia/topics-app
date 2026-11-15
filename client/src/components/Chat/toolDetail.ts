@@ -175,6 +175,8 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
         return { name: detail.subAgentType ?? 'Task', summary: detail.description, tooltip: detail.description };
       }
       return { name: detail.subAgentType ?? 'Task' };
+    case 'task_card':
+      return { name: 'Card', summary: typeof detail.args?.text === 'string' ? detail.args.text : detail.taskId };
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':

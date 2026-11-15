@@ -1,3 +1,5 @@
+import { STATUS_INK } from './statusVisual';
+
 /**
  * popoverStyles — ONE canonical look for every floating MENU / DROPDOWN /
  * POPOVER / CONTEXT-MENU surface in the app. The sibling of:
@@ -120,26 +122,15 @@ export const POPOVER_ITEM =
 
 
 /**
- * Le due coppie di testo colorato che passano AA su ENTRAMBI i fondi.
- *
- * Non si scrivono a mano nei call-site: il gradino giusto NON è lo stesso nei
- * due temi, e chi ne sceglie uno solo sbaglia sempre metà dei casi. Misurato
- * sui fondi veri — il vetro chiaro di macOS (#f2f3f6), il fondo popover
- * (#f0f1f4), la superficie scura (#181a20):
- *
- *   red-400   2,56 chiaro · 4,97 scuro   → giusto SOLO al buio
- *   red-500   3,37 · 3,77                → sotto in tutt'e due
- *   red-600   4,22 · 3,01                → sotto in tutt'e due (era questo qui)
- *   red-700   5,69 · 2,71                → giusto SOLO in chiaro
- *   amber-400 1,53 · 8,34                → giusto SOLO al buio
- *   amber-700 4,45 · 2,86                → chiaro per un pelo SOTTO il 4,5
- *   amber-800 6,28 · 2,03                → giusto in chiaro
- *
- * Quindi: 700/800 in chiaro, 400 al buio. La soglia è 4,5:1, che è quella del
- * testo normale — questi sono 11-12px, non testo grande.
+ * The two coloured-text pairs that pass AA on BOTH grounds: the red of an
+ * error and the amber of a warning. They are the `danger` and `wait` inks of
+ * `lib/statusVisual.ts`, where the measurements live, aliased here under the
+ * names every pane already imports. Never write the steps by hand at a call
+ * site: the right one is not the same in the two themes (700/800 in light, 400
+ * in dark), and whoever picks one gets half the cases wrong.
  */
-export const DANGER_TEXT = 'text-red-700 dark:text-red-400';
-export const WARNING_TEXT = 'text-amber-800 dark:text-amber-400';
+export const DANGER_TEXT = STATUS_INK.danger;
+export const WARNING_TEXT = STATUS_INK.wait;
 
 /**
  * Il verde dello stato «tutto a posto», misurato come i suoi fratelli — ma sul

@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Laptop, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
-import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
+import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
@@ -415,7 +415,63 @@ function WorkflowPicker({ projectId, workflow, onChanged, onError }: {
           ))}
         </div>
       </div>
+      {workflow.rules && <WorkflowRulesEditor projectId={projectId} workflow={workflow} onChanged={onChanged} onError={onError} chip={chip} />}
     </div>
+  );
+}
+
+/**
+ * The rules beside the columns: whether accepted work is measured with main in
+ * the CI column before it lands, and which paths of THIS repository a person
+ * must look at (the generic ones, dependencies, CI, interface files, security,
+ * are already in the code). One path per line, `pattern # why`; saved on blur.
+ */
+function WorkflowRulesEditor({ projectId, workflow, onChanged, onError, chip }: {
+  projectId: string;
+  workflow: BoardWorkflowView;
+  onChanged: (w: BoardWorkflowView) => void;
+  onError: (e: string) => void;
+  chip: (on: boolean) => string;
+}) {
+  const tr = useT();
+  const own = workflow.ownRules?.personPaths ?? [];
+  const saved = personPathsToText(own);
+  const [draft, setDraft] = useState<string | null>(null);
+  const text = draft ?? saved;
+  const ciOn = workflow.rules?.ciPhase ?? true;
+  const write = async (patch: Parameters<typeof boardApi.setWorkflowRules>[1]) => {
+    try { onChanged(await boardApi.setWorkflowRules(projectId, patch)); setDraft(null); }
+    catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
+  };
+  const commit = () => {
+    if (draft === null || draft === saved) { setDraft(null); return; }
+    void write({ personPaths: personPathsFromText(draft) });
+  };
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.ciTitle')}>
+        <span>{tr('board.settings.workflow.ci')}</span>
+        <div className="flex gap-0.5">
+          <button type="button" data-testid="board-workflow-ci-on" onClick={() => write({ ciPhase: true })} className={chip(ciOn)}>{tr('board.settings.workflow.ciOn')}</button>
+          <button type="button" data-testid="board-workflow-ci-off" onClick={() => write({ ciPhase: false })} className={chip(!ciOn)}>{tr('board.settings.workflow.ciOff')}</button>
+        </div>
+      </div>
+      <label className="block" title={tr('board.settings.workflow.pathsTitle')}>
+        <span>{tr('board.settings.workflow.paths')} <span className="text-app-text-muted">{tr('board.settings.workflow.pathsHint')}</span></span>
+      </label>
+      <textarea
+        data-testid="board-workflow-paths"
+        value={text}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
+        rows={Math.min(8, Math.max(2, text.split('\n').length))}
+        spellCheck={false}
+        placeholder={'client/src/** # interface\nscripts/** # the judge'}
+        className="w-full resize-none rounded bg-white/5 px-1.5 py-1 font-mono text-mini text-app-text outline-none placeholder:text-app-placeholder focus:bg-white/10"
+      />
+      {draft !== null && draft !== saved && <p className="text-mini text-app-text-muted">{tr('board.settings.saveOnBlur')}</p>}
+    </>
   );
 }
 

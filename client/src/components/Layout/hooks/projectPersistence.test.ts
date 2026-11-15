@@ -223,3 +223,28 @@ describe('forgetProjectPersistence (archive)', () => {
     });
   });
 });
+
+describe('loadPersistedState with a corrupt layout cache', () => {
+  test('resets to the default layout and says so with a warning', () => {
+    const store = new Map<string, string>([[layoutStorageKey('/tmp/corrupt-proj'), '{not json']]);
+    const had = 'localStorage' in globalThis;
+    const prev = (globalThis as { localStorage?: Storage }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, String(v)),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    const warnings: unknown[][] = [];
+    const realWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    try {
+      expect(loadPersistedState('/tmp/corrupt-proj')).toBeNull();
+      expect(warnings.length).toBe(1);
+      expect(String(warnings[0][0])).toContain('corrupt layout cache');
+    } finally {
+      console.warn = realWarn;
+      if (had) (globalThis as { localStorage?: unknown }).localStorage = prev;
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  });
+});

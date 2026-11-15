@@ -10,7 +10,7 @@ import { userInfo } from 'node:os';
 // runtime-dep-ok: a sibling ESM import, not a spawn. Whatever runtime is
 // already executing this daemon resolves it, and the installed app does not run
 // this file at all (it ships the compiled Rust bridge).
-import { augmentedPath, guiSessionName, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
+import { parseProbeFrame, augmentedPath, guiSessionName, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
 
 // The user's REAL home, from the OS account db (getpwuid) not $HOME. The bridge
 // can be (re)spawned by a server whose $HOME was clobbered by a sandbox ancestor
@@ -333,18 +333,24 @@ function probeBridge(timeoutMs = 1500) {
         while ((nl = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
-          try {
-            const msg = JSON.parse(line);
-            if (msg.id !== probeId) continue;
-            if (msg.type === 'created') {
-              // Probe succeeded — clean up the throwaway PTY.
+          const msg = parseProbeFrame(line);
+          if (!msg) continue;
+          if (msg.id !== probeId) continue;
+          if (msg.type === 'created') {
+            // Probe succeeded — clean up the throwaway PTY. If the write fails
+            // (e.g. the socket is already closed), report that as the real
+            // reason instead of letting the probe silently time out.
+            try {
               conn.write(JSON.stringify({ type: 'kill', id: probeId, reason: 'probe-cleanup', caller: 'bridge-probe' }) + '\n');
               console.error(`[Terminal] kill ${probeId.slice(0, 8)} reason=probe-cleanup caller=bridge-probe`);
-              finish({ ok: true });
+            } catch (err) {
+              finish({ ok: false, reason: 'write-error', detail: err instanceof Error ? err.message : String(err) });
               return;
             }
-            if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
-          } catch {}
+            finish({ ok: true });
+            return;
+          }
+          if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
         }
       });
     });

@@ -6,6 +6,7 @@ import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { catalogModelLabel } from '../../lib/modelLabel';
 import { providerLabel } from '../../../../shared/provider-labels';
 import { shortcut } from '../../lib/shortcutLabel';
+import { useMobile } from '../../hooks/useMobile';
 import { ClipboardList, RefreshCw, Bug, Lightbulb, PenLine, Search, Sparkles } from 'lucide-react';
 
 /**
@@ -74,7 +75,10 @@ export function ChatEmptyState({
   const t = useT();
   const starters = topic.projectPath ? PROJECT_STARTERS : PLAIN_STARTERS;
   const showStarters = paneHeight >= H_WITH_STARTERS;
-  const showHints = paneHeight >= H_WITH_HINTS;
+  // Keyboard hints only where a keyboard-and-pointer setup is likely: on a
+  // phone «⌘K commands» names a key nobody has.
+  const { hasHover } = useMobile();
+  const showHints = hasHover && paneHeight >= H_WITH_HINTS;
   // L'ABBONAMENTO ALLO SNAPSHOT STA QUI, e non in `ChatPane`, di proposito.
   //
   // ChatPane evita di abbonarsi apposta: si ridisegnerebbe a ogni push, e la

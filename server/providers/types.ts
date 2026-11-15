@@ -133,7 +133,8 @@ export type SideCallPurpose =
   | "stall-judge"
   | "commit-message"
   | "task-plan"
-  | "chat-reply";
+  | "chat-reply"
+  | "voice-call";
 
 export interface CompletionResult {
   content: string;

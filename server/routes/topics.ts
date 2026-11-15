@@ -2,6 +2,8 @@ import { restoreToolCallsFromBlocks } from "../utils";
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
+import { isInsideDir } from "../lib/path-containment";
+import { worktreeRootDir } from "../services/worktree-manager";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
@@ -76,6 +78,7 @@ import { parkTopicSession } from "../lib/session-parking";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
 import { autonomyForPermissionMode } from "../lib/autonomy-mode";
+import { resolveAdoptedCheckout } from "../lib/adopted-checkout";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
@@ -701,6 +704,59 @@ export function createTopicsRouter(
 
   function isExistingDir(p: string): boolean {
     try { return existsSync(p) && statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  /**
+   * The worktree row an adopted session works in, made when the folder is a
+   * linked worktree nobody in Topics registered (Claude Desktop's
+   * `.claude/worktrees/`, a `git worktree add` by hand). A row is what
+   * `resolveTopicCwd` and the provider read to spawn the CLI THERE, and what
+   * the worktree sweep sees. `mode: "reuse"` because the branch is not
+   * Topics': the sweep never lands it or deletes it (`decideWorktreeReap`),
+   * and it keeps the folder of a chat that is still open (`liveInside`).
+   *
+   * Idempotent on the path (`abs_path` is UNIQUE): the second adoption from
+   * the same folder reuses the row. A row from another project at that path
+   * is a conflict the caller reports, never an overwrite.
+   */
+  function registerAdoptedWorktree(projectDir: string, absPath: string, adminName: string | null, branch: string | null): { id: string } | { error: string } {
+    const project = projectStore.getByPath(projectDir)
+      ?? projectStore.list().find((p) => canonicalProjectPath(p.path) === projectDir)
+      ?? null;
+    if (!project) return { error: `no Topics project at ${projectDir}` };
+    // Under Topics' own root (a Claude worktree nested inside a Topics one) the
+    // path would read as Topics' and the sweep and delete would treat it so:
+    // the guard that keeps an adopted folder safe decides on the path alone.
+    if (isInsideDir(absPath, worktreeRootDir())) return { error: `worktree ${absPath} is inside Topics' worktree root` };
+    const existing = worktreeStore.getByAbsPath(absPath);
+    if (existing) {
+      if (existing.projectId !== project.id) return { error: `worktree ${absPath} already belongs to another project` };
+      if (existing.status !== "ready") worktreeStore.update(existing.id, { status: "ready" });
+      return { id: existing.id };
+    }
+    const taken = worktreeStore.listNamesForProject(project.id);
+    const stem = (adminName || basename(absPath)).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^[^a-z]+/, "").slice(0, 56) || "adopted";
+    let name = stem;
+    for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
+    const row = worktreeStore.create({ projectId: project.id, name, branchName: branch, baseRef: branch, mode: "reuse", absPath });
+    worktreeStore.update(row.id, { status: "ready" });
+    return { id: row.id };
+  }
+
+  /** The model of the last real assistant turn, as the CLI stamped it. */
+  function lastTranscriptModel(text: string): string | null {
+    let end = text.length;
+    for (let scanned = 0; end > 0 && scanned < 400; scanned++) {
+      const start = text.lastIndexOf("\n", end - 1) + 1;
+      const line = text.slice(start, end);
+      end = start - 1;
+      if (!line.includes('"assistant"') || !line.includes('"model"')) continue;
+      try {
+        const m = JSON.parse(line)?.message?.model;
+        if (typeof m === "string" && m && !m.startsWith("<")) return m;
+      } catch { /* a cut line */ }
+    }
+    return null;
   }
 
   /**
@@ -1555,7 +1611,62 @@ export function createTopicsRouter(
         // line (mid-write) is deliberately left for the sweep to re-read whole.
         const lastNl = text.lastIndexOf("\n");
         const importOffset = lastNl >= 0 ? Buffer.byteLength(text.slice(0, lastNl + 1), "utf-8") : 0;
-        const projectDir = resolveProjectRef(cwd, { trustRawPaths: true });
+
+        // INTO A CHAT THAT ALREADY HAS IT. A chat that lost its binding (the
+        // boot sweep of a server before #903 forgot every session whose
+        // transcript sat under another folder) still shows the whole
+        // conversation, and its CLI may still be running it: a second topic
+        // would be a copy. `topicId` writes the binding back into that chat,
+        // the cursor at the end of the file because its rows are already there.
+        if (typeof body?.topicId === "string" && body.topicId) {
+          const target = getTopicById(body.topicId);
+          if (!target?.sessionKey) return json({ error: "topic not found" }, 404);
+          if (boundRow?.session_key && boundRow.session_key !== target.sessionKey) {
+            return json({ error: `session ${sessionId} belongs to another chat` }, 409);
+          }
+          const own = ctx.db
+            .prepare(`SELECT claude_session_id FROM claude_code_sessions WHERE session_key = ?`)
+            .get(target.sessionKey) as { claude_session_id?: string } | undefined;
+          if (own?.claude_session_id && own.claude_session_id !== sessionId) {
+            return json({ error: `the chat already runs session ${own.claude_session_id}` }, 409);
+          }
+          const nowIso = new Date().toISOString();
+          ctx.db.prepare(
+            `INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at, jsonl_path, import_offset)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(session_key) DO UPDATE SET
+               claude_session_id = excluded.claude_session_id,
+               updated_at = excluded.updated_at,
+               jsonl_path = excluded.jsonl_path,
+               import_offset = excluded.import_offset`,
+          ).run(target.sessionKey, sessionId, nowIso, nowIso, transcriptPath, importOffset);
+          return json({ ...target, rebound: true }, 200);
+        }
+        // A session working in a linked worktree belongs to the REPOSITORY, and
+        // works in the worktree: project = the repo, cwd = a registered
+        // worktree row (`lib/adopted-checkout.ts`). Otherwise the worktree
+        // folder became a project of its own, with its own empty board.
+        const checkout = resolveAdoptedCheckout(cwd, {
+          readFile: (p) => { try { return statSync(p).isFile() ? readFileSync(p, "utf-8") : null; } catch { return null; } },
+          isDir: (p) => isExistingDir(p),
+        });
+        let projectDir = resolveProjectRef(checkout.projectDir, { trustRawPaths: true });
+        let worktreeId: string | null = null;
+        let worktreePath: string | null = null;
+        if (projectDir && checkout.worktreeDir) {
+          const reg = registerAdoptedWorktree(projectDir, checkout.worktreeDir, checkout.worktreeName, facts.branch);
+          if ("error" in reg) {
+            // The repository is not a Topics project (or the folder is another
+            // project's): adopt as before this rule, the worktree folder as the
+            // project, so the CLI still runs where it ran. Refusing here broke
+            // an adoption that used to work.
+            console.warn(`[adopt-claude] ${reg.error}: the worktree folder becomes the project`);
+            projectDir = resolveProjectRef(checkout.worktreeDir, { trustRawPaths: true });
+          } else {
+            worktreeId = reg.id;
+            worktreePath = checkout.worktreeDir;
+          }
+        }
         const id = crypto.randomUUID();
         const sessionKey = "topic:" + id.slice(0, 8);
         const base = cwd.replace(/\/+$/, "").split("/").pop() || "sessione";
@@ -1575,12 +1686,26 @@ export function createTopicsRouter(
             contextFiles: [], pinnedMessages: [],
             sortOrder: Object.keys(data.topics).length,
             provider: "claude-code",
+            // THE SAME CONVERSATION, NOT A COPY OF IT. With the switch at its
+            // chat default (ON) the turn went to Topics' own engine, which
+            // reads the imported rows as a recap and never runs `--resume`:
+            // the CLI's memory (compactions, tool state, background tasks) was
+            // left behind on the first message. An adopted session IS a CLI
+            // session, so it runs direct. The person can still flip it.
+            topicsRouting: false,
           };
           if (projectDir) (t as any).projectPath = projectDir;
+          if (worktreeId) t.worktreeId = worktreeId;
           // Carry on with the permissions the session already ran with, instead
           // of the default level: see `autonomyForPermissionMode`.
           const inherited = autonomyForPermissionMode(facts.permissionMode);
           if (inherited) t.autonomyLevel = inherited;
+          // Same for the model and the effort: the caller knows them (the app
+          // that ran the session records both), the transcript only the model.
+          const model = typeof body?.model === "string" && body.model.trim() ? body.model.trim() : lastTranscriptModel(text);
+          if (model) t.model = model;
+          const effort = typeof body?.effort === "string" ? body.effort.trim().toLowerCase() : "";
+          if ((EFFORT_TIERS as readonly string[]).includes(effort)) t.effort = effort;
           saveSingleTopic(t);
           // Bind the topic's chat session to the EXISTING claude session id. The
           // provider's getOrCreateClaudeSessionId will now find this row, see
@@ -1604,7 +1729,7 @@ export function createTopicsRouter(
 
         broadcastToAll({ type: "topic:created", topic });
         if (projectDir) bindTopicToProject(topic.id, projectDir, { focus: true });
-        return json({ ...topic, importedMessages: messages.length }, 201);
+        return json({ ...topic, importedMessages: messages.length, worktreePath }, 201);
       } catch (err: any) {
         console.warn("[adopt-claude] failed:", err);
         return json({ error: `adopt failed: ${err?.message || String(err)}` }, 500);
@@ -1847,8 +1972,26 @@ export function createTopicsRouter(
             code: "orchestrator_topic_invariant",
           }, 403);
         }
+        // An empty body means "archive" (the DELETE-without-body default, kept
+        // as-is for backward compatibility). A NON-empty body must parse into
+        // an object carrying an explicit `archived` boolean — anything else
+        // (malformed JSON, `null`, an array, a primitive, a missing/mistyped
+        // key like the `archive` typo) is a 400, not a silent archive.
         let archive = true;
-        try { const body = await req.json(); if (typeof body.archived === 'boolean') archive = body.archived; } catch {}
+        const text = await req.text();
+        if (text.trim().length > 0) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            return json({ error: "archived must be boolean" }, 400);
+          }
+          const requested = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as { archived?: unknown }).archived
+            : undefined;
+          if (typeof requested !== "boolean") return json({ error: "archived must be boolean" }, 400);
+          archive = requested;
+        }
         if (archive) {
           // Un solo posto sa cosa vuol dire "archiviato": flag + unread a zero
           // + purge da ui_state. Lo stesso servizio che usa il dispatcher, così

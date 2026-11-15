@@ -96,6 +96,8 @@ const WS_OPEN_TIMEOUT_MS = 15_000;
  * is loopback-only), through at most `WS_MAX_RELAYS` sessions. A real bound needs a drain signal.
  */
 const RELAY_BACKLOG_LIMIT_BYTES = 64 * 1024 * 1024;
+/** A held close waits this long for the client to drain; a client that reads nothing would otherwise pin its relay slot until Bun's own idle timeout. */
+const WS_CLOSE_GRACE_MS = 15_000;
 /** The largest single WebSocket message accepted from the client. */
 const WS_MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 /** Bun drops a message above its `maxPayloadLength` without a close frame: its limit sits above ours, so 1009 can be sent. */
@@ -237,6 +239,8 @@ export interface ExternalProxyOptions {
   interfaceAddresses?: () => readonly string[];
   /** Per connection, what the relay may hold for a CLIENT that reads too slowly (Anthropic -> client); past it the connection is closed (1013). */
   relayBacklogLimitBytes?: number;
+  /** How long a close held back for a client's write queue may wait for it to drain before the connection is cut (tests shorten it). */
+  closeGraceMs?: number;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
@@ -306,6 +310,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
   const interfaceAddresses = options.interfaceAddresses ?? currentInterfaceAddresses;
   const guardedLookup = guardedLookupFor(interfaceAddresses);
   const backlogLimit = options.relayBacklogLimitBytes ?? RELAY_BACKLOG_LIMIT_BYTES;
+  const closeGraceMs = options.closeGraceMs ?? WS_CLOSE_GRACE_MS;
   const log = options.log ?? (() => {});
   const stats: ExternalProxyStats = { connect: 0, tunnel: 0, plain: 0, intercepted: 0, viaEngine: 0, failOpen: 0, direct: 0, websocket: 0, refused: 0 };
   const sockets = new Set<net.Socket>();
@@ -419,6 +424,9 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
     overflowed: boolean;
     /** The close the client still owes, held back because its own socket write queue had not drained yet: closing on top of it is what used to lose the tail of the backlog. */
     pendingClose: { code: number; reason: string } | null;
+    /** Fires when the held close waited too long: a client that reads nothing never drains, and its relay slot must come back. */
+    closeDeadline: ReturnType<typeof setTimeout> | null;
+    slotFree: boolean;
     started: number;
     path: string;
   }
@@ -438,13 +446,33 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
    * Bun's own close races the socket's pending bytes under backpressure, and the loser is the tail of the backlog
    * (reproduced under load: `--repeat-each` with concurrent runs, never alone). The close is held back for `drain`.
    */
+  /** Gives the place back once per relay, whichever of the close handler and the deadline gets there first. */
+  function releaseSlot(data: RelayData): void {
+    if (data.slotFree) return;
+    data.slotFree = true;
+    openRelays--;
+    log("ws-closed", { path: data.path, ms: Date.now() - data.started });
+  }
+
   function giveUp(data: RelayData, code: number, reason: string, event: string): void {
     if (data.overflowed) return;
     data.overflowed = true;
     data.backlog.length = 0;
     data.backlogBytes = 0;
     log(event, { path: data.path, ms: Date.now() - data.started });
-    if (data.client && data.client.getBufferedAmount() > 0) data.pendingClose = { code, reason };
+    if (data.client && data.client.getBufferedAmount() > 0) {
+      data.pendingClose = { code, reason };
+      const client = data.client;
+      data.closeDeadline = setTimeout(() => {
+        data.closeDeadline = null;
+        if (!data.pendingClose) return;
+        log("ws-close-forced", { path: data.path, ms: Date.now() - data.started });
+        data.pendingClose = null;
+        try { client.terminate(); } catch { /* already closed */ }
+        // terminate() does not always reach the `close` handler (Bun on macOS waits for its idle timeout): give the place back here
+        releaseSlot(data);
+      }, closeGraceMs);
+    }
     else try { data.client?.close(code, reason); } catch { /* already closed */ }
     try { data.upstream.close(1011, reason); } catch { /* already closed */ }
   }
@@ -495,7 +523,7 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
       const upstream = new WebSocket(url, { protocols, headers: Object.fromEntries(headers) } as unknown as string[]);
       upstream.binaryType = "arraybuffer";
       const data: RelayData = {
-        upstream, backlog: [], backlogBytes: 0, ended: null, client: null, overflowed: false, pendingClose: null, started: Date.now(), path,
+        upstream, backlog: [], backlogBytes: 0, ended: null, client: null, overflowed: false, pendingClose: null, closeDeadline: null, slotFree: false, started: Date.now(), path,
       };
       let settled = false;
       const finish = (error?: Error) => {
@@ -588,13 +616,16 @@ export async function startExternalProxy(options: ExternalProxyOptions): Promise
             if (data.pendingClose && ws.getBufferedAmount() === 0) {
               const { code, reason } = data.pendingClose;
               data.pendingClose = null;
+              if (data.closeDeadline) clearTimeout(data.closeDeadline);
+              data.closeDeadline = null;
               try { ws.close(code, reason); } catch { /* already closed */ }
             }
           },
           close(ws, code, reason) {
-            openRelays--;
+            releaseSlot(ws.data);
             ws.data.client = null;
-            log("ws-closed", { path: ws.data.path, ms: Date.now() - ws.data.started });
+            if (ws.data.closeDeadline) clearTimeout(ws.data.closeDeadline);
+            ws.data.closeDeadline = null;
             endUpstream(ws.data, code, reason);
           },
         },

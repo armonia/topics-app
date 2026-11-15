@@ -19,6 +19,7 @@ gh_api() {
   (
     case "$m $p" in
       "GET /actions/runners?"*) jq '{runners}' "$STATE" ;;
+      "GET /actions/runs/"*/jobs*) jq --arg r "$(basename "$(dirname "${p%%\?*}")")" '{jobs: (.jobs[$r] // [])}' "$STATE" ;;
       "GET /actions/runs/"*) jq --arg r "${p##*/}" '{status: (.runs[$r] // "in_progress")}' "$STATE" ;;
       "POST /actions/runners/"*/labels)
         id=${p#/actions/runners/}; id=${id%/labels}
@@ -46,7 +47,7 @@ seed() {  # <runners spec: "id:status:busy:label ..."> [runs json]
     js=$(jq --argjson id "$id" --arg st "$st" --argjson b "$b" --arg l "$l" \
       '. + [{id: $id, name: "topics-permanent-node-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
   done
-  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs}' > "$STATE"
+  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs, jobs: ($ENV.JOBS // "{}" | fromjson)}' > "$STATE"
 }
 booked() { jq -r --arg l "$1" '[.runners[] | select(any(.labels[]; .name == $l))] | length' "$STATE"; }
 double() { jq '[.runners[] | select([.labels[].name | select(startswith("pn-"))] | length > 1)] | length' "$STATE"; }
@@ -69,6 +70,16 @@ seed "$FOUR" '{"200": "completed"}'
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-200-1\"]}"' >/dev/null
 ok "a booking of a finished run is dropped and the runner reused" "$(run reserve permanent 4 pn-201-1)" 4
 ok "the stale label is gone" "$(booked pn-200-1)" 0
+
+# Run 600 is "queued" only because its give-back job waits on ubuntu-latest: e2e all done.
+JOBS='{"600":[{"status":"completed","labels":["pn-600-1"]},{"status":"queued","labels":["ubuntu-latest"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-600-1\"]}"' >/dev/null
+ok "booking of a queued run with every e2e job done is dropped" "$(run reserve permanent 4 pn-601-1)" 4
+ok "...and its label is gone" "$(booked pn-600-1)" 0
+JOBS='{"610":[{"status":"completed","labels":["pn-610-1"]},{"status":"queued","labels":["pn-610-1"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-610-1\"]}"' >/dev/null
+ok "a run with an e2e job still queued keeps its booking" "$(run reserve permanent 4 pn-611-1)" 3
+ok "...label kept" "$(booked pn-610-1)" 1
 
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0

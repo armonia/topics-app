@@ -9,7 +9,7 @@
  */
 import { useEffect, useState } from 'react';
 import { BarChart3, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/shell/net';
+import { readJson } from '@/lib/readJson';
 import { useHubEverRead } from '@/state/hubLive';
 import { useMobile } from '@/hooks/useMobile';
 import { useLocale, useT } from '@/hooks/useT';
@@ -38,8 +38,7 @@ export function UsageRow({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!present) return;
     let alive = true;
-    const read = (path: string) => apiFetch(path).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    void Promise.all([read('/api/hub-usage?days=1'), read('/api/switchboard/settings')])
+    void Promise.all([readJson('/api/hub-usage?days=1'), readJson('/api/switchboard/settings')])
       .then(([usage, settings]: unknown[]) => { if (alive) setReads({ usage, settings }); });
     return () => { alive = false; };
   }, [present]);

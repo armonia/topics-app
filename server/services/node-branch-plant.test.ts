@@ -39,6 +39,7 @@ let root: string;
 let origin: string;
 let node: string;
 let mac: string;
+let seed: string;
 let baseSha: string;
 let bundleBytes: Uint8Array;
 let nodeTip: string;
@@ -48,7 +49,7 @@ beforeAll(() => {
   origin = join(root, "origin.git");
   node = join(root, "node");
   mac = join(root, "mac");
-  const seed = join(root, "seed");
+  seed = join(root, "seed");
   execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin], { env: GIT_ENV });
   execFileSync("git", ["init", "-q", "-b", "main", seed], { env: GIT_ENV });
   commit(seed, "a.txt", "one");
@@ -141,6 +142,157 @@ describe("plantBranch, base commit precondition", () => {
     const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
     expect(r.planted).toBe(false);
     expect(r.reason).toContain("git fetch dal bundle è fallito");
+    expect(r.reason).toContain(own.slice(0, 8));
     expect(git(repo, "rev-parse", "refs/heads/card/work")).toBe(own);
+  }, T);
+});
+
+describe("plantBranch, re-delivery from the same node", () => {
+  // The node restarted FROM ITS OWN BRANCH, without the realign merge the
+  // board had put on the local branch before the previous round (KANBAN-76
+  // follow-up): the local branch is `bundleOld + "bring main in"`, the new
+  // bundle is `bundleOld + one more commit`. Neither is an ancestor of the
+  // other, so the plain fetch is a non-fast-forward — and the branch should
+  // still move, because the local-only commits carry nothing of the card's own.
+  test("local-only commits that are ONLY a board realign are fast-forwarded past", async () => {
+    const repo = join(root, "mac-realign-only");
+    execFileSync("git", ["clone", "-q", "--no-local", mac, repo], { env: GIT_ENV });
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "fetch", "-q", "origin");
+
+    // First round: plant the bundle as-is (base -> one commit).
+    const first = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
+    expect(first.planted).toBe(true);
+    const bundleOldTip = first.commit!;
+
+    // Origin moves on: this is what the board's realign merges into the branch.
+    const seed2 = join(root, "seed2");
+    execFileSync("git", ["clone", "-q", origin, seed2], { env: GIT_ENV });
+    commit(seed2, "d.txt", "four");
+    git(seed2, "push", "-q", "origin", "main");
+
+    // The board's own realign, before a land that never happened.
+    git(repo, "fetch", "-q", "origin");
+    git(repo, "switch", "-q", "card/work");
+    git(repo, "merge", "-q", "--no-edit", "-m", "Riporta main nel ramo prima del land", "origin/main");
+    const localTip = git(repo, "rev-parse", "card/work");
+    expect(localTip).not.toBe(bundleOldTip);
+    git(repo, "switch", "-q", "main");
+
+    // The node, unaware of the realign, restarted from its OWN bundle tip and
+    // added one more commit.
+    const extraTip = commit(node, "e.txt", "five");
+    const bundle2File = join(root, "redelivered.bundle");
+    git(node, "bundle", "create", bundle2File, "card/work", "--not", baseSha);
+    const bundle2 = new Uint8Array(readFileSync(bundle2File));
+
+    const second = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundle2 });
+    expect(second).toEqual({ planted: true, commit: extraTip, commitCount: 2, reason: null });
+    expect(git(repo, "rev-parse", "card/work")).toBe(extraTip);
+  }, T);
+
+  // KANBAN-76 follow-up (review): the reconciliation path must read the
+  // bundle's own tip from the bundle itself, never FETCH_HEAD — a slot shared
+  // by every fetch in this checkout, which a second delivery landing on the
+  // same repo at the same moment can overwrite between the two steps.
+  test("a concurrent fetch that clobbers FETCH_HEAD does not change which tip is planted", async () => {
+    const repo = join(root, "mac-fetch-head-race");
+    execFileSync("git", ["clone", "-q", "--no-local", mac, repo], { env: GIT_ENV });
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "fetch", "-q", "origin");
+
+    const first = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
+    expect(first.planted).toBe(true);
+
+    git(repo, "switch", "-q", "card/work");
+    git(repo, "merge", "-q", "--no-edit", "-m", "Riporta main nel ramo prima del land", "origin/main");
+    git(repo, "switch", "-q", "main");
+
+    const extraTip = commit(node, "race.txt", "race");
+    const bundleFile = join(root, "race.bundle");
+    git(node, "bundle", "create", bundleFile, "card/work", "--not", baseSha);
+    const raceBundle = new Uint8Array(readFileSync(bundleFile));
+
+    // A decoy, on another branch, that a second delivery fetches into this
+    // SAME repo right after the planter pulls its own objects: if the planter
+    // ever reads FETCH_HEAD, it reads the decoy's tip instead of its own.
+    const decoyTip = commit(seed, "decoy.txt", "decoy");
+    git(seed, "branch", "-f", "decoy", decoyTip);
+    const decoyBundleFile = join(root, "decoy.bundle");
+    git(seed, "bundle", "create", decoyBundleFile, "decoy", "--not", baseSha);
+
+    const { defaultRunGit } = await import("./own-commits");
+    const racyRunGit = async (cwd: string, args: string[], opts?: Parameters<typeof defaultRunGit>[2]) => {
+      const r = await defaultRunGit(cwd, args, opts);
+      if (args[0] === "fetch" && args[2]?.startsWith("refs/topics/incoming/")) {
+        await defaultRunGit(cwd, ["fetch", decoyBundleFile, "decoy"]);
+      }
+      return r;
+    };
+    const planter = createNodeBranchPlanter({ repoPathOf: () => repo, runGit: racyRunGit });
+    const r = await planter.plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: raceBundle });
+    expect(r.planted).toBe(true);
+    expect(r.commit).toBe(extraTip);
+    expect(r.commit).not.toBe(decoyTip);
+    expect(git(repo, "rev-parse", "card/work")).toBe(extraTip);
+  }, T);
+});
+
+describe("plantBranch, branch checked out in a linked worktree", () => {
+  test("a clean worktree checkout of the branch is detached, then the branch moves", async () => {
+    const repo = join(root, "mac-worktree-clean");
+    execFileSync("git", ["clone", "-q", "--no-local", mac, repo], { env: GIT_ENV });
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "fetch", "-q", "origin");
+
+    const first = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
+    expect(first.planted).toBe(true);
+
+    git(repo, "switch", "-q", "card/work");
+    git(repo, "merge", "-q", "--no-edit", "-m", "Riporta main nel ramo prima del land", "origin/main");
+    git(repo, "switch", "-q", "main");
+
+    const wt = join(root, "mac-worktree-clean-linked");
+    git(repo, "worktree", "add", "-q", wt, "card/work");
+
+    const extraTip = commit(node, "wt-clean.txt", "wt-clean");
+    const bundleFile = join(root, "wt-clean.bundle");
+    git(node, "bundle", "create", bundleFile, "card/work", "--not", baseSha);
+    const bundle2 = new Uint8Array(readFileSync(bundleFile));
+
+    const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundle2 });
+    expect(r.planted).toBe(true);
+    expect(r.commit).toBe(extraTip);
+    expect(git(repo, "rev-parse", "card/work")).toBe(extraTip);
+    expect(git(wt, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD"); // detached
+  }, T);
+
+  test("a dirty worktree checkout of the branch refuses, instead of moving the ref under it", async () => {
+    const repo = join(root, "mac-worktree-dirty");
+    execFileSync("git", ["clone", "-q", "--no-local", mac, repo], { env: GIT_ENV });
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "fetch", "-q", "origin");
+
+    const first = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundleBytes });
+    expect(first.planted).toBe(true);
+
+    git(repo, "switch", "-q", "card/work");
+    git(repo, "merge", "-q", "--no-edit", "-m", "Riporta main nel ramo prima del land", "origin/main");
+    const localTip = git(repo, "rev-parse", "card/work");
+    git(repo, "switch", "-q", "main");
+
+    const wt = join(root, "mac-worktree-dirty-linked");
+    git(repo, "worktree", "add", "-q", wt, "card/work");
+    writeFileSync(join(wt, "uncommitted.txt"), "dirty");
+
+    commit(node, "wt-dirty.txt", "wt-dirty");
+    const bundleFile = join(root, "wt-dirty.bundle");
+    git(node, "bundle", "create", bundleFile, "card/work", "--not", baseSha);
+    const bundle2 = new Uint8Array(readFileSync(bundleFile));
+
+    const r = await planterFor(repo).plantBranch({ projectId: "p", branch: "card/work", baseSha, bundle: bundle2 });
+    expect(r.planted).toBe(false);
+    expect(r.reason).toContain("worktree sporco");
+    expect(git(repo, "rev-parse", "card/work")).toBe(localTip);
   }, T);
 });

@@ -296,17 +296,7 @@
   "duplicated_lines": 429,
   "clone_groups": 16,
   "files": {
-    "client/src/App.tsx": {
-      "lines": 2864,
-      "why": [
-        "2026-10-02, integra/tornata2w-1002: two lanes grew it, each inside 5% alone,",
-        "together +142 against 2639. chat-inline-command-run: the command-run frames",
-        "from the socket and the Open in terminal handler (a shell with the command",
-        "typed). sidebar-menu-settings: the user menu host at the app root (menu",
-        "preferences, the phone's title menu as the user menu, old settings sections",
-        "routed to their new homes)."
-      ]
-    },
+    "client/src/App.tsx": 1100,
 
     "client/src/components/Board/Card.tsx": 2298,
 
@@ -317,9 +307,9 @@
       ]
     },
 
-    "client/src/components/Board/KanbanBoardPane.tsx": 2380,
+    "client/src/components/Board/KanbanBoardPane.tsx": 1494,
 
-    "client/src/components/Board/TaskDetail.tsx": 3851,
+    "client/src/components/Board/TaskDetail.tsx": 1419,
 
     "client/src/components/Browser/RemoteBrowserPanel.tsx": 1516,
 
@@ -446,7 +436,7 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
-    "desktop-tauri/src-tauri/src/lib.rs": 14089,
+    "desktop-tauri/src-tauri/src/lib.rs": 14363,
 
     "playwright.config.ts": 868,
 

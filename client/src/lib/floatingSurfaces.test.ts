@@ -53,7 +53,9 @@ const NOT_A_FLOATING_SURFACE: Record<string, string> = {
 };
 
 /** Direct users of an entering style whose exit is not theirs to play. */
-const EXIT_NOT_HERE: Record<string, string> = {};
+const EXIT_NOT_HERE: Record<string, string> = {
+  'app/TopicsMenuPortal.tsx': 'markup only; the exit ghost is played by useTopicsMenu, which owns the open state',
+};
 
 function stripComments(source: string): string {
   return source

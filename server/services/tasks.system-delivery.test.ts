@@ -227,7 +227,7 @@ describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non i
     expect(t.status).toBe("review");
   });
 
-  // No agent on this fleet can open a browser for its own shot (kickoff
+  // No agent opens a browser by hand for its own shot (kickoff
   // rule): bouncing to `todo` forever would just burn turns for nothing.
   // After VISIBLE_PREVIEW_BOUNCE_CAP rounds the card stops in backlog, with
   // the reason written.

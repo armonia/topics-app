@@ -1651,6 +1651,19 @@ export const calendarApi = {
 export type { McpFleetStatus, McpServerStatus } from '../../../shared/session-environment';
 import type { McpFleetStatus } from '../../../shared/session-environment';
 
+export type { AgentToolsInventory } from '../../../shared/agent-tools';
+import type { AgentToolsInventory } from '../../../shared/agent-tools';
+
+export const agentToolsApi = {
+  async inventory(signal?: AbortSignal): Promise<AgentToolsInventory> {
+    return request<AgentToolsInventory>('/agent-tools', { signal });
+  },
+  /** Park (`park`) or mount (`mount`) one MCP server, or set the extra sources. */
+  async configure(change: { park?: string; mount?: string; extraMcpFiles?: string[]; extraSkillDirs?: string[] }): Promise<void> {
+    await request<unknown>('/agent-tools/settings', { method: 'POST', body: JSON.stringify(change) });
+  },
+};
+
 export const mcpApi = {
   /**
    * Read the fleet. The server MOUNTS ON READ, so this can take as long as the

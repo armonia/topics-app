@@ -1362,6 +1362,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * stale row of this Mac (one per hostname) has none. An unknown local id or
    * address reads as local: the gates stay on rather than open.
    */
+  /** The card's pinned machine declares 0 slots: it takes no new card, pinned ones included. */
+  function pinnedMachineDrained(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
+  }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
     let localMachine: string | null = null;
@@ -3375,6 +3380,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
         GENERIC_PRODUCT_RULE,
+        "- On macOS use `sed -i ''`, never `sed -i -e`: BSD sed reads `-e` as the backup suffix and leaves a `<file>-e` copy that lands in the delivery.",
         "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
         `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
@@ -4797,7 +4803,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
           // "RICATTURA EVIDENZA" (RECAPTURE EVIDENCE) STARTS ON ITS OWN, BEFORE
-          // THE GATE, not after. No agent on this fleet can open a browser for its own before/after
+          // THE GATE, not after. No agent opens a browser by hand for its own before/after
           // shot (kickoff rule), so on a `visibile` card the auto-capture is
           // this door's ONLY chance to give the gate below something real to
           // find — awaited here, not fired in the background after the
@@ -5322,6 +5328,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      // The adopted turn was opened by a launch that died with the old server,
+      // so nobody else closes its attempt. Left `running`, it reads as a live
+      // turn forever: the CI phase skipped such a card at every sweep without a
+      // word (e8a0ce90, 14/11: 50 minutes in the CI column, never measured).
+      const open = deps.attempts?.list(taskId).find((a) => a.state === "running" && a.topicId === t.assignedTopicId);
+      if (open) {
+        try {
+          deps.attempts!.finish(open.id, {
+            state: !turnEnd || turnEnd.end === "end_turn" ? "delivered" : "failed",
+            agentMs: Date.now() - t0,
+          });
+        } catch (err) { log(`reattach: attempt ${open.id} not closed`, err); }
+      }
     } finally {
       endRun(taskId, runId);
     }
@@ -5846,6 +5865,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
+      // A card pinned to a machine that is being drained (slots 0) waits in Todo.
+      if (remoteCard(t) && pinnedMachineDrained(t)) continue;
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
       // COLD ORIGIN CACHE (2026-11-13): the very first tick that asks this
       // project's origin starts an async lookup and answers "unknown" for it,

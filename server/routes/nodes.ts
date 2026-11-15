@@ -611,11 +611,15 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       // would make every rerun after a DELETE (KANBAN-77) fail with a
       // constraint error instead of starting.
       const key = RUN_KEY_PREFIX + originTaskId;
-      const prior = db.query("SELECT id, project_id, archived FROM tasks WHERE claude_task_id = ?").get(key) as
-        | { id: string; project_id: string; archived: number }
+      const prior = db.query("SELECT id, project_id, archived, status, dispatch_state FROM tasks WHERE claude_task_id = ?").get(key) as
+        | { id: string; project_id: string; archived: number; status: string; dispatch_state: string | null }
         | null;
       if (prior && prior.archived === 0) {
-        return json({ runId: prior.id, projectId: prior.project_id });
+        // A finished copy is a resend: archive it, or its old delivery replays (13/11).
+        const idle = prior.dispatch_state !== "working" && prior.dispatch_state !== "starting";
+        if (!(idle && (prior.status === "review" || prior.status === "done"))) return json({ runId: prior.id, projectId: prior.project_id });
+        const resp = await opts.deleteBoardTask(prior.project_id, prior.id);
+        if (!resp || !resp.ok) return resp ?? json({ error: "board delete unavailable", code: "internal" }, 500);
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
 

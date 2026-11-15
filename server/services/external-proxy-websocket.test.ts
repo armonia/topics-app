@@ -97,6 +97,39 @@ class Wire {
   }
 }
 
+/** A client that connects through the proxy, upgrades, then NEVER reads again (receive buffer of a few KB). argv: proxy port, (unused), upgrade request. The certificate is not checked: the test is about the write queue. */
+const STUCK_CLIENT = [
+  "import socket, ssl, sys, time",
+  "s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)",
+  "s.connect(('127.0.0.1', int(sys.argv[1])))",
+  "s.sendall(b'CONNECT api.anthropic.com:443 HTTP/1.1\\r\\nhost: api.anthropic.com:443\\r\\n\\r\\n'); s.recv(4096)",
+  "t = ssl._create_unverified_context().wrap_socket(s, server_hostname='api.anthropic.com')",
+  "t.sendall(sys.argv[3].encode()); buf = b''",
+  "while b'\\r\\n\\r\\n' not in buf: buf += t.recv(1024)",
+  "buf = buf.split(b'\\r\\n\\r\\n', 1)[1]",
+  "sys.stdout.write('up\\n'); sys.stdout.flush()",
+  "if sys.stdin.readline().strip() != 'read': time.sleep(120)",
+  // reads every frame to the end: prints each binary frame's sequence number, then the close code
+  "def need(n):",
+  "    global buf",
+  "    while len(buf) < n:",
+  "        d = t.recv(1 << 20)",
+  "        if not d: raise EOFError",
+  "        buf += d",
+  "    out, buf = buf[:n], buf[n:]",
+  "    return out",
+  "try:",
+  "    while True:",
+  "        h = need(2); op = h[0] & 15; n = h[1] & 127",
+  "        if n == 126: n = int.from_bytes(need(2), 'big')",
+  "        elif n == 127: n = int.from_bytes(need(8), 'big')",
+  "        body = need(n)",
+  "        if op == 2: print('seq', int.from_bytes(body[:4], 'big'), flush=True)",
+  "        elif op == 8: print('close', int.from_bytes(body[:2], 'big'), flush=True); break",
+  "except Exception:",
+  "    print('reset', flush=True)",
+].join("\n");
+
 /** A masked client frame (the protocol requires the mask), short payloads only. */
 function clientFrame(opcode: number, payload: Buffer): Buffer {
   // a zero key leaves the payload as it is: the protocol only asks for a key, and a 17 MB XOR in a test is a waste
@@ -280,7 +313,7 @@ describe("WebSocket", () => {
   });
 
   /** A client that stops reading for `pauseMs` while the upstream sends `count` messages of 256 KB, each numbered. */
-  async function slowClientRun(opts: { count: number; pauseMs: number; relayBacklogLimitBytes?: number }) {
+  async function slowClientRun(opts: { count: number; pauseMs: number; relayBacklogLimitBytes?: number; resumeOnLog?: string }) {
     const size = 256 * 1024;
     const upstreamClosed: { code: number; reason: string }[] = [];
     const upstream = Bun.serve({
@@ -308,7 +341,11 @@ describe("WebSocket", () => {
       secure.write(upgradeRequest("/v1/ws"));
       await wire.head();
       secure.pause();
-      await sleep(opts.pauseMs);
+      if (opts.resumeOnLog) {
+        // event-driven: the client reads again only once the relay has logged its decision, however slow the runner is
+        const prefix = opts.resumeOnLog;
+        for (let i = 0; i < 6000 && !lines.some((l) => l.startsWith(prefix)); i++) await sleep(10);
+      } else await sleep(opts.pauseMs);
       secure.resume();
       const sequence: number[] = [];
       let end: { opcode: number; code?: number; text?: string } | null = null;
@@ -332,13 +369,90 @@ describe("WebSocket", () => {
   }, 60_000);
 
   test("past the backlog limit the relay CLOSES the connection (1013): the client never sees a hole, only a prefix and the close", async () => {
-    const run = await slowClientRun({ count: 160, pauseMs: 3000, relayBacklogLimitBytes: 1024 * 1024 });
+    const run = await slowClientRun({ count: 160, pauseMs: 0, relayBacklogLimitBytes: 1024 * 1024, resumeOnLog: "ws-backpressure " });
     expect(run.end).toEqual({ opcode: 8, code: 1013 });
     expect(run.sequence.length).toBeLessThan(160);
     expect(run.sequence).toEqual(run.sequence.map((_, i) => i)); // contiguous from 0: nothing skipped in the middle
     expect(run.lines.some((l) => l.startsWith("ws-backpressure "))).toBe(true);
     // Anthropic is let go too, with the close we send (1011), or as a drop when it is still busy sending and never reads the close
     expect([1011, 1006]).toContain(run.upstreamClosed[0]?.code);
+  }, 60_000);
+
+  /** Resolves once the stuck client printed `up` (its upgrade is done); the rest of its output stays readable through `rest()`. */
+  function stuckClientOutput(child: { stdout: ReadableStream<Uint8Array> }, gate: { resolve: () => void }) {
+    const reader = child.stdout.getReader();
+    let text = "";
+    const pump = (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) { gate.resolve(); return; } // a child that died before `up` must fail the test fast, not hang it
+        text += new TextDecoder().decode(value);
+        if (text.includes("up\n")) gate.resolve();
+      }
+    })();
+    return { rest: async () => { await pump; return text.split("\n").filter((l) => l && l !== "up"); } };
+  }
+  const newGate = () => { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; };
+
+  test("a client that never reads again does not pin its relay: the held close is cut after the grace and the slot comes back", async () => {
+    const gate = newGate();
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req, srv) { return srv.upgrade(req) ? undefined : new Response("no", { status: 400 }); },
+      websocket: {
+        async open(ws) {
+          await gate.promise; // nothing is sent before the stuck client is fully connected: no backlog path, only the live-socket one
+          for (let i = 0; i < 160 && ws.readyState === 1; i++) { ws.send(Buffer.alloc(256 * 1024, 0x61)); while (ws.getBufferedAmount() > 1024 * 1024) await sleep(5); }
+        },
+        message() {},
+      },
+    });
+    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: upstream.port as number, relayBacklogLimitBytes: 1024 * 1024, closeGraceMs: 300 });
+    // A Bun socket keeps reading from the kernel even when paused, so the write queue would drain by itself: the
+    // client here is a child that really never calls recv (tiny receive buffer), the state a stuck peer is in.
+    const child = Bun.spawn(["python3", "-c", STUCK_CLIENT, String(proxy.port), leaf.caCertificatePath, upgradeRequest("/v1/ws")], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+    stuckClientOutput(child, gate);
+    try {
+      const waitFor = async (prefix: string) => { for (let i = 0; i < 1500 && !lines.some((l) => l.startsWith(prefix)); i++) await sleep(10); return lines.some((l) => l.startsWith(prefix)); };
+      expect(await waitFor("ws-backpressure "), `no backpressure: ${JSON.stringify(lines)}`).toBe(true);
+      // the client never reads: whichever way the close leaves (forced after the grace, or queued whole in the kernel), the place must be back long before Bun's 120 s idle timeout
+      expect(await waitFor("ws-closed "), `no closed: ${JSON.stringify(lines)}`).toBe(true);
+    } finally { child.kill(); await proxy.close(); upstream.stop(true); }
+  }, 60_000);
+
+  test("a client whose socket really is full still gets the prefix and the 1013 close: the held close does not drop the queue", async () => {
+    const gate = newGate();
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req, srv) { return srv.upgrade(req) ? undefined : new Response("no", { status: 400 }); },
+      websocket: {
+        async open(ws) {
+          for (let i = 0; i < 160 && ws.readyState === 1; i++) {
+            const body = Buffer.alloc(256 * 1024, 0x61);
+            body.writeUInt32BE(i, 0);
+            ws.send(body);
+            while (ws.getBufferedAmount() > 1024 * 1024) await sleep(5);
+          }
+        },
+        message() {},
+      },
+    });
+    const { proxy, lines } = await start({ enginePort: await closedPort(), upstreamPort: upstream.port as number, relayBacklogLimitBytes: 1024 * 1024 });
+    const child = Bun.spawn(["python3", "-c", STUCK_CLIENT, String(proxy.port), leaf.caCertificatePath, upgradeRequest("/v1/ws")], { stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+    const output = stuckClientOutput(child, gate);
+    try {
+      for (let i = 0; i < 3000 && !lines.some((l) => l.startsWith("ws-backpressure ")); i++) await sleep(10);
+      expect(lines.some((l) => l.startsWith("ws-backpressure "))).toBe(true);
+      child.stdin.write("read\n");
+      child.stdin.flush();
+      const out = await output.rest();
+      const sequence = out.filter((l) => l.startsWith("seq ")).map((l) => Number(l.slice(4)));
+      expect(out[out.length - 1]).toBe("close 1013");
+      expect(sequence.length).toBeGreaterThan(0);
+      expect(sequence).toEqual(sequence.map((_, i) => i));
+    } finally { child.kill(); await proxy.close(); upstream.stop(true); }
   }, 60_000);
 
   test("a message of 16 MB goes through; one byte more is refused with 1009 and never reaches Anthropic", async () => {

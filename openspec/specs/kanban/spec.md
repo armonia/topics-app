@@ -5551,3 +5551,15 @@ Topics SHALL serve one line for heavy commands (tests, typechecks, builds, rende
 #### Scenario: Topics does not answer
 - **WHEN** the client cannot reach Topics
 - **THEN** the command SHALL run at once
+
+### Requirement: KANBAN-115 - A redelivery supersedes the card's previous pull request and its live runs
+
+When a card opens a pull request, the delivery flow SHALL close any other open pull request of the same card (found by the card tag in the title, never `main`) with a comment naming the new one, and SHALL cancel the live (queued or in progress) CI runs of that pull request. On a redelivery to the same branch it SHALL cancel the queued runs of older commits of that branch. Pull requests and runs of other cards and of `main` SHALL NOT be touched.
+
+#### Scenario: a redelivery on a new branch
+- **WHEN** a card with pull request A on branch X is redelivered on branch Y
+- **THEN** A SHALL be closed with a «superseded by» comment, its live runs cancelled, and the new pull request opened
+
+#### Scenario: other cards and main
+- **WHEN** another card has a live run, or `main` has one
+- **THEN** neither SHALL be cancelled

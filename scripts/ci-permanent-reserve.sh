@@ -18,6 +18,13 @@
 # A booking whose run is over (cancelled before `release`, a dead job) is dropped by the
 # next `reserve`, so a runner is never held by a run that no longer exists.
 #
+# Why there is no per-run quota and no second pool (card 5d825e61, measured on the node,
+# 16 vCPU, ci.slice MemoryMax 26 GB): one e2e run on the 4 shard runners averages ~12 cores
+# (peak ~15.5) and ~7.6 GB of anonymous RAM. It is CPU bound, so two runs side by side
+# would each lose far more than 30%, and a fixed 2+2 split makes the common case (one run)
+# slower and pushes its other shards to the saturated GitHub queue. Parallel runs need a
+# bigger node, not a different split: the first run takes the free runners, a second one
+# takes what is left, the rest goes to GitHub.
 # Needs GH_TOKEN (repository admin, to edit runner labels) and GITHUB_REPOSITORY.
 set -uo pipefail
 
@@ -49,8 +56,20 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] && unbook "$id" "$lab"
+      if [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
+        unbook "$id" "$lab"
+      fi
     done
+}
+
+# True when the run has jobs on this booking (label or label-prep) and none is still
+# queued or running. The job that gives the runners back waits on ubuntu-latest, so the
+# run itself stays "queued" and would hold the booking behind a queue it should relieve.
+# A run with no listed job on the label (not created yet) keeps its booking.
+run_done_with() {  # <run id> <booking label>
+  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" '
+    [.jobs[]? | select(any(.labels[]?; . == $l or . == ($l + "-prep")))] as $j
+    | ($j | length) > 0 and all($j[]; .status == "completed")' >/dev/null 2>&1
 }
 
 reserve() {

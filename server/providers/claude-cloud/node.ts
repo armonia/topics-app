@@ -12,6 +12,7 @@ import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from 
 import { CloudApi, CloudSetupError, cloudApiIsReal, type CloudEvent } from "./api";
 import { isPermissionAsk } from "./events";
 import { runBounded } from "../../lib/bounded-spawn";
+import { runGit } from "../../lib/run-git";
 
 /** The base_url of the cloud's `machines` row: not an address, a placeholder. */
 export const CLOUD_NODE_BASE_URL = "claude-cloud://";
@@ -112,8 +113,7 @@ export type GitRun = (args: string[], cwd?: string) => Promise<{ code: number; s
 /** An origin that does not answer must not stop the round of all remote cards: 60 s and move on. */
 const GIT_TIMEOUT_MS = 60_000;
 const realGit: GitRun = async (args, cwd) => {
-  const r = await runBounded(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe", timeoutMs: GIT_TIMEOUT_MS, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
-  return { code: r.exitCode ?? 124, stdout: r.stdout, stderr: r.stderr || r.spawnError || (r.timedOut ? "timeout" : "") };
+  return runGit(cwd ?? process.cwd(), args, { timeoutMs: GIT_TIMEOUT_MS, env: { GIT_TERMINAL_PROMPT: "0" } });
 };
 
 export interface CloudNodeDeps {
