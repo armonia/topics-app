@@ -208,6 +208,24 @@ describe("call loop", () => {
     expect(w.has("risultato_a_gemini")).toBe(false);
   });
 
+  test("a result in hand is still told when the brain's answer is about something else", async () => {
+    const w = new World({ brain: true, quick: true });
+    await jobRunning(w);
+    w.say(1500);
+    await w.advance(600);
+    w.call.reply("Due mail importanti: il backup è fermo, e una candidatura.");
+    await w.advance(300);
+    w.main.emit({ type: "toolCall", id: "c2", name: "chiedi_a_jarvis", args: { frase: "come fai a dirlo" } });
+    await w.flush();
+    await w.advance(2000);
+    w.thinks.at(-1)!.resolve({ ok: true, thought: { say: "Scusa, non ti ho capito bene: me lo ripeti?", task: "", close: false } });
+    await w.advance(500);
+    expect(w.has("risultato_nel_pensiero")).toBe(false);
+    w.geminiSays(800, "Scusa, non ti ho capito bene: me lo ripeti?", { turn: true });
+    await w.advance(2000);
+    expect(w.has("risultato_a_gemini")).toBe(true);
+  });
+
   test("no step slips in between a thought and its voice", async () => {
     const w = new World({ brain: true, quick: true });
     await jobRunning(w);
@@ -233,6 +251,38 @@ describe("call loop", () => {
     w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "sottoagenti" } });
     await w.advance(2000);
     expect(String(w.thinks.at(-1)?.args[1])).toContain("Trascrizione incerta");
+  });
+
+  test("a short phrase read two ways reaches the brain with both readings, and no quick ack says the wrong one", async () => {
+    const w = new World({ brain: true, whisper: true, quick: true });
+    await w.greet();
+    w.say(900);
+    await w.advance(2500);
+    for (const p of w.whispers.splice(0)) p.resolve({ ok: true, text: "limitato" });
+    await w.advance(100);
+    w.main.emit({ type: "heard", text: "Dimmi tutto." });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "Dimmi tutto." } });
+    await w.advance(500);
+    const user = String(w.thinks.at(-1)?.args[1]);
+    expect(user).toContain("sentita in due modi: «limitato» oppure «Dimmi tutto.»");
+    expect(w.quicks.length).toBe(0);
+  });
+
+  test("a bare 'ok' gets no quick 'ok, on it'", async () => {
+    const w = new World({ brain: true, quick: true });
+    await w.greet();
+    w.main.emit({ type: "heard", text: "Ok." });
+    w.main.emit({ type: "toolCall", id: "c1", name: "chiedi_a_jarvis", args: { frase: "Ok." } });
+    await w.advance(500);
+    expect(w.thinks.length).toBe(1);
+    expect(w.quicks.length).toBe(0);
+    w.main.emit({ type: "turnComplete" });
+    w.thinks[0]!.resolve({ ok: true, thought: { say: "Bene.", task: "", close: false } });
+    await w.advance(3000);
+    w.main.emit({ type: "heard", text: "Che appuntamenti ho domani?" });
+    w.main.emit({ type: "toolCall", id: "c2", name: "chiedi_a_jarvis", args: { frase: "Che appuntamenti ho domani?" } });
+    await w.advance(500);
+    expect(w.quicks.length).toBe(1);
   });
 
   test("the same question asked again right after the answer is not thought twice", async () => {
@@ -341,6 +391,17 @@ describe("call loop", () => {
       expect(w.has("interrotto")).toBe(false);
       expect(w.has("saluto_sopra")).toBe(true);
     }
+  });
+
+  test("two readings differ only on a short phrase with no word in common", async () => {
+    const { readingsDiffer } = await import("./call-rules");
+    expect(readingsDiffer("limitato", "Dimmi tutto.")).toBe(true);
+    expect(readingsDiffer("Dimitro.", "Dimmi tutto.")).toBe(true);
+    expect(readingsDiffer("Amen.", "Va bene.")).toBe(true);
+    expect(readingsDiffer("Ok.", "ok")).toBe(false);
+    expect(readingsDiffer("Dimmi tu.", "Dimmi tutto.")).toBe(false);
+    expect(readingsDiffer("Una cosa a tegere tu.", "Una cosa a piacere tuo.")).toBe(false);
+    expect(readingsDiffer("limitato", "")).toBe(false);
   });
 
   test("a greeting word is not a free pass: 'ciao, mandami la mail' is words", async () => {
@@ -489,6 +550,30 @@ describe("call loop", () => {
     await w.advance(2000);
     expect(w.first("fine")?.data.motivo).toBe("silenzio");
     // minutes of call simulated tick by tick: slow on a loaded machine
+  }, 30_000);
+
+  test("room noise with no words for whisper does not count as someone on the line", async () => {
+    const w = new World({ whisper: true });
+    await w.greet();
+    for (let i = 0; i < 7; i++) {
+      w.say(700);
+      await w.advance(4500);
+      for (const p of w.whispers.splice(0)) p.resolve({ ok: true, text: null });
+    }
+    expect(w.has("ci_sei")).toBe(true);
+  }, 30_000);
+
+  test("words whisper confirms put off 'are you still there?'", async () => {
+    const w = new World({ whisper: true });
+    await w.greet();
+    await w.advance(20_000);
+    w.say(800);
+    await w.advance(2500);
+    for (const p of w.whispers.splice(0)) p.resolve({ ok: true, text: "sono qui, sto leggendo" });
+    await w.advance(20_000);
+    expect(w.has("ci_sei")).toBe(false);
+    await w.advance(12_000);
+    expect(w.has("ci_sei")).toBe(true);
   }, 30_000);
 
   test("after 'aspetta un attimo' the silence is theirs: no 'are you there?' for two minutes", async () => {

@@ -54,33 +54,24 @@ describe('HUBBR-03: the hub readers', () => {
       { id: 'p', title: 'Page', link: '#journal' },
       { id: 'c', title: 'Claude', link: 'claude://resume/abc' },
       { id: 'f', title: 'File', link: 'file:///etc/passwd' },
-    ] }, '127.0.0.1').map((i) => i.link);
-    expect(links).toEqual(['http://127.0.0.1:3360/#journal', 'claude://resume/abc', null]);
-  });
-
-  test('a hub page link opens only on the machine of the hub, never as the phone own localhost', () => {
-    const page = { items: [{ id: 'p', title: 'Page', link: '#journal' }] };
-    const linkOn = (host: string) => waitingItems(page, host)[0]!.link;
-    expect(linkOn('127.0.0.1')).toBe('http://127.0.0.1:3360/#journal');
-    expect(linkOn('localhost')).toBe('http://127.0.0.1:3360/#journal');
-    expect(linkOn('mac.tail1234.ts.net')).toBeNull();
-    expect(linkOn('192.168.1.20')).toBeNull();
+      { id: 'g', title: 'Gone page', link: '#nowhere' },
+    ] }).map((i) => i.link);
+    // The diary is a place of Topics now; a hub page with no place leads nowhere once the hub only sends to Topics.
+    expect(links).toEqual([null, 'claude://resume/abc', null, null]);
   });
 
   test('a link to one automation opens Topics own view on every device, not the hub page', () => {
     const page = { items: [{ id: 'p', title: 'Page', link: '#automations/cron%3Abackup', from: 'guardiano' }] };
-    for (const host of ['127.0.0.1', 'mac.tail1234.ts.net']) {
-      const [item] = waitingItems(page, host);
-      expect(item!.automationKey).toBe('cron:backup');
-      expect(item!.link).toBeNull();
-      expect(item!.from).toBe('guardiano');
-    }
+    const [item] = waitingItems(page);
+    expect(item!.automationKey).toBe('cron:backup');
+    expect(item!.link).toBeNull();
+    expect(item!.from).toBe('guardiano');
     expect(automationKeyOfLink('#automations/')).toBeNull();
     expect(automationKeyOfLink('#automations/%E0%A4%A')).toBeNull();
     expect(automationKeyOfLink('https://x/#automations/k')).toBeNull();
   });
 
-  test('a link to a hub page that moved into Topics opens Topics, on every device; the overview stays a hub link', () => {
+  test('a link to a hub page that moved into Topics opens Topics, on every device; the overview and the diary are the bell', () => {
     const items = waitingItems({ items: [
       { id: 'w', title: 'Work', link: '#work/in-corso' },
       { id: 's', title: 'Sessions', link: '#sessions' },
@@ -90,13 +81,15 @@ describe('HUBBR-03: the hub readers', () => {
       { id: 'u', title: 'Usage', link: '#usage' },
       { id: 'c', title: 'Context', link: '#context' },
       { id: 'o', title: 'Overview', link: '#overview' },
-    ] }, 'mac.tail1234.ts.net');
+      { id: 'j', title: 'Diary', link: '#journal' },
+    ] });
     expect(items.map((i) => i.place)).toEqual([
       { kind: 'menu', level: 'agents' }, { kind: 'menu', level: 'agents' }, { kind: 'utility', type: 'processes' }, { kind: 'log' },
-      { kind: 'utility', type: 'accounts' }, { kind: 'utility', type: 'dashboard' }, { kind: 'menu', level: 'context' }, null,
+      { kind: 'utility', type: 'accounts' }, { kind: 'utility', type: 'dashboard' }, { kind: 'menu', level: 'context' },
+      { kind: 'bell', tab: 'now' }, { kind: 'bell', tab: 'history' },
     ]);
     // Moved into Topics: no hub link left, so nothing depends on the hub page.
-    expect(items.slice(0, 7).every((i) => i.link === null)).toBe(true);
+    expect(items.every((i) => i.link === null)).toBe(true);
     expect(hubPlaceOfLink('https://x/#work')).toBeNull();
   });
 

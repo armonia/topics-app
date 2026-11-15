@@ -967,3 +967,24 @@ in `server/lib/sync-spawn-scan.test.ts`; a new one SHALL turn that test red.
 #### Scenario: a new synchronous spawn
 - **WHEN** a `spawnSync`, `execSync` or `execFileSync` is added under `server/` and is not in the list
 - **THEN** `server/lib/sync-spawn-scan.test.ts` is red
+
+### Requirement: SILENT-CATCH-01 — A failure that matters is never swallowed by an empty catch
+
+Ten server sites used to end in an empty catch although the operation they
+guarded could fail for real: a schema backfill, the end-of-turn UPDATE, the
+media of a turn, the stdout and stderr drain, the terminal bridge handler, the
+terminal session row, the terminal kill, the stop marker, the forget-site
+storage delete and the hook uninstall. A swallowed failure leaves wrong state on
+disk with nothing to point at the cause.
+
+When one of these operations throws, the failure SHALL be visible: a logged
+warning (throttled when the path is hot) or an error to the caller. A failing
+output sink SHALL NOT stop the drain of a process.
+
+#### Scenario: the operation throws
+- **WHEN** the guarded operation throws
+- **THEN** a log line naming the site is captured, or the caller receives the error
+
+#### Scenario: a sink fails on the first chunk
+- **GIVEN** a drain with three chunks and a sink that throws on the first
+- **THEN** the second and third chunks SHALL still reach the sink

@@ -53,6 +53,9 @@ describe("natural", () => {
   test("what whisper writes over music is not speech", () => {
     expect(whisperNoise(" Grazie a tutti.")).toBe(true);
     expect(whisperNoise("Grazie.")).toBe(true);
+    expect(whisperNoise("Grazie a tutti.  Grazie a tutti.")).toBe(true);
+    expect(whisperNoise("Grazie a tutti.  Grazie.")).toBe(true);
+    expect(whisperNoise("Grazie. Ci sentiamo domani.")).toBe(false);
     expect(whisperNoise("Sottotitoli creati dalla comunità Amara.org")).toBe(true);
     expect(whisperNoise("Basta così, grazie.")).toBe(false);
     expect(whisperNoise("Aspetta.")).toBe(false);

@@ -226,17 +226,20 @@ export function heardWrong(gemini: string, whisper: string): boolean {
 /** The phrases whisper invents over noise: they are not the speaker's. */
 export function whisperNoise(t: string): boolean {
   const low = t.toLowerCase();
-  const bare = [...low]
-    .filter((c) => /[\p{L}\p{N}\s]/u.test(c))
-    .join("")
-    .split(/\s+/)
-    .filter(Boolean)
-    .join(" ");
+  const bare = (s: string): string =>
+    [...s]
+      .filter((c) => /[\p{L}\p{N}\s]/u.test(c))
+      .join("")
+      .split(/\s+/)
+      .filter(Boolean)
+      .join(" ");
   // whole phrases whisper writes over music and silence (Groq gives no
   // no_speech_prob: it is always 0); over chords with no words, on 12/11, it
-  // wrote a "thanks everyone"
+  // wrote a "thanks everyone". Over room noise it repeats them in one text
+  // ("Grazie a tutti. Grazie.", 14/11), and the call closed on that "thanks"  allow-italian: the quoted phrase is the real one
+  const pieces = low.split(/[.!?…]+/).map(bare).filter(Boolean);
   return (
-    ["grazie", "grazie a tutti", "grazie per lascolto", "grazie per la visione", "buona visione"].includes(bare) ||
+    (pieces.length > 0 && pieces.every((p) => ["grazie", "grazie a tutti", "grazie per lascolto", "grazie per la visione", "buona visione"].includes(p))) ||
     ["sottotitoli", "amara.org", "iscriviti", "qtss", "a cura di"].some((p) => low.includes(p))
   );
 }

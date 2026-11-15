@@ -1,5 +1,104 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an integration checkout left by a restart no longer blocks the next measure (#1019)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "gli agenti di Topics passano il lavoro di esplorazione a sottoagenti e swarm (SUBAGENT-24)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.118",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: la frase rapida non dice «hai ragione» a una domanda, e il cervello non promette l'esito prima del risultato (#1017)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.117",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "banco voce: «chiede_se_ce», per lo scenario di rumore della stanza dopo un risultato (#1015)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.116",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "il ramo di integrazione della board non è lavoro altrui (#1002)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "i rami vecchi della card non tolgono i suoi commit (#1005)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.115",
     "date": "2026-11-14",
     "sections": {
@@ -661,6 +760,12 @@
           "breaking": false
         },
         {
+          "it": "drain survives a failing sink, exit row settles inside its guard, forget-site reports a failed save (card 79272a55)",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
           "it": "clear the 9 react-hooks/exhaustive-deps warnings",
           "en": "",
           "scope": "client",
@@ -951,6 +1056,12 @@
           "scope": null
         },
         {
+          "it": "trace silent-catch test (card 30f7c880), cover chat call site, drop inert delete",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
           "it": "unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)",
           "en": "",
           "scope": null,
@@ -1126,6 +1237,12 @@
           "breaking": false
         },
         {
+          "it": "SILENT-CATCH-01, the requirement the silent-catch test declares (card 30f7c880)",
+          "en": "",
+          "scope": "processes",
+          "breaking": false
+        },
+        {
           "it": "Add backup-residue to qa-gate loop",
           "en": "",
           "scope": null
@@ -1279,6 +1396,12 @@
           "breaking": false
         },
         {
+          "it": "catches that swallowed real errors now report them",
+          "en": "",
+          "scope": "server",
+          "breaking": false
+        },
+        {
           "it": "the shipped boot.js matches its source again",
           "en": "",
           "scope": "boot",
@@ -1404,6 +1527,12 @@
           "it": "rename a helper in the guard to an English word",
           "en": "",
           "scope": "client",
+          "breaking": false
+        },
+        {
+          "it": "silent-catch sites fail for real; warnThrottled forgets expired keys",
+          "en": "",
+          "scope": "server",
           "breaking": false
         },
         {
