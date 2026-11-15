@@ -10,15 +10,13 @@ const TONE: Record<ChannelChip['kind'], string> = {
 const MARK_KEY: Record<ChannelChip['kind'], string> = { discord: 'Discord', whatsapp: 'WhatsApp', telegram: 'Telegram' };
 
 /**
- * «Jarvis's work, from this channel»: the channel's brand mark, the word
- * Jarvis and the channel name, one click from its chat. The click goes through
+ * The channel a card's work came from: its official mark and its name, one
+ * click from its chat (Jarvis, the agent, is the avatar chip beside it). The click goes through
  * the single in-app door (`openTabInApp`), which checks the chat still exists,
  * so it is never a bare anchor. The name is what truncates on a narrow card.
  */
-export function ChannelChipView({ chip, jarvis, notify, open = openTabInApp }: {
+export function ChannelChipView({ chip, notify, open = openTabInApp }: {
   chip: ChannelChip;
-  /** The word that says whose work it is, translated by the caller. */
-  jarvis: string;
   /** Told when the chat no longer exists, so the click is never silent. */
   notify?: (message: string) => void;
   /** The in-app door; injectable so a test needs no module mock. */
@@ -36,8 +34,7 @@ export function ChannelChipView({ chip, jarvis, notify, open = openTabInApp }: {
       onClick={(e) => { e.stopPropagation(); open({ kind: 'chat', key: chip.topicId }, { notify }); }}
     >
       <Mark className="h-3 w-3 shrink-0" aria-hidden />
-      <span className="shrink-0 font-semibold">{jarvis}</span>
-      <span className="min-w-0 truncate opacity-85">{chip.name}</span>
+      <span className="min-w-0 truncate">{chip.name}</span>
     </button>
   );
 }

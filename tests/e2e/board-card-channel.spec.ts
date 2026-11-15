@@ -1,7 +1,8 @@
 /**
  * board-card-channel.spec.ts - a card says which Jarvis channel its work came from.
  *
- * The chip carries the channel's brand mark, the word Jarvis and the channel name,
+ * Two separate things: Jarvis as the agent (the avatar chip, the slot of the card's
+ * agent) and the channel chip (official mark and channel name only),
  * on the card (full and compact) and in the drawer; one click opens that channel's
  * chat. A card with no channel chat behind it shows nothing. The screenshots at
  * 375, 768 and 1440 px, dark and light, are the proof the eye judges.
@@ -113,7 +114,9 @@ test.describe("Canale sulla card", () => {
     const chip = card.getByTestId("card-channel");
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute("data-channel-kind", "discord");
-    await expect(chip).toContainText("Jarvis");
+    await expect(chip).not.toContainText("Jarvis");
+    await expect(card.getByTestId("card-created-by")).toHaveAttribute("data-created-by-jarvis", "true");
+    await expect(card.getByTestId("card-created-by")).toContainText("Jarvis");
     await expect(chip).toContainText("#Video Zeno: musica e voce da rifare");
     await expect(chip.locator("svg[aria-label='Discord']")).toBeVisible();
     await expect(page.locator(`[data-task-card="${whatsappCard}"]`).getByTestId("card-channel")).toHaveAttribute("data-channel-kind", "whatsapp");
@@ -126,25 +129,27 @@ test.describe("Canale sulla card", () => {
   });
 
   for (const theme of ["dark", "light"] as const) {
-    for (const width of [375, 768, 1440]) {
+    for (const width of [375, 768, 1440, 3440]) {
       test(`screenshot ${width}px ${theme}: card, card compatta e drawer`, async ({ page }) => {
         test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
         await page.emulateMedia({ colorScheme: theme });
-        await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+        await page.setViewportSize({ width, height: width === 375 ? 812 : width === 3440 ? 1440 : 900 });
         await page.goto("/");
         await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(theme === "dark");
         await openProjectBoard(page);
         const card = page.locator(`[data-task-card="${discordCard}"]`);
         await card.scrollIntoViewIfNeeded();
         await expect(card.getByTestId("card-channel")).toBeVisible();
+        await expect(card.getByTestId("card-created-by")).toBeVisible();
         await page.screenshot({ path: `${SHOTS}/card-${width}-${theme}.png` });
         await card.screenshot({ path: `${SHOTS}/card-solo-${width}-${theme}.png` });
 
-        // The drawer: the same chip, on its own line under the project.
+        // The drawer: Jarvis and the channel, two chips on their own line under the project.
         await card.getByText("Video Zeno: montaggio dopo la scelta di musica e voce").click();
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 10000 });
         await expect(drawer.getByTestId("card-channel")).toBeVisible();
+        await expect(drawer.getByTestId("card-created-by")).toContainText("Jarvis");
         await page.screenshot({ path: `${SHOTS}/drawer-${width}-${theme}.png` });
       });
     }
@@ -164,6 +169,7 @@ test.describe("Canale sulla card", () => {
       await expect(page.getByTestId("plan-view")).toBeVisible({ timeout: 15000 });
       const card = page.locator(`[data-task-card="${discordCard}"][data-density="compact"]`);
       await expect(card.getByTestId("card-channel")).toBeVisible();
+      await expect(card.getByTestId("card-created-by")).toContainText("Jarvis");
       await page.screenshot({ path: `${SHOTS}/compatta-1440-${theme}.png` });
     });
   }

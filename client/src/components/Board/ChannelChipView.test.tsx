@@ -41,19 +41,19 @@ describe('channelChip', () => {
 
 describe('ChannelChipView', () => {
   const chip = channelChip({ channel: { kind: 'whatsapp', topicId: 'chan-w', name: 'Gruppo Studio' } }, tr)!;
-  test('draws the brand mark, the word Jarvis and the channel name', () => {
-    const html = renderToStaticMarkup(<ChannelChipView chip={chip} jarvis="Jarvis" />);
+  test('draws the official brand mark and the channel name, and no Jarvis word (he is the agent chip)', () => {
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
     expect(html).toContain('data-testid="card-channel"');
     expect(html).toContain('data-channel-kind="whatsapp"');
     expect(html).toContain('aria-label="WhatsApp"');
-    expect(html).toContain('>Jarvis<');
+    expect(html).not.toContain('Jarvis');
     expect(html).toContain('>Gruppo Studio<');
   });
   test('the click opens the channel chat through the in-app door and stops the card from opening', () => {
     const routed: unknown[] = [];
     const notified: string[] = [];
     const door = ((target: unknown, opts?: { notify?: (m: string) => void }) => { routed.push(target); opts?.notify?.('gone'); }) as never;
-    const view = ChannelChipView({ chip, jarvis: 'Jarvis', notify: (m) => notified.push(m), open: door });
+    const view = ChannelChipView({ chip, notify: (m) => notified.push(m), open: door });
     const button = find(view, (el) => el.type === 'button')!;
     let stopped = false;
     button.props.onClick({ stopPropagation: () => { stopped = true; } });

@@ -2982,6 +2982,7 @@ const EN = {
   'board.card.createdByApi': 'agent',
   'board.card.channelTitle': "Jarvis's work from the {channel} channel «{name}». Click to open the channel chat.",
   'board.card.channelJarvis': 'Jarvis',
+  'board.card.jarvisTitle': 'Jarvis is the agent on this work.',
   'board.card.createdByTitle': 'Opened by {who}. Whoever opened a card is who has to close it.',
   'board.card.incomplete': 'incomplete',
   'board.card.incompleteTitle': 'An agent opened this card without: {missing}',

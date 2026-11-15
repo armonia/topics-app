@@ -1558,8 +1558,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {channel && <ChannelChipView chip={channel} jarvis={tr('board.card.channelJarvis')} notify={toast.error} />}
           {creator && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
             <span
@@ -1620,9 +1620,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       {/* COMPACT: of the whole band only the live facts stay, the ones that say
           the card cannot move (blocker) or that a person is awaited (review age).
           After the band in the source, so the band's chips keep their order. */}
-      {compact && (channel || blockedChip || attesa || plannedChip) && (
+      {compact && (channel || creator?.jarvis || blockedChip || attesa || plannedChip) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
-          {channel && <ChannelChipView chip={channel} jarvis={tr('board.card.channelJarvis')} notify={toast.error} />}
+          {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {plannedChip && (
             <span
               data-testid="card-scheduled"
