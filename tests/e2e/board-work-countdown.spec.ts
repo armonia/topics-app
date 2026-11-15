@@ -64,8 +64,8 @@ test.describe("Board: countdown and weight of work in progress", () => {
   test.beforeAll(async ({ request }) => {
     const topic = await createTopic(request, `countdown-${stamp}`, { projectPath: PROJECT_DIR });
     topicId = topic.id;
-    for (let i = 0; i < 5; i++) await seed(request, `Closed ${i} ${stamp}`, "todo");
-    runningId = await seed(request, `Running ${stamp}`, "in_progress");
+    for (let i = 0; i < 5; i++) await seed(request, `Ship the invoice export ${i}`, "todo");
+    runningId = await seed(request, `Write the quarterly sales report ${stamp}`, "in_progress");
     const topics = (await (await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true })).json()) as { topics: Record<string, { sessionKey?: string }> };
     sessionKey = topics.topics[topicId]?.sessionKey ?? "";
     expect(sessionKey, "the seeded topic has no session key").not.toBe("");
@@ -185,6 +185,22 @@ test.describe("Board: countdown and weight of work in progress", () => {
         await page.screenshot({ path: `${SHOTS}/card-${width}-${scheme}.png` });
       });
     }
+  }
+
+  /** The layout rule: the text of the card never collapses to a letter per line and the work row never leaves the card. */
+  for (const cardWidth of [200, 300, 420]) {
+    test(`work row keeps the card readable at a card width of ${cardWidth}px`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await openBoard(page);
+      const card = page.locator(`[data-task-card="${runningId}"]`);
+      await expect(card.getByTestId("card-countdown")).toBeVisible();
+      await card.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; (el as HTMLElement).style.maxWidth = `${w}px`; }, cardWidth);
+      const measure = await card.getByTestId("card-measure").locator("> span").first().boundingBox();
+      expect(measure, "the description block of the card is not drawn").not.toBeNull();
+      expect((measure as { width: number }).width, "the description block is squeezed to a column of letters").toBeGreaterThan(120);
+      const fits = await card.getByTestId("card-work-row").evaluate((el) => el.scrollWidth <= el.clientWidth);
+      expect(fits, "the countdown and weight row runs past the card's edge").toBe(true);
+    });
   }
 
   /** The same running card, drawn on every other surface the countdown and the weight reach. */

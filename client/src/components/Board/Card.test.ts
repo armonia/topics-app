@@ -269,8 +269,9 @@ describe('la misura del turno sulla card', () => {
   test('«ora» sta dentro la fascia, in lavorazione e in review; fuori solo se non c\'è fascia', () => {
     expect(live).toContain('{trailing}');
     const start = src.indexOf('data-testid="card-measure"');
-    const band = src.slice(start, src.indexOf('{updatedAgo(\'\')}', start) + 20);
-    expect(band).toContain("{updatedAgo('')}");
+    const band = src.slice(start, src.indexOf("updatedAgo('')}", start) + 20);
+    // While the card works the countdown speaks for the time: a bare «ora» next to the clock said nothing.
+    expect(band).toContain("{task.status !== 'in_progress' && updatedAgo('')}");
     expect(src).toContain("{!measureShown && updatedAgo('ml-auto text-app-text-muted')}");
   });
 

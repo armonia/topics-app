@@ -2001,8 +2001,15 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
           ><span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap">{task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}<span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}
+        {/* THE COUNTDOWN AND THE WEIGHT, on a row of their own under the effort chip: inside it they squeezed the
+            description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
+        {task.status === 'in_progress' && (
+          <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+          </div>
+        )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
             every card would be noise on all of them to inform one. */}

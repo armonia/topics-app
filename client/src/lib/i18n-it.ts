@@ -2087,6 +2087,8 @@ const IT: Dict = {
   'board.weight.compaction': 'ancora {n} alla compattazione',
   'board.weight.contextTitle': 'Contesto in uso: {used} token, {pct}% della finestra del modello',
   'board.card.children': '{n} sottoagenti · {tok}',
+  'board.card.childrenOne': '{n} sottoagente · {tok}',
+  'board.card.childrenTitleOne': '{n} sottoagente al lavoro per questa card',
   'board.card.childrenTitle': '{n} sottoagenti al lavoro per questa card',
   'workLine.context': 'Contesto {approx}{pct}% ({used})',
   'workLine.tokens': '{n} token spesi',

@@ -1875,6 +1875,8 @@ const EN = {
   'board.weight.compaction': '{n} left before compaction',
   'board.weight.contextTitle': 'Context in use: {used} tokens, {pct}% of the model window',
   'board.card.children': '{n} sub-agents · {tok}',
+  'board.card.childrenOne': '{n} sub-agent · {tok}',
+  'board.card.childrenTitleOne': '{n} sub-agent working for this card',
   'board.card.childrenTitle': '{n} sub-agents working for this card',
   'workLine.context': 'Context {approx}{pct}% ({used})',
   'workLine.tokens': '{n} tokens spent',

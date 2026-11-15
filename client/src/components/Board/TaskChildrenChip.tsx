@@ -11,8 +11,8 @@ export function TaskChildrenChip({ assignedTopicId }: { assignedTopicId: string 
   if (rows.length === 0) return null;
   const kids = foldChildren(rows.map((c) => ({ billableTokens: c.weight?.billableTokens ?? 0, costCents: c.weight?.costCents ?? 0 })));
   return (
-    <span data-testid="card-children" title={tr('board.card.childrenTitle', { n: kids.count })} className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-app-text-secondary">
-      <Bot size={11} aria-hidden="true" />{kids.billableTokens > 0 ? tr('board.card.children', { n: kids.count, tok: fmtTok(kids.billableTokens) }) : kids.count}
+    <span data-testid="card-children" title={tr(kids.count === 1 ? 'board.card.childrenTitleOne' : 'board.card.childrenTitle', { n: kids.count })} className="inline-flex items-center gap-1 whitespace-nowrap tabular-nums text-app-text-secondary">
+      <Bot size={11} aria-hidden="true" />{kids.billableTokens > 0 ? tr(kids.count === 1 ? 'board.card.childrenOne' : 'board.card.children', { n: kids.count, tok: fmtTok(kids.billableTokens) }) : kids.count}
     </span>
   );
 }
