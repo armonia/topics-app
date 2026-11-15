@@ -41,7 +41,7 @@ fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<N
                 kids.push(Node::Sep);
             }
             kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
+            card(&format!("machine:{}", m.id), draw_machine_card(m, details.iter().find(|d| d.id == m.id && !m.id.is_empty()), p), kids)
         })
         .collect()
 }
@@ -63,7 +63,11 @@ fn limits_node(snap: &Snapshot) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     for a in &accounts {
         let g = a.get("gauge").cloned().unwrap_or(Value::Null);
-        kids.push(note(format!("{} · {}", s(a, "label"), s(&g, "short"))));
+        let line = note(format!("{} · {}", s(a, "label"), s(&g, "short")));
+        kids.push(match s(a, "provider") {
+            p @ ("claude" | "codex" | "muse") => crate::tray_menu::with_icon(&format!("provider:{p}"), line),
+            _ => line,
+        });
         let sentence = Some(s(&g, "cardSay")).filter(|t| !t.is_empty()).unwrap_or(s(&g, "say"));
         if !sentence.is_empty() {
             kids.push(note(sentence));
@@ -112,7 +116,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
-    m.push(sub("Altri abbonamenti e opzioni", more));
+    m.push(crate::tray_menu::with_icon("sf:slider.horizontal.3", sub("Altri abbonamenti e opzioni", more)));
     m.extend(automation_nodes(&snap.automations, now, local_offset_secs()));
     if let Some(b) = snap.backup.as_deref().and_then(|b| backup_card(b, now)) {
         m.push(Node::Sep);
@@ -120,7 +124,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     }
     // this menu is only drawn while the service answers, so its dashboard is always one click away
     m.push(Node::Sep);
-    m.push(item("dashboard-open", "Apri dashboard"));
+    m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
     m
 }
 
