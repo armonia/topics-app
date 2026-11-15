@@ -34,11 +34,9 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
-const SHELL = readFileSync(
-  join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "src", "lib.rs"),
-  "utf8",
-);
+const SHELL = readTauriShellSource();
 
 const ENGINES = ["wkwebview", "webview2", "webkitgtk"] as const;
 type Engine = (typeof ENGINES)[number];
@@ -54,7 +52,7 @@ type Engine = (typeof ENGINES)[number];
 function registeredOps(): string[] {
   const list = SHELL.slice(SHELL.indexOf("generate_handler!"));
   const end = list.indexOf("])");
-  return [...list.slice(0, end).matchAll(/^\s*(browser_[a-z_0-9]+),/gm)].map((m) => m[1]).sort();
+  return [...list.slice(0, end).matchAll(/^\s*(?:browser_panes::)?(browser_[a-z_0-9]+),/gm)].map((m) => m[1]).sort();
 }
 
 /**
@@ -91,7 +89,7 @@ function declarations(): Map<string, Declaration> {
       gaps.set(gap[1] as Engine, gap[2].trim());
       continue;
     }
-    const fn = line.match(/^\s*(?:pub )?(?:async )?fn (browser_[a-z_0-9]+)/);
+    const fn = line.match(/^\s*(?:pub(?:\(crate\))? )?(?:async )?fn (browser_[a-z_0-9]+)/);
     if (fn && pending) {
       out.set(fn[1], { carries: pending.carries, gaps, reason: pending.reason });
       pending = null;

@@ -12,10 +12,13 @@
  * still admitted a typecheck that then ran 30 minutes in swap. Here a request is
  * admitted when a slot is free AND the pressure reader says there is room.
  *
- * PROGRESS IS GUARANTEED. With nothing held, the first request is admitted
- * unless memory is critically low, and the client gives up waiting after a
- * deadline (fail-open, see `scripts/heavy-slot.ts`): a queue that can block
- * work forever is worse than no queue.
+ * PROGRESS IS GUARANTEED, NOT IMMEDIATE. With nothing held, the first request
+ * still waits when memory is critically low or CPU is already past the
+ * ceiling (an external load, not just our own holders, can push it there),
+ * and the client gives up waiting after a deadline (fail-open, see
+ * `scripts/heavy-slot.ts`): a queue that can block work forever is worse than
+ * no queue, but one that always lets the first one through at any load is no
+ * ceiling at all.
  *
  * A HOLDER NEVER LEAKS. A lease with a pid is dropped when that process is dead
  * (renewal is not needed: a shell hook cannot renew), one without a pid when it
@@ -75,12 +78,14 @@ export function admits(held: number, p: HeavyPressure, cfg: HeavySlotConfig): { 
   if (p.availableMemGB != null && p.availableMemGB < cfg.criticalMemGB) {
     return { ok: false, reason: `memory critical (${p.availableMemGB.toFixed(1)} GB available)` };
   }
+  // The ceiling holds even with nothing held: an external load (not one of
+  // our own leases) can already have the machine over it.
+  if (p.cpuPct != null && p.cpuPct > cfg.cpuCeilingPct) {
+    return { ok: false, reason: `cpu busy (${Math.round(p.cpuPct)}%)` };
+  }
   if (held === 0) return { ok: true, reason: "idle" };
   if (p.availableMemGB != null && p.availableMemGB < cfg.memFloorGB) {
     return { ok: false, reason: `memory low (${p.availableMemGB.toFixed(1)} GB available)` };
-  }
-  if (p.cpuPct != null && p.cpuPct > cfg.cpuCeilingPct) {
-    return { ok: false, reason: `cpu busy (${Math.round(p.cpuPct)}%)` };
   }
   return { ok: true, reason: "room" };
 }
