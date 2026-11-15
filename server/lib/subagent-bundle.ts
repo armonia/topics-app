@@ -27,7 +27,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { branchGit, bundleBranch, isPlainBranchName } from "../services/branch-on-origin";
+import { branchGit, bundleBranch, carriedRef, isPlainBranchName } from "../services/branch-on-origin";
 import type { GitRunner } from "../services/own-commits";
 
 export interface ParentSnapshotInput {
@@ -131,8 +131,7 @@ export async function adoptCarriedBranch(input: AdoptCarriedBranchInput): Promis
   const { repoPath, branch } = input;
   const run = input.run ?? branchGit;
   if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
-  const carried = `refs/topics/carried/${branch}`;
-  const tip = await run(repoPath, ["rev-parse", "--verify", "-q", carried]);
+  const tip = await run(repoPath, ["rev-parse", "--verify", "-q", carriedRef(branch)]);
   if (tip.code !== 0) return { ok: false, reason: "no carried ref to adopt" };
   const moved = await run(repoPath, ["branch", "-f", branch, tip.stdout.trim()]);
   if (moved.code !== 0) return { ok: false, reason: `git branch failed: ${(moved.stderr ?? "").trim()}` };
