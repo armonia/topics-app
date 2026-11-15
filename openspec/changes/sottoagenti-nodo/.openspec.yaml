@@ -1,5 +1,7 @@
 schema: spec-driven
 created: 2026-11-15
 name: sottoagenti-nodo
-status: draft
+status: approved
+approvato: 2026-11-15
+risposta: "scelte tecniche confermate; atterra solo il documento, l'implementazione va divisa in card parallele sui nodi"
 richiesta: "dobbiamo spostare il carico anche dei sottoagenti sul pc e sul server"
