@@ -358,11 +358,11 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     expect(h.task(CARD).status).toBe("todo");
   });
 
-  it("una card assegnata a mano a un'altra macchina non è toccata dall'overflow", async () => {
+  it("una card assegnata a mano a una macchina offline che non si può accendere torna qui", async () => {
     const h = harness({ pcOnline: false });
     h.seed(CARD, { machineId: PC });
     await holdPastThreshold(h);
-    expect(h.task(CARD).machineId).toBe(PC);
+    expect(h.task(CARD).machineId).not.toBe(PC);
   });
 });
 
@@ -375,12 +375,12 @@ describe("overflow: slots 0 svuota la macchina", () => {
     expect(h.created).toEqual([]);
   });
 
-  it("con slots 0 una card fissata sul PC non parte", async () => {
+  it("con slots 0 una card fissata sul PC non parte lì: viene riassegnata", async () => {
     const h = harness({ floor: false, pcSlots: 0 });
     h.seed(CARD, { machineId: PC });
     await holdPastThreshold(h);
     expect(h.created).toEqual([]);
-    expect(h.task(CARD).status).toBe("todo");
+    expect(h.task(CARD).machineId).not.toBe(PC);
   });
 
   it("con slots 2 le riceve, fissate comprese", async () => {
