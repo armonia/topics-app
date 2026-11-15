@@ -623,3 +623,48 @@ describe("l'atterraggio automatico con un origin vero (noRealign)", () => {
     expect(log(repo, "main")).toContain("ramo: b.txt");
   }, WITH_REAL_GIT);
 });
+
+/**
+ * A pull request squash-merged on GitHub, after which main kept editing the same file. The
+ * tip of main no longer matches the branch, so the realign used to conflict and pull a done
+ * card back to In Progress (card 360127d1, 2026-11-15, PR #1106).
+ */
+describe("a branch squash-merged before main moved on is not landed again", () => {
+  function squashedThenEdited(branchBody: string): string {
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", "one\ntwo\nthree\n"]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", "one\ntwo (card)\nthree\n"], ["card.txt", "card\n"]],
+    });
+    // The squash: the branch's content as one commit on main.
+    writeFileSync(join(repo, "shared.txt"), branchBody);
+    writeFileSync(join(repo, "card.txt"), "card\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Card work (#1106)");
+    // Main then edits the very line the card changed.
+    commit(repo, "shared.txt", "one\ntwo (card, then main)\nthree\n", "main: later edit");
+    return repo;
+  }
+
+  test("content was on main at the squash: nothing to land, no realign merge in the branch", async () => {
+    const repo = squashedThenEdited("one\ntwo (card)\nthree\n");
+    const branchBefore = git(repo, "rev-parse", BRANCH).trim();
+    const mainBefore = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card already squashed");
+
+    expect(res.status).toBe("nothing");
+    expect(git(repo, "rev-parse", BRANCH).trim()).toBe(branchBefore);
+    expect(git(repo, "rev-parse", "main").trim()).toBe(mainBefore);
+  }, WITH_REAL_GIT);
+
+  test("main never held the branch's content: still a realign conflict", async () => {
+    const repo = squashedThenEdited("one\ntwo (something else)\nthree\n");
+
+    const res = await landOn(repo).tryMerge("t1", "Card not on main");
+
+    expect(res.status).toBe("conflict");
+    if (res.status !== "conflict") return;
+    expect(res.realignConflict?.files).toEqual(["shared.txt"]);
+  }, WITH_REAL_GIT);
+});
