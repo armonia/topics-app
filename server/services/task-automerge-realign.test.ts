@@ -719,4 +719,20 @@ describe("a branch squash-merged before main moved on is not landed again", () =
 
     expect(res.status).not.toBe("nothing");
   }, WITH_REAL_GIT);
+
+  test("one hunk changes a line AND adds a new one, main drops only the new one: not «nothing»", async () => {
+    const body = (t: string, extra: string[]) =>
+      ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", `const t = ${t}`, "l11", "l12", "l13", ...extra, "l14", "l15"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", body("5", [])]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", body("10", ["log(t)"])]],
+    });
+    commit(repo, "shared.ts", body("10", ["log(t)"]), "Card work (#1106)");
+    commit(repo, "shared.ts", body("10", []), "main: drop the log");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's new line taken back");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
 });
