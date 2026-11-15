@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.3.117",
+    "version": "2.3.118",
     "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "voice-call: la frase rapida non dice «hai ragione» a una domanda, e il cervello non promette l'esito prima del risultato (#1017)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.3.117",
+    "date": "2026-11-14",
     "sections": {
       "new": [],
       "fixes": [],
