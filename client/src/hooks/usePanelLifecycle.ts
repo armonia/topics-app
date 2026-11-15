@@ -648,9 +648,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     } catch { return {}; }
   });
 
-  // DraftMeta persistence
+  // DraftMeta persistence — the sole copy of a draft's project association;
+  // a failure here only costs something after a reload, but it costs it
+  // silently otherwise.
   useEffect(() => {
-    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch {}
+    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch (e) { console.warn('[usePanelLifecycle] draft-meta could not be saved, a reload will lose each draft\'s project', e); }
   }, [draftMeta]);
 
   // DraftMeta 24h cleanup
@@ -662,7 +664,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       for (const [id, meta] of Object.entries(prev)) {
         if (meta.createdAt && (now - new Date(meta.createdAt).getTime()) >= TWENTY_FOUR_HOURS) {
           changed = true;
-          try { localStorage.removeItem(`draft-content-${id}`); } catch {}
+          try { localStorage.removeItem(`draft-content-${id}`); } catch { /* stale draft content may already be gone */ }
         } else {
           next[id] = meta;
         }
@@ -1675,7 +1677,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // is already gone — bail before pushing a SECOND, spurious undo entry (its
     // panelIndex would be -1, and undo would splice the tab back at the wrong
     // slot, duplicating it). Undo/redo re-add the pane first, so both still work.
-    if (!openPanelsRef.current.includes(topicId)) return;
+    // A project tab can sit in the store's app-level group without being in
+    // the openPanels mirror (a stale snapshot, a restore); bailing there made
+    // its X a silent no-op. A project pane the store still holds closes.
+    const heldProjectPane = isProjectPaneId(topicId) && !!usePaneStore.getState().panes[topicId];
+    if (!openPanelsRef.current.includes(topicId) && !heldProjectPane) return;
     // Le tre (ora quattro) conseguenze della chiusura di una pane BROWSER
     // vivono qui, e non solo nel gestore per-tipo di usePaneLifecycle, perche'
     // questo e' l'UNICO imbuto da cui passano tutte le strade: la X, ⌘W, il
@@ -2302,10 +2308,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setDraftMeta(prev => {
       const next = { ...prev };
       delete next[draftId];
-      try { localStorage.removeItem(`draft-content-${draftId}`); } catch {}
+      try { localStorage.removeItem(`draft-content-${draftId}`); } catch { /* draft content may already be gone */ }
       return next;
     });
-    try { localStorage.removeItem(draftTextKey(draftId)); } catch {}
+    try { localStorage.removeItem(draftTextKey(draftId)); } catch { /* draft text may already be gone */ }
     forgetDraft(draftId);
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);

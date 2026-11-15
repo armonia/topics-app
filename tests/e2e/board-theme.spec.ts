@@ -373,12 +373,16 @@ test.describe("Chrome — i segnali di stato nei due temi", () => {
     { nome: "ok", cls: "text-emerald-800 dark:text-emerald-400" },
     { nome: "attesa", cls: "text-amber-800 dark:text-amber-400" },
     { nome: "guasto", cls: "text-red-700 dark:text-red-400" },
+    // STATUS_INK.working (`lib/statusVisual.ts`): the sky of an agent at work.
+    { nome: "lavoro", cls: "text-sky-800 dark:text-sky-400" },
     { nome: "link-primary", cls: "text-primary" },
   ] as const;
   const GRAFICA = [
     { nome: "pallino-ok", cls: "bg-emerald-600 dark:bg-emerald-400" },
     { nome: "pallino-attesa", cls: "bg-amber-700 dark:bg-amber-400" },
     { nome: "pallino-guasto", cls: "bg-red-500 dark:bg-red-400" },
+    // STATUS_DOT.working.
+    { nome: "pallino-lavoro", cls: "bg-sky-600 dark:bg-sky-400" },
     { nome: "pallino-spento", cls: "bg-app-text-muted" },
   ] as const;
 

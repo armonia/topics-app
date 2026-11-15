@@ -402,11 +402,30 @@ export function machineTooLoaded(load1: number, cores: number): boolean {
   return Number.isFinite(perCore) && perCore > MAX_LOAD_PER_CORE;
 }
 
+/** One topic of the bench corpus, as `/api/topics` hands it back. */
+interface BenchTopic {
+  id: string;
+  name: string;
+  sessionKey: string;
+}
+
+/** A probe response body: every field a probe reads, nothing more. */
+interface ProbeBody {
+  topics?: Record<string, BenchTopic>;
+  messages?: unknown[];
+  total?: number;
+  tasks?: unknown[];
+  recommended?: unknown;
+  files?: unknown[];
+  scripts?: unknown[];
+  server?: { uptimeMs?: unknown };
+}
+
 interface Probe {
   key: RouteKey;
   path: string;
   /** Rejects a response that is not the expected one: a 404 is blazing fast. */
-  ok: (body: any) => boolean;
+  ok: (body: ProbeBody | null) => boolean;
 }
 
 function log(msg: string): void {
@@ -499,14 +518,14 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
-async function api(base: string, path: string, init?: RequestInit): Promise<any> {
+async function api<T = Record<string, unknown>>(base: string, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${path} → ${res.status}: ${text.slice(0, 200)}`);
-  return text ? JSON.parse(text) : null;
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 /** Runs the work in groups: seeding 300 messages one at a time costs more than the bench. */
@@ -531,7 +550,7 @@ async function seed(base: string, dataDir: string): Promise<{ topicId: string; g
     Array.from({ length: CORPUS.topics }, (_, i) => i),
     8,
     async (i) => {
-      const t = await api(base, "/api/topics", {
+      const t = await api<{ id: string }>(base, "/api/topics", {
         method: "POST",
         body: JSON.stringify({ name: `Route bench ${String(i).padStart(3, "0")}` }),
       });
@@ -542,11 +561,11 @@ async function seed(base: string, dataDir: string): Promise<{ topicId: string; g
   // The topic being measured is the FIRST one created, not a random one: the
   // median of `topic_messages` depends on how many messages the session has, and
   // it has to be the same number from one run to the next.
-  const first = await api(base, "/api/topics");
-  const sorted = Object.values(first.topics as Record<string, any>).sort((a: any, b: any) =>
+  const first = await api<{ topics: Record<string, BenchTopic> }>(base, "/api/topics");
+  const sorted = Object.values(first.topics).sort((a, b) =>
     String(a.name).localeCompare(String(b.name)),
   );
-  const target = sorted[0] as any;
+  const target = sorted[0] as BenchTopic;
 
   await inBatches(
     Array.from({ length: CORPUS.messages }, (_, i) => i),
@@ -609,11 +628,11 @@ async function seed(base: string, dataDir: string): Promise<{ topicId: string; g
 
 /** Counts what is actually there, so a measurement on an empty DB is never certified. */
 async function measuredCorpus(base: string, topicId: string, gitPath: string, filesPath: string): Promise<Corpus> {
-  const topics = await api(base, "/api/topics");
-  const msgs = await api(base, `/api/topics/${topicId}/messages?limit=200`);
-  const tasks = await api(base, "/api/all-boards/tasks");
-  const git = await api(base, `/api/git/status?path=${encodeURIComponent(gitPath)}`);
-  const files = await api(base, `/api/files?path=${encodeURIComponent(filesPath)}&depth=1`);
+  const topics = await api<{ topics?: Record<string, unknown> }>(base, "/api/topics");
+  const msgs = await api<{ total?: number }>(base, `/api/topics/${topicId}/messages?limit=200`);
+  const tasks = await api<{ tasks?: unknown[] }>(base, "/api/all-boards/tasks");
+  const git = await api<{ files?: unknown[] }>(base, `/api/git/status?path=${encodeURIComponent(gitPath)}`);
+  const files = await api<unknown[]>(base, `/api/files?path=${encodeURIComponent(filesPath)}&depth=1`);
   return {
     topics: Object.keys(topics.topics ?? {}).length,
     messages: Number(msgs.total ?? 0),
@@ -643,7 +662,7 @@ async function runPass(base: string, probes: Probe[], samples: number): Promise<
       const dt = performance.now() - t0;
 
       if (res.status !== 200) die(`✗ ${probe.path} ha risposto ${res.status}: la rotta non e' misurabile.`, 2);
-      let body: any;
+      let body: ProbeBody | null;
       try {
         body = JSON.parse(text);
       } catch {
@@ -797,11 +816,11 @@ async function main(): Promise<void> {
       {
         key: "topic_messages",
         path: `/api/topics/${topicId}/messages?limit=200`,
-        ok: (b) => Array.isArray(b?.messages) && b.messages.length === 200 && b.total === CORPUS.messages,
+        ok: (b) => Array.isArray(b?.messages) && b?.messages?.length === 200 && b?.total === CORPUS.messages,
       },
       { key: "all_boards_tasks", path: "/api/all-boards/tasks", ok: (b) => (b?.tasks ?? []).length === CORPUS.tasks },
       { key: "dispatch_capacity", path: "/api/system/dispatch-capacity", ok: (b) => typeof b?.recommended === "number" },
-      { key: "git_status", path: `/api/git/status?path=${encodeURIComponent(gitPath)}`, ok: (b) => Array.isArray(b?.files) && b.files.length === CORPUS.git_changes },
+      { key: "git_status", path: `/api/git/status?path=${encodeURIComponent(gitPath)}`, ok: (b) => Array.isArray(b?.files) && b?.files?.length === CORPUS.git_changes },
       { key: "files", path: `/api/files?path=${encodeURIComponent(filesPath)}&depth=1`, ok: (b) => Array.isArray(b) && b.length === CORPUS.file_entries },
       { key: "scripts", path: "/api/scripts", ok: (b) => Array.isArray(b?.scripts) },
       { key: "system_status", path: "/api/system/status", ok: (b) => typeof b?.server?.uptimeMs === "number" },

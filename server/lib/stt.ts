@@ -601,7 +601,7 @@ async function transcribeLocal(audio: SttAudio, cfg: LocalConfig): Promise<{ tra
       .trim();
     return { transcript, model: `whisper.cpp ${cfg.modelPath.split("/").pop()}` };
   } finally {
-    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort: temp dir cleanup, the transcript is already built */ }
   }
 }
 

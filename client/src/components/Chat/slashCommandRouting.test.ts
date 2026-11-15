@@ -46,7 +46,7 @@ const ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 const SLASH_COMMANDS_SRC = read("client/src/components/Chat/slashCommands.ts");
-const CHAT_PANE = read("client/src/components/Chat/ChatPane.tsx");
+const CHAT_PANE = read("client/src/components/Chat/ChatPane.tsx") + read("client/src/components/Chat/chatSlashCommands.ts");
 const ADAPT = read("server/context/adapt.ts");
 
 /** The commands the composer offers, from the `SLASH_COMMANDS` literal. */

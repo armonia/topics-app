@@ -30,13 +30,14 @@ import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import LOAD_SCREEN_IT from '../../lib/i18n-loadscreen-it';
 import LOAD_SCREEN_EN from '../../lib/i18n-loadscreen-en';
-import { apiFetch } from '../../lib/shell/net';
+import { readJson } from '../../lib/readJson';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { formatMem, formatPct, macGauges, pcView } from '../../lib/machineProcesses';
 import { readScreenData, readoutRows, screenZoom, sessionsOn, sleepView, type Readout, type ScreenJob, type ScreenOutcome, type SleepView } from '../../lib/loadScreen';
 import { FAINT, SECTION, SECTION_HEAD } from '../Processes/processesStyles';
-import { Gauge, PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
+import { PcStateBadge, ProcessRowView } from '../Processes/MachineProcessesPane';
+import { Gauge } from '../Processes/Gauge';
 import { ConsumptionNotes, SessionRowView } from '../Processes/SessionConsumption';
 import { useSecondTick, useSessionConsumption } from '../../hooks/useSessionConsumption';
 import { clockOf } from '../../lib/sessionConsumption';
@@ -62,15 +63,6 @@ interface Reads {
   hubFailing: boolean;
   /** A read came back and the machine gave no readout: only then the screen says it does not answer. */
   readoutFailed: boolean;
-}
-
-async function readJson(path: string): Promise<unknown> {
-  try {
-    const r = await apiFetch(path);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
 }
 
 function useScreenReads(machine: string | null): Reads {

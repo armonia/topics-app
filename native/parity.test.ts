@@ -257,7 +257,7 @@ test.skipIf(!nativeWalkFileTree)("native file tree matches JavaScript on the fix
     expect(actual).toEqual(expected);
     expect(actual.find(({ name }) => name === "locked")?.children).toEqual([]);
   } finally {
-    try { chmodSync(locked, 0o755); } catch {}
+    try { chmodSync(locked, 0o755); } catch { /* cleanup; rmSync below reports a real failure */ }
     rmSync(base, { recursive: true, force: true });
   }
 });

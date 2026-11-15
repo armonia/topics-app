@@ -11,8 +11,8 @@
  */
 import { Bot, MessagesSquare } from 'lucide-react';
 import { CHIP_INK_DIM } from './identityChip';
-import { SEGNALE_OK } from './chromeSignals';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { STATUS_INK } from '@/lib/statusVisual';
+import { StatusIcon } from '../Board/atoms';
 import type { SignalKind, WorkSignal } from './workSignals';
 import { useT } from '@/hooks/useT';
 
@@ -38,7 +38,7 @@ function Signal({ kind, n, title }: { kind: SignalKind; n: number; title?: strin
   const { Icon, tint, label, alive } = SIGNALS[kind];
   return (
     <span data-signal={kind} className={`flex items-center gap-0.5 ${tint}`} title={title ?? tr(label, { n })}>
-      {alive ? <SparkLoader size={11} /> : <Icon size={11} />}
+      {alive ? <StatusIcon status="in_progress" live className="h-[11px] w-[11px]" /> : <Icon size={11} />}
       <span>{n}</span>
     </span>
   );
@@ -54,6 +54,6 @@ const SIGNALS: Record<SignalKind, {
 }> = {
   // The only pulsing one: it is the only one where something is happening
   // while you look at it.
-  working: { Icon: Bot, tint: SEGNALE_OK, label: 'statusBar.signals.working', alive: true },
+  working: { Icon: Bot, tint: STATUS_INK.working, label: 'statusBar.signals.working', alive: true },
   open: { Icon: MessagesSquare, tint: CHIP_INK_DIM, label: 'statusBar.signals.open' },
 };

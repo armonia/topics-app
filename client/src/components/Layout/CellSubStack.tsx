@@ -46,6 +46,12 @@ export interface CellSubStackProps {
   onResize?: (nextHeights: number[]) => void;
   /** Pass-through for InsertDivider visibility during drag. */
   isDragActive?: boolean;
+  /**
+   * The ONE slot to show (the phone): the others stay mounted with
+   * `display:none`, so their state survives, and the dividers go away.
+   * `null`/absent = every slot, the desktop stack.
+   */
+  soloKey?: string | null;
 }
 
 export function CellSubStack({
@@ -55,6 +61,7 @@ export function CellSubStack({
   renderStackItem,
   onResize,
   isDragActive: _isDragActive,
+  soloKey = null,
 }: CellSubStackProps) {
   const items = stack?.items ?? [];
   const stacked = items.length > 0;
@@ -62,6 +69,9 @@ export function CellSubStack({
   const heights = stacked && stack!.heights.length === totalSlots
     ? stack!.heights
     : Array.from({ length: totalSlots }, () => 1 / totalSlots);
+  const solo = stacked && soloKey !== null;
+  const slotStyle = (slotKey: string | undefined, weight: number): React.CSSProperties =>
+    !solo ? { flex: `${weight} 1 0%` } : slotKey === soloKey ? { flex: '1 1 0%' } : { display: 'none' };
 
   return (
     <div
@@ -78,21 +88,23 @@ export function CellSubStack({
           preview has to say WHICH stacked pane a release would join. */}
       <div
         className="relative flex flex-col min-h-0 min-w-0 overflow-hidden"
-        style={{ flex: `${heights[0]} 1 0%` }}
+        style={slotStyle(primaryKey, heights[0])}
         data-split-leaf={stacked ? primaryKey : undefined}
       >
         {primary}
       </div>
       {items.map((itemKey, i) => (
         <Fragment key={itemKey}>
-          <SubStackResizeDivider
-            slotIdx={i}
-            heights={heights}
-            onResize={onResize}
-          />
+          {!solo && (
+            <SubStackResizeDivider
+              slotIdx={i}
+              heights={heights}
+              onResize={onResize}
+            />
+          )}
           <div
             className="relative flex flex-col min-h-0 min-w-0 overflow-hidden"
-            style={{ flex: `${heights[i + 1]} 1 0%` }}
+            style={slotStyle(itemKey, heights[i + 1])}
             data-split-leaf={itemKey}
           >
             {renderStackItem(itemKey, i)}

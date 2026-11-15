@@ -196,7 +196,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* test teardown: temp dir may already be gone */ }
 });
 
 describe("multipart · che cosa arriva DAVVERO nel tipo di una parte", () => {

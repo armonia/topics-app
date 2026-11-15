@@ -29,7 +29,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { parseReviewChecks, serializeReviewChecks, type CheckRun } from "./review-checks";
-import { listLandingAuditCandidates } from "./landing-candidates";
+import { listLandingAuditCandidates, type LandingAuditCandidate } from "./landing-candidates";
 import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
@@ -39,11 +39,13 @@ import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 /** Automatic requeues of a machine-parked card before it stays for a human. */
 export const MACHINE_RETRY_CAP = 3;
+/** Rounds a `visibile` card may bounce off the no-preview gate before it stays in backlog for a human. */
+export const VISIBLE_PREVIEW_BOUNCE_CAP = 2;
 /** First delay before a machine-parked card goes back to todo; doubles each round. */
 export const MACHINE_RETRY_BASE_MS = 30 * 60_000;
 import { agentCardGaps, incompleteCardNotice, INCOMPLETE_CARD_NOTICE_PREFIX } from "../../shared/agent-card-contract";
 import { waitsLineAsk } from "../../shared/waits-on-person";
-import { STAGE_AI_REVIEW, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
+import { STAGE_AI_REVIEW, STAGE_CI, STAGE_HUMAN_REVIEW, agentAskInThread, awaitsHumanSql, defaultColumnFor, namesHumanReviewWithoutAsk, stageAtBirth, stageForDelivery, stageForStatusChange, type WorkflowColumn, type WorkflowPresetId } from "../../shared/workflow";
 import { requestAiReviewNotice } from "./ai-review-notice";
 import { checkStage, clearStagesOutsideWorkflow, dropStageOutsideTarget, readBoardWorkflow, routeAskOutOfAiReview, stampStaleAiReview, clearAiReviewReminderStamp, writeBoardWorkflow } from "./board-workflow";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "./dispatch-block-signal";
@@ -78,6 +80,7 @@ import { sliceCodePoints } from "../lib/code-points";
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
+import { agentAuthorSql, isAgentAuthor } from "../../shared/comment-author";
 import { markTargetNotificationsSeen } from "../db/notification-log";
 import { withCardAttention } from "../attention/card-sync";
 import {
@@ -264,6 +267,9 @@ const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
  * `checksState` per decidere se il conduttore puo' chiudere da solo, e
  * senza azzeramento decide su dati di una consegna che non esiste piu'.
  */
+/** Consecutive same-tip redeliveries sent back to todo before the card goes to review flagged. */
+const SAME_TIP_BOUNCE_CAP = 2;
+
 const DELIVERY_SNAPSHOT_COLUMNS = [
   "delivery_branch",
   "delivery_commit",
@@ -609,6 +615,8 @@ export interface TaskService {
      * question, or its buttons vanish. System questions stay loud elsewhere.
      */
     quietReason?: boolean;
+    /** The commit this turn hands in, when the caller knows it (node lane). Same as the one sent back + no summary = no review. */
+    deliveredTip?: string | null;
     /**
      * How many files the worktree changed WITHOUT committing them, counted now.
      * `undefined`/`null` = nobody could measure it, which the sheet reads
@@ -972,8 +980,18 @@ export interface TaskService {
   deferForWait(args: { taskId: string; reason: string; minutes?: number; by?: string; source?: "agent" | "machine" }): Task;
   /** Overwrite the topic binding of a claimed task (dispatcher: placeholder → real topic). */
   bindTopic(args: { taskId: string; topicId: string; freshSession?: boolean }): Task;
+  /** The run this card last created on a paired node (persisted, survives a restart), or null. */
+  nodeRunOf(taskId: string): string | null;
+  /** Remember (or forget, with null) the card's run on a paired node. */
+  setNodeRun(taskId: string, runId: string | null): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
+  /**
+   * The CI phase (`integration-queue.ts`): `who` records that the work goes to
+   * main and puts the card in the `ci` column when it is in review; `null`
+   * clears both (a person's reject, a landed card).
+   */
+  setLandIntent(args: { taskId: string; who: "human" | "auto" | null; inCi?: boolean }): Task;
   /** Persist the model actually resolved for a run (auto-pick → concrete id) so
    *  the card stops showing "auto" once the agent has run. */
   setModel(args: { taskId: string; model: string | null; effort?: string | null }): Task;
@@ -1123,7 +1141,7 @@ export interface TaskService {
    * esattamente il modo in cui `landing_state` è finito a dire `unlanded` su
    * card dimostrabilmente dentro main.
    */
-  listLandingAuditCandidates(): Array<{ id: string; projectId: string; deliveryBranch: string | null; deliveryCommit: string | null }>;
+  listLandingAuditCandidates(): LandingAuditCandidate[];
   /**
    * Persist a landing verdict. `witnessed` = lo scrive chi il land l'ha VISTO
    * (merge uscito zero, o fallito), non chi lo deduce dopo: quel verdetto
@@ -2723,6 +2741,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
       ...(r.prior_branch ? { priorBranch: r.prior_branch } : {}),
+      ...(r.past_delivery_branches ? { pastDeliveryBranches: String(r.past_delivery_branches).split(/\s+/).filter(Boolean) } : {}),
       ...(r.prior_uncommitted_files ? { priorUncommittedFiles: r.prior_uncommitted_files } : {}),
       // WHO opened it; NULL for every card written before the column.
       createdBy: r.created_by ?? null,
@@ -2735,6 +2754,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.stage ? { stage: r.stage } : {}),
       ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
       ...(r.for_you ? { forYou: parseForYou(r.for_you) } : {}),
+      ...(r.land_intent ? { landIntent: r.land_intent } : {}),
+      ...(r.land_intent_commit ? { landIntentCommit: r.land_intent_commit } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
       // a UI state, so five repeated null keys on every board card carry no
       // information. A delegated row still gets the complete audit identity.
@@ -3478,7 +3499,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // have made this check blind to exactly the sentence it exists for.
       const rows = db.prepare(
         `SELECT content FROM task_comments
-          WHERE task_id = ? AND author NOT IN ('user', 'system')
+          WHERE task_id = ? AND ${agentAuthorSql()}
             AND COALESCE(kind, 'comment') IN ('comment', 'delivery')
             AND (? IS NULL OR created_at >= ?)
           ORDER BY created_at DESC LIMIT 3`,
@@ -3571,7 +3592,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (has) return false;
       const last = db.prepare(
         `SELECT id FROM task_comments
-          WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind = 'comment' AND TRIM(content) <> ''
+          WHERE task_id = ? AND ${agentAuthorSql()} AND kind = 'comment' AND TRIM(content) <> ''
           ORDER BY created_at DESC, rowid DESC LIMIT 1`,
       ).get(taskId) as { id: string } | null;
       if (!last) return false;
@@ -3584,7 +3605,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     const turnStart = lastTurnStart(taskId);
     const c = (db.prepare(
       `SELECT COUNT(*) AS c FROM task_comments
-        WHERE task_id = ? AND author NOT IN ('user', 'system') AND kind IN ('comment', 'delivery')
+        WHERE task_id = ? AND ${agentAuthorSql()} AND kind IN ('comment', 'delivery')
           AND (? IS NULL OR created_at >= ?)`,
     ).get(taskId, turnStart, turnStart) as any).c as number;
     return c > 0;
@@ -4018,6 +4039,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         try {
           service.addComment({ taskId: id, author: "system", content: incompleteCardNotice(bornGaps), projectId: input.projectId });
         } catch { /* best-effort: the flag on the card is what matters */ }
+      }
+      // A card BORN pinned (`stayLocal` from the composer) has no
+      // `stayLocalUntil` either, same as a human toggling it later on an
+      // existing card — same reason trail applies (see `update`, above).
+      if (input.stayLocal) {
+        const reason = (input.stayLocalReason ?? "").trim();
+        try {
+          service.addComment({
+            taskId: id, author: "system", kind: "service", projectId: input.projectId,
+            content: reason
+              ? `«Solo Mac», senza scadenza: ${reason}`
+              : "«Solo Mac», senza scadenza: pin manuale alla nascita, nessuna ragione scritta.",
+          });
+        } catch { /* best-effort: the pin stands without its line */ }
       }
       // Its own statement, and only when there is a stage: a board on the
       // default workflow writes the same row as before.
@@ -4555,6 +4590,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           // machine, starts FROM it (df5fd8c5 restarted from main without it).
           // A branch already on main is no base: main itself is newer.
           if (row.delivery_branch) put("prior_branch", branchStillAhead(row) ? row.delivery_branch : null);
+          // The tip that was sent back: a resumed turn handing in this same commit did no work.
+          if (row.delivery_commit) put("prior_commit", row.delivery_commit);
+          if (row.delivery_branch) put("past_delivery_branches", `${row.past_delivery_branches ?? ""} ${row.delivery_branch}`.trim());
           // The uncommitted files outlive their count too: they are still in
           // this machine's worktree, and the overflow must not leave them behind.
           if (row.delivery_uncommitted_files != null) put("prior_uncommitted_files", row.delivery_uncommitted_files || null);
@@ -4664,6 +4702,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           put("wait_streak", 0);
           put("wait_reason", null);
           put("wait_since", null);
+          // Same reset, same reason: a delivery that actually reaches review
+          // (or a card closed) is not a card still bouncing off the preview
+          // gate — see `visible_preview_bounces` in `deliverToReviewBySystem`.
+          if (patch.status === "review") put("visible_preview_bounces", 0);
         }
         // A CLOSED CARD DOES NOT WEAR A FAILURE.
         //
@@ -4707,6 +4749,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      // A PERMANENT `stayLocal` (no `stayLocalUntil`) gets a reason on the
+      // thread, not only on the row: `task-dispatcher-remote-node-empty.ts`
+      // is the one place the DISPATCHER pins a card for good, and it already
+      // writes its own explanation there — skip it here (`by === "dispatcher"`)
+      // or this comment would double up. Every OTHER caller (the PATCH route,
+      // the TaskDetail toggle, the composer checkbox) reaches this same spot,
+      // so a permanent pin set by a person never goes unexplained, even
+      // without a reason typed in (`stayLocalReason` falls back to a generic
+      // line rather than staying silent).
+      if (patch.stayLocal === true && patch.stayLocalUntil === undefined && by !== "dispatcher") {
+        const reason = (patch.stayLocalReason ?? "").trim();
+        try {
+          this.addComment({
+            taskId, author: by, kind: "service",
+            content: reason
+              ? `«Solo Mac», senza scadenza: ${reason}`
+              : "«Solo Mac», senza scadenza: pin manuale, nessuna ragione scritta.",
+          });
+        } catch { /* best-effort: the pin stands without its line */ }
+      }
       if (patch.parentTaskId) releaseContainerFromCardContract(patch.parentTaskId);
       if (nextStage === STAGE_AI_REVIEW && (row.stage !== STAGE_AI_REVIEW || current !== "review")) announceAiReview(taskId);
       // Un task che ESCE da review si porta dietro la sua richiesta di
@@ -4908,7 +4970,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // dall'umano). Un piano rifatto dopo «Da rivedere» porta le stesse opzioni
       // e quindi RIMPIAZZA il puntatore; una rettifica qualunque, o la consegna
       // con «Landa su main», non lo toccano.
-      if (isPlanDelivery && row.plan_first && author !== "user" && author !== "system") {
+      if (isPlanDelivery && row.plan_first && isAgentAuthor(author)) {
         db.prepare("UPDATE tasks SET plan_comment_id = ? WHERE id = ?").run(id, taskId);
       }
       // Evidence attached AFTER the review transition (review-first delivery
@@ -5086,19 +5148,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             // Read before the snapshot is cleared (SQLite evaluates SET on the old row).
             "prior_branch = CASE WHEN delivery_branch IS NULL THEN prior_branch " +
             "WHEN landing_state IN ('landed', 'superseded') THEN NULL ELSE delivery_branch END, " +
+            "prior_commit = COALESCE(delivery_commit, prior_commit), " +
+            "past_delivery_branches = CASE WHEN delivery_branch IS NULL THEN past_delivery_branches " +
+            "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END, " +
             "prior_uncommitted_files = CASE WHEN delivery_uncommitted_files IS NULL THEN prior_uncommitted_files " +
             "ELSE NULLIF(delivery_uncommitted_files, 0) END, " +
             DELIVERY_SNAPSHOT_COLUMNS.map((c) => `${c} = NULL`).join(", ") + ", " +
             "landing_state = NULL, landing_checked_at = NULL, landing_witnessed = 0, updated_at = ? WHERE id = ?",
         ).run(target, ts, taskId);
         markReopened(taskId, "review", target, "human", by);
+        // A PERSON's reject takes back the decision to land: the next delivery is theirs to look at again.
+        // The system's own bounces (a red, a conflict in the CI phase) keep it.
+        if (by !== "system") db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL WHERE id = ?").run(taskId);
       } else {
         // `done_actor = 'human'`: è LA decisione di Attilio, ed è ciò che il
         // cancello di riapertura legge (un agente non la ribalta). Il segno di
         // «riaperta» si azzera: il ciclo si è chiuso qui.
         db.prepare(
           "UPDATE tasks SET status = ?, completed_at = ?, dispatch_state = NULL, done_actor = 'human', " +
-            "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, updated_at = ? WHERE id = ?",
+            "reopened_at = NULL, reopened_by = NULL, reopened_actor = NULL, " +
+            // A closed card has no land pending: the CI phase's decision ends with it.
+            "land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL, updated_at = ? WHERE id = ?",
         ).run(target, ts, ts, taskId);
       }
       // The human decision ends the review round and its column: a stage left
@@ -5623,13 +5693,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
-      // La serie: stessa ragione ⇒ continua, ragione nuova ⇒ ricomincia da uno.
+      // The count: same reason ⇒ it goes on, new reason ⇒ it restarts from one.
       // `waitReasonKey` normalizza, perché un turno nuovo riscrive a mano quasi
       // la stessa frase e «quasi» non deve valere come «un'altra attesa».
       const chiave = waitReasonKey(detto);
       const stessa = !!row.wait_streak && (row.wait_reason ?? "") === chiave;
       const streak = stessa ? (row.wait_streak as number) + 1 : 1;
-      const since = stessa && row.wait_since ? (row.wait_since as string) : ts;
+      // The series CLOCK ignores the words: if the card was already waiting it
+      // keeps running whatever the reason. Card 60c4b56a: five waits in three
+      // days on one condition, reworded each time, and the time cap never
+      // fired. Real progress resets the series elsewhere (delivery, subtasks).
+      const alreadyWaiting = Number(row.wait_streak) > 0 && !!row.wait_since;
+      const since = alreadyWaiting ? (row.wait_since as string) : ts;
       const serieMs = Math.max(0, Date.parse(ts) - Date.parse(since));
       // IL TENTATIVO SI RIMBORSA, e questa è la riga che chiude il guasto.
       //
@@ -5673,10 +5748,46 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason }): Task {
+    deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason, deliveredTip }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       const ts = now();
+      // SAME TIP AS THE ONE SENT BACK, NO WORD FROM THE AGENT: a resumed turn
+      // that hands in the commit that was just rejected did no work, and
+      // review would open a full CI run on it (13/11, same commit three times).
+      // First time: back to todo with the reason. Second: review, flagged, so a
+      // person decides instead of the loop going on.
+      const sameTip = !!deliveredTip && !!row.prior_commit && deliveredTip === row.prior_commit
+        && !hasFreshAgentComment(taskId);
+      if (sameTip) {
+        const bounces = Number(row.same_tip_bounces ?? 0) + 1;
+        if (bounces < SAME_TIP_BOUNCE_CAP) {
+          db.prepare(
+            `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+                status = 'todo', dispatch_state = NULL, dispatch_error = NULL,
+                wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+                dispatch_deferred_until = NULL, same_tip_bounces = ?, updated_at = ? WHERE id = ?`,
+          ).run(bounces, ts, taskId);
+          if (row.status !== "todo") logStatus(taskId, row.status, "todo", "dispatcher");
+          markReopened(taskId, row.status, "todo", "system", "dispatcher");
+          try {
+            this.addComment({
+              taskId, author: "system", kind: "service", messageId: messageId ?? null,
+              content: "Il turno ha riconsegnato lo stesso commit di prima, senza commit nuovi e senza resoconto: non apro la review. Torna in lavorazione: leggi il motivo del rimando, fai le modifiche e commenta cosa hai cambiato.",
+            });
+          } catch { /* best-effort */ }
+          return rowToTask(getTaskRow(taskId));
+        }
+        db.prepare("UPDATE tasks SET same_tip_bounces = 0 WHERE id = ?").run(taskId);
+        try {
+          this.addComment({
+            taskId, author: "system", kind: "comment",
+            content: "Nessun lavoro fatto: anche il secondo turno ha riconsegnato lo stesso commit rimandato, senza resoconto.",
+          });
+        } catch { /* best-effort */ }
+      } else if (Number(row.same_tip_bounces ?? 0) > 0) {
+        db.prepare("UPDATE tasks SET same_tip_bounces = 0 WHERE id = ?").run(taskId);
+      }
       // LA RIGA SI SCRIVE DOPO LE GUARDIE, non prima. Stava in cima perché così
       // era «l'ultima parola sulla card» — ragione caduta con `ad1516aca`, che
       // garantisce il trasporto dell'ultima parola vera quale che sia la sua
@@ -5757,6 +5868,55 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           catch { /* best-effort */ }
         }
         return rowToTask(getTaskRow(taskId));
+      }
+      // VISIBLE CARD, NO REAL EVIDENCE: this door used to hand Review a
+      // generic delivery-sheet diagram for a card labelled `visibile` (it
+      // touches client/src), leaving the reviewer nothing to judge "a vista".
+      // The agent-driven PATCH already refuses this with `review_needs_preview`
+      // (routes/tasks.ts) — but THIS door fires when the turn ends on its own,
+      // with no agent left to answer a 409. Same fix as the children guard
+      // above: do not finalize into review, send it back for another turn.
+      const cardLabels = (db.prepare(
+        "SELECT label FROM task_labels WHERE task_id = ?",
+      ).all(taskId) as Array<{ label: string }>).map((r) => r.label);
+      if (cardLabels.includes("visibile")) {
+        const currentPreview = (row.preview_image ?? "").trim();
+        if (!currentPreview || isDeliverySheetPath(currentPreview)) {
+          // THE BOUNCE HAS A TETTO. Sending the card back to `todo` hands it to
+          // the next agent, who has no browser either (kickoff rule on this
+          // fleet), hits the same gate and bounces again — measured 11/11: 5
+          // cards in 30 minutes, none of them an agent's own turn burning its
+          // own budget, all of them this door's requeue. After
+          // `VISIBLE_PREVIEW_BOUNCE_CAP` rounds the condition is not "try
+          // again", it is "nobody on this board can produce this photo" — a
+          // decision for a human, not another turn. `todo` keeps dispatching;
+          // `backlog` stops until a person acts (land a headless-browser path,
+          // or attach the evidence by hand).
+          const bounces = Number(row.visible_preview_bounces ?? 0) + 1;
+          const capped = bounces >= VISIBLE_PREVIEW_BOUNCE_CAP;
+          const nota = capped
+            ? `Card visibile (tocca client/src) senza foto prima/dopo dopo ${bounces} giri: nessun agente di questa board può aprire un browser per farla, quindi non la rimetto in coda a vuoto. Resta in Backlog finché una persona non decide (ricattura automatica dell'evidenza, un browser senza schermo su un nodo che non è questo, o l'anteprima allegata a mano).`
+            : "Card visibile (tocca client/src) senza foto prima/dopo: non entra in review così, torna in coda per un altro turno.";
+          db.prepare(
+            `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+                status = ?, dispatch_state = NULL, dispatch_error = ?,
+                wait_streak = 0, wait_reason = NULL, wait_since = NULL,
+                dispatch_deferred_until = NULL, visible_preview_bounces = ?, updated_at = ? WHERE id = ?`,
+          ).run(capped ? "backlog" : "todo", nota, bounces, ts, taskId);
+          const dest = capped ? "backlog" : "todo";
+          if (row.status !== dest) logStatus(taskId, row.status, dest, "dispatcher");
+          markReopened(taskId, row.status, dest, "system", "dispatcher");
+          try {
+            this.addComment({
+              taskId, author: "system", kind: "service",
+              content: capped
+                ? nota
+                : `${nota} Allega update_task(previewImage=<path assoluto>) con la foto prima/dopo, poi richiedi di nuovo lo status review.`,
+              messageId: messageId ?? null,
+            });
+          } catch { /* best-effort */ }
+          return rowToTask(getTaskRow(taskId));
+        }
       }
       // Qui, e solo qui, la card va DAVVERO in review: è il punto in cui «l'ho
       // portato io in review» smette di essere una previsione e diventa un fatto.
@@ -6560,6 +6720,32 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "UPDATE tasks SET agent_tokens = MAX(COALESCE(agent_tokens, 0), ?), agent_cache_read_tokens = MAX(COALESCE(agent_cache_read_tokens, 0), ?), updated_at = ? WHERE id = ?",
       ).run(tok, cr, now(), taskId);
+      return rowToTask(getTaskRow(taskId));
+    },
+
+    nodeRunOf(taskId) {
+      const row = db.prepare("SELECT node_run_id FROM tasks WHERE id = ?").get(taskId) as { node_run_id: string | null } | null;
+      return row?.node_run_id ?? null;
+    },
+
+    setNodeRun(taskId, runId) {
+      db.prepare("UPDATE tasks SET node_run_id = ? WHERE id = ?").run(runId, taskId);
+    },
+
+    setLandIntent({ taskId, who, inCi }): Task {
+      const row = getTaskRow(taskId);
+      if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      const ts = now();
+      if (who === null) {
+        db.prepare("UPDATE tasks SET land_intent = NULL, land_intent_at = NULL, land_intent_commit = NULL, stage = CASE WHEN stage = ? THEN NULL ELSE stage END, updated_at = ? WHERE id = ?")
+          .run(STAGE_CI, ts, taskId);
+      } else {
+        // A person's decision is never downgraded to the machine's.
+        const keep = row.land_intent === "human" ? "human" : who;
+        db.prepare("UPDATE tasks SET land_intent = ?, land_intent_at = COALESCE(land_intent_at, ?), land_intent_commit = delivery_commit, updated_at = ? WHERE id = ?")
+          .run(keep, ts, ts, taskId);
+        if (inCi && row.status === "review") db.prepare("UPDATE tasks SET stage = ?, human_ask = NULL WHERE id = ?").run(STAGE_CI, taskId);
+      }
       return rowToTask(getTaskRow(taskId));
     },
 

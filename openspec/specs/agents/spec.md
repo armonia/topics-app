@@ -695,9 +695,14 @@ Spawning SHALL be refused (429) past any of these limits:
 - depth 2: a child may spawn, a grandchild may not (choice 3 of
   `subagent-nativi`);
 - 5 live children per parent;
-- 6 live sub-agents across the machine.
+- across the machine, no fixed number: a child SHALL be refused only when the
+  dispatcher's admission, priced for one sub-agent, holds it on memory (the
+  RAM/disk floor or the free-memory quota). The CPU axis SHALL NOT hold a
+  child. Changed on 15/11 (Attilio: «rimuoverlo e farlo dinamico»): the fixed 6
+  dated from CLI children of ~300 MB, and six native children of 40-60 MB were
+  refusing every spawn with 22 GB free.
 
-All three SHALL be counted from the persisted sub-agent rows joined with the
+The first two SHALL be counted from the persisted sub-agent rows joined with the
 live PTYs, so a restart does not reset them. The depth walk SHALL cross native
 children through the session key of their chat. A retired child counts toward
 none of them; a native child holds a slot only while its turn runs.
@@ -706,8 +711,7 @@ A child at the depth cap on the engine SHALL NOT be offered the five
 sub-agent tools (`spawn_agent`, `send_to_agent`, `read_agent`, `list_agents`,
 `stop_agent`), and SHALL be refused them at execution too.
 
-The machine-wide refusal SHALL name the parent and the name of each child
-holding a slot. The board refusals (`boardSpawnRefusal`) SHALL keep running
+The memory refusal SHALL say which memory clause held and with what numbers. The board refusals (`boardSpawnRefusal`) SHALL keep running
 first and unchanged.
 
 Dove cambiarla: scelta 3 di `subagent-nativi` (profondità 2 contro 1); scelta 4
@@ -796,11 +800,13 @@ Its prompt SHALL be the chat's first message, sent through the chat route of
 the server itself; no process and no PTY SHALL be started for it. Its row in
 `subagents` SHALL carry `runtime = 'topics'` and the chat's session key.
 
-The engine SHALL be skipped, and the child started as a CLI, when the engine
-is not connected, or when the child would have no project Topics knows (a
-`cwd` that is not a known project, a terminal parent outside one). The answer
-SHALL then carry `runtime: "claude-code"` and the reason; a call that asked for
-`runtime: "topics"` SHALL instead be refused (503 or 400) with that reason.
+The CLI SHALL start only when the call asks for `runtime: "claude-code"`.
+A `cwd` that is not a project Topics knows SHALL NOT become the child's project:
+the child SHALL stand in the parent's project and receive the folder as the
+first line of its prompt, to reach with absolute paths. With no parent project
+to stand in, or with the engine not connected, the call SHALL be refused (400
+or 503) with the reason and the hint to pass `runtime: "claude-code"`. Changed
+on 15/11: 58 children in two weeks had started a CLI nobody asked for.
 
 With `runtime: "claude-code"` the child SHALL be the interactive CLI of
 SUBAGENT-01..17, unchanged.
@@ -1184,3 +1190,68 @@ person in its own channel. A chat that is not a child keeps the tool.
 - **GIVEN** a native child whose profile lists `ask_user_question`
 - **WHEN** the tool policy is asked about that tool
 - **THEN** it is refused, while the child's other granted tools stay allowed
+
+### Requirement: SUBAGENT-24 — A session that can delegate is told when, and reminded after a long inline run
+
+A headless Topics session (claude-code chat or card, native engine chat with a project) that can call `spawn_agent` SHALL carry the delegation policy (`server/lib/delegation-policy.ts`) in its system prompt: delegate exploring, reading logs and running suites; send independent pieces 2-4 at once; give each child a self-contained mandate; ask for paths, line ranges and exit codes back. After 25 inline work calls (shell, read, search, process output) in a row without a delegation, on a context of at least 120k tokens, the session SHALL get one reminder in its tool results: through a synchronous `PostToolUse` hook on the CLI, as a text block on the native engine, the count carried across a detached turn. A delegation SHALL reset the count. A child at the depth cap, the global coordinator, a chat with no project and an interactive terminal pane SHALL get neither. `TOPICS_DELEGATION_NUDGE=off` turns the reminder off.
+
+#### Scenario: A long inline run on a big context
+- **GIVEN** a headless session at 200k tokens of context
+- **WHEN** it makes its 25th inline work call in a row without calling `spawn_agent`
+- **THEN** the tool results of that call carry the reminder, and the next one comes 25 calls later
+
+#### Scenario: A child at the depth cap
+- **GIVEN** a sub-agent whose depth is at the cap
+- **WHEN** its session is spawned
+- **THEN** its system prompt has no delegation policy and no reminder hook is registered
+
+### Requirement: SUBAGENT-25 — Which children may leave this Mac is one pure decision
+
+Before a `spawn_agent` child can run on a paired node, `decideRemoteSpawn` (`server/lib/subagent-remote-decision.ts`) SHALL say whether it may and why, with no fs, db or process access of its own. An explicit `runtime: "claude-code"` SHALL stay here. A child that needs a live mac-only resource (macOS, a browser pane, a session, Jarvis: the reasons a card's `stayLocal` protects) SHALL stay here. Otherwise a git working tree, GitHub-hosted or local-only, MAY go remote, and a folder with no `.git` SHALL stay here. Each answer SHALL carry its reason in words.
+
+#### Scenario: A git repo with nothing mac-only
+- **GIVEN** a spawn in a git working tree with no runtime preference and no mac-only resource
+- **WHEN** the decision is asked
+- **THEN** it answers remote, with the reason that a node can clone and push to it
+
+#### Scenario: A folder that is not a repository
+- **GIVEN** a spawn whose `cwd` has no `.git`
+- **WHEN** the decision is asked
+- **THEN** it answers local, with the reason that a node has nothing to check out
+
+### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
+
+The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten, and so SHALL a parent branch checked out in the parent or in one of its worktrees. Both legs SHALL work on a repository with no `origin`.
+
+#### Scenario: Round trip on a repo with no origin
+- **GIVEN** a parent repo with no `origin` and an uncommitted change
+- **WHEN** its snapshot goes to an empty repo, a commit is made there on the child's branch, and that branch comes back
+- **THEN** the parent's tree is unchanged by the snapshot and the returned branch holds the child's commit on top of the uncommitted change
+
+#### Scenario: A new file the parent never added
+- **GIVEN** a parent with a new untracked file and an ignored one
+- **WHEN** the snapshot is taken and opened on the node
+- **THEN** the new file is there, the ignored one is not, and the parent's status and stash list are unchanged
+
+#### Scenario: The parent already has a branch of that name
+- **GIVEN** a parent branch with a commit the child's returning branch does not contain
+- **WHEN** the child's branch is adopted
+- **THEN** the adoption is refused and the parent branch still points at its own commit
+
+### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
+
+The channel titles are read once per window, but only a successful answer counts as the read. A non-ok response, or a body without `titles`, SHALL leave the cache empty so the next mount asks again; it SHALL NOT latch an empty object for the rest of the window.
+
+#### Scenario: The first fetch answers with an error
+- **GIVEN** `/api/agent-channels` answers with a non-ok status on the first mount
+- **WHEN** the hook mounts again
+- **THEN** it asks the endpoint again and shows the titles it returns
+
+### Requirement: AGENT-TOOLS-01 — The agents' tools are one inventory, shown in the user menu
+
+The user menu SHALL have an «Agent tools» page listing MCP servers (active, parked, needing sign-in, failed, each with its reason), the skills found on disk and the agent CLIs. It reads `GET /api/agent-tools`, the same inventory `topics tools` prints for agents. Sources are standard locations plus extra files and folders the person adds; no machine-specific path is built in.
+
+#### Scenario: Authorizing a server that needs sign-in
+- **GIVEN** the page lists an MCP server in state needs-auth
+- **WHEN** the person presses Authorize and the sign-in completes
+- **THEN** the page shows that server as active

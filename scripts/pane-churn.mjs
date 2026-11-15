@@ -13,7 +13,7 @@ await ctx.addInitScript(() => {
     const u = String(typeof a[0] === 'string' ? a[0] : a[0]?.url ?? '');
     const init = a[1] || {};
     if (u.includes('pane-store-v2') && (init.method || '').toUpperCase() === 'PUT') {
-      try { window.__puts.push({ t: Math.round(performance.now()), body: JSON.parse(String(init.body)) }); } catch {}
+      try { window.__puts.push({ t: Math.round(performance.now()), body: JSON.parse(String(init.body)) }); } catch { /* non-JSON body is simply not recorded */ }
     }
     return of.apply(this, a);
   };

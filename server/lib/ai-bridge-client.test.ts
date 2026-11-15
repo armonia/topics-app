@@ -57,7 +57,7 @@ afterAll(async () => {
   // spawns a new one, which is how this file used to leave a daemon behind.
   client?.dispose();
   await stopOwnAiBridges();
-  try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
+  try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* best-effort: temp dir may already be gone */ }
   for (const key of envKeys) {
     if (previousEnv[key] === undefined) delete process.env[key];
     else process.env[key] = previousEnv[key];

@@ -18,8 +18,8 @@ import { scriptsApi } from '../../lib/api';
 import { ProcessLogPane } from './ProcessLogPane';
 import type { WSMessage } from '../../types';
 
-const real = { output: scriptsApi.output, list: scriptsApi.list };
-afterAll(() => { scriptsApi.output = real.output; scriptsApi.list = real.list; });
+const real = { output: scriptsApi.output, list: scriptsApi.list, stop: scriptsApi.stop };
+afterAll(() => { scriptsApi.output = real.output; scriptsApi.list = real.list; scriptsApi.stop = real.stop; });
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
@@ -107,5 +107,36 @@ describe('ProcessLogPane empty state', () => {
     expect(after).toContain('$LOG');
     expect(after).toMatch(/variabile|variable/);
     expect(after).toContain(time);
+  });
+});
+
+/**
+ * A FAILED STOP MUST SAY SO, NOT PRETEND IT WORKED.
+ * The button used to swallow `scriptsApi.stop` rejecting: the process kept
+ * running with no signal at all, card `4c8d4432-5742-4f9f-aad8-995221c6b7eb`.
+ */
+describe('ProcessLogPane Stop failure', () => {
+  test('a rejected stop shows a visible error, and the button still says Stop', async () => {
+    scriptsApi.output = (async () => ({ output: 'running...', pending: '', offset: 1, done: false, status: 'running' })) as typeof scriptsApi.output;
+    scriptsApi.list = (async () => ({ scripts: [] })) as unknown as typeof scriptsApi.list;
+    scriptsApi.stop = (async () => { throw new Error('process not found'); }) as typeof scriptsApi.stop;
+    const h = mount(createElement(ProcessLogPane, { processId: 'p-stop-fail', scriptName: 'dev' }));
+    try {
+      await flush();
+      h.rerender();
+      expect(h.last().hosts.find(n => n.props['data-testid'] === 'process-log-stop-error')).toBeUndefined();
+
+      const button = h.last().hosts.find(n => n.props['data-testid'] === 'process-log-stop');
+      await (button!.props.onClick as () => Promise<void>)();
+      await flush();
+      h.rerender();
+
+      const errorSpan = h.last().hosts.find(n => n.props['data-testid'] === 'process-log-stop-error');
+      expect(errorSpan).toBeDefined();
+      const stillStop = h.last().hosts.find(n => n.props['data-testid'] === 'process-log-stop');
+      expect(String(stillStop!.props.children)).toMatch(/Stop|Ferma/);
+    } finally {
+      h.unmount();
+    }
   });
 });

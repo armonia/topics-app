@@ -2,6 +2,492 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.12 — 2026-11-15
+
+### Sotto il cofano
+- una corsa parcheggiata sul nodo non blocca più la card (#1108)
+- Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)
+
+## 2.4.11 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)
+- un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)
+
+## 2.4.10 — 2026-11-15
+
+### Sotto il cofano
+- Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)
+
+## 2.4.9 — 2026-11-15
+
+### Sotto il cofano
+- topics/small-mist (card 3f078feb) (#1102)
+- Admission preview: a native sub-agent pays its real cost, not a card's floor
+
+## 2.4.8 — 2026-11-15
+
+### Sotto il cofano
+- decorate the menu the status item receives, not its idle menu (#1101)
+
+## 2.4.7 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)
+
+## 2.4.6 — 2026-11-15
+
+### Sotto il cofano
+- Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)
+- an open question keeps its status through a partial output and a re-announcement (#1059)
+- topics/private-raven (card 819c9836) (#1085)
+- topics/gloomy-fern (card 2fbdd455) (#1087)
+- topics/watchful-marble (card a5acfe57) (#1083)
+- topics/peaceful-grove (card 19d684fb) (#1079)
+- topics/peachy-kelp (card 629398ee) (#1070)
+
+## 2.4.5 — 2026-11-15
+
+### Correzioni
+- **subagent-result** · track a Bash the CLI itself moved to the background (#1066)
+
+### Sotto il cofano
+- Native runtime: per-turn temp folder, rm allowed there or on files the turn created
+- Guardia per turno: tracciamento dei percorsi creati estratto in permissions.ts (bloat)
+- note on the night DM quota hold and its probe cure (#1062)
+- decision note for daily summary overruns and waits (#1057)
+- a busy database goes straight to the caller instead of a second whole-row attempt (#1039)
+- topics/open-rivet (card b2b33bf0) (#998)
+- Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement
+
+## 2.4.4 — 2026-11-15
+
+### Novità
+- **tray** · native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)
+- **tray** · account cards wear row icons, state icons and reset arrows as the original tray
+- **tray** · state icons for queued and braked projects, provider icons in the limits submenu
+- **tray** · process rows carry their second line as the original tray
+
+### Correzioni
+- **tray** · machine card flat-detail condition compiles
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
+- topics/cheery-orbit (card 475724bc) (#868)
+- **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
+
+## 2.4.3 — 2026-11-15
+
+### Correzioni
+- **heavy-slot** · the cpu ceiling holds even the first request
+
+### Sotto il cofano
+- job con Playwright fissati a ubuntu-24.04 (#1049)
+
+## 2.4.2 — 2026-11-15
+
+### Sotto il cofano
+- «Continua sulla riserva» sul turno fermato dal motore degli account (#1024)
+
+## 2.4.0 — 2026-11-15
+
+### Sotto il cofano
+- an integration checkout left by a restart no longer blocks the next measure (#1019)
+- gli agenti di Topics passano il lavoro di esplorazione a sottoagenti e swarm (SUBAGENT-24)
+
+## 2.3.118 — 2026-11-15
+
+### Sotto il cofano
+- voice-call: la frase rapida non dice «hai ragione» a una domanda, e il cervello non promette l'esito prima del risultato (#1017)
+
+## 2.3.117 — 2026-11-14
+
+### Sotto il cofano
+- banco voce: «chiede_se_ce», per lo scenario di rumore della stanza dopo un risultato (#1015)
+
+## 2.3.116 — 2026-11-14
+
+### Sotto il cofano
+- il ramo di integrazione della board non è lavoro altrui (#1002)
+- fill the data the Rust menu lacked against the Swift one
+- move the local clock helpers out of tray_menu.rs to stay under the size baseline
+- mark quoted menu wording in comments
+- voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
+- i rami vecchi della card non tolgono i suoi commit (#1005)
+- attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
+- mobile board audit (read-only, no code change)
+- Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
+- voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)
+
+## 2.3.115 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)
+- Cloud node: commits carry the Mac checkout's git identity, not a stale global one
+
+## 2.3.114 — 2026-11-14
+
+### Sotto il cofano
+- sei difetti trovati girando ogni schermata a 375px (#967)
+
+## 2.3.113 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: ciò che dice sopra il saluto si sente (#991)
+- le regole del workflow della board si scrivono e tornano dopo il ricarico (DROP-09) (#995)
+- voice-call: conversazione più fluida (ascolto, silenzi, linea caduta, frasi dette piano) (#996)
+
+## 2.3.112 — 2026-11-14
+
+### Sotto il cofano
+- una misura che il quadrante non mostra va nella riga sotto (#979)
+- fase CI e «chi deve guardare» diventano regole del workflow (#992)
+- menu grafico completo (tabella processi, dettaglio PC e server, backup, progetti, limiti, dashboard)
+
+## 2.3.111 — 2026-11-14
+
+### Sotto il cofano
+- voice-call: la frase rapida non inventa cosa controlla e non scambia una domanda per una lamentela (#990)
+
+## 2.3.110 — 2026-11-14
+
+### Sotto il cofano
+- Chiamate vocali in Topics: il canale porta solo l'audio (#987)
+
+## 2.3.109 — 2026-11-14
+
+### Sotto il cofano
+- Artifact purge survives a GitHub 500 on one delete (#983)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-14 [skip ci]
+- DESIGN.md nel formato di Google, memoria del gusto di Attilio (#984)
+
+## 2.3.108 — 2026-11-14
+
+### Correzioni
+- **server** · a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)
+
+### Sotto il cofano
+- il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)
+- topics/ghostly-peacock (card c2908b93) (#971)
+
+## 2.3.106 — 2026-11-14
+
+### Sotto il cofano
+- i nodi server con la stessa card del Mac, senza doppioni e senza righe sovrapposte (#975)
+
+## 2.3.104 — 2026-11-14
+
+### Sotto il cofano
+- riprova dopo timeout Windows non legato al menu tray
+- Fase CI: card già su main chiuse, Approva con commento in fase (#972)
+
+## 2.3.103 — 2026-11-14
+
+### Novità
+- **ui** · card state glyph family, live spinning half pie and failed variant
+- **ui** · chat task card uses the phase glyph map, tray colours match dark tokens
+
+### Correzioni
+- **ui** · sidebar agent rows and space cards use the status glyph; tray hues are the Tailwind v4 tokens
+- **board** · GET land answers «fase CI» over an older settled ticket (#963)
+- **test** · status shots spec names the agent home through LEGACY_DATA_DIR_NAME; rename lig
+- **ui** · plan shows the failed glyph, agents pane wears the card glyphs; status shots become evidence (#968)
+
+### Sotto il cofano
+- disegno delle schede macchina, quote e backup per il menu (card 1aba05b4)
+- wip
+- nodo senza domanda, rosso del riallineamento, conferma del rosso in integrazione (#956)
+- menu ricco, tabella progetti, glue AppKit, lato client
+- Agent tools page uses the compact user-menu row styles, with e2e screenshots next to Devices (card 572f8a09)
+
+## 2.3.102 — 2026-11-14
+
+### Sotto il cofano
+- **e2e** · evidence screenshots at four widths beside the sub-agent card, and the clip; card header wraps on a phone
+- Preview rule: screenshots and clips come from the e2e spec, not a blanket browser ban
+- fase CI a lotti, rosso che torna all'agente, card tecniche che atterrano da sole (#952)
+
+## 2.3.101 — 2026-11-14
+
+### Novità
+- **chat** · board cards as cards in the transcript, in the waiting line and in the sidebar, and a wake on their outcome
+
+### Sotto il cofano
+- Tray strip: rasterize text with CoreText on macOS, pixel-snapped pens (ab_glyph stays for Windows/Linux)
+- Tray strip: CoreText draws with the real NSFont system weights; ink-vs-AppKit tests
+- declare what the card tests cover
+- card tests declare CHAT-TASK-CARD-01
+- pin the status item to the strip's width so neither end is cut (#949)
+- turn the working glyph in a native layer instead of redrawing the strip every frame
+- **spec** · CHAT-TASK-CARD-01
+- **e2e** · open the card through the board API; legibility spec uses a non-card MCP tool
+- **bloat** · record tray_quota.rs, already over the threshold on main
+- la barra non salta più e il menu resta aperto (#951)
+- bloat baseline back to what main has
+
+## 2.3.100 — 2026-11-13
+
+### Correzioni
+- **ripresa** · non rimandare in un turno che il registro tiene aperto (#945)
+
+### Sotto il cofano
+- agents counted by state with animated working glyph, left of the quota strip
+- click overlay follows the full-size strip so the menu opens again (card 066276b6)
+- **ripresa** · il wake di un figlio tagliato dalla macchina porta il comando per riprenderlo
+- **ripresa** · asserzione sul comando di ripresa con l'id
+- **landing** · astro 7.4.12 per gli avvisi XSS e lettura file che facevano rosso il cancello dipendenze
+
+## 2.3.99 — 2026-11-13
+
+### Sotto il cofano
+- Flush the turn row before the stall hold reads the running tool
+- topics/precise-gull (card 06bf57c1) (#939)
+- Machine-cut sub-agent results tell the parent how to resume the child
+
+## 2.3.98 — 2026-11-13
+
+### Sotto il cofano
+- Read the Hetzner location from the server, not only from datacenter
+- Declare the requirement the Hetzner location test covers
+- Write the spec requirement HETZNER-LOC-1 the adapter test declares
+- Stall judge: hold while a foreground tool runs; name the machine cut honestly in sub-agent results
+- Update lifecycle test for the machine-cut reason
+- Declare what the foreground tool hold test covers
+
+## 2.3.97 — 2026-11-13
+
+### Correzioni
+- **e2e** · cura la causa dei sette instabili, non il loro timeout
+
+### Sotto il cofano
+- Machine slots accept 0: drained machine takes no new card, pinned ones included
+- Tray strip: Mac dial and pace gauge, same collapse rule as the original, full 22 pt image size (card 23ec388a)
+- Tray quota tests in their own file (size gate)
+
+## 2.3.96 — 2026-11-13
+
+### Sotto il cofano
+- adopt-claude with topicId writes a lost binding back into the same chat (#927)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-13 [skip ci]
+
+## 2.3.94 — 2026-11-13
+
+### Novità
+- **test** · test:touched runs only the unit tests the diff reaches, with a whole-suite fallback
+- **test** · test-touched-measure replays the selector on red CI runs and demands a proof for every miss
+- **ui** · unify status colours and icons
+- **heavy-slot** · a machine-wide queue for heavy commands, served by Topics
+- **heavy-slot** · native sessions queue their heavy bash commands in the machine-wide line (KANBAN-114)
+- **ci-evidence** · a redelivery closes the card's superseded PR and cancels its live runs
+- **agent-tools** · Tools page in the user menu with GET /api/agent-tools and `topics tools`
+
+### Correzioni
+- **machines** · 44px targets for the provider token, fake hub in the e2e
+- **profile** · the public page escapes the owner's name in the meta description
+- **comments** · English wording in the public-profile escape test
+- **worktree-gc** · the GC archives a closed card's commits under a ref instead of merging them into main
+- **tests** · the profile escape guard declares its requirement and keeps its comment in English
+- **relay** · hold the client close until its write queue drains
+- **server** · drain survives a failing sink, exit row settles inside its guard, forget-site reports a failed save (card 79272a55)
+- **client** · clear the 9 react-hooks/exhaustive-deps warnings
+- **client+e2e+spike** · empty catches disproved by a scan get real reasons
+- **landing-audit** · landed means on origin/main, and an undone land is not a land
+- **run-git** · name the timeout in stderr; runGitCap and the cloud node git go through runGit; comments and identity test
+- **client** · MediaBlocks comment in English, ui-language baseline follows the move
+- **client** · English comment, trimmedNote name, loadAdvice test follows the move
+- **dispatcher** · a node delivery measures the branch over its base and trusts the worktree HEAD
+- **test** · test:touched runs the whole suite for code outside the graph, covers tests/e2e, real-code mutant and more tests
+- **client** · split tests follow the moved code, covers tag, floating-surface exit entry, bundle ceiling follows the CI measure
+- **client** · log and surface 8 silent catches instead of swallowing them
+- **client** · footer memo recomputes when the session key changes
+- **test** · test-touched-measure compares with main as it was when CI ran and reports the selection's share of suite time
+- **heavy-slot** · reach https Topics, pid leases outlive the renewal TTL, shell acquire/release
+- **heavy-slot** · identifier name
+- **test-touched** · align the unit kickoff test with the touched rule, isolated git env in the selector test, English name in the measure script
+- **heavy-slot** · knip ignore for the test seam
+- **test-touched** · knip.jsonc selects the tests that name it instead of the whole suite, path literals with five-letter extensions
+- **test-touched** · package.json selects by scripts-only diff, not the whole suite
+- **test-touched** · TREE_WALKER recognizes git grep as a tree walker
+- **landing-audit** · git env in the origin test, report:landed asks origin/main, candidates keep their column
+- **heavy-slot** · native sessions ask the server's line over HTTP, a detached turn-host no longer builds a private one; tests
+- **server** · catches that swallowed real errors now log or answer 400
+- **identifier-language** · allow GitHub's 'cancelled' conclusion value, refresh baseline
+- **relay** · a held 1013 close is cut after a grace and frees its slot; backlog test is event-driven
+
+### Sotto il cofano
+- branch/main-on-origin, branch-status/inventory and delivery-sheet use the shared runGit and escapeHtml; restore strip-ctrl and expand-home tests
+- Revert the stray merge of card 48588f6e
+- spec-flow dal pacchetto npm, la living-doc la ripubblica la CI (#837)
+- declare what the expand-home and public-profile escape tests cover
+- cover ids that exist in the specs
+- Tray menu: tests in their own file (size gate)
+- Tray tests: no slashes in a string that reads as a comment
+- **client** · UsageRow reads through lib/readJson; guard sees promise-chain and early-return copies; translate a comment
+- declare @covers on the three new empty-catch tests
+- **client** · media renderers and ImageThumbnail leave MessageContent for MediaBlocks
+- **client** · RemoteBrowserPanel hooks move to browserPanelHooks
+- **client** · ChatPane slash commands, composer picks, plan and goal hooks into sibling modules
+- **client** · KanbanBoardPane toolbar controls, header filters, drag-drop, created flash and worktree status into sibling modules
+- topicsRouting passage list follows useComposerPicks
+- **client** · TaskDetail delivery band, comments and chat, checks and files, header and metadata into sibling modules
+- accept mirrored model its catalog does not list; model rejection requeues the card unpinned
+- Map model_rejected status
+- **client** · App bootstrap hooks, boot deep-link, sidebar shell, dialogs and first-run/update screens into sibling modules
+- Cloud node recipe: sshd drop-ins and origin commit identity
+- **unit-shards** · the fake bun reads the file as the last argument
+- backup from the service with a cache, five-hour row matched by email, fresh census for the close, prefs keep their keys, defaults on
+- **landing-audit** · trace the origin/main audit test to LAND-05
+- Prefs default all on, like the old tray
+- **client** · readJson guard sees generic, cast and if/return copies
+- Trace the cloud node recipe test to LAND-13
+- **server** · trace silent-catch test (card 30f7c880), cover chat call site, drop inert delete
+- unit: il JUnit della living-doc resta del runner, non dei runner annidati (#846)
+- **heavy-slot** · KANBAN-114 names the machine-wide line, and its test says it covers it
+- unit: il claim del JUnit dei figli scrive nella cartella del giro, non in /tmp (CI unit rossa su main)
+- Tray quota strip: port the original design (uppercase bold names, provider icons, thick bars, +N collapse)
+- Tray strip: system faces with synthetic weight, open header tracking, larger reset glyph; parity bar at 2%
+- Tray strip: real variable-weight system faces, exact original colours, parity bar at 25% fuzz with colour check and mutations
+- Close leftover processes of a finished card run by worktree cwd
+- Declare RUNTIME-25 spec and cover it from the leftovers test
+- unit: il test CLI parte senza TOPICS_GATE_SLOT_DIR ereditata dal runner esterno
+- drop a permanent-node booking once its run has no pending job on the label
+- Tray tests: the fake service reads the whole request head before answering
+- Tray parity bar: per-column colour check (distance 3), colour mutation
+- Landing audit: a merge delivery commit answers empty, so the branch is asked
+- Leftover sweep: async process listing instead of sync spawns
+- unit: il claim del JUnit per file non passa da /tmp/topics-gate-slots (#882)
+- re-measure (unrelated e2e flakes: topbar webkit, first-send chromium)
+- ci-changes: heavy-slot-client is a tauri trigger (red on main)
+- ci-changes: heavy-slot-client is a tauri trigger
+- ci-changes: heavy-slot-client also triggers tauri
+- test-unit-shards cli test: drop duplicate gateSlotDir field (red on main)
+- test-unit-shards.cli.test: drop duplicate gateSlotDir field
+- Toglie il campo gateSlotDir duplicato nel test delle shard (typecheck server)
+- Toglie la proprietà duplicata gateSlotDir che rompe il typecheck
+- Aggiunge heavy-slot-client ai trigger del job tauri (ci-changes)
+- ci-changes: heavy-slot-client è un trigger del job tauri
+- Match cloud nodes by the hostname and public IPs they report, never a loopback base_url
+- Pulizia a fine corsa: solo gli orfani, mai discendenti del server o del bridge PTY
+- Add check:backup-residue rail and sed -i kickoff rule
+- strict topics/* ancestors do not hide a card's own commits; no-branch land never reads as accepted
+- test comment in English
+- node-branch-plant: accept a re-delivery whose local branch has only board realign merges on top
+- own old delivery/prior branches excluded from isolation; no-branch land reason says not on main
+- layout cache and fastMode mirror failures are visible; a 'data: null' SSE frame no longer aborts the stream
+- **processes** · SILENT-CATCH-01, the requirement the silent-catch test declares (card 30f7c880)
+- Add backup-residue to qa-gate loop
+- **ci** · why the permanent node keeps 4 runners and no per-run quota (measured)
+- **ci-evidence** · move supersedePreviousDelivery into ci-supersede.ts, one source for the card tag
+- node-branch-plant: read the re-delivery tip from the bundle, not FETCH_HEAD; detach a clean worktree before moving the ref
+- **ci-supersede** · declare @covers KANBAN-115 and add the requirement to the kanban spec
+- Run the fast static guards (gates:fast) before a delivery opens its pull request
+- fast: pass the default test timeout like the other bun test scripts
+- a resumed node turn handing back the rejected tip with no summary does not reach review
+- Same-tip test: declare what it covers
+- Leggi le descrizioni skill scritte come blocco YAML
+- Node resend: persist the node run id on the card, archive a finished mirror on POST
+- Adopting a Claude Code session keeps the same conversation, in its project and worktree (#903)
+- Fill node_run_id in the all-columns fixture
+- Count every earlier delivery branch of a card as its own in the land gate
+- Rebase past delivery branches migration on current main
+- history-limit-cost: count hydrated rows instead of timing the full read
+- node-pool: drain the permanent node when it stays behind the Mac commit
+- node-pool: keep the behind clock across Mac commits, drain counts only running cards
+
+## 2.3.93 — 2026-11-12
+
+### Novità
+- **tray** · hub menu in the Topics tray (quotas, machines, processes, projects, brake, backup) with tested actions
+- **machines** · remote machines in Processes and the tray like the Mac, with provider extras
+
+### Correzioni
+- **mcp** · read CRLF SSE events and close orphaned stdio children
+- **gates** · fold case on every history check
+- **tasks** · cards say who really wrote each message
+- **tasks** · one agent-author predicate for every delivery reader
+- **co-browse** · masking of card fields fails closed
+- **nodes** · a node refusing a card parks it with its reason
+- **server** · catches that swallowed real errors now report them
+- **boot** · the shipped boot.js matches its source again
+- **tray** · a machine without the usage service keeps the plain icon
+- **tray** · destructured lazy import for the hub row
+- **machines** · Gauge in its own module (no import cycle), English identifiers
+
+### Sotto il cofano
+- Keep shipped service worker copy identical
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-12 [skip ci]
+- **gates** · lower the any ratchet to 332
+- **e2e** · a reply sent through a tool and closed with NO_REPLY stays in the chat
+- **solido** · every empty catch says why, utils.ts loses its any, the any ratchet sees all of server/
+- example that shows the quota strip as a status item for a photo
+- Barra di parità TS 5 vs TS 7: script, test e config ripristinati, dichiarata in knip
+- **solido** · the any ratchet counts server.ts too, and the last any outside it get real types
+- **client** · a regression guard that keeps one home per client helper
+- sync shipped boot.js with its source (unit gate, c675633f)
+- Test acrylic: boot.js shipped copy resynced, catch search tolerates commented handlers
+- windows-acrylic test: slice boot.js at a catch that now has a comment
+- Regola Topics generica nel kickoff degli agenti
+- Test della regola generica: dichiara il requisito che prova (KANBAN-59)
+- one escapeHtml and one git runner shared across server/lib and services
+- **e2e** · scope the last-line check to the list and repeat the checks after a reload
+- **client** · one Files header in the project sidebar, LoadScreen reads through lib/readJson, and a guard that catches every spelling of a copy
+- **client** · rename a helper in the guard to an English word
+- **server** · silent-catch sites fail for real; warnThrottled forgets expired keys
+- declare what the machine overview tests cover
+
+## 2.3.92 — 2026-11-12
+
+### Sotto il cofano
+- Piano come quarta vista dello slider, filtri rapidi con conteggio (Serve te, Jarvis, Agenti, Programmate)
+- Test dei filtri rapidi: dichiara cosa copre
+- Scheletro della board: riga dei filtri rapidi con la stessa altezza
+- a message written while a turn runs joins it at the next round
+- **steer** · wait on the replayed turn, not on a clock
+- native steer v2: nothing lost, nothing read twice, rows stay answered
+- native steer: a cut turn never resends the steered row, Stop holds after a restart
+- native steer: every read of the person's last row skips a steered one
+- Il server topics-fisso diventa topics-permanent-node
+- PERMANENT_NODE_CI assente vale acceso
+
+## 2.3.89 — 2026-11-12
+
+### Correzioni
+- **browser** · stop stale HTTP poll re-arm and fix screenshot origin under Tauri
+
+### Sotto il cofano
+- Pin the flaky find-in-pane and phone chrome e2e to their real conditions
+- Register the chat finder in the mounting commit; let a new terminal yield only to a text field
+- **remote-browser** · POLL-CANCEL-01 and SNAPSHOT-URL-01 requirements
+
+## 2.3.88 — 2026-11-12
+
+### Correzioni
+- **task-browser** · a failed ui-state read no longer lets a later commit PUT over the saved layout/tabs
+- do not latch empty channel-titles cache; check-any respects strings
+
+### Sotto il cofano
+- Windows open_external: launch via rundll32, never cmd /C start
+- declare TITLES-CACHE-01 for the channel-titles cache test
+
+## 2.3.87 — 2026-11-12
+
+### Sotto il cofano
+- cap the wait for response headers, retry on a new socket
+- CHAT-REL-09, the headers bound the new test covers
+- wait out an account-engine hold, count header timeouts per call
+- extend the headers wait only for a hold logged for this request
+- a hold that already ended still buys one bound, a 429 ends the call only at the hold's end
+- a 429 ends the call only on the engine's own give-up, the hold is read once
+- the engine's give-up counts only between our request and our 429
+
+## 2.3.86 — 2026-11-11
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-11 [skip ci]
+- Cloudflare Web Analytics, annunciato in /privacy con la data come la pagina prometteva (#776)
+- Chiusura tab progetto: la X chiude anche se la tab non risulta in openPanels
+- topics/valiant-tundra (card c1ec9dd1) (#787)
+
 ## 2.3.85 — 2026-11-11
 
 ### Sotto il cofano
@@ -11,6 +497,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - CI e nodo Topics su un server Hetzner fisso (topics-fisso, cx53) (#767)
+- chiama --prova vive nel repo jarvis (f89337c9): commit vuoto per la misura della CI della card
 - Card programmate: chi e quando sul fronte, fuori dalla coda del dispatcher (#772)
 
 ## 2.3.83 — 2026-11-11
@@ -37,6 +524,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/regal-jay (#706)
 - **cloud-nodes** · stato 0.7/0.8 in attesa dell'ok al token
 - topics/shimmering-bugle (card 6b29e466) (#717)
+- Asia Enviro mockup with fake data (card 6fe51453)
 - topics/ancient-sprig (card e7371dbc) (#701)
 - topics/briny-badge (card 04c2b10f) (#748)
 - Hub, switchboard e tray dentro Topics: change con 13 tracce (#643)
@@ -53,6 +541,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/mild-chestnut (card 485681d6) (#682)
 - Cover the wake breaker through the remote lane: two vetoes open it (#762)
 - **unit** · torna a 4 worker (annulla #751) (#763)
+- confronto contabilita open source vs suite unica (card 7ce15e25)
 - Review con domanda, attesa macchina azzerata al cambio, overflow che salta il nodo vuoto e tiene qui le card del Mac (#761)
 - e2e su PC, poi Hetzner, poi GitHub (#759)
 - Una corsa vuota su una card che usa file di questo Mac torna in coda «solo Mac» anche se mandata a mano, invece di finire in review (#766)
@@ -93,6 +582,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Demo della landing: un caricatore piccolo e scenari tipizzati al posto di landing-boot.js
 - Demo della landing: via il contesto del vecchio gateway dallo scenario
+- strip delle quote disegnata a runtime, dati dal servizio su thread proprio (card c675633f)
 - Demo della landing: lo scenario comune è un passaggio nella lista chiusa della preferenza
 - nota di consegna della traccia R2 del servizio sempre acceso
 - topics/whispering-ether (card 57fe1061) (#712)

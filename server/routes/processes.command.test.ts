@@ -257,7 +257,7 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
       expect(processGroupAlive(group.pgid)).toBe(false);
     } finally {
       if (processGroupAlive(group.pgid)) {
-        try { process.kill(-group.pgid, "SIGKILL"); } catch {}
+        try { process.kill(-group.pgid, "SIGKILL"); } catch { /* test cleanup: the process group may already be gone */ }
       }
     }
   }, COMMAND_GROUP_TERM_GRACE_MS + ORPHAN_STOPPED_WITHIN_MS + LOAD_MARGIN_MS);

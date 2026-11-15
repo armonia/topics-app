@@ -31,7 +31,7 @@ beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "codex-sessions-"));
 });
 afterAll(() => {
-  try { rmSync(root, { recursive: true, force: true }); } catch {}
+  try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort: temp dir may already be gone */ }
 });
 
 describe("discoverCodexSessionId", () => {

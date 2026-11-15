@@ -251,7 +251,7 @@ function handleMessage(msg, client) {
         break;
       }
       // A dead session lingering for late-attach → replace it (fresh child = fresh store).
-      if (existing) { try { fs.closeSync(existing.storeFd); } catch {} sessions.delete(id); }
+      if (existing) { try { fs.closeSync(existing.storeFd); } catch { /* fd may already be closed */ } sessions.delete(id); }
 
       const storePath = storePathFor(id);
       let storeFd;
@@ -262,7 +262,7 @@ function handleMessage(msg, client) {
       try {
         child = spawn(cliPath, args || [], { cwd: cwd || realHome(), stdio: ['pipe', 'pipe', 'pipe'], env: buildEnv(env) });
       } catch (e) {
-        try { fs.closeSync(storeFd); } catch {}
+        try { fs.closeSync(storeFd); } catch { /* fd may already be closed */ }
         replyTo(client, msg, { type: 'error', id, error: `spawn failed: ${e.message}` });
         break;
       }
@@ -336,7 +336,7 @@ function handleMessage(msg, client) {
     }
     case 'signal': {
       const s = sessions.get(msg.id);
-      if (s && s.alive) { try { s.child.kill(msg.signal || 'SIGINT'); } catch {} }
+      if (s && s.alive) { try { s.child.kill(msg.signal || 'SIGINT'); } catch { /* process may already have exited */ } }
       break;
     }
     case 'kill': {
@@ -372,8 +372,8 @@ function handleMessage(msg, client) {
           fs.renameSync(s.storePath, aside);
           s.storePath = aside;
         } catch { /* gone already: onDead's unlink is then a no-op */ }
-        try { s.child.kill('SIGTERM'); } catch {}
-        setTimeout(() => { try { if (s.alive) s.child.kill('SIGKILL'); } catch {} }, KILL_GRACE_MS);
+        try { s.child.kill('SIGTERM'); } catch { /* process may already have exited */ }
+        setTimeout(() => { try { if (s.alive) s.child.kill('SIGKILL'); } catch { /* process may already have exited */ } }, KILL_GRACE_MS);
       }
       broadcast({ type: 'killed', id: msg.id });
       break;
@@ -412,7 +412,7 @@ function probeBridge(timeoutMs = 1500) {
     const conn = net.connect(socketPath);
     let buffer = '';
     let done = false;
-    const finish = (r) => { if (done) return; done = true; try { conn.destroy(); } catch {} resolve(r); };
+    const finish = (r) => { if (done) return; done = true; try { conn.destroy(); } catch { /* connection may already be destroyed */ } resolve(r); };
     conn.on('connect', () => {
       conn.write(JSON.stringify({ type: 'ping' }) + '\n');
       conn.on('data', (chunk) => {
@@ -420,7 +420,7 @@ function probeBridge(timeoutMs = 1500) {
         let nl;
         while ((nl = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
-          try { if (JSON.parse(line).type === 'pong') { finish({ ok: true }); return; } } catch {}
+          try { if (JSON.parse(line).type === 'pong') { finish({ ok: true }); return; } } catch { /* non-JSON line: skip it and keep reading */ }
         }
       });
     });
@@ -453,7 +453,7 @@ function acquireTakeoverLock() {
     } catch (err) {
       if (err?.code !== 'EEXIST') return false;
       let holder = null;
-      try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch {}
+      try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch { /* lock file unreadable: no known holder */ }
       if (holder && holder !== process.pid && pidAlive(holder)) return false;
       try { fs.unlinkSync(lockPath); } catch { return false; }
     }
@@ -465,7 +465,7 @@ function releaseTakeoverLock() {
   let holder = null;
   try { holder = Number(fs.readFileSync(lockPath, 'utf8').trim()); } catch { return; }
   if (holder !== process.pid) return;
-  try { fs.unlinkSync(lockPath); } catch {}
+  try { fs.unlinkSync(lockPath); } catch { /* file may already be gone */ }
 }
 
 /**
@@ -484,7 +484,7 @@ function releaseTakeoverLock() {
  */
 async function checkExistingBridge() {
   let recordedPid = null;
-  try { if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim()); } catch {}
+  try { if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim()); } catch { /* pid file missing or unreadable: no recorded owner */ }
   const probe = await probeBridge();
   if (probe.ok) return 'healthy';
 
@@ -520,12 +520,12 @@ async function checkExistingBridge() {
 
   if (ownerAlive) {
     console.error(`[AI Bridge] Recorded owner ${recordedPid} unreachable (${probe.reason}). SIGTERM.`);
-    try { process.kill(recordedPid, 'SIGTERM'); } catch {}
+    try { process.kill(recordedPid, 'SIGTERM'); } catch { /* process may already have exited */ }
     await new Promise((r) => setTimeout(r, 1000));
-    if (pidAlive(recordedPid)) { try { process.kill(recordedPid, 'SIGKILL'); } catch {} }
+    if (pidAlive(recordedPid)) { try { process.kill(recordedPid, 'SIGKILL'); } catch { /* process may already have exited */ } }
   }
-  try { fs.unlinkSync(socketPath); } catch {}
-  try { fs.unlinkSync(pidPath); } catch {}
+  try { fs.unlinkSync(socketPath); } catch { /* file may already be gone */ }
+  try { fs.unlinkSync(pidPath); } catch { /* file may already be gone */ }
   return 'free';
 }
 
@@ -541,7 +541,7 @@ function sweepStore() {
     // leaves it behind, and it must age out like any other store.
     if (!/\.ndjson(\.dying-\d+)?$/.test(name) || liveFiles.has(name)) continue;
     const p = path.join(storeDir, name);
-    try { if (now - fs.statSync(p).mtimeMs > RETENTION_MS) fs.unlinkSync(p); } catch {}
+    try { if (now - fs.statSync(p).mtimeMs > RETENTION_MS) fs.unlinkSync(p); } catch { /* store file may have vanished: retried on the next sweep */ }
   }
 }
 
@@ -623,7 +623,7 @@ async function start() {
     console.error(`[AI Bridge] Server error: ${err.message}`);
     // Il pid l'abbiamo scritto PRIMA di listen(): se non siamo partiti, non
     // deve restare a dire che questo processo possiede il socket.
-    try { fs.unlinkSync(pidPath); } catch {}
+    try { fs.unlinkSync(pidPath); } catch { /* file may already be gone */ }
     releaseTakeoverLock();
     process.exit(1);
   });
@@ -632,12 +632,12 @@ async function start() {
 
   function shutdown(signal) {
     console.error(`[AI Bridge] ${signal} — shutting down, killing ${sessions.size} session(s).`);
-    for (const s of [...sessions.values(), ...dying]) { try { s.child.kill('SIGTERM'); } catch {} try { fs.closeSync(s.storeFd); } catch {} }
+    for (const s of [...sessions.values(), ...dying]) { try { s.child.kill('SIGTERM'); } catch { /* process may already have exited */ } try { fs.closeSync(s.storeFd); } catch { /* fd may already be closed */ } }
     sessions.clear();
     dying.clear();
     server.close();
-    try { fs.unlinkSync(socketPath); } catch {}
-    try { fs.unlinkSync(pidPath); } catch {}
+    try { fs.unlinkSync(socketPath); } catch { /* file may already be gone */ }
+    try { fs.unlinkSync(pidPath); } catch { /* file may already be gone */ }
     releaseTakeoverLock();
     process.exit(0);
   }

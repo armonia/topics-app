@@ -14,6 +14,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { resolveInheritedMcp } from "./mcp-inheritance";
+import { writeAgentToolsSettings } from "../lib/agent-tools-settings";
 
 const dir = mkdtempSync(join(tmpdir(), "mcp-inherit-"));
 const configPath = join(dir, "config.json");
@@ -88,5 +89,25 @@ describe("resolveInheritedMcp", () => {
   test("un file illeggibile non fa sparire i tool per un errore di parsing", () => {
     writeFileSync(configPath, "{ non json");
     expect(resolveInheritedMcp().servers).toBeNull();
+  });
+});
+
+describe("servers parked from the Tools page (AGENT-TOOLS-01)", () => {
+  test("a parked server is excluded from the agents, and mounting it brings it back", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "mcp-parked-"));
+    const before = process.env.APP_DATA_DIR;
+    process.env.APP_DATA_DIR = dataDir;
+    try {
+      writeConfig({ docs: { type: "http", url: "https://example.test/mcp" }, mail: { type: "http", url: "https://example.test/mail" } });
+      writeAgentToolsSettings({ parkedMcp: ["mail"] });
+      const parked = resolveInheritedMcp();
+      expect(Object.keys(parked.servers ?? {})).toEqual(["docs"]);
+      expect(parked.excluded.find((e) => e.name === "mail")?.reason).toBe("deny");
+      writeAgentToolsSettings({ parkedMcp: [] });
+      expect(Object.keys(resolveInheritedMcp().servers ?? {}).sort()).toEqual(["docs", "mail"]);
+    } finally {
+      if (before === undefined) delete process.env.APP_DATA_DIR; else process.env.APP_DATA_DIR = before;
+      rmSync(dataDir, { recursive: true, force: true });
+    }
   });
 });

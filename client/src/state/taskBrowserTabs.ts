@@ -285,13 +285,14 @@ export function sanitizeTaskTabs(v: unknown): TaskBrowserTabsState | null {
  * ordered against the frames that landed while it travelled, not only against
  * our own writes (`uiStatePersist`, point 4). `null` value = nothing to apply.
  */
-async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null }> {
+async function uiGet<T>(key: string): Promise<{ value: T | null; seq: number | null } | undefined> {
   try {
     const r = await apiFetch(`/api/ui-state/${key}`); // PANE-01-ALLOWED: task-browser-tabs keys, not pane state
-    if (!r.ok) return { value: null, seq: null };
+    if (r.status === 404) return { value: null, seq: null };
+    if (!r.ok) return undefined;
     const d = await r.json().catch(() => null);
     return { value: (d?.value ?? null) as T | null, seq: typeof d?.server_seq === 'number' ? d.server_seq : null };
-  } catch { return { value: null, seq: null }; }
+  } catch { return undefined; }
 }
 
 /** Best-effort teardown of the server-side browser context behind a task tab.
@@ -352,6 +353,9 @@ export function ensureTaskTabsLoaded(taskId: string): Promise<void> {
 
 async function loadTaskTabs(taskId: string): Promise<void> {
   const read = await uiGet<unknown>(keyFor(taskId));
+  // A failed read says nothing about the saved row: not loaded, so the next
+  // mount reads again, and a write waits (see `commit`) instead of replacing it.
+  if (!read) return;
   loaded.add(taskId);
   // Don't clobber writes that landed while the GET was in flight.
   if (!cache.has(taskId)) {
@@ -362,6 +366,7 @@ async function loadTaskTabs(taskId: string): Promise<void> {
       notify();
     }
   }
+  flushHeldWrite(taskId);
 }
 
 export function getTaskTabs(taskId: string): TaskBrowserTabsState {
@@ -389,12 +394,30 @@ export function taskTabsCount(): { entries: number; items: number; parked: numbe
   return { entries, items, parked };
 }
 
+/** Tasks edited before any read of their row succeeded: the PUT waits for it. */
+const heldWrites = new Set<string>();
+
+function putLatest(taskId: string, next: TaskBrowserTabsState): void {
+  writes.put(keyFor(taskId), next, next.tabs.length ? 800 : 0);
+}
+
+function flushHeldWrite(taskId: string): void {
+  if (!heldWrites.delete(taskId)) return;
+  const cur = cache.get(taskId);
+  if (cur) putLatest(taskId, cur);
+}
+
 function commit(taskId: string, next: TaskBrowserTabsState): void {
   const cur = cache.get(taskId) ?? EMPTY_TASK_TABS;
   if (next === cur) return;
   cache.set(taskId, next);
-  loaded.add(taskId);
-  writes.put(keyFor(taskId), next, next.tabs.length ? 800 : 0);
+  if (loaded.has(taskId)) putLatest(taskId, next);
+  else {
+    // The saved row was never read: writing now could replace it with this
+    // partial state. Hold the PUT and retry the read.
+    heldWrites.add(taskId);
+    void ensureTaskTabsLoaded(taskId);
+  }
   notify();
 }
 
@@ -407,6 +430,7 @@ function adopt(taskId: string, value: unknown): boolean {
   const sanitized = sanitizeTaskTabs(value);
   if (!sanitized) return false;
   loaded.add(taskId);
+  heldWrites.delete(taskId); // the server value won, nothing local is left to write
   const cur = cache.get(taskId);
   if (cur && JSON.stringify(cur) === JSON.stringify(sanitized)) return false;
   cache.set(taskId, sanitized);
@@ -440,6 +464,7 @@ export function __resetTaskTabs(): void {
   cache.clear();
   loaded.clear();
   loading.clear();
+  heldWrites.clear();
 }
 
 /** Forget everything this client remembers about a task's tabs — called when the
@@ -458,6 +483,7 @@ export function forgetTaskTabs(taskId: string): void {
   if (!taskId) return;
   writes.cancel(keyFor(taskId));
   loaded.delete(taskId);
+  heldWrites.delete(taskId);
   if (cache.delete(taskId)) notify();
 }
 
@@ -531,8 +557,8 @@ export async function resyncTaskTabsFromServer(snapshot?: Record<string, unknown
   const reads = await Promise.all(ids.map((id) => uiGet<unknown>(keyFor(id))));
   let changed = false;
   ids.forEach((id, i) => {
-    const read = reads[i]!;
-    if (read.value == null) return;
+    const read = reads[i];
+    if (!read || read.value == null) return;
     const key = keyFor(id);
     // Stale in two different ways: overtaken by a write of OURS, or by a frame
     // from another device that already moved this key past what the GET read.
@@ -553,7 +579,7 @@ async function rereadTaskTabs(taskId: string): Promise<void> {
   const token = writes.writeToken(key);
   const seen = writes.appliedToken(key);
   const read = await uiGet<unknown>(key);
-  if (read.value == null) return;
+  if (!read || read.value == null) return;
   if (writes.wroteSince(key, token) || hasPendingWrite(taskId)) return;
   if (writes.readIsStale(key, seen, read.seq)) return;
   writes.noteApplied(key, read.seq);

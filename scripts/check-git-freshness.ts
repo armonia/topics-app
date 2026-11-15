@@ -100,7 +100,7 @@ function openSocket(url: string): { socket: WebSocket; ready: Promise<void>; clo
     socket.addEventListener("open", () => resolveOpen(), { once: true });
     socket.addEventListener("error", () => reject(new Error("WebSocket connection failed")), { once: true });
   });
-  const close = () => { try { socket.close(); } catch {} };
+  const close = () => { try { socket.close(); } catch { /* socket may already be closed */ } };
   socket.addEventListener("close", () => rejectOpen(new Error("WebSocket closed before opening")), { once: true });
   return { socket, close, ready: opened };
 }
@@ -211,11 +211,11 @@ async function main(): Promise<void> {
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    try { socket?.close(); } catch {}
+    try { socket?.close(); } catch { /* socket may already be closed */ }
     for (const child of burnerProcesses) {
-      try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch {}
+      try { if (child.pid) process.kill(-child.pid, "SIGTERM"); } catch { /* burner process group may have exited */ }
     }
-    try { if (server?.pid) process.kill(-server.pid, "SIGTERM"); } catch {}
+    try { if (server?.pid) process.kill(-server.pid, "SIGTERM"); } catch { /* server process group may have exited */ }
     rmSync(tempRoot, { recursive: true, force: true });
   };
   process.on("exit", cleanup);

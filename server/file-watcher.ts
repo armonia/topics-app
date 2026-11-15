@@ -150,7 +150,7 @@ export function watchProjectFiles(projectPath: string, ctx: AppContext): void {
       close() {
         closed = true;
         debouncer.cancel();
-        try { w.close(); } catch {}
+        try { w.close(); } catch { /* watcher may already be closed */ }
       },
     });
     watcherErrors.delete(projectPath);

@@ -19,9 +19,12 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || exit 1
 
-test -d spec-flow || {
-  echo "✗ manca spec-flow/ — è in .gitignore:218, quindi assente da OGNI checkout pulito." >&2
-  echo "  clone: git clone git@github.com:armonia/spec-flow.git spec-flow" >&2
+# spec-flow e' il pacchetto `@armonia-io/spec-flow` (devDependency a versione fissa), non piu' un
+# clone in `spec-flow/`: il clone restava indietro senza avvisare. Si prende il binario del repo,
+# cosi' la versione e' quella di bun.lock e non quella che `npx` trova in giro.
+SPEC_FLOW="$REPO_ROOT/node_modules/.bin/spec-flow"
+test -x "$SPEC_FLOW" || {
+  echo "✗ manca $SPEC_FLOW: lancia \`bun install\` nella radice del repo." >&2
   exit 1
 }
 
@@ -162,7 +165,7 @@ if [ "$RAN" = "1" ] && [ "$EVID" -eq 0 ]; then
 fi
 
 step "cancello openspec"
-bun --bun spec-flow/scripts/lint-openspec.ts || {
+"$SPEC_FLOW" lint-openspec || {
   echo "✗ pubblicare adesso sovrascriverebbe la living-doc con qualcosa di sbagliato." >&2
   exit 1
 }
@@ -171,7 +174,7 @@ bun --bun spec-flow/scripts/lint-openspec.ts || {
 
 step "pubblicazione"
 t=$(date +%s)
-bun --bun spec-flow/scripts/publish-uat.ts
+"$SPEC_FLOW" publish-uat
 pub=$?
 since "$t"
 exit "$pub"

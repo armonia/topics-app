@@ -25,6 +25,7 @@
 import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readTauriShellSource } from '../../../../tests/helpers/tauri-shell-source';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
 import {
@@ -121,7 +122,7 @@ describe('WindowControls on Windows', () => {
 });
 
 describe('where they are mounted', () => {
-  const app = () => readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+  const app = () => readFileSync(join(import.meta.dir, '..', '..', 'app', 'SidebarHeader.tsx'), 'utf8');
 
   test('inside the Topics button wrapper, which is the positioning context', () => {
     const s = app();
@@ -182,10 +183,7 @@ describe('the reserved room', () => {
   });
 
   test('the Rust shell pins the same anchor and pitch', () => {
-    const rs = readFileSync(
-      join(import.meta.dir, '..', '..', '..', '..', 'desktop-tauri', 'src-tauri', 'src', 'lib.rs'),
-      'utf8',
-    );
+    const rs = readTauriShellSource();
     expect(rs).toContain(`const LEFT_INSET: f64 = ${WINDOW_CONTROLS_INSET_PX}.0;`);
     expect(rs).toContain(`const PITCH: f64 = ${TRAFFIC_LIGHT_DOT_PX + TRAFFIC_LIGHT_GAP_PX}.0;`);
   });
@@ -215,7 +213,7 @@ describe('the reserved room', () => {
   });
 
   test('the title wrapper reserves it whenever the commands are on screen', () => {
-    const s = readFileSync(join(import.meta.dir, '..', '..', 'App.tsx'), 'utf8');
+    const s = readFileSync(join(import.meta.dir, '..', '..', 'app', 'SidebarHeader.tsx'), 'utf8');
     expect(s).toContain("windowChrome === 'mac' ? TITLE_INSET_WITH_CONTROLS_MAC");
     expect(s).toContain("windowChrome === 'windows' ? TITLE_INSET_WITH_CONTROLS_WINDOWS");
     // Not conditioned on a menu: the commands are permanent now, so is the room.

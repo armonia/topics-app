@@ -34,11 +34,12 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
 const SRC = join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "src");
 const WIN = readFileSync(join(SRC, "browser_win.rs"), "utf8");
 const LINUX = readFileSync(join(SRC, "browser_linux.rs"), "utf8");
-const SHELL = readFileSync(join(SRC, "lib.rs"), "utf8");
+const SHELL = readTauriShellSource();
 
 /**
  * The operations a module offers to the shell: its top-level public functions.

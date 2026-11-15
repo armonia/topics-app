@@ -1,5 +1,5 @@
 Questa cartella tiene in vita `tests/features/`, che spec-flow legge con un
-`readdirSync` NUDO (spec-flow/scripts/lint-gherkin.ts): senza la cartella,
+`readdirSync` NUDO (`spec-flow lint-gherkin`, pacchetto `@armonia-io/spec-flow`): senza la cartella,
 `bun run lint:gherkin`, `tag:scenarios` e `uat` muoiono con ENOENT invece di
 dire «nessuno scenario».
 

@@ -32,6 +32,8 @@ import { bridgeAuthHeaders, loopbackInit } from "../../mcp/topics-http";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import type { AutonomyLevel } from "../../../shared/types";
 import type { StopCause } from "../stop-reason";
+import type { SteerItem } from "../../lib/turn-steer";
+import { createDelegationTracker, type DelegationState } from "../../lib/delegation-policy";
 
 export interface TurnSpec {
   v: number;
@@ -43,6 +45,8 @@ export interface TurnSpec {
   reminder?: string;
   history: AgentMessage[];
   calibration?: Calibration;
+  /** The session's delegation counter; absent = this chat gets no nudge (`lib/delegation-policy.ts`). */
+  delegation?: DelegationState;
   /** Every tool but the MCP fleet's, as the server composed them. */
   tools: ToolSpec[];
   /** The MCP fleet's tools at spawn; refreshed by every MCP call's answer. */
@@ -165,8 +169,13 @@ async function readSpecAndControls(onControl: (msg: Partial<HostControl> & { t?:
 
 export async function main(): Promise<void> {
   const abort = new AbortController();
+  /** Steered messages the server sent, waiting for the next round boundary. */
+  const steerWaiting: SteerItem[] = [];
   const spec = await readSpecAndControls((msg) => {
-    if (msg.t === "abort" && !abort.signal.aborted) {
+    const item = (msg as { item?: SteerItem }).item;
+    if (msg.t === "steer" && typeof item?.id === "string" && typeof item.text === "string") {
+      steerWaiting.push(item);
+    } else if (msg.t === "abort" && !abort.signal.aborted) {
       const cause = (msg as { cause?: string }).cause;
       log(`abort (${cause ?? "no cause"})`);
       abort.abort((cause ?? "user") as StopCause);
@@ -194,6 +203,7 @@ export async function main(): Promise<void> {
   const { toolAllowedByPolicy } = await import("../../lib/subagent-tool-policy");
   const allowed = (name: string) => toolAllowedByPolicy(policy, name);
 
+  const delegation = spec.delegation ? createDelegationTracker(undefined, spec.delegation) : undefined;
   const opts: AgentTurnOptions = {
     model: spec.model,
     effort: spec.effort ?? null,
@@ -202,6 +212,7 @@ export async function main(): Promise<void> {
     reminder: spec.reminder,
     history: spec.history,
     calibration: spec.calibration,
+    ...(delegation ? { delegation } : {}),
     tools: () => {
       const all = [...spec.tools, ...mcpTools];
       return policy ? all.filter((t) => allowed(t.name)) : all;
@@ -213,6 +224,13 @@ export async function main(): Promise<void> {
     hooks: defaultLifecycleHooks(),
     sessionId: spec.sessionKey,
     signal: abort.signal,
+    // Taken here, acknowledged on the journal in the same breath: the server
+    // hands back at the turn's end only what this line does not name.
+    takeSteer: () => {
+      const taken = steerWaiting.splice(0);
+      if (taken.length > 0) handler.emit({ e: "steered", items: taken });
+      return taken.map((m) => m.text);
+    },
     onRequestStart: () => handler.emit({ e: "req", at: Date.now() }),
     onRoundUsage: (u: RoundUsage) => {
       // A round's usage means the API answered: the server lifts an outage hold on it.
@@ -237,7 +255,10 @@ export async function main(): Promise<void> {
     e: "end",
     history: opts.history,
     calibration: opts.calibration,
+    ...(delegation ? { delegation: delegation.state() } : {}),
     warm: { model: opts.model, effort: opts.effort, maxTokens: opts.maxTokens, system: opts.system, tools: lastTools },
+    ...(steerWaiting.length > 0 ? { steerLeft: steerWaiting.splice(0) } : {}),
+    ...(abort.signal.aborted && String(abort.signal.reason ?? "") === "user" ? { stoppedByPerson: true } : {}),
   });
 }
 

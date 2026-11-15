@@ -69,14 +69,14 @@ const cascata = vecchie.length
          )
          SELECT COUNT(*) AS c FROM sub`,
       )
-      .get(JSON.stringify(vecchie.map((r) => r.id))) as any)?.c ?? 0
+      .get(JSON.stringify(vecchie.map((r) => r.id))) as { c: number } | null)?.c ?? 0
   : 0;
 
 // Quante card VIVE ha la board in tutto, sottotask compresi: e' il numero che
 // un umano vede scorrendo, e quello da cui si misura ogni alleggerimento.
 const aliveTotal = (db
   .prepare("SELECT COUNT(*) AS c FROM tasks WHERE project_id = ? AND archived = 0")
-  .get(PROJECT) as any)?.c ?? 0;
+  .get(PROJECT) as { c: number } | null)?.c ?? 0;
 
 const onOpen = conta(aperte);
 const onAll = conta(rows);

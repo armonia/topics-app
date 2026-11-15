@@ -179,6 +179,12 @@ async function readSseResponse(res: Response, id: number): Promise<{ result?: un
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      // Normalize CRLF/CR line endings to LF before splitting on blank lines.
+      // A trailing lone \r might be the first half of a \r\n split across two
+      // chunks, so it is held back until more input confirms what follows it.
+      const holdBack = buffer.endsWith("\r") ? 1 : 0;
+      buffer = buffer.slice(0, buffer.length - holdBack).replace(/\r\n|\r/g, "\n")
+        + buffer.slice(buffer.length - holdBack);
       let sep: number;
       while ((sep = buffer.indexOf("\n\n")) !== -1) {
         const raw = buffer.slice(0, sep);
@@ -536,7 +542,12 @@ export async function connectMcpServer(
   if (kind === "http" || kind === "sse") {
     if (!d.url) throw new Error(`server '${name}': type '${kind}' without a url`);
     const conn = new HttpMcpConnection(d.url, d.headers ?? {}, auth);
-    await conn.connect();
+    try {
+      await conn.connect();
+    } catch (err) {
+      conn.close();
+      throw err;
+    }
     return conn;
   }
   if (kind === "stdio") {
@@ -546,7 +557,12 @@ export async function connectMcpServer(
       Array.isArray(d.args) ? d.args.map(String) : [],
       d.env ?? {},
     );
-    await conn.connect();
+    try {
+      await conn.connect();
+    } catch (err) {
+      conn.close();
+      throw err;
+    }
     return conn;
   }
   throw new Error(`server '${name}': unsupported transport '${kind}'`);

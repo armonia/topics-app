@@ -62,6 +62,9 @@ function radice(): string {
 
 const RADICE = radice();
 
+/** `-i` only folds accented letters under a UTF-8 locale; the C locale folds ASCII alone. */
+const GIT_ENV = { ...process.env, LC_ALL: "en_US.UTF-8" };
+
 /** Terms come from `.personal-terms`, deliberately untracked: a list of what
  *  must be hidden cannot itself live in the repo it is hidden from. The entries
  *  carry their tier: see the file format in `personal-terms.ts`. */
@@ -69,7 +72,7 @@ const termini = (): PersonalTerm[] => personalTermEntries(RADICE);
 
 function git(...args: string[]): string {
   try {
-    return execFileSync("git", args, { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    return execFileSync("git", args, { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: GIT_ENV });
   } catch {
     return "";
   }
@@ -105,7 +108,7 @@ function redact(text: string): string {
 
 function gitMeasure(...args: string[]): string {
   try {
-    return execFileSync("git", args, { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    return execFileSync("git", args, { cwd: RADICE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: GIT_ENV });
   } catch (error) {
     const raw = (error as { stderr?: string | Buffer }).stderr?.toString() ?? String(error);
     cannotMeasure.push(`git ${args[0]} ${args[1]}: ${redact(raw.split("\n")[0] ?? "")}`);
@@ -137,12 +140,13 @@ function commitCon(termine: string, ambito: string[]): number {
   // `--` closes the rev list. Without it a working-tree path spelled like a ref
   // makes git exit `fatal: ambiguous argument … both revision and filename` and
   // print nothing, which used to read as "zero commits" for every term.
-  const contenuti = gitMeasure("log", "--format=%H", "-S", termine, ...ambito, "--");
+  // `-i` on both, as in the working-tree check: "mario" in the list must catch "Mario".
+  const contenuti = gitMeasure("log", "-i", "--format=%H", "-S", termine, ...ambito, "--");
   // `--grep` is a REGEX unless `-F` says otherwise, so a term carrying `[`, `(`
   // or `.` silently matched nothing in the MESSAGES — the exact half `--grep`
   // was added for. Measured: `Acme [Milano] srl` in a published commit message,
   // 0 hits without `-F`, 1 with it. (`-S` is a fixed string already.)
-  const messaggi = gitMeasure("log", "--format=%H", "-F", "--grep", termine, ...ambito, "--");
+  const messaggi = gitMeasure("log", "-i", "--format=%H", "-F", "--grep", termine, ...ambito, "--");
   const insieme = new Set(
     [...contenuti.split("\n"), ...messaggi.split("\n")].filter(Boolean),
   );
@@ -160,7 +164,7 @@ function commitCon(termine: string, ambito: string[]): number {
  * 21 of the 710 published tags here are annotated, so reading them is cheap.
  */
 function tagMessagesWith(termine: string): number {
-  return annotatedTagBodies().filter((body) => body.includes(termine)).length;
+  return annotatedTagBodies().filter((body) => body.toLowerCase().includes(termine.toLowerCase())).length;
 }
 
 /**
@@ -432,11 +436,16 @@ if (sporchi.length === 0) {
   process.exit(0);
 }
 
+/** Python `re` escaping, which is what git-filter-repo evaluates. */
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // La mappa per `--replace-text`. Il formato è `cercato==>sostituto`: si
 // sostituisce con un segnaposto che DICE che qualcosa è stato tolto, invece di
 // cancellare e basta — un diff che si accorcia senza spiegazione è più difficile
 // da leggere di uno che porta la sua cicatrice.
-const mappa = sporchi.map((r) => `${r.termine}==>[cliente]`).join("\n") + "\n";
+const mappa = sporchi.map((r) => `regex:(?i)${escapeRegex(r.termine)}==>[cliente]`).join("\n") + "\n";
 const dove = join(RADICE, ".scrub-map.txt");
 writeFileSync(dove, mappa);
 

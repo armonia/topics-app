@@ -119,6 +119,16 @@ export interface TaskAttemptStore {
   clearInactiveNoLocalChecksReservations?(): void;
 }
 
+/**
+ * One process-wide listener told when a run's attempt ends (delivered, failed,
+ * stopped, crashed). Module level because the dispatcher and the router each
+ * build their own store over the same table, and every run end must reach it.
+ */
+let attemptFinishedListener: ((attempt: TaskAttempt) => void) | null = null;
+export function setAttemptFinishedListener(fn: ((attempt: TaskAttempt) => void) | null): void {
+  attemptFinishedListener = fn;
+}
+
 export function createTaskAttemptStore(db: Database): TaskAttemptStore {
   const one = (id: string): TaskAttempt | null => {
     const r = db.prepare("SELECT * FROM task_attempts WHERE id = ?").get(id) as Row | undefined;
@@ -179,7 +189,11 @@ export function createTaskAttemptStore(db: Database): TaskAttemptStore {
         new Date().toISOString(),
         id,
       );
-      return one(id);
+      const done = one(id);
+      if (done && attemptFinishedListener) {
+        try { attemptFinishedListener(done); } catch { /* a cleanup hook never fails the finish */ }
+      }
+      return done;
     },
 
     runningCount(taskId) {

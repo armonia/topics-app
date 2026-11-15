@@ -394,8 +394,11 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     if (path === "needs.prepare-e2e.result") return "success";
     if (path === "needs.changes.result") return "success";
-    // The fixed server on (FISSO_CI unset reads as on), the PC off.
-    if (path === "vars.FISSO_CI") return "1";
+    // `e2e` always ends success, even when the answer is false (the single `e2e (0)`): the
+    // living-doc job reads it and must still skip itself on that answer.
+    if (path === "needs.e2e.result") return "success";
+    // The permanent node on (PERMANENT_NODE_CI unset reads as on), the PC off.
+    if (path === "vars.PERMANENT_NODE_CI") return "1";
     if (path === "vars.PC_CI") return "0";
     if (/^needs\.hcloud\.outputs\.\w+$/.test(path)) return "";
     // The GitHub image (the server skips its apt cache and --with-deps).

@@ -38,7 +38,7 @@ beforeAll(async () => {
   setEnv("TOPICS_CLAUDE_CLI_PATH", fake);
 });
 afterAll(async () => {
-  try { const { getProvider } = await import("../../server/providers"); await (getProvider("claude-code") as any)?.stop?.(); } catch {}
+  try { const { getProvider } = await import("../../server/providers"); await (getProvider("claude-code") as any)?.stop?.(); } catch { /* provider may not be loaded; teardown only */ }
   // Resets the client and stops the daemon it started, which is detached.
   await stopOwnAiBridges();
   for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
@@ -78,7 +78,7 @@ describe("a stop with a tool in flight, real claude-code provider", () => {
         body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "do some work" }] }) }), url, "/api/chat", "POST");
       expect(resp?.status).toBe(200);
       const reader = resp!.body!.getReader();
-      (async () => { try { while (!(await reader.read()).done) {} } catch {} })();
+      (async () => { try { while (!(await reader.read()).done) {} } catch { /* stream aborted when the test stops; the drain just ends */ } })();
       for (let i = 0; i < 100 && !frames.some((f) => f.type === "stream:tool_start" || f.type === "stream:tool_call"); i++) await Bun.sleep(100);
       expect(frames.some((f) => /tool/.test(f.type))).toBe(true);
       frames.length = 0;

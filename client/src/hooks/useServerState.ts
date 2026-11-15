@@ -32,7 +32,7 @@ export function useServerState<T>(
       try {
         const raw = localStorage.getItem(localStorageKey);
         if (raw !== null) return JSON.parse(raw);
-      } catch {}
+      } catch { /* unreadable cache: use the default until the server answers */ }
     }
     return defaultValue;
   });
@@ -109,7 +109,7 @@ export function useServerState<T>(
    */
   const applyFromServer = useCallback((incoming: unknown) => {
     if (localStorageKey) {
-      try { localStorage.setItem(localStorageKey, JSON.stringify(incoming)); } catch {}
+      try { localStorage.setItem(localStorageKey, JSON.stringify(incoming)); } catch { /* local mirror for fast paint; the server value was applied */ }
     }
     if (Object.is(valueRef.current, incoming)) return;
     isFromServerRef.current = true;
@@ -174,9 +174,13 @@ export function useServerState<T>(
     if (!localStorageKey) return;
     const handler = (e: StorageEvent) => {
       if (e.key !== localStorageKey || !e.newValue) return;
+      let parsed: unknown;
       try {
-        applyFromServer(JSON.parse(e.newValue));
-      } catch {}
+        parsed = JSON.parse(e.newValue);
+      } catch {
+        return;
+      }
+      applyFromServer(parsed);
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
@@ -191,7 +195,7 @@ export function useServerState<T>(
 
     // Write localStorage immediately
     if (localStorageKey) {
-      try { localStorage.setItem(localStorageKey, JSON.stringify(value)); } catch {}
+      try { localStorage.setItem(localStorageKey, JSON.stringify(value)); } catch { /* local mirror for fast paint; the server PUT follows */ }
     }
 
     // Never publish before hydrating (see `hydratedRef`). The local copy above

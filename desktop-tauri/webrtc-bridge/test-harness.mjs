@@ -53,7 +53,7 @@ const { targetId } = await cdp("Target.createTarget", { url: process.env.TOPICS_
 console.log("[harness] created target", targetId);
 
 // ---- 2. Spawn the bridge, wait for its socket -----------------------------------
-try { await Bun.file(SOCK).unlink(); } catch {}
+try { await Bun.file(SOCK).unlink(); } catch { /* no stale socket file to remove */ }
 const proc = Bun.spawn([BIN, "--socket", SOCK], { stderr: "inherit", stdout: "inherit" });
 for (let i = 0; i < 30 && !(await Bun.file(SOCK).exists()); i++) await Bun.sleep(100);
 
@@ -134,7 +134,7 @@ for (let t = 0; t < 15; t++) {
 
 await browser.close();
 proc.kill();
-try { await cdp("Target.closeTarget", { targetId }); } catch {}
+try { await cdp("Target.closeTarget", { targetId }); } catch { /* the target may already be gone */ }
 bws.close();
 
 const ok = all.length === N && all.every((s) => s.framesDecoded > 15 && s.videoWidth > 0);

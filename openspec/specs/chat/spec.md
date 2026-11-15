@@ -3150,6 +3150,60 @@ after the Stop waiting.
 - **WHEN** the window reconnects before the boot has reattached or resumed that turn
 - **THEN** the session SHALL be open until the boot has decided about it, and the message SHALL leave after the resumed turn
 
+### Requirement: CHAT-QUEUE-08 — A sender that asks to steer joins the running native turn at its next round
+
+An exception to CHAT-QUEUE-07, opt-in per request. A `POST /api/chat` with
+`steer: true` on a session whose running turn is native (the `topics` runtime)
+SHALL be answered 202 with a steer id instead of `stream_in_flight`. The turn
+SHALL read the message at its next round boundary (after the tool results,
+before the next model call, never on the last allowed round) as the person's
+words. The person's row SHALL be written when the turn reads it, under the
+sender's idempotency key, with its author, marked as steered into that turn's
+row: the resume sweep SHALL NOT read it as unanswered, and a history rebuilt
+from the database SHALL place it before that turn's answer.
+
+Nothing SHALL be lost or read twice. A message the turn never read SHALL go as
+a turn of its own once the session is free, with the same key, author and
+sender kind, unless the chat was archived meanwhile. A person's Stop SHALL hold
+it instead (Stop stops), after a server restart too. A turn cut after a message
+was steered into it SHALL be resumed as if that row were not there; the same
+holds wherever "the person's last row" is read: a turn adopted after a restart
+keeps writing into its own row, a resent row keeps its marks, and Retry resends
+what opened the turn. A detached turn that may have
+read it, whose journal ended before saying so, SHALL leave it `unknown` for the
+sender to decide. A resend under the same key while the message waits SHALL get
+the same steer id. `GET /api/chat/steer?sessionKey=&id=` SHALL say what became
+of it (pending, taken, returned, held, unknown, failed) and, once written, its
+row id. Without `steer: true`, or with no native turn running, CHAT-QUEUE-07
+applies unchanged.
+
+#### Scenario: Taken at the next round
+- **GIVEN** a native turn running a tool
+- **WHEN** a message arrives with `steer: true`
+- **THEN** the answer is 202, and the next model call carries the message after the tool result
+- **AND** the person's row is written then, under the sender's key
+
+#### Scenario: Not taken before the turn ends
+- **GIVEN** a steered message the turn never read
+- **WHEN** the turn ends without a Stop
+- **THEN** the message is sent as a turn of its own, with the same key and author
+
+#### Scenario: Stop holds it
+- **GIVEN** a steered message the turn never read
+- **WHEN** the person presses Stop
+- **THEN** the message is held, not sent
+
+#### Scenario: A resend while it waits
+- **GIVEN** a steered message still waiting
+- **WHEN** the sender resends it under the same key
+- **THEN** it gets the same steer id and the model reads the message once
+
+#### Scenario: The steered row stays answered
+- **GIVEN** a steered message the turn read
+- **WHEN** the server restarts, or the history is rebuilt from the database
+- **THEN** the resume sweep does not resend it, and it sits before the turn's answer
+- **AND** a turn still running is adopted into its own row, not into a second one after the steered row
+
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
 Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che
@@ -4298,6 +4352,25 @@ timeline lo dichiara (`mirroredInBlocks`), invece di farlo indovinare alla riga.
 #### Scenario: nessuna seconda copia
 - **GIVEN** una riga che porta `blocks`
 - **THEN** `tool_calls` SHALL restare vuota e i tool SHALL essere letti dalla timeline
+
+### Requirement: CHAT-PERSIST-02 — Un database occupato non spegne il server
+
+Una scrittura SQLite raggiunta da un timer, da un intervallo o da una promise
+che nessuno aspetta NON SHALL far uscire il processo quando il database la
+rifiuta come occupato (`SQLITE_BUSY` o `SQLITE_LOCKED` oltre `busy_timeout`).
+La scrittura SHALL essere riprovata più tardi, oppure il giro SHALL essere
+saltato con un avviso quando un giro successivo la rifà. Ogni altro errore
+SHALL comportarsi come prima.
+
+#### Scenario: un timer incontra il lock
+- **GIVEN** un'altra connessione che tiene il lock di scrittura
+- **WHEN** un timer scrive e il database la rifiuta come occupato
+- **THEN** il processo SHALL restare su e la scrittura SHALL arrivare quando il lock viene lasciato
+
+#### Scenario: una promise senza await incontra il lock
+- **GIVEN** una promise lanciata senza await che scrive
+- **WHEN** il database la rifiuta come occupato
+- **THEN** il rifiuto SHALL diventare un avviso, non un rifiuto non gestito
 
 ### Requirement: CHAT-INT-01 — Un turno interrotto dice perché, e offre una via d'uscita
 
@@ -6632,3 +6705,25 @@ la radice del disco SHALL essere scartata.
 #### Scenario: scrittura in una radice dichiarata
 - **GIVEN** `~/bin` elencata per il workspace
 - **THEN** una scrittura in `~/bin/x` SHALL passare, una in `~/altro/x` SHALL essere rifiutata
+
+### Requirement: CLIENT-SILENT-ERR-01 — Un errore del client non sparisce in silenzio
+
+Un handler WS che lancia, un frame malformato, il reload della history che fallisce, un listener della coda che lancia e uno `setItem` che fallisce SHALL lasciare un `console.error` o `console.warn`; lo storage in errore SHALL essere esposto al chiamante, e uno Stop rifiutato SHALL mostrare un errore visibile senza dire che il processo si è fermato.
+
+#### Scenario: setItem della coda fallisce
+- **GIVEN** uno storage la cui `setItem` lancia
+- **THEN** l'accodamento SHALL loggare un warn e `hasQueuePersistError` SHALL essere vero
+
+### Requirement: CHAT-TASK-CARD-01 — A chat sees the board cards it uses, and hears how they end
+
+A call of a card tool (`create_task`, `update_task`, `comment_task`, `get_task`, `board_create`, `board_status`, `board_review`, `board_comment`, `board_land`, bare, prefixed or through the gateway) SHALL be drawn in the transcript as a card with the card's title, its live state from the board store (backlog, todo, in progress, review, done, failed), machine, model, delivery branch, checks and preview image, and the action of that turn; a click SHALL open the card's drawer. A card the chat created or sent back to work, and that is not yet in review or done, SHALL be named in the chat's background work line and in its sidebar row. When such a card reaches review or done, or fails, the chat that opened it SHALL be woken once with the status, branch, checks, the first line of the report and the link; a repeated identical outcome SHALL wake nobody, and neither SHALL a card the chat only read.
+
+#### Scenario: A card goes from todo to review under the reader
+- **GIVEN** a chat whose transcript holds its `create_task` call
+- **WHEN** the card moves to in progress and then to review on the board
+- **THEN** the transcript card SHALL change state without a reload and the background work line SHALL leave when the card reaches review
+
+#### Scenario: One wake per outcome
+- **GIVEN** a card opened by a chat
+- **WHEN** it is taken to review and the same frame arrives again
+- **THEN** the chat SHALL receive exactly one message

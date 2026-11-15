@@ -46,8 +46,7 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
   // it is judged against the newest of its family that any catalog lists, after
   // the spellings a person can type (`codex: claude-sonnet-4-6[1m]`, a date suffix,
   // upper case) are reduced to the plain id.
-  const claudeId = selection.model.trim().toLowerCase().replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
-  if (claudeId.startsWith("claude-") && claudeModelGenerations([...listedModels, claudeId])[claudeId]?.generation === "older") return false;
+  if (isRetiredClaudeId(selection.model, listedModels)) return false;
 
   const eligible = catalogs.filter(({ name }) => !selection.provider || name === selection.provider);
 
@@ -60,6 +59,12 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
   });
 }
 
+/** Whether a Claude id is an older generation than the newest of its family that `listed` knows. */
+function isRetiredClaudeId(model: string, listed: string[]): boolean {
+  const claudeId = model.trim().toLowerCase().replace(/\[1m\]$/, "").replace(/-\d{8}$/, "");
+  return claudeId.startsWith("claude-") && claudeModelGenerations([...listed, claudeId])[claudeId]?.generation === "older";
+}
+
 /** Where a router reads its model facts from: its own runnable list and the provider catalogs. */
 export interface TaskModelSources {
   taskModels?: () => string[];
@@ -69,11 +74,20 @@ export interface TaskModelSources {
 /**
  * Whether the model of a mirrored card is refused here; lives in the service so
  * the route is a single line (nodes.ts sits at the bloat ceiling).
- * A model this node runs (`taskModels`) is current here by definition.
+ *
+ * The origin already judged the model against its own catalog, and this node's
+ * CLI may know a newer one than the catalog it probed: absence from the local
+ * list is therefore not a verdict. Only a model this node can prove retired
+ * (an older generation than one it lists) is refused.
  */
 export function isStaleMirroredModel(model: unknown, sources: TaskModelSources, fallback: () => ProvidersSnapshot | null): boolean {
   if (typeof model !== "string" || !model || sources.taskModels?.().includes(model)) return false;
-  return !taskModelIsCurrent(model, sources.taskModelSnapshot?.() ?? fallback());
+  const selection = taskModelSelection(model.trim());
+  if (!selection.model) return false;
+  const snapshot = sources.taskModelSnapshot?.() ?? fallback();
+  if (!snapshot) return false;
+  const listed = [...taskExecutionOptions(snapshot).flatMap(({ models }) => models), ...snapshot.providers.flatMap((entry) => entry.models)];
+  return isRetiredClaudeId(selection.model, listed);
 }
 
 /**

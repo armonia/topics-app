@@ -6,15 +6,21 @@
  * @covers KANBAN-102
  */
 import { describe, expect, test } from "bun:test";
-import { TASK_STATUSES } from "./board";
 import {
+  MAX_PERSON_PATHS,
   STAGE_AI_REVIEW,
+  STAGE_CI,
   STAGE_HUMAN_REVIEW,
   STAGE_TRIAGE,
   WORKFLOW_PRESETS,
   awaitsHuman,
+  awaitsHumanSql,
   columnOfTask,
+  parsePersonPaths,
+  personPathsFromText,
+  personPathsToText,
   resolveWorkflow,
+  resolveWorkflowRules,
   stageAtBirth,
   stageForDelivery,
 } from "./workflow";
@@ -22,12 +28,21 @@ import {
 const armonia = WORKFLOW_PRESETS.armonia;
 
 describe("resolveWorkflow", () => {
-  test("with no row the columns are the five of before", () => {
+  test("with no row the columns are the five of before, plus the CI phase that only named cards enter", () => {
     const wf = resolveWorkflow({});
     expect(wf.preset).toBe("default");
     expect(wf.source).toBe("default");
-    expect(wf.columns.map((c) => c.id)).toEqual([...TASK_STATUSES]);
-    expect(wf.columns.every((c) => c.id === c.base)).toBe(true);
+    expect(wf.columns.map((c) => c.id)).toEqual(["backlog", "todo", "in_progress", "review", "ci", "done"]);
+    expect(wf.columns.filter((c) => c.id !== STAGE_CI).every((c) => c.id === c.base)).toBe(true);
+    // A card with no stage never lands in CI: its review stays the review of before.
+    expect(columnOfTask(wf.columns, { status: "review" })?.id).toBe("review");
+    expect(columnOfTask(wf.columns, { status: "review", stage: STAGE_CI })?.id).toBe(STAGE_CI);
+  });
+
+  test("a card in the CI phase waits on nobody", () => {
+    expect(awaitsHuman({ status: "review", stage: STAGE_CI })).toBe(false);
+    expect(awaitsHuman({ status: "review", stage: null })).toBe(true);
+    expect(awaitsHumanSql(true)).toContain(`'${STAGE_CI}'`);
   });
 
   test("the project row wins over the global one", () => {
@@ -44,7 +59,7 @@ describe("resolveWorkflow", () => {
 
 describe("columnOfTask", () => {
   test("armonia: six columns, each stage on a coherent base status", () => {
-    expect(armonia.map((c) => c.id)).toEqual(["triage", "todo", "in_progress", "ai_review", "human_review", "done"]);
+    expect(armonia.map((c) => c.id)).toEqual(["triage", "todo", "in_progress", "ai_review", "human_review", "ci", "done"]);
     expect(armonia.find((c) => c.id === STAGE_TRIAGE)?.base).toBe("backlog");
     expect(armonia.find((c) => c.id === STAGE_AI_REVIEW)?.base).toBe("review");
     expect(armonia.find((c) => c.id === STAGE_HUMAN_REVIEW)?.base).toBe("review");
@@ -113,3 +128,33 @@ describe("stageForDelivery", () => {
     expect(stageForDelivery(WORKFLOW_PRESETS.default, { createdBy: "agent:session" })).toBeNull();
   });
 });
+
+describe("resolveWorkflowRules: the CI switch inherits, the paths add up", () => {
+  test("no rows: CI phase on, no board paths", () => {
+    expect(resolveWorkflowRules({})).toEqual({ ciPhase: true, personPaths: [] });
+  });
+  test("the project's switch wins over the global one; null inherits", () => {
+    expect(resolveWorkflowRules({ global: { ciPhase: false } }).ciPhase).toBe(false);
+    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: true } }).ciPhase).toBe(true);
+    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: null } }).ciPhase).toBe(false);
+  });
+  test("the global paths come first, then the project's", () => {
+    const g = { pattern: "a/**", why: "g" }; const p = { pattern: "b/**", why: "p" };
+    expect(resolveWorkflowRules({ global: { personPaths: [g] }, project: { personPaths: [p] } }).personPaths).toEqual([g, p]);
+  });
+});
+
+describe("person paths as text and as data", () => {
+  test("one per line, `pattern # why`; blank and comment lines skipped; no why = this board", () => {
+    const paths = personPathsFromText("client/src/** # interfaccia\n\n# a note\n  scripts/**  \n");
+    expect(paths).toEqual([{ pattern: "client/src/**", why: "interfaccia" }, { pattern: "scripts/**", why: "this board" }]);
+    expect(personPathsFromText(personPathsToText(paths))).toEqual(paths);
+  });
+  test("a list that is not one is refused, not read as empty", () => {
+    expect(parsePersonPaths([{ pattern: "a/**", why: "x" }])).toEqual([{ pattern: "a/**", why: "x" }]);
+    expect(parsePersonPaths("a/**")).toBeNull();
+    expect(parsePersonPaths([{ pattern: "", why: "x" }])).toBeNull();
+    expect(parsePersonPaths(Array.from({ length: MAX_PERSON_PATHS + 1 }, () => ({ pattern: "a", why: "b" })))).toBeNull();
+  });
+});
+

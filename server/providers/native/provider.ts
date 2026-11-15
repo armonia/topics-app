@@ -22,6 +22,7 @@
  * turn costs a whole process, and here it costs an array.
  */
 
+import { openSteerTarget } from "../../lib/turn-steer";
 import { pingPromptCache, runAgentTurn, toProviderUsage, type AgentMessage, type AgentTurnOptions, type RoundRequestOptions } from "./agent-loop";
 import { recordTurnUsage } from "../native-usage-registry";
 import { CODING_TOOLS, WORKSPACE_FREE_TOOLS } from "./tools";
@@ -68,6 +69,7 @@ import {
   runDetachedTurn,
   reattachDetachedTurn,
   abortDetachedTurn,
+  steerDetachedTurn,
   detachAll,
   liveDetachedSessions,
   brokerIdFor,
@@ -81,6 +83,7 @@ import type { TurnSpec } from "./turn-host";
 import { deadStoreIsOpenRowsTurn } from "../../lib/boot-native-turns";
 import type { RoundUsage } from "./turn-journal";
 import { getAiBridgeClient } from "../../lib/ai-bridge-client";
+import { createDelegationTracker, delegationPolicy } from "../../lib/delegation-policy";
 
 /**
  * The model we start from when nobody asks for one.
@@ -228,9 +231,12 @@ export function nativeSystemPrompt(args: {
   /** The coordinator: project-less by design, the note would lie. */
   globalOrchestrator: boolean;
   language?: string;
+  /** The chat can open sub-agents: it gets the delegation policy. */
+  delegate?: boolean;
 }): string {
   const note = args.workspace || args.globalOrchestrator ? undefined : NO_WORKSPACE_NOTE;
-  return [args.base, note, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
+  const policy = args.delegate && args.workspace && !args.globalOrchestrator ? delegationPolicy() : undefined;
+  return [args.base, note, policy, args.language ?? languageDirective()].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -320,6 +326,8 @@ interface NativeSession {
   /** Measured chars-per-token. On the SESSION and not on the turn: the turn
    * that dies of a full context dies on its FIRST round, measuring nothing. */
   calibration: Calibration;
+  /** Inline tool calls since the last delegation, across turns (`lib/delegation-policy.ts`). */
+  delegation?: ReturnType<typeof createDelegationTracker>;
   /** The next prompt-cache keep-alive, while the session waits for the person (see `KEEP_ALIVE_EVERY_MS`). */
   keepAlive?: ReturnType<typeof setTimeout>;
   /** Which keep-alive chain is the live one: a tick from an older chain stops. */
@@ -794,6 +802,7 @@ export class NativeProvider implements AIProvider {
       if (end) {
         session.history = end.history as AgentMessage[];
         if (end.calibration) session.calibration = end.calibration as Calibration;
+        if (end.delegation) session.delegation = createDelegationTracker(undefined, end.delegation);
       }
       if (wait.stopped) return { stopped: wait.stopped };
       return end ? "adopted" : "none";
@@ -853,6 +862,11 @@ export class NativeProvider implements AIProvider {
     options: { model?: string; history?: ChatMessage[]; systemPrompt?: string; turnId?: string } | undefined,
     abort: AbortController,
   ): Promise<{ runId?: string }> {
+    // From here to the end of the turn a message written in this chat joins
+    // the turn at its next round (`lib/turn-steer.ts`); closed in `finally`,
+    // which hands back whatever the turn did not take.
+    const steer = openSteerTarget(sessionKey);
+    let detachedJournalLost = false;
     try {
       // Senza una radice i tool di file non si offrono nemmeno: un agente che
       // riceve `read_file` e non ha una workspace prova a indovinare dove sia
@@ -926,12 +940,19 @@ export class NativeProvider implements AIProvider {
         // registry-backed coordinator is different: it intentionally has no
         // workspace and only its five board tools, so adding that ordinary
         // note would falsely advertise web/file capabilities.
-        system: nativeSystemPrompt({ base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator }),
+        system: nativeSystemPrompt({
+          base: options?.systemPrompt, workspace: !!workspace, globalOrchestrator: !!globalOrchestrator,
+          delegate: !!topics && !subagentPolicy?.noDelegation,
+        }),
         reminder: languageReminder(),
         history: session.history,
         // Passed by REFERENCE: every turn restarts from what the previous
         // one measured, instead of from the assumed 4 chars per token.
         calibration: session.calibration,
+        // Only where spawn_agent exists: a nudge toward a tool the chat lacks is noise.
+        ...(workspace && topics && !globalOrchestrator && !subagentPolicy?.noDelegation
+          ? { delegation: (session.delegation ??= createDelegationTracker()) }
+          : {}),
         tools,
         // Il segnale scende FIN DENTRO il comando: il ciclo guarda l'abort in
         // cima al giro, ma un turno sta quasi sempre fermo dentro un tool, e
@@ -984,6 +1005,7 @@ export class NativeProvider implements AIProvider {
           try { handler.onCallUsage?.({ ...toProviderUsage(u), model: turnModel }); }
           catch { /* the measurement never stops the work */ }
         },
+        takeSteer: () => steer.take(),
       };
       let requestedAt = Date.now();
       turnOpts.onRequestStart = () => { requestedAt = Date.now(); };
@@ -998,6 +1020,7 @@ export class NativeProvider implements AIProvider {
           reminder: turnOpts.reminder,
           history: session.history,
           calibration: session.calibration,
+          ...(turnOpts.delegation ? { delegation: turnOpts.delegation.state() } : {}),
           tools: globalOrchestrator
             ? topicsToolSpecs("global-orchestrator")
             : [
@@ -1012,17 +1035,21 @@ export class NativeProvider implements AIProvider {
           server: { baseUrl: topicsAppBaseUrl(), topicsHome: topicsHome() },
           hold: providerHold(),
         };
-        const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel);
+        const r = await this.runDetached(sessionKey, session, spec, handler, abort, turnModel, () => {
+          steer.forwardTo((item) => steerDetachedTurn(sessionKey, item));
+        });
         if (r) {
           // The conversation comes back whole: compaction and the language
           // reminder rewrite it in place inside the turn.
           if (r.end) {
             session.history = r.end.history as AgentMessage[];
             if (r.end.calibration) session.calibration = r.end.calibration as Calibration;
+            if (r.end.delegation) session.delegation = createDelegationTracker(undefined, r.end.delegation);
             this.keepCacheWarm(sessionKey, session, { model: turnModel, effort: turnEffort, maxTokens: turnMaxTokens, system: turnOpts.system, history: session.history, tools: turnOpts.tools }, r.lastRequestAt ?? requestedAt);
           } else {
             // No `end`: the process died and its history went with it. The
             // next turn rebuilds the conversation from the DB.
+            detachedJournalLost = true;
             this.sessions.delete(sessionKey);
           }
           recordTurnEnd(sessionKey, { ...detachedTurnEnd(r), turnId: options?.turnId });
@@ -1062,6 +1089,13 @@ export class NativeProvider implements AIProvider {
       recordTurnEnd(sessionKey, { end: "error", cause: "provider-error", detail, turnId: options?.turnId });
       return {};
     } finally {
+      // Stop stops: what the person wrote meanwhile is not sent on by itself.
+      // A detached turn whose journal ended without `end` may have read what
+      // it was sent: that is the sender's call, not a blind resend.
+      steer.close({
+        stoppedByPerson: abort.signal.aborted && stopCauseFromSignal(abort.signal) === "user",
+        journalLost: detachedJournalLost,
+      });
       // ONLY ITS OWN HANDLE. An unconditional clear is how the first turn's
       // end made the second turn look dead: the handle is released by the turn
       // that set it, and a newer claimant's stays where it is.
@@ -1097,6 +1131,7 @@ export class NativeProvider implements AIProvider {
     handler: StreamHandler,
     abort: AbortController,
     model: string,
+    onStarted?: () => void,
   ): Promise<DetachedTurnResult | null> {
     session.detached = true;
     this.detachedLive.add(sessionKey);
@@ -1106,6 +1141,7 @@ export class NativeProvider implements AIProvider {
       return await runDetachedTurn(spec, handler, {
         signal: abort.signal,
         onUsage: this.usageListener(sessionKey, handler, model),
+        onStarted,
       });
     } catch (err) {
       console.warn(`[native] ${sessionKey}: could not start the turn in its own process, running it in the server:`, err instanceof Error ? err.message : err);
@@ -1160,6 +1196,7 @@ export class NativeProvider implements AIProvider {
         const s = this.sessionFor(sessionKey);
         s.history = res.end.history as AgentMessage[];
         if (res.end.calibration) s.calibration = res.end.calibration as Calibration;
+        if (res.end.delegation) s.delegation = createDelegationTracker(undefined, res.end.delegation);
         const warm = res.end.warm;
         if (warm && !this.stopped) {
           const tools = warm.tools;

@@ -136,7 +136,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
   function rowToMachine(row: any): Machine {
     let warnings: Record<string, string> = {};
     if (row.acknowledged_warnings) {
-      try { warnings = JSON.parse(row.acknowledged_warnings); } catch {}
+      try { warnings = JSON.parse(row.acknowledged_warnings); } catch { /* corrupt warnings JSON: keep the empty default */ }
     }
     return {
       id: row.id,

@@ -251,7 +251,7 @@ class Cdp {
     if (r.exceptionDetails) throw new Error(`eval: ${r.exceptionDetails.text} ${r.exceptionDetails.exception?.description ?? ""}`);
     return r.result?.value;
   }
-  close() { try { this.ws.close(); } catch {} }
+  close() { try { this.ws.close(); } catch { /* socket may already be closed */ } }
 }
 
 // ------------------------------------------------------- socket del sidecar
@@ -307,7 +307,7 @@ class BridgeSocket {
       });
     });
   }
-  close() { try { this.sock.end(); } catch {} }
+  close() { try { this.sock.end(); } catch { /* socket may already be closed */ } }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -568,9 +568,9 @@ async function main() {
     bs?.close();
     cdp?.close();
     cdp2?.close();
-    try { bridge?.kill("SIGKILL"); } catch {}
-    try { chrome?.kill("SIGKILL"); } catch {}
-    try { chrome2?.kill("SIGKILL"); } catch {}
+    try { bridge?.kill("SIGKILL"); } catch { /* process may have already exited */ }
+    try { chrome?.kill("SIGKILL"); } catch { /* process may have already exited */ }
+    try { chrome2?.kill("SIGKILL"); } catch { /* process may have already exited */ }
     http.stop(true);
     rmSync(framesDir, { recursive: true, force: true });
     rmSync(profile, { recursive: true, force: true });

@@ -48,12 +48,19 @@ function isAlive(pid: number): boolean {
 
 describe("evictOwnedScripts — Punto 1", () => {
   let tmpRoot: string;
+  let origRoot: string | undefined;
 
   beforeEach(() => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ghost-evict-"));
+    // The manager reads its root when it is built, and only removes what is
+    // under it: the test's worktrees must live under the root it sees.
+    origRoot = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = path.join(tmpRoot, "worktrees");
   });
 
   afterEach(() => {
+    if (origRoot === undefined) delete process.env.TOPICS_WORKTREES_DIR;
+    else process.env.TOPICS_WORKTREES_DIR = origRoot;
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
@@ -80,7 +87,7 @@ describe("evictOwnedScripts — Punto 1", () => {
       stdout: "ignore", stderr: "ignore", stdin: "ignore",
     });
     const ghostPid = sleepProc.pid;
-    spawned.push({ pid: ghostPid, kill: () => { try { process.kill(ghostPid, "SIGKILL"); } catch { } } });
+    spawned.push({ pid: ghostPid, kill: () => { try { process.kill(ghostPid, "SIGKILL"); } catch { /* process may have already exited */ } } });
 
     // Aspetta che il processo si sia avviato
     await Bun.sleep(100);
@@ -110,7 +117,7 @@ describe("evictOwnedScripts — Punto 1", () => {
         killedPids.push(pid);
         process.kill(pid, "SIGTERM");
         await Bun.sleep(50);
-        try { process.kill(pid, "SIGKILL"); } catch { }
+        try { process.kill(pid, "SIGKILL"); } catch { /* process may have already exited */ }
       },
       listOwnedScripts: () => ownedScripts,
     };

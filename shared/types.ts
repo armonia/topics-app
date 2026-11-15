@@ -748,6 +748,16 @@ export type ToolCallDetail =
       agentId?: string;
     }
   | { type: 'plan'; text: string }
+  /** A call on a card of the board (`shared/task-tool.ts`): drawn as the card, not as a tool row. */
+  | {
+      type: 'task_card';
+      tool: string;
+      action: 'created' | 'moved' | 'delivered' | 'resent' | 'closed' | 'landed' | 'commented' | 'read' | 'reviewed';
+      taskId?: string;
+      reason?: string;
+      args?: Record<string, unknown>;
+      result?: string;
+    }
   | { type: 'mcp'; server: string; tool: string; args?: Record<string, unknown>; result?: string }
   // Long-lived / background / harness tools that previously fell through to
   // `unknown`. Typed so the chat shows a real row instead of a raw JSON blob.
@@ -1155,6 +1165,14 @@ export type ContentBlock =
    * instead of twice. Absent on a kickoff, which delivers nothing.
    */
   | { kind: 'dispatched-envelope'; commentIds?: string[] }
+  /**
+   * THIS PERSON'S ROW WAS READ BY A TURN ALREADY RUNNING (steer, CHAT-QUEUE-08):
+   * written when the turn of `into` took it, so it sits after that turn's row
+   * though the model read it before the answer. The resume sweep does not take
+   * it for an unanswered message, and the rebuilt history puts it back before
+   * `into`. It draws nothing: the row is the person's bubble as any other.
+   */
+  | { kind: 'steered'; into?: string }
   /**
    * THIS ROW REPORTS THE END OF A COMMAND the topic launched with
    * `run_command`, not something a person typed (server/lib/process-exit-wake.ts).

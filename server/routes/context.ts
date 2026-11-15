@@ -124,7 +124,7 @@ export function createContextRouter(ctx: AppContext): RouteHandler {
         const contextFileDetails: string[] = [];
         if (topic?.contextFiles && topic.contextFiles.length > 0) {
           for (const filepath of topic.contextFiles) {
-            try { const content = readFileSync(filepath, 'utf-8'); const tokens = Math.round(content.length / 4); contextFilesTokens += tokens; contextFileDetails.push(`${filepath.split('/').pop()}: ~${tokens} tokens`); } catch {}
+            try { const content = readFileSync(filepath, 'utf-8'); const tokens = Math.round(content.length / 4); contextFilesTokens += tokens; contextFileDetails.push(`${filepath.split('/').pop()}: ~${tokens} tokens`); } catch { /* an unreadable context file just adds no tokens to the estimate */ }
           }
         }
         const baseSystemTokens = 15000;

@@ -15,7 +15,7 @@ import { composerStopsTasks } from '../../state/backgroundWork';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
 import { useServerResume } from '../../hooks/useServerResume';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
-import { ImageThumbnail } from '../MessageContent';
+import { ImageThumbnail } from '../MediaBlocks';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { useTextToSpeech, useVoiceCall } from '../../hooks/useSpeech';
 import { useDictation } from '../../hooks/useDictation';

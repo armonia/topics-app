@@ -25,7 +25,12 @@
         // [Replaceable] nello standard: la pagina può sovrascriverlo.
         set: d && d.set ? function (x) { d.set.call(window, x); } : undefined,
       });
-    } catch (e) {}
+    } catch (e) {
+      // The fallback is the ORIGINAL bug: outerWidth/outerHeight stay 0, and
+      // the Hetzner "Security Check" loop this file exists to fix comes back
+      // with no trace of why.
+      console.warn('[topics] outerWidth patch failed', e);
+    }
   }
   patch('outerWidth', 'innerWidth');
   patch('outerHeight', 'innerHeight');

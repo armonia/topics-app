@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { test } from "./fixtures/chat.fixture";
 import { goToApp, openTopic } from "./helpers";
 import {
-  createTerminalSession, createTopic, deleteTerminalSession, deleteTopic, resetPaneStore,
+  createTerminalSession, createTopic, deleteTerminalSession, deleteTopic, listTerminalSessions, resetPaneStore,
 } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { unmockChatStream } from "./helpers/sse-helpers";
@@ -314,6 +314,7 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await expect(term.locator(".xterm-rows")).toContainText("linea 300", { timeout: 15_000 });
     await page.keyboard.press("Meta+f");
     await expect(term.getByTestId("find-bar")).toBeVisible();
+    await expect(term.getByTestId("find-input")).toBeFocused();
     await page.keyboard.type("linea 150");
     // Once on screen: the command line holds «150» too, but not «linea 150».
     await expect(term.getByTestId("find-count")).toHaveText(/^[01] di 1$/, { timeout: 10_000 });
@@ -327,6 +328,28 @@ test.describe("Cerca nella pane: barre per pane, terminale", () => {
     await page.locator(`[data-pane-id="${topicId}"]`).first().click();
     await expect(input(page)).toHaveValue("deploy");
     await expect(count(page)).toHaveText("1 di 2");
+  });
+
+  test("TERM-FOCUS-01: a terminal opened from the + menu still takes the cursor", async ({ page, request }) => {
+    // The late focus of a new terminal yields only to a text field someone is
+    // typing in. A menu or a button that keeps the focus after the click must
+    // not keep the keyboard away from the terminal it just opened.
+    const before = new Set((await listTerminalSessions(request)).map((s) => s.id));
+    // The empty layout, as in ADD-06: its + menu always offers the shell.
+    await resetPaneStore(request, []);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    try {
+      await page.getByTestId("pane-add-menu-trigger").filter({ visible: true }).first().click();
+      await page.getByTestId("pane-add-menu-shell").click();
+      const term = page.locator('[data-testid="single-terminal-pane"]').filter({ visible: true }).first();
+      await expect(term).toBeVisible({ timeout: 15_000 });
+      await expect(term.locator(".xterm-helper-textarea")).toBeFocused({ timeout: 5_000 });
+    } finally {
+      for (const s of await listTerminalSessions(request)) {
+        if (!before.has(s.id)) await deleteTerminalSession(request, s.id);
+      }
+    }
   });
 
   test("FIND-01c: Enter right after the last letter goes to the first result of THAT word", async ({ page, request, chatPage }) => {
@@ -604,7 +627,12 @@ test.describe("Cerca nella pane: le schermate", () => {
           await openTopic(page, new RegExp(topicName));
           await page.getByTestId("mobile-pane-find").filter({ visible: true }).first().click({ timeout: 15_000 });
         } else {
-          await expect(page.locator(`[data-pane-id="${topicId}"]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
+          // The panel wrapper carries the topic id too, and it shows before the
+          // chat body mounts: the red run pressed ⌘F 5 ms after the wrapper,
+          // with no finder yet, and got the project search. The body's root is
+          // the one with `data-find-pane`, and it registers its finder in the
+          // commit that mounts it.
+          await expect(page.locator(`[data-chat-topic-id="${topicId}"][data-find-pane]`).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
           await blurAll(page);
           await page.keyboard.press("Meta+f");
         }

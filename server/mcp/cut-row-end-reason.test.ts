@@ -129,6 +129,17 @@ describe("a whole reply written without latency_ms is not a cut", () => {
     expect(ctx.getMessageById(row)).toMatchObject({ content: REGENERATED, endReason: "done" });
   });
 
+  test("a message steered into a running turn does not make its reattach open a second row (CHAT-QUEUE-08)", () => {
+    // After a reload the adopted turn is poured into its own open row, not into a new one after the steered words.
+    const sk = topic("endr-steered-reattach");
+    ctx.appendLocalMessage(sk, "user", "migra il server");
+    const turn = ctx.createPartialMessage(sk, "assistant");
+    ctx.appendLocalMessage(sk, "user", "usa la porta 2222");
+    ctx.db.run("UPDATE messages SET blocks = ? WHERE session_key = ? AND content = 'usa la porta 2222'",
+      [JSON.stringify([{ kind: "steered", into: turn.id }]), sk]);
+    expect(ctx.reuseOrCreatePartialForReattach(sk).id).toBe(turn.id);
+  });
+
   test("A2: a finished turn, then a woken turn a restart cut: the cut row is recognised without a user row of its own", async () => {
     const tid = "endr-woken";
     const sk = topic(tid);

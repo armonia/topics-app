@@ -11,14 +11,14 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool snapshot    rifà lo snapshot dalla ricetta unica (user-data.sh.tmpl + winfleet/nodo/strumenti.txt)
   node-pool stato       posti, server, spesa del mese del pool
   node-pool spegni      cancella subito ogni server del pool
-  node-pool fisso-ci    installa o riallinea i runner della CI sul server fisso (deploy/fisso/ci-runners.sh)
+  node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
   node-pool --selftest  le decisioni pure, senza rete
 
-SERVER FISSO (Attilio, Discord 10/11 23:31): topics-fisso, un cx53 sempre acceso nel progetto topics-nodes,
+NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
 fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
 nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
 che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. Topics ha la precedenza anche sulla CPU
-(ci.slice con peso basso, deploy/fisso/ci-runners.sh).
+(ci.slice con peso basso, deploy/permanent-node/ci-runners.sh).
 
 Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
 una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
@@ -60,19 +60,23 @@ EXPIRES_S = 2 * 3600
 BOOT_MAX_S = 600
 SLOTS_PER_NODE = int(os.environ.get("NODE_POOL_SLOTS", "2"))
 LPORT, RPORT, PROXY = 3400, 3410, 3391
-# On the fixed server the model proxy comes back on 3301, not 3411: ports below 3342 are
+# On the permanent node the model proxy comes back on 3301, not 3411: ports below 3342 are
 # privileged there, so no CI job can take it while the tunnel is down, and 3400-3450 is
-# the preview pool the e2e servers use (deploy/fisso/ci-runners.sh).
-FIXED_RPORT = 3301
+# the preview pool the e2e servers use (deploy/permanent-node/ci-runners.sh).
+PERMANENT_RPORT = 3301
 
 
 def rport(sl):
-    return FIXED_RPORT if sl.get("fixed") else RPORT + sl["n"]
-FIXED_NAME = os.environ.get("NODE_POOL_FIXED", "topics-fisso")
-FIXED_SLOT = 1
-FIXED_SLOTS_CI, FIXED_SLOTS_IDLE = 2, 4
+    return PERMANENT_RPORT if sl.get("fixed") else RPORT + sl["n"]
+PERMANENT_NAME = os.environ.get("NODE_POOL_PERMANENT", "topics-permanent-node")
+PERMANENT_SLOT = 1
+PERMANENT_SLOTS_CI, PERMANENT_SLOTS_IDLE = 2, 4
 CI_RUNNERS = int(os.environ.get("NODE_POOL_CI_RUNNERS", "4"))
 CI_REPO = "armonia/topics-app"
+# A node that stays behind the Mac commit longer than this is drained (slots 0) so the realign can run
+BEHIND_S = int(os.environ.get("NODE_POOL_BEHIND_MIN", "60")) * 60
+# Longest wait for the running cards to finish before the drain is given up and retried later
+DRAIN_MAX_S = int(os.environ.get("NODE_POOL_DRAIN_MAX_MIN", "180")) * 60
 
 
 def log(msg):
@@ -119,9 +123,9 @@ def should_create(held_since, alive, creating, spend, eur_h, now):
     return True, f"{len(held)} card ferme per memoria da oltre {DEMAND_AFTER_S}s"
 
 
-def fixed_slots(ci_busy):
-    """Card del nodo fisso: poche mentre la CI usa il server, tutte quando è ferma."""
-    return FIXED_SLOTS_CI if ci_busy > 0 else FIXED_SLOTS_IDLE
+def permanent_slots(ci_busy):
+    """Card del nodo permanente: poche mentre la CI usa il server, tutte quando è ferma."""
+    return PERMANENT_SLOTS_CI if ci_busy > 0 else PERMANENT_SLOTS_IDLE
 
 
 def free_slot(slots):
@@ -149,7 +153,7 @@ def selftest():
     now = time.time()
     assert month_spend([{"created": now - 70 * 60, "ended": now, "eur_h": 0.5}], now) == 1.0
     assert free_slot({"1": {"server_id": 5}}) == 2 and free_slot({}) == 1
-    assert fixed_slots(0) == 4 and fixed_slots(3) == 2, "card del fisso: 2 con la CI, 4 senza"
+    assert permanent_slots(0) == 4 and permanent_slots(3) == 2, "card del nodo permanente: 2 con la CI, 4 senza"
     print("selftest ok")
 
 
@@ -229,7 +233,7 @@ def mac(method, path, body=None, timeout=30):
 
 def pool_servers():
     return [s for s in hz("GET", "/servers?label_selector=topics-node&per_page=50").get("servers", [])
-            if (s.get("labels") or {}).get("topics-node-slot") and s.get("name") != FIXED_NAME]
+            if (s.get("labels") or {}).get("topics-node-slot") and s.get("name") != PERMANENT_NAME]
 
 
 def price(type_name, location):
@@ -271,14 +275,16 @@ def machine_row(slot):
         db.close()
 
 
-def slot_busy(machine_id):
-    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina."""
+def slot_busy(machine_id, running_only=False):
+    """Card vive del posto sul Mac: in coda o al lavoro con questa macchina. While draining only
+    the running ones count: queued cards cannot start with slots 0, they wait for the realign."""
     if not machine_id:
         return 0
     import sqlite3
     db = sqlite3.connect(f"file:{MAC_DB}?mode=ro", uri=True, timeout=5)
     try:
-        return db.execute("select count(*) from tasks where machine_id=? and status in ('todo','in_progress')",
+        states = "('in_progress')" if running_only else "('todo','in_progress')"
+        return db.execute(f"select count(*) from tasks where machine_id=? and status in {states}",
                           (machine_id,)).fetchone()[0]
     finally:
         db.close()
@@ -474,10 +480,10 @@ def wire_model(sl):
 
 def bring_up(state, n, reason):
     """Accende il posto n: server, pronto, tunnel, appaiamento, modelli. Ritorna lo slot o None."""
-    if n == FIXED_SLOT:
-        fx = fixed_server()
+    if n == PERMANENT_SLOT:
+        fx = permanent_server()
         if fx:
-            return ensure_fixed(state, fx)
+            return ensure_permanent(state, fx)
     sl = state["slots"].setdefault(str(n), {"n": n})
     sl.update({"n": n, "creating": time.time()})
     save_state(state)
@@ -536,10 +542,10 @@ def delete(state, n, reason):
     close_tunnel(sl)
     sid = sl.get("server_id")
     if sl.get("fixed"):
-        # il server fisso non si cancella mai: si chiude il tunnel e il giro dopo lo riprende
+        # il nodo permanente non si cancella mai: si chiude il tunnel e il giro dopo lo riprende
         state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
         save_state(state)
-        log(f"posto {n}: {sl.get('name')} (fisso) staccato, non cancellato: {reason}")
+        log(f"posto {n}: {sl.get('name')} (permanente) staccato, non cancellato: {reason}")
         return
     if sid:
         if sl.get("ip"):
@@ -558,23 +564,23 @@ def delete(state, n, reason):
         subprocess.run([TETTO_BIN, "stato"], capture_output=True, timeout=60)
 
 
-# ── server fisso ────────────────────────────────────────────────────────────────
+# ── nodo permanente ────────────────────────────────────────────────────────────────
 
-def fixed_server():
-    return next(iter(hz("GET", f"/servers?name={FIXED_NAME}").get("servers") or []), None)
+def permanent_server():
+    return next(iter(hz("GET", f"/servers?name={PERMANENT_NAME}").get("servers") or []), None)
 
 
-def ensure_fixed(state, fx):
-    """Il posto 1 è il server fisso: lo collega (tunnel, appaiamento, modelli) se non lo è,
+def ensure_permanent(state, fx):
+    """Il posto 1 è il nodo permanente: lo collega (tunnel, appaiamento, modelli) se non lo è,
     poi tiene le sue card a 2 o 4 secondo la CI e lo riallinea al commit del Mac quando è fermo."""
     ip = ((fx.get("public_net") or {}).get("ipv4") or {}).get("ip")
     _SERVER_OF_IP[ip] = fx["id"]
-    key = str(FIXED_SLOT)
-    sl = state["slots"].get(key) or {"n": FIXED_SLOT}
+    key = str(PERMANENT_SLOT)
+    sl = state["slots"].get(key) or {"n": PERMANENT_SLOT}
     if sl.get("server_id") != fx["id"]:
         if sl.get("server_id"):
-            delete(state, FIXED_SLOT, "il posto passa al server fisso")
-        sl = {"n": FIXED_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
+            delete(state, PERMANENT_SLOT, "il posto passa al nodo permanente")
+        sl = {"n": PERMANENT_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
         state["slots"][key] = sl
     sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "ip": ip, "eur_h": 0.0,
                "created": sl.get("created") or time.time(), "idle_since": None})
@@ -584,57 +590,99 @@ def ensure_fixed(state, fx):
         r = ssh(ip, "test -f /var/lib/topics-node-ready", timeout=20)
         if r.returncode != 0:
             return None  # ricetta ancora in corso
-        log(f"posto {key}: collego il server fisso {fx['name']} ({ip})")
+        log(f"posto {key}: collego il nodo permanente {fx['name']} ({ip})")
         return finish(state, sl)
     if not tunnel_alive(sl):
-        log(f"posto {key}: tunnel del fisso riaperto ({open_tunnel(sl)})")
+        log(f"posto {key}: tunnel del nodo permanente riaperto ({open_tunnel(sl)})")
     # -x: -f would also count the shell that runs pgrep, and the CI would always look busy
     r = ssh(ip, "pgrep -c -x Runner.Worker", timeout=20)
     out = (r.stdout or "").split()
     ci_busy = int(out[0]) if out and out[0].isdigit() else 0
-    want = fixed_slots(ci_busy)
+    want = 0 if sl.get("draining") else permanent_slots(ci_busy)
     if sl.get("slots") != want and sl.get("machine_id"):
         try:
             mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": want})
             sl["slots"] = want
-            log(f"posto {key}: card del fisso a {want} (CI {'al lavoro' if ci_busy else 'ferma'})")
+            log(f"posto {key}: card del nodo permanente a {want} (CI {'al lavoro' if ci_busy else 'ferma'})")
         except Exception as e:
-            log(f"posto {key}: slots del fisso non impostati: {e}")
-    c = commit_of_mac()
-    # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
-    # while the running node is still the old one
-    if c and sl.get("aligned") != c and sl.get("align_failed") != c and not slot_busy(sl.get("machine_id")):
-        # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
-        # otherwise restart Topics every minute; a failed commit is not retried until the next one
-        a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
-                " && export PATH=\"$HOME/.topics/bun/$(tr -d \"[:space:]\" < .bun-version):$PATH\" && bun install >/dev/null 2>&1'"
-                " && systemctl restart topics.service", timeout=600)
-        if a.returncode != 0:
-            sl["align_failed"] = c
-        else:
-            sl["aligned"] = c
-        log(f"posto {key}: fisso riallineato a {c[:10]} (exit {a.returncode})")
+            log(f"posto {key}: slots del nodo permanente non impostati: {e}")
+    align_permanent(sl, ip, key, commit_of_mac(), ci_busy)
     save_state(state)
     return sl
 
 
-def fisso_ci():
-    """Runner della CI sul server fisso: token di registrazione da gh (vale un'ora, mai su disco)."""
-    fx = fixed_server()
+def set_slots(sl, key, n):
+    try:
+        mac("PATCH", f"/api/machines/{sl['machine_id']}", {"slots": n})
+        sl["slots"] = n
+        return True
+    except Exception as e:
+        log(f"posto {key}: slots del nodo permanente non impostati: {e}")
+        return False
+
+
+def align_permanent(sl, ip, key, c, ci_busy, now=None):
+    """Realign the node to the Mac commit. Cards running: wait. Behind for more than BEHIND_S: drain
+    (slots 0, no new cards), then realign once the running ones finish. Never restart with a card live."""
+    now = now or time.time()
+    # «aligned», not HEAD: a checkout that worked with a failed `bun install` moves HEAD
+    # while the running node is still the old one
+    if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
+        sl.pop("behind_since", None)
+        sl["draining"] = False
+        return
+    # The clock starts when the node first falls behind and only stops once it is aligned again:
+    # a Mac commit that moves every few minutes must not restart it
+    sl.setdefault("behind_since", now)
+    busy = slot_busy(sl.get("machine_id"), running_only=bool(sl.get("draining")))
+    if busy:
+        if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
+            if set_slots(sl, key, 0):
+                sl["draining"], sl["drain_since"] = True, now
+                log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
+        elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
+            sl["draining"], sl["behind_since"] = False, now
+            set_slots(sl, key, permanent_slots(ci_busy))
+            log(f"posto {key}: svuotamento oltre il tetto, rimetto le card e riprovo più tardi")
+        return
+    # restart only if the checkout succeeded: a commit of the Mac not yet on origin would
+    # otherwise restart Topics every minute; a failed commit is not retried until the next one
+    a = ssh(ip, "su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q " + c +
+            " && export PATH=\"$HOME/.topics/bun/$(tr -d \"[:space:]\" < .bun-version):$PATH\" && bun install >/dev/null 2>&1'"
+            " && systemctl restart topics.service", timeout=600)
+    if a.returncode != 0:
+        sl["align_failed"] = c
+    else:
+        sl["aligned"] = c
+    log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
+    if sl.get("draining"):
+        sl["draining"] = False
+        set_slots(sl, key, permanent_slots(ci_busy))
+    sl.pop("behind_since", None)
+
+
+def permanent_ci():
+    """Runner della CI sul nodo permanente: token di registrazione e di rimozione da gh (valgono
+    un'ora, mai su disco); quello di rimozione serve a un runner registrato con un altro nome."""
+    fx = permanent_server()
     if not fx:
-        raise SystemExit(f"node-pool: nessun server {FIXED_NAME}")
+        raise SystemExit(f"node-pool: nessun server {PERMANENT_NAME}")
     ip = fx["public_net"]["ipv4"]["ip"]
     _SERVER_OF_IP[ip] = fx["id"]
-    tok = subprocess.run(["gh", "api", "-X", "POST", f"repos/{CI_REPO}/actions/runners/registration-token", "--jq", ".token"],
-                         capture_output=True, text=True, timeout=60).stdout.strip()
-    if not tok:
-        raise SystemExit("node-pool: gh non dà il token di registrazione dei runner")
+
+    def gh_token(kind):
+        return subprocess.run(["gh", "api", "-X", "POST", f"repos/{CI_REPO}/actions/runners/{kind}", "--jq", ".token"],
+                              capture_output=True, text=True, timeout=60).stdout.strip()
+    tok, rm_tok = gh_token("registration-token"), gh_token("remove-token")
+    if not tok or not rm_tok:
+        raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
     subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "fisso", "ci-runners.sh"),
+                    "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
                     f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
-    r = ssh(ip, f"read -r REG_TOKEN; export REG_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh", timeout=1800, inp=tok + "\n")
+    r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
+            timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")
     return r.returncode
 
@@ -657,12 +705,12 @@ def giro():
     with Lock("giro"):
         state = load_state()
         now = time.time()
-        fx = fixed_server()
+        fx = permanent_server()
         if fx:
             try:
-                ensure_fixed(state, fx)
+                ensure_permanent(state, fx)
             except Exception as e:
-                log(f"server fisso: {e}")
+                log(f"nodo permanente: {e}")
         known = {sl.get("server_id") for sl in state["slots"].values()}
         # 1. raccoglitore: ciò che Hetzner ha col label e il registro non conosce, se scaduto
         for s in pool_servers():
@@ -709,7 +757,7 @@ def giro():
             if sl.get("ip") and not tunnel_alive(sl):
                 log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
         save_state(state)
-        # 3. domanda: col server fisso non si accendono nodi a richiesta
+        # 3. domanda: col nodo permanente non si accendono nodi a richiesta
         if fx:
             return 0
         held = memory_held(state, now)
@@ -757,13 +805,22 @@ def hook():
         save_state(state)
     origin, repo = payload.get("origin_url"), payload.get("cwd")
     if origin and repo:
+        git_name, git_email = payload.get("git_author_name") or "", payload.get("git_author_email") or ""
+        if not git_name and not git_email:
+            # The dispatcher already refuses to send a card here without one (card
+            # 5d361c3d); this is only the floor for whoever calls the hook directly.
+            print(f"il checkout {repo} non ha un'identità git (git config user.name/user.email): "
+                  "la corsa non parte, il land rifiuterebbe i suoi commit", file=sys.stderr)
+            return 2
         with Lock(f"repo{n}-{origin.rstrip('/').split('/')[-1]}"):
-            sync_repo(sl, origin, repo)
+            sync_repo(sl, origin, repo, git_name, git_email)
     return 0
 
 
-def sync_repo(sl, origin, repo):
-    """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token)."""
+def sync_repo(sl, origin, repo, git_name, git_email):
+    """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token).
+    Il clone sul nodo firma i suoi commit con l'identità di QUESTO checkout (letta dal Mac dal dispatcher),
+    non con una propria: altrimenti il land (LAND-13) la rifiuta come autore estraneo."""
     name = origin.rstrip("/").split("/")[-1].removesuffix(".git")
     d = f"/home/topics/repos/{name}"
     subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "origin"], capture_output=True, timeout=120)
@@ -778,6 +835,10 @@ def sync_repo(sl, origin, repo):
     known = known_file(sl['ip'])
     subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
     os.remove(bundle)
+    # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
+    # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
+    name64 = base64.b64encode(git_name.encode()).decode()
+    email64 = base64.b64encode(git_email.encode()).decode()
     script = f"""set -e
 B=/tmp/{os.path.basename(bundle)}
 chmod 644 $B
@@ -789,6 +850,8 @@ git -C $d fetch -q '$B' "+{ref}:{ref}"
 git -C $d symbolic-ref refs/remotes/origin/HEAD {ref}
 if ! git -C $d rev-parse -q --verify HEAD >/dev/null; then git -C $d checkout -q -B {branch} {ref}
 elif [ -z "$(git -C $d status --porcelain)" ]; then git -C $d checkout -q {branch} && git -C $d merge -q --ff-only {ref} || true; fi
+git -C $d config user.name "$(echo {name64} | base64 -d)"
+git -C $d config user.email "$(echo {email64} | base64 -d)"
 '
 rm -f $B
 curl -s -m 10 http://127.0.0.1:3333/api/projects | grep -q '"path":"{d}"' || curl -s -m 10 -X POST -H 'Content-Type: application/json' -d '{{"name":"{name}","slug":"{name.lower()}","path":"{d}"}}' http://127.0.0.1:3333/api/projects >/dev/null
@@ -855,5 +918,5 @@ def spegni():
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "stato"
-    sys.exit({"giro": giro, "hook": hook, "snapshot": snapshot, "stato": stato, "spegni": spegni, "fisso-ci": fisso_ci,
+    sys.exit({"giro": giro, "hook": hook, "snapshot": snapshot, "stato": stato, "spegni": spegni, "permanent-ci": permanent_ci,
               "--selftest": selftest}.get(cmd, stato)() or 0)

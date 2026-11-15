@@ -3,8 +3,8 @@
  *
  * @covers CARDPROCESS-01
  */
-import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { afterAll, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,7 +18,8 @@ process.env.TOPICS_HOME = `${instanceA}-home`;
 delete process.env.DATA_DIR;
 
 const {
-  COMMAND_GROUP_TERM_GRACE_MS, captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath, processGroupAlive,
+  COMMAND_GROUP_TERM_GRACE_MS, captureProcessGroup, closeCommandProcessGroup, commandProcessGroupStopPath,
+  forgetCommandProcessGroup, processGroupAlive,
   processGroupIdentityMatches, readProcessGroupIdentity, registerCommandProcessGroup,
 } = await import("./command-process-groups");
 const { commandArgv, commandGroupArgv, readExitCode } = await import("./command-process");
@@ -27,7 +28,7 @@ const live: Array<{ proc: ReturnType<typeof Bun.spawn>; pgid: number }> = [];
 
 afterAll(async () => {
   for (const { proc, pgid } of live) {
-    try { process.kill(-pgid, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch {} }
+    try { process.kill(-pgid, "SIGKILL"); } catch { try { proc.kill("SIGKILL"); } catch { /* best-effort: the process may already have exited */ } }
   }
   await Promise.all(live.map(({ proc }) => Promise.race([proc.exited, Bun.sleep(1000)])));
   if (previousDataDir === undefined) delete process.env.DATA_DIR;
@@ -157,7 +158,7 @@ test("the group leader stays verifiable after its command leaves a child behind"
     expect(readExitCode(exitPath)).toBe(0);
   } finally {
     if (childIdentity && processGroupIdentityMatches(childIdentity)) {
-      try { process.kill(childIdentity.pid, "SIGKILL"); } catch {}
+      try { process.kill(childIdentity.pid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
     }
   }
 });
@@ -183,13 +184,13 @@ async function termDuringDrain(spawnArgv: (childPath: string) => string[]): Prom
   try {
     const until = Date.now() + 2_500;
     while (Date.now() < until) {
-      try { process.kill(identity.pid, "SIGTERM"); } catch {}
+      try { process.kill(identity.pid, "SIGTERM"); } catch { /* best-effort: the process may not be signalable yet or already gone */ }
       await Bun.sleep(1);
     }
     expect(proc.exitCode).toBeNull();
     expect(processGroupIdentityMatches(identity)).toBe(true);
   } finally {
-    try { process.kill(childPid, "SIGKILL"); } catch {}
+    try { process.kill(childPid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
   }
   await Promise.race([proc.exited, Bun.sleep(5_000)]);
   expect(processGroupAlive(identity.pgid)).toBe(false);
@@ -242,12 +243,12 @@ test("a TERM to the whole group during the drain never wedges the leader", async
   try {
     const until = Date.now() + 3_000;
     while (Date.now() < until) {
-      try { process.kill(-identity.pgid, "SIGTERM"); } catch {}
+      try { process.kill(-identity.pgid, "SIGTERM"); } catch { /* best-effort: the group may not be signalable yet or already gone */ }
       await Bun.sleep(1);
     }
     expect(proc.exitCode).toBeNull();
   } finally {
-    try { process.kill(childPid, "SIGKILL"); } catch {}
+    try { process.kill(childPid, "SIGKILL"); } catch { /* best-effort: the child may already have exited */ }
   }
   await Promise.race([proc.exited, Bun.sleep(3_000)]);
   expect(processGroupAlive(identity.pgid)).toBe(false);
@@ -340,4 +341,26 @@ test("a second instance reconciles only its own data-directory registry", async 
   await Promise.race([second.proc.exited, Bun.sleep(1000)]);
   expect(processGroupAlive(second.pgid)).toBe(false);
   expect(processGroupAlive(first.pgid)).toBe(true);
+});
+
+test("a real failure clearing the stop marker is logged, not swallowed", () => {
+  // `rmSync(path, { force: true })` already ignores ENOENT. To hit a REAL fs
+  // error (the case the catch now has to log) without mocking `node:fs`, make
+  // the "marker" a non-empty directory: rmSync without `recursive: true`
+  // throws EISDIR/ENOTEMPTY regardless of `force`.
+  const processId = `eisdir-${Date.now()}`;
+  const stopPath = commandProcessGroupStopPath(processId);
+  mkdirSync(stopPath, { recursive: true });
+  writeFileSync(join(stopPath, "keep"), "");
+
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    forgetCommandProcessGroup(processId);
+    expect(existsSync(stopPath)).toBe(true);
+    const lines = warn.mock.calls.map((args) => args.map(String).join(" "));
+    expect(lines.some((l) => l.includes(`[command-process-groups] could not clear stop marker for ${processId}:`))).toBe(true);
+  } finally {
+    warn.mockRestore();
+    rmSync(stopPath, { recursive: true, force: true });
+  }
 });

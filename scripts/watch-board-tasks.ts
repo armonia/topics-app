@@ -13,7 +13,7 @@
 //   stops answering is surfaced after 5 consecutive failures — silence must
 //   never look like "still working".
 
-export {}; // top-level await richiede un modulo
+import { isAgentAuthor } from "../shared/comment-author"; // also makes this file a module for top-level await
 
 const argv = process.argv.slice(2);
 function opt(name: string, fallback: string): string {
@@ -50,7 +50,7 @@ async function lastAgentComment(taskId: string): Promise<string> {
     const res = await fetch(`${BASE}/${taskId}`, TLS_LOOPBACK);
     const d = (await res.json()) as { comments?: { author: string; kind?: string; content?: string }[] };
     const c = [...(d.comments ?? [])].reverse()
-      .find((x) => x.author !== "user" && x.author !== "system" && x.kind !== "status" && x.content);
+      .find((x) => isAgentAuthor(x.author) && x.kind !== "status" && x.content);
     return c?.content?.replace(/\s+/g, " ").slice(0, 200) ?? "";
   } catch {
     return "";

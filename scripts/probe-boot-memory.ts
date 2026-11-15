@@ -132,10 +132,10 @@ while (Date.now() < scadenza) {
   if (bootFinito && Date.now() > scadenza - (WAIT_MAX_S - 20) * 1000) break;
 }
 
-try { figlio.kill("SIGTERM"); } catch {}
+try { figlio.kill("SIGTERM"); } catch { /* child may have already exited */ }
 await Bun.sleep(1500);
-try { figlio.kill("SIGKILL"); } catch {}
-try { rmSync(casa, { recursive: true, force: true }); } catch {}
+try { figlio.kill("SIGKILL"); } catch { /* child may have already exited */ }
+try { rmSync(casa, { recursive: true, force: true }); } catch { /* temp home cleanup is best-effort */ }
 
 if (picco === null) {
   console.log(uscita.split("\n").slice(-15).join("\n"));

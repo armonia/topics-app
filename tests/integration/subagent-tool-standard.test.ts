@@ -79,7 +79,8 @@ const endTurn = (child: FakeChild, text: string, model = "claude-sonnet-5-5") =>
 
 async function spawn(parent: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown>; child?: FakeChild }> {
   const before = creates().length;
-  const res = await call(`${agents(parent)}/spawn`, "POST", { prompt: "Find the call sites of deliverExit.", ...body });
+  // This file tests the CLI child: without the engine wired, the CLI starts only when asked (15/11).
+  const res = await call(`${agents(parent)}/spawn`, "POST", { prompt: "Find the call sites of deliverExit.", runtime: "claude-code", ...body });
   const json = await res.json() as Record<string, unknown>;
   if (res.status === 200) spawned.push({ parent, agentId: json.agentId as string });
   else expect(creates().length).toBe(before);
@@ -435,13 +436,27 @@ describe("limits counted from the rows (SUBAGENT-15)", () => {
   );
   afterEach(() => { ctx.db.run("UPDATE subagents SET state = 'stopped', ended_at = ? WHERE name LIKE 'held-%'", [new Date().toISOString()]); });
 
-  test("six live sub-agents under three chats refuse a seventh, naming who holds the slots", async () => {
-    for (let i = 0; i < 6; i++) seedRunning(`g${i}`, topicKey(4 + (i % 3)));
-    const { status, body } = await spawn(SONNET_CHAT, {});
-    expect(status).toBe(429);
-    expect(body.error).toContain("machine-wide limit of 6");
-    for (let i = 0; i < 6; i++) expect(body.error).toContain(`"held-g${i}" (${topicKey(4 + (i % 3))})`);
-  });
+  test("no fixed number across the machine: seven live sub-agents under three chats let an eighth start", async () => {
+    for (let i = 0; i < 7; i++) seedRunning(`g${i}`, topicKey(4 + (i % 3)));
+    const { status } = await spawn(SONNET_CHAT, {});
+    expect(status).toBe(200);
+  }, 30_000);
+
+  test("the machine's memory decides: no room for a child is a 429 that says so", async () => {
+    const terminal = await import("../../server/routes/terminal");
+    terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "memory", firstAgentExempt: false, costCoreUnits: 0.5, costMemGB: 1, freeQuotaMemGB: 0.4, memClause: "quota" }));
+    try {
+      const { status, body } = await spawn(SONNET_CHAT, {});
+      expect(status).toBe(429);
+      expect(body.error).toContain("no memory for another sub-agent");
+      expect(body.error).toContain("a child needs 1.0 GB, 0.4 GB free for Topics");
+      // The CPU axis is not a child's cap: a busy Mac still lets it start.
+      terminal.setChildAdmissionPreview(() => ({ admit: false, blockedBy: "cpu", firstAgentExempt: false, costCoreUnits: 0.5 }));
+      expect((await spawn(SONNET_CHAT, {})).status).toBe(200);
+    } finally {
+      terminal.setChildAdmissionPreview(null);
+    }
+  }, 30_000);
 
   test("five children of a parent still count after a restart emptied the live map", async () => {
     for (let i = 0; i < 5; i++) seedRunning(`p${i}`, MEDIUM_CHAT);

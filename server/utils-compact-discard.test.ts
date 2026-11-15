@@ -82,8 +82,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  try { closeDatabase(); } catch {}
-  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+  try { closeDatabase(); } catch { /* test teardown: the db may already be closed */ }
+  try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* test teardown: temp dir may already be gone */ }
 });
 
 describe("il turno di /compact non lascia una bolla vuota — né perde il divider", () => {

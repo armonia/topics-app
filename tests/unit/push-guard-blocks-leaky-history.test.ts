@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnv } from "../setup/bun-test-preload";
@@ -501,6 +501,104 @@ describe("termini solo in avanti", () => {
     });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("il marcatore non serve");
+  });
+});
+
+/**
+ * THE HISTORY IS CASE-INSENSITIVE, as the working tree already is.
+ *
+ * The list holds the term as the operator typed it ("zzyzx quiverleaf"), while a
+ * commit writes it however it was written ("Zzyzx Quiverleaf"). Without `-i` on
+ * `git log -S` and `--grep` the history gates said clean for that commit, and the
+ * working-tree check, which ignores case, would have caught the same name in a file.
+ * The term here is lowercase on purpose: that is the shape that slipped through.
+ */
+describe("a lowercase term finds the uppercase history", () => {
+  const SCRUB = join(import.meta.dir, "../../scripts/scrub-history.ts");
+  const LOWER = NAME.toLowerCase();
+
+  test("content of an unpushed commit makes the pre-push guard red", () => {
+    const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "normale" }], `${LOWER}\n`);
+    remoteFor(dir);
+    const run = gitIn(dir);
+    run("push", "-q", "--no-verify", "origin", "main");
+    writeFileSync(join(dir, "new.txt"), `client: ${NAME}\n`);
+    run("add", "-A");
+    run("commit", "-q", "-m", "niente di che");
+    const r = spawnSync("bun", ["run", GUARD, "--range", "HEAD", "--not", "--remotes=origin/*"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    expect(r.status).toBe(1);
+  });
+
+  test("message of a published commit makes the history scrub red", () => {
+    const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: `lavoro per ${NAME}` }], `${LOWER}\n`);
+    remoteFor(dir);
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
+    const r = spawnSync("bun", ["run", SCRUB, "--check"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    expect(r.status).toBe(1);
+  });
+
+  test("message of an unpushed commit makes the pre-push guard red", () => {
+    const dir = repoWith([{ file: "clean.txt", body: "pulito\n", message: "normale" }], `${LOWER}\n`);
+    remoteFor(dir);
+    const run = gitIn(dir);
+    run("push", "-q", "--no-verify", "origin", "main");
+    writeFileSync(join(dir, "new.txt"), "pulito\n");
+    run("add", "-A");
+    run("commit", "-q", "-m", `lavoro per ${NAME}`);
+    const r = spawnSync("bun", ["run", GUARD, "--range", "HEAD", "--not", "--remotes=origin/*"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    expect(r.status).toBe(1);
+  });
+
+  test("content of a published commit makes the history scrub red", () => {
+    const dir = repoWith([{ file: "a.txt", body: `client: ${NAME}\n`, message: "normale" }], `${LOWER}\n`);
+    remoteFor(dir);
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
+    const r = spawnSync("bun", ["run", SCRUB, "--check"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    expect(r.status).toBe(1);
+  });
+
+  test("an annotated tag message makes the history scrub red", () => {
+    const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: "normale" }], `${LOWER}\n`);
+    remoteFor(dir);
+    const run = gitIn(dir);
+    run("tag", "-a", "v1.0", "-m", `release for ${NAME}`);
+    run("push", "-q", "--no-verify", "origin", "main");
+    run("push", "-q", "--no-verify", "origin", "v1.0");
+    const r = spawnSync("bun", ["run", SCRUB, "--check"], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    expect(r.status).toBe(1);
+  });
+
+  test("the filter-repo map matches the term in any case and escapes it", () => {
+    const dir = repoWith([{ file: "a.txt", body: "pulito\n", message: `lavoro per ${NAME}` }], `${LOWER}\n`);
+    remoteFor(dir);
+    execFileSync("git", ["push", "-q", "--no-verify", "origin", "main"], { env: gitEnv(), cwd: dir });
+    spawnSync("bun", ["run", SCRUB], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...process.env, TOPICS_PERSONAL_TERMS: join(dir, ".terms") },
+    });
+    const map = readFileSync(join(dir, ".scrub-map.txt"), "utf8");
+    expect(map).toContain(`regex:(?i)${LOWER}==>[cliente]`);
   });
 });
 

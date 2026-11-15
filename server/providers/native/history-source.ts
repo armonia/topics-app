@@ -25,5 +25,14 @@ export function nativeHistorySource(ctx: AppContext, sessionKey: string): Persis
     content: typeof m.content === "string" ? m.content : String(m.content ?? ""),
     partial: (m as { partial?: number | boolean | null }).partial ?? null,
     toolCalls: m.toolCalls ?? null,
+    id: m.id,
+    steeredInto: steeredInto(m.blocks),
   }));
+}
+
+/** The turn a steered row joined (`steered` block, CHAT-QUEUE-08), or null. */
+function steeredInto(blocks: unknown): string | null {
+  if (!Array.isArray(blocks)) return null;
+  const b = blocks.find((x) => (x as { kind?: unknown } | null)?.kind === "steered") as { into?: unknown } | undefined;
+  return b && typeof b.into === "string" ? b.into : null;
 }

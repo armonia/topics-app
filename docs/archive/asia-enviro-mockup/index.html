@@ -1,0 +1,44 @@
+<!doctype html><meta charset=utf-8><title>Asia Enviro mockup</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:14px system-ui;background:#f3f5f4;color:#1c2b26}
+header{background:#14532d;color:#fff;padding:14px 24px;display:flex;gap:24px;align-items:center}
+header b{font-size:18px}nav a{color:#bbf7d0;margin-right:16px;text-decoration:none;padding:6px 10px;border-radius:6px}
+nav a.on{background:#166534;color:#fff}.tag{margin-left:auto;font-size:12px;background:#facc15;color:#422006;padding:3px 8px;border-radius:99px}
+main{padding:20px 24px}.grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:2fr 1fr}
+.card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px #0002}
+.k{font-size:12px;color:#64748b}.v{font-size:26px;font-weight:700}.bad{color:#b91c1c}.ok{color:#15803d}.warn{color:#b45309}
+table{width:100%;border-collapse:collapse}th{text-align:left;font-size:12px;color:#64748b;padding:6px;border-bottom:2px solid #e2e8f0}td{padding:6px;border-bottom:1px solid #eef2f0}
+.r{background:#fee2e2}.y{background:#fef9c3}.pill{padding:2px 8px;border-radius:99px;font-size:12px}.pr{background:#fecaca;color:#991b1b}.py{background:#fde68a;color:#78350f}.pg{background:#bbf7d0;color:#14532d}
+h2{margin:0 0 12px;font-size:18px}.fix{float:right;background:#14532d;color:#fff;padding:6px 12px;border-radius:6px}
+.bar{height:18px;background:#16a34a;border-radius:3px;margin:6px 0}
+.s{display:none}.s:target,.s.def{display:block}
+</style>
+<header><b>Asia Enviro</b><nav><a href="#import">1 Import export</a><a href="#fatture">2 Fatture e IVA</a><a href="#mese">3 Cruscotto mese</a></nav><span class=tag>MOCKUP · dati finti</span></header>
+<main>
+<section id=import class="s def"><h2>1. Importa export Enviro <span class=fix>Correggi 14 automaticamente</span></h2>
+<div class="grid g4" style="margin-bottom:14px"><div class=card><div class=k>File</div><div class=v style="font-size:16px">export_enviro_ott.xlsx</div></div><div class=card><div class=k>Righe lette</div><div class=v>1.284</div></div><div class=card><div class=k>Righe con problemi</div><div class="v bad">23</div></div><div class=card><div class=k>Correggibili in automatico</div><div class="v ok">14</div></div></div>
+<div class=card><table><tr><th>Riga<th>Cliente<th>Data<th>Importo<th>Problema<th>Proposta</tr>
+<tr class=r><td>112<td>Ecoservizi Sud srl<td>31/13/2025<td>€ 1.240,00<td><span class="pill pr">Data non valida</span><td>31/10/2025
+<tr class=y><td>140<td>  Rossi  Trasporti<td>04/10/2025<td>1.240,5O<td><span class="pill py">Spazi e lettera O nell'importo</span><td>Rossi Trasporti · € 1.240,50
+<tr class=r><td>201<td>Greenwaste spa<td>—<td>€ 3.980,00<td><span class="pill pr">Data mancante</span><td>Da verificare a mano
+<tr class=y><td>233<td>ECOSERVIZI SUD S.R.L.<td>12/10/2025<td>€ 860,00<td><span class="pill py">Cliente duplicato (maiuscole)</span><td>Unisci con «Ecoservizi Sud srl»
+<tr class=y><td>310<td>Metalli Campani<td>15/10/2025<td>€ 2.100,00<td><span class="pill py">Codice rifiuto 20 01 1</td><td>20 01 01 ?
+<tr><td>311<td>Metalli Campani<td>15/10/2025<td>€ 2.100,00<td><span class="pill pg">OK</span><td>
+</table></div></section>
+
+<section id=fatture class=s><h2>2. Riepilogo fatture e importi</h2>
+<div class="grid g4" style="margin-bottom:14px"><div class=card><div class=k>Fatture ottobre</div><div class=v>312</div></div><div class=card><div class=k>Imponibile</div><div class=v>€ 184.320</div></div><div class=card><div class=k>IVA calcolata</div><div class=v>€ 40.550</div></div><div class=card><div class=k>Anomalie IVA</div><div class="v bad">9</div></div></div>
+<div class=card><table><tr><th>Fattura<th>Cliente<th>Imponibile<th>Aliquota<th>IVA attesa<th>IVA in fattura<th>Esito</tr>
+<tr class=r><td>2025/0481<td>Ecoservizi Sud srl<td>€ 1.240,00<td>22%<td>€ 272,80<td>€ 124,00<td><span class="pill pr">IVA al 10% invece di 22%</span>
+<tr class=r><td>2025/0493<td>Greenwaste spa<td>€ 3.980,00<td>22%<td>€ 875,60<td>€ 0,00<td><span class="pill pr">IVA mancante</span>
+<tr class=y><td>2025/0502<td>Rossi Trasporti<td>€ 1.240,50<td>22%<td>€ 272,91<td>€ 272,90<td><span class="pill py">Differenza di arrotondamento</span>
+<tr class=y><td>2025/0517<td>Metalli Campani<td>€ 2.100,00<td>22%<td>€ 462,00<td>€ 462,00<td><span class="pill py">Fattura duplicata 0516</span>
+<tr><td>2025/0520<td>Agri Nocera<td>€ 780,00<td>10%<td>€ 78,00<td>€ 78,00<td><span class="pill pg">Corretta</span>
+</table></div></section>
+
+<section id=mese class=s><h2>3. Cruscotto di ottobre</h2>
+<div class="grid g4" style="margin-bottom:14px"><div class=card><div class=k>Fatturato</div><div class=v>€ 224.870</div><div class="k ok">+6% su settembre</div></div><div class=card><div class=k>Da incassare</div><div class="v warn">€ 38.200</div><div class=k>11 fatture scadute</div></div><div class=card><div class=k>Righe pulite dall'AI</div><div class=v>1.261 / 1.284</div></div><div class=card><div class=k>Ore risparmiate</div><div class="v ok">~14 h</div></div></div>
+<div class="grid g2"><div class=card><h2 style="font-size:15px">Fatturato per tipo di servizio</h2>
+<div class=k>Raccolta rifiuti</div><div class=bar style="width:86%"></div><div class=k>Smaltimento</div><div class=bar style="width:62%"></div><div class=k>Trasporto</div><div class=bar style="width:38%"></div><div class=k>Bonifiche</div><div class=bar style="width:21%"></div></div>
+<div class=card><h2 style="font-size:15px">Da controllare</h2><p><span class="pill pr">9</span> anomalie IVA</p><p><span class="pill py">9</span> clienti duplicati</p><p><span class="pill py">5</span> fatture duplicate</p><p><span class="pill pr">11</span> scadute oltre 30 gg</p></div></div></section>
+</main>

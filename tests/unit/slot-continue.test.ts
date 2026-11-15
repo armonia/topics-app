@@ -35,7 +35,7 @@ process.kill = ((pid, sig) => {
 });
 const poll = setInterval(() => {
   let held = "";
-  try { held = readFileSync(nameFile, "utf8"); } catch {}
+  try { held = readFileSync(nameFile, "utf8"); } catch { /* name file not written yet; keep polling */ }
   if (held !== String(process.pid)) return;
   clearInterval(poll);
   writeFileSync(nameFile, process.env.FAKE_TAKER);

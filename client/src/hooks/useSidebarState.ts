@@ -247,14 +247,14 @@ function loadFromStorage(): SidebarState {
       if (!parsed) return DEFAULT_STATE;
       return hydrateSidebarState(parsed);
     }
-  } catch {}
+  } catch { /* unreadable cache: fall back to the default state below */ }
   return DEFAULT_STATE;
 }
 
 function saveToStorage(state: SidebarState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {}
+  } catch { /* local mirror; the server copy is authoritative */ }
 }
 
 export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) => () => void) {
@@ -351,7 +351,7 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
         if (!sv) return;
         isFromServerRef.current = true;
         setStateRaw(hydrateSidebarState(sv));
-      } catch {}
+      } catch { /* foreign-tab payload that is not valid is ignored */ }
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);

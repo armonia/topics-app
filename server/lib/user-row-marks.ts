@@ -22,6 +22,7 @@
  * where it is decided, and here it has a test that needs no HTTP.
  */
 
+import { NOT_STEERED_ROW } from "./steered-row";
 import type { ContentBlock } from "../types";
 import type { SubagentResultCard } from "../../shared/types";
 import { decodeCol } from "../../shared/message-blob";
@@ -122,7 +123,7 @@ export function repeatedRowMarks(
 ): ContentBlock[] | undefined {
   try {
     const row = db.query(
-      `SELECT content = ?2 AS same, blocks FROM messages WHERE session_key = ?1 AND role = 'user'
+      `SELECT content = ?2 AS same, blocks FROM messages WHERE session_key = ?1 AND role = 'user' AND ${NOT_STEERED_ROW}
         ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
     ).get(sessionKey, content) as { same: number | null; blocks: unknown } | null;
     if (row?.same !== 1) return undefined;

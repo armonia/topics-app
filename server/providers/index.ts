@@ -659,7 +659,7 @@ async function detectClaudeCodeCli(): Promise<boolean> {
   try {
     const home = process.env.HOME || process.env.USERPROFILE || "";
     if (home && existsSync(`${home}/.local/share/claude/versions`)) return true;
-  } catch {}
+  } catch { /* probe: an unreadable home means the CLI is not detected */ }
   return false;
 }
 

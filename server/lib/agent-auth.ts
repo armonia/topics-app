@@ -38,6 +38,6 @@ export function agentAuthOk(req: Request): boolean {
       const header = req.headers.get("x-daemon-token") || "";
       if (timingSafeEqualStr(bearer, state.token) || timingSafeEqualStr(header, state.token)) return true;
     }
-  } catch {}
+  } catch { /* fail closed: an unreadable daemon state authorizes nobody, falls through to false */ }
   return false;
 }

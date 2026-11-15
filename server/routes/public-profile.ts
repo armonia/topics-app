@@ -23,7 +23,7 @@
 import type { AppContext } from "../types";
 import { profileStatsCached } from "../services/profile-stats";
 import { getAppSettings } from "../services/app-settings";
-import { escapeHtml } from "../views/view-html";
+import { escapeHtml } from "../lib/escape-html";
 
 function compatto(n: number): string {
   const a = Math.abs(n);
@@ -94,7 +94,7 @@ export function buildPublicProfilePage(ctx: AppContext): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${nome ? escapeHtml(nome) + " su Topics" : "Profilo Topics"}</title>
-<meta name="description" content="Statistiche d'uso di Topics${nome ? " di " + nome : ""}">
+<meta name="description" content="Statistiche d'uso di Topics${nome ? " di " + escapeHtml(nome) : ""}">
 <meta name="robots" content="noindex">
 <style>
 *,::before,::after{box-sizing:border-box;margin:0;padding:0}

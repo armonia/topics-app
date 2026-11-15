@@ -290,3 +290,45 @@ already accepted, producing the duplicate the idempotency key exists to prevent.
 - **GIVEN** a plain-text 502 from a proxy in front of the server
 - **THEN** the body is thrown as it came, because it is the most informative thing available
 - **AND** an empty body falls back to the HTTP status text rather than an empty banner
+
+### Requirement: CHAT-REL-09 - A request that never gets its response headers does not hold the turn
+
+The native runtime SHALL bound the wait for the response headers of every model
+call (90 s), apart from the person's Stop. When the bound expires it SHALL drop
+the socket and retry the call as a transport failure, on a new connection; it
+SHALL give up after three such expiries in the same call, counted across other
+failures in between, and end the turn in error. The bound SHALL NOT cut a
+streamed body once the headers have arrived, and its expiry SHALL NOT read as a
+Stop. When the endpoint is on this machine and the account engine there
+reports a hold logged since the request was sent (it parks requests, without
+headers, while every account is capped), the wait SHALL extend once, on the
+same socket, to that hold's end plus the bound, also when the hold was shorter
+than the bound; a hold logged before the request, the hold setting alone, or
+holds logged after the bound fired SHALL NOT extend it. A 429 the engine
+answers right after logging that it gave up on a hold (`cap-exhausted`) SHALL
+end the call without another attempt; any other 429 is a passing limit and is
+retried as usual.
+
+> **Why.** On 2026-11-11 a native turn ran 40+ minutes without a round: its
+> socket sat in `SYN_SENT` towards the local API proxy, the fetch had no limit
+> but the Stop signal, and the route kept extending its deadlines because the
+> turn's process was alive.
+
+#### Scenario: The address accepts and never answers
+- **GIVEN** a model endpoint that accepts the TCP connection and never writes a byte
+- **WHEN** a native turn calls it
+- **THEN** each attempt is dropped after the headers bound and retried on a new connection
+- **AND** after three expiries in a row the turn ends with an error naming the missing headers
+
+#### Scenario: Stop during the wait
+- **GIVEN** a call waiting for its headers
+- **WHEN** the person presses Stop
+- **THEN** the turn is cancelled at once, and no retry is announced
+
+#### Scenario: The account engine holds the request
+- **GIVEN** the local account engine parks the request, logs the hold, and answers after the headers bound
+- **WHEN** a native turn calls it
+- **THEN** the call waits on the same connection and the turn completes, with no retry
+- **AND** if the engine answers 429 when its hold ends, the call ends there, without another attempt
+- **AND** a 429 with no fresh give-up logged by the engine is retried like any other 429, even right after a hold ended
+

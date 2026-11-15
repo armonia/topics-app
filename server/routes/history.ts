@@ -392,6 +392,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
           if (existsSync(jsonlPath)) {
             const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
             const messages: any[] = [];
+            let skipped = 0;
             for (const line of lines) {
               try {
                 const d = JSON.parse(line);
@@ -404,8 +405,16 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
                     if (text.trim() && !text.startsWith("[Chat messages since your last reply")) messages.push({ role: msg.role, content: text, timestamp: d.timestamp });
                   }
                 }
-              } catch {}
+              } catch {
+                skipped++;
+              }
             }
+            // The migration persists only what it managed to parse, and this is
+            // the ONLY write this transcript ever gets: later reads use the local
+            // copy, so a line skipped here is lost for good. Count and log it —
+            // silently losing an unknown number of messages is worse than losing a
+            // known one.
+            if (skipped > 0) console.warn(`[History] migration skipped ${skipped} malformed line(s) for session ${sessionKey}`);
             for (const msg of messages) appendLocalMessage(sessionKey, msg.role, msg.content);
             const total = messages.length;
             const sliced = offset > 0 ? messages.slice(0, Math.max(0, total - offset)) : messages;

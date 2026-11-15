@@ -213,6 +213,60 @@ describe('the gate holds', () => {
     expect(r.fill).toBeCloseTo(0.5, 5);
     expect(gateCoreNumbers(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6 }))).toEqual({ used: 2, usable: 6.6, pending: 0 });
   });
+
+  test('the floor holds but a node has a free seat: the word says so, never "floor"', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 1 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floorElsewhere');
+    expect(loadWordKey(r)).not.toBe('board.gauge.wait.floor');
+  });
+
+  test('no node has a free seat: the word still says "floor", unchanged', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 2 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floor');
+  });
+
+  test('no `nodes` at all (older server, or no node paired): unchanged', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('floor', { costCoreUnits: 0, reason: 'Memoria quasi finita: 5.5 GB disponibili.' }) }),
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.floor');
+  });
+
+  test('a drain (planned restart) holds, a node has a free seat: still "drain", never "floorElsewhere"', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: wait('drain', { costCoreUnits: 0, reason: 'Riavvio pianificato.' }) }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 1 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.drain');
+  });
+
+  test('a frozen check run holds, a node has a free seat: still "frozen", not swallowed by the free-elsewhere word', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3, admission: { admit: false, firstAgentExempt: false, costCoreUnits: 0, blockedBy: 'frozen' as const, reason: 'Un controllo è congelato per il carico.' } }),
+      nodes: [{ id: 'pc', name: 'PC', kind: 'node', online: true, slots: 2, used: 1 }],
+    }));
+    expect(loadWordKey(r)).toBe('board.gauge.wait.frozen');
+  });
+
+  // THE REAL INCIDENT (13/11): the first card right after a restart, origin
+  // cache still cold, so `heldBy` on that very first read is not `'floor'`
+  // yet (the admission wire has not caught up), but a node ALREADY has a
+  // free seat. The gauge must not invent a "no room" word out of a
+  // momentarily unset `heldBy` while a node sits free.
+  test('cold origin cache, no hold yet, a node already has a free seat: no "wait" word at all', () => {
+    const r = dispatchLoadReading(stateWith(3, {
+      capacity: machine({ running: 3 }),
+      nodes: [{ id: 'cloud', name: 'Cloud', kind: 'cloud', online: true, slots: 2, used: 1 }],
+    }));
+    expect(r.heldBy).toBe(null);
+    expect(loadWordKey(r)).not.toContain('wait');
+  });
 });
 
 describe('admissionVerdictText: the wait said in the one number', () => {
@@ -317,7 +371,7 @@ describe('loadAdvice', () => {
   });
 
   test('the chip draws what loadAdvice says, not its own arithmetic', () => {
-    const src = readFileSync(join(import.meta.dir, 'KanbanBoardPane.tsx'), 'utf8');
+    const src = readFileSync(join(import.meta.dir, 'BoardToolbarControls.tsx'), 'utf8');
     const chip = src.slice(src.indexOf('function LoadAdviceChip'), src.indexOf('function MissionsMenu'));
     expect(chip).toContain('loadAdvice(');
     expect(chip).not.toMatch(/-\s*cap\.recommended/);

@@ -58,6 +58,23 @@ describe('authorDisplay', () => {
     expect(actionOriginDisplay(null, tr)).toBeNull();
   });
 
+  test('un commento «user» via API/MCP non porta il nome del proprietario', () => {
+    // The row stays `author: "user"` on disk (no reader depends on it
+    // changing), but whoever reads it must not believe the owner wrote it.
+    const viaApi = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'api');
+    expect(viaApi.name).not.toBe('Nome');
+    expect(viaApi.self).toBe(false);
+    const viaMcp = authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'mcp');
+    expect(viaMcp.name).not.toBe('Nome');
+    expect(viaMcp.self).toBe(false);
+  });
+
+  test('un commento «user» dall\'interfaccia (o senza origin storico) resta il proprietario', () => {
+    expect(authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, 'interface').name).toBe('Nome');
+    expect(authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, null).name).toBe('Nome');
+    expect(authorDisplay(commentAuthorLabel('user'), tr, 'Nome Cognome', null, undefined).name).toBe('Nome');
+  });
+
   test('senza un proprietario noto resta una PERSONA, non un ruolo di sistema', () => {
     expect(show('user', null).name).toBe(tr('board.task.author.you'));
     expect(show('user', '   ').name).toBe(tr('board.task.author.you'));

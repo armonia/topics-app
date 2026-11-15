@@ -206,7 +206,7 @@ describe("sendPushToAll: from the table to the wire", () => {
   });
 
   afterAll(() => {
-    try { closeDatabase(); } catch {}
+    try { closeDatabase(); } catch { /* test teardown: the db may already be closed */ }
     if (savedDataDir === undefined) delete process.env.TOPICS_DATA_DIR;
     else process.env.TOPICS_DATA_DIR = savedDataDir;
     rmSync(tmpRoot, { recursive: true, force: true });

@@ -19,7 +19,7 @@ beforeAll(() => { setupTestDataDir(TEST_DATA); TOKEN = installDaemonToken(); });
 
 let disconnect: (() => void) | null = null;
 afterAll(() => {
-  try { disconnect?.(); } catch {}
+  try { disconnect?.(); } catch { /* already disconnected is fine at teardown */ }
 });
 
 function call(router: RouteHandler, method: string, path: string, body?: unknown) {

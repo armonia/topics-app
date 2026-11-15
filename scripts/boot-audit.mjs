@@ -46,7 +46,7 @@ p.on('response', async (r) => {
   const u = new URL(r.url());
   if (!/^\/api\//.test(u.pathname)) return;
   let len = 0;
-  try { len = Number((await r.headerValue('content-length')) || 0); } catch {}
+  try { len = Number((await r.headerValue('content-length')) || 0); } catch { /* missing header or closed page leaves len at 0 */ }
   reqs.push({ path: u.pathname, full: u.pathname + u.search, t: Date.now(), status: r.status(), len });
 });
 const t0 = Date.now();

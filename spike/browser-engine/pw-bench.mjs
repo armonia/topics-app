@@ -64,7 +64,7 @@ const main = async () => {
     cdp.on("Page.screencastFrame", async (p) => {
       const t = now(); if (!firstAt) firstAt = t; lastAt = t;
       frames++; bytes += Buffer.byteLength(p.data, "base64");
-      try { await cdp.send("Page.screencastFrameAck", { sessionId: p.sessionId }); } catch {}
+      try { await cdp.send("Page.screencastFrameAck", { sessionId: p.sessionId }); } catch { /* session may be closing; a missed ack is harmless at the end of the run */ }
     });
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 70, everyNthFrame: 1, maxWidth: 1280, maxHeight: 720 });
     await sleep(DUR);

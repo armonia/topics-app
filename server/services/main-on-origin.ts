@@ -13,7 +13,8 @@
  * push (never forced) of `refs/heads/main`. If origin moved on its own and the
  * two diverged, git refuses and we say so; nothing is rewritten.
  */
-import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
+import { runGit } from "../lib/run-git";
 import type { GitRunner } from "./own-commits";
 
 export type MainPush =
@@ -21,16 +22,11 @@ export type MainPush =
   | { ok: false; reason: string };
 
 /** Bounded git without prompts; two minutes for the push: it runs inside the land queue, and a hung one must not stall every card behind it. */
-export const mainPushGit: GitRunner = async (cwd, args) => {
-  const isPush = args[0] === "push";
-  const r = await runBounded(["git", "-C", cwd, ...args], {
-    stdout: "pipe", stderr: "pipe",
-    timeoutMs: isPush ? SPAWN_TIMEOUT.write : SPAWN_TIMEOUT.query,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+export const mainPushGit: GitRunner = (cwd, args) =>
+  runGit(cwd, args, {
+    timeoutMs: args[0] === "push" ? SPAWN_TIMEOUT.write : SPAWN_TIMEOUT.query,
+    env: { GIT_TERMINAL_PROMPT: "0" },
   });
-  if (r.spawnFailed) return { code: 1, stdout: "", stderr: r.spawnError ?? "" };
-  return { code: r.exitCode ?? 1, stdout: r.stdout, stderr: r.stderr || (r.timedOut ? "timeout" : "") };
-};
 
 const tail = (s: string) => s.trim().split("\n").slice(-3).join(" ").slice(0, 300);
 

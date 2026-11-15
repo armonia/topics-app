@@ -281,7 +281,7 @@ Without a repo path the system SHALL fall back WITHOUT calling git at all.
 ### Requirement: WORKTREE-09 — The sweep decides, and every doubt keeps
 
 A periodic sweep SHALL consider every `ready` worktree and choose ONE of six
-actions: `reap`, `land-then-reap`, `free-checkout`, `commit-residue`,
+actions: `reap`, `archive-then-free`, `free-checkout`, `commit-residue`,
 `abandon`, `keep`. Overlapping passes SHALL share the one in flight — two
 sweeps writing at once fight over `index.lock`, and on 2026-08-19 that cost
 seven worktrees.
@@ -297,12 +297,17 @@ rule a hiccup on `index.lock` unblocked the reap instead of stopping it.
 
 A branch already merged into `main` — by the content rule of LAND-01, not by
 ancestry — SHALL be reaped. A branch not merged SHALL NOT be reaped: depending
-on what else is true it is landed first, or its checkout is freed, or it is left
-to a human. Detached and reused checkouts SHALL always be left to a human.
+on what else is true its tip is pinned under `refs/topics/archive/<task>` and
+then its checkout is freed, or it is left to a human. The sweep SHALL NEVER
+merge a branch into `main`: a card closed without a land may have been closed
+that way on purpose, and archiving SHALL happen whatever the board's auto-merge
+setting says, because archiving is not landing. Detached and reused checkouts
+SHALL always be left to a human.
 
-After attempting a land, the sweep SHALL RE-READ the repository instead of
-trusting the reported outcome. On 2026-07-19 a task lost 139 lines because the
-outcome was believed.
+Before destroying a branch, the sweep SHALL RE-READ the repository instead of
+trusting a reported outcome: neither the card's recorded landing state nor what a
+land (the manual one, which shares this guard) said it did. On 2026-07-19 a task
+lost 139 lines because the outcome was believed.
 
 Every worktree KEPT SHALL carry a normalized reason. Without it, thirty-eight
 kept worktrees were invisible — no line, no why, and growing on the disk.
@@ -356,7 +361,6 @@ A free-checkout that fails SHALL fall back to keeping the worktree.
 
 #### Scenario: unmergeable, branch alive
 - **GIVEN** a terminal task, a clean worktree, a branch that is not in `main`
-  and cannot be auto-landed
 - **THEN** the directory SHALL be removed and the branch SHALL survive
 - **AND** the branch SHALL still resolve, and its files SHALL still be readable
   through git

@@ -46,13 +46,10 @@ function fakeDeps(over: Partial<WorktreeGcDeps> = {}): { deps: WorktreeGcDeps; t
       release: () => { toccati.push("release"); },
       addComment: () => { toccati.push("addComment"); },
       recordDelivery: () => { toccati.push("recordDelivery"); },
-      getBoardSettings: () => ({ dispatchAutoMerge: false }),
     },
     isInFlight: () => false,
     worktreeOfTask: () => null,
-    projectIdForPath: () => null,
     deliveryIsOnMain: async () => null,
-    tryMerge: async () => { toccati.push("tryMerge"); return { status: "nothing" }; },
     previewList: () => [],
     previewTeardown: async () => { toccati.push("previewTeardown"); },
     ...over,
@@ -168,6 +165,24 @@ describe("le cartelle vive fermano la potatura", () => {
     expect(idle!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
   });
 
+  it("a checkout outside Topics' root (an adopted session's) is never touched; one inside still is", async () => {
+    // Claude Desktop's `<repo>/.claude/worktrees/x`, registered when its
+    // session was adopted: no task, `reuse`, so without the guard it reads as
+    // an orphan already on main and goes on the first pass.
+    const row = { ...readyRow("w-ext", "/repo/.claude/worktrees/x"), mode: "reuse" };
+    const { deps, toccati } = fakeDeps({
+      worktreeStore: { list: () => [row, readyRow("w-in", "/topics-root/wt/w-in")] },
+      worktreeManager: {
+        delete: async (id) => { toccati.push(`delete:${id}`); return null; },
+        worktreesDir: () => "/topics-root/wt",
+      },
+    });
+    const esito = await createWorktreeGcRunner(deps).runWorktreeGc();
+    expect(esito!.keptReasons["cartella fuori dai worktree di Topics"]).toBe(1);
+    expect(toccati.some((t) => t.includes("w-ext"))).toBe(false);
+    expect(toccati.some((t) => t.includes("w-in"))).toBe(true);
+  });
+
   it("una cartella che comincia allo stesso modo non e' la stessa cartella", async () => {
     // `/tmp/wt/w1-bis` is not inside `/tmp/wt/w1`: without the trailing
     // separator any session would keep the neighbour's worktree alive.
@@ -269,7 +284,6 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
       addComment: () => { toccati.push("addComment"); },
       setDeliveryBranch: () => { toccati.push("setDeliveryBranch"); },
       recordDelivery: () => { toccati.push("recordDelivery"); },
-      getBoardSettings: () => ({ dispatchAutoMerge: false }),
     };
   }
 

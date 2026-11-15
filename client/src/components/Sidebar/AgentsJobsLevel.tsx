@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, Hourglass, MessageCircleQuestion, MessageSquare, Pause, Route,
+  AlertTriangle, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, CloudOff, MessageSquare, Pause, Route,
   SquareKanban, SquareTerminal, Terminal, Workflow, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
@@ -47,9 +47,9 @@ import { JobProjectIcon } from './JobProjectIcon';
 import { useCloseLevel } from '../Shared/levelClose';
 import { setGateWaits } from '../../state/gateWaits';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { SparkLoader } from '../Layout/StreamingIndicator';
-import { PALLINO_ATTESA, PALLINO_OK } from './chromeSignals';
+import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
+import { STATUS_CHIP, STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
+import { StatusIcon } from '../Board/atoms';
 import { readJson } from '../../lib/readJson';
 import { shortTokens } from '../../lib/formatTokens';
 import {
@@ -150,9 +150,9 @@ function elapsed(tr: Tr, ms: number): string {
 }
 
 const STEP_FILL: Record<StepMark, string> = {
-  done: 'bg-emerald-600 dark:bg-emerald-400',
-  active: 'bg-primary',
-  failed: 'bg-red-600 dark:bg-red-400',
+  done: STATUS_DOT.ok,
+  active: STATUS_DOT.working,
+  failed: STATUS_DOT.danger,
   todo: 'bg-app-border-light',
 };
 
@@ -179,13 +179,14 @@ const SOURCE_KIND: Record<JobRow['source'], string> = {
 
 /** The glyph says the kind of thing; a waiting, held or ended row says its state instead. */
 function leadOf(row: JobRow): { Icon: LucideIcon; tone: string } {
-  if (row.tone === 'you') return { Icon: row.source === 'workflow' ? Workflow : MessageCircleQuestion, tone: WARNING_TEXT };
+  if (row.tone === 'you') return { Icon: row.source === 'workflow' ? Workflow : STATUS_ICON.wait, tone: STATUS_INK.wait };
   if (row.tone === 'quota') return { Icon: Pause, tone: 'text-app-text-secondary' };
   if (row.tone === 'line') return { Icon: row.source === 'workflow' ? Clock : SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
-  if (row.tone === 'ok') return { Icon: Check, tone: SUCCESS_TEXT };
-  if (row.tone === 'failed') return { Icon: X, tone: DANGER_TEXT };
+  if (row.tone === 'ok') return { Icon: Check, tone: STATUS_INK.ok };
+  if (row.tone === 'failed') return { Icon: X, tone: STATUS_INK.danger };
   // At work but waiting: for its next input (proxy), on a live command (hub).
-  if (row.idleSince || row.onCommand) return { Icon: Hourglass, tone: 'text-app-text-secondary' };
+  // Paused, not "awaiting you": nobody has to answer it.
+  if (row.idleSince || row.onCommand) return { Icon: Pause, tone: 'text-app-text-secondary' };
   return { Icon: SOURCE_ICON[row.source], tone: 'text-app-text-secondary' };
 }
 
@@ -285,10 +286,10 @@ const SECTION_TEXT: Record<SectionId, { label: string; hint?: string; tone?: str
   proxy: { label: 'agentsJobs.section.proxy', hint: 'agentsJobs.section.proxy.hint' },
   queue: { label: 'agentsJobs.section.queue', hint: 'agentsJobs.section.queue.hint' },
   workflows: { label: 'agentsJobs.section.workflows' },
-  decide: { label: 'agentsJobs.section.decide', hint: 'agentsJobs.section.decide.hint', tone: WARNING_TEXT, Icon: Hourglass },
+  decide: { label: 'agentsJobs.section.decide', hint: 'agentsJobs.section.decide.hint', tone: STATUS_INK.wait, Icon: STATUS_ICON.wait },
   line: { label: 'agentsJobs.section.line', hint: 'agentsJobs.section.line.hint' },
   quota: { label: 'agentsJobs.section.quota', hint: 'agentsJobs.section.quota.hint' },
-  failed: { label: 'agentsJobs.section.failed', hint: 'agentsJobs.section.failed.hint', tone: DANGER_TEXT, Icon: X },
+  failed: { label: 'agentsJobs.section.failed', hint: 'agentsJobs.section.failed.hint', tone: STATUS_INK.danger, Icon: X },
   today: { label: 'agentsJobs.section.today' },
   yesterday: { label: 'agentsJobs.section.yesterday' },
 };
@@ -378,7 +379,7 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
   const downFor = hub.downSince !== null ? elapsed(tr, now - hub.downSince) : '';
   const freshness = hubPresent && (
     <span data-testid="agents-jobs-freshness" className="flex items-center gap-1.5 text-mini text-app-text-secondary">
-      <span className={`h-1.5 w-1.5 rounded-full ${hubDown ? PALLINO_ATTESA : PALLINO_OK}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${hubDown ? STATUS_DOT.wait : STATUS_DOT.ok}`} />
       {hub.state === 'reading' ? tr('agentsJobs.reading') : hubDown ? tr('agentsJobs.hubDownFor', { t: downFor }) : tr('agentsJobs.updated')}
     </span>
   );
@@ -420,7 +421,7 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
               f === filter ? 'border border-app-border-light bg-elevated text-app-text' : 'border border-transparent text-app-text-secondary hover:text-app-text'
             }`}
           >
-            {f === 'waiting' && view.decide > 0 && <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_ATTESA}`} />}
+            {f === 'waiting' && view.decide > 0 && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.wait}`} />}
             <span>{tr(`agentsJobs.filter.${f}`)}</span>
             <span data-testid={`agents-jobs-count-${f}`} className="tabular-nums text-app-text-muted">{view.counts[f]}</span>
           </button>
@@ -430,7 +431,7 @@ export function AgentsJobsLevel({ onNavigate }: AgentsJobsLevelProps) {
       <div className="min-h-0 flex-1 overflow-y-auto pb-1">
         {filter === 'running' && view.decide > 0 && (
           <div data-testid="agents-jobs-band" className={`mx-2.5 mb-1 flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 ${pad} py-1.5 text-compact`}>
-            <span className={`h-1.5 w-1.5 flex-none rounded-full ${PALLINO_ATTESA}`} />
+            <span className={`h-1.5 w-1.5 flex-none rounded-full ${STATUS_DOT.wait}`} />
             <span className="flex-1 font-semibold text-app-text">{view.decide === 1 ? tr('agentsJobs.bandOne') : tr('agentsJobs.band', { n: view.decide })}</span>
             <button type="button" className="inline-flex items-center gap-0.5 text-primary hover:underline" onClick={() => setChosen('waiting')}>
               {tr('agentsJobs.filter.waiting')}<ChevronRight size={12} aria-hidden="true" />
@@ -576,7 +577,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
   const body = (
     <>
       <span className="mt-0.5 flex h-4 w-4 flex-none items-center justify-center" title={tr(SOURCE_KIND[row.source])} data-kind-glyph={row.source}>
-        {live ? <SparkLoader /> : <Icon size={14} className={tone} aria-hidden="true" />}
+        {live ? <StatusIcon status="in_progress" live className="h-3.5 w-3.5" /> : <Icon size={14} className={tone} aria-hidden="true" />}
       </span>
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -585,7 +586,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
             <span className="flex-none rounded-xs border border-app-border-light px-1 text-mini tabular-nums text-app-text-secondary">×{row.fold}</span>
           )}
           {row.tone === 'quota' && <span className={`flex-none rounded-xs bg-amber-500/15 px-1 text-mini font-semibold ${WARNING_TEXT}`}>{tr('agentsJobs.chip.quota')}</span>}
-          {row.tone === 'failed' && <span className={`flex-none rounded-xs bg-red-500/10 px-1 text-mini font-semibold ${DANGER_TEXT}`}>{tr('agentsJobs.chip.failed')}</span>}
+          {row.tone === 'failed' && <span className={`flex-none rounded-xs px-1 text-mini font-semibold ${STATUS_CHIP.danger}`}>{tr('agentsJobs.chip.failed')}</span>}
         </span>
         {meta && (
           <span className="flex min-w-0 items-center gap-1 text-mini text-app-text-secondary" title={meta}>

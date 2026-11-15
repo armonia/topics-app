@@ -96,6 +96,32 @@ function stripBlockComments(src: string): string {
   return out;
 }
 
+/**
+ * Everything on `line` before the first `//` that is NOT inside a string
+ * literal. A plain `line.split("//")[0]` also cuts inside `'https://…' as any`,
+ * hiding the `any` from the regex below — this walks the line tracking quote
+ * state instead, the same minimal approach as `stripYamlComments` in
+ * check-gates-orfani.ts.
+ */
+function codeBeforeLineComment(line: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote) {
+      if (c === "\\") {
+        i++; // skip the escaped character, it cannot close the string
+      } else if (c === quote) {
+        quote = null;
+      }
+    } else if (c === "'" || c === '"' || c === "`") {
+      quote = c;
+    } else if (c === "/" && line[i + 1] === "/") {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
 /** `null` means the path is gone — the caller turns that into a failure. */
 function scan(file: string): Hit[] | null {
   const abs = resolve(file);
@@ -104,7 +130,7 @@ function scan(file: string): Hit[] | null {
   const cleaned = stripBlockComments(raw);
   const hits: Hit[] = [];
   cleaned.split(/\r?\n/).forEach((line, idx) => {
-    const codePart = line.split("//")[0]; // strip line comments
+    const codePart = codeBeforeLineComment(line);
     if (!ANY_RE.test(codePart)) return;
     if (line.includes("allow-any:")) return;
     hits.push({ file, line: idx + 1, text: line.trimEnd() });

@@ -60,11 +60,11 @@ afterAll(async () => {
   try {
     const { closeDatabase } = await import("../db");
     closeDatabase();
-  } catch {}
+  } catch { /* best-effort: DB may not have been opened */ }
   try {
     const pidPath = SOCK.replace(/\.sock$/, ".pid");
     if (existsSync(pidPath)) process.kill(Number(readFileSync(pidPath, "utf8").trim()), "SIGTERM");
-  } catch {}
+  } catch { /* best-effort: the bridge daemon may already be gone */ }
   for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 });

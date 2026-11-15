@@ -347,7 +347,7 @@ export function readState(): DaemonState | null {
     ) {
       return obj;
     }
-  } catch {}
+  } catch { /* missing or corrupt state file reads as no state, returns null */ }
   return null;
 }
 
@@ -356,8 +356,8 @@ export function readState(): DaemonState | null {
  * Idempotent: silently no-ops if files are already gone.
  */
 export function releaseLock(): void {
-  try { unlinkSync(lockPath()); } catch {}
-  try { unlinkSync(statePath()); } catch {}
+  try { unlinkSync(lockPath()); } catch { /* best-effort: the lock file may already be gone */ }
+  try { unlinkSync(statePath()); } catch { /* best-effort: the state file may already be gone */ }
 }
 
 /**

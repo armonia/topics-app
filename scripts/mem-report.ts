@@ -144,6 +144,16 @@ interface ScriptEntry {
   ports: number[];
 }
 
+/** The `/api/system/status` body: only the fleet block this report reads. */
+interface FleetStatusBody {
+  server?: { fleet?: { roots?: Array<{ pid: number }>; memoryMB?: number } };
+}
+
+/** The `/api/scripts` body: only the list this report filters. */
+interface ScriptsListBody {
+  scripts?: ScriptEntry[];
+}
+
 interface ServerSideResult {
   rows: Row[];
   fromApi: boolean;
@@ -166,11 +176,11 @@ async function serverSide(): Promise<ServerSideResult> {
         fetch(`${base}/api/scripts`, fetchOpts),
       ]);
 
-      const body = (await statusRes.json()) as any;
+      const body = (await statusRes.json()) as FleetStatusBody;
       const fleet = body?.server?.fleet;
       if (!fleet?.roots) continue;
 
-      const pids = fleet.roots.map((r: any) => r.pid as number);
+      const pids = fleet.roots.map((r) => r.pid);
       const all = new Set<number>(pids);
       for (const p of pids) {
         for (const kid of sh(`pgrep -P ${p} 2>/dev/null`).split("\n").filter(Boolean)) all.add(Number(kid));
@@ -178,7 +188,7 @@ async function serverSide(): Promise<ServerSideResult> {
 
       let scripts: ScriptEntry[] = [];
       if (scriptsRes.ok) {
-        const sb = (await scriptsRes.json()) as any;
+        const sb = (await scriptsRes.json()) as ScriptsListBody;
         scripts = (sb?.scripts ?? []).filter((s: ScriptEntry) => s.source === "script" && s.status === "running");
       }
 

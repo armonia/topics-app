@@ -143,6 +143,30 @@ describe("check-any", () => {
     expect(out).toContain("FAIL");
   });
 
+  test("`//` inside a string literal is not a comment: an `any` after it is still seen", async () => {
+    // `line.split("//")[0]` used to cut the line right at the "//" in the URL,
+    // hiding the `as any` that follows it on the same line.
+    const dirty = fixture(
+      "url-then-any.ts",
+      "export const u = ('https://example.com/x' as any);\n",
+    );
+    const { code, out } = await run([dirty]);
+
+    expect(code).toBe(1);
+    expect(out).toContain(":1");
+  });
+
+  test("a real line comment after code is still stripped, `any` inside it and all", async () => {
+    const clean = fixture(
+      "real-comment.ts",
+      "export const N: number = 1; // takes any shape, not a real hit\n",
+    );
+    const { code, out } = await run([clean]);
+
+    expect(code).toBe(0);
+    expect(out).toContain("1 file(s) scanned");
+  });
+
   test("the real tracked list is green", async () => {
     const { code, out } = await run([]);
     expect(code).toBe(0);

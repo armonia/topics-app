@@ -101,7 +101,7 @@ export const CAPTURE_LOCAL_STORAGE_JS =
 export function setLocalStorageJs(items: Array<{ name: string; value: string }>, origin: string): string {
   return (
     `(function(items,origin){if(location.origin!==origin)return '0';var n=0;for(var i=0;i<items.length;i++){` +
-    `try{localStorage.setItem(items[i].name,items[i].value);n++}catch(e){}}` +
+    `try{localStorage.setItem(items[i].name,items[i].value);n++}catch(e){ /* quota or security failures skip that item and are not counted */ }}` +
     `return String(n)})(${JSON.stringify(items)},${JSON.stringify(origin)})`
   );
 }

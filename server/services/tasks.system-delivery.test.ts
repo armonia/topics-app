@@ -109,6 +109,23 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
     expect(mutedNote, "turno non muto: la nota non deve comparire").toBeFalsy();
   });
 
+  test("a guest comment during the turn is not the agent's word", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    db.prepare(
+      "INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?,?,?,?,?,?)",
+    ).run("g-1", taskId, "guest:device-123", "looks fine to me", "comment", new Date().toISOString());
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+    const rows = db.prepare(
+      "SELECT author, content, kind FROM task_comments WHERE task_id = ?",
+    ).all(taskId) as Array<{ author: string; content: string; kind: string }>;
+    expect(rows.some((c) => c.kind === "delivery" && c.author.startsWith("guest:"))).toBe(false);
+    expect(rows.some((c) => c.content.includes("senza riassunto"))).toBe(true);
+  });
+
   /**
    * (c) CATENA review_needs_commit: ramo + deliveryFilesChanged === 0 =>
    * reviewEvidence.kind === 'uncommitted'.
@@ -156,6 +173,95 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
     const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
 
     expect(reviewEvidence(t).kind).toBe("measured");
+  });
+});
+
+// ── visible card, no real evidence ───────────────────────────────────────────
+//
+// `Colori e icone di stato`, 08/11 and 11/11: the agent's turn ended before it
+// attached a screenshot, and this door handed Review a generic delivery-sheet
+// diagram instead of refusing like the agent-driven PATCH already does. The
+// reviewer judges the card "a vista" and had nothing to look at.
+
+describe("deliverToReviewBySystem: card visibile senza foto torna in coda, non in review", () => {
+  let db: Database;
+  beforeEach(() => { db = freshDb(); });
+
+  function label(db: Database, taskId: string, value: string) {
+    db.run("INSERT INTO task_labels (task_id, label, source, created_at) VALUES (?, ?, 'derived', ?)",
+      [taskId, value, new Date().toISOString()]);
+  }
+
+  test("etichetta `visibile` + nessuna anteprima vera ⇒ torna in todo, non in review", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("todo");
+    expect(t.assignedTopicId ?? null).toBeNull();
+    const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?")
+      .all(taskId).map((r: any) => r.content as string);
+    expect(texts.some((x) => x.includes("senza foto prima/dopo"))).toBe(true);
+  });
+
+  test("etichetta `visibile` ma con una vera anteprima allegata ⇒ in review come sempre", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+    db.prepare("UPDATE tasks SET preview_image = ? WHERE id = ?").run("/tmp/shot.png", taskId);
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+    expect(t.previewImage).toBe("/tmp/shot.png");
+  });
+
+  test("senza l'etichetta `visibile` il comportamento non cambia: in review come sempre", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+
+    const t = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+
+    expect(t.status).toBe("review");
+  });
+
+  // No agent opens a browser by hand for its own shot (kickoff
+  // rule): bouncing to `todo` forever would just burn turns for nothing.
+  // After VISIBLE_PREVIEW_BOUNCE_CAP rounds the card stops in backlog, with
+  // the reason written.
+  test("due giri senza foto ⇒ il terzo non rimanda a todo, va in backlog col motivo", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    const first = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    expect(first.status).toBe("todo");
+
+    const second = svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" });
+    expect(second.status).toBe("backlog");
+    const texts = db.prepare("SELECT content FROM task_comments WHERE task_id = ?")
+      .all(taskId).map((r: any) => r.content as string);
+    expect(texts.some((x) => x.includes("nessun agente") && x.includes("Backlog"))).toBe(true);
+  });
+
+  test("una vera anteprima dopo un giro azzera il contatore: non resta un debito silenzioso", () => {
+    const svc = createTaskService(db);
+    const taskId = seedInProgress(db, svc);
+    label(db, taskId, "visibile");
+
+    expect(svc.deliverToReviewBySystem({ taskId, reason: "turni esauriti" }).status).toBe("todo");
+    svc.update({ taskId, actor: "agent", by: "agent", patch: { previewImage: "/tmp/shot.png" } });
+    const delivered = svc.update({
+      taskId, actor: "agent", by: "agent",
+      patch: { status: "review", summary: "fatto" },
+    });
+    expect(delivered?.previewImage).toBe("/tmp/shot.png");
+    expect(
+      (db.prepare("SELECT visible_preview_bounces FROM tasks WHERE id = ?").get(taskId) as any)
+        .visible_preview_bounces,
+    ).toBe(0);
   });
 });
 

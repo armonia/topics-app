@@ -183,6 +183,27 @@ function runningToolStartedAt(raw: unknown): number | null {
   }
 }
 
+/** The ceiling of the foreground-tool hold, the same thirty minutes as `toolStuckMs`. */
+export const FOREGROUND_TOOL_HOLD_MS = 30 * 60 * 1000;
+
+/**
+ * Is a tool of this turn running right now AND younger than the cap? The stall
+ * judge reads only the transcript tail, which stays silent for the whole
+ * length of a long Bash (a cargo test, a mutation run), so it must not be
+ * asked while this answers true. A running tool with no start stamp counts as
+ * young: doubt never kills.
+ */
+export function foregroundToolHold(
+  partial: { toolCalls?: unknown; blocks?: unknown } | null | undefined,
+  now: number,
+  capMs: number = FOREGROUND_TOOL_HOLD_MS,
+): boolean {
+  if (!partial) return false;
+  if (!hasRunningTool(partial.toolCalls) && !hasRunningTool(partial.blocks)) return false;
+  const startedAt = runningToolStartedAt(partial.toolCalls) ?? runningToolStartedAt(partial.blocks);
+  return startedAt === null || now - startedAt < capMs;
+}
+
 /**
  * Push the stream's clock forward and record WHERE it actually landed.
  *

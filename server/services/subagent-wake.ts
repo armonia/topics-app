@@ -72,7 +72,7 @@ const reasonExtra = (r: NonNullable<SubAgentResult["reason"]>): string =>
  */
 export function subagentWakeText(results: readonly SubAgentResult[]): string {
   const envelopes = results.map((r) => {
-    const body = formatSubAgentExitBody({ outcome: r }, "en");
+    const body = formatSubAgentExitBody({ outcome: r, childId: r.agentId }, "en");
     const branch = r.branch ? ` branch="${attr(r.branch)}"` : "";
     // The card of a foreground spawn has only this text to draw the result from.
     const partial = r.partial ? ' partial="true"' : "";

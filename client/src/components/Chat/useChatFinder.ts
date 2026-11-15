@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 import type { ChatMessage } from '../../types';
 import { ApiError, searchApi } from '../../lib/api';
 import { chatFind, mergeLiveHits, CHAT_FIND_MAX_HITS, type ChatFindHit, type FindableMessage } from '../../../../shared/chat-find';
@@ -65,7 +65,11 @@ export function useChatFinder(args: {
 
   const owner = `chat-find-${paneId}`;
 
-  useEffect(() => {
+  // A layout effect, not a passive one: the finder is registered in the same
+  // commit that puts the pane on screen. A passive effect runs after the paint,
+  // and a ⌘F pressed in that gap found no finder and opened the project search
+  // instead of the bar.
+  useLayoutEffect(() => {
     const st = stateRef.current;
     const listEl = () => paneRootRef.current?.querySelector<HTMLElement>('[data-testid="chat-message-list"]') ?? null;
 

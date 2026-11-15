@@ -143,6 +143,29 @@ describe('private entry fields in a device mirror', () => {
     });
   }
 
+  // Masking fails closed: when the recorder cannot tell whether a field is private, the event never
+  // reaches the queue in clear. Before, the catch around the masking still pushed the raw event.
+  test('a keystroke whose field cannot be looked up is dropped, never queued in clear', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 60, { attributes: { autocomplete: 'cc-number' } });
+    const rrweb = (w.win.__topicsDomHost as { rrweb: { record: { mirror: { getNode: (id: number) => unknown } } } }).rrweb;
+    rrweb.record.mirror.getNode = () => { throw new Error('mirror lost the node'); };
+    const value = '4111111111111111';
+    w.hooks.emit!({ type: 3, data: { source: 5, id: 60, text: value } });
+    expect(JSON.stringify(w.host.q)).not.toContain(value);
+  });
+
+  test('a field whose attributes cannot be read is treated as private', () => {
+    const w = world();
+    w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 61, {
+      getAttribute: () => { throw new Error('detached'); },
+    });
+    const value = '123456';
+    const change = { type: 3, data: { source: 5, id: 61, text: value } };
+    w.hooks.emit!(change);
+    expect(JSON.stringify(w.host.q)).not.toContain(value);
+  });
+
   test('a card field mounted after the snapshot, or given its value as an attribute, is masked', () => {
     const w = world();
     w.el('input', { top: 0, left: 0, width: 100, height: 20 }, w.body, 52, {

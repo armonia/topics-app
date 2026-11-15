@@ -80,8 +80,8 @@ beforeAll(async () => {
 }, 20000);
 
 afterAll(() => {
-  try { daemon?.kill(); } catch {}
-  try { rmSync(storeDir, { recursive: true, force: true }); } catch {}
+  try { daemon?.kill(); } catch { /* process may already have exited */ }
+  try { rmSync(storeDir, { recursive: true, force: true }); } catch { /* test teardown: temp dir may already be gone */ }
 });
 
 describe("ai-bridge daemon", () => {

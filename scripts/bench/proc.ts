@@ -424,7 +424,7 @@ for (let i = 0; i < count; i++) {
   });
   say({ event: 'spawned', index: i, pid: p.pid });
 }
-const bye = () => { for (const k of kids) { try { k.kill(); } catch {} } process.exit(0); };
+const bye = () => { for (const k of kids) { try { k.kill(); } catch { /* child may have already exited */ } } process.exit(0); };
 process.on('SIGTERM', bye);
 process.on('SIGINT', bye);
 setInterval(() => {}, 1 << 30);

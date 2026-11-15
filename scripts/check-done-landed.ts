@@ -82,7 +82,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { projectIdForPath } from "../server/services/tasks";
-import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, resolveCommit, type BranchStatus } from "../server/services/branch-status";
+import { branchExistsInRepo, commitStatusFromRepo, countCommitsAhead, publishedMainRef, resolveCommit, type BranchStatus } from "../server/services/branch-status";
 import { classifyBranchLanding, classifyCommitLanding, indiceRigheMain, type LandingEsito, type LandingVerdict } from "../server/services/landing-verdict";
 import { scanWorkspaceProjects } from "../server/services/project-path-resolver";
 import { resolveAppDataDir } from "../server/lib/data-dir";
@@ -148,9 +148,9 @@ function projectPaths(): string[] {
     const clean = p.replace(/\/+$/, "");
     if (clean) seen.add(clean);
   };
-  try { for (const r of db.prepare("SELECT path FROM projects").all() as any[]) add(r.path); } catch { /* tabella assente */ }
+  try { for (const r of db.prepare("SELECT path FROM projects").all() as Array<{ path: string }>) add(r.path); } catch { /* tabella assente */ }
   try {
-    for (const r of db.prepare("SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL").all() as any[]) add(r.project_path);
+    for (const r of db.prepare("SELECT DISTINCT project_path FROM topics WHERE project_path IS NOT NULL").all() as Array<{ project_path: string }>) add(r.project_path);
   } catch { /* idem */ }
   for (const p of scanWorkspaceProjects(WORKSPACE_DIR)) add(p);
   return [...seen];
@@ -167,7 +167,7 @@ for (const path of projectPaths()) {
 // `landing_witnessed` può non esistere ancora (database precedente alla 099):
 // la sua assenza vale «nessuna testimonianza», non un errore.
 const hasWitness = (() => {
-  try { return (db.prepare("PRAGMA table_info(tasks)").all() as any[]).some((c) => c.name === "landing_witnessed"); }
+  try { return (db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "landing_witnessed"); }
   catch { return false; }
 })();
 
@@ -177,6 +177,18 @@ const rows = db.prepare(
      FROM tasks
     WHERE archived = 0 AND status = 'done' AND delivery_commit IS NOT NULL`,
 ).all() as unknown as DoneRow[];
+
+// "Landed" means on origin/main, as in the periodic audit: a merge that only
+// sits on this disk's main is not published (card 48588f6e, 2026-11-12).
+const mainRefs = new Map<string, string>();
+async function mainRefOf(repoPath: string): Promise<string> {
+  let ref = mainRefs.get(repoPath);
+  if (!ref) {
+    ref = await publishedMainRef(repoPath);
+    mainRefs.set(repoPath, ref);
+  }
+  return ref;
+}
 
 const verdicts: Verdict[] = [];
 for (const r of rows) {
@@ -199,9 +211,10 @@ for (const r of rows) {
   // (`aliveOutside` -> `classifyBranchLanding`), which is the only one that can
   // answer. Counting it `merged`, as before, closed the case on empty evidence;
   // leaving it out of every bucket would drop it from the count altogether.
-  const commitStatus = repoPath ? await commitStatusFromRepo(repoPath, r.delivery_commit) : null;
+  // `reverted` (reached main, then undone) is outside too, and counted so.
+  const commitStatus = repoPath ? await commitStatusFromRepo(repoPath, r.delivery_commit, await mainRefOf(repoPath)) : null;
   const status: BranchStatus | "no-repo" =
-    commitStatus === null ? "no-repo" : commitStatus === "empty" ? "unmerged" : commitStatus;
+    commitStatus === null ? "no-repo" : commitStatus === "empty" || commitStatus === "reverted" ? "unmerged" : commitStatus;
   verdicts.push({
     id: r.id, text: r.text ?? "", projectId: r.project_id,
     branch: r.delivery_branch, commit: r.delivery_commit,
@@ -247,7 +260,7 @@ function turniPagatiDopoUnLand(): { turni: number; usd: number; ultimo: string |
            AND COALESCE(m.cost_cents, 0) > 0
       )
       SELECT COUNT(*) AS turni, COALESCE(SUM(cost_cents), 0) AS cents, MAX(timestamp) AS ultimo FROM sprechi
-    `).get() as any;
+    `).get() as { turni?: number; cents?: number; ultimo?: string } | null;
     return { turni: r?.turni ?? 0, usd: (r?.cents ?? 0) / 100, ultimo: r?.ultimo ?? null };
   } catch {
     // Un host senza `messages` (o senza colonne di costo) non ha questo conto:
@@ -294,17 +307,18 @@ async function liveBranchesOutsideMain(): Promise<Alive[]> {
   for (const v of verdicts) {
     if (!v.branch || !v.repoPath) continue;
     if (!(await branchExistsInRepo(v.repoPath, v.branch))) continue;
-    const ahead = await countCommitsAhead(v.repoPath, v.branch);
+    const mainRef = await mainRefOf(v.repoPath);
+    const ahead = await countCommitsAhead(v.repoPath, v.branch, mainRef);
     if (!ahead) continue; // 0 = già dentro per discendenza · null = non contabile
     const tip = await resolveCommit(v.repoPath, v.branch);
     if (!tip) continue;
-    if ((await commitStatusFromRepo(v.repoPath, tip)) !== "unmerged") continue;
+    if ((await commitStatusFromRepo(v.repoPath, tip, mainRef)) !== "unmerged") continue;
     let indiceMain = indici.get(v.repoPath);
     if (!indiceMain) {
-      indiceMain = await indiceRigheMain(v.repoPath);
+      indiceMain = await indiceRigheMain(v.repoPath, mainRef);
       indici.set(v.repoPath, indiceMain);
     }
-    const verdetto = await classifyBranchLanding(v.repoPath, v.branch, { indiceMain });
+    const verdetto = await classifyBranchLanding(v.repoPath, v.branch, { indiceMain, mainRef });
     alive.push({ id: v.id, text: v.text, branch: v.branch, ahead, repoPath: v.repoPath, verdetto });
   }
   return alive;
@@ -336,12 +350,13 @@ async function ripassoStorico(): Promise<{ storico: Verdict[]; recuperate: Verdi
   const indici = new Map<string, ReadonlySet<string>>();
   for (const v of senzaRamo) {
     if (!v.repoPath) { storico.push(v); continue; }
+    const mainRef = await mainRefOf(v.repoPath);
     let indiceMain = indici.get(v.repoPath);
     if (!indiceMain) {
-      indiceMain = await indiceRigheMain(v.repoPath);
+      indiceMain = await indiceRigheMain(v.repoPath, mainRef);
       indici.set(v.repoPath, indiceMain);
     }
-    const esito = (await classifyCommitLanding(v.repoPath, v.commit, { indiceMain })).esito;
+    const esito = (await classifyCommitLanding(v.repoPath, v.commit, { indiceMain, mainRef })).esito;
     (esito === "dentro" ? recuperate : storico).push(v);
   }
   return { storico, recuperate };

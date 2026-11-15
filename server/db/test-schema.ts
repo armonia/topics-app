@@ -194,6 +194,18 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261111043101: the scheduled run outside Topics that does this card's work.
   scheduled_at TEXT,
   scheduled_by TEXT,
+  -- 20261111174458: consecutive bounces off the visibile-no-preview gate.
+  visible_preview_bounces INTEGER NOT NULL DEFAULT 0,
+  prior_commit TEXT,
+  same_tip_bounces INTEGER NOT NULL DEFAULT 0,
+  -- 20261113140000: the run this card last created on a paired node.
+  node_run_id TEXT,
+  -- 20261113150000: all the delivery branches the card left behind, space separated.
+  past_delivery_branches TEXT,
+  -- 20261114010000: who decided the work goes to main ('human' | 'auto'), kept across a bounce.
+  land_intent TEXT CHECK (land_intent IN ('human', 'auto')),
+  land_intent_at TEXT,
+  land_intent_commit TEXT,
   -- 20261111140000: the plain-words «Per te» summary and the key of the material it came from.
   for_you TEXT,
   for_you_key TEXT

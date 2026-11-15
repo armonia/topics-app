@@ -3439,3 +3439,20 @@ once, without closing the page.
 - **WHEN** a Jarvis channel chat calls open-pane
 - **THEN** the answer is `visible:false`, no browser pane appears and no `browser:force-open` is sent
 - **AND** a later open-pane from Attilio's chat mounts its pane
+
+### Requirement: POLL-CANCEL-01 — The HTTP fallback poll stops for good after unmount
+
+The HTTP polling loop SHALL NOT schedule another tick once its effect has been cleaned up, even when a `fetchInfo()` call was still in flight at that moment (for example because the WebSocket came back).
+
+#### Scenario: unmount while fetchInfo is in flight
+- **GIVEN** a pane in `fallback-http` with a `fetchInfo()` request pending
+- **WHEN** the pane unmounts and the request then resolves
+- **THEN** no timer is armed and no further fetch starts
+
+### Requirement: SNAPSHOT-URL-01 — The REST screenshot fallback uses the data server origin
+
+The REST screenshot fallback SHALL load the image from `serverHttpBase()` followed by `/api/browsers/...`, never from a relative path, so the pane is not blank under the desktop shell where relative URLs resolve to `tauri://localhost`.
+
+#### Scenario: snapshot src is absolute
+- **WHEN** the fallback fetches a screenshot
+- **THEN** the image `src` starts with `serverHttpBase()`

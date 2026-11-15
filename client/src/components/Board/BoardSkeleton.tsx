@@ -35,6 +35,10 @@ export function BoardSkeleton({ layout }: { layout?: BoardLayout }) {
         <div className={`h-6 w-60 coarse:h-11 ${BAR} animate-pulse`} />
         <div className={`h-6 w-24 coarse:h-11 ${BAR} animate-pulse`} />
       </div>
+      {/* The quick-filter row: same padding and control height as the real one. */}
+      <div className="flex shrink-0 items-center gap-1 px-2 py-1">
+        <div className={`h-6 w-64 coarse:h-11 ${BAR} animate-pulse`} />
+      </div>
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <div className={view === 'list' ? COLUMNS_ROW_LIST : COLUMNS_ROW_GRID}>

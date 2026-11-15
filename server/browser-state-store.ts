@@ -202,7 +202,7 @@ function isPrivateHostUrl(url: string): boolean {
 
 /** Forget the persisted last URL for a context (no-op when there is none). */
 export function clearLastUrl(topicId: string): void {
-  try { unlinkSync(lastUrlFile(topicId)); } catch {}
+  try { unlinkSync(lastUrlFile(topicId)); } catch { /* file may already be gone */ }
 }
 
 export async function deleteStorageState(topicId: string): Promise<void> {
@@ -212,14 +212,17 @@ export async function deleteStorageState(topicId: string): Promise<void> {
   const file = topicFile(topicId);
   const dir = topicDir(topicId);
   if (existsSync(file)) {
-    try { unlinkSync(file); } catch {}
+    try { unlinkSync(file); } catch (e) {
+      console.warn(`[BrowserState] deleting ${file} failed, the saved cookies would come back:`, e);
+      throw e;
+    }
   }
   // Remove parent dir if empty (best effort).
   if (existsSync(dir)) {
     try {
       const entries = readdirSync(dir);
       if (entries.length === 0) rmdirSync(dir);
-    } catch {}
+    } catch { /* directory unreadable or not empty: leave it */ }
   }
 }
 

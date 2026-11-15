@@ -64,7 +64,7 @@ export function attachTerminalTouchScroll(el: HTMLElement, term: Terminal): () =
     const totalLines = Math.round(dy / lineHeight);
     const delta = totalLines - linesScrolled;
     if (delta !== 0) {
-      try { term.scrollLines(delta); } catch {}
+      try { term.scrollLines(delta); } catch { /* terminal may be disposed mid-gesture */ }
       linesScrolled = totalLines;
     }
     const now = performance.now();
@@ -92,7 +92,7 @@ export function attachTerminalTouchScroll(el: HTMLElement, term: Terminal): () =
         lineAccumulator += (velocity * dt) / lineHeight;
         const linesNow = Math.trunc(lineAccumulator);
         if (linesNow !== 0) {
-          try { term.scrollLines(linesNow); } catch {}
+          try { term.scrollLines(linesNow); } catch { /* terminal may be disposed during the momentum animation */ }
           lineAccumulator -= linesNow;
         }
         // Friction ~0.95 per 16.67ms frame — matches iOS deceleration feel

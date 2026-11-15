@@ -24,6 +24,9 @@
  *                                       is missing (sends SIGTERM directly
  *                                       to the pid in the lock file).
  *
+ *   topics tools [--json]             — the agents' tools (MCP, skills, CLIs),
+ *                                       the same inventory as the user menu.
+ *
  * No external deps. Reads the daemon state from `~/.topics/daemon-state.json`
  * the same way the Electron app does.
  */
@@ -31,6 +34,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import type { AgentToolsInventory } from "../shared/agent-tools";
 
 const TOPICS_HOME = process.env.TOPICS_HOME || join(homedir(), ".topics");
 
@@ -58,7 +62,7 @@ function readDaemonState(): DaemonState | null {
       typeof obj?.token === "string" &&
       typeof obj?.startedAt === "string"
     ) return obj;
-  } catch {}
+  } catch { /* unreadable or malformed state file: treated as no daemon */ }
   return null;
 }
 
@@ -126,7 +130,7 @@ async function daemonRequest(
     signal: AbortSignal.timeout(3000),
   });
   let body: unknown = null;
-  try { body = await res.json(); } catch {}
+  try { body = await res.json(); } catch { /* non-JSON body: fall back to the default */ }
   return { status: res.status, body };
 }
 
@@ -148,8 +152,14 @@ async function apiRequest<T>(
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetchLocal(port, path, init);
   let parsed: T | null = null;
-  try { parsed = (await res.json()) as T; } catch {}
+  try { parsed = (await res.json()) as T; } catch { /* non-JSON body: fall back to the default */ }
   return { status: res.status, body: parsed };
+}
+
+/** What a caught value says: its `message` when it has one, else the value itself as text. */
+function errorText(err: unknown): string {
+  if (typeof err === "object" && err !== null && "message" in err) return String(err.message);
+  return String(err);
 }
 
 function usage(): string {
@@ -208,8 +218,8 @@ async function cmdAuth(sub: string) {
       } else {
         console.log(`status: state file present but daemon unreachable (HTTP ${status})`);
       }
-    } catch (err: any) {
-      console.log(`status: state file present but unreachable (${err?.message ?? err})`);
+    } catch (err) {
+      console.log(`status: state file present but unreachable (${errorText(err)})`);
     }
     return;
   }
@@ -267,7 +277,7 @@ async function cmdDaemon(sub: string) {
         try {
           const { status } = await daemonRequest(fresh, "/__daemon/healthz");
           if (status === 200) { online = true; break; }
-        } catch {}
+        } catch { /* healthz not up yet: keep polling until the deadline */ }
       }
       await new Promise((r) => setTimeout(r, 150));
     }
@@ -302,14 +312,39 @@ async function cmdDaemon(sub: string) {
     try {
       process.kill(state.pid, "SIGTERM");
       console.log(`SIGTERM sent to pid ${state.pid}`);
-    } catch (err: any) {
-      console.error(`failed to signal pid ${state.pid}: ${err?.message ?? err}`);
+    } catch (err) {
+      console.error(`failed to signal pid ${state.pid}: ${errorText(err)}`);
       process.exit(1);
     }
     return;
   }
   console.error(`unknown subcommand: daemon ${sub}`);
   process.exit(2);
+}
+
+/** The inventory as plain lines: one group per kind, the state first. */
+export function formatAgentTools(inv: AgentToolsInventory): string {
+  const lines: string[] = [];
+  lines.push(`MCP (${inv.mcp.length})`);
+  for (const m of inv.mcp) lines.push(`  ${m.state.padEnd(10)} ${m.name}  ${m.toolCount} tools  [${m.source}]${m.reason ? `  ${m.reason}` : ""}`);
+  lines.push(`Skills (${inv.skills.length})`);
+  for (const k of inv.skills) lines.push(`  ${k.name}  [${k.source}]${k.description ? `  ${k.description}` : ""}`);
+  lines.push(`CLIs (${inv.clis.length})`);
+  for (const c of inv.clis) lines.push(`  ${c.installed ? "installed" : "missing  "} ${c.name}  ${c.path ?? c.install}`);
+  return lines.join("\n");
+}
+
+async function cmdTools(args: string[]) {
+  const state = readDaemonState();
+  if (!state) { console.error("no daemon running (topics daemon start)"); process.exit(1); }
+  const res = await fetchLocal(state.port, "/api/agent-tools", {
+    headers: { authorization: `Bearer ${state.token}` },
+    // Reading mounts the MCP fleet, which can take as long as its slowest handshake.
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) { console.error(`error: ${res.status}`); process.exit(1); }
+  const inv = (await res.json()) as AgentToolsInventory;
+  console.log(args.includes("--json") ? JSON.stringify(inv, null, 2) : formatAgentTools(inv));
 }
 
 async function main() {
@@ -327,6 +362,8 @@ async function main() {
       return cmdDaemon(rest[0] ?? "status");
     case "kill":
       return cmdDaemon("stop");
+    case "tools":
+      return cmdTools(rest);
     default:
       console.error(`unknown command: ${cmd}`);
       console.error(usage());

@@ -82,7 +82,7 @@ function persist(): void {
   for (const [k, e] of Object.entries(memCache ?? {})) {
     if (keepOnDisk(e)) onDisk[k] = e;
   }
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(onDisk)); } catch {}
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(onDisk)); } catch { /* icon cache is re-fetchable; a full storage only costs a refetch */ }
 }
 function cachedStatus(path: string): IconStatus | 'unknown' {
   const e = cache()[path];

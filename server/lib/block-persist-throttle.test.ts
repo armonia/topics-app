@@ -82,4 +82,49 @@ describe("block persist throttle", () => {
     expect(calls.length).toBe(2);
     throttle.dispose();
   });
+
+  test("a deferred write that hits a lock timeout is retried, not thrown at the process", async () => {
+    // Card e8a0ce90: SQLITE_BUSY out of this timer reached the uncaught
+    // handler and took the whole server down.
+    let calls = 0;
+    const busy = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+    const throttle = createBlockPersistThrottle({
+      write: () => {
+        calls++;
+        if (calls === 2) throw busy;
+      },
+    });
+    throttle.persist(10);
+    throttle.persist(11);
+    await Bun.sleep(1_200);
+    expect(calls).toBe(2);
+    expect(throttle.hasPending()).toBe(true);
+    expect(throttle.stats.busyRetries).toBe(1);
+    await Bun.sleep(1_200);
+    expect(calls).toBe(3);
+    expect(throttle.hasPending()).toBe(false);
+    expect(throttle.stats.writes).toBe(2);
+    throttle.dispose();
+  });
+
+  test("a write that fails stays owed: flush rethrows and the next flush writes it", () => {
+    let fail = false;
+    let written = 0;
+    const throttle = createBlockPersistThrottle({
+      write: () => {
+        if (fail) throw new Error("disk I/O error");
+        written++;
+      },
+    });
+    throttle.persist(100_000);
+    throttle.persist(110_000);
+    fail = true;
+    expect(() => throttle.flush()).toThrow("disk I/O error");
+    expect(throttle.hasPending()).toBe(true);
+    fail = false;
+    throttle.flush();
+    expect(written).toBe(2);
+    expect(throttle.hasPending()).toBe(false);
+    throttle.dispose();
+  });
 });

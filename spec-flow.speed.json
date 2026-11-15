@@ -1,0 +1,37 @@
+{
+  "repo": "armonia/topics-app",
+  "workflow": "ci.yml",
+  "excludeBranchPrefixes": [
+    "esperimento/"
+  ],
+  "criticalPath": {
+    "before": [
+      "changes",
+      "prepare-e2e"
+    ],
+    "shards": "^e2e \\([1-9]\\d*\\)$"
+  },
+  "e2eJobs": "^e2e( \\(\\d+\\))?$",
+  "thresholds": {
+    "obiettivo": {
+      "work": 10,
+      "wall": 12,
+      "wallP80": 20,
+      "jobMinutes": 90,
+      "flaky": 2
+    },
+    "base": {
+      "work": 23,
+      "wall": 36,
+      "wallP80": 66,
+      "jobMinutes": 180,
+      "flaky": 11
+    }
+  },
+  "flaky": {
+    "window": 20,
+    "maxRuns": 3,
+    "ledger": "test-results/flaky-ledger.json",
+    "known": {}
+  }
+}

@@ -159,9 +159,9 @@ export function scopeToPrefix(entries: PorcelainEntry[], prefix: string): Porcel
 export function repoPrefixOf(resolvedDir: string, gitRoot: string): { prefix: string; repoName: string } {
   if (!gitRoot) return { prefix: "", repoName: "" };
   let real = resolvedDir;
-  try { real = realpathSync(resolvedDir); } catch {}
+  try { real = realpathSync(resolvedDir); } catch { /* path may not exist: keep the unresolved path */ }
   let root = gitRoot;
-  try { root = realpathSync(gitRoot); } catch {}
+  try { root = realpathSync(gitRoot); } catch { /* path may not exist: keep the unresolved root */ }
   if (real === root || !isInsideDir(real, root)) return { prefix: "", repoName: "" };
   // git speaks POSIX paths whatever the platform, so the prefix is built with
   // `/` on purpose - but the SLICE that produces it starts from a real path,

@@ -4,7 +4,7 @@
  * `null` when there is no file (the normal first start) or when it cannot be
  * used. A file that does not parse, or parses to something that is not an
  * object, is logged and moved aside to `<file>.corrupt-<epochMs>`: dropping it
- * inside a bare `catch {}` lost what it held without a trace, and the first
+ * inside a bare empty catch lost what it held without a trace, and the first
  * save of the new run overwrote the only evidence (SRV-06, `scripts.json`).
  */
 import { existsSync, readFileSync, renameSync } from "node:fs";

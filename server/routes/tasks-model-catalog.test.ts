@@ -48,7 +48,7 @@ test("mirrored card creation rejects stale and unlisted models", async () => {
     taskModelSnapshot: () => snapshot,
   });
 
-  for (const model of ["claude-sonnet-4-6", "claude-sonnet-9-9"]) {
+  for (const model of ["claude-sonnet-4-6"]) {
     const url = new URL("http://topics.test/api/nodes/runs");
     const response = await router(
       new Request(url, {
@@ -63,6 +63,23 @@ test("mirrored card creation rejects stale and unlisted models", async () => {
     expect(response?.status).toBe(400);
     expect((await response!.json()).error).toMatch(/modello.*catalogo.*generazione/i);
   }
+});
+
+test("a node whose probed catalog lacks the model still accepts a card the origin judged current", async () => {
+  const db = freshDb();
+  const ctx = { ...makeCtx(db, []), projectStore: { list: () => [{ id: "p-model", path: "/repo" }], get: () => null } } as any;
+  const mac = { defaultProvider: "claude-code", providers: [{ name: "claude-code", status: "ready", models: ["claude-sonnet-4-6"], requirements: [] }] } as unknown as ProvidersSnapshot;
+  const router = createNodesRouter(ctx, {
+    deleteBoardTask: async () => new Response(null, { status: 204 }),
+    runGit: async () => ({ code: 0, stdout: "https://github.com/example/repo.git", stderr: "" }),
+    taskModelSnapshot: () => mac,
+  });
+  const url = new URL("http://topics.test/api/nodes/runs");
+  const response = await router(new Request(url, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ originTaskId: "origin-card", originUrl: "https://github.com/example/repo.git", text: "Mirror", model: "claude-code:claude-sonnet-5-5" }),
+  }), url, url.pathname, "POST");
+  expect(response?.status).not.toBe(400);
 });
 
 test("changing a card's model refuses a stale one but leaves an old card editable", async () => {

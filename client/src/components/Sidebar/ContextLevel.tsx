@@ -74,6 +74,7 @@ export function ContextLevel({ onNavigate }: ContextLevelProps) {
     [tr],
   );
   // okAt in the deps: each read re-judges a check left running against the clock.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- okAt is a re-run trigger: each read re-judges a running check against Date.now()
   const view = useMemo(() => contextView(doc.data, unlisted, Date.now()), [doc.data, doc.okAt, unlisted]);
   const [asking, setAsking] = useState(false);
   const [starting, setStarting] = useState(false);

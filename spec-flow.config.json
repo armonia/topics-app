@@ -69,6 +69,26 @@
       "Lingue dell'interfaccia"
     ],
     [
+      "first-run",
+      "Primo avvio"
+    ],
+    [
+      "mobile-chrome",
+      "Interfaccia sul telefono"
+    ],
+    [
+      "pane-loading",
+      "Caricamento dei pannelli"
+    ],
+    [
+      "newtab-arc",
+      "Nuova scheda del browser"
+    ],
+    [
+      "calendar",
+      "Calendario"
+    ],
+    [
       "agents",
       "Agenti: roster e assegnazione"
     ],
@@ -109,6 +129,30 @@
       "Dettatura vocale"
     ],
     [
+      "multi-provider",
+      "Provider e modelli"
+    ],
+    [
+      "model-selector",
+      "Scelta del modello"
+    ],
+    [
+      "automatic-gpt-task-model",
+      "Modello automatico per i task"
+    ],
+    [
+      "muse",
+      "Provider Muse"
+    ],
+    [
+      "ai-control",
+      "Controllo dell'AI"
+    ],
+    [
+      "voice-loop",
+      "La board che parla"
+    ],
+    [
       "kanban",
       "Board kanban e task"
     ],
@@ -125,6 +169,14 @@
       "Strumenti della board"
     ],
     [
+      "global-orchestrator",
+      "Coordinatore globale della board"
+    ],
+    [
+      "lifecycle-hooks",
+      "Hook sugli eventi"
+    ],
+    [
       "chat",
       "Chat con l'agente"
     ],
@@ -135,6 +187,10 @@
     [
       "notifications",
       "Notifiche non invasive"
+    ],
+    [
+      "outbound",
+      "Cio' che esce dalla macchina"
     ],
     [
       "terminal",
@@ -155,6 +211,14 @@
     [
       "machines",
       "Macchine collegate"
+    ],
+    [
+      "git-freshness",
+      "Freschezza dello stato Git"
+    ],
+    [
+      "native-addon",
+      "Modulo nativo Rust"
     ],
     [
       "remote-browser",
@@ -255,6 +319,14 @@
     [
       "retirement",
       "Dismissioni"
+    ],
+    [
+      "hub-bridge",
+      "Ponte verso l'hub dei consumi"
+    ],
+    [
+      "restart-gate",
+      "Riavvio pianificato"
     ]
   ],
   "specSource": "openspec",
@@ -306,6 +378,11 @@
     "profile": "workspace",
     "night-mode": "workspace",
     "i18n": "workspace",
+    "first-run": "workspace",
+    "mobile-chrome": "workspace",
+    "pane-loading": "workspace",
+    "newtab-arc": "workspace",
+    "calendar": "workspace",
     "agents": "agenti",
     "agent-runtime": "agenti",
     "claude-sessions": "agenti",
@@ -316,18 +393,29 @@
     "interrupted-turns": "agenti",
     "resume-on-boot": "agenti",
     "dictation": "agenti",
+    "multi-provider": "agenti",
+    "model-selector": "agenti",
+    "automatic-gpt-task-model": "agenti",
+    "muse": "agenti",
+    "ai-control": "agenti",
+    "voice-loop": "agenti",
     "kanban": "lavoro",
     "commands": "lavoro",
     "worktrees": "lavoro",
     "board-tooling": "lavoro",
+    "global-orchestrator": "lavoro",
+    "lifecycle-hooks": "lavoro",
     "chat": "conversa",
     "context": "conversa",
     "notifications": "conversa",
+    "outbound": "conversa",
     "terminal": "macchina",
     "processes": "macchina",
     "files": "macchina",
     "cli": "macchina",
     "machines": "macchina",
+    "git-freshness": "macchina",
+    "native-addon": "macchina",
     "remote-browser": "remoto",
     "remote-access": "remoto",
     "relay": "remoto",
@@ -352,7 +440,9 @@
     "e2e-harness": "misura",
     "system-status": "misura",
     "dashboard": "misura",
-    "retirement": "misura"
+    "retirement": "misura",
+    "hub-bridge": "misura",
+    "restart-gate": "misura"
   },
   "platform": {
     "apiBase": "https://specflow.armonia.io",

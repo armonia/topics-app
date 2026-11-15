@@ -61,36 +61,44 @@ function seedThread(ctx: AppContext, sessionKey: string, prefix: string, turns: 
   ctx.saveLocalMessages(sessionKey, msgs);
 }
 
-type Caller = (limit: number) => Promise<{ status: number; messages: StoredMessage[]; total: number; bytes: number }>;
+type Caller = ((limit: number) => Promise<{ status: number; messages: StoredMessage[]; total: number; bytes: number }>) & {
+  /** Rows whose bodies (`blocks`, `tool_calls`) were decoded so far. */
+  hydratedRows: () => number;
+};
 
 async function historyCaller(sessionKey: string, turns: number): Promise<Caller> {
   const { createHistoryRouter } = await import("../../server/routes/history");
   const ctx = await createTestAppContext();
   seedThread(ctx, sessionKey, sessionKey.replace(/[^a-z0-9]/gi, ""), turns);
+  // Count the rows the route decodes: the router takes both hydration entry
+  // points (and the full loader) from `ctx` when it is built, so wrapping them here sees every call.
+  let hydrated = 0;
+  const realBulk = ctx.hydrateMessageBodies;
+  ctx.hydrateMessageBodies = (msgs, opts) => { hydrated += msgs.length; return realBulk(msgs, opts); };
+  const realLoad = ctx.loadLocalMessages;
+  ctx.loadLocalMessages = ((...args: Parameters<typeof realLoad>) => {
+    const rows = realLoad(...args);
+    hydrated += rows.length;
+    return rows;
+  }) as typeof realLoad;
+  const realOne = ctx.messageBodyHydrator;
+  ctx.messageBodyHydrator = (msgs, opts) => {
+    const decode = realOne(msgs, opts);
+    return (m) => { hydrated += 1; return decode(m); };
+  };
   const router = createHistoryRouter(ctx, {
     matchHistoryRoute: (p) => (p.startsWith("/api/history/") ? decodeURIComponent(p.slice("/api/history/".length)) : null),
     providerForSessionKey: () => { throw new Error("no provider: the fixture already has the local messages"); },
   });
   const path = `/api/history/${encodeURIComponent(sessionKey)}`;
-  return async (limit: number) => {
+  const call = async (limit: number) => {
     const url = new URL(`http://h${path}?limit=${limit}`);
     const resp = (await router(new Request(url), url, path, "GET"))!;
     const body = await resp.text();
     const parsed = JSON.parse(body);
     return { status: resp.status, messages: parsed.messages, total: parsed.total, bytes: body.length };
   };
-}
-
-/** Median wall clock of one caller at two limits, interleaved. */
-async function medianLimits(c: Caller, la: number, lb: number, runs = 5): Promise<[number, number]> {
-  const ta: number[] = [];
-  const tb: number[] = [];
-  for (let i = 0; i < runs; i++) {
-    let t0 = performance.now(); await c(la); ta.push(performance.now() - t0);
-    t0 = performance.now(); await c(lb); tb.push(performance.now() - t0);
-  }
-  const m = (xs: number[]) => xs.sort((x, y) => x - y)[Math.floor(xs.length / 2)];
-  return [m(ta), m(tb)];
+  return Object.assign(call, { hydratedRows: () => hydrated });
 }
 
 /** Median wall clock of `runs` calls, interleaving the two sessions. */
@@ -138,11 +146,20 @@ describe("cost of a limited /api/history", () => {
     const fat = (await big(0)).bytes;
     expect(fat / tiny).toBeGreaterThan(3);
 
-    // And those bytes have to cost TIME, or the case above proves nothing.
-    // Measured WITHIN the fat session, full read against limited read: both
-    // sides carry the same load, so a busy machine moves them together.
-    const [tAll, tOne] = await medianLimits(big, 0, 1);
-    expect(tAll / Math.max(tOne, 0.05)).toBeGreaterThan(3);
+    // And those bytes have to cost WORK, counted rather than timed: a stopwatch
+    // ratio collapses under load (2.28 against a bar of 3 on a busy CI runner),
+    // while the number of rows the route decodes is the same on any machine.
+    // A full read decodes every row; a limited one only what it returns. If
+    // the limit were applied after hydration (the original bug) the second
+    // count would equal the first and this fails.
+    const before = big.hydratedRows();
+    await big(0);
+    const rowsAll = big.hydratedRows() - before;
+    const mid = big.hydratedRows();
+    await big(1);
+    const rowsOne = big.hydratedRows() - mid;
+    expect(rowsAll).toBeGreaterThanOrEqual(28);
+    expect(rowsOne * 10).toBeLessThanOrEqual(rowsAll);
   });
 
   test("the limited answer carries the same message the full one ends with", async () => {

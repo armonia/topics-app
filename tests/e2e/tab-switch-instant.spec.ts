@@ -47,10 +47,31 @@ const SHORT_COUNT = 30;
 /** Frames watched after the content lands, to catch a late jump or a regression. */
 const TAIL_FRAMES = 12;
 /**
- * React commits a resident switch may cost. Measured 6-9 after the fix and 7-14
- * on the base; the cap is on the count, which load does not change.
+ * Component renders inside the panes a resident switch may cost. This is the
+ * WORK the switch does, and it is exactly reproducible: 20 repetitions of
+ * TABSWITCH-03 on a Linux runner, idle and with eight busy cores, read 1267
+ * every single time, with a byte-identical frame trace.
+ *
+ * It replaces a cap on the number of React COMMITS, which measured the same
+ * work but not the app: concurrent React splits a fixed amount of work into as
+ * many commits as the frame deadlines it meets allow, so the count rose with
+ * machine load while nothing about the switch changed. The same 20 repetitions
+ * read 13, 14 and 15 commits for those identical 1267 renders, against a cap of
+ * 14, which is why one run in twenty was red on the CI runners and none on an
+ * idle Mac (card a4689430). Raising the cap would have moved the edge, not
+ * removed it: the quantity has to be one the scheduler does not choose.
+ *
+ * Measured per gesture: 845-868 for a resident chat, 856 for a chat whose turn
+ * ran hidden, 660 for its long reply. The cap leaves room for a row or two more
+ * and nothing like a rebuild, which the remount and request assertions below
+ * catch on their own anyway.
  */
-const RESIDENT_COMMIT_CAP = 14;
+const RESIDENT_RENDER_CAP = 1000;
+/**
+ * The same budget for TABSWITCH-03, whose chat merges 1960 rows above the one
+ * being read: 1267 renders measured, 20 times out of 20.
+ */
+const MERGED_RENDER_CAP = 1400;
 
 /**
  * Skeleton frames of a chat mounted again after a group switch, from the sizes
@@ -214,6 +235,8 @@ async function installMeter(page: Page): Promise<void> {
 interface Switch {
   report: FrameReport;
   commits: number;
+  /** Component renders inside the panes: the WORK, which the scheduler does not move. */
+  paneRenders: number;
   reactRemounts: string[];
   domRemounts: string[];
   requests: string[];
@@ -251,7 +274,7 @@ async function measureSwitch(
   page.off("request", onRequest);
   const report = (await page.evaluate(() => (window as unknown as { __tabSwitchOut: FrameReport }).__tabSwitchOut)) as FrameReport;
   const g = await endGesture(page, marks);
-  return { report, commits: g.commits, reactRemounts: g.reactRemounts, domRemounts: g.domRemounts, requests };
+  return { report, commits: g.commits, paneRenders: g.paneRenders, reactRemounts: g.reactRemounts, domRemounts: g.domRemounts, requests };
 }
 
 async function seedChat(request: APIRequestContext, name: string, count: number, endMarker: string, withTools = false) {
@@ -369,7 +392,7 @@ async function switchBackAfterHiddenTurn(page: Page, request: APIRequestContext,
 
 function expectResident(label: string, s: Switch, opts: { subPixelSettle?: boolean } = {}): void {
   const r = s.report;
-  const detail = `${label}: seq=${r.seq} trace=${r.trace.join(" ")} commits=${s.commits} requests=${s.requests.join(",")}`;
+  const detail = `${label}: seq=${r.seq} trace=${r.trace.join(" ")} paneRenders=${s.paneRenders} commits=${s.commits} requests=${s.requests.join(",")}`;
   expect(r.firstContent, `${label}: content on the first frame after the input. ${detail}`).toBe(1);
   expect(r.seq, `${label}: no frame without the content after it landed. ${detail}`).toMatch(/^C+$/);
   if (opts.subPixelSettle) expect(r.rawJumpPx, `${label}: nothing moves by a pixel after the first frame. ${detail}`).toBeLessThan(1);
@@ -377,7 +400,7 @@ function expectResident(label: string, s: Switch, opts: { subPixelSettle?: boole
   expect(r.sameShell, `${label}: the same shell node, not a remount. ${detail}`).toBe(true);
   expect([...s.reactRemounts, ...s.domRemounts], `${label}: no pane remounted. ${detail}`).toEqual([]);
   expect(s.requests, `${label}: nothing asked to the server for a pane already on the page. ${detail}`).toEqual([]);
-  expect(s.commits, `${label}: React commits under the cap. ${detail}`).toBeLessThanOrEqual(RESIDENT_COMMIT_CAP);
+  expect(s.paneRenders, `${label}: pane renders under the cap. ${detail}`).toBeLessThanOrEqual(RESIDENT_RENDER_CAP);
   expect(r.entrances, `${label}: no history row replays the entrance. ${detail}`).toBe(0);
 }
 
@@ -504,7 +527,7 @@ test.describe("a tab switch is instant", () => {
     const L = { key: long.topicId, needle: "MERGED-END", ...long };
     const s = await measureSwitch(page, L, { event: "click" }, () => page.locator(tab(long.topicId)).first().click());
     const r = s.report;
-    const detail = `seq=${r.seq} trace=${r.trace.join(" ")} commits=${s.commits} requests=${s.requests.join(",")}`;
+    const detail = `seq=${r.seq} trace=${r.trace.join(" ")} paneRenders=${s.paneRenders} commits=${s.commits} requests=${s.requests.join(",")}`;
     expect(r.firstContent, `the last message on the first frame after the input. ${detail}`).toBe(1);
     expect(r.seq, `no frame without it after that. ${detail}`).toMatch(/^C+$/);
     // Less than a pixel, not zero, and only here: the rows at the bottom were
@@ -516,7 +539,7 @@ test.describe("a tab switch is instant", () => {
     expect(r.sameShell, `the same shell node. ${detail}`).toBe(true);
     expect([...s.reactRemounts, ...s.domRemounts], `no pane remounted. ${detail}`).toEqual([]);
     expect(s.requests, `nothing asked to the server. ${detail}`).toEqual([]);
-    expect(s.commits, `React commits under the cap. ${detail}`).toBeLessThanOrEqual(RESIDENT_COMMIT_CAP);
+    expect(s.paneRenders, `pane renders under the cap. ${detail}`).toBeLessThanOrEqual(MERGED_RENDER_CAP);
     expect(r.entrances, `no history row replays the entrance. ${detail}`).toBe(0);
   });
 

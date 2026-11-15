@@ -14,7 +14,7 @@ fuori da questo Mac.
 Il pool SHALL creare un nodo quando una card instradata (KANBAN-96) non trova un
 posto libero sui nodi pronti, e SHALL cancellarlo quando resta senza corse e l'ora
 già pagata sta per finire. Il pool NON SHALL mai spegnere un nodo per risparmiare:
-il fornitore fattura un server finché esiste, acceso o spento. Un nodo fisso NON
+il fornitore fattura un server finché esiste, acceso o spento. Un nodo permanente NON
 SHALL essere cancellato dal pool.
 
 #### Scenario: la coda chiede un nodo
@@ -31,8 +31,8 @@ SHALL essere cancellato dal pool.
 - **THEN** il pool NON SHALL cancellarlo prima della fine dell'ora, perché quell'ora è già pagata
 - **AND** una card che arriva nel frattempo SHALL poterlo usare
 
-#### Scenario: il nodo fisso
-- **GIVEN** il nodo fisso senza corse da un giorno
+#### Scenario: il nodo permanente
+- **GIVEN** il nodo permanente senza corse da un giorno
 - **THEN** il pool NON SHALL cancellarlo
 
 ### Requirement: POOL-02 — La spesa ha un tetto in euro, e sopra il tetto il lavoro torna al Mac
@@ -50,7 +50,7 @@ ripiego di KANBAN-96, con una nota che nomina spesa e tetto.
 - **AND** la card SHALL restare nella coda di questa macchina con la nota «tetto di spesa: 9,95 su 10 €»
 
 #### Scenario: il massimo dei nodi
-- **GIVEN** il massimo a 3 nodi e 3 nodi vivi (fisso compreso)
+- **GIVEN** il massimo a 3 nodi e 3 nodi vivi (nodo permanente compreso)
 - **THEN** nessun nodo SHALL essere creato, qualunque sia la spesa
 
 ### Requirement: POOL-03 — Il pool tocca solo ciò che ha creato, e lo ritrova dal fornitore

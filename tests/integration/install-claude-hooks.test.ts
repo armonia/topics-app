@@ -71,7 +71,7 @@ beforeEach(() => {
   mkdirSync(join(home, ".claude"), { recursive: true });
 });
 afterEach(() => {
-  try { rmSync(home, { recursive: true, force: true }); } catch {}
+  try { rmSync(home, { recursive: true, force: true }); } catch { /* temp dir cleanup is best-effort */ }
 });
 
 describe("install-claude-hooks", () => {

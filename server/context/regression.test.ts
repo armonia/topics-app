@@ -191,7 +191,15 @@ function buildLegacyHistoryAware(_providerName: string = "claude"): { systemMess
           const entries = readdirSync(projectDir, { withFileTypes: true }).slice(0, 30);
           const listing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).join(", ");
           content += `\n\nProject root files: ${listing}`;
-        } catch {}
+        } catch {
+          // A readdir failure here just omits the "Project root files:" line —
+          // the REAL pipeline (server/context/adapt.ts:433, fed by
+          // getTemplateSnapshot in assemble.ts) does the exact same thing on the
+          // exact same error (its own try/catch around the same readdirSync),
+          // so this legacy helper and the real pipeline still converge. The
+          // byte-identity tests below are what would catch a divergence loudly;
+          // this is a test helper, not production code, so no log here.
+        }
       }
       const idx = finalMessages.findIndex((m) => m.role !== "system");
       finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });

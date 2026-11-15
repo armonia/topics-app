@@ -102,11 +102,11 @@ export async function launch(engineKey, port) {
     await sleep(20);
   }
   const startupMs = +(now() - t0).toFixed(1);
-  if (!wsUrl) { try { proc.kill("SIGKILL"); } catch {} throw new Error("CDP never became ready\n" + stderr.slice(0, 800)); }
+  if (!wsUrl) { try { proc.kill("SIGKILL"); } catch { /* process may have already exited */ } throw new Error("CDP never became ready\n" + stderr.slice(0, 800)); }
 
   const dispose = () => {
-    try { proc.kill("SIGKILL"); } catch {}
-    try { rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+    try { proc.kill("SIGKILL"); } catch { /* process may have already exited */ }
+    try { rmSync(userDataDir, { recursive: true, force: true }); } catch { /* temp profile cleanup is best-effort */ }
   };
   return { proc, port, wsUrl, userDataDir, startupMs, dispose, stderr: () => stderr };
 }
@@ -143,7 +143,7 @@ export class CDP {
     this.handlers.get(method).push(handler);
   }
   off(method) { this.handlers.delete(method); }
-  close() { try { this.ws.close(); } catch {} }
+  close() { try { this.ws.close(); } catch { /* socket may already be closed */ } }
 }
 
 // Open a fresh page target and return a flat-mode session id bound to it.

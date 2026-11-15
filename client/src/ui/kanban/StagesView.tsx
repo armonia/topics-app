@@ -32,7 +32,7 @@ export function ShareBar({ share, none, tip }: { share: ShareModel; none: string
   );
 }
 
-/** A count of zero is the same quiet dash as any other empty cell of the app; a screen reader still hears the zero. */
+/** A count of zero is the same quiet dash as with every other empty cell of the app; a screen reader still hears the zero. */
 function Count({ n }: { n: number }) {
   if (n === 0) {
     return (

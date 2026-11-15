@@ -120,7 +120,13 @@ function memoryStorage(): QueueStorage {
 
 const browserStorage: QueueStorage = {
   getItem: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
-  setItem: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  // No storage at all (SSR, a test harness) is the same case `getItem`
+  // above falls back on: nothing to write to, nothing to report. A QUOTA
+  // or access error from an `localStorage` that DOES exist is different —
+  // that one propagates, where swallowing it here lost an undelivered
+  // message queue silently on reload. The caller (`setQueue`) catches,
+  // warns and marks the session so it can be surfaced.
+  setItem: (k, v) => { if (typeof localStorage !== 'undefined') localStorage.setItem(k, v); },
   removeItem: (k) => { try { localStorage.removeItem(k); } catch {} },
 };
 
@@ -140,7 +146,7 @@ let nextLocalId = 0;
 function newId(): string {
   try {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  } catch {}
+  } catch { /* randomUUID may be unavailable; counter id below */ }
   return `q-${++nextLocalId}-${Date.now()}`;
 }
 
@@ -189,7 +195,7 @@ const listeners = new Map<string, Set<() => void>>();
 function emit(sessionKey: string): void {
   const set = listeners.get(sessionKey);
   if (!set) return;
-  for (const cb of set) { try { cb(); } catch {} }
+  for (const cb of set) { try { cb(); } catch (e) { console.error('[chat-queue] listener threw', e); } }
 }
 
 /** La coda di una sessione, dalla cache (idratata alla prima lettura). */
@@ -244,11 +250,36 @@ export function queueCount(): { entries: number; items: number } {
   return { entries, items };
 }
 
+/** Sessions whose last persist to storage failed (quota, denied access): `hasQueuePersistError`. */
+const persistErrors = new Set<string>();
+
+/** Whether the queue for this session may be missing from disk after the last write. */
+export function hasQueuePersistError(sessionKey: string): boolean {
+  return persistErrors.has(sessionKey);
+}
+
+/** Write a bookkeeping key; a quota or access error warns and never throws (Stop and drain must keep working). */
+function safeSetItem(key: string, value: string): boolean {
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch (e) {
+    console.warn('[chat-queue] failed to write', key, e);
+    return false;
+  }
+}
+
 function setQueue(sessionKey: string, items: QueuedTurn[]): void {
   const next = items.length ? items : EMPTY;
   cache.set(sessionKey, next);
-  if (items.length) storage.setItem(queueKey(sessionKey), JSON.stringify(items));
-  else storage.removeItem(queueKey(sessionKey));
+  try {
+    if (items.length) storage.setItem(queueKey(sessionKey), JSON.stringify(items));
+    else storage.removeItem(queueKey(sessionKey));
+    persistErrors.delete(sessionKey);
+  } catch (e) {
+    console.warn('[chat-queue] failed to persist queue', e);
+    persistErrors.add(sessionKey);
+  }
   emit(sessionKey);
 }
 
@@ -377,7 +408,7 @@ function parseClaim(raw: string | null): Claim | null {
   try {
     const c = JSON.parse(raw) as Partial<Claim>;
     if (typeof c?.clientId === 'string' && typeof c.at === 'number') return { clientId: c.clientId, at: c.at };
-  } catch {}
+  } catch { /* corrupt claim record is treated as no claim */ }
   return null;
 }
 
@@ -408,7 +439,7 @@ export function claimBatch(sessionKey: string, clientId: string, now: number = D
   const existing = parseClaim(storage.getItem(CLAIM_PREFIX + sessionKey));
   if (existing && existing.clientId !== clientId && now - existing.at < CLAIM_LEASE_MS) return [];
 
-  storage.setItem(CLAIM_PREFIX + sessionKey, JSON.stringify({ clientId, at: now } satisfies Claim));
+  safeSetItem(CLAIM_PREFIX + sessionKey, JSON.stringify({ clientId, at: now } satisfies Claim));
   const readback = parseClaim(storage.getItem(CLAIM_PREFIX + sessionKey));
   if (!readback || readback.clientId !== clientId) return [];
 
@@ -468,7 +499,7 @@ export function releaseClaim(sessionKey: string, clientId: string): void {
  * («invia subito») o scrivendo il messaggio dopo.
  */
 export function holdQueue(sessionKey: string, stop?: TurnRef): void {
-  storage.setItem(HOLD_PREFIX + sessionKey, JSON.stringify({ at: Date.now(), ...(stop ? { stop } : {}) }));
+  safeSetItem(HOLD_PREFIX + sessionKey, JSON.stringify({ at: Date.now(), ...(stop ? { stop } : {}) }));
 }
 
 function readRef(raw: string | null, field?: string): TurnRef | undefined {
@@ -512,7 +543,7 @@ export function releaseHold(sessionKey: string): void {
   const boot = serverTurnOf(sessionKey)?.boot ?? candidates[0]!.boot;
   const sameBoot = candidates.filter((r) => r.boot === boot);
   const lift = sameBoot.length ? sameBoot.reduce((a, b) => (b.turnId > a.turnId ? b : a)) : candidates[0]!;
-  storage.setItem(LIFT_PREFIX + sessionKey, JSON.stringify(lift));
+  safeSetItem(LIFT_PREFIX + sessionKey, JSON.stringify(lift));
 }
 
 export function isHeld(sessionKey: string): boolean {

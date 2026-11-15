@@ -37,7 +37,7 @@ beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "claude-projects-"));
 });
 afterAll(() => {
-  try { rmSync(root, { recursive: true, force: true }); } catch {}
+  try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort: temp dir may already be gone */ }
 });
 
 describe("normalizePromptSnippet", () => {

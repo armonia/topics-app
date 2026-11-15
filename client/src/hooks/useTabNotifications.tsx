@@ -7,9 +7,11 @@ import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { useBoardTasks } from '../lib/boardTasksStore';
-import { trayBoardGroups } from '../../../shared/tray-board';
+import { trayBoardGroups, trayAgentStates } from '../../../shared/tray-board';
 import { isMainWindow } from '../lib/windowRole';
 import { useT } from './useT';
+import { useMachinesOverview } from './useMachinesOverview';
+import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 
 interface TabNotificationContextValue {
@@ -68,6 +70,19 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   const boardGroups = useMemo(() => trayBoardGroups(boardTasks, {
     lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
   }), [boardTasks, attention]);
+  // The agents by state, for the strip's left group: counted from the same rows.
+  const agentStatesKey = useMemo(() => {
+    const subjects = { working: 0, needsYou: 0, error: 0 };
+    for (const key of attention.keys()) {
+      const a = attentionOf(attention, key);
+      if (a.tier === 'working') subjects.working += 1;
+      else if (a.lit && !key.startsWith('task:')) {
+        if (a.tier === 'needs-you') subjects.needsYou += 1;
+        else if (a.tier === 'error') subjects.error += 1;
+      }
+    }
+    return JSON.stringify(trayAgentStates(boardGroups, subjects));
+  }, [attention, boardGroups]);
   // THE ONE OS NUMBER (ATTN-08, CHROME-COUNT-01): the lit subjects of the
   // attention state, an archived chat never. Dock badge, menu-bar tray glyph,
   // the PWA Badging API and the inbox's button all read `chromeCount`. No
@@ -88,14 +103,19 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   const writesTheDock = useMemo(() => isTauri && isMainWindow(), []);
   // Not before `attention:init`: the empty store of a reload wrote 0, then N, and the Dock flashed.
   const attentionReady = useAttentionStore((s) => s.ready);
+  // Every machine Topics knows, as submenus of the tray. Only the hand that writes the tray reads them.
+  const overview = useMachinesOverview(writesTheDock);
+  const machinesKey = useMemo(() => JSON.stringify(trayMachines(overview?.machines ?? [], tr)), [overview, tr]);
   useEffect(() => {
     if (!writesTheDock || !attentionReady) return;
     void tauriInvoke('set_app_status', {
       count: chromeCount,
       items: attentionItems,
       groups: boardGroups,
+      machines: JSON.parse(machinesKey),
+      agents: JSON.parse(agentStatesKey),
     }).catch(() => {});
-  }, [writesTheDock, attentionReady, chromeCount, attentionItems, boardGroups]);
+  }, [writesTheDock, attentionReady, chromeCount, attentionItems, boardGroups, machinesKey, agentStatesKey]);
 
   // PWA / browser app badge (the Badging API, navigator.setAppBadge): the same
   // number. Not under Tauri, where the shell's dock badge is the one writer.

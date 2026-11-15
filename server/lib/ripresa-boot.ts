@@ -53,6 +53,7 @@
  *     dire far comparire una risposta a una domanda che chi legge non ha più
  *     in mente.
  */
+import { NOT_STEERED_ROW } from "./steered-row";
 import type { ContentBlock } from "../types";
 import { cancelled } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
@@ -591,10 +592,11 @@ export const MAX_RESTART_CONTINUATIONS = 10;
 
 const CONTINUATION_OPENING = "[Topics] The server restarted in the middle of your previous turn.";
 
+
 /** The chat's last user rows that are continuation notes, counted back to the first that is not. */
 function continuationsInARow(db: Pick<Database, "query">, sessionKey: string): number {
   const rows = db.query(
-    `SELECT content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT ?`,
+    `SELECT content FROM messages WHERE session_key = ? AND role = 'user' AND ${NOT_STEERED_ROW} ORDER BY rowid DESC LIMIT ?`,
   ).all(sessionKey, MAX_RESTART_CONTINUATIONS + 1) as Array<{ content: unknown }>;
   let n = 0;
   for (const row of rows) {
@@ -639,6 +641,13 @@ export interface CtxRipresa {
   defaultProvider?(): string | undefined;
   /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
   isStreaming?(sessionKey: string): unknown;
+  /** True when the turn ledger holds a turn open on that chat, from a source
+   *  other than the boot hold: the same question the chat route asks before
+   *  it answers 409. A CLI turn adopted after a restart and parked on a
+   *  question is open there and absent from `activeStreams`: read only the
+   *  map, the sweep resent into it four times, each 409 spent an attempt, and
+   *  the cap notice hid the question (topic 085fc6ec, 13/11). */
+  turnOpen?(sessionKey: string): boolean;
   /** Whether a provider still holds a send for that chat, in flight or queued
    *  (`sessionHasPendingSend` in production). Absent means nobody can tell.
    *  It must answer from memory, with no I/O: see the loop that awaits it. */
@@ -864,7 +873,7 @@ async function assessLastRow(ctx: CtxRipresa, found: LastRow, ora: number): Prom
   if (!topic || topic.archived) return null;
   // The message a resend sends, which keys its count (lib/resend-count.ts).
   const lastUser = ctx.db.query(
-    `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
+    `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' AND ${NOT_STEERED_ROW} ORDER BY rowid DESC LIMIT 1`,
   ).get(r.sk) as { id: string; content: unknown } | undefined | null;
   if (!lastUser) return null;
   // A native sub-agent's turn is resent only while it is `running`: a child
@@ -888,7 +897,7 @@ async function assessLastRow(ctx: CtxRipresa, found: LastRow, ora: number): Prom
   const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
   const row: RigaDaValutare = {
     sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts: chain.attempts,
-    streaming: Boolean(ctx.isStreaming?.(r.sk)),
+    streaming: Boolean(ctx.isStreaming?.(r.sk)) || Boolean(ctx.turnOpen?.(r.sk)),
     // Settles in microtasks (a queue tail, no I/O), so reading the rows
     // and writing the traces still happen inside one macrotask, and a
     // second sweep started by a timer cannot pick the same row.
@@ -929,7 +938,7 @@ function stillPending(row: RigaDaValutare, ora: number): boolean {
 export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Promise<boolean> {
   const found = ctx.db.query(
     `SELECT session_key AS sk, id, role AS ruolo, blocks, timestamp AS ts FROM messages
-      WHERE session_key = ? AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
+      WHERE session_key = ? AND timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours') AND ${NOT_STEERED_ROW}
       ORDER BY rowid DESC LIMIT 1`,
   ).get(sessionKey) as LastRow | null;
   if (!found) return false;
@@ -955,7 +964,8 @@ export async function cutTurnResumable(ctx: CtxRipresa, sessionKey: string): Pro
 export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id, m.role AS ruolo, m.blocks AS blocks, m.timestamp AS ts
   FROM messages m
  WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')
-   AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key)`;
+   AND m.rowid = (SELECT MAX(rowid) FROM messages WHERE session_key = m.session_key
+                    AND ${NOT_STEERED_ROW})`;
 
 /**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.

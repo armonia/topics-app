@@ -10,7 +10,7 @@ import { userInfo } from 'node:os';
 // runtime-dep-ok: a sibling ESM import, not a spawn. Whatever runtime is
 // already executing this daemon resolves it, and the installed app does not run
 // this file at all (it ships the compiled Rust bridge).
-import { augmentedPath, guiSessionName, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
+import { parseProbeFrame, augmentedPath, guiSessionName, pidPathFor, socketIsFile, trivialSpawn } from './pty-bridge-platform.mjs';
 
 // The user's REAL home, from the OS account db (getpwuid) not $HOME. The bridge
 // can be (re)spawned by a server whose $HOME was clobbered by a sandbox ancestor
@@ -83,8 +83,8 @@ const KILL_GRACE_MS = Number(process.env.TOPICS_PTY_BRIDGE_KILL_GRACE_MS) > 0
  */
 function killGroup(pid) {
   if (!pid || pid <= 0) return;
-  try { process.kill(-pid, 'SIGKILL'); return; } catch {}
-  try { process.kill(pid, 'SIGKILL'); } catch {}
+  try { process.kill(-pid, 'SIGKILL'); return; } catch { /* process may already have exited */ }
+  try { process.kill(pid, 'SIGKILL'); } catch { /* process may already have exited */ }
 }
 
 // --- State ---
@@ -96,12 +96,12 @@ const connectedAt = new Map();     // socket -> quando si è attaccato (monitor 
 function broadcast(msg) {
   const line = JSON.stringify(msg) + '\n';
   for (const client of clients) {
-    try { client.write(line); } catch {}
+    try { client.write(line); } catch { /* socket may already be closed */ }
   }
 }
 
 function sendTo(client, msg) {
-  try { client.write(JSON.stringify(msg) + '\n'); } catch {}
+  try { client.write(JSON.stringify(msg) + '\n'); } catch { /* socket may already be closed */ }
 }
 
 function handleMessage(msg, client) {
@@ -183,7 +183,7 @@ function handleMessage(msg, client) {
         // Whatever is left in the shell's process group was started from this
         // terminal and has no owner anymore: take it out, or it is orphaned.
         if (process.platform !== 'win32') {
-          try { process.kill(-p.pid, 'SIGKILL'); } catch {}
+          try { process.kill(-p.pid, 'SIGKILL'); } catch { /* process may already have exited */ }
         }
         // THE ONLY PLACE A SESSION LEAVES THE MAP, and it removes only its OWN
         // pty: an unconditional delete here would let a late exit evict a newer
@@ -220,7 +220,7 @@ function handleMessage(msg, client) {
         s.killing = true;
         s.killReason = msg.reason || 'unspecified';
         s.killCaller = msg.caller || 'unknown';
-        try { s.pty.kill(); } catch {}
+        try { s.pty.kill(); } catch { /* process may already have exited */ }
         s.killTimer = setTimeout(() => {
           if (sessions.get(msg.id) !== s) return; // it honoured the signal
           console.error(`[PTY Bridge] ${msg.id} ignored SIGHUP for ${KILL_GRACE_MS}ms, escalating to SIGKILL`);
@@ -247,7 +247,7 @@ function handleMessage(msg, client) {
         // The escalation must not be what keeps the daemon alive.
         if (typeof s.killTimer.unref === 'function') s.killTimer.unref();
       } else if (s) {
-        try { s.pty.kill(); } catch {}
+        try { s.pty.kill(); } catch { /* process may already have exited */ }
       }
       // `killed` still goes out immediately: it acks the request, not the
       // death. The death is the `exit` frame.
@@ -302,7 +302,7 @@ function probeBridge(timeoutMs = 1500) {
     const finish = (result) => {
       if (resolved) return;
       resolved = true;
-      try { conn.destroy(); } catch {}
+      try { conn.destroy(); } catch { /* connection may already be destroyed */ }
       resolve(result);
     };
     conn.on('connect', () => {
@@ -333,18 +333,24 @@ function probeBridge(timeoutMs = 1500) {
         while ((nl = buffer.indexOf('\n')) !== -1) {
           const line = buffer.slice(0, nl);
           buffer = buffer.slice(nl + 1);
-          try {
-            const msg = JSON.parse(line);
-            if (msg.id !== probeId) continue;
-            if (msg.type === 'created') {
-              // Probe succeeded — clean up the throwaway PTY.
+          const msg = parseProbeFrame(line);
+          if (!msg) continue;
+          if (msg.id !== probeId) continue;
+          if (msg.type === 'created') {
+            // Probe succeeded — clean up the throwaway PTY. If the write fails
+            // (e.g. the socket is already closed), report that as the real
+            // reason instead of letting the probe silently time out.
+            try {
               conn.write(JSON.stringify({ type: 'kill', id: probeId, reason: 'probe-cleanup', caller: 'bridge-probe' }) + '\n');
               console.error(`[Terminal] kill ${probeId.slice(0, 8)} reason=probe-cleanup caller=bridge-probe`);
-              finish({ ok: true });
+            } catch (err) {
+              finish({ ok: false, reason: 'write-error', detail: err instanceof Error ? err.message : String(err) });
               return;
             }
-            if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
-          } catch {}
+            finish({ ok: true });
+            return;
+          }
+          if (msg.type === 'error') { finish({ ok: false, reason: 'spawn-error', detail: msg.error }); return; }
         }
       });
     });
@@ -359,7 +365,7 @@ async function checkExistingBridge() {
   let recordedPid = null;
   try {
     if (fs.existsSync(pidPath)) recordedPid = Number(fs.readFileSync(pidPath, 'utf8').trim());
-  } catch {}
+  } catch { /* pid file missing or unreadable: no recorded owner */ }
 
   const probe = await probeBridge();
   if (probe.ok) return true; // Healthy bridge owns the socket — yield.
@@ -371,15 +377,15 @@ async function checkExistingBridge() {
     // we can take over cleanly. SIGTERM, fall through to SIGKILL
     // after 1 s if it ignores us.
     console.error(`[PTY Bridge] Recorded owner ${recordedPid} is degraded (${probe.reason}${probe.detail ? ': ' + probe.detail : ''}). Sending SIGTERM.`);
-    try { process.kill(recordedPid, 'SIGTERM'); } catch {}
+    try { process.kill(recordedPid, 'SIGTERM'); } catch { /* process may already have exited */ }
     await new Promise(r => setTimeout(r, 1000));
     if (pidAlive(recordedPid)) {
-      try { process.kill(recordedPid, 'SIGKILL'); } catch {}
+      try { process.kill(recordedPid, 'SIGKILL'); } catch { /* process may already have exited */ }
     }
   }
   // Remove stale socket / pidfile so listen() can rebind.
-  try { fs.unlinkSync(socketPath); } catch {}
-  try { fs.unlinkSync(pidPath); } catch {}
+  try { fs.unlinkSync(socketPath); } catch { /* file may already be gone */ }
+  try { fs.unlinkSync(pidPath); } catch { /* file may already be gone */ }
   return false;
 }
 
@@ -476,13 +482,13 @@ async function start() {
       s.killReason = 'bridge-shutdown';
       s.killCaller = `shutdown:${signal}`;
       console.error(`[Terminal] kill ${id.slice(0, 8)} reason=bridge-shutdown caller=shutdown:${signal}`);
-      try { s.pty.kill(); } catch {}
+      try { s.pty.kill(); } catch { /* process may already have exited */ }
     }
     sessions.clear();
     server.close();
     const finish = () => {
-      try { fs.unlinkSync(socketPath); } catch {}
-      try { fs.unlinkSync(pidPath); } catch {}
+      try { fs.unlinkSync(socketPath); } catch { /* file may already be gone */ }
+      try { fs.unlinkSync(pidPath); } catch { /* file may already be gone */ }
       process.exit(0);
     };
     // The socket and the pidfile go away only at the very end, so nobody can

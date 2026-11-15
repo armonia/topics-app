@@ -22,7 +22,7 @@
 import { getAccessToken, recoverAfter401 } from "./auth";
 import { claudeCliUserAgent } from "./cli-user-agent";
 import {
-  ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
+  ApiHeadersTimeoutError, ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
   DEFAULT_RETRY_POLICY, type RetryPolicy,
 } from "./retry";
 import { saturationHold, releaseHoldIfFreed } from "./usage-window";
@@ -31,7 +31,8 @@ import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type Tool
 import { detectUserInputRequest } from "../ask-user-detector";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
-import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { decide, DEFAULT_AUTONOMY, recordTurnCreatedPaths, turnTempDir, type TurnScope } from "./permissions";
+import { randomUUID } from "crypto";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -51,7 +52,8 @@ import { stopCauseFromSignal } from "../stop-reason";
 import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
-import { anthropicMessagesUrl } from "./base-url";
+import { anthropicMessagesUrl, engineHoldUntil, engineJustGaveUp } from "./base-url";
+import type { createDelegationTracker } from "../../lib/delegation-policy";
 
 const API_VERSION = "2023-06-01";
 
@@ -195,6 +197,8 @@ export interface AgentTurnOptions {
    * default from `retry.ts`, the same shape the CLI uses.
    */
   retryPolicy?: RetryPolicy;
+  /** Wait for the response headers of one request; tests pass milliseconds. Default `API_HEADERS_TIMEOUT_MS`. */
+  headersTimeoutMs?: number;
   /** Measured chars-per-token, owned by the CALLER like `history`. */
   calibration?: Calibration;
   /**
@@ -206,6 +210,20 @@ export interface AgentTurnOptions {
    * stays the next round's prefix. Absent = the rounds are what they were.
    */
   reminder?: string;
+  /**
+   * Messages the person wrote while this turn runs (`lib/turn-steer.ts`),
+   * taken at each round boundary: after the tool results, before the next
+   * model call. Each one joins the history as the person's words in the same
+   * user message as the results. Absent = nobody can steer this turn.
+   */
+  takeSteer?: () => string[];
+  /**
+   * The session's delegation counter (`lib/delegation-policy.ts`), owned by
+   * the CALLER like `calibration` so it spans turns. Fed the tool names and
+   * the prompt size of every round; when it answers, its text joins that
+   * round's results. Absent = no nudge.
+   */
+  delegation?: ReturnType<typeof createDelegationTracker>;
 }
 
 /** Puts `text` at the end of the last message when the person wrote it (the
@@ -340,6 +358,20 @@ function apiHeaders(token: string, longWindow: boolean): Record<string, string> 
   };
 }
 
+/**
+ * How long a round waits for the API's response headers before it drops the
+ * socket and tries again on a new one.
+ *
+ * 90 s, not less: the headers of a streamed answer can wait for the prompt to
+ * be read, and a long-window request with a cold cache takes tens of seconds
+ * before the first byte. The one healthy wait beyond that is the account
+ * engine parking our request while every account is capped: when the bound
+ * fires the engine is asked once (`engineHoldUntil`), and a hold it logged
+ * since the request was sent extends the wait on the same socket, once, to
+ * that hold's end plus this same bound for its answer.
+ */
+export const API_HEADERS_TIMEOUT_MS = 90_000;
+
 /** The line the keep-alive puts after the history. Nobody answers it: the request is dropped at `message_start`. */
 const KEEP_ALIVE_PROMPT = "(prompt cache keep-alive, no answer needed)";
 
@@ -415,24 +447,80 @@ async function streamOnce(
   let res: Response;
   // MSEL-11: the address Claude Code would use (base-url.ts).
   const apiUrl = anthropicMessagesUrl();
+  // A CEILING ON THE WAIT FOR HEADERS, apart from the person's Stop.
+  // On 2026-11-11 at 23:07 a turn sat 40 minutes on a socket in SYN_SENT
+  // towards Switchboard (which answered everyone else in 0.6 s): the fetch had
+  // no limit but `opts.signal`, and the route kept extending its deadlines
+  // because the turn's process was alive. This timer firing is a transport
+  // failure that `retryRound` retries on a new socket; it never touches
+  // `opts.signal`, so it can never read as a Stop.
+  const headersTimeoutMs = opts.headersTimeoutMs ?? API_HEADERS_TIMEOUT_MS;
+  const headersCut = new AbortController();
+  const headersWaitStartedAt = Date.now();
+  let headersSettled = false;
+  const cut = () => { if (!headersSettled) headersCut.abort(); };
+  // Asked once: the engine names no request in its holds, so asking again would
+  // let other requests' later holds stretch this wait without end.
+  const onHeadersTimer = () => {
+    if (headersSettled) return;
+    void engineHoldUntil(headersWaitStartedAt).then((until) => {
+      if (headersSettled) return;
+      const left = until + headersTimeoutMs - Date.now();
+      if (until <= 0 || left <= 0) { headersCut.abort(); return; }
+      console.warn(
+        `[native] no response headers from ${apiUrl} after ${Date.now() - headersWaitStartedAt}ms: the account engine holds`
+        + ` requests until ${new Date(until).toISOString()} (session_key=${opts.sessionId ?? "unknown"}): waiting on the same socket`,
+      );
+      headersTimer = setTimeout(cut, left);
+    }, cut);
+  };
+  let headersTimer = setTimeout(onHeadersTimer, headersTimeoutMs);
+  const signal = opts.signal ? AbortSignal.any([opts.signal, headersCut.signal]) : headersCut.signal;
   try {
     res = await fetch(apiUrl, {
       method: "POST",
       headers: apiHeaders(token, longWindow),
       body: JSON.stringify(body),
-      signal: opts.signal,
+      signal,
     });
   } catch (err) {
+    // Stop wins over the timer: when both fired, it is a cancellation.
+    if (headersCut.signal.aborted && !opts.signal?.aborted) {
+      const waitedMs = Date.now() - headersWaitStartedAt;
+      console.warn(
+        `[native] no response headers from ${apiUrl} within ${waitedMs}ms`
+        + ` (session_key=${opts.sessionId ?? "unknown"}): dropping the socket and retrying`,
+      );
+      throw new ApiHeadersTimeoutError(
+        `API did not answer at ${apiUrl}: no response headers within ${Math.round(waitedMs / 1000)}s`,
+      );
+    }
     // No status, no event: the connection itself failed. Nothing has been
     // emitted yet, so `streamWithRetry` may simply try again (unless the
     // failure is our own abort, which it checks first).
     throw new ApiTransportError(
       `API unreachable at ${apiUrl}: ${err instanceof Error ? err.message : String(err)}`, false, err,
     );
+  } finally {
+    // Headers arrived (or the fetch failed): from here on only `opts.signal`
+    // governs the body, so a long round is never cut by this timer.
+    headersSettled = true;
+    clearTimeout(headersTimer);
   }
 
   if (!res.ok) {
+    const answeredAt = Date.now();
     const detail = await res.text().catch(() => "");
+    // The engine held a request to the end of its hold and said 429: no
+    // account freed up (it logs `cap-exhausted` in the same tick). Trying
+    // again would park the next attempt for another hold, up to the policy's
+    // 28 of them; the call stops here, in its words. Any other 429 is a
+    // passing limit upstream and is retried as usual.
+    if (res.status === 429) {
+      if (await engineJustGaveUp(headersWaitStartedAt, answeredAt)) {
+        throw new Error(`The account engine held this request ${Math.round((Date.now() - headersWaitStartedAt) / 1000)}s and no account freed up: ${detail.slice(0, 300)}`);
+      }
+    }
     // `spiegaErrore` translates ONLY the long-window 400, which otherwise lands
     // mid-turn as an English sentence with no way out. Everything else passes
     // as it came: see long-window.ts. The status and the `retry-after` travel
@@ -927,6 +1015,11 @@ export async function runAgentTurn(
   const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
   if (opts.reminder) appendReminder(opts.history, opts.reminder);
+
+  // What THIS turn may `rm` beyond the generic `/tmp` exception (RT-07): its
+  // scratch folder plus what it creates, grown below and read by the NEXT `decide`.
+  const turnCreatedPaths = new Set<string>();
+  const turnScope: TurnScope = { tempDir: turnTempDir(randomUUID()), createdPaths: turnCreatedPaths };
   let compactedForNextRequest = false;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -1116,7 +1209,7 @@ export async function runAgentTurn(
       // once the wait is already over.
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY, turnScope);
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own
@@ -1159,6 +1252,7 @@ export async function runAgentTurn(
               ...opts.toolContext,
               onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
             });
+      if (!out.isError) recordTurnCreatedPaths(turnCreatedPaths, t.name!, (t.input ?? {}) as Record<string, unknown>, opts.toolContext.workspace);
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole
@@ -1197,7 +1291,33 @@ export async function runAgentTurn(
         return { turnEnd: end, text: finalText, usage: total };
       }
     }
-    opts.history.push({ role: "user", content: opts.reminder ? [...results, { type: "text", text: opts.reminder }] : results });
+    // WHAT THE PERSON WROTE MEANWHILE GOES IN NOW, after the results the
+    // model asked for (the API wants every `tool_result` first) and before
+    // the reminder, so the model reads it on this very next call instead of
+    // after the whole turn. A failing source never costs the round.
+    // Not on the last round allowed: no call follows it, and a message taken
+    // here would be marked read by a model that never saw it. Left in the
+    // queue, it goes as a turn of its own.
+    let steered: string[] = [];
+    if (i < MAX_ITERATIONS - 1) try { steered = opts.takeSteer?.() ?? []; } catch (err) {
+      console.warn(`[native] steer: could not read the waiting messages: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (steered.length > 0) {
+      console.log(`[native] steer: session_key=${opts.sessionId ?? "unknown"} round=${i + 1} messages=${steered.length}`);
+    }
+    const nudge = opts.delegation?.observe(
+      toolUses.map((t) => (t as { name: string }).name),
+      round.usage.input + round.usage.cacheRead + round.usage.cacheWrite,
+    );
+    opts.history.push({
+      role: "user",
+      content: [
+        ...results,
+        ...steered.map((text): Block => ({ type: "text", text })),
+        ...(nudge ? [{ type: "text", text: nudge } as Block] : []),
+        ...(opts.reminder ? [{ type: "text", text: opts.reminder }] : []),
+      ],
+    });
   }
 
   // Tetto raggiunto. È una fine anomala e va detta — ma va detta per quello che

@@ -57,9 +57,9 @@ export function initUsageStore(baseDir: string) {
       try {
         unlinkSync(join(USAGE_DIR, f));
         console.log(`[usage] Cleaned up orphaned tmp file: ${f}`);
-      } catch {}
+      } catch { /* another process may have removed or still own the tmp file */ }
     }
-  } catch {}
+  } catch { /* usage dir unreadable: skip the orphan sweep */ }
 }
 
 function todayKey(): string {

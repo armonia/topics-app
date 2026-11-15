@@ -52,6 +52,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useExitGhost } from '../../lib/exitGhost';
 import { toFixed } from '../../lib/fixedFrame';
+import { lastPointerWasTouch, watchPointerType } from '../../lib/lastPointer';
 
 /** Uguale a `Tooltip.tsx`: due superfici che compaiono con tempi diversi si
  *  leggono come due componenti diversi. */
@@ -128,9 +129,14 @@ export function TooltipDelegate() {
       sospeso.current = null;
     };
 
+    watchPointerType();
     const onOver = (e: Event) => {
       const t = e.target;
       if (!(t instanceof Element)) return;
+      // A finger has no hover: this `mouseover` is the compatibility event a
+      // tap leaves behind, and on iOS it sticks, so the tooltip stayed open
+      // over the next screen (measured on the phone search sheet, 14/11).
+      if (lastPointerWasTouch()) return;
       const el = t.closest('[title]') ?? disabledTitleUnder(e);
       if (!el || fuoriPortata(el)) {
         if (sospeso.current && !sospeso.current.el.contains(t)) { stop(); restituisci(); setStato(null); }

@@ -82,7 +82,7 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     try {
       const cached = localStorage.getItem('terminal-sessions-cache');
       if (cached) { const p = JSON.parse(cached); if (Array.isArray(p)) return p; }
-    } catch {}
+    } catch { /* unreadable cache: start with an empty roster until the server answers */ }
     return [];
   });
 
@@ -171,7 +171,7 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
     if (reconciled === true) noteTerminalRosterReplaced(sessionsRef.current, merged);
     setSessions(merged);
     if (d.cache) {
-      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
+      try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch { /* roster cache is re-fetchable; a full storage only costs a refetch */ }
     }
     // TORNA LA DECISIONE, e serve a chi arma la potatura: un roster RIFIUTATO
     // (vuoto sospetto) non deve valere come «adesso so quali terminali esistono».
