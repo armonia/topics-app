@@ -125,6 +125,8 @@ fn native_rows() {
 fn state_cells_lead_with_a_symbol_and_other_cells_do_not() {
     assert_eq!(state_glyph("▸ 2"), Some(("sf:play.circle|ok", "2")));
     assert_eq!(state_glyph("☾ 3 h"), Some(("sf:moon", "3 h")));
+    assert_eq!(state_glyph("⏸ frenato"), Some(("sf:pause.circle|warn", "frenato")));
+    assert_eq!(state_glyph("⏱ coda"), Some(("sf:clock|info", "coda")));
     assert_eq!(state_glyph("12,0"), None);
 }
 

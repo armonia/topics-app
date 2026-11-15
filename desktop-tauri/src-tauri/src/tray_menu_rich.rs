@@ -63,7 +63,11 @@ fn limits_node(snap: &Snapshot) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     for a in &accounts {
         let g = a.get("gauge").cloned().unwrap_or(Value::Null);
-        kids.push(note(format!("{} · {}", s(a, "label"), s(&g, "short"))));
+        let line = note(format!("{} · {}", s(a, "label"), s(&g, "short")));
+        kids.push(match s(a, "provider") {
+            p @ ("claude" | "codex" | "muse") => crate::tray_menu::with_icon(&format!("provider:{p}"), line),
+            _ => line,
+        });
         let sentence = Some(s(&g, "cardSay")).filter(|t| !t.is_empty()).unwrap_or(s(&g, "say"));
         if !sentence.is_empty() {
             kids.push(note(sentence));

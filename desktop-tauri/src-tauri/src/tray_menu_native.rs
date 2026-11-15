@@ -142,6 +142,27 @@ unsafe fn icon_image(spec: &str) -> id {
         let _: () = msg_send![img, setSize: NSSize::new(15.0, 15.0)];
         return msg_send![img, autorelease];
     }
+    if let Some(provider) = spec.strip_prefix("provider:") {
+        static ANTHROPIC: &[u8] = include_bytes!("../assets/tray-providers/anthropic.png");
+        static OPENAI: &[u8] = include_bytes!("../assets/tray-providers/openai.png");
+        static META: &[u8] = include_bytes!("../assets/tray-providers/meta.png");
+        let bytes = match provider {
+            "claude" => ANTHROPIC,
+            "codex" => OPENAI,
+            "muse" => META,
+            _ => return nil,
+        };
+        let data: id = msg_send![class!(NSData), dataWithBytes: bytes.as_ptr(), length: bytes.len()];
+        let img: id = msg_send![class!(NSImage), alloc];
+        let img: id = msg_send![img, initWithData: data];
+        if img == nil {
+            return nil;
+        }
+        let _: () = msg_send![img, setSize: NSSize::new(14.0, 14.0)];
+        // a template: the menu inks it like its symbols, one family of icons
+        let _: () = msg_send![img, setTemplate: true];
+        return msg_send![img, autorelease];
+    }
     let Some(sf) = spec.strip_prefix("sf:") else { return nil };
     let (name, tone) = sf.split_once('|').unwrap_or((sf, ""));
     let base: id = msg_send![class!(NSImage), imageWithSystemSymbolName: ns(name), accessibilityDescription: nil];
@@ -153,6 +174,7 @@ unsafe fn icon_image(spec: &str) -> id {
         "bad" => msg_send![class!(NSColor), systemRedColor],
         "warn" => msg_send![class!(NSColor), systemOrangeColor],
         "ok" => msg_send![class!(NSColor), systemGreenColor],
+        "info" => msg_send![class!(NSColor), systemBlueColor],
         _ => nil,
     };
     let cfg: id = if color == nil {
@@ -267,6 +289,12 @@ unsafe fn row_title(r: &TableRow) -> id {
 fn state_glyph(cell: &str) -> Option<(&'static str, &str)> {
     if let Some(rest) = cell.strip_prefix("▸ ") {
         return Some(("sf:play.circle|ok", rest));
+    }
+    if let Some(rest) = cell.strip_prefix("⏸ ") {
+        return Some(("sf:pause.circle|warn", rest));
+    }
+    if let Some(rest) = cell.strip_prefix("⏱ ") {
+        return Some(("sf:clock|info", rest));
     }
     cell.strip_prefix("☾ ").map(|rest| ("sf:moon", rest))
 }
