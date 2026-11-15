@@ -209,8 +209,8 @@ test.describe("Board: countdown and weight of work in progress", () => {
         if (await sidebar.isVisible()) await sidebar.screenshot({ path: `${SHOTS}/sidebar-${width}-${scheme}.png` });
         // On a phone the sidebar is a sheet over the board: close it before touching the card.
         if (width < 800) {
-          await page.keyboard.press("Escape");
-          if ((await sidebar.getAttribute("data-drawer")) === "open") await page.getByTestId("sidebar-toggle").first().click({ force: true });
+          // Choosing the board row closes the sheet, as on a real phone.
+          if ((await sidebar.getAttribute("data-drawer")) === "open") await page.locator('[data-pane-id="__board__"]').first().tap();
           await expect(sidebar).toHaveAttribute("data-drawer", "closed", { timeout: 5_000 });
         }
         // Drawer with the exact weight and the sum of the children.
