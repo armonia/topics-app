@@ -30,6 +30,7 @@ mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
+mod tray_menu_clock;
 #[cfg(target_os = "macos")]
 mod tray_menu_native;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -38,6 +39,8 @@ mod tray_menu_detail;
 mod tray_menu_procs;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_pic;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_projects;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_rich;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -3424,12 +3427,16 @@ fn run_hub_action(app: &tauri::AppHandle, id: &str) {
             tray_menu::Action::Http { method, path, body } => {
                 let _ = tray_menu::http_send(&tray_quota::hub_base(), method, &path, body.as_ref());
             }
-            tray_menu::Action::ClosePids { name, unit, pids } => {
+            tray_menu::Action::ClosePids { name, unit, pids, force } => {
                 let ok = app
                     .dialog()
-                    .message(format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare."))
-                    .title("Chiudi")
-                    .buttons(MessageDialogButtons::OkCancelCustom("Chiudi".into(), "Annulla".into()))
+                    .message(if force {
+                        format!("Forzare la chiusura di {name}? Non lascia salvare niente.")
+                    } else {
+                        format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare.")
+                    })
+                    .title(if force { "Forza chiusura" } else { "Chiudi" })
+                    .buttons(MessageDialogButtons::OkCancelCustom(if force { "Forza chiusura" } else { "Chiudi" }.into(), "Annulla".into()))
                     .blocking_show();
                 // The census shown in the menu may be a minute old and the dialog took longer:
                 // the service is asked for a new one (`fresh=1`, otherwise it may answer from its
@@ -3441,7 +3448,7 @@ fn run_hub_action(app: &tauri::AppHandle, id: &str) {
                     || tray_quota::http_get(&tray_quota::hub_base(), "/api/mac/procs?fresh=1"),
                     unit.as_deref(),
                     &pids,
-                    tray_menu::terminate,
+                    |p| tray_menu::terminate(p, force),
                 );
             }
             tray_menu::Action::OpenUrl(url) => {
