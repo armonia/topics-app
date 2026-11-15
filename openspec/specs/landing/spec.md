@@ -586,3 +586,41 @@ su origin, riportare quelle card a `landed`.
 #### Scenario: origin divergente
 - **GIVEN** main locale e origin/main con storie divergenti
 - **THEN** il push NON SHALL partire e origin SHALL restare com'era
+
+### Requirement: LAND-15 — Una card rossa in review torna da sola all'agente
+
+Una card in review con la barra rossa sul commit che consegna (`checks_commit` =
+`delivery_commit`) SHALL tornare all'agente col log del comando rosso, senza un
+gesto di una persona. Dopo 3 rimandi senza una parola umana in mezzo la card
+SHALL restare in review con un `human_ask` che lo dice.
+
+#### Scenario: consegna dal nodo misurata rossa
+- **GIVEN** una card piantata da un nodo, entrata in review, la cui barra risulta rossa
+- **THEN** la spazzata SHALL portarla in lavorazione col log, e un rosso di un commit precedente NON SHALL muoverla
+
+### Requirement: LAND-16 — Il lavoro accettato passa dalla fase CI e il «sì» sopravvive al rosso
+
+Su una board con righe CI, ogni land chiesto SHALL mettere la card nella colonna
+`ci` con `land_intent`; la coda SHALL misurare i rami accettati insieme a
+`origin/main` in un commit di integrazione e atterrarli solo se è verde. Un rosso
+o un conflitto SHALL rimandare all'agente tenendo `land_intent`, e la consegna
+verde successiva SHALL rientrare in fase CI senza review umana, salvo `human_ask`.
+Un rifiuto con commento di una persona SHALL togliere `land_intent`.
+
+#### Scenario: lotto rosso
+- **GIVEN** quattro card accettate di cui una rompe la CI
+- **THEN** il lotto SHALL dimezzarsi finché quella resta sola; le altre SHALL atterrare
+
+#### Scenario: fix dopo l'ok
+- **GIVEN** una card approvata da una persona e rimandata per un rosso
+- **THEN** la sua riconsegna verde SHALL atterrare senza un nuovo gesto della persona
+
+### Requirement: LAND-17 — Le card tecniche atterrano da sole
+
+Una consegna SHALL aspettare una persona solo se tocca interfaccia, sito
+pubblico, ciò che raggiunge persone, sicurezza e soldi, dipendenze o il giudice
+(`personPlace`); il resto SHALL atterrare da solo con la barra verde.
+
+#### Scenario: codice tecnico contro posto di una persona
+- **GIVEN** una consegna verde che tocca solo `server/lib/git-numstat.ts`
+- **THEN** SHALL atterrare da sola; la stessa con `client/src/App.tsx` o `.github/workflows/ci.yml` SHALL aspettare una persona

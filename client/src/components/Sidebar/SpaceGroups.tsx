@@ -35,7 +35,7 @@ import { usePaneStore } from '../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../state/pane/types';
 import { focusSpaceWindow, popOutSpace, closeSpaceWindow } from '../../lib/popOutSpace';
 import { DND_TYPES } from '../../lib/dndTypes';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { ROW_GAP, ROW_GLYPH_SLOT, ROW_H, ROW_PX, TAB_LABEL_TYPE, TIER_DONE_BG, TIER_ERROR_BG } from '../../lib/selectionStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useLongPress, openContextMenuAt } from '../../hooks/useLongPress';
@@ -245,7 +245,7 @@ export function SpaceGroupCard({ card, expanded, onToggle, children }: SpaceGrou
         )}
         {card.tier === 'needs-you' && (
           <span role="img" aria-label={tr('space.tier.input')} className="inline-flex flex-shrink-0">
-            <SparkLoader state="waiting" />
+            <STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} />
           </span>
         )}
         {card.tier && card.tier !== 'needs-you' && (

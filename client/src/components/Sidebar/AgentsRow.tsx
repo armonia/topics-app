@@ -12,7 +12,7 @@ import { useAgentGroups } from '@/state/agentGroups';
 import { agentTotals } from '@/lib/agentSessions';
 import { agentsWaitingText } from '@/lib/agentsWaitingText';
 import { sidebarRowCard, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
-import { PALLINO_ATTESA, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
+import { STATUS_DOT, STATUS_INK } from '@/lib/statusVisual';
 
 export function AgentsRow({ open }: { open: boolean }) {
   const tr = useT();
@@ -35,11 +35,11 @@ export function AgentsRow({ open }: { open: boolean }) {
       </span>
       <span className={`min-w-0 flex-1 truncate text-left ${TAB_LABEL_TYPE}`}>{tr('agents.open')}</span>
       <span data-testid="sidebar-agents-tail" className="flex-shrink-0 text-mini tabular-nums">
-        {working > 0 ? <span className={SEGNALE_OK}>{tr('agents.working', { n: working })}</span> : null}
+        {working > 0 ? <span className={STATUS_INK.working}>{tr('agents.working', { n: working })}</span> : null}
         {working > 0 && waiting > 0 ? <span className="text-app-text-muted"> · </span> : null}
         {waiting > 0 ? (
-          <span className={`inline-flex items-center gap-1 ${SEGNALE_ATTESA}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${PALLINO_ATTESA}`} aria-hidden="true" />
+          <span className={`inline-flex items-center gap-1 ${STATUS_INK.wait}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.wait}`} aria-hidden="true" />
             {agentsWaitingText(waiting, tr)}
           </span>
         ) : null}

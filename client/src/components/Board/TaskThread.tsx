@@ -1,4 +1,5 @@
 import type { TaskCommentAcknowledgement } from '../../../../shared/task-comment-ack';
+import { STATUS_CHIP } from '@/lib/statusVisual';
 import { useMemo, memo } from 'react';
 import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
@@ -221,7 +222,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
             {error && (
               <div
                 data-testid="task-action-error"
-                className="mb-2 flex items-start gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-mini text-rose-300"
+                className={`mb-2 flex items-start gap-2 rounded border border-red-500/30 px-2 py-1.5 text-mini ${STATUS_CHIP.danger}`}
               >
                 <span className="min-w-0 flex-1 break-words">{error}</span>
                 <button aria-label={tr('board.task.closeError')} onClick={() => setError(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>

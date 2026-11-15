@@ -573,6 +573,7 @@ pub(crate) fn set_app_status(
     items: Vec<StatusItem>,
     groups: Option<Vec<StatusGroup>>,
     machines: Option<Vec<tray_machines::StatusMachine>>,
+    agents: Option<tray_agents::AgentStates>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -585,6 +586,8 @@ pub(crate) fn set_app_status(
         use tauri::Manager;
         let groups = groups.unwrap_or_default();
         let machines = machines.unwrap_or_default();
+        // The agents by state replace the single number on the strip, on its left.
+        tray_poller::set_agents(agents.unwrap_or_default());
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
         if let Some(win) = app.get_window("main") {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
@@ -599,7 +602,8 @@ pub(crate) fn set_app_status(
             }
             rebuild_tray_menu(&app);
 
-            let title = if count > 0 { Some(count.to_string()) } else { None };
+            // No number next to the strip: the glyph group on its left says it by state.
+            let title: Option<String> = None;
             let tip = if count > 0 {
                 format!("Topics — {count} in attesa")
             } else {
@@ -611,7 +615,7 @@ pub(crate) fn set_app_status(
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups, machines);
+    let _ = (app, count, items, groups, machines, agents);
 }
 
 /// Last attention rows and board columns, kept so the service poller can redraw the
@@ -627,6 +631,64 @@ static HUB_EVER_ANSWERED: std::sync::atomic::AtomicBool = std::sync::atomic::Ato
 /// Latest census body, for the safe close of one unit.
 #[cfg(target_os = "macos")]
 static HUB_PROCS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+
+/// A card or table row of the graphic menu as a system item (a submenu when it has children);
+/// `tray_menu_native::decorate` gives it its image or its columns once the menu is installed.
+#[cfg(target_os = "macos")]
+fn hub_rich_item(app: &tauri::AppHandle, node: &tray_menu::Node) -> Option<Box<dyn tauri::menu::IsMenuItem<tauri::Wry>>> {
+    use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
+    static ROW_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let (title, id, enabled, children): (String, String, bool, &[tray_menu::Node]) = match node {
+        tray_menu::Node::Card { key, png, w, h, children } => {
+            (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
+        }
+        tray_menu::Node::Row { id, cells, header, children } => {
+            let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            (tray_menu_native::register_row(n, cells, *header), if id.is_empty() { format!("row:{n}") } else { id.clone() }, true, children)
+        }
+        _ => return None,
+    };
+    if children.is_empty() {
+        let it = MenuItemBuilder::with_id(id, title).enabled(enabled).build(app).ok()?;
+        return Some(Box::new(it));
+    }
+    let mut sb = SubmenuBuilder::new(app, title);
+    for c in children {
+        sb = hub_child(app, c, sb);
+    }
+    Some(Box::new(sb.build().ok()?))
+}
+
+/// One child node into a submenu builder.
+#[cfg(target_os = "macos")]
+fn hub_child<'m>(
+    app: &tauri::AppHandle,
+    c: &tray_menu::Node,
+    mut sb: tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::AppHandle>,
+) -> tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::AppHandle> {
+    use tauri::menu::MenuItemBuilder;
+    match c {
+        tray_menu::Node::Sep => sb = sb.separator(),
+        tray_menu::Node::Item { id, label, enabled } => {
+            let id = if id.is_empty() { format!("note:{label}") } else { id.clone() };
+            if let Ok(it) = MenuItemBuilder::with_id(id, tray_label(label)).enabled(*enabled).build(app) {
+                sb = sb.item(&it);
+            }
+        }
+        tray_menu::Node::Sub { label, children } => {
+            if let Ok(s2) = hub_submenu(app, label, children) {
+                sb = sb.item(&s2);
+            }
+        }
+        other => {
+            if let Some(it) = hub_rich_item(app, other) {
+                sb = sb.item(&*it);
+            }
+        }
+    }
+    sb
+}
 
 #[cfg(target_os = "macos")]
 fn hub_node_to_menu<'m>(
@@ -650,6 +712,11 @@ fn hub_node_to_menu<'m>(
                     mb = mb.item(&sub);
                 }
             }
+            other => {
+                if let Some(it) = hub_rich_item(app, other) {
+                    mb = mb.item(&*it);
+                }
+            }
         }
     }
     mb
@@ -661,23 +728,10 @@ fn hub_submenu(
     label: &str,
     children: &[tray_menu::Node],
 ) -> tauri::Result<tauri::menu::Submenu<tauri::Wry>> {
-    use tauri::menu::{MenuItemBuilder, SubmenuBuilder};
+    use tauri::menu::SubmenuBuilder;
     let mut sb = SubmenuBuilder::new(app, tray_label(label));
     for c in children {
-        match c {
-            tray_menu::Node::Sep => sb = sb.separator(),
-            tray_menu::Node::Item { id, label, enabled } => {
-                let id = if id.is_empty() { format!("note:{label}") } else { id.clone() };
-                if let Ok(it) = MenuItemBuilder::with_id(id, tray_label(label)).enabled(*enabled).build(app) {
-                    sb = sb.item(&it);
-                }
-            }
-            tray_menu::Node::Sub { label, children } => {
-                if let Ok(s2) = hub_submenu(app, label, children) {
-                    sb = sb.item(&s2);
-                }
-            }
-        }
+        sb = hub_child(app, c, sb);
     }
     sb.build()
 }
@@ -688,6 +742,9 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
     let (items, groups, machines) = TRAY_STATUS.lock().map(|g| g.clone()).unwrap_or_default();
     let hub = HUB_MENU.lock().map(|g| g.clone()).unwrap_or_default();
+    // The graphic menu carries the machine cards itself; the old per-machine submenus stay only without it.
+    let rich = hub.iter().any(|n| matches!(n, tray_menu::Node::Card { .. }));
+    tray_menu_native::reset();
     let Some(tray) = app.tray_by_id("main") else { return };
             // Rebuild the menu: one `nav:<topicId>` row per attention chat, then a
             // separator, then the static Show/Quit. The tray's `on_menu_event`
@@ -757,7 +814,7 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
             // Every machine Topics knows: a submenu with its gauges, the provider
             // extras as disabled rows and the history line as the icon of the
             // first one. The client wrote the words; this side only draws.
-            if !machines.is_empty() {
+            if !machines.is_empty() && !rich {
                 for m in &machines {
                     let mut sb = SubmenuBuilder::new(app, tray_label(&m.title));
                     if let Ok(head) = tauri::menu::IconMenuItemBuilder::new(tray_label(&m.title))
@@ -795,15 +852,27 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
             // (chat, board, aggiornatore) e la tray era rimasta a Mostra/Esci,
             // cioè non sapeva far FARE niente. Sono le stesse porte del menu
             // nativo e della sidebar, non gesti nuovi.
-            mb = mb
-                .text("tray-new-chat", "Nuova chat")
-                .text("tray-check-updates", "Controlla aggiornamenti")
-                .text("tray-refresh", "Aggiorna")
-                .separator()
-                .text("tray-show", "Apri Topics")
-                .text("tray-quit", "Esci");
+            if rich {
+                // Same three closing rows as the original tray, with its shortcuts.
+                let row = |id: &str, title: &str, key: &str| MenuItemBuilder::with_id(id, title).accelerator(key).build(app);
+                if let (Ok(open), Ok(refresh), Ok(quit)) = (row("tray-show", "Apri Topics", "CmdOrCtrl+D"), row("tray-refresh", "Aggiorna", "CmdOrCtrl+R"), row("tray-quit", "Esci", "CmdOrCtrl+Q")) {
+                    mb = mb.item(&open).item(&refresh).item(&quit);
+                }
+            } else {
+                mb = mb
+                    .text("tray-new-chat", "Nuova chat")
+                    .text("tray-check-updates", "Controlla aggiornamenti")
+                    .text("tray-refresh", "Aggiorna")
+                    .separator()
+                    .text("tray-show", "Apri Topics")
+                    .text("tray-quit", "Esci");
+            }
             if let Ok(menu) = mb.build() {
-                let _ = tray.set_menu(Some(menu));
+                // Never replace the menu while it is open: that closes it.
+                tray_tracking::defer("menu", move || {
+                    let _ = tray.set_menu(Some(menu));
+                    tray_menu_native::decorate(&tray);
+                });
             }
 }
 
@@ -824,7 +893,15 @@ pub(crate) fn refresh_hub_menu(app: &tauri::AppHandle) {
         *g = snap.procs.clone();
     }
     if let Ok(mut g) = HUB_MENU.lock() {
-        *g = tray_menu::build_menu(&snap, prefs, now, ever);
+        // The graphic menu whenever the service answers; the text menu keeps the offline case.
+        *g = if snap.service_up() {
+            let client: Vec<tray_menu_views::MachineCard> =
+                TRAY_STATUS.lock().map(|g| g.2.iter().filter_map(|m| m.card()).collect()).unwrap_or_default();
+            let machines = tray_menu_rich::machines_for(&client, &snap);
+            tray_menu_rich::build_menu_rich(&snap, prefs, now, &machines, tray_menu_native::dark())
+        } else {
+            tray_menu::build_menu(&snap, prefs, now, ever)
+        };
     }
     rebuild_tray_menu(app);
 }
@@ -841,12 +918,16 @@ pub(crate) fn run_hub_action(app: &tauri::AppHandle, id: &str) {
             tray_menu::Action::Http { method, path, body } => {
                 let _ = tray_menu::http_send(&tray_quota::hub_base(), method, &path, body.as_ref());
             }
-            tray_menu::Action::ClosePids { name, unit, pids } => {
+            tray_menu::Action::ClosePids { name, unit, pids, force } => {
                 let ok = app
                     .dialog()
-                    .message(format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare."))
-                    .title("Chiudi")
-                    .buttons(MessageDialogButtons::OkCancelCustom("Chiudi".into(), "Annulla".into()))
+                    .message(if force {
+                        format!("Forzare la chiusura di {name}? Non lascia salvare niente.")
+                    } else {
+                        format!("Chiudere {name}? I processi ricevono una richiesta di chiusura e possono salvare.")
+                    })
+                    .title(if force { "Forza chiusura" } else { "Chiudi" })
+                    .buttons(MessageDialogButtons::OkCancelCustom(if force { "Forza chiusura" } else { "Chiudi" }.into(), "Annulla".into()))
                     .blocking_show();
                 // The census shown in the menu may be a minute old and the dialog took longer:
                 // the service is asked for a new one (`fresh=1`, otherwise it may answer from its
@@ -858,7 +939,7 @@ pub(crate) fn run_hub_action(app: &tauri::AppHandle, id: &str) {
                     || tray_quota::http_get(&tray_quota::hub_base(), "/api/mac/procs?fresh=1"),
                     unit.as_deref(),
                     &pids,
-                    tray_menu::terminate,
+                    |p| tray_menu::terminate(p, force),
                 );
             }
             tray_menu::Action::OpenUrl(url) => {

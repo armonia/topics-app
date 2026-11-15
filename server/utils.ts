@@ -24,6 +24,7 @@ import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { walkActiveThread, type SkeletonRow } from "./lib/thread-skeleton";
 import { CONTEXT_PREFIX, hasMachineMark } from "../shared/prompt-number";
+import { observeCardFrame, type CardFrame } from "./services/card-outcome-wake";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
@@ -1072,6 +1073,13 @@ export function createAppContext(baseDir: string): AppContext {
   function broadcastToAll(message: OutboundMessage) {
     const presentedMessage = presentTopicInOutboundMessage(withFrameMediaSizes(message));
     devValidateOutbound(presentedMessage);
+    // The chat that opened a card hears its outcome (`card-outcome-wake`).
+    if (typeof message.type === "string" && message.type.startsWith("task:")) {
+      const card = (message as { task?: unknown }).task as CardFrame | undefined;
+      if (card && typeof card.id === "string" && typeof card.status === "string") {
+        try { observeCardFrame(card); } catch { /* a wake must never break a broadcast */ }
+      }
+    }
     const frame = presentedMessage as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
     // A topic frame reaches only the windows holding that topic. It goes through the same loop as
     // every other frame, so the guest rules below still decide what a guest receives.
@@ -2541,7 +2549,9 @@ export function createAppContext(baseDir: string): AppContext {
         if (changed) {
           db.prepare(`UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?`).run(tcStr, blStr, stream.messageId);
         }
-      } catch {}
+      } catch (e) {
+        console.warn(`[Turn] closing the interrupted tool calls of ${sessionKey} failed, the box may stay in progress on disk:`, e);
+      }
     }
     // A tool kept awaiting a person (the plan approval) is said with the close:
     // every window holds its queue on it, whatever its transcript shows yet.

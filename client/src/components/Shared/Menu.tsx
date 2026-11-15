@@ -12,7 +12,7 @@ import { SheetGrabber } from './SheetGrabber';
 // una riga.
 import { computeMenuPosition } from '../../lib/popoverPosition';
 import { toFixed } from '../../lib/fixedFrame';
-import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER, Z_POPOVER_SCRIM } from '../../lib/popoverStyles';
+import { POPOVER_SURFACE, POPOVER_SHEET, Z_POPOVER } from '../../lib/popoverStyles';
 import { useExitGhost } from '../../lib/exitGhost';
 import { keepSystemMenuOffPanel } from '../../lib/contextMenuOrigin';
 
@@ -220,7 +220,13 @@ export function Menu({
           chiaro; in scuro l'ombra è nero su quasi-nero e non aiuta). Il gemello
           in `ChatInput` usa `bg-black/40` da sempre: qui mancava e basta. */}
       {isMobile && (
-        <div ref={scrimRef} className="fixed inset-0 bg-black/40 modal-backdrop-enter" style={{ zIndex: Z_POPOVER_SCRIM }} onClick={onClose} />
+        // On the popover plane, not just under it: a level opened from a
+        // sheet is a sheet over that sheet (SubmenuItem), and with the veil a
+        // step below the parent stayed lit. Same colour, two grabbers, the
+        // parent's rows peeking over the child's top: it read as one broken
+        // sheet. Drawn first in this portal, so it still sits under its own
+        // panel and over everything opened before it.
+        <div ref={scrimRef} className="fixed inset-0 bg-black/40 modal-backdrop-enter" style={{ zIndex: Z_POPOVER }} onClick={onClose} />
       )}
       <div
         ref={panelRef}

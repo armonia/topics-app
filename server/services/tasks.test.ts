@@ -1657,7 +1657,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(finale.dispatchState).not.toBe("failed");
   });
 
-  test("la serie è per RAGIONE: una condizione diversa la fa ricominciare da uno", () => {
+  test("il conteggio è per RAGIONE, l'orologio no: una condizione diversa riparte da uno ma tiene `waitSince`", () => {
     const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
     attende(t.id, "la CI sta girando"); passa(16);
     const due = attende(t.id, "  LA CI   STA GIRANDO "); // stessa cosa, riscritta a mano
@@ -1666,8 +1666,10 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     passa(16);
 
     const altra = attende(t.id, "aspetto la risposta di Attilio");
-    expect(altra.waitStreak).toBe(1);                    // altra condizione, altra serie
-    expect(altra.waitSince).not.toBe(inizioSerie);
+    expect(altra.waitStreak).toBe(1);                    // other condition, count restarts
+    // ...but the clock keeps running: rewording must not reset the time cap
+    // (card 60c4b56a, five rewritten waits in three days, never stopped).
+    expect(altra.waitSince).toBe(inizioSerie);
   });
 
   test("alla soglia il task si ferma, ma col chip `waited_out` e senza la parola «fallito»", () => {
@@ -2340,7 +2342,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261113120000: the tip sent back, for the same-tip redelivery guard.
          prior_commit = 'abc1234',
          -- 20261113140000: the run this card last created on a paired node.
-         node_run_id = 'run-abc'
+         node_run_id = 'run-abc',
+         -- 20261114010000: the decision to land, who took it and on which commit.
+         land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

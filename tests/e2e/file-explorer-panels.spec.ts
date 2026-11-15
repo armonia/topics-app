@@ -23,17 +23,15 @@ hermetic(test);
  * e' lo stesso per tutti e tre ma ISTANZIATO A PARTE per ciascuno
  * (`helpers/file-project.ts`), cosi' i test che committano non cambiano lo stato
  * git sotto i piedi di un file che gira in parallelo su un altro shard.
+ *
+ * Per-test isolation, not per-file: each test seeds its OWN project in
+ * `beforeEach` and tears it down in `afterEach`.
  */
 test.describe("File Explorer — breadcrumb e processi", () => {
   let project: FileProject | undefined;
   let topicId = "";
   let tmpDir = "";
   let topicName = "";
-
-  test.beforeAll(async ({ request }) => {
-    project = await seedFileProject(request, "panels");
-    ({ topicId, tmpDir, topicName } = project);
-  });
 
   // Isolamento del pane-store fra un test e l'altro. `pane-store-v2` e' UNA
   // chiave sincronizzata dal server e condivisa da tutta la run: senza reset,
@@ -47,11 +45,14 @@ test.describe("File Explorer — breadcrumb e processi", () => {
   // topic figlia ha una tab aperta, e con lo store vuoto `gotoProject` non
   // troverebbe l'intestazione da cliccare.
   test.beforeEach(async ({ request }) => {
-    if (topicId) await resetPaneStore(request, [topicId]);
+    project = await seedFileProject(request, "panels");
+    ({ topicId, tmpDir, topicName } = project);
+    await resetPaneStore(request, [topicId]);
   });
 
-  test.afterAll(async ({ request }) => {
+  test.afterEach(async ({ request }) => {
     await cleanupFileProject(request, project);
+    project = undefined;
   });
 
   test("EXPLORER-06: breadcrumb navigation", async ({
@@ -179,7 +180,7 @@ test.describe("File Explorer — breadcrumb e processi", () => {
     await indexSegment.click();
 
     // Now open a different file at root level: package.json (README.md is
-    // deleted in beforeAll to seed FILE-13's "D" status, so it's absent).
+    // deleted per-test to seed FILE-13's "D" status, so it's absent).
     const readmeItem = fileExplorerPage.fileTree.getByRole("treeitem", {
       name: /package\.json/,
     });

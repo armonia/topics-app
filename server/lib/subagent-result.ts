@@ -116,6 +116,8 @@ export type SubAgentReason =
   | { code: 'tab-closed' }
   | { code: 'reloaded' }
   | { code: 'swept' }
+  /** The machine cut the turn (stall judge, watchdog, wall clock, superseded); `detail` is the cause. */
+  | { code: 'machine-cut'; detail: string }
   | { code: 'terminal-lost' };
 
 /** The result of one turn of one child, as it is delivered (SUBAGENT-11). */

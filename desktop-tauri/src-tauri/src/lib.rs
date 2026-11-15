@@ -25,11 +25,30 @@ mod shortcuts_generated;
 /// outside the tests.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
+mod tray_agents;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
+mod tray_menu_clock;
+#[cfg(target_os = "macos")]
+mod tray_menu_native;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_detail;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_procs;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_pic;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_projects;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_rich;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_views;
 mod tray_quota;
+mod tray_poller;
+#[cfg(target_os = "macos")]
+mod tray_coretext;
 #[cfg(target_os = "windows")]
 mod chords_win;
 
@@ -230,6 +249,14 @@ mod child_reaper;
 #[cfg(target_os = "macos")]
 #[path = "macos_notifications.rs"]
 mod macos_notifications;
+
+#[cfg(target_os = "macos")]
+#[path = "tray_overlay.rs"]
+mod tray_overlay;
+#[cfg(target_os = "macos")]
+mod tray_strip_apply;
+#[cfg(target_os = "macos")]
+mod tray_tracking;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

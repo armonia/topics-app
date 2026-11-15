@@ -37,7 +37,8 @@ export type ToolGroupSegment =
 export function isSoloTool(tc: ToolCall): boolean {
   if (isAwaitingHuman(tc.status)) return true;
   if (tc.userResponse) return true;
-  return resolveToolDetail(tc).type === 'sub_agent';
+  const type = resolveToolDetail(tc).type;
+  return type === 'sub_agent' || type === 'task_card';
 }
 
 /** A call the agent is still on: running, or queued to run. Not settled. */

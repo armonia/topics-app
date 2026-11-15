@@ -2523,35 +2523,27 @@ pub(crate) fn app_setup(
         if let Ok(Some(m)) = app.handle().primary_monitor() {
             tray_quota::set_screen_width_pt(m.size().width as f32 / m.scale_factor() as f32);
         }
-        tray_quota::spawn_poller(move |strip| {
-            if let Some(tray) = tray_handle.tray_by_id("main") {
-                let (strip_w, strip_h) = (strip.width, strip.height);
-                let img = tauri::image::Image::new_owned(strip.rgba, strip_w, strip_h);
-                let _ = tray.set_icon(Some(img));
+                let overlay_handle = app.handle().clone();
                 #[cfg(target_os = "macos")]
-                {
-                    let _ = tray.set_icon_as_template(false);
-                    // The tray library forces every image to 18 pt tall; the strip is
-                    // drawn for the full 22 pt button, like the original one, so its
-                    // text would come out about a fifth too small. Restore the size.
-                    use crate::mac::{id, msg_send, nil, NSSize};
-                    let (w_pt, h_pt) = (strip_w as f64 / tray_quota::SCALE as f64, strip_h as f64 / tray_quota::SCALE as f64);
-                    let _ = tray.with_inner_tray_icon(move |inner| {
-                        if let Some(item) = inner.ns_status_item() {
-                            unsafe {
-                                let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-                                let button: id = msg_send![item, button];
-                                if button != nil {
-                                    let image: id = msg_send![button, image];
-                                    if image != nil {
-                                        let _: () = msg_send![image, setSize: NSSize::new(w_pt, h_pt)];
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
+                tray_tracking::install();
+                let apply_handle = tray_handle.clone();
+                tray_poller::spawn_poller(move |strip| {
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_strip(tray, strip);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    if let Some(tray) = apply_handle.tray_by_id("main") {
+                        let img = tauri::image::Image::new_owned(strip.rgba, strip.width, strip.height);
+                let _ = tray.set_icon(Some(img));
             }
+                }, move |frame| {
+                    #[cfg(target_os = "macos")]
+                    if let Some(tray) = overlay_handle.tray_by_id("main") {
+                        tray_strip_apply::apply_overlay(&tray, frame);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    let _ = (&overlay_handle, frame);
         });
         // The menu content follows the same service, on its own thread, so it
         // keeps updating with the window hidden or the client restarted.

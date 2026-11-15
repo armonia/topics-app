@@ -361,8 +361,8 @@ describe('WS-04 contract: chatWsInboundSchema (main /ws)', () => {
 // ----- Contract: tool-call-detail (NORM-01) ---------------------------------
 
 describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
-  test('exactly 25 variants', () => {
-    expect(variantsOf(toolCallDetailSchema).length).toBe(25);
+  test('exactly 26 variants', () => {
+    expect(variantsOf(toolCallDetailSchema).length).toBe(26);
   });
 
   test('discriminator literals are frozen', () => {
@@ -411,6 +411,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
       'skill',
       'slash_command',
       'sub_agent',
+      'task_card',
       'todo',
       'unknown',
       'view',

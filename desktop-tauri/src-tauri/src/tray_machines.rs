@@ -18,6 +18,51 @@ pub struct StatusMachine {
     /// 0..=100 samples, oldest first: the history line.
     #[serde(default)]
     pub spark: Vec<f32>,
+    /// The card of the machine (graphic menu): bare name, state in words, readings.
+    /// Empty `badge` = the client did not ship one and the machine keeps its submenu.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub badge: String,
+    #[serde(default)]
+    pub level: u32,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub local: bool,
+    #[serde(default)]
+    pub metrics: Vec<StatusMetric>,
+}
+
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct StatusMetric {
+    pub key: String,
+    /// Null when the machine did not measure it: the band stays off, never 0.
+    #[serde(default)]
+    pub pct: Option<u32>,
+    #[serde(default)]
+    pub level: u32,
+    #[serde(default)]
+    pub note: String,
+}
+
+impl StatusMachine {
+    /// The card to draw, when the client shipped one.
+    pub fn card(&self) -> Option<crate::tray_menu_views::MachineCard> {
+        if self.badge.is_empty() {
+            return None;
+        }
+        Some(crate::tray_menu_views::MachineCard {
+            id: self.id.clone(),
+            local: self.local,
+            lines: self.lines.clone(),
+            name: self.name.clone(),
+            badge: self.badge.clone(),
+            level: self.level,
+            reason: self.reason.clone(),
+            metrics: self.metrics.iter().map(|m| crate::tray_menu_views::Metric { key: m.key.clone(), pct: m.pct, level: m.level, note: m.note.clone(), ..Default::default() }).collect(),
+        })
+    }
 }
 
 pub const SPARK_W: u32 = 96;

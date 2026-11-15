@@ -81,13 +81,16 @@ export function writeProviderToken(stateDir: string, providerId: string, token: 
 export const HETZNER_API_ENV = "TOPICS_HETZNER_API_URL";
 const HETZNER_API = "https://api.hetzner.cloud/v1";
 
+interface HetznerLocation { name?: string; city?: string; country?: string }
 interface HetznerPrice { location: string; price_hourly: { gross: string }; price_monthly: { gross: string } }
 interface HetznerServer {
   name: string;
   status: string;
   created: string;
   public_net?: { ipv4?: { ip?: string } | null };
-  datacenter?: { location?: { city?: string; name?: string } };
+  /** Current API: the location sits on the server. Older API: under the datacenter. */
+  location?: HetznerLocation | null;
+  datacenter?: { location?: HetznerLocation | null } | null;
   server_type?: { name?: string; prices?: HetznerPrice[] };
 }
 
@@ -114,7 +117,8 @@ export const hetznerAdapter: ProviderAdapter = {
     if (!res.ok) throw new Error(`http_${res.status}`);
     const body = (await res.json()) as { servers?: HetznerServer[] };
     return (body.servers ?? []).map((s): ProviderServer => {
-      const place = s.datacenter?.location?.name;
+      const location = s.location ?? s.datacenter?.location ?? null;
+      const place = location?.name;
       const price = s.server_type?.prices?.find((p) => p.location === place) ?? s.server_type?.prices?.[0];
       const monthly = price ? Number(price.price_monthly.gross) : NaN;
       const hourly = price ? Number(price.price_hourly.gross) : NaN;
@@ -128,7 +132,7 @@ export const hetznerAdapter: ProviderAdapter = {
           providerLabel: "Hetzner Cloud",
           monthly: Number.isFinite(monthly) ? money(monthly) : null,
           spentThisMonth: Number.isFinite(monthly) && Number.isFinite(hourly) && Number.isFinite(created) ? money(hetznerSpentThisMonth(created, now, hourly, monthly)) : null,
-          location: s.datacenter?.location?.city ?? place ?? null,
+          location: location?.city ? (location.country ? `${location.city}, ${location.country}` : location.city) : (place ?? null),
           serverType: s.server_type?.name ?? null,
           createdAt: Number.isFinite(created) ? created : null,
         },

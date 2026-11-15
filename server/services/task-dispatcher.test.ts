@@ -4422,13 +4422,16 @@ describe("l'envelope non parla italiano", () => {
       for (const word of ["check:e2e-touched", "--list", "playwright test", "client build", "install or launch a browser", "Targeted `bun test <file>` stays allowed"]) {
         expect(rule).toContain(word);
       }
-      // The VIDEO branch names no browser-driven clip at all: not in any wording,
-      // not behind a clause about another machine.
+      // The VIDEO branch sends screenshots and clips to the e2e spec and forbids
+      // a browser opened by hand; the old blanket ban must not come back.
       const video = (extractPreviewRule(kickoff) ?? PREVIEW_RULE).split("\n").find((r) => r.startsWith("· VIDEO")) ?? "";
       expect(video).toContain("screencapture -V");
-      expect(video).not.toMatch(/playwright|recordVideo|chromium/i);
-      const clip = video.slice(video.indexOf("A clip is"));
-      expect(clip.slice(0, clip.indexOf(". "))).toMatch(/ALREADY ON SCREEN[^.]*browser_focus_tab/);
+      expect(video).toContain("page.screenshot");
+      expect(video).toContain("video: 'on'");
+      expect(video).not.toMatch(/none may be launched/);
+      expect(video).not.toMatch(/pw-remote|offload|\bvis\b/);
+      const clip = video.slice(video.indexOf("A clip of a surface"));
+      expect(clip.slice(0, clip.indexOf(". "))).toMatch(/ALREADY ON SCREEN.*browser_focus_tab/);
       expect(video).toContain("headless");
       h.dispatcher.shutdown();
     }

@@ -33,7 +33,7 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, showsLandingDebt, TASK_STATUSES,
-  STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
+  STAGE_CI, STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
   type BoardTask, type TaskStatus, type BoardSettings, type BoardWorkflowView,
 } from '../../lib/board';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, type OrderScope } from '../../lib/boardOrder';
@@ -827,7 +827,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // (`splitIntoLanes`), so a lane keeps the board's order inside each column.
   const grouped = mode === 'all' && groupByPref === 'project';
   // The archive view keeps every column: what was closed is what it is there to show.
-  const shownColumns = useMemo(() => (showDone || showArchived ? boardColumns : boardColumns.filter((c) => c.base !== 'done')), [boardColumns, showDone, showArchived]);
+  // The CI column shows only while something is in it: a board without CI rows never fills it.
+  const shownColumns = useMemo(
+    () => boardColumns.filter((c) => (showDone || showArchived || c.base !== 'done') && (c.id !== STAGE_CI || (byColumn.get(c.id)?.length ?? 0) > 0)),
+    [boardColumns, showDone, showArchived, byColumn],
+  );
   const columnIds = useMemo(() => boardColumns.map((c) => c.id), [boardColumns]);
   const { lanes, draftPlacement, draftLane, laneNameById } = useProjectLanes({
     grouped, showArchived, draft, tasks, byColumn, columnIds, projectIndex,
