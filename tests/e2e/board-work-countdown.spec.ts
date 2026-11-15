@@ -61,7 +61,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
   test.beforeAll(async ({ request }) => {
     const topic = await createTopic(request, `countdown-${stamp}`, { projectPath: PROJECT_DIR });
     topicId = topic.id;
-    for (let i = 0; i < 5; i++) await seed(request, `Closed ${i} ${stamp}`, "done");
+    for (let i = 0; i < 5; i++) await seed(request, `Closed ${i} ${stamp}`, "todo");
     runningId = await seed(request, `Running ${stamp}`, "in_progress");
     const topics = (await (await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true })).json()) as { topics: Record<string, { sessionKey?: string }> };
     sessionKey = topics.topics[topicId]?.sessionKey ?? "";
@@ -82,7 +82,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
         if (t.id === runningId) {
           return { ...t, status: "in_progress", assignedTopicId: topicId, agentMs: runningMs, agentTokens: 180_000, agentCostCents: 240, subtaskCount: 0, subtaskDoneCount: 0 };
         }
-        if (created.includes(t.id) && t.status === "done") return { ...t, agentMs: (10 + 5 * closed++) * MIN }; // median 20 min
+        if (created.includes(t.id) && t.id !== runningId) return { ...t, status: "done", agentMs: (10 + 5 * closed++) * MIN }; // median 20 min
         return t;
       });
       await route.fulfill({ json: { ...body, tasks } });
