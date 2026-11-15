@@ -366,7 +366,7 @@
 
     "client/src/components/Terminal/SingleTerminalPane.tsx": 1613,
 
-    "client/src/hooks/useChat.ts": 3584,
+    "client/src/hooks/useChat.ts": 1189,
 
     "client/src/hooks/usePanelLifecycle.ts": 2807,
 
@@ -378,8 +378,6 @@
     },
 
     "client/src/hooks/useTauriBrowser.ts": 2198,
-
-    "client/src/lib/api.ts": 2008,
 
     "client/src/lib/board.ts": 1483,
 
@@ -436,7 +434,15 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
-    "desktop-tauri/src-tauri/src/lib.rs": 14463,
+    "desktop-tauri/src-tauri/src/browser_panes.rs": 5564,
+
+    "desktop-tauri/src-tauri/src/os_integration.rs": 980,
+
+    "desktop-tauri/src-tauri/src/perf_metrics.rs": 1059,
+
+    "desktop-tauri/src-tauri/src/sidecar_boot.rs": 3340,
+
+    "desktop-tauri/src-tauri/src/window_chrome.rs": 2150,
 
     "playwright.config.ts": 870,
 
