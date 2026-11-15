@@ -15,7 +15,7 @@ import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
 import { stopRemoteChild } from "../lib/subagent-remote-stop";
-import { readRemoteChild } from "../lib/subagent-remote-read";
+import { emptyRemoteChildLog, readRemoteChild, type RemoteChildLog } from "../lib/subagent-remote-read";
 import { readNodeToken } from "../services/node-client";
 import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
@@ -112,6 +112,11 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       ? ctx.nodeClient.cancelRun(input)
       : Promise.reject(new Error("no node client configured")),
   };
+  // One log per remote child run, the output `read_agent` pages through by
+  // index (`subagent-remote-read.ts`). In memory: a restart starts each log
+  // again from what the node still reports, which is all of it on a paired
+  // Topics and the pending part on the cloud.
+  const remoteChildLogs = new Map<string, RemoteChildLog>();
   setTerminalBroadcast(ctx.broadcastToAll);
   setTerminalWorktreeStore(ctx.worktreeStore);
   if (tracker) setTerminalTracker(tracker);
@@ -960,13 +965,16 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           // transcript.
           if (row?.remoteMachineId && row.remoteRunId) {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
-            const since = url.searchParams.get("since") || undefined;
-            const road = remoteRoad();
+            const since = Number(url.searchParams.get("since") || "0");
+            const logKey = `${row.remoteMachineId}:${row.remoteRunId}`;
+            const log = remoteChildLogs.get(logKey) ?? emptyRemoteChildLog();
+            remoteChildLogs.set(logKey, log);
             const result = await readRemoteChild({
               machineId: row.remoteMachineId,
               runId: row.remoteRunId,
+              log,
               since,
-              ...road,
+              ...remoteRoad(),
             });
             if (!result.ok) return errorResponse(502, result.reason);
             return json(result);

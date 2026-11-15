@@ -244,7 +244,7 @@ test("read_agent on a child whose run lives on a paired node reads the node's re
     expect(body).toEqual({
       ok: true,
       events: [{ type: "assistant", text: "working on it" }],
-      nextOffset: "2026-11-15T12:00:00.000Z|c-1",
+      nextOffset: 1,
       source: "node",
     });
   } finally {
