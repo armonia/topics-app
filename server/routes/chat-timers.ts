@@ -1,4 +1,5 @@
 import type { ToolCall } from "../types";
+import { writeWhenFree } from "../lib/sqlite-busy";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
 import { logStreamHardTimeout, logStreamRecovered, logStreamSoftTimeout } from "../db/activity-log";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
@@ -211,7 +212,7 @@ export function armTurnTimers(turn: ChatTurnScope): void {
     // footnote. The EVENT is the block: the cause in code, which is
     // what the client draws the banner off (`interrupted-turn-block`).
     const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
-    updateLastMessage(sessionKey, { content: turn.fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
+    writeWhenFree(`grace-expiry close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: turn.fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow));
     endStreamAndAnnounce();
     turn.topicProvider.unregisterStreamHandler?.(sessionKey);
     // Abort the underlying provider turn too. `unregisterStreamHandler` is
@@ -268,7 +269,7 @@ export function armTurnTimers(turn: ChatTurnScope): void {
     // the one this path broadcasts on `stream:end` below, and two
     // witnesses of the same turn must not disagree.
     const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
-    updateLastMessage(sessionKey, { content: turn.fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
+    writeWhenFree(`hard-timeout close of ${partialMsg.id}`, () => updateLastMessage(sessionKey, { content: turn.fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow));
     endStreamAndAnnounce();
     turn.topicProvider.unregisterStreamHandler?.(sessionKey);
     // See handleGraceExpiry: abort the orphaned provider turn (no-op

@@ -1,4 +1,5 @@
 import { appendUsageRecord } from "../usage/store";
+import { writeWhenFree } from "../lib/sqlite-busy";
 import { calculateCost } from "../usage/pricing";
 import { providerSurvivesRestart, turnSurvivesRestart } from "../lib/quiescence";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -82,7 +83,7 @@ export async function runHttpFallback(turn: ChatTurnScope): Promise<Response | u
       endTurnAttention(matchedTopic, { messageId: storedJsonAssistant.id, completed: true, dispatched: boardAgentTurn }, { preview: content });
       finalizeTurnActivity(matchedTopic);
     }
-    if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => autoBindProject(matchedTopic!), 100);
+    if (matchedTopic && !matchedTopic.projectPath && !globalOrchestrator) setTimeout(() => { writeWhenFree(`auto-bind of ${matchedTopic!.id}`, () => autoBindProject(matchedTopic!)); }, 100);
     const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
     return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
   }
