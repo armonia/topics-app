@@ -4,6 +4,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
 /**
  * Windows gets the DWM Acrylic backdrop, and the four things that can silently
@@ -130,9 +131,9 @@ describe("Windows acrylic: the page lets the backdrop through", () => {
     expect(ipc).toBeGreaterThan(gate);
     // The command has to be registered, or the invoke is a rejected promise
     // that the client swallows: the quietest possible failure.
-    const lib = read("desktop-tauri/src-tauri/src/lib.rs");
+    const lib = readTauriShellSource();
     expect(lib).toContain("fn window_set_floating(");
-    expect(lib).toContain("            window_set_floating,");
+    expect(lib).toContain("            window_chrome::window_set_floating,");
   });
 
   test("with floating on, the window asks for NO backdrop", () => {
@@ -180,7 +181,7 @@ describe("Windows acrylic: the shell asks for the curtain", () => {
   test("the theme reaches the backdrop through the door that already exists", () => {
     // `set_theme` is the one command that syncs native chrome to the theme MODE.
     // A second path would drift from it the first time either side changed.
-    const lib = read("desktop-tauri/src-tauri/src/lib.rs");
+    const lib = readTauriShellSource();
     const cmd = lib.slice(lib.indexOf("fn set_theme(app: tauri::AppHandle, theme: String)"));
     expect(cmd.slice(0, 4000)).toContain("windows_acrylic::apply_theme_mode(&app, &theme)");
   });
