@@ -13,12 +13,15 @@
  * WHAT IS NEW HERE is the snapshot itself: a child inherits uncommitted work
  * too (SUBAGENT-14: the parent's own worktree may be mid-edit), and the
  * parent's tree must stay exactly as the person left it while the child is
- * spawned. `git stash create` writes that tree as a commit object WITHOUT
- * touching the index or the working tree (unlike `git stash push`), so
- * nothing here ever runs `stash pop` or `stash apply` on the parent's own
- * checkout. The snapshot commit is bundled under a throwaway branch name
- * that is deleted again before this function returns: the parent's checkout
- * is left with no new ref, no new file, no new commit on any branch it had.
+ * spawned. The working tree is written as a commit through a THROWAWAY INDEX
+ * (`GIT_INDEX_FILE` in a temp dir: `read-tree HEAD`, `add -A`, `write-tree`,
+ * `commit-tree`), so the parent's own index, stash list and files are never
+ * touched. `git stash create` was the first version and lost new files that
+ * were never added: it only snapshots tracked paths. Ignored files stay out,
+ * as `.gitignore` says. The snapshot commit is bundled under a throwaway
+ * branch name that is deleted again before this function returns: the
+ * parent's checkout is left with no new ref, no new file, no new commit on
+ * any branch it had.
  *
  * It works on a repo with no `origin` (the `~/.claude/jarvis/home` case):
  * `bundleBranch` already falls back to a whole-history bundle when there is
@@ -27,8 +30,18 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { branchGit, bundleBranch, carriedRef, isPlainBranchName } from "../services/branch-on-origin";
+import { SPAWN_TIMEOUT } from "./bounded-spawn";
+import { runGit } from "./run-git";
+import { bundleBranch, carriedRef, isPlainBranchName } from "../services/branch-on-origin";
 import type { GitRunner } from "../services/own-commits";
+
+/**
+ * `branchGit` with the extra environment passed through: the snapshot needs
+ * `GIT_INDEX_FILE`, which `branchGit` drops, and a committer identity for
+ * `commit-tree` on a machine that has none.
+ */
+const snapshotGit: GitRunner = (cwd, args, opts) =>
+  runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.commit, identity: true, env: { GIT_TERMINAL_PROMPT: "0", ...opts?.env } });
 
 export interface ParentSnapshotInput {
   /** The parent's own checkout. Never written to beyond a ref that is removed before returning. */
@@ -39,28 +52,45 @@ export interface ParentSnapshotInput {
 }
 
 /**
- * `HEAD` plus any uncommitted work, as a git bundle. `null` when the branch
- * name is unusable or git could not produce a bundle (an empty repo with
- * nothing committed yet, `bundleBranch`'s own case).
+ * The working tree as one commit on top of `HEAD`, built in a throwaway index
+ * so the parent's own index is never read or written. Tracked edits, deletions
+ * and new untracked files all go in; ignored files do not. `null` when any
+ * step fails.
+ */
+async function workingTreeCommit(repoPath: string, head: string, run: GitRunner): Promise<string | null> {
+  const dir = await mkdtemp(join(tmpdir(), "topics-child-index-"));
+  const env = { env: { GIT_INDEX_FILE: join(dir, "index") } };
+  try {
+    if ((await run(repoPath, ["read-tree", head], env)).code !== 0) return null;
+    if ((await run(repoPath, ["add", "-A"], env)).code !== 0) return null;
+    const tree = await run(repoPath, ["write-tree"], env);
+    if (tree.code !== 0) return null;
+    const commit = await run(repoPath, ["commit-tree", tree.stdout.trim(), "-p", head, "-m", "sub-agent snapshot of the parent's working tree"], env);
+    return commit.code === 0 ? commit.stdout.trim() || null : null;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * `HEAD` plus any uncommitted work, new untracked files included, as a git
+ * bundle. `null` when the branch name is unusable or taken, or git could not
+ * produce a bundle (an empty repo with nothing committed yet, `bundleBranch`'s
+ * own case).
  */
 export async function snapshotParentAsBundle(input: ParentSnapshotInput): Promise<Uint8Array | null> {
   const { repoPath, snapshotBranch } = input;
-  const run = input.run ?? branchGit;
+  const run = input.run ?? snapshotGit;
   if (!isPlainBranchName(snapshotBranch)) return null;
   const head = await run(repoPath, ["rev-parse", "--verify", "-q", "HEAD"]);
   if (head.code !== 0) return null; // no commit yet: nothing to snapshot
+  const snapshotSha = await workingTreeCommit(repoPath, head.stdout.trim(), run);
+  if (!snapshotSha) return null;
   const tempRef = `refs/heads/${snapshotBranch}`;
-  // A name already in use would have `update-ref` silently move someone's
-  // real branch to the snapshot's tip instead of refusing: checked first, so
-  // the caller's throwaway name can never collide with one that matters.
-  const existing = await run(repoPath, ["rev-parse", "--verify", "-q", tempRef]);
-  if (existing.code === 0) return null;
-  // `stash create` answers with the snapshot commit's sha on stdout, or an
-  // empty line when the tree has nothing uncommitted — HEAD is then the
-  // whole snapshot, which is still correct and still needs no stash at all.
-  const stashed = await run(repoPath, ["stash", "create"]);
-  const snapshotSha = (stashed.code === 0 ? stashed.stdout.trim() : "") || head.stdout.trim();
-  const made = await run(repoPath, ["update-ref", tempRef, snapshotSha]);
+  // The empty old value makes `update-ref` refuse when the ref already exists:
+  // a name in use is never moved to the snapshot, with no window between a
+  // check and the write for another process to slip into.
+  const made = await run(repoPath, ["update-ref", tempRef, snapshotSha, ""]);
   if (made.code !== 0) return null;
   try {
     return await bundleBranch(repoPath, snapshotBranch, run);
@@ -91,7 +121,7 @@ export type MaterializeResult = { ok: true } | { ok: false; reason: string };
  */
 export async function materializeChildCheckout(input: MaterializeChildCheckoutInput): Promise<MaterializeResult> {
   const { targetDir, branch, bytes } = input;
-  const run = input.run ?? branchGit;
+  const run = input.run ?? snapshotGit;
   if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
   // A fetch into the branch currently checked out is refused by git, so init
   // starts on an unrelated placeholder and only checks `branch` out once the
@@ -126,14 +156,26 @@ export interface AdoptCarriedBranchInput {
  * `branch-on-origin.ts`) into an ordinary local branch in the parent's
  * checkout, so the child's work is addressable (`git show <branch>:<path>`,
  * a worktree checkout, a diff) the same way any other branch is.
+ *
+ * A branch of that name already in the parent only moves FORWARD: when the
+ * child's tip does not contain it, adopting would drop the parent's commits,
+ * so the call refuses and names the branch instead.
  */
 export async function adoptCarriedBranch(input: AdoptCarriedBranchInput): Promise<MaterializeResult> {
   const { repoPath, branch } = input;
-  const run = input.run ?? branchGit;
+  const run = input.run ?? snapshotGit;
   if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
   const tip = await run(repoPath, ["rev-parse", "--verify", "-q", carriedRef(branch)]);
   if (tip.code !== 0) return { ok: false, reason: "no carried ref to adopt" };
-  const moved = await run(repoPath, ["branch", "-f", branch, tip.stdout.trim()]);
-  if (moved.code !== 0) return { ok: false, reason: `git branch failed: ${(moved.stderr ?? "").trim()}` };
+  const ref = `refs/heads/${branch}`;
+  const current = await run(repoPath, ["rev-parse", "--verify", "-q", ref]);
+  const old = current.code === 0 ? current.stdout.trim() : "";
+  if (old) {
+    const forward = await run(repoPath, ["merge-base", "--is-ancestor", old, tip.stdout.trim()]);
+    if (forward.code !== 0) return { ok: false, reason: `branch ${branch} already exists here with commits the child's branch does not have` };
+  }
+  // Compare-and-swap on the value read above: a branch that moved meanwhile is not overwritten.
+  const moved = await run(repoPath, ["update-ref", ref, tip.stdout.trim(), old]);
+  if (moved.code !== 0) return { ok: false, reason: `git update-ref failed: ${(moved.stderr ?? "").trim()}` };
   return { ok: true };
 }

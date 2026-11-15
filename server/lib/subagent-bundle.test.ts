@@ -107,6 +107,58 @@ describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
     expect(git(parent, "rev-parse", "topics/already-here")).toBe(git(parent, "rev-parse", "main"));
   });
 
+  it("un file nuovo mai aggiunto arriva al figlio, l'indice del genitore resta com'era", async () => {
+    const parent = tempDir("subagent-parent-");
+    git(parent, "init", "-q", "-b", "main");
+    writeFileSync(join(parent, "a.txt"), "base\n");
+    writeFileSync(join(parent, ".gitignore"), "secret.env\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "base");
+    writeFileSync(join(parent, "new.txt"), "never added\n");
+    writeFileSync(join(parent, "secret.env"), "ignored\n");
+    const statusBefore = git(parent, "status", "--porcelain");
+
+    const bundle = await snapshotParentAsBundle({ repoPath: parent, snapshotBranch: "topics/untracked-snapshot" });
+    expect(bundle).not.toBeNull();
+    expect(git(parent, "status", "--porcelain")).toBe(statusBefore);
+    expect(git(parent, "stash", "list")).toBe("");
+
+    const node = tempDir("subagent-node-");
+    expect(await materializeChildCheckout({ targetDir: node, branch: "topics/untracked-snapshot", bytes: bundle! })).toEqual({ ok: true });
+    expect(readFileSync(join(node, "new.txt"), "utf8")).toBe("never added\n");
+    expect(() => readFileSync(join(node, "secret.env"), "utf8")).toThrow();
+  });
+
+  it("un ramo del genitore con commit che il figlio non ha non viene sovrascritto all'adozione", async () => {
+    const parent = tempDir("subagent-parent-");
+    git(parent, "init", "-q", "-b", "main");
+    writeFileSync(join(parent, "a.txt"), "base\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "base");
+    const bundle = await snapshotParentAsBundle({ repoPath: parent, snapshotBranch: "topics/s" });
+    const node = tempDir("subagent-node-");
+    await materializeChildCheckout({ targetDir: node, branch: "topics/s", bytes: bundle! });
+    git(node, "switch", "-q", "-c", "topics/shared");
+    writeFileSync(join(node, "b.txt"), "child\n");
+    git(node, "add", ".");
+    git(node, "commit", "-q", "-m", "child");
+    const { bundleBranch } = await import("../services/branch-on-origin");
+    const back = await bundleBranch(node, "topics/shared");
+
+    // Meanwhile the parent has its own branch of the same name, with a commit of its own.
+    git(parent, "switch", "-q", "-c", "topics/shared");
+    writeFileSync(join(parent, "c.txt"), "parent's own\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "parent work");
+    git(parent, "switch", "-q", "main");
+    const parentTip = git(parent, "rev-parse", "topics/shared");
+
+    expect(await plantCarriedBranch(parent, "topics/shared", back!)).toEqual({ ok: true });
+    const adopted = await adoptCarriedBranch({ repoPath: parent, branch: "topics/shared" });
+    expect(adopted.ok).toBe(false);
+    expect(git(parent, "rev-parse", "topics/shared")).toBe(parentTip);
+  });
+
   it("repo senza origin: bundleBranch cade sulla storia intera, non fallisce", async () => {
     const parent = tempDir("subagent-parent-");
     git(parent, "init", "-q", "-b", "main");

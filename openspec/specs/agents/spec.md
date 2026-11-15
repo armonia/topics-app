@@ -1221,12 +1221,22 @@ Before a `spawn_agent` child can run on a paired node, `decideRemoteSpawn` (`ser
 
 ### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
 
-The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus `git stash create` for uncommitted changes) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree or index. The child's branch SHALL come back the same way. Both legs SHALL work on a repository with no `origin`.
+The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten. Both legs SHALL work on a repository with no `origin`.
 
 #### Scenario: Round trip on a repo with no origin
 - **GIVEN** a parent repo with no `origin` and an uncommitted change
 - **WHEN** its snapshot goes to an empty repo, a commit is made there on the child's branch, and that branch comes back
 - **THEN** the parent's tree is unchanged by the snapshot and the returned branch holds the child's commit on top of the uncommitted change
+
+#### Scenario: A new file the parent never added
+- **GIVEN** a parent with a new untracked file and an ignored one
+- **WHEN** the snapshot is taken and opened on the node
+- **THEN** the new file is there, the ignored one is not, and the parent's status and stash list are unchanged
+
+#### Scenario: The parent already has a branch of that name
+- **GIVEN** a parent branch with a commit the child's returning branch does not contain
+- **WHEN** the child's branch is adopted
+- **THEN** the adoption is refused and the parent branch still points at its own commit
 
 ### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
 
