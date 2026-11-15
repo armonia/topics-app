@@ -630,7 +630,7 @@ describe("l'atterraggio automatico con un origin vero (noRealign)", () => {
  * card back to In Progress (card 360127d1, 2026-11-15, PR #1106).
  */
 describe("a branch squash-merged before main moved on is not landed again", () => {
-  function squashedThenEdited(branchBody: string): string {
+  function squashedThenEdited(branchBody: string, mainLater = "one\ntwo (card)\nthree, then main\n"): string {
     const repo = repoWithOldBranch({
       radice: [["shared.txt", "one\ntwo\nthree\n"]],
       avanzamentoMain: [],
@@ -641,8 +641,8 @@ describe("a branch squash-merged before main moved on is not landed again", () =
     writeFileSync(join(repo, "card.txt"), "card\n");
     git(repo, "add", "-A");
     git(repo, "commit", "-q", "-m", "Card work (#1106)");
-    // Main then edits the very line the card changed.
-    commit(repo, "shared.txt", "one\ntwo (card, then main)\nthree\n", "main: later edit");
+    // Main then edits the same file, on a line next to the card's: the realign conflicts.
+    commit(repo, "shared.txt", mainLater, "main: later edit");
     return repo;
   }
 
@@ -659,7 +659,7 @@ describe("a branch squash-merged before main moved on is not landed again", () =
   }, WITH_REAL_GIT);
 
   test("main never held the branch's content: still a realign conflict", async () => {
-    const repo = squashedThenEdited("one\ntwo (something else)\nthree\n");
+    const repo = squashedThenEdited("one\ntwo (something else)\nthree\n", "one\ntwo (card, then main)\nthree\n");
 
     const res = await landOn(repo).tryMerge("t1", "Card not on main");
 
@@ -732,6 +732,20 @@ describe("a branch squash-merged before main moved on is not landed again", () =
     commit(repo, "shared.ts", body("10", []), "main: drop the log");
 
     const res = await landOn(repo).tryMerge("t1", "Card's new line taken back");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+
+  test("git puts an inserted line before a replaced one, main drops the inserted one: not «nothing»", async () => {
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", 'import a from "a"\nrest\n']],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", 'import b from "b"\nimport a from "a2"\nrest\n']],
+    });
+    commit(repo, "shared.ts", 'import b from "b"\nimport a from "a2"\nrest\n', "Card work (#1106)");
+    commit(repo, "shared.ts", 'import a from "a2"\nrest\n', "main: drop import b");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's import taken back");
 
     expect(res.status).not.toBe("nothing");
   }, WITH_REAL_GIT);

@@ -77,28 +77,15 @@ function lineCounts(text: string): Map<string, number> {
   return m;
 }
 
-/**
- * The lines a hunk removes, and the lines it adds FROM NOTHING, without the `-`/`+` marks.
- * In a run of `-` lines followed by `+` lines the first `+` lines replace the `-` ones; the
- * extra `+` lines beyond them are new. Main editing a replacement further is ordinary work
- * (card 360127d1); a new line gone from main is that line taken back.
- */
-function hunkLines(hunk: string): { removed: string[]; addedNew: string[] } {
+/** The lines a hunk removes and adds, without the `-`/`+` marks. */
+function hunkLines(hunk: string): { removed: string[]; added: string[] } {
   const removed: string[] = [];
-  const addedNew: string[] = [];
-  let minus = 0;
-  let plus = 0;
+  const added: string[] = [];
   for (const l of hunk.slice(hunk.search(/^@@ /m)).split("\n").slice(1)) {
-    if (l.startsWith("-")) {
-      if (plus > 0) { minus = 0; plus = 0; }
-      removed.push(l.slice(1));
-      minus++;
-    } else if (l.startsWith("+")) {
-      plus++;
-      if (plus > minus) addedNew.push(l.slice(1));
-    } else { minus = 0; plus = 0; }
+    if (l.startsWith("-")) removed.push(l.slice(1));
+    else if (l.startsWith("+")) added.push(l.slice(1));
   }
-  return { removed, addedNew };
+  return { removed, added };
 }
 
 /** `diff --git a/x b/x` → `x` (the b side: the path on the branch's tip). */
@@ -111,11 +98,12 @@ function hunkPath(hunk: string): string | null {
  * IS ANY PART OF THIS CHANGE UNDONE ON MAIN? Asked hunk by hunk, for a squash C that held it.
  *
  * Main may take back one of the branch's two edits in a file (15/11, verifier on #1113): every
- * file-level check still says "there". Content alone cannot tell a revert from main editing the
- * same lines further (card 360127d1: main rewrote the card's line, nothing was taken back), and
- * applying hunks either way fails on both once a neighbouring line moved. The signal used is
- * what a revert does and an edit does not: a line the branch replaced comes back (more of it
- * on main than on the branch's tip), or a line the branch added from nothing is gone.
+ * file-level check still says "there". Applying hunks either way fails once a neighbouring line
+ * moved, and pairing a hunk's `-` and `+` lines by position is wrong as soon as git puts an
+ * inserted line before a replaced one. So the rule is the plain one: the work is still there only
+ * if every line the branch added is on main and no line it replaced came back. Main that went on
+ * to rewrite one of the card's own lines therefore reads "undone" too: the land goes on, and the
+ * worst case is a conflict a person sees.
  *
  * `true` = some hunk was undone · `false` = none was · `null` = cannot tell (empty or binary
  * diff, too many hunks, git error). Only `false` may close a card as "nothing to land".
@@ -149,18 +137,18 @@ export async function someHunkUndoneOn(
         f = { onMain: m === null ? null : lineCounts(m), onTip: lineCounts(t ?? "") };
         files.set(path, f);
       }
-      const { removed, addedNew } = hunkLines(hunk);
+      const { removed, added } = hunkLines(hunk);
       // The branch's file is gone from main: everything the hunk added went with it.
-      if (f.onMain === null) { if (addedNew.length > 0 || removed.length === 0) return true; continue; }
+      if (f.onMain === null) { if (added.length > 0 || removed.length === 0) return true; continue; }
       const main = f.onMain;
       const tipCounts = f.onTip;
       // Blank lines come and go with every edit: they say nothing about a revert.
       const back = (l: string) => l.trim() !== "" && (main.get(l) ?? 0) > (tipCounts.get(l) ?? 0);
       const gone = (l: string) => l.trim() !== "" && (main.get(l) ?? 0) < (tipCounts.get(l) ?? 0);
-      // A replaced line coming back, or a new line gone: either is that edit taken back. A new
-      // line main only edited reads "gone" too, the safe side (a land that goes on can conflict,
-      // a wrong "nothing" loses the work).
-      if (removed.some(back) || addedNew.some(gone)) return true;
+      // Any line the card added that main no longer has, or any line it replaced that came back.
+      // Main rewriting one of the card's own lines reads the same as taking it back, and goes on
+      // with the land too: a conflict reaches a person, a wrong "nothing" loses the work quietly.
+      if (removed.some(back) || added.some(gone)) return true;
     }
     return false;
   } catch {
