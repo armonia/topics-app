@@ -31,8 +31,7 @@ import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type Tool
 import { detectUserInputRequest } from "../ask-user-detector";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
-import { decide, DEFAULT_AUTONOMY, pathsCreatedBy, turnTempDir, type TurnScope } from "./permissions";
-import { isAbsolute, resolve } from "path";
+import { decide, DEFAULT_AUTONOMY, recordTurnCreatedPaths, turnTempDir, type TurnScope } from "./permissions";
 import { randomUUID } from "crypto";
 import { applyPromptCache } from "../prompt-cache";
 import {
@@ -1018,9 +1017,7 @@ export async function runAgentTurn(
   if (opts.reminder) appendReminder(opts.history, opts.reminder);
 
   // What THIS turn may `rm` beyond the generic `/tmp` exception (RT-07): its
-  // own scratch folder, and whatever it creates along the way. Grown as
-  // `write_file`/`edit_file`/`mkdir`/`git worktree add` succeed below, read by
-  // `decide` right before the NEXT tool call — never by this one.
+  // scratch folder plus what it creates, grown below and read by the NEXT `decide`.
   const turnCreatedPaths = new Set<string>();
   const turnScope: TurnScope = { tempDir: turnTempDir(randomUUID()), createdPaths: turnCreatedPaths };
   let compactedForNextRequest = false;
@@ -1255,21 +1252,7 @@ export async function runAgentTurn(
               ...opts.toolContext,
               onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
             });
-      // THE TURN NOW OWNS WHAT IT JUST MADE, and a later `rm` on that same
-      // path is no longer "an rm with the wrong target": it is cleanup of
-      // this turn's own work (RT-07). Only a SUCCESS counts — a failed write
-      // or `mkdir` created nothing to own.
-      if (!out.isError) {
-        const input = (t.input ?? {}) as Record<string, unknown>;
-        if (t.name === "write_file" || t.name === "edit_file") {
-          const raw = String(input.path ?? "");
-          if (raw) turnCreatedPaths.add(isAbsolute(raw) ? resolve(raw) : resolve(opts.toolContext.workspace, raw));
-        } else if (t.name === "bash") {
-          const cwd = input.cwd ? String(input.cwd) : opts.toolContext.workspace;
-          const abs = isAbsolute(cwd) ? resolve(cwd) : resolve(opts.toolContext.workspace, cwd);
-          for (const p of pathsCreatedBy(String(input.command ?? ""), abs)) turnCreatedPaths.add(p);
-        }
-      }
+      if (!out.isError) recordTurnCreatedPaths(turnCreatedPaths, t.name!, (t.input ?? {}) as Record<string, unknown>, opts.toolContext.workspace);
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole
