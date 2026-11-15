@@ -168,6 +168,15 @@ export async function adoptCarriedBranch(input: AdoptCarriedBranchInput): Promis
   const tip = await run(repoPath, ["rev-parse", "--verify", "-q", carriedRef(branch)]);
   if (tip.code !== 0) return { ok: false, reason: "no carried ref to adopt" };
   const ref = `refs/heads/${branch}`;
+  // A branch checked out in the parent or in one of its worktrees is never
+  // moved under it: `update-ref` would leave the files and the index at the
+  // old commit, `git status` would show the child's work reversed, and the
+  // parent's next commit would undo it without a word.
+  const worktrees = await run(repoPath, ["worktree", "list", "--porcelain"]);
+  if (worktrees.code !== 0) return { ok: false, reason: `git worktree list failed: ${(worktrees.stderr ?? "").trim()}` };
+  if (worktrees.stdout.split("\n").some((line) => line.trim() === `branch ${ref}`)) {
+    return { ok: false, reason: `branch ${branch} is checked out here: adopting it would move it under the open files` };
+  }
   const current = await run(repoPath, ["rev-parse", "--verify", "-q", ref]);
   const old = current.code === 0 ? current.stdout.trim() : "";
   if (old) {
