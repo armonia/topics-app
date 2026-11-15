@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-63
+ */
 import { describe, expect, test } from "bun:test";
 import { estimateFromHistory, sessionWeight, sumTranscriptUsage, taskCountdown } from "./task-countdown";
 
