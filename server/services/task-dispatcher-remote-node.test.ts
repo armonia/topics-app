@@ -1313,6 +1313,51 @@ describe("node-run hooks for one machine run one at a time", () => {
   });
 });
 
+describe("lo slot remoto non resta zombie", () => {
+  it("il nodo riporta la corsa parcheggiata (backlog + blocked): la card si parcheggia col motivo del nodo, lo slot si libera", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "blocked",
+        reason: "runtime claude-code non disponibile per sonnet",
+      })),
+    });
+    h.seed();
+    await dispatch(h);
+    expect(h.dispatcher.busyIds()).toContain(TASK);
+
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("blocked");
+    expect(t.dispatchError ?? "").toContain("runtime claude-code non disponibile per sonnet");
+    expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("PATCH umano a todo su una card con slot remoto ancora aperto: la corsa si cancella, lo slot si libera e la card riparte con una corsa nuova", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({ status: "backlog", dispatchState: "blocked" })),
+    });
+    h.seed();
+    await dispatch(h);
+    expect(h.dispatcher.busyIds()).toContain(TASK);
+
+    // The PATCH a human control makes, not a direct DB write: `actor: "human"`
+    // is what a PATCH back to `todo` carries, and it is what the fix reads.
+    h.svc.update({ taskId: TASK, actor: "human", by: "person", patch: { status: "todo" } });
+
+    // The SAME reconcile pass both frees the stale slot and re-dispatches the
+    // card: the old run is cancelled, and the freed slot is picked up by the
+    // ordinary queue logic before the pass ends — no second tick needed.
+    await poll(h);
+
+    expect(h.calls).toEqual(["create", "cancel:run-1", "create"]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.dispatcher.busyIds()).toContain(TASK);
+  });
+});
+
 describe("una corsa remota persa non riporta mai indietro una card chiusa", () => {
   const silent = () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" }));
 
