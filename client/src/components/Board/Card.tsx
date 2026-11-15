@@ -2044,7 +2044,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           something is wrong with this card. */}
       {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mt-1" />}
       {/* "Needs you" with no recorded reason: say in words what we DO know (the
-          agent ended the turn on a question) without inventing the question,
+          agent asked for a person) without inventing the question,
           which lives in the thread. The card is the button that opens it. */}
       {task.status === 'review' && task.dispatchState === 'needs_input' && !task.dispatchError && (
         <p
