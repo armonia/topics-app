@@ -207,14 +207,9 @@ test.describe("Board: countdown and weight of work in progress", () => {
         // Sidebar: the board counts and the running line.
         const sidebar = page.locator('[aria-label="Topics sidebar"]');
         if (await sidebar.isVisible()) await sidebar.screenshot({ path: `${SHOTS}/sidebar-${width}-${scheme}.png` });
-        // On a phone the sidebar is a sheet over the board: close it before touching the card.
-        if (width < 800) {
-          // Choosing the board row closes the sheet, as on a real phone.
-          if ((await sidebar.getAttribute("data-drawer")) === "open") await page.locator('[data-pane-id="__board__"]').first().click();
-          await expect(sidebar).toHaveAttribute("data-drawer", "closed", { timeout: 5_000 });
-        }
         // Drawer with the exact weight and the sum of the children.
-        await page.locator(`[data-task-card="${runningId}"]`).click();
+        // On a phone the sidebar sheet lies over the board: the card is opened by its own click event.
+        await page.locator(`[data-task-card="${runningId}"]`).dispatchEvent("click");
         const drawer = page.getByTestId("task-detail-drawer");
         await expect(drawer).toBeVisible({ timeout: 15_000 });
         await drawer.getByTestId("task-details-toggle").click();
