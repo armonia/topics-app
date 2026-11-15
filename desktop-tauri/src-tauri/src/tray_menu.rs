@@ -22,6 +22,13 @@ pub enum Node {
     Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
     /// A table row: one cell per column, aligned by tab stops. `children` open on hover.
     Row { id: String, cells: Vec<String>, header: bool, children: Vec<Node> },
+    /// Puts a system icon (`sf:<symbol name>`) or an app's own icon (`app:<bundle path>`) before any other row.
+    Icon { icon: String, node: Box<Node> },
+}
+
+/// `node` with the icon `spec` at the start of its row, as the original tray draws it.
+pub(crate) fn with_icon(spec: impl Into<String>, node: Node) -> Node {
+    Node::Icon { icon: spec.into(), node: Box::new(node) }
 }
 
 pub(crate) fn item(id: &str, label: impl Into<String>) -> Node {
@@ -537,7 +544,7 @@ pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64
         return vec![note("Automazioni: il servizio non risponde")];
     }
     let mut out = vec![
-        item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64)),
+        with_icon("sf:clock.arrow.circlepath", item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64))),
     ];
     if let Some(c) = v.get("calendar") {
         let next = c.get("next").filter(|x| !s(x, "title").is_empty()).map(|x| {
@@ -548,7 +555,7 @@ pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64
                 None => title,
             }
         });
-        out.push(item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default())));
+        out.push(with_icon("sf:calendar", item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default()))));
     }
     out
 }
@@ -607,6 +614,7 @@ pub fn dump_text(nodes: &[Node]) -> String {
                     out.push_str(&format!("{pad}{}\n", cells.join(" | ")));
                     go(children, depth + 1, out);
                 }
+                Node::Icon { node, .. } => go(std::slice::from_ref(&**node), depth, out),
             }
         }
     }
