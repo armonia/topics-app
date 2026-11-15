@@ -148,6 +148,13 @@ export async function someHunkUndoneOn(
       // Any line the card added that main no longer has, or any line it replaced that came back.
       // Main rewriting one of the card's own lines reads the same as taking it back, and goes on
       // with the land too: a conflict reaches a person, a wrong "nothing" loses the work quietly.
+      // Counting a line over the whole file only proves something when the line is unique there:
+      // a `return null;` the card added can leave and come back elsewhere with the count unchanged.
+      // An added line seen more than once on the tip, or a replaced line still present on it, makes
+      // the hunk unreadable: "cannot tell", so the land goes on and a person sees any conflict.
+      const real = (l: string) => l.trim() !== "";
+      if (added.some((l) => real(l) && (tipCounts.get(l) ?? 0) > 1)) return null;
+      if (removed.some((l) => real(l) && (tipCounts.get(l) ?? 0) > 0)) return null;
       if (removed.some(back) || added.some(gone)) return true;
     }
     return false;

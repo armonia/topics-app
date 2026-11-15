@@ -749,4 +749,22 @@ describe("a branch squash-merged before main moved on is not landed again", () =
 
     expect(res.status).not.toBe("nothing");
   }, WITH_REAL_GIT);
+
+  test("the card's only line is a common one, main moves it elsewhere: cannot tell, not «nothing»", async () => {
+    const f = (inF: boolean, inG: boolean) =>
+      ["function f() {", "  a();", ...(inF ? ["  return null;"] : []), "}", "", "function g() {", "  b();", ...(inG ? ["  return null;"] : []), "}", "",
+        "function h() {", "  c();", "  return null;", "}"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", f(false, false)]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", f(true, false)]],
+    });
+    commit(repo, "shared.ts", f(true, false), "Card work (#1106)");
+    // One commit drops the card's line from f() and adds the same line in g(): same count.
+    commit(repo, "shared.ts", f(false, true), "main: move it");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's common line moved");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
 });
