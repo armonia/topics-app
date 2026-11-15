@@ -20,15 +20,20 @@ export interface StopRemoteChildInput {
 export type StopRemoteChildResult = { ok: true } | { ok: false; reason: string };
 
 /**
- * Cancels the run on the node. `ok: false` only when there is no address or
- * token to reach it with — the caller still marks the child `stopped` on
- * this side either way: a child the person asked to stop must read as
- * stopped locally even when the far end could not be told.
+ * Cancels the run on the node. `ok: false` when there is no address or token
+ * to reach it with, or the node did not answer: the caller still marks the
+ * child `stopped` on this side either way, so this never throws: a child the
+ * person asked to stop must read as stopped locally even when the far end
+ * could not be told.
  */
 export async function stopRemoteChild(input: StopRemoteChildInput): Promise<StopRemoteChildResult> {
   const baseUrl = input.baseUrlOf(input.machineId);
   const token = input.tokenOf(input.machineId);
   if (!baseUrl || !token) return { ok: false, reason: "node address or token unavailable" };
-  await input.cancelRun({ baseUrl, token, runId: input.runId });
+  try {
+    await input.cancelRun({ baseUrl, token, runId: input.runId });
+  } catch (err) {
+    return { ok: false, reason: `cancel on the node failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
   return { ok: true };
 }
