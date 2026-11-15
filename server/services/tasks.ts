@@ -34,7 +34,8 @@ import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
-import { channelKindOfIcon, type ChannelKind } from "../../shared/channel-origin";
+import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../shared/channel-origin";
+import { channelPlaceOf } from "./channel-place";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 /** Automatic requeues of a machine-parked card before it stays for a human. */
@@ -2891,11 +2892,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * chat. Only while that chat exists and wears a channel mark: a deleted chat
    * would open a ghost tab, and an ordinary chat is not a channel. Display only.
    */
-  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind } } {
+  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace } } {
     for (const id of [r.channel_topic_id, r.origin_topic_id, r.created_by_topic_id]) {
       if (!id) continue;
       const t = topicBrief(id);
-      if (t?.kind) return { channel: { topicId: id, name: t.name ?? "", kind: t.kind } };
+      if (t?.kind) {
+        let place: ChannelPlace | null = null;
+        try { place = channelPlaceOf(t.name ?? ""); } catch { /* the bridge database is optional */ }
+        return { channel: { topicId: id, name: t.name ?? "", kind: t.kind, ...(place ? { place } : {}) } };
+      }
       // An explicit link names the channel: when it is gone the card is NOT re-attributed to another chat.
       if (id === r.channel_topic_id) return {};
     }

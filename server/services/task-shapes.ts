@@ -14,7 +14,7 @@
  *
  * `tasks.ts` re-exports all four, so every existing import keeps working.
  */
-import type { ChannelKind } from "../../shared/channel-origin";
+import type { ChannelKind, ChannelPlace } from "../../shared/channel-origin";
 import type { CheckRun } from "./review-checks";
 import type { TaskLabelRow } from "../../shared/task-labels";
 import type {
@@ -269,7 +269,7 @@ export interface Task {
    * channel chat (`channel_topic_id`), else the opener chat when it is a channel chat.
    * Display only: it grants nothing and wakes nothing.
    */
-  channel?: { topicId: string; name: string; kind: ChannelKind };
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
   /**
    * The workflow column the card sits in when it is not the default one of its
    * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).

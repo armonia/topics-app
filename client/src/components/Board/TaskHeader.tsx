@@ -115,7 +115,7 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
         {(channel || creator?.jarvis) && (
           <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
             {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
-            {channel && <ChannelChipView chip={channel} notify={toast.error} />}
+            {channel && <ChannelChipView chip={channel} notify={toast.error} full />}
           </div>
         )}
         <Menu

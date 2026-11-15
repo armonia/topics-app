@@ -62,3 +62,18 @@ describe('ChannelChipView', () => {
     expect(stopped).toBe(true);
   });
 });
+
+describe('channelChip path', () => {
+  test('a Discord thread reads server, channel, thread', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno', thread: 'Video' } } }, tr)!;
+    expect(chip.segments.map((s) => s.level)).toEqual(['server', 'channel', 'thread']);
+    expect(chip.title).toContain('Armonia › zeno › Video');
+  });
+  test('a plain channel has two levels and the chip renders the thread icon only for a thread', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno' } } }, tr)!;
+    expect(chip.segments).toHaveLength(2);
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
+    expect(html).not.toContain('aria-label="thread"');
+    expect(html).toContain('card-channel-channel');
+  });
+});

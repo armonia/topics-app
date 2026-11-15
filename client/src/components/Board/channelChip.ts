@@ -7,6 +7,8 @@ export interface ChannelChip {
   kind: ChannelKind;
   /** The channel's name as Jarvis' chat is called in Topics. */
   name: string;
+  /** The path server › channel › thread, one entry per level; a single entry when the place is unknown. */
+  segments: { text: string; level: 'server' | 'channel' | 'thread' }[];
   /** The whole sentence, for the tooltip and the accessible name. */
   title: string;
   /** The channel chat to open on click. */
@@ -25,10 +27,17 @@ export function channelChip(task: Pick<BoardTask, 'channel'>, tr: Translate): Ch
   const channel = task.channel;
   if (!channel?.topicId) return null;
   const name = channel.name.trim() || CHANNEL_WORD[channel.kind];
+  const place = channel.place;
+  const levels: [string | undefined, 'server' | 'channel' | 'thread'][] = [[place?.server, 'server'], [place?.channel, 'channel'], [place?.thread, 'thread']];
+  const known = levels.flatMap(([text, level]) => (text?.trim() ? [{ text: text.trim(), level }] : []));
+  // The last level is the chat itself: with no known place the chat's own name stands alone.
+  const segments = known.length ? known : [{ text: name, level: 'channel' as const }];
+  const path = segments.map((s) => s.text).join(' › ');
   return {
     kind: channel.kind,
-    name,
+    name: path,
+    segments,
     topicId: channel.topicId,
-    title: tr('board.card.channelTitle', { channel: CHANNEL_WORD[channel.kind], name }),
+    title: tr('board.card.channelTitle', { channel: CHANNEL_WORD[channel.kind], name: path }),
   };
 }

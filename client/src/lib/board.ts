@@ -69,7 +69,7 @@ export type {
 // filtra niente, sullo stesso modello di `BoardSettings`.
 export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
 export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
-import type { ChannelKind } from '../../../shared/channel-origin';
+import type { ChannelKind, ChannelPlace } from '../../../shared/channel-origin';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CardComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
@@ -676,7 +676,7 @@ export interface BoardTask {
   /** That chat's name. */
   openerName?: string;
   /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists. */
-  channel?: { topicId: string; name: string; kind: ChannelKind };
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
   /** The question for the person the delivery carried (Human review). */
