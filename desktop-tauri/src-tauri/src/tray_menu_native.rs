@@ -81,21 +81,47 @@ unsafe fn ns(s: &str) -> id {
     msg_send![b, autorelease]
 }
 
-/// Applies the registered content to every marked item of the status item's menu.
-pub fn decorate(tray: &tauri::tray::TrayIcon) {
-    let _ = tray.with_inner_tray_icon(|inner| {
-        let Some(item) = inner.ns_status_item() else { return };
-        unsafe {
-            let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-            let menu: id = msg_send![item, menu];
-            if menu != nil {
-                decorate_menu(menu);
-            }
-        }
-    });
+extern "C" {
+    fn class_getInstanceMethod(cls: *const std::ffi::c_void, name: crate::mac::Sel) -> *mut std::ffi::c_void;
+    fn method_setImplementation(m: *mut std::ffi::c_void, imp: *const std::ffi::c_void) -> *const std::ffi::c_void;
 }
 
-unsafe fn decorate_menu(menu: id) {
+/// The original `-[NSStatusItem setMenu:]`, kept so the hook can forward to it.
+static ORIGINAL_SET_MENU: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+extern "C" fn set_menu_hooked(this: id, sel: crate::mac::Sel, menu: id) {
+    // Decorate before the status item shows it, so the first frame is already right.
+    if menu != nil {
+        unsafe { decorate_menu(menu) };
+    }
+    let original = ORIGINAL_SET_MENU.load(std::sync::atomic::Ordering::Acquire);
+    if original != 0 {
+        let forward: extern "C" fn(id, crate::mac::Sel, id) = unsafe { std::mem::transmute(original) };
+        forward(this, sel, menu);
+    }
+}
+
+/// Decorates every menu the status item is about to show. tray-icon 0.25 keeps the
+/// menu in a private field and hands it to the status item only for the duration of
+/// a click (`setMenu:`, `performClick`, `setMenu:nil`), and tauri does not expose
+/// the underlying NSMenu, so the status item's `menu` is nil whenever we look. The
+/// one place that same NSMenu is visible is that `setMenu:` call: hook it, once.
+pub fn install_menu_hook() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe { hook_set_menu(class!(NSStatusItem) as *const _ as *const std::ffi::c_void) });
+}
+
+/// Swaps `-setMenu:` of `class` for the decorating one; the class is a parameter so a test can aim it at a stand-in.
+unsafe fn hook_set_menu(class: *const std::ffi::c_void) {
+    let method = class_getInstanceMethod(class, crate::mac::sel!(setMenu:));
+    if method.is_null() {
+        return;
+    }
+    let previous = method_setImplementation(method, set_menu_hooked as *const std::ffi::c_void);
+    ORIGINAL_SET_MENU.store(previous as usize, std::sync::atomic::Ordering::Release);
+}
+
+pub(crate) unsafe fn decorate_menu(menu: id) {
     let count: isize = msg_send![menu, numberOfItems];
     for i in 0..count {
         let mi: id = msg_send![menu, itemAtIndex: i];
@@ -119,12 +145,16 @@ unsafe fn decorate_menu(menu: id) {
             if let Some(c) = CARDS.lock().unwrap().as_ref().and_then(|m| m.get(key)) {
                 set_card_view(mi, c);
             }
+            // The view carries the content; the title must not leak the marker (accessibility, menu search).
+            let _: () = msg_send![mi, setTitle: ns("")];
         } else if let Some(key) = title.strip_prefix(ROW_MARK) {
             if let Some(r) = ROWS.lock().unwrap().as_ref().and_then(|m| m.get(key)) {
                 let t = row_title(r);
                 if t != nil {
                     let _: () = msg_send![mi, setAttributedTitle: t];
                 }
+                let plain = r.cells.join(" ");
+                let _: () = msg_send![mi, setTitle: ns(&plain)];
             }
         }
     }
