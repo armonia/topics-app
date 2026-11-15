@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.2 — 2026-11-15
+
+### Sotto il cofano
+- «Continua sulla riserva» sul turno fermato dal motore degli account (#1024)
+
 ## 2.4.0 — 2026-11-15
 
 ### Sotto il cofano

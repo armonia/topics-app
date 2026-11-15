@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.2",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "«Continua sulla riserva» sul turno fermato dal motore degli account (#1024)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.0",
     "date": "2026-11-15",
     "sections": {
