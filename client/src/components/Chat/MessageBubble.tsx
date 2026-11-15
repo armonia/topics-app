@@ -556,10 +556,10 @@ export const MessageBubble = memo(function MessageBubble({
               ne farebbe un secondo, a pagamento, sopra uno che è già lì. Il
               cartello dice che qualcosa è andato storto; solo l'assenza di
               lavoro dice che c'è da rifarlo. */}
-          {/* La riserva chiede prima di essere spesa: il motore degli account
-              ha fermato il turno sull'ultimo abbonamento. Il sì dell'utente la
-              sblocca fino al primo azzeramento e rimanda il messaggio; senza
-              quel sì non parte niente (15/11). */}
+          {/* The reserve asks before it is spent: the account engine stopped
+              the turn on the last subscription. The user's yes unlocks it until
+              the first reset and sends the message again; without that yes
+              nothing goes out (15/11). */}
           {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && isReserveStop(turnErrorOf(msg)) && (
             <button
               onClick={() => { void confirmReserve().then((ok) => { if (ok) onRetry(); }); }}

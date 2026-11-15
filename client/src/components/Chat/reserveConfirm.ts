@@ -1,8 +1,8 @@
 import { apiFetch } from '../../lib/shell/net';
 
 /**
- * The account engine stops a turn on the reserve and asks (15/11, Attilio: «avvisare e bloccare dicendo vuoi
- * continuare? ... bloccare solo su conferma esplicita»): with every other subscription out, it answers
+ * The account engine stops a turn on the reserve and asks (15/11: warn, stop, ask "continue?", and go on only
+ * on an explicit yes): with every other subscription out, it answers
  * `reserve_confirmation_required` instead of spending the last account past its cap. The type is the engine's
  * own, stable (hub-service `sb/reserve.rs`).
  */

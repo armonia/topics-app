@@ -9,15 +9,15 @@ hermetic(test);
 test.use({ video: "on" });
 
 /**
- * LA RISERVA CHIEDE PRIMA DI ESSERE SPESA (15/11).
+ * THE RESERVE ASKS BEFORE IT IS SPENT (15/11).
  *
- * Con gli altri abbonamenti finiti, il motore degli account ferma il turno
- * sull'ultimo e risponde `reserve_confirmation_required` invece di cadere
- * sulle chiavi a pagamento (che rispondevano «credit balance is too low» e
- * uccidevano ogni turno col 5% della settimana ancora lì). La chat offre
- * «Continua sulla riserva»: il sì va al motore PRIMA del rinvio, perché un
- * rinvio senza il sì sbatterebbe sullo stesso muro. Un errore qualsiasi non
- * offre quel bottone: solo lo stop della riserva.
+ * With every other subscription out, the account engine stops the turn on
+ * the last one and answers `reserve_confirmation_required` instead of falling
+ * to the paid keys (which answered "credit balance is too low" and killed
+ * every turn with 5% of the week still there). The chat offers a button to
+ * continue on the reserve: the yes goes to the engine BEFORE the resend, because a
+ * resend without it would hit the same wall. Any other error does not offer
+ * that button: only the reserve stop does.
  *
  * @covers CHAT-REL-07
  */
@@ -72,10 +72,10 @@ test.describe.serial("Lo stop della riserva", () => {
 
     await continua.click();
 
-    // Il sì è arrivato al motore, una volta, con confirm: true.
+    // The yes reached the engine, once, with confirm: true.
     await expect.poll(() => hub!.posts.filter((p) => p.path === "reserve-confirm").length, { timeout: 10_000 }).toBe(1);
     expect(hub!.posts.find((p) => p.path === "reserve-confirm")?.confirm).toBe(true);
-    // E dopo il sì il messaggio è ripartito: un nuovo turno dell'utente in chat.
+    // And after the yes the message went out again: a new user turn in the chat.
     await expect.poll(() => page.locator('[data-testid="message-content-user"]').count(), { timeout: 15_000 }).toBeGreaterThan(utentiPrima);
     await expect(page.locator('[data-testid="message-content-user"]').last()).toContainText("specifiche del prodotto");
   });
