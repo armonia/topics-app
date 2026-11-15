@@ -60,7 +60,7 @@ jobs:
   # on main is not green (see the header of the script for why that last one).
   changes:
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -114,7 +114,7 @@ jobs:
   # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -239,7 +239,7 @@ jobs:
   # keeps the job and step names the board reads.
   gates:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -803,7 +803,7 @@ jobs:
   # verdetto.
   gates-2:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -897,7 +897,7 @@ jobs:
     timeout-minutes: 30
     needs: [unit, gates, gates-2]
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Unit + integration tests
         env:
@@ -1534,7 +1534,7 @@ jobs:
   living-doc:
     needs: [changes, unit, e2e]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.changes.outputs.e2e != 'false' && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The job can be red (its own row says so) without turning the run red:
     # auto-bump ships only a green run, and a living-doc that could not be
