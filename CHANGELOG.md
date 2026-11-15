@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.6 — 2026-11-15
+
+### Sotto il cofano
+- Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)
+- an open question keeps its status through a partial output and a re-announcement (#1059)
+- topics/private-raven (card 819c9836) (#1085)
+- topics/gloomy-fern (card 2fbdd455) (#1087)
+- topics/watchful-marble (card a5acfe57) (#1083)
+- topics/peaceful-grove (card 19d684fb) (#1079)
+- topics/peachy-kelp (card 629398ee) (#1070)
+
 ## 2.4.5 — 2026-11-15
 
 ### Correzioni
@@ -14,12 +25,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - decision note for daily summary overruns and waits (#1057)
 - a busy database goes straight to the caller instead of a second whole-row attempt (#1039)
 - topics/open-rivet (card b2b33bf0) (#998)
+- Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement
 
 ## 2.4.4 — 2026-11-15
+
+### Novità
+- **tray** · native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)
+- **tray** · account cards wear row icons, state icons and reset arrows as the original tray
+- **tray** · state icons for queued and braked projects, provider icons in the limits submenu
+- **tray** · process rows carry their second line as the original tray
+
+### Correzioni
+- **tray** · machine card flat-detail condition compiles
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
 - topics/cheery-orbit (card 475724bc) (#868)
+- **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
 
 ## 2.4.3 — 2026-11-15
 
@@ -60,6 +82,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
+- mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
 - voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)
 
@@ -67,6 +90,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)
+- Cloud node: commits carry the Mac checkout's git identity, not a stale global one
 
 ## 2.3.114 — 2026-11-14
 

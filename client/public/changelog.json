@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.4.6",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "an open question keeps its status through a partial output and a re-announcement (#1059)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/private-raven (card 819c9836) (#1085)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/gloomy-fern (card 2fbdd455) (#1087)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/watchful-marble (card a5acfe57) (#1083)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/peaceful-grove (card 19d684fb) (#1079)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/peachy-kelp (card 629398ee) (#1070)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.5",
     "date": "2026-11-15",
     "sections": {
@@ -47,6 +99,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -55,8 +112,40 @@
     "version": "2.4.4",
     "date": "2026-11-15",
     "sections": {
-      "new": [],
-      "fixes": [],
+      "new": [
+        {
+          "it": "native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "account cards wear row icons, state icons and reset arrows as the original tray",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "state icons for queued and braked projects, provider icons in the limits submenu",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "process rows carry their second line as the original tray",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "machine card flat-detail condition compiles",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -69,6 +158,12 @@
           "it": "topics/cheery-orbit (card 475724bc) (#868)",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)",
+          "en": "",
+          "scope": "tray",
           "breaking": false
         }
       ]
@@ -220,6 +315,12 @@
           "breaking": false
         },
         {
+          "it": "mobile board audit (read-only, no code change)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)",
           "en": "",
           "scope": null
@@ -242,6 +343,11 @@
       "internal": [
         {
           "it": "voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud node: commits carry the Mac checkout's git identity, not a stale global one",
           "en": "",
           "scope": null
         }
