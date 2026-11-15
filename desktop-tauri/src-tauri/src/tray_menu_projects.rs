@@ -98,7 +98,10 @@ fn state_cell(p: &Value, now_ms: i64) -> String {
         return format!("▸ {}", agent_count(p));
     }
     if s(p, "state") == "frenato" {
-        return "frenato".into();
+        return "⏸ frenato".into();
+    }
+    if s(p, "state") == "in coda" {
+        return "⏱ coda".into();
     }
     match last_seen_at(p) {
         Some(at) => format!("☾ {}", idle_text((now_ms - at).max(0) as f64)),

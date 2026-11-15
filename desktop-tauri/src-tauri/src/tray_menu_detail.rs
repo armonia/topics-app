@@ -10,6 +10,8 @@ use serde_json::Value;
 const PAD: f32 = 14.0;
 const CARD_W: f32 = MENU_W - 2.0 * PAD;
 const ROW_H: f32 = 36.0;
+/// Left edge of the labels, as in the original tray (under the machine name).
+const X0: f32 = 38.0;
 const CHART_X: f32 = PAD + 190.0;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -115,31 +117,40 @@ pub fn draw_machine_detail(d: &MachineDetail, p: Palette) -> Pic {
     let h = detail_height(d);
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(PAD, 3.0, CARD_W, h, p);
+    draw_detail_body(&mut pic, d, 12.0, true, p);
+    pic
+}
+
+/// The readings, the state band and (optionally) the service's lines, from `top`
+/// down, into a picture the caller sized. Returns the y under the last row.
+/// The first-level card of a machine with no hardware gauges (a cloud server) draws
+/// the same rows without a frame, under its header.
+pub fn draw_detail_body(pic: &mut Pic, d: &MachineDetail, top: f32, with_lines: bool, p: Palette) -> f32 {
     let end = d.segments.iter().map(|s| s.1).max().or_else(|| d.metrics.iter().flat_map(|m| m.history.iter().map(|x| x.0)).max()).unwrap_or(0);
     let span = (end - d.window, end);
-    let chart_w = PAD + CARD_W - 14.0 - CHART_X;
-    let mut y = 12.0;
+    let chart_w = MENU_W - PAD - 14.0 - CHART_X;
+    let mut y = top;
     for m in &d.metrics {
-        pic.text(Face::Sans, &m.label, PAD + 14.0, y + 12.0, 11.5, p.fg, 1.0);
+        pic.text(Face::Sans, &m.label, X0, y + 12.0, 11.5, p.fg, 1.0);
         let value = if !m.value.is_empty() { m.value.clone() } else { m.pct.map_or("—".to_string(), |v| format!("{}%", v.round() as i64)) };
-        pic.text(Face::MonoBold, &value, PAD + 74.0, y + 12.0, 12.0, p.fg, if m.pct.is_some() || !m.value.is_empty() { 1.0 } else { 0.4 });
+        pic.text(Face::MonoBold, &value, X0 + 60.0, y + 12.0, 12.0, p.fg, if m.pct.is_some() || !m.value.is_empty() { 1.0 } else { 0.4 });
         let c = tone(m.level);
-        pic.bar(PAD + 14.0, y + 23.0, 160.0, m.pct.unwrap_or(0.0), None, c, p);
-        let room = if m.history.is_empty() { CARD_W - 28.0 } else { CHART_X - PAD - 14.0 - 40.0 };
-        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &m.note, 10.0, room), PAD + 14.0, y + 34.0, 10.0, p.fg, p.dim);
+        pic.bar(X0, y + 23.0, 160.0, m.pct.unwrap_or(0.0), None, c, p);
+        let room = if m.history.is_empty() { MENU_W - PAD - 14.0 - X0 } else { CHART_X - X0 - 26.0 };
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &m.note, 10.0, room), X0, y + 34.0, 10.0, p.fg, p.dim);
         if !m.history.is_empty() {
-            draw_chart(&mut pic, &m.history, CHART_X, y + 2.0, chart_w, ROW_H - 8.0, c, span, p);
+            draw_chart(pic, &m.history, CHART_X, y + 2.0, chart_w, ROW_H - 8.0, c, span, p);
         }
         y += ROW_H;
     }
     if !d.segments.is_empty() {
-        pic.hline(PAD + 14.0, y + 2.0, CARD_W - 28.0, p.fg, 0.14);
-        pic.text(Face::SansRegular, "Stato", PAD + 14.0, y + 20.0, 10.5, p.fg, p.dim);
+        pic.hline(X0, y + 2.0, MENU_W - PAD - 14.0 - X0, p.fg, 0.14);
+        pic.text(Face::SansRegular, "Stato", X0, y + 20.0, 10.5, p.fg, p.dim);
         // the legend of the states this machine went through, two per line
         let seen: Vec<&str> = BAND_LEGEND.iter().copied().filter(|k| d.segments.iter().any(|s| s.2 == *k)).collect();
         for (i, k) in seen.iter().enumerate() {
             if let Some((word, ink, a)) = band_state(k, p) {
-                let (lx, ly) = (PAD + 56.0 + (i % 2) as f32 * 78.0, y + 14.0 + (i / 2) as f32 * 12.0);
+                let (lx, ly) = (X0 + 42.0 + (i % 2) as f32 * 78.0, y + 14.0 + (i / 2) as f32 * 12.0);
                 pic.fill_rrect(lx, ly - 7.0, 8.0, 8.0, 2.0, ink, a);
                 pic.text(Face::SansRegular, word, lx + 12.0, ly, 9.5, p.fg, p.dim);
             }
@@ -160,11 +171,18 @@ pub fn draw_machine_detail(d: &MachineDetail, p: Palette) -> Pic {
         }
         y += 44.0;
     }
-    for l in &d.lines {
-        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, l, 10.5, CARD_W - 28.0), PAD + 14.0, y + 11.0, 10.5, p.fg, p.dim);
-        y += 15.0;
+    if with_lines {
+        for l in &d.lines {
+            pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, l, 10.5, MENU_W - PAD - 14.0 - X0), X0, y + 11.0, 10.5, p.fg, p.dim);
+            y += 15.0;
+        }
     }
-    pic
+    y
+}
+
+/// Height of the body alone (readings and band), for a card that sizes itself around it.
+pub fn detail_body_height(d: &MachineDetail) -> f32 {
+    d.metrics.len() as f32 * ROW_H + if d.segments.is_empty() { 0.0 } else { 44.0 }
 }
 
 #[cfg(test)]
