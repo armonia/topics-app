@@ -165,7 +165,7 @@ test("stop_agent on a child whose run lives on a paired node cancels the run the
     expect(row.state).toBe("stopped");
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
-    rmSync(tempRoot, { recursive: true, force: true });
+    try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Windows may keep the sqlite file locked a moment; the temp dir is disposable */ }
   }
 });
 
@@ -249,7 +249,7 @@ test("read_agent on a child whose run lives on a paired node reads the node's re
     });
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
-    rmSync(tempRoot, { recursive: true, force: true });
+    try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Windows may keep the sqlite file locked a moment; the temp dir is disposable */ }
   }
 });
 
@@ -274,6 +274,6 @@ test("send_to_agent on a child whose run lives on a paired node is refused: a no
     expect((await response!.json()).error).toMatch(/paired node/i);
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
-    rmSync(tempRoot, { recursive: true, force: true });
+    try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Windows may keep the sqlite file locked a moment; the temp dir is disposable */ }
   }
 });
