@@ -1,9 +1,11 @@
 /** @covers CODEX-01 MP-AGENTAUTH-01 */
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import net from "net";
+import { closeDatabase, getDatabase, initDatabase } from "../db";
+import { insertSubagent, markSubagentRemote } from "../lib/subagent-store";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
 import type { AppContext } from "../types";
 
@@ -98,5 +100,71 @@ test("Codex bridge-only HTTP spawn is refused before a Claude PTY create frame",
     disconnectBridge();
     await new Promise<void>((resolve) => bridge.close(() => resolve()));
     if (existsSync(socketPath)) rmSync(socketPath, { force: true });
+  }
+});
+
+test("stop_agent on a child whose run lives on a paired node cancels the run there, not a local process (sottoagenti-nodo, trace 4)", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-node-"));
+  const stateDir = join(tempRoot, "state");
+  const machineId = "node-fake-1";
+  const runId = "run-fake-1";
+  const token = "t".repeat(32);
+  const cancelCalls: Array<{ baseUrl: string; token: string; runId: string }> = [];
+  topicsHome = join(tempRoot, "topics-home");
+  mkdirSync(topicsHome, { recursive: true });
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
+  mkdirSync(join(stateDir, "nodes"), { recursive: true });
+  writeFileSync(join(stateDir, "nodes", `${machineId}.token`), token);
+
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+  try {
+    const agentId = crypto.randomUUID();
+    const parentKey = "topic:fake-parent";
+    insertSubagent(getDatabase(), {
+      id: agentId, parentSessionKey: parentKey, name: "remote child", model: null, agentType: null, effort: null,
+      promptSnippet: "do it on the node", cwd: tempRoot, branch: null, claudeSessionId: null, createdAt: new Date().toISOString(),
+    });
+    markSubagentRemote(getDatabase(), agentId, { machineId, runId });
+
+    const ctx = {
+      db: getDatabase(),
+      STATE_DIR: stateDir,
+      json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
+      errorResponse: (status: number, error: string) => new Response(JSON.stringify({ error }), { status, headers: { "content-type": "application/json" } }),
+      readJSON: (request: Request) => request.json(),
+      matchRoute: (pathname: string, pattern: string) => {
+        const path = pathname.split("/");
+        const route = pattern.split("/");
+        if (path.length !== route.length) return null;
+        const params: Record<string, string> = {};
+        for (let i = 0; i < route.length; i++) {
+          if (route[i]!.startsWith(":")) params[route[i]!.slice(1)] = decodeURIComponent(path[i]!);
+          else if (route[i] !== path[i]) return null;
+        }
+        return params;
+      },
+      broadcastToAll: () => {},
+      worktreeStore: {},
+      machineStore: { get: (id: string) => (id === machineId ? { baseUrl: "http://fake-node.test" } : null) },
+      nodeClient: { cancelRun: async (input: { baseUrl: string; token: string; runId: string }) => { cancelCalls.push(input); } },
+    } as unknown as AppContext;
+
+    const router = createTerminalRouter(ctx);
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(parentKey)}/agents/${agentId}/stop`);
+    const response = await router(
+      new Request(url, { method: "POST", headers: { "x-daemon-token": AGENT_TOKEN } }),
+      url,
+      url.pathname,
+      "POST",
+    );
+
+    expect(response?.status).toBe(200);
+    expect(cancelCalls).toEqual([{ baseUrl: "http://fake-node.test", token, runId }]);
+    const row = getDatabase().query("SELECT state FROM subagents WHERE id = ?").get(agentId) as { state: string };
+    expect(row.state).toBe("stopped");
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });

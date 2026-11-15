@@ -14,6 +14,8 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
+import { stopRemoteChild } from "../lib/subagent-remote-stop";
+import { readNodeToken } from "../services/node-client";
 import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
@@ -963,6 +965,21 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(stopM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): no local process to stop, no native chat either — `cancelRun`
+          // there is the whole of "stop" for it.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            await stopRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+              tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
+              cancelRun: (input) => ctx.nodeClient ? ctx.nodeClient.cancelRun(input) : Promise.resolve(),
+            });
+            setSubagentState(getDatabase(), agentId, "stopped");
+            return json({ ok: true, branch: row.branch });
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             await stopNativeChild(row, { archive: true });
