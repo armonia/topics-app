@@ -33,9 +33,9 @@ test.describe("la voce di supporto nel menu utente", () => {
     await expect(row).toBeVisible();
     await expect(row).toHaveText(/./);
 
-    const popup = page.waitForEvent("popup", { timeout: 10_000 });
+    const newWindow = page.waitForEvent("popup", { timeout: 10_000 });
     await row.click();
-    const opened = await popup;
+    const opened = await newWindow;
     expect(opened.url()).toBe(DISCORD_SUPPORT_INVITE_URL);
     await opened.close();
   });
