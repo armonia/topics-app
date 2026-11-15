@@ -2,10 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.10 — 2026-11-15
+
+### Sotto il cofano
+- Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)
+
 ## 2.4.9 — 2026-11-15
 
 ### Sotto il cofano
 - topics/small-mist (card 3f078feb) (#1102)
+- Admission preview: a native sub-agent pays its real cost, not a card's floor
 
 ## 2.4.8 — 2026-11-15
 
