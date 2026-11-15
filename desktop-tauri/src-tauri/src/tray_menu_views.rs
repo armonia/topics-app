@@ -201,7 +201,7 @@ pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detai
     let edge = r2 + band / 2.0;
     let line = card_line(m);
     let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
-    let flat = !has_hardware(m).then_some(detail).flatten().filter(|d| crate::tray_menu_detail::has_graphics(d));
+    let flat = (!has_hardware(m)).then_some(detail).flatten().filter(|d| crate::tray_menu_detail::has_graphics(d));
     // local: the reason is its own line under the name; a remote machine says it after the name
     let brake = m.local && !line.is_empty();
     let top = if brake { 44.0 } else { 27.0 };
