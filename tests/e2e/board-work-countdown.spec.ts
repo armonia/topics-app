@@ -127,7 +127,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
     const first = await minutesLeft(page);
     expect(first).toBe(15);
     // The exact context, from the provider: 30% and the child the card launched.
-    await expect(card.getByTestId("card-context")).toContainText("30%");
+    await expect(card.getByTestId("context-share")).toContainText("30%");
     await expect(card.getByTestId("card-children")).toBeVisible();
     // Ten more minutes of work reach the card through the feed: the countdown drops, it never rises.
     for (const advance of [5, 5]) {
@@ -162,7 +162,7 @@ test.describe("Board: countdown and weight of work in progress", () => {
         await card.scrollIntoViewIfNeeded();
         // Nothing the card draws may spill out of the card, at any width.
         const box = await card.boundingBox();
-        const chips = await card.locator('[data-testid="card-countdown"], [data-testid="card-context"], [data-testid="card-children"]').evaluateAll(
+        const chips = await card.locator('[data-testid="card-countdown"], [data-testid="context-share"], [data-testid="card-children"]').evaluateAll(
           (els) => els.map((e) => e.getBoundingClientRect().right),
         );
         expect(box).not.toBeNull();
