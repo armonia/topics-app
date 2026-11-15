@@ -21,13 +21,14 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTauriShellSource } from "../helpers/tauri-shell-source";
 
 const LIB = join(import.meta.dir, "..", "..", "desktop-tauri", "src-tauri", "src", "lib.rs");
-const src = readFileSync(LIB, "utf8");
+const src = readTauriShellSource();
 
 describe("the Windows window carries no menu", () => {
   test("the app menu is built behind a not-windows gate", () => {
-    const at = src.indexOf(".menu(|handle|");
+    const at = src.indexOf(".menu(shortcuts_menu::build_app_menu)");
     expect(at).toBeGreaterThan(0);
     // The gate sits on the statement right above the call.
     const before = src.slice(Math.max(0, at - 200), at);
@@ -37,7 +38,7 @@ describe("the Windows window carries no menu", () => {
   test("one menu only: no second, ungated builder call", () => {
     // The tray has its own menu (`tray.set_menu`), which is a different object
     // and lives on the status area, not in the window.
-    expect((src.match(/\.menu\(\|handle\|/g) || []).length).toBe(1);
+    expect((src.match(/\.menu\((?:\|handle\||shortcuts_menu::build_app_menu)/g) || []).length).toBe(1);
   });
 
   test("removed, not hidden", () => {
