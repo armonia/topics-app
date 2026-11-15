@@ -16,6 +16,9 @@ export default {
   testRunner: "bun",
   coverageAnalysis: "perTest",
   mutate: CRITICAL.map((m) => m.source),
+  // Solo i sorgenti TS del recinto: il default prova anche gli HTML di docs/ e si ferma
+  // su un mockup malformato.
+  disableTypeChecks: "{server,shared,scripts}/**/*.ts",
   bun: {
     testFiles: [...new Set(CRITICAL.flatMap((m) => m.tests))],
     timeout: 300_000,
