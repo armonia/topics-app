@@ -43,7 +43,7 @@ const OPEN = ["backlog", "todo", "in_progress", "review"];
 export interface Evidence { topicId: string; rule: "thread-registry" | "discord-link" | "same-title"; why: string }
 export type Verdict = { link: Evidence } | { skip: string };
 
-type ConvMap = Record<string, { id: string; name?: string }>;
+type ChatMap = Record<string, { id: string; name?: string }>;
 
 const normalize = (s: string): string => s.toLowerCase().replace(/^#/, "").replace(/\s+/g, " ").trim();
 
@@ -53,18 +53,18 @@ const normalize = (s: string): string => s.toLowerCase().replace(/^#/, "").repla
  * other agent's chat) and a `jarvis:discord:` one (the "Jarvis work" chat): those
  * are other chats, not the channel, and would make every link ambiguous.
  */
-export function chatsForDiscordId(conv: ConvMap, id: string): Set<string> {
+export function chatsForDiscordId(chats: ChatMap, id: string): Set<string> {
   const out = new Set<string>();
-  for (const [key, chat] of Object.entries(conv)) {
+  for (const [key, chat] of Object.entries(chats)) {
     if (/^discord:\d+:\d+$/.test(key) && key.endsWith(`:${id}`)) out.add(chat.id);
   }
   return out;
 }
 
 /** The live channel chats by normalized name: only names that point to ONE chat can prove a title. */
-export function chatsByName(conv: ConvMap): Map<string, Set<string>> {
+export function chatsByName(chats: ChatMap): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
-  for (const [key, chat] of Object.entries(conv)) {
+  for (const [key, chat] of Object.entries(chats)) {
     if (!key.startsWith("discord:") && !key.startsWith("whatsapp:")) continue;
     const n = normalize(chat.name ?? "");
     if (n) (out.get(n) ?? out.set(n, new Set()).get(n)!).add(chat.id);
@@ -81,7 +81,7 @@ export interface CardFacts {
   registryChats: string[];
 }
 
-export function judge(card: CardFacts, conv: ConvMap): Verdict {
+export function judge(card: CardFacts, chats: ChatMap): Verdict {
   const unique = (ids: Iterable<string>) => [...new Set(ids)];
   if (card.registryChats.length) {
     const ids = unique(card.registryChats);
@@ -93,13 +93,13 @@ export function judge(card: CardFacts, conv: ConvMap): Verdict {
   const links: string[] = [];
   for (const text of card.texts) {
     for (const m of text.matchAll(/discord\.com\/channels\/\d+\/(\d+)(?:\/(\d+))?/g)) {
-      const found = chatsForDiscordId(conv, m[2] ?? m[1]!);
+      const found = chatsForDiscordId(chats, m[2] ?? m[1]!);
       if (found.size) { links.push(m[0]); for (const c of found) linked.add(c); }
     }
   }
   if (linked.size > 1) return { skip: `its Discord links point to ${linked.size} different chats` };
   if (linked.size === 1) return { link: { topicId: [...linked][0]!, rule: "discord-link", why: `written link ${links[0]}` } };
-  const named = chatsByName(conv).get(normalize(card.title));
+  const named = chatsByName(chats).get(normalize(card.title));
   if (named?.size === 1) return { link: { topicId: [...named][0]!, rule: "same-title", why: "the title is the name of exactly one channel chat" } };
   if (named && named.size > 1) return { skip: "the title names more than one channel chat" };
   return { skip: "no proof: no tracked thread, no Discord link to a known channel, no title equal to a channel" };
@@ -121,7 +121,7 @@ async function patch(projectId: string, taskId: string, topicId: string): Promis
 }
 
 async function main(): Promise<void> {
-  const conv = JSON.parse(readFileSync(`${CHANNELS_HOME}/topics.json`, "utf8")) as ConvMap;
+  const chats = JSON.parse(readFileSync(`${CHANNELS_HOME}/topics.json`, "utf8")) as ChatMap;
   const db = new Database(DB_PATH, { readonly: true });
   const reg = new Database(`${CHANNELS_HOME}/channels.sqlite`, { readonly: true });
   // Before the migration reaches this database there is no column yet: every card is then without a channel.
@@ -134,15 +134,15 @@ async function main(): Promise<void> {
   const threads = reg.prepare("SELECT channel, chat, thread FROM threads WHERE card IS NOT NULL AND (card = ?1 OR ?1 LIKE card || '%')");
   let linked = 0;
   for (const c of cards) {
-    const registryChats = (threads.all(c.id) as Array<{ chat: string; thread: string }>).flatMap((t) => [...chatsForDiscordId(conv, t.thread)]);
+    const registryChats = (threads.all(c.id) as Array<{ chat: string; thread: string }>).flatMap((t) => [...chatsForDiscordId(chats, t.thread)]);
     const verdict = judge({
       id: c.id, title: c.text,
       texts: [c.description, ...(comments.all(c.id) as Array<{ content: string }>).map((r) => r.content)],
       registryChats,
-    }, conv);
+    }, chats);
     const label = `${c.id.slice(0, 8)} ${c.text.slice(0, 60)}`;
     if ("skip" in verdict) { console.log(`SKIP  ${label} — ${verdict.skip}`); continue; }
-    const name = Object.values(conv).find((v) => v.id === verdict.link.topicId)?.name ?? verdict.link.topicId;
+    const name = Object.values(chats).find((v) => v.id === verdict.link.topicId)?.name ?? verdict.link.topicId;
     if (!APPLY) { console.log(`LINK  ${label} -> ${name} [${verdict.link.rule}: ${verdict.link.why}]`); linked++; continue; }
     const ok = await patch(c.project_id, c.id, verdict.link.topicId);
     console.log(`${ok ? "DONE " : "FAIL "} ${label} -> ${name} [${verdict.link.rule}: ${verdict.link.why}]`);
