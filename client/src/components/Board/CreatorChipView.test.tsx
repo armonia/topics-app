@@ -135,12 +135,12 @@ describe('Jarvis as the agent (the avatar slot, apart from the channel chip)', (
   const jTr = (key: string) => (key === 'board.card.channelJarvis' ? 'Jarvis' : key);
   const channel = { kind: 'discord' as const, topicId: 'chan-1', name: '#Zeno' };
   test('a card of a channel Jarvis follows gets the Jarvis avatar, even with nobody named as its author', () => {
-    const chip = creatorChip({ createdBy: null, createdSource: null, openerName: null, openerTopicId: null, channel }, jTr);
+    const chip = creatorChip({ createdBy: undefined, createdSource: undefined, openerName: undefined, openerTopicId: undefined, channel }, jTr);
     expect(chip).toMatchObject({ jarvis: true, label: 'Jarvis', initial: 'J' });
   });
   test('an agent that is not Jarvis, and a person, keep the plain avatar', () => {
-    expect(creatorChip({ createdBy: 'agent:zeno', createdSource: null, openerName: null, openerTopicId: null }, jTr)?.jarvis).toBe(false);
-    expect(creatorChip({ createdBy: 'human', createdSource: null, openerName: null, openerTopicId: null, channel }, jTr)?.jarvis).toBe(false);
+    expect(creatorChip({ createdBy: 'agent:zeno', createdSource: undefined, openerName: undefined, openerTopicId: undefined }, jTr)?.jarvis).toBe(false);
+    expect(creatorChip({ createdBy: 'human', createdSource: undefined, openerName: undefined, openerTopicId: undefined, channel }, jTr)?.jarvis).toBe(false);
   });
   test('draws the avatar and his name in the one accent, in the same chip component', () => {
     const chip = creatorChip({ createdBy: 'agent:jarvis', createdSource: undefined, openerName: undefined, openerTopicId: 'op-1' }, jTr)!;
