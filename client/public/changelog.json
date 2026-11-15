@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an integration checkout left by a restart no longer blocks the next measure (#1019)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "gli agenti di Topics passano il lavoro di esplorazione a sottoagenti e swarm (SUBAGENT-24)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.3.118",
     "date": "2026-11-15",
     "sections": {

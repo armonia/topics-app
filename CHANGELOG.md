@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.0 — 2026-11-15
+
+### Sotto il cofano
+- an integration checkout left by a restart no longer blocks the next measure (#1019)
+- gli agenti di Topics passano il lavoro di esplorazione a sottoagenti e swarm (SUBAGENT-24)
+
 ## 2.3.118 — 2026-11-15
 
 ### Sotto il cofano
