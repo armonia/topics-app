@@ -38,12 +38,12 @@ import type { NodeRunReport } from "./node-client";
 import { clearProviderHold, providerHold, resetProviderHoldStore } from "../lib/provider-hold";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import {
-  OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
+  OVERFLOW_MAX_PER_ROUND, OVERFLOW_SLOTS, cloudRunsModel, overflowEligible, pickOverflowMachine,
   type OverflowChoice, type OverflowMachine,
 } from "./dispatch-overflow";
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
-import { overflowNote } from "./dispatch-overflow";
+import { overflowNoteImmediate } from "./dispatch-overflow";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
 import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
@@ -265,8 +265,8 @@ function harness(opts: {
  * so `pickOverflowMachine` finds no free seat on `machineId`, without seeding
  * real filler cards - those would be live `in_progress` rows the dispatcher's
  * own remote-run reconciler tries to poll/relaunch, which is not what these
- * tests are about. Lets a test that wants to exercise the floor's clock in
- * isolation do so without the free-seat path moving the card first.
+ * tests are about. Lets a test about what keeps a card HERE run without the
+ * free-seat rule moving it elsewhere first.
  */
 const machineFillOverrides = new WeakMap<TaskService, Map<string, number>>();
 function fillMachine(h: ReturnType<typeof harness>, machineId: string, n: number) {
@@ -284,15 +284,20 @@ function freeMachine(h: ReturnType<typeof harness>, machineId: string) {
   machineFillOverrides.get(h.svc)?.delete(machineId);
 }
 
-/** Held once, then past the two minutes: the round the move must happen in. */
-async function holdPastThreshold(h: ReturnType<typeof harness>) {
+/**
+ * Two rounds: the first one only starts this project's origin lookup
+ * (`overflowOriginOf`), the second has the answer, which is the round the move
+ * can happen in. The time in between is there only to make the wait visible:
+ * no rule reads it any more.
+ */
+async function settleTwoRounds(h: ReturnType<typeof harness>) {
   await h.tick();
-  h.advance(OVERFLOW_AFTER_MS + 1_000);
+  h.advance(5 * 60_000);
   await h.tick();
 }
 
-describe("overflow: una card ferma per la memoria del Mac va dove il pavimento non vale", () => {
-  it("Mac sotto il pavimento, Cloud online e con un posto libero: la card parte lì SUBITO, non aspetta 2 minuti", async () => {
+describe("overflow: la card prende un posto libero altrove appena ce n'è uno", () => {
+  it("Mac sotto il pavimento, Cloud online e con un posto libero: la card parte lì SUBITO, senza nessuna attesa", async () => {
     const h = harness();
     h.seed(CARD);
 
@@ -302,9 +307,9 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     expect(h.task(CARD).machineId).toBeNull();
     await h.tick();
     // A free seat on the Cloud row beats the Mac's own floor: the card leaves
-    // on the first round where the origin answer is in, with no two-minute
-    // wait at all - the floor clock below is only the FALLBACK for when no
-    // machine has room.
+    // on the first round where the origin answer is in, with no wait at all.
+    // Nothing else is left to try: when no machine has room the card simply
+    // stays here (the case below).
     expect(h.task(CARD).machineId).toBe(CLOUD);
     expect(h.task(CARD).overflowedAt).toBeString();
     expect(h.created).toEqual([{ baseUrl: "claude-cloud://", originTaskId: CARD }]);
@@ -323,7 +328,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.task(CARD).status).toBe("todo");
-    h.advance(OVERFLOW_AFTER_MS - 10_000);
+    h.advance(110_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -339,14 +344,14 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   it("anche la card con la macchina predefinita = questo Mac si sposta", async () => {
     const h = harness();
     h.seed(CARD, { machineId: LOCAL });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 
   it("una card marcata «solo Mac» resta ferma", async () => {
     const h = harness();
     h.seed(CARD, { stayLocal: true });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     h.advance(10 * 60_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
@@ -358,7 +363,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     const h = harness();
     const born = h.svc.create({ projectId: PID, text: "riavvia Jarvis", status: "todo", stayLocal: true });
     expect(born.stayLocal).toBe(true);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(born.id).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
@@ -367,7 +372,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     const h = harness();
     h.svc.updateBoardSettings(PID, { dispatchStayLocal: true });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
@@ -376,7 +381,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
     const h = harness();
     h.svc.updateBoardSettings(PID, { dispatchOverflow: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
@@ -384,22 +389,45 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   it("Cloud offline e PC online: la card va sul PC", async () => {
     const h = harness({ cloudOnline: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
     expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
+  });
+
+  // THE RULE, in one case: the Mac is under its memory floor, the PC has ONE
+  // of its two seats free, and the card is on the PC on the round the origin
+  // answer lands - no hold, no clock, no wait.
+  it("Mac sotto il pavimento e il PC con UN solo posto libero: la card va sul PC", async () => {
+    const h = harness({ cloudOnline: false });
+    fillMachine(h, PC, OVERFLOW_SLOTS.node - 1);
+    h.seed(CARD);
+    await settleTwoRounds(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+    expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
+  });
+
+  // The same card, with the Mac NOT holding anything (`floor: false`): there is
+  // no hold to wait out any more, so the free seat wins here too.
+  it("Mac che non trattiene niente e un posto libero sul PC: la card va lì lo stesso", async () => {
+    const h = harness({ cloudOnline: false, floor: false });
+    fillMachine(h, PC, OVERFLOW_SLOTS.node - 1);
+    h.seed(CARD);
+    await settleTwoRounds(h);
+    expect(h.task(CARD).machineId).toBe(PC);
+    expect(h.turns).toEqual([]);
   });
 
   it("Cloud senza credito e PC online: la card va sul PC", async () => {
     const h = harness({ cloudCredit: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
   it("nessuna macchina online: la card resta in coda sul Mac", async () => {
     const h = harness({ cloudOnline: false, pcOnline: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.task(CARD).status).toBe("todo");
   });
@@ -407,7 +435,7 @@ describe("overflow: una card ferma per la memoria del Mac va dove il pavimento n
   it("una card assegnata a mano a un'altra macchina non è toccata dall'overflow", async () => {
     const h = harness({ pcOnline: false });
     h.seed(CARD, { machineId: PC });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 });
@@ -449,7 +477,7 @@ describe("overflow: slots 0 svuota la macchina", () => {
   it("con slots 0 il PC non riceve card per overflow", async () => {
     const h = harness({ cloudOnline: false, pcSlots: 0 });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
@@ -457,7 +485,7 @@ describe("overflow: slots 0 svuota la macchina", () => {
   it("con slots 0 una card fissata sul PC non parte", async () => {
     const h = harness({ floor: false, pcSlots: 0 });
     h.seed(CARD, { machineId: PC });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.created).toEqual([]);
     expect(h.task(CARD).status).toBe("todo");
   });
@@ -465,11 +493,11 @@ describe("overflow: slots 0 svuota la macchina", () => {
   it("con slots 2 le riceve, fissate comprese", async () => {
     const h = harness({ cloudOnline: false, pcSlots: 2 });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
     const pinned = harness({ floor: false, pcSlots: 2 });
     pinned.seed(CARD, { machineId: PC });
-    await holdPastThreshold(pinned);
+    await settleTwoRounds(pinned);
     expect(pinned.created.length).toBe(1);
   });
 });
@@ -491,7 +519,7 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("una card con un ramo di consegna va su Cloud partendo DA quel ramo, pushato prima", async () => {
     const h = harness();
     h.seed(CARD, { deliveryBranch: "topics/endless-calf" });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     // The push answers asynchronously: the move comes in the next round.
     await h.tick();
     expect(h.task(CARD).machineId).toBe(CLOUD);
@@ -502,7 +530,7 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("una card senza ramo parte dal default: nessun baseBranch, nessun push", async () => {
     const h = harness();
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.bodies).toEqual([{ originTaskId: CARD, baseBranch: undefined }]);
     expect(h.pushed).toEqual([]);
   });
@@ -510,7 +538,7 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("un ramo che non arriva su origin tiene la card sul Mac", async () => {
     const h = harness({ ensure: () => ({ ok: false, reason: "push rifiutato: non-fast-forward" }) });
     h.seed(CARD, { deliveryBranch: "topics/endless-calf" });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     for (let i = 0; i < 3; i++) { h.advance(70_000); await h.tick(); }
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.task(CARD).status).toBe("todo");
@@ -534,21 +562,21 @@ describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("origin non su GitHub: il Cloud rifiuterebbe, la card va sul PC", async () => {
     const h = harness({ github: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
   it("modello non Claude (Codex): niente Cloud, la card va sul PC", async () => {
     const h = harness();
     h.seed(CARD, { model: "codex:gpt-5.5" });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
   it("modello non Claude e PC offline: resta sul Mac", async () => {
     const h = harness({ pcOnline: false });
     h.seed(CARD, { model: "codex:gpt-5.5" });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
   });
 });
@@ -558,7 +586,7 @@ describe("overflow: una card rimandata in coda dopo la review porta il suo ramo"
     const h = harness();
     h.sendBack(CARD, "topics/endless-calf");
     expect(h.task(CARD).priorBranch).toBe("topics/endless-calf");
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBe(CLOUD);
     expect(h.pushed).toContain("topics/endless-calf");
@@ -652,7 +680,7 @@ describe("overflow: il modello predefinito della board", () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { dispatchModel: "codex:gpt-5.5" });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
@@ -660,7 +688,7 @@ describe("overflow: il modello predefinito della board", () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { dispatchModel: "claude-code:sonnet" });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 });
@@ -669,7 +697,7 @@ describe("overflow: il PC addormentato", () => {
   it("senza Cloud e con il PC addormentato ma svegliabile: la card va sul PC", async () => {
     const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
     expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
   });
@@ -677,7 +705,7 @@ describe("overflow: il PC addormentato", () => {
   it("un PC offline senza nulla che lo svegli resta escluso", async () => {
     const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: false });
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
   });
 });
@@ -766,14 +794,14 @@ describe("Cloud senza ambiente attivo sull'account", () => {
 });
 
 /**
- * THE FLOOR'S OWN TWO-MINUTE CLOCK, IN ISOLATION. Every machine is filled
- * (`fillMachine`): with no free seat anywhere, the IMMEDIATE path (tried
- * first, every round, room-permitting) finds nothing either, so what is left
- * to observe is only the floor's clock bookkeeping - the thing these tests
- * named in the first place, before a free seat could ever pre-empt it.
+ * NO FREE SEAT ANYWHERE: every machine is filled (`fillMachine`), and the one
+ * rule left (a free seat elsewhere wins at once) has nothing to offer the
+ * card. These cases used to measure the floor's two-minute hold, which no
+ * longer gates anything: what they pin down now is that an interrupted wait,
+ * however long, never turns into a move on its own.
  */
-describe("overflow: l'orologio dei 2 minuti misura una attesa ininterrotta", () => {
-  it("un giro fermato da un'altra attesa (tetto di spesa) riparte da zero: senza posto da nessuna parte la card resta comunque ferma", async () => {
+describe("overflow: senza un posto libero da nessuna parte la card resta sul Mac, comunque vada l'attesa", () => {
+  it("un giro fermato da un'altra attesa (tetto di spesa): senza posto da nessuna parte la card resta comunque ferma", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
@@ -786,13 +814,13 @@ describe("overflow: l'orologio dei 2 minuti misura una attesa ininterrotta", () 
     h.advance(60_000); // 150 s since the first hold, 60 s since this one
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
 
-  it("una card che esce da Todo e ci torna riparte da zero: senza posto da nessuna parte la card resta comunque ferma", async () => {
+  it("una card che esce da Todo e ci torna: senza posto da nessuna parte la card resta comunque ferma", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
@@ -805,7 +833,7 @@ describe("overflow: l'orologio dei 2 minuti misura una attesa ininterrotta", () 
     h.advance(60_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -817,7 +845,7 @@ describe("overflow: lo spazio sulle altre macchine", () => {
     const h = harness();
     const ids = ["c-1", "c-2", "c-3"];
     for (const id of ids) h.seed(id);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(ids.filter((id) => h.task(id).machineId === CLOUD)).toHaveLength(OVERFLOW_MAX_PER_ROUND);
     await h.tick();
     expect(ids.filter((id) => h.task(id).machineId === CLOUD)).toHaveLength(3);
@@ -827,7 +855,7 @@ describe("overflow: lo spazio sulle altre macchine", () => {
     const h = harness({ cloudOnline: false });
     const ids = ["c-1", "c-2", "c-3"];
     for (const id of ids) h.seed(id);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     h.advance(60_000);
     await h.tick();
@@ -876,13 +904,12 @@ describe("overflow: le due regole pure", () => {
   });
 });
 
-describe("verifica del 31/10: l'orologio si azzera per ogni giro che non trattiene la card per memoria", () => {
+describe("verifica del 31/10: un giro che non trattiene la card per memoria non la fa partire altrove", () => {
   /**
    * Held at 0 s, `interrupt` for one round at 90 s, held again at 150 s. Every
-   * machine is filled (`fillMachine`), so the room-first immediate path (tried
-   * every round regardless) finds nothing either, and the card stays
-   * whatever the floor's own clock does - unaffected by a free seat, which
-   * is the one thing this suite must leave unbroken.
+   * machine is filled (`fillMachine`), so the one rule left (a free seat
+   * elsewhere) finds nothing: the card stays here through the interruption and
+   * after it, which is what each of these cases must leave unbroken.
    */
   async function brokenAt150(h: ReturnType<typeof harness>, interrupt: () => void, restore: () => void) {
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
@@ -896,7 +923,7 @@ describe("verifica del 31/10: l'orologio si azzera per ogni giro che non trattie
     h.advance(60_000); // 150 s since the first hold, 60 s since the interruption
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -933,7 +960,7 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     const h = harness({ cloudOnline: false, createRunError: () => new Error("fetch failed") });
     const ids = ["c-1", "c-2", "c-3", "c-4", "c-5", "c-6"];
     for (const id of ids) h.seed(id);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     for (let i = 0; i < 8; i++) { h.advance(6 * 60_000); await h.tick(); }
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
@@ -942,7 +969,7 @@ describe("verifica del 31/10: i posti di una macchina contano le card che le son
     const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true, createRunError: () => new Error("fetch failed") });
     const ids = ["c-1", "c-2", "c-3", "c-4", "c-5", "c-6"];
     for (const id of ids) h.seed(id);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     for (let i = 0; i < 8; i++) { h.advance(6 * 60_000); await h.tick(); }
     expect(ids.filter((id) => h.task(id).machineId === PC)).toHaveLength(OVERFLOW_SLOTS.node);
   });
@@ -974,7 +1001,7 @@ describe("verifica del 31/10: le card legate a questa macchina non si spostano",
     // The policy is live: the card is a real delegated one, held by the floor here.
     expect(delegatedPolicyForTask(h.db, born.id, h.now(), LOCAL)?.id).toBe(capability.id);
     expect(h.task(born.id).machineId).toBe(LOCAL);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(born.id).machineId).toBe(LOCAL);
     expect(h.task(born.id).status).toBe("todo");
@@ -986,7 +1013,7 @@ describe("verifica del 31/10: le card legate a questa macchina non si spostano",
     const h = harness();
     h.seed(CARD);
     h.db.run("UPDATE tasks SET delivery_uncommitted_files = 3 WHERE id = ?", [CARD]);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -996,7 +1023,7 @@ describe("verifica del 31/10: le card legate a questa macchina non si spostano",
     const h = harness();
     h.seed(CARD);
     h.db.run("UPDATE tasks SET claude_task_id = 'node-run:origin-123' WHERE id = ?", [CARD]);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -1052,7 +1079,7 @@ describe("verifica del 31/10: errore d'account su una corsa viva", () => {
   });
 });
 
-describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da Todo", () => {
+describe("verifica del 31/10 (terzo giro): una card che esce da Todo e rientra", () => {
   /** Held, then out of Todo while its board has nothing else queued, then back. */
   async function outAndBack(h: ReturnType<typeof harness>, rounds: number) {
     h.seed(CARD);
@@ -1067,13 +1094,13 @@ describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da To
     await h.poll();
   }
 
-  it("sola sulla board, un'ora in backlog: al rientro l'attesa riparte da zero (senza posto da nessuna parte)", async () => {
+  it("sola sulla board, un'ora in backlog: al rientro resta qui (senza posto da nessuna parte)", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
     await outAndBack(h, 6);
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS - 10_000);
+    h.advance(110_000);
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
     h.advance(20_000);
@@ -1082,13 +1109,13 @@ describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da To
     expect(h.created).toEqual([]);
   });
 
-  it("sola sulla board, backlog e ritorno fra due giri: riparte da zero (senza posto da nessuna parte)", async () => {
+  it("sola sulla board, backlog e ritorno fra due giri: resta qui (senza posto da nessuna parte)", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
     h.seed(CARD);
     await h.poll();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "backlog" } });
     h.dispatcher.onLeaveTodo(CARD);
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
@@ -1097,7 +1124,7 @@ describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da To
     expect(h.task(CARD).machineId).toBeNull();
   });
 
-  it("uscita da Todo senza i due ganci (scrittura diretta): il primo giro senza card in coda azzera", async () => {
+  it("uscita da Todo senza i due ganci (scrittura diretta): al rientro resta qui, nessun posto libero", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
@@ -1106,7 +1133,7 @@ describe("verifica del 31/10 (terzo giro): l'orologio di una card che esce da To
     h.advance(10_000);
     h.db.run("UPDATE tasks SET status = 'backlog' WHERE id = ?", [CARD]);
     await h.poll();
-    h.advance(OVERFLOW_AFTER_MS);
+    h.advance(120_000);
     h.db.run("UPDATE tasks SET status = 'todo' WHERE id = ?", [CARD]);
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
@@ -1127,7 +1154,7 @@ describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso v
     deliveredDirty(h, 3);
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
     expect(h.task(CARD).deliveryUncommittedFiles).toBeNull();
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -1140,7 +1167,7 @@ describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso v
     // The reject reopens the card (in_progress) and clears the snapshot; it waits in Todo afterwards.
     expect(h.task(CARD).deliveryUncommittedFiles).toBeNull();
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -1157,7 +1184,7 @@ describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso v
     const h = harness();
     deliveredDirty(h, 0);
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
@@ -1168,7 +1195,7 @@ describe("verifica del 31/10 (terzo giro): il lavoro non committato nel flusso v
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { status: "todo" } });
     h.svc.recordDelivery({ taskId: CARD, branch: "topics/clean", commit: "abc1234", stat: null });
     h.db.run("UPDATE tasks SET delivery_branch = NULL, delivery_commit = NULL WHERE id = ?", [CARD]);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     await h.tick();
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
@@ -1180,7 +1207,7 @@ describe("verifica del 31/10 (quarto giro)", () => {
     h.seed(CARD);
     h.db.run("UPDATE tasks SET plan_first = 1 WHERE id = ?", [CARD]);
     expect(h.task(CARD).planFirst).toBe(true);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     for (let i = 0; i < 3; i++) { h.advance(60_000); await h.poll(); }
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toHaveLength(0);
@@ -1211,17 +1238,17 @@ describe("verifica del 31/10 (quarto giro)", () => {
     const h = harness();
     h.seed(CARD);
     h.svc.update({ taskId: CARD, actor: "human", by: "attilio", patch: { machineId: LOCAL } });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     // Choosing this Mac by hand reads as the default: the card moves anyway...
     expect(h.task(CARD).machineId).toBe(CLOUD);
     // ...so the line on the card must not say that choosing it keeps the card here.
-    const note = overflowNote("Cloud Claude");
+    const note = overflowNoteImmediate("Cloud Claude");
     expect(note).not.toContain("rimetti la macchina a mano");
     expect(note).toContain("«solo Mac»");
     expect(h.thread(CARD)).toContain("non basta");
   });
 
-  it("il warm-up del pavimento non è il pavimento di memoria: oltre 2 minuti la card resta", async () => {
+  it("il warm-up del pavimento non è il pavimento di memoria: senza posti liberi la card resta", async () => {
     const h = harness({ verdict: { ...BLOCKED, kind: "memory_warmup" } });
     // The immediate (room-first) path does not read the floor's kind at all,
     // so with a free seat anywhere it would move the card regardless of
@@ -1230,13 +1257,13 @@ describe("verifica del 31/10 (quarto giro)", () => {
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
     h.seed(CARD);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     for (let i = 0; i < 3; i++) { h.advance(60_000); await h.poll(); }
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toHaveLength(0);
   });
 
-  it("l'orologio si azzera con l'auto-dispatch spento in mezzo (senza posto da nessuna parte)", async () => {
+  it("l'auto-dispatch spento in mezzo non fa partire niente (senza posto da nessuna parte)", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
@@ -1249,13 +1276,13 @@ describe("verifica del 31/10 (quarto giro)", () => {
     h.advance(60_000); // 150 s since the first hold, 60 s since the switch came back on
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
   });
 
-  it("l'orologio si azzera anche con la board in pausa in mezzo (senza posto da nessuna parte)", async () => {
+  it("nemmeno la board in pausa in mezzo fa partire niente (senza posto da nessuna parte)", async () => {
     const h = harness();
     fillMachine(h, CLOUD, OVERFLOW_SLOTS.cloud);
     fillMachine(h, PC, OVERFLOW_SLOTS.node);
@@ -1268,7 +1295,7 @@ describe("verifica del 31/10 (quarto giro)", () => {
     h.advance(60_000);
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
-    h.advance(OVERFLOW_AFTER_MS + 1_000);
+    h.advance(5 * 60_000);
     await h.poll();
     expect(h.task(CARD).machineId).toBeNull();
     expect(h.created).toEqual([]);
@@ -1297,7 +1324,7 @@ describe("limite settimanale del Cloud", () => {
       // check the in-between "back on the Mac, nothing moved yet" state.
       fillMachine(h, PC, OVERFLOW_SLOTS.node);
       h.seed(CARD);
-      await holdPastThreshold(h);
+      await settleTwoRounds(h);
       expect(h.task(CARD).machineId).toBe(CLOUD);
       expect(h.created).toHaveLength(1);
 
@@ -1311,7 +1338,7 @@ describe("limite settimanale del Cloud", () => {
 
       // The PC frees up now: the next turn finds it with room and takes the card.
       freeMachine(h, PC);
-      await holdPastThreshold(h);
+      await settleTwoRounds(h);
       expect(h.task(CARD).machineId).toBe(PC);
     } finally { clean(); }
   });
@@ -1352,7 +1379,7 @@ describe("overflow: il vincolo «solo Mac» messo dopo una corsa vuota scade", (
     h.seed(CARD, { stayLocal: true });
     h.db.run("UPDATE tasks SET stay_local_until = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), CARD]);
     expect(h.task(CARD).stayLocal).toBe(false);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 
@@ -1360,7 +1387,7 @@ describe("overflow: il vincolo «solo Mac» messo dopo una corsa vuota scade", (
     const h = harness();
     h.seed(CARD, { stayLocal: true });
     h.db.run("UPDATE tasks SET stay_local_until = ? WHERE id = ?", [new Date(Date.now() + 3_600_000).toISOString(), CARD]);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
   });
 
@@ -1379,7 +1406,7 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     h.seed(CARD);
     h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: CLOUD, until: new Date(Date.now() + 3_600_000).toISOString() } } });
     expect(h.task(CARD).stayLocal).toBe(false);
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
@@ -1387,7 +1414,7 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     const h = harness();
     h.seed(CARD);
     h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: CLOUD, until: new Date(Date.now() - 60_000).toISOString() } } });
-    await holdPastThreshold(h);
+    await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBe(CLOUD);
   });
 

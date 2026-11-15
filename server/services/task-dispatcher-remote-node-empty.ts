@@ -85,7 +85,7 @@ export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeNam
       taskId: task.id, author: "system", kind: "service",
       content:
         `La corsa su «${nodeName}» è finita senza nessun commit: lì mancano strumenti che questa card usa. ` +
-        "La rimetto in coda: per 6 ore non torna lì, ma se il Mac è pieno può andare su un'altra macchina.",
+        "La rimetto in coda: per 6 ore non torna lì, ma può andare su un'altra macchina appena una ha un posto libero.",
     });
     return true;
   } catch (err) {

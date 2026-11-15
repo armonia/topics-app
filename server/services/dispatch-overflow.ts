@@ -12,8 +12,9 @@
  *
  * WHAT MOVES: a card that would run here (no machine, or this machine's own
  * row - the board default meaning "here", chosen by hand or not: the row does
- * not say which) and has been held by the memory floor
- * for more than `OVERFLOW_AFTER_MS`, in consecutive rounds. WHAT STAYS: a card or
+ * not say which), as soon as a free seat exists on a node or on the cloud,
+ * whatever this Mac's memory floor is doing: a seat elsewhere beats a wait
+ * here, and the card never answers to the floor over there. WHAT STAYS: a card or
  * a board explicitly marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) -
  * local processes, Jarvis, sessions, macOS. A mark and not a guess on the
  * text: a heuristic that sends a macOS card to the cloud fails over there,
@@ -38,9 +39,6 @@
  * the remote run starts FROM that branch, pushed to origin first. A branch that
  * cannot reach origin keeps the card here (`overflowBranchReady`).
  */
-
-/** How long a card waits behind the memory floor before it moves (the floor's own window). */
-export const OVERFLOW_AFTER_MS = 2 * 60_000;
 
 /**
  * How many overflowed or hand-sent cards a machine runs at once before the
@@ -188,17 +186,11 @@ export function overflowEligible(
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);
 }
 
-/** The one line on the card and in the thread: where it went and why. */
-export function overflowNote(machineName: string): string {
-  return `Spostata su ${machineName}: Mac pieno. La memoria di questa macchina è rimasta sotto il pavimento per più di 2 minuti, ` +
-    `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
-    `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
-}
-
 /**
- * The line used when the card moves because a MACHINE had a free seat, not
- * because the Mac's floor held it: `overflowNote` says "Mac pieno", which
- * would be false here, since this move happens whether or not the Mac is full.
+ * The one line on the card and in the thread: where it went and why. The card
+ * moves because a MACHINE had a free seat, not because the Mac's floor held
+ * it, so the line says nothing about a full Mac: this move happens whether or
+ * not the Mac is full.
  */
 export function overflowNoteImmediate(machineName: string): string {
   return `Spostata su ${machineName}: c'era un posto libero lì. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +

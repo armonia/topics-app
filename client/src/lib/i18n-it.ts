@@ -1307,7 +1307,7 @@ const IT: Dict = {
   'board.task.node.stayLocalTitle': 'La card tocca il Mac stesso (processi locali, l\'agente di Topics, sessioni, macOS): resta qui anche col Mac pieno.',
   'board.task.node.on': 'su {node}',
   'board.task.node.onTitle': 'Questa card gira sul nodo {node}, non su questa macchina.',
-  'board.task.node.overflowed': 'spostata su {node}: Mac pieno',
+  'board.task.node.overflowed': 'spostata su {node}: posto libero lì',
   'board.task.node.overflowedTitle': 'Il dispatch ha spostato questa card su {node}: non aveva bisogno di questo Mac, e lì c\'era un posto libero.',
   // PAIRING A NODE (MACHINE-02). Three failures, three sentences: whoever reads
   // "unreachable" on a refused host goes and looks at the wrong machine.
@@ -1707,7 +1707,7 @@ const IT: Dict = {
   'board.settings.paused': 'Metti in pausa questa board',
   'board.settings.pausedTitle': "Ferma il dispatch di QUESTA board e lascia girare le altre. L'interruttore globale qui sopra vale per tutte: se e' spento, non parte niente comunque.",
   'board.settings.pausedActive': 'In pausa: i task di questa board restano in coda. Le altre board continuano.',
-  'board.settings.overflow': 'Mac pieno: sposta su Cloud o PC',
+  'board.settings.overflow': 'Posto libero altrove: sposta su Cloud o PC',
   'board.settings.overflowTitle': 'Una card che non ha bisogno di questo Mac va su Cloud Claude (se c\'è credito) o sul PC appena uno dei due ha un posto libero, senza aspettare che il Mac sia pieno. Resta su questo Mac solo quando nessuna macchina ha posto, oppure se la card è «solo Mac» o «prima il piano».',
   'board.settings.stayLocal': 'Solo Mac: non spostare le card',
   'board.settings.stayLocalTitle': 'Le card di questa board toccano il Mac stesso (processi locali, l\'agente di Topics, sessioni, macOS): restano qui anche col Mac pieno.',
