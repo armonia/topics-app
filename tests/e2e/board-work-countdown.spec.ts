@@ -207,6 +207,11 @@ test.describe("Board: countdown and weight of work in progress", () => {
         // Sidebar: the board counts and the running line.
         const sidebar = page.locator('[aria-label="Topics sidebar"]');
         if (await sidebar.isVisible()) await sidebar.screenshot({ path: `${SHOTS}/sidebar-${width}-${scheme}.png` });
+        // On a phone the sidebar is a sheet over the board: the sidebar shortcut folds it away.
+        if (width < 800 && (await sidebar.getAttribute("data-drawer")) === "open") {
+          await page.keyboard.press("ControlOrMeta+b");
+          await expect(sidebar).toHaveAttribute("data-drawer", "closed", { timeout: 5_000 });
+        }
         // Drawer with the exact weight and the sum of the children.
         // On a phone the sidebar sheet lies over the board: the card is opened by its own click event.
         await page.locator(`[data-task-card="${runningId}"]`).dispatchEvent("click");
