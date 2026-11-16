@@ -103,6 +103,9 @@ export async function bundleBranch(
   repoPath: string | null | undefined,
   branch: string,
   run: GitRunner = branchGit,
+  // How far behind the sender's origin/HEAD the receiver's checkout may be: 0 = the receiver
+  // has fetched at least as recently as the sender (the card lane's assumption).
+  marginCommits = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
@@ -115,9 +118,16 @@ export async function bundleBranch(
     // The tip-only bundle is safe only when origin/HEAD exists and already holds
     // the parent: without it the node may lack the branch's history entirely.
     const hasOriginHead = (await run(repoPath, ["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"])).code === 0;
-    const attempts = hasOriginHead
-      ? [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []]
-      : [[]];
+    // A margin leaves out only what origin's default held `marginCommits` back, so a node that
+    // has not fetched the newest commits still has every prerequisite.
+    const marginBase = marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
+    const thin = [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []];
+    const attempts = !hasOriginHead
+      ? [[]]
+      : marginCommits === 0
+        ? thin
+        // With a margin the cut-at-origin/HEAD tries are what the node refuses: never them.
+        : marginBase ? [["--not", marginBase], []] : [[]];
     for (const not of attempts) {
       const made = await run(repoPath, ["bundle", "create", file, ref, ...not]);
       if (made.code === 0) return new Uint8Array(await readFile(file));
@@ -126,6 +136,15 @@ export async function bundleBranch(
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The first-parent ancestor `n` commits behind origin/HEAD. On a shorter history, null:
+ * the caller's next try (the whole history) then carries everything, which is small anyway.
+ */
+async function originHeadAncestor(repoPath: string, n: number, run: GitRunner): Promise<string | null> {
+  const r = await run(repoPath, ["rev-parse", "--verify", "-q", `refs/remotes/origin/HEAD~${n}`]);
+  return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
 }
 
 /** Plants a carried bundle as `carriedRef(branch)` in the node's checkout. */
