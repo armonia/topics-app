@@ -481,7 +481,7 @@
     },
 
     "scripts/check-route-shadowing.ts": {
-      "lines": 1417,
+      "lines": 1434,
       "why": [
         "2026-10-25, measured on the file after main was merged in: 1428 on the branch -> 1417, the KNOWN entry #425 removed on main (1006 there).",
         "2026-10-24, the round-3 fix measured row by row against main: 1345 -> 1358, a parameter is the request only for the function it belongs to (not a factory around the router, not a helper inside what is read), types and method names are not reads, a try that leaves through its catch keeps its winner, a body that refuses with !== and a clause entered past a statement stay unknown as on main, and snake_case, allow and throw read as check verbs; the callback rule goes. Same walk, so it stays in this file.",
@@ -490,8 +490,6 @@
         "2026-10-24, route-shadowing-gate (PR #424): 505 on main -> 1017, the check inside one router (findInnerShadows): it follows one request per method through the router's code (pathname and method only when they are the request's parameters, every name looked up the way the language scopes it, the earlier condition evaluated on the literal path, any return, throw, break or continue as leaving, a switch whose every case leaves, a match bound through a ternary on the method, a gate with no path test as the reason a method is not served, the methods the literal's own ifs, case or body refuse or switch on). It shares the path helpers and KNOWN with the claims, so it stays in this file."
       ]
     },
-
-    "server.ts": 7723,
 
     "server/attention/store.ts": {
       "lines": 1292,
@@ -616,7 +614,7 @@
 
     "server/services/relay-client.ts": 1300,
 
-    "server/services/review-checks-brakes.test.ts": 1000,
+    "server/services/review-checks-brakes.test.ts": 1001,
 
     "server/services/review-checks.ts": 997,
 
