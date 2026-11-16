@@ -270,7 +270,14 @@ export interface CaricoGettone {
   exp: number;
   iat?: number;
   kid?: string;
+  /** Label of the cloud node the token was minted for (one token per node).
+   *  It does not change what the token grants: it records WHO got it, so only
+   *  that node's token is reissued when needed. */
+  node?: string;
 }
+
+/** A node label: host-name shaped, never free text. */
+export const NODE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
@@ -303,6 +310,9 @@ function leggiCarico(b: Buffer): CaricoGettone | null {
   if (r.plan !== "team") return null;
   if (typeof r.seats !== "number" || !Number.isFinite(r.seats)) return null;
   if (typeof r.exp !== "number" || !Number.isFinite(r.exp)) return null;
+  // When present the node label must be well formed: a bad field is rejected,
+  // not ignored, like every other field of the payload.
+  if (r.node !== undefined && (typeof r.node !== "string" || !NODE_LABEL.test(r.node))) return null;
   return {
     v: 1,
     iid: r.iid,
@@ -311,6 +321,7 @@ function leggiCarico(b: Buffer): CaricoGettone | null {
     exp: r.exp,
     iat: typeof r.iat === "number" ? r.iat : undefined,
     kid: typeof r.kid === "string" ? r.kid : undefined,
+    node: typeof r.node === "string" ? r.node : undefined,
   };
 }
 

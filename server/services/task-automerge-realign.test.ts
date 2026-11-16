@@ -623,3 +623,148 @@ describe("l'atterraggio automatico con un origin vero (noRealign)", () => {
     expect(log(repo, "main")).toContain("ramo: b.txt");
   }, WITH_REAL_GIT);
 });
+
+/**
+ * A pull request squash-merged on GitHub, after which main kept editing the same file. The
+ * tip of main no longer matches the branch, so the realign used to conflict and pull a done
+ * card back to In Progress (card 360127d1, 2026-11-15, PR #1106).
+ */
+describe("a branch squash-merged before main moved on is not landed again", () => {
+  function squashedThenEdited(branchBody: string, mainLater = "one\ntwo (card)\nthree, then main\n"): string {
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", "one\ntwo\nthree\n"]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", "one\ntwo (card)\nthree\n"], ["card.txt", "card\n"]],
+    });
+    // The squash: the branch's content as one commit on main.
+    writeFileSync(join(repo, "shared.txt"), branchBody);
+    writeFileSync(join(repo, "card.txt"), "card\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Card work (#1106)");
+    // Main then edits the same file, on a line next to the card's: the realign conflicts.
+    commit(repo, "shared.txt", mainLater, "main: later edit");
+    return repo;
+  }
+
+  test("content was on main at the squash: nothing to land, no realign merge in the branch", async () => {
+    const repo = squashedThenEdited("one\ntwo (card)\nthree\n");
+    const branchBefore = git(repo, "rev-parse", BRANCH).trim();
+    const mainBefore = git(repo, "rev-parse", "main").trim();
+
+    const res = await landOn(repo).tryMerge("t1", "Card already squashed");
+
+    expect(res.status).toBe("nothing");
+    expect(git(repo, "rev-parse", BRANCH).trim()).toBe(branchBefore);
+    expect(git(repo, "rev-parse", "main").trim()).toBe(mainBefore);
+  }, WITH_REAL_GIT);
+
+  test("main never held the branch's content: still a realign conflict", async () => {
+    const repo = squashedThenEdited("one\ntwo (something else)\nthree\n", "one\ntwo (card, then main)\nthree\n");
+
+    const res = await landOn(repo).tryMerge("t1", "Card not on main");
+
+    expect(res.status).toBe("conflict");
+    if (res.status !== "conflict") return;
+    expect(res.realignConflict?.files).toEqual(["shared.txt"]);
+  }, WITH_REAL_GIT);
+
+  test("main reverted the squash: the work is gone from main, so landing again is real", async () => {
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", "one\ntwo\nthree\n"]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", "one\ntwo (card)\nthree\n"], ["card.txt", "card\n"]],
+    });
+    writeFileSync(join(repo, "shared.txt"), "one\ntwo (card)\nthree\n");
+    writeFileSync(join(repo, "card.txt"), "card\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "Card work (#1106)");
+    git(repo, "revert", "--no-edit", "HEAD");
+
+    const res = await landOn(repo).tryMerge("t1", "Card reverted on main");
+
+    expect(res.status).not.toBe("nothing");
+    expect(res.status).toBe("merged");
+    expect(git(repo, "show", "main:card.txt")).toBe("card\n");
+  }, WITH_REAL_GIT);
+
+  test("main took back ONE of the branch's two edits in a file: that edit is real work, not «nothing»", async () => {
+    const lines = (a: string, b: string) => ["a", a, "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", b, "z"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", lines("fix", "feature")]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", lines("fix (card)", "feature (card)")]],
+    });
+    // The squash, then main removes only the feature edit.
+    commit(repo, "shared.txt", lines("fix (card)", "feature (card)"), "Card work (#1106)");
+    commit(repo, "shared.txt", lines("fix (card)", "feature"), "main: drop the feature");
+
+    const res = await landOn(repo).tryMerge("t1", "Card partly reverted on main");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+
+  test("the revert also edits a line next to the edit it takes back: still not «nothing»", async () => {
+    const lines = (a: string, near: string, b: string) =>
+      ["l1", a, "l3", "l4", "l5", "l6", "l7", "l8", "l9", "l10", near, b, "l13", "l14", "l15"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.txt", lines("l2", "l11", "l12")]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.txt", lines("2A", "l11", "12B")]],
+    });
+    commit(repo, "shared.txt", lines("2A", "l11", "12B"), "Card work (#1106)");
+    // One commit takes 12B back AND rewrites line 11, inside the hunk's context.
+    commit(repo, "shared.txt", lines("2A", "11x", "l12"), "main: drop 12B, tweak 11");
+
+    const res = await landOn(repo).tryMerge("t1", "Card partly reverted, context moved");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+
+  test("one hunk changes a line AND adds a new one, main drops only the new one: not «nothing»", async () => {
+    const body = (t: string, extra: string[]) =>
+      ["l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "l9", `const t = ${t}`, "l11", "l12", "l13", ...extra, "l14", "l15"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", body("5", [])]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", body("10", ["log(t)"])]],
+    });
+    commit(repo, "shared.ts", body("10", ["log(t)"]), "Card work (#1106)");
+    commit(repo, "shared.ts", body("10", []), "main: drop the log");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's new line taken back");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+
+  test("git puts an inserted line before a replaced one, main drops the inserted one: not «nothing»", async () => {
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", 'import a from "a"\nrest\n']],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", 'import b from "b"\nimport a from "a2"\nrest\n']],
+    });
+    commit(repo, "shared.ts", 'import b from "b"\nimport a from "a2"\nrest\n', "Card work (#1106)");
+    commit(repo, "shared.ts", 'import a from "a2"\nrest\n', "main: drop import b");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's import taken back");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+
+  test("the card's only line is a common one, main moves it elsewhere: cannot tell, not «nothing»", async () => {
+    const f = (inF: boolean, inG: boolean) =>
+      ["function f() {", "  a();", ...(inF ? ["  return null;"] : []), "}", "", "function g() {", "  b();", ...(inG ? ["  return null;"] : []), "}", "",
+        "function h() {", "  c();", "  return null;", "}"].join("\n") + "\n";
+    const repo = repoWithOldBranch({
+      radice: [["shared.ts", f(false, false)]],
+      avanzamentoMain: [],
+      lavoroDelRamo: [["shared.ts", f(true, false)]],
+    });
+    commit(repo, "shared.ts", f(true, false), "Card work (#1106)");
+    // One commit drops the card's line from f() and adds the same line in g(): same count.
+    commit(repo, "shared.ts", f(false, true), "main: move it");
+
+    const res = await landOn(repo).tryMerge("t1", "Card's common line moved");
+
+    expect(res.status).not.toBe("nothing");
+  }, WITH_REAL_GIT);
+});

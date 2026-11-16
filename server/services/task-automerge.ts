@@ -37,7 +37,7 @@ import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./b
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
-import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
+import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
 import { runGit } from "../lib/run-git";
@@ -1402,6 +1402,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         if (await branchContentIsOnMain(repoPath, branch, defaultBranch, runGit)) {
           console.log(`[task-automerge] ${branch}: content already on ${defaultBranch} (squash-merged), nothing to land`);
           return nothingToLand();
+        }
+        // The same squash, after which main kept editing those files: the tip no longer
+        // matches, but a commit of main did. Without this the realign below conflicts and
+        // pulls a done card back to In Progress (card 360127d1, PR #1106). Asked of `base`,
+        // the main the realign merges: the squash lands on origin first.
+        if (await branchContentWasOnMain(repoPath, branch, base, runGit)) {
+          console.log(`[task-automerge] ${branch}: content already in ${base} history (squash-merged), nothing to land`);
+          return { status: "nothing", branch, deliveryDrift: drift };
         }
 
         // ── Il ramo è INDIETRO? Prima si riallinea, poi si giudica ───────────

@@ -3,7 +3,7 @@
 //! list, the trust check, the macOS row and the rankings. Pure: service answers in,
 //! `Node`s out. Every word about a process is the service's own. Card ad8b474a.
 
-use crate::tray_menu::{item, mem_text, n, note, parse, s, sub, with_icon, Node, Snapshot};
+use crate::tray_menu::{item, mem_text, n, note, parse, s, second_line, sub, with_icon, Node, Snapshot};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -142,12 +142,12 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
             kids.push(with_icon("sf:lock", note(format!("{verb}: non da qui, {}", s(u, "returns")))));
         }
     }
-    let second_line = format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail });
+    let under = format!("{} · {}", type_words(s(u, "type")), if detail.is_empty() { "uso non noto".to_string() } else { detail });
     let c = cpu_of(u, cpu);
     let worst = flags_of(u, trust).iter().map(|f| s(f, "level")).fold("", |w, l| if l == "grave" || (l == "attenzione" && w != "grave") { l } else { w });
     let row = Node::Row {
         id: String::new(),
-        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line],
+        cells: vec![s(u, "name").to_string(), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line(under)],
         header: false,
         children: kids,
     };
@@ -272,6 +272,39 @@ fn rankings(real: &[&Value], cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     block("PIÙ RETE ADESSO", sorted_by(&net, netsum).into_iter().take(5).collect());
     let total: f64 = cpu.values().sum();
     with_icon("sf:chart.bar", sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
+}
+
+/// A command line as the second line of a row: the program's own name (not its
+/// path) and its arguments, cut to what fits under the row. A full path ran past the
+/// menu's edge and an NSMenu widens itself to its longest title.
+fn short_cmd(cmd: &str) -> String {
+    const ROOM: usize = 56;
+    let mut words = cmd.split_whitespace();
+    let Some(first) = words.next() else { return String::new() };
+    let program = first.rsplit(['/', '\\']).next().unwrap_or(first);
+    let line = std::iter::once(program).chain(words).collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= ROOM { line } else { format!("{}…", line.chars().take(ROOM - 1).collect::<String>().trim_end()) }
+}
+
+/// The process table of a machine read from afar (PC, cloud server): the same header
+/// and columns as this computer's, one row per process the service listed. GPU and
+/// network are not read there: `–`, as an idle column of this computer reads.
+/// No list = the reason is already in the machine's lines above it.
+pub fn remote_procs_table(procs: &[crate::tray_menu_detail::RemoteProc]) -> Vec<Node> {
+    if procs.is_empty() {
+        return vec![note("Nessun processo letto adesso")];
+    }
+    let total: f64 = procs.iter().map(|p| p.mem_mb).sum();
+    let mut out = vec![head(&format!("GIRA ADESSO · {} · {}", procs.len(), mem_text(total)))];
+    out.extend(procs.iter().take(SHOWN).map(|p| {
+        let second = match short_cmd(&p.cmd) {
+            c if c.is_empty() => "processo".to_string(),
+            c => format!("processo · {c}"),
+        };
+        let cells = vec![p.name.clone(), cpu_text(p.cpu_pct), "–".into(), "–".into(), mem_text(p.mem_mb), second_line(second)];
+        with_icon("sf:gearshape", Node::Row { id: String::new(), cells, header: false, children: Vec::new() })
+    }));
+    out
 }
 
 #[cfg(test)]

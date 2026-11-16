@@ -5,9 +5,9 @@
 
 use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, note, parse, s, sub, tick, Node, Prefs, Snapshot};
 use crate::tray_menu_projects::project_table;
-use crate::tray_menu_detail::{draw_machine_detail, has_graphics, machine_details};
+use crate::tray_menu_detail::machine_details;
 use crate::tray_menu_pic::Palette;
-use crate::tray_menu_procs::procs_table;
+use crate::tray_menu_procs::{procs_table, remote_procs_table};
 use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
 use serde_json::Value;
 
@@ -15,33 +15,28 @@ fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Optio
     Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
 }
 
-/// Every machine card, the same graphic for all of them. The submenu of a machine
-/// holds its lines; the local one also the processes that weigh and the finder.
+/// Every machine card, the same graphic for all of them, and the same submenu as the
+/// MacBook's: its state lines, the processes that weigh in the same table, the
+/// finder. This computer takes its own census (`/api/mac/procs`); the others the
+/// service's `procs`.
 fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
     machines
         .iter()
         .filter_map(|m| {
-            let mut kids: Vec<Node> = Vec::new();
-            // the graphs of the service's own reading: bars, 24 h charts, the state band
-            let detail = details.iter().find(|d| d.id == m.id && !m.id.is_empty()).filter(|d| has_graphics(d) && !m.local);
-            if let Some(d) = detail {
-                let pic = draw_machine_detail(d, p);
-                kids.extend(card(&format!("machine-detail:{}", m.id), pic, Vec::new()));
-            } else {
-                kids.extend(m.lines.iter().map(note));
-            }
-            if m.local {
-                if !kids.is_empty() {
-                    kids.push(Node::Sep);
-                }
-                kids.extend(procs_table(snap));
-            }
+            let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
+            let mut kids: Vec<Node> = m.lines.iter().map(note).collect();
             if !kids.is_empty() {
                 kids.push(Node::Sep);
             }
+            if m.local {
+                kids.extend(procs_table(snap));
+            } else {
+                kids.extend(remote_procs_table(found.map_or(&[][..], |d| &d.procs[..])));
+            }
+            kids.push(Node::Sep);
             kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, details.iter().find(|d| d.id == m.id && !m.id.is_empty()), p), kids)
+            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
         })
         .collect()
 }

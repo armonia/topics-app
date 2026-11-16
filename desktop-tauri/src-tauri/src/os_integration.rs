@@ -757,16 +757,18 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
     // The graphic menu carries the machine cards itself; the old per-machine submenus stay only without it.
     let rich = hub.iter().any(|n| matches!(n, tray_menu::Node::Card { .. }));
     tray_menu_native::reset();
+    tray_menu_native::install_menu_hook();
     let Some(tray) = app.tray_by_id("main") else { return };
             // Rebuild the menu: one `nav:<topicId>` row per attention chat, then a
             // separator, then the static Show/Quit. The tray's `on_menu_event`
             // (installed at build) routes `nav:` clicks — it fires for whatever
             // menu is currently set, so dynamically-swapped rows still navigate.
             let mut mb = MenuBuilder::new(app);
-            for it in &items {
+            // The graphic menu leaves chats and board to the app; only the text menu lists them.
+            for it in items.iter().filter(|_| !rich) {
                 mb = mb.text(format!("nav:{}", it.id), tray_label(&it.title));
             }
-            if !items.is_empty() {
+            if !items.is_empty() && !rich {
                 mb = mb.separator();
             }
             // IL LAVORO, non solo le chat. Un sottomenu per stato («Review (3)»)
@@ -774,7 +776,7 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
             // l'unica superficie che resta, e finora sapeva dire soltanto chi
             // aspetta una risposta in chat — della board, niente. Le righe
             // aprono il task (`task:`), la testa della sezione apre la board.
-            if !groups.is_empty() {
+            if !groups.is_empty() && !rich {
                 let open: u32 = groups.iter().map(|g| g.count).sum();
                 mb = mb.text("board:open", format!("Board ({open} aperti)"));
                 for g in &groups {
@@ -886,7 +888,6 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
                 // Never replace the menu while it is open: that closes it.
                 tray_tracking::defer("menu", move || {
                     let _ = tray.set_menu(Some(menu));
-                    tray_menu_native::decorate(&tray);
                 });
             }
 }

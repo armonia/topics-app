@@ -37,10 +37,16 @@ fn lines_of(nodes: &[Node], out: &mut Vec<Line>) {
     }
 }
 
+/// A row with a second line (kind, owner, since) is two lines tall, as the real menu sizes it.
+fn line_h(l: &Line) -> f64 {
+    let two = l.row.as_ref().map_or(false, |r| !r.header && r.cells.iter().enumerate().any(|(i, c)| i > 5 || c.starts_with('\n')));
+    l.card.as_ref().map_or(if l.sep { 9.0 } else if two { ROW_H + 14.0 } else { ROW_H }, |c| c.2)
+}
+
 unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
     let mut lines = Vec::new();
     lines_of(nodes, &mut lines);
-    let height: f64 = lines.iter().map(|l| l.card.as_ref().map_or(if l.sep { 9.0 } else { ROW_H }, |c| c.2)).sum::<f64>() + 8.0;
+    let height: f64 = lines.iter().map(|l| line_h(l)).sum::<f64>() + 8.0;
     let name = if dark { "NSAppearanceNameDarkAqua" } else { "NSAppearanceNameAqua" };
     let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns(name)];
     let _: () = msg_send![class!(NSAppearance), setCurrentAppearance: appearance];
@@ -56,7 +62,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
     let _: () = msg_send![class!(NSBezierPath), fillRect: full];
     let mut top = 4.0;
     for l in &lines {
-        let h = l.card.as_ref().map_or(if l.sep { 9.0 } else { ROW_H }, |c| c.2);
+        let h = line_h(l);
         let y = height - top - h;
         if l.sep {
             let c: id = msg_send![class!(NSColor), separatorColor];
@@ -73,7 +79,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
                 let img = icon_image(spec);
                 if img != nil {
                     let s: NSSize = msg_send![img, size];
-                    let _: () = msg_send![img, drawInRect: NSRect::new(crate::mac::NSPoint::new(10.0 + (16.0 - s.width) / 2.0, y + (ROW_H - s.height) / 2.0), s)];
+                    let _: () = msg_send![img, drawInRect: NSRect::new(crate::mac::NSPoint::new(10.0 + (16.0 - s.width) / 2.0, y + (h - s.height) / 2.0), s)];
                 }
             }
             let title: id = match &l.row {
@@ -86,7 +92,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
                     msg_send![s, initWithString: ns(&l.text), attributes: attrs(font, color, para)]
                 }
             };
-            let _: () = msg_send![title, drawInRect: NSRect::new(crate::mac::NSPoint::new(34.0, y + 3.0), NSSize::new(WIDTH - 60.0, ROW_H - 4.0))];
+            let _: () = msg_send![title, drawInRect: NSRect::new(crate::mac::NSPoint::new(34.0, y + 3.0), NSSize::new(WIDTH - 60.0, h - 4.0))];
             if l.arrow {
                 let chev: id = msg_send![class!(NSImage), imageWithSystemSymbolName: ns("chevron.right"), accessibilityDescription: nil];
                 if chev != nil {
@@ -109,7 +115,14 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
 fn native_rows() {
     let Ok(dir) = std::env::var("TRAY_MENU_NATIVE_SNAPSHOT") else { return };
     let base = std::env::var("TRAY_MENU_HUB").unwrap_or_else(|_| crate::tray_quota::hub_base());
-    let snap = crate::tray_menu::Snapshot::fetch(&base, None);
+    let mut snap = crate::tray_menu::Snapshot::fetch(&base, None);
+    // TRAY_MENU_NATIVE_MACHINES=<file>: an /api/machines answer in place of the live one
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_MACHINES") {
+        snap.machines = Some(std::fs::read_to_string(f).unwrap());
+    }
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_BOARD") {
+        snap.board = Some(std::fs::read_to_string(f).unwrap());
+    }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     let machines = crate::tray_menu_rich::machines_for(&[], &snap);
     for (name, dark) in [("dark", true), ("light", false)] {
@@ -118,6 +131,15 @@ fn native_rows() {
         let first = menu.iter().find_map(|n| if let Node::Card { children, .. } = n { Some(children.clone()) } else { None }).unwrap_or_default();
         std::fs::write(format!("{dir}/native-top-{name}.png"), unsafe { render(&menu, dark) }).unwrap();
         std::fs::write(format!("{dir}/native-mac-{name}.png"), unsafe { render(&first, dark) }).unwrap();
+        // every machine: its card alone and its submenu, side by side they must read the same
+        for n in &menu {
+            if let Node::Card { key, children, .. } = n {
+                if let Some(id) = key.strip_prefix("machine:") {
+                    std::fs::write(format!("{dir}/card-{id}-{name}.png"), unsafe { render(std::slice::from_ref(n), dark) }).unwrap();
+                    std::fs::write(format!("{dir}/sub-{id}-{name}.png"), unsafe { render(children, dark) }).unwrap();
+                }
+            }
+        }
     }
 }
 
@@ -135,4 +157,55 @@ fn icon_markers_round_trip_through_the_title() {
     let t = format!("{}Chiudi", icon_mark("sf:xmark.circle"));
     let rest = t.strip_prefix(ICON_MARK).and_then(|r| r.split_once(ICON_END)).unwrap();
     assert_eq!(rest, ("sf:xmark.circle", "Chiudi"));
+}
+
+unsafe fn raw_item(menu: id, title: &str) -> id {
+    let item: id = msg_send![class!(NSMenuItem), alloc];
+    let item: id = msg_send![item, initWithTitle: ns(title), action: std::ptr::null::<std::ffi::c_void>(), keyEquivalent: ns("")];
+    let _: () = msg_send![menu, addItem: item];
+    item
+}
+
+unsafe fn leaked_titles(menu: id, out: &mut Vec<String>) {
+    let count: isize = msg_send![menu, numberOfItems];
+    for i in 0..count {
+        let item: id = msg_send![menu, itemAtIndex: i];
+        let title = string_of(msg_send![item, title]).unwrap_or_default();
+        if title.contains("card:") || title.contains("row:") || title.contains("icon:") {
+            out.push(title);
+        }
+        let sub: id = msg_send![item, submenu];
+        if sub != nil {
+            leaked_titles(sub, out);
+        }
+    }
+}
+
+/// The real path: the menu goes to a real status item through `setMenu:`, exactly as
+/// tray-icon does on a click, and no title (submenus included) may keep a marker.
+#[test]
+fn the_menu_a_status_item_receives_is_decorated() {
+    reset();
+    unsafe {
+        // A stand-in with the status item's `setMenu:` shape: a real status item needs the main thread.
+        let mut builder = objc2::declare::ClassBuilder::new(c"TrayMenuHookProbe", class!(NSObject)).unwrap();
+        extern "C" fn plain_set_menu(_this: id, _sel: crate::mac::Sel, _menu: id) {}
+        builder.add_method(crate::mac::sel!(setMenu:), plain_set_menu as extern "C" fn(id, crate::mac::Sel, id));
+        let probe_class = builder.register();
+        hook_set_menu(probe_class as *const _ as *const std::ffi::c_void);
+        let menu: id = msg_send![class!(NSMenu), new];
+        raw_item(menu, &format!("{}Apri Topics", icon_mark("sf:macwindow")));
+        raw_item(menu, &register_card("machine:local", &[], 280.0, 90.0));
+        let parent = raw_item(menu, &register_row(1, &["Projects".to_string(), "3".to_string()], true));
+        let sub: id = msg_send![class!(NSMenu), new];
+        raw_item(sub, &format!("{}Esci", icon_mark("sf:power")));
+        raw_item(sub, &register_row(2, &["alpha".to_string(), "1".to_string()], false));
+        let _: () = msg_send![parent, setSubmenu: sub];
+
+        let status: id = msg_send![probe_class, new];
+        let _: () = msg_send![status, setMenu: menu];
+        let mut leaked = Vec::new();
+        leaked_titles(menu, &mut leaked);
+        assert!(leaked.is_empty(), "markers left in the menu the status item received: {leaked:?}");
+    }
 }
