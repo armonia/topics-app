@@ -234,7 +234,7 @@ async function resetToBaselineInner(request: APIRequestContext): Promise<void> {
  * Only the two hooks are asked for, so any custom fixture fits without a cast.
  */
 type HookRegistrar = {
-  beforeAll: (fn: (fixtures: unknown, testInfo: TestInfo) => Promise<void>) => void;
+  beforeAll: (fn: (fixtures: object, testInfo: TestInfo) => Promise<void>) => void;
   afterAll: (fn: () => Promise<void>) => void;
 };
 
@@ -244,7 +244,9 @@ export function hermetic(test: HookRegistrar): void {
   // starting on one worker wipes the other worker's topics mid-test. Files take
   // turns: the lock is held from this reset to the file's afterAll.
   let release: (() => void) | null = null;
-  test.beforeAll(async (_fixtures, testInfo) => {
+  // Playwright parses the first parameter and rejects anything but a destructuring pattern.
+  // eslint-disable-next-line no-empty-pattern
+  test.beforeAll(async ({}, testInfo) => {
     // Waiting for the other worker's file is not this hook's work: without
     // lifting the timeout, a file that holds the lock longer than one test
     // timeout fails the waiting hook instead of queueing it.
