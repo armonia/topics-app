@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.19 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: resolve a model alias against the node's own catalog (#1138)
+
 ## 2.4.18 — 2026-11-16
 
 ### Sotto il cofano
