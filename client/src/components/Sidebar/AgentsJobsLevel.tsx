@@ -39,6 +39,7 @@ import { useHubEverRead } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
+import { ChildWorkMeter } from '../Board/ChildWorkMeter';
 import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
 import { openAutomation, openAutomationsCalendar } from '../../state/automationTarget';
 import { peekAgentsJobsFilter, takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
@@ -594,6 +595,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
             <span className="min-w-0 truncate">{meta}</span>
           </span>
         )}
+        {row.target && live && <span className="mt-0.5 block"><ChildWorkMeter id={row.target.id} /></span>}
         {timelineOpen && row.timeline && (
           <span data-testid="agents-jobs-timeline" className="mt-1 block border-l border-app-border-light pl-2">
             {row.timeline.map((line, i) => <span key={i} className="block text-mini text-app-text-secondary">{line}</span>)}

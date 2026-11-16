@@ -197,6 +197,14 @@ export const NODE_BRANCH_GRACE_POLLS = 3;
 
 /** How long a card waits before trying a silent node again. */
 const NODE_RETRY_MINUTES = 5;
+/** Longest wait for a node to archive one retired mirror: past it, the next round tries again. */
+export const MIRROR_CANCEL_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer in ${ms} ms`)), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
 
 // The three chips this lane writes. Plain literals in the dispatcher too: they
 // are the same three strings the board renders, not a shared enum.
@@ -1252,6 +1260,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       await landNodeDelivery(taskId, node, report);
     }
+    // Never awaited: a node that does not answer must not hold the poll, and the recovery behind it.
+    if (!mirrorSweep) {
+      mirrorSweep = retireClosedMirrors()
+        .catch((err) => log("node: retired mirrors sweep failed", err))
+        .finally(() => { mirrorSweep = null; });
+    }
   }
 
   /**
@@ -1316,6 +1330,55 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     lastNodeRun.delete(taskId);
     try { releaseAndEmit({ taskId, requeue: false }); }
     catch (err) { log(`node: done card ${taskId} was not released`, err); }
+  }
+
+  /**
+   * Mirrors left open on the node by cards that left the cycle (done or archived) after their run
+   * came home. `landNodeDelivery` closes the slot here, and nothing else archived the mirror over
+   * there: it stayed in review and the node GC kept its worktree forever (16/11, 145 worktrees on
+   * the PC, disk under the dispatch floor). The cancel archives the node card, the branch stays
+   * pinned there. Best effort and idempotent: a silent node is retried next round, a 404 is done.
+   * A card in review here is NOT retired: a review sent back resumes from the branch.
+   */
+  let mirrorSweep: Promise<void> | null = null;
+  async function retireClosedMirrors(): Promise<void> {
+    const client = host.client;
+    // One failed node is skipped for the rest of the round: 39 cancels to a dead PC would
+    // otherwise each wait for the network to give up.
+    const silent = new Set<string>();
+    if (!client || !svc.retiredNodeRuns) return;
+    let rows: ReturnType<NonNullable<TaskService["retiredNodeRuns"]>>;
+    try { rows = svc.retiredNodeRuns(); } catch (err) { log("node: retired mirrors not read", err); return; }
+    for (const row of rows) {
+      // A live slot belongs to retireDoneRun or the restart path, not to this sweep.
+      if (inFlight.has(row.taskId) || launching.has(row.taskId)) continue;
+      if (!row.machineId) { lastNodeRun.delete(row.taskId); continue; }
+      if (silent.has(row.machineId)) continue;
+      const baseUrl = client.baseUrlOf(row.machineId);
+      const policy = row.capabilityId ? host.delegatedPolicyForTask?.(row.taskId) ?? null : null;
+      const token = policy
+        ? client.delegatedTokenOf?.(row.machineId, policy.id) ?? client.tokenOf(row.machineId)
+        : client.tokenOf(row.machineId);
+      if (!baseUrl || !token) continue;
+      try {
+        await withTimeout(client.cancelRun({
+          baseUrl, token, runId: row.runId,
+          delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined,
+        }), MIRROR_CANCEL_TIMEOUT_MS);
+      } catch (err) {
+        if (!(isNodeError(err) && err.status === 404)) {
+          silent.add(row.machineId);
+          log(`node: mirror of run ${row.runId} (card ${row.taskId}) not archived, retrying next round`, err);
+          continue;
+        }
+      }
+      // Only clear the id that was cancelled: a new dispatch may have written another meanwhile.
+      if (lastNodeRun.get(row.taskId) === row.runId) lastNodeRun.delete(row.taskId);
+    }
   }
 
   async function cancelTask(taskId: string): Promise<boolean | null> {

@@ -5850,6 +5850,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare("UPDATE tasks SET node_run_open = 0 WHERE id = ?").run(taskId);
     },
 
+    retiredNodeRuns() {
+      const rows = db.prepare(
+        `SELECT id, node_run_id, machine_id, delegated_start_capability_id FROM tasks
+          WHERE node_run_id IS NOT NULL AND (status = 'done' OR COALESCE(archived, 0) = 1)`,
+      ).all() as { id: string; node_run_id: string; machine_id: string | null; delegated_start_capability_id: string | null }[];
+      return rows.map((r) => ({ taskId: r.id, runId: r.node_run_id, machineId: r.machine_id, capabilityId: r.delegated_start_capability_id }));
+    },
+
     setLandIntent({ taskId, who, inCi }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);

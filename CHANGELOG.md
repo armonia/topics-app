@@ -2,6 +2,27 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.25 — 2026-11-16
+
+### Sotto il cofano
+- A restart no longer reports a child running on a node as lost (#1151)
+- topics/unwary-kindling (card 77006327) (#1137)
+
+## 2.4.24 — 2026-11-16
+
+### Sotto il cofano
+- **deps** · spec-flow 0.4.0 (#1148)
+- Remote children: read_agent shows the child's own voice, not the node's bookkeeping (#1149)
+- topics/vigilant-specter (card 791984dc) (#1081)
+
+## 2.4.23 — 2026-11-16
+
+### Correzioni
+- **dispatcher** · archive node mirrors once the card is done or archived (#1146)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-16 [skip ci]
+
 ## 2.4.22 — 2026-11-16
 
 ### Sotto il cofano
@@ -66,12 +87,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.15 — 2026-11-16
 
 ### Sotto il cofano
+- the effort band wraps instead of squeezing its text
 - Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)
+- round token figures read «38k» now
 
 ## 2.4.14 — 2026-11-15
 
 ### Sotto il cofano
 - approve as superseded never enters the CI phase (#1114)
+- countdown and weight on a row of their own, singular sub-agent, 40k not 40.0k, no bare «ora» while working; e2e layout guard
 
 ## 2.4.13 — 2026-11-15
 
@@ -81,19 +105,27 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.12 — 2026-11-15
 
 ### Sotto il cofano
+- countdown e2e: fold the phone sidebar sheet with the sidebar shortcut
+- countdown e2e: reopen the phone sidebar sheet before picking the chat
 - una corsa parcheggiata sul nodo non blocca più la card (#1108)
 - Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)
+- countdown e2e: the chat shot uses a top-level chat of its own
 
 ## 2.4.11 — 2026-11-15
 
 ### Sotto il cofano
+- countdown e2e: click, the context has no touch
+- countdown e2e: open the card by its own click event under the phone sheet
 - Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)
 - un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)
 
 ## 2.4.10 — 2026-11-15
 
 ### Sotto il cofano
+- countdown e2e: shots of every surface at four widths in both themes, uploaded as a CI artifact
+- countdown e2e: close the phone sidebar sheet before opening the card
 - Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)
+- countdown e2e: close the phone sidebar sheet by choosing the board row
 
 ## 2.4.9 — 2026-11-15
 
@@ -104,11 +136,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.8 — 2026-11-15
 
 ### Sotto il cofano
+- countdown e2e: the context chip is context-share
+- countdown e2e: reopen the board to read the feed again between steps
+- countdown e2e: open the details panel and answer the drawer's own card read
+- countdown e2e: answer the drawer read on either task route
 - decorate the menu the status item receives, not its idle menu (#1101)
+- countdown e2e: on a phone the board opens from the pane store
 
 ## 2.4.7 — 2026-11-15
 
 ### Sotto il cofano
+- countdown e2e: seed through the request fixture and print the refusal
+- countdown e2e: the closed cards are closed in the feed, the API refuses to create a done card
 - Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)
 
 ## 2.4.6 — 2026-11-15
@@ -120,7 +159,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/gloomy-fern (card 2fbdd455) (#1087)
 - topics/watchful-marble (card a5acfe57) (#1083)
 - topics/peaceful-grove (card 19d684fb) (#1079)
+- exact context of the task session in the weight block and on the card
+- Sub-agents: countdown and weight on their row, tab, list and the card that launched them
+- Work in progress: the same countdown and weight on the sidebar, board tab, bell, agents list and tray
+- Work countdown: e2e spec with video and four widths in both themes, naming and lint fixes
 - topics/peachy-kelp (card 629398ee) (#1070)
+- live-work: route for all chats back after the main merge; bundle ceiling follows the CI measure
+- countdown e2e: seed the board of a real project folder
 
 ## 2.4.5 — 2026-11-15
 
@@ -134,7 +179,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - decision note for daily summary overruns and waits (#1057)
 - a busy database goes straight to the caller instead of a second whole-row attempt (#1039)
 - topics/open-rivet (card b2b33bf0) (#998)
+- countdown to completion and exact session weight on cards and drawer
+- task-countdown test: declare covered requirement
+- identifier words: countdown
 - Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement
+- identifier baseline: formatCountdown now covered
 
 ## 2.4.4 — 2026-11-15
 

@@ -49,6 +49,10 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
+import { TaskCountdown } from './TaskCountdown';
+import { TaskContextChip } from './TaskContextChip';
+import { TaskChildrenChip } from './TaskChildrenChip';
+import { estimatesByProject } from '../../../../shared/task-countdown';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -195,6 +199,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
     scroller.addEventListener('scroll', update, { passive: true });
     return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
   }, [virtualized, layout]);
+  const estimateByProject = useMemo(() => estimatesByProject(tasksById.values()), [tasksById]);
   const renderCard = useCallback((t: BoardTask) => (
     <Card
       key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
@@ -206,6 +211,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
+      estimateMs={estimateByProject.get(t.projectId) ?? null}
       // The live event OR the thread: the first dies with the process, the
       // second does not, and an unanswered question survives a restart.
       awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
@@ -214,7 +220,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       archived={archived}
       density={density}
     />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived, density]);
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, estimateByProject, awaitingHuman, justMoved, justCreated, archived, density]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -474,6 +480,8 @@ type CardDragProps = {
 };
 
 type CardProps = {
+  /** Departure estimate learned from the project's closed cards; null = none. */
+  estimateMs?: number | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -517,7 +525,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -1997,11 +2005,18 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               })
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
-            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
-          ><span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+            className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
+          ><span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}
+        {/* THE COUNTDOWN AND THE WEIGHT, on a row of their own under the effort chip: inside it they squeezed the
+            description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
+        {task.status === 'in_progress' && (
+          <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+          </div>
+        )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
             every card would be noise on all of them to inform one. */}

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.23",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "archive node mirrors once the card is done or archived (#1146)",
+          "scope": "dispatcher"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.21",
     "date": "2026-11-16",
     "sections": {

@@ -15,6 +15,7 @@ import { normalizePromptSnippet } from "./claude-subagent-transcript";
 import { emitChildResult } from "./subagent-runtime";
 import { countRunningRemoteChildren, getSubagent, insertSubagent, markSubagentRemote, runningSubagents, setSubagentState, type SubagentRow } from "./subagent-store";
 import { settleRemoteChildBranch } from "./subagent-remote-return";
+import { isChildVoice } from "./subagent-remote-read";
 import { type ChildNodeCandidate } from "./subagent-remote-run";
 import { spawnRemoteChild } from "./subagent-remote-spawn";
 import type { MacOnlyResource } from "./subagent-remote-decision";
@@ -76,7 +77,7 @@ export function macOnlyResourceOf(prompt: string, agentType: string | null): Mac
  * attached" note was the last comment, and the parent read that as the child's answer).
  */
 export function childAnswerOf(comments: readonly NodeRunComment[]): string {
-  const byAgent = comments.filter((c) => c.author.startsWith("agent:") && c.kind !== "status");
+  const byAgent = comments.filter(isChildVoice);
   const delivery = byAgent.filter((c) => c.kind === "delivery").at(-1);
   return (delivery ?? byAgent.at(-1) ?? comments.at(-1))?.content ?? "";
 }
