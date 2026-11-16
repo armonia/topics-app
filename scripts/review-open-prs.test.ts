@@ -1,7 +1,7 @@
 /**
-import { resolve } from "node:path";
  * @covers REVIEWPR-01
  */
+import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   buildReviewPrompt,
