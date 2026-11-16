@@ -13,6 +13,8 @@ export function creatorKind(createdBy: string | null | undefined): 'human' | 'ot
 
 export interface CreatorChip {
   kind: 'human' | 'other';
+  /** Jarvis is the agent on this work: his card (`agent:jarvis`) or a card of a channel he follows. */
+  jarvis: boolean;
   /** The short text on the chip: the chat or agent name, or «you». */
   label: string;
   /** The avatar letter for an agent that has a name; null means draw the icon. */
@@ -30,14 +32,19 @@ export interface CreatorChip {
  * beats a made-up one.
  */
 export function creatorChip(
-  task: Pick<BoardTask, 'createdBy' | 'createdSource' | 'openerName' | 'openerTopicId'>,
+  task: Pick<BoardTask, 'createdBy' | 'createdSource' | 'openerName' | 'openerTopicId' | 'channel'>,
   tr: Translate,
 ): CreatorChip | null {
   const parts = splitCreatedBy(task.createdBy);
+  const jarvisName = tr('board.card.channelJarvis');
+  // A card with a channel behind it is Jarvis's work even when nothing says who opened it.
+  if (!parts && task.channel?.topicId) {
+    return { kind: 'other', jarvis: true, label: jarvisName, initial: jarvisName[0]!, title: tr('board.card.jarvisTitle'), openTopicId: null };
+  }
   if (!parts) return null;
   if (parts.kind === 'human') {
     const label = tr('board.card.createdByMe');
-    return { kind: 'human', label, title: tr('board.card.createdByTitle', { who: label }), initial: null, openTopicId: null };
+    return { kind: 'human', jarvis: false, label, title: tr('board.card.createdByTitle', { who: label }), initial: null, openTopicId: null };
   }
   const fallback = task.createdBy === API_CALLER_CREATED_BY
     ? tr('board.card.createdByApi')
@@ -50,7 +57,9 @@ export function creatorChip(
   const who = task.createdSource ? `${label} (${task.createdSource})` : label;
   // The coordinator lives in a drawer, not in a tab a click could open.
   const openTopicId = task.openerTopicId && task.createdBy !== 'agent:coordinator' ? task.openerTopicId : null;
-  return { kind: 'other', label, title: tr('board.card.createdByTitle', { who }), initial, openTopicId };
+  const jarvis = parts.name?.toLowerCase() === 'jarvis' || !!task.channel?.topicId;
+  if (jarvis) return { kind: 'other', jarvis, label: jarvisName, initial: jarvisName[0]!, title: tr('board.card.jarvisTitle'), openTopicId };
+  return { kind: 'other', jarvis, label, title: tr('board.card.createdByTitle', { who }), initial, openTopicId };
 }
 
 /** The chip for a card still open that lacks what lets it finish by itself. */

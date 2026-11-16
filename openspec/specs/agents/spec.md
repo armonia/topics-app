@@ -1219,6 +1219,20 @@ Before a `spawn_agent` child can run on a paired node, `decideRemoteSpawn` (`ser
 - **WHEN** the decision is asked
 - **THEN** it answers local, with the reason that a node has nothing to check out
 
+### Requirement: SUBAGENT-27 — A child on a node takes the first free seat and is stopped, read and refused like a node run
+
+A child that may go remote SHALL take the first online paired node with a free seat on `machines.slots` (`pickNodeForChild`, `server/lib/subagent-remote-run.ts`), else stay on this Mac. Its run SHALL start through the same `createRun` door a card uses, and the child row SHALL record the node and run (`subagents.remote_machine_id`, `remote_run_id`, both or neither). On such a child `stop_agent` SHALL cancel the run on the node and mark the child stopped here even when the node cannot be reached, `read_agent` SHALL return the node's report on the run, and `send_to_agent` SHALL be refused with 409, since a node run takes no input mid-run.
+
+#### Scenario: Every node is full
+- **GIVEN** two online nodes whose children already fill their slots
+- **WHEN** a seat is picked for a new child
+- **THEN** none is picked and the child stays on this Mac
+
+#### Scenario: Stop while the node is down
+- **GIVEN** a remote child whose node does not answer
+- **WHEN** `stop_agent` is called on it
+- **THEN** the call answers ok and the child reads stopped here
+
 ### Requirement: SUBAGENT-26 — A remote child carries the parent's work as a bundle and brings its branch back
 
 The work a remote child starts from SHALL be a snapshot of the parent's checkout (`HEAD` plus every uncommitted change, new files never added included, ignored files excluded) shipped as a git bundle (`server/lib/subagent-bundle.ts`), and taking the snapshot SHALL NOT touch the parent's working tree, index or stash list. The child's branch SHALL come back the same way, and adopting it SHALL only move a parent branch of the same name forward: a parent branch with commits the child does not have SHALL be refused, not overwritten, and so SHALL a parent branch checked out in the parent or in one of its worktrees. Both legs SHALL work on a repository with no `origin`.
@@ -1237,6 +1251,34 @@ The work a remote child starts from SHALL be a snapshot of the parent's checkout
 - **GIVEN** a parent branch with a commit the child's returning branch does not contain
 - **WHEN** the child's branch is adopted
 - **THEN** the adoption is refused and the parent branch still points at its own commit
+
+### Requirement: SUBAGENT-28 — `spawn_agent` actually wires the remote lane, and the round trip ends at `read_agent`/`wait_agent`
+
+The `/agents/spawn` route SHALL sequence `decideRemoteSpawn` (SUBAGENT-25), the bundle snapshot and `pickNodeForChild`/`startRemoteChildRun` (SUBAGENT-26/27) on the parent's own cwd, before any local worktree or process is paid for: an eligible spawn with a free node SHALL start there (`subagents.remote_machine_id`/`remote_run_id` set, no local worktree created), and a spawn that was never eligible (no node, no origin, `decideRemoteSpawn` says local) SHALL fall through to today's local path unchanged. Once the node's run reaches `review`, the branch SHALL be fetched and adopted into the parent (SUBAGENT-26) and the row SHALL retire; the parent SHALL be told the same way a local child's turn ends, so both `read_agent` and `wait_agent` see the result, not `read_agent` alone. A run the node parked itself (`backlog` with a failed or blocked dispatch) SHALL also retire the row, as `failed`, without a branch to adopt.
+
+#### Scenario: A git repo with origin and a free node
+- **GIVEN** a `spawn_agent` call whose cwd is a git repo with an origin, and a paired node online with a free seat
+- **WHEN** the call is made
+- **THEN** the answer carries the node's run, no local worktree or process is created, and the child's row records the node and run
+
+#### Scenario: Never eligible, the local path is untouched
+- **GIVEN** a `spawn_agent` call with `runtime: "claude-code"`, or whose cwd has no origin, or with no node free
+- **WHEN** the call is made
+- **THEN** the child starts locally exactly as it did before this wiring existed
+
+#### Scenario: The node's run reaches review
+- **GIVEN** a remote child whose node answers `review` with a delivery branch
+- **WHEN** `read_agent` (or the background watch) next asks the node
+- **THEN** the branch is adopted into the parent, the row retires, and the result reaches both `read_agent` and a held `wait_agent`
+
+### Requirement: SUBAGENT-29 — A remote child's read cursor survives a restart
+
+`read_agent`'s cursor for a child running on a node (`nextOffset`, SUBAGENT-27) SHALL carry an epoch picked once per process boot. A `since` whose epoch does not match the current process (from before a restart, or `0` from a caller that never read) SHALL be read as index `0`: the in-memory log, rebuilt from the node's own report, is replayed from the start rather than skipping its first entries because they happen to already be at or past the asked-for index.
+
+#### Scenario: A since from before a restart
+- **GIVEN** a `since` cursor handed out by a previous process (a different epoch)
+- **WHEN** `read_agent` is called with it after a restart
+- **THEN** the rebuilt log is read from its start, not from the raw index the cursor carries
 
 ### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
 

@@ -26,7 +26,7 @@ fn rows_carry_cpu_gpu_network_and_memory_columns() {
     assert!(t.starts_with("GIRA ADESSO · 3 · 3,6 GB | CPU | GPU | rete | memoria"), "{t}");
     assert!(t.contains("App A | 1,7 core | 22% | 1,9 MB/s | 3,0 GB"), "{t}");
     assert!(t.contains("Service B | 3% | – | – | 500 MB"), "{t}");
-    assert!(t.contains("Leftover C | 0% | n/d | n/d | 100 MB"), "{t}");
+    assert!(t.contains("Leftover C | 0% | – | – | 100 MB"), "{t}");
 }
 
 #[test]
@@ -107,4 +107,31 @@ fn tray_rows_carry_the_icon_of_their_kind() {
     assert_eq!(unit_icon(&app, "grave"), "sf:exclamationmark.shield.fill");
     assert_eq!(unit_icon(&serde_json::json!({"type": "servizio"}), ""), "sf:gearshape");
     assert_eq!(unit_icon(&serde_json::json!({"type": "app"}), ""), "sf:app", "an app with no bundle falls back to the kind sign");
+}
+
+#[test]
+fn a_remote_command_line_keeps_the_program_name_and_fits_under_the_row() {
+    assert_eq!(short_cmd("/srv/x/_tool/node/24/bin/node --test"), "node --test");
+    assert_eq!(short_cmd(r"C:\Windows\System32\svchost.exe -k netsvcs"), "svchost.exe -k netsvcs");
+    assert_eq!(short_cmd(""), "");
+    let long = short_cmd(&format!("/a/b/chrome {}", "--flag ".repeat(20)));
+    assert!(long.starts_with("chrome --flag") && long.ends_with('…') && long.chars().count() <= 56, "{long}");
+}
+
+#[test]
+fn a_unit_that_can_be_closed_is_set_in_semibold_and_one_that_cannot_is_not() {
+    fn looks(nodes: &[Node], out: &mut Vec<(String, bool)>) {
+        for n in nodes {
+            match n {
+                Node::Icon { node, .. } => looks(std::slice::from_ref(&**node), out),
+                Node::Row { cells, header: false, look, .. } => out.push((cells[0].clone(), look.bold)),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    looks(&procs_table(&snap()), &mut found);
+    for (name, bold) in [("App A", true), ("Leftover C", true), ("Service B", false)] {
+        assert_eq!(found.iter().find(|(n, _)| n == name).map(|(_, b)| *b), Some(bold), "{name}: {found:?}");
+    }
 }

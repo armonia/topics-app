@@ -93,15 +93,17 @@ const DIAL_ROWS: [(&str, &str); 4] = [("disk", "Disco"), ("mem", "Memoria"), ("c
 const CARD_X: f32 = PAD;
 const CARD_W: f32 = MENU_W - 2.0 * PAD;
 
-/// The line under the dial: the readings the dial has no band for (a server's
-/// spend), then the reason. A machine that only measures its spend keeps it in sight
-/// instead of showing an empty dial and nothing else.
+/// The line of why next to (or under) the name: the service's reason, nothing else.
+/// The readings all live in the dial's legend, the ones it has no band for (a
+/// server's spend) as rows of their own under the four of the dial.
 pub fn card_line(m: &MachineCard) -> String {
-    let extra = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).filter_map(|x| {
-        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map(|p| format!("{p}%"))? };
-        Some(if x.name.is_empty() { value } else { format!("{} {value}", x.name) })
-    });
-    extra.chain(Some(m.reason.clone()).filter(|r| !r.is_empty())).collect::<Vec<_>>().join(" · ")
+    m.reason.clone()
+}
+
+/// The readings the dial has no band for, as extra legend rows: everything but the
+/// dial's own and the swap (which is the note of the memory row).
+fn extra_rows(m: &MachineCard) -> Vec<&Metric> {
+    m.metrics.iter().filter(|x| x.key != "swap" && !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).collect()
 }
 
 /// What kind of machine a card is, for its logo: this computer, a cloud server or a Windows PC.
@@ -116,14 +118,27 @@ fn machine_glyph_of(m: &MachineCard) -> &'static str {
     }
 }
 
+/// The size of a machine's logo, in points: the original tray draws the Apple logo at 14, a cloud at 13
+/// and the Windows logo at 12 (`machineSym`), each centred in the same slot.
+pub(crate) fn machine_glyph_side(glyph: &str) -> f32 {
+    match glyph {
+        "apple.logo" => 14.0,
+        "cloud" => 13.0,
+        _ => 12.0,
+    }
+}
+
 /// The machine's logo in the menu's own ink, as the original tray draws it: the system's Apple logo,
 /// the Windows logo as it is, a cloud for a server.
 fn draw_machine_glyph(pic: &mut Pic, m: &MachineCard, x: f32, y: f32, p: Palette) {
-    let side = 17.0;
-    match machine_glyph_of(m) {
-        "windows" => pic.windows_logo(x + 2.0, y + 2.5, side - 4.0, p.fg, 1.0),
+    let slot = 17.0;
+    let glyph = machine_glyph_of(m);
+    let side = machine_glyph_side(glyph);
+    let (gx, gy) = (x + (slot - side) / 2.0, y + (slot - side) / 2.0);
+    match glyph {
+        "windows" => pic.windows_logo(gx, gy, side, p.fg, 1.0),
         name => match system_symbol(name) {
-            Some(mask) => pic.mask(x, y, side, &mask, p.fg, 1.0),
+            Some(mask) => pic.mask(gx, gy, side, &mask, p.fg, 1.0),
             // no system symbol to draw (not a Mac): a small display
             None => {
                 pic.stroke_rrect(x + 1.0, y + 3.0, 15.0, 11.0, 2.5, 1.4, p.fg, 0.9);
@@ -184,33 +199,24 @@ fn mini_dial(pic: &mut Pic, cx: f32, cy: f32, lit: &str, color: [u8; 3], p: Pale
     }
 }
 
-/// Does the machine measure hardware (the dial), or only something else (a server's spend)?
-fn has_hardware(m: &MachineCard) -> bool {
-    m.metrics.iter().any(|x| DIAL_ROWS.iter().any(|(k, _)| *k == x.key))
-}
-
-/// The same card for every machine, laid out as the original tray lays it out: no frame,
-/// the machine's logo and name with its state in a pill, the one line of why under the name,
-/// then the half-circle dial (disk, memory, CPU and GPU) with its legend of one tiny dial per
-/// row. A machine that measures no hardware (a cloud server) takes the service's own
-/// rows instead: the spend with its 24 hour chart and the state band.
-pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detail::MachineDetail>, p: Palette) -> Pic {
+/// The same card for every machine (this computer, a PC, a cloud server), laid out as
+/// the original tray lays it out: no frame, the machine's logo and name with its state
+/// in a pill, the one line of why, then the half-circle dial (disk, memory, CPU and
+/// GPU) with its legend of one tiny dial per row. A reading the dial has no band for
+/// (the spend of a server) is one more legend row, with its own sign, under the four.
+pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let (disc, band, gap) = (20.0_f32, 10.0_f32, 5.0_f32);
     let r1 = disc + gap + band / 2.0;
     let r2 = r1 + band + gap;
     let edge = r2 + band / 2.0;
     let line = card_line(m);
-    let lvl = m.metrics.iter().filter(|x| !DIAL_ROWS.iter().any(|(k, _)| *k == x.key)).map(|x| x.level).fold(m.level, u32::max);
-    let flat = (!has_hardware(m)).then_some(detail).flatten().filter(|d| crate::tray_menu_detail::has_graphics(d));
+    let extras = extra_rows(m);
+    let lvl = extras.iter().map(|x| x.level).fold(m.level, u32::max);
     // local: the reason is its own line under the name; a remote machine says it after the name
     let brake = m.local && !line.is_empty();
     let top = if brake { 44.0 } else { 27.0 };
-    let dial_h = edge + 6.0 + 18.0;
-    let body_h = match (flat, has_hardware(m) || m.metrics.is_empty()) {
-        (Some(d), _) => crate::tray_menu_detail::detail_body_height(d),
-        (None, true) => dial_h,
-        (None, false) => 0.0,
-    };
+    let rows = 4 + extras.len();
+    let body_h = (edge + 6.0 + 18.0).max(rows as f32 * 18.0 + 2.0);
     let mut pic = Pic::new(MENU_W, top + body_h + 8.0);
     let head = tone(m.level);
     draw_machine_glyph(&mut pic, m, 13.0, 4.0, p);
@@ -235,13 +241,6 @@ pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detai
         }
         let text = Pic::fit(Face::Sans, &line, 10.5, MENU_W - 53.0 - 16.0);
         pic.text(Face::Sans, &text, 53.0, 36.0, 10.5, c, a);
-    }
-    if let Some(d) = flat {
-        crate::tray_menu_detail::draw_detail_body(&mut pic, d, top, false, p);
-        return pic;
-    }
-    if !(has_hardware(m) || m.metrics.is_empty()) {
-        return pic;
     }
     let cx = 38.0 + edge + 6.0;
     let cy = top + edge + 6.0;
@@ -273,6 +272,7 @@ pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detai
     // the legend, outside in: CPU, GPU, memory, disk; a tiny dial lit on the band, the label, the value, the note
     let lx = cx + outer + 26.0;
     let swap = find("swap").filter(|x| !x.value.is_empty());
+    let room = MENU_W - 18.0 - (lx + 108.0);
     for (i, (key, label)) in [("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Memoria"), ("disk", "Disco")].iter().enumerate() {
         let y = top + i as f32 * 18.0;
         let x = find(key);
@@ -287,8 +287,27 @@ pub fn draw_machine_card(m: &MachineCard, detail: Option<&crate::tray_menu_detai
             ("mem", Some(s)) => (format!("swap {}", s.value), if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim }),
             _ => (x.map_or(String::new(), |x| x.note.clone()), p.fg, p.dim),
         };
-        let room = MENU_W - 18.0 - (lx + 108.0);
         pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &note, 10.0, room), lx + 108.0, y + 12.0, 10.0, ncol, na);
+    }
+    // the readings with no band: one row each, the sign of the reading in place of the tiny dial
+    for (i, x) in extras.iter().enumerate() {
+        let y = top + (4 + i) as f32 * 18.0;
+        let c = if x.level > 0 { tone(x.level) } else { p.fg };
+        let symbol = if x.key == "spend" { "eurosign.circle" } else { "circle" };
+        if let Some(mask) = system_symbol(symbol) {
+            pic.mask(lx + 1.5, y + 6.5, 11.0, &mask, c, 1.0);
+        } else {
+            pic.stroke_rrect(lx + 2.0, y + 6.0, 10.0, 10.0, 5.0, 1.3, c, 1.0);
+        }
+        let label = if x.name.is_empty() { x.key.as_str() } else { x.name.as_str() };
+        pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
+        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |v| format!("{v}%")) };
+        let vw = Pic::text_w(Face::MonoBold, &value, 11.5);
+        // a value wider than the column (8,44/60 €) starts at the label's end instead of overrunning it
+        let vx = (lx + 100.0 - vw).max(lx + 20.0 + Pic::text_w(Face::Sans, label, 10.5) + 6.0);
+        pic.text(Face::MonoBold, &value, vx, y + 12.0, 11.5, c, 1.0);
+        let nx = (vx + vw + 8.0).max(lx + 108.0);
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &x.note, 10.0, (MENU_W - 18.0 - nx).max(0.0)), nx, y + 12.0, 10.0, p.fg, p.dim);
     }
     pic
 }

@@ -33,10 +33,11 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
 import { worktreeRegistrationLost } from "./worktree-registration";
+import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
-import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
+import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
 import { runGit } from "../lib/run-git";
@@ -127,6 +128,10 @@ export type LandSkipCode =
   | "realign-blocked"
   /** The automatic land found the branch behind `main` and refused to realign it (`DeliverySnapshot.noRealign`). */
   | "realign-needed"
+  /** The branch on origin holds commits this checkout does not have and the fetch could not bring them in. */
+  | "branch-stale"
+  /** The delivered commit is not in this checkout: the delivery never arrived here (a node bundle that failed to plant). */
+  | "delivery-absent"
   /**
    * The automatic land would publish something other than the commit the bar
    * measured: the delivered branch is gone, its tip moved after the delivery, or
@@ -138,6 +143,8 @@ export type LandSkipCode =
   | "auto-land-stopped"
   /** A commit of the branch credits an assistant, or has an author other than the repo identity (LAND-13). */
   | "attribution"
+  /** The land found nothing to bring over, or no branch, while the delivered commit is not on main: nothing landed, so the card is not accepted. */
+  | "not-on-main"
   /** Eccezione durante il land. */
   | "internal-error";
 
@@ -193,7 +200,10 @@ const REBASE_INSTRUCTION =
  * altrove, o uno nuovo aggiunto senza passare di qui) vale come fallito: sbaglia
  * verso il rimandare indietro una card, mai verso il chiuderla.
  */
-export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommit?: string | null } = {}): LandFallout {
+export function landFallout(
+  code: LandSkipCode | undefined,
+  ctx: { deliveryCommit?: string | null; priorBranch?: string | null } = {},
+): LandFallout {
   switch (code) {
     case "no-branch":
       return { status: null, reason: "" };
@@ -208,6 +218,13 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
     // And so does a caller who did not LOOK (`deliveryCommit` undefined): the
     // acceptance is an explicit statement, never the default.
     case "branch-missing":
+      // A card that carried its branch to another machine has code on it even
+      // with no delivery commit recorded here: the remote run returns with both
+      // delivery columns empty. Missing here AND on origin is a loss to look at,
+      // never an acceptance (12/11, 17436204 and 403aad1f closed outside main).
+      if (ctx.priorBranch?.trim()) {
+        return { status: "review", reason: `il ramo \`${ctx.priorBranch.trim()}\` portato su un'altra macchina non si trova né qui né su origin` };
+      }
       if (ctx.deliveryCommit === null) return { status: null, reason: "" };
       return { status: "review", reason: "il ramo consegnato non è più confrontabile con main" };
     case "unisolable":
@@ -228,8 +245,14 @@ export function landFallout(code: LandSkipCode | undefined, ctx: { deliveryCommi
       return { status: "review", reason: "il ramo è indietro su main e il riallineamento non si è potuto provare" };
     case "realign-needed":
       return { status: "review", reason: "il ramo è indietro su main: l'atterraggio automatico non lo riallinea" };
+    case "branch-stale":
+      return { status: "review", reason: "il ramo su origin ha commit che il checkout locale non ha" };
+    case "delivery-absent":
+      return { status: "review", reason: "il commit consegnato non è arrivato in questo checkout" };
     case "not-as-measured":
       return { status: "review", reason: "l'atterraggio automatico avrebbe pubblicato un commit diverso da quello misurato" };
+    case "not-on-main":
+      return { status: "review", reason: "il land non ha portato niente e il commit consegnato non è su main" };
     case "auto-land-stopped":
       return { status: "review", reason: "l'atterraggio automatico si è fermato prima del merge" };
     default:
@@ -289,6 +312,50 @@ export interface DeclaredDelivery {
   repoPath: string | null;
   /** Il ramo registrato alla consegna. `null` = la card non ne dichiara uno. */
   branch: string | null;
+  /**
+   * Every branch the card itself has carried (`deliveryBranch`, `priorBranch`).
+   * Their commits are the card's own: a node round starts from the branch of the
+   * round before, and with that branch still here every earlier commit looked
+   * foreign, so the land picked the later ones alone across the merges and
+   * reported a conflict a plain merge did not have (13/11, 06bf57c1).
+   */
+  ownRefs?: string[];
+}
+
+/** What `declaredDeliveryFor` reads of a card. */
+export interface DeclaredTask {
+  projectId: string;
+  deliveryBranch?: string | null;
+  priorBranch?: string | null;
+}
+
+/**
+ * The `declaredDelivery` wiring of the server, as a function the tests can call.
+ *
+ * The branch a card declares is its delivery branch, or the one it carried to
+ * another machine (`priorBranch`): a card that ran on a node or the PC comes
+ * back with `deliveryBranch` null and the branch only in `priorBranch`, and
+ * ignoring it made the land answer `no-branch` and close the card with its code
+ * outside main (12/11, 17436204 and 403aad1f). A `null` branch means no branch
+ * ever existed; the checkout is still resolved, so the land can check that a
+ * recorded delivery commit is on main before it says there was nothing to land.
+ */
+export function declaredDeliveryFor(deps: {
+  getTask: (taskId: string) => DeclaredTask | null | undefined;
+  resolveRepoPath: (projectId: string) => string | null;
+  log?: (msg: string, err?: unknown) => void;
+}): (taskId: string) => DeclaredDelivery | null {
+  return (taskId) => {
+    const task = deps.getTask(taskId);
+    if (!task) return null;
+    const branch = carriedBranch(task);
+    let repoPath: string | null = null;
+    try { repoPath = deps.resolveRepoPath(task.projectId); } catch (err) { deps.log?.(`[land] checkout non risolto per ${taskId}`, err); }
+    const ownRefs = [...new Set([task.deliveryBranch, task.priorBranch]
+      .map((b) => b?.trim() || "")
+      .filter((b) => b !== "" && isPlainBranchName(b)))];
+    return { repoPath, branch, ownRefs };
+  };
 }
 
 /** Il ramo scelto per il land, o il perché non ce n'è uno. */
@@ -480,6 +547,37 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
    */
   async function comparisonBase(repoPath: string, mainBranch: string): Promise<string> {
     return (await fetchRemoteBase(runGit, repoPath, mainBranch)).ref ?? mainBranch;
+  }
+
+  /**
+   * `git fetch origin B:B`, then a check that nothing on origin was left behind.
+   * Returns the refusal reason when origin holds PATCHES of `branch` that the
+   * local one lacks (the fetch is non-forced, so a branch checked out in a
+   * worktree or diverged is not moved); `null` when nothing is missing, or when
+   * there is no origin or no such branch there.
+   *
+   * Patches, not shas: every delivery is pushed and the agents are told to
+   * `git rebase main`, so a local branch rebased after its push differs from
+   * origin by sha alone and must land (`resolveLanding` reports it as drift).
+   * `git cherry` compares by patch-id: a `+` line is a commit of origin whose
+   * change the local branch does not carry.
+   */
+  async function fetchBranchFromOrigin(repoPath: string, branch: string): Promise<string | null> {
+    if (!isPlainBranchName(branch)) return null;
+    await runGit(repoPath, ["fetch", "--no-tags", "origin", `refs/heads/${branch}:refs/heads/${branch}`]).catch(() => undefined);
+    const remote = await runGit(repoPath, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`]).catch(() => null);
+    const sha = remote && remote.code === 0 ? remote.stdout.trim().split(/\s+/)[0] ?? "" : "";
+    if (!sha) return null;
+    const contained = await runGit(repoPath, ["merge-base", "--is-ancestor", sha, `refs/heads/${branch}`]);
+    if (contained.code === 0) return null;
+    // A refused fetch may not have brought the objects: fetch them without moving any ref.
+    const known = await runGit(repoPath, ["cat-file", "-e", `${sha}^{commit}`]);
+    if (known.code !== 0) await runGit(repoPath, ["fetch", "--no-tags", "origin", `refs/heads/${branch}`]).catch(() => undefined);
+    const cherry = await runGit(repoPath, ["cherry", `refs/heads/${branch}`, sha]);
+    const missing = cherry.code === 0 ? cherry.stdout.split("\n").filter((l) => l.startsWith("+")).length : -1;
+    if (missing === 0) return null;
+    const what = missing > 0 ? `${missing} commit (${sha.slice(0, 8)})` : `commit (${sha.slice(0, 8)})`;
+    return `il ramo \`${branch}\` su origin ha ${what} che questo checkout non ha per patch-id (il fetch non li ha portati: ramo in uso in un worktree o divergente, oppure ribasato con un conflitto risolto, che cambia il patch-id). Se il ramo locale è quello giusto, riallinealo a origin o spingilo prima di atterrare`;
   }
 
   /**
@@ -752,12 +850,40 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     });
   }
 
+  /**
+   * Why the delivered commit is NOT on `mainRef`, or `null` when it is: by
+   * descent, as the land's own copy, or by content (`commitStatusFromRepo`).
+   *
+   * "Nothing to land" and "no branch" leave a card accepted, and on 13/11 (card
+   * 06bf57c1) one of them was said about a commit main did not have. Every such
+   * answer now passes here first.
+   */
+  async function notOnMain(repo: string, sha: string, mainRef: string): Promise<string | null> {
+    if ((await commitIsIn(repo, sha, mainRef, { runGit })) === true) return null;
+    if ((await commitStatusFromRepo(repo, sha, mainRef, runGit)) === "merged") return null;
+    return `il land non ha trovato niente da portare, ma il commit consegnato \`${sha.slice(0, 8)}\` non è su ${mainRef}: niente è atterrato, e la card non si accetta così`;
+  }
+
   async function tryMerge(taskId: string, title: string, delivery?: DeliverySnapshot): Promise<AutoMergeResult> {
-    const choice = chooseMergeTarget(
-      deps.resolveTaskMerge(taskId),
-      deps.declaredDelivery?.(taskId) ?? null,
-    );
+    // A node round that came back with nothing planted and no commit: whatever
+    // branch this checkout holds is an earlier round, or none exists at all.
+    if (delivery?.commit?.trim() === UNPLANTED_DELIVERY_COMMIT) {
+      return {
+        status: "skipped", code: "delivery-absent",
+        reason: "la consegna del nodo non è arrivata in questo checkout: il giro è da rifare, il ramo che c'è qui non è il suo lavoro",
+      };
+    }
+    const declared = deps.declaredDelivery?.(taskId) ?? null;
+    const choice = chooseMergeTarget(deps.resolveTaskMerge(taskId), declared);
     if (!choice.target) {
+      // No branch, yet a delivery commit recorded: "nothing to land" closes the
+      // card, so it holds only when that commit is on main.
+      const sha = delivery?.commit?.trim();
+      const repo = declared?.repoPath?.trim();
+      if (choice.code === "no-branch" && sha) {
+        const missing = repo ? await notOnMain(repo, sha, "main") : `il checkout del progetto non si trova, quindi non so se il commit \`${sha.slice(0, 8)}\` sia su main`;
+        if (missing) return { status: "skipped", code: "not-on-main", reason: missing };
+      }
       return { status: "skipped", code: choice.code, reason: choice.reason };
     }
     const target = choice.target;
@@ -773,6 +899,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     let realigned: string | null = null;
 
     const mergeMsg = `merge task ${taskId}: ${title}`.replace(/\s+/g, " ").slice(0, 200);
+
+    /** Every "nothing to land" answer, which accepts the card: refused while the delivered commit is not on main. */
+    async function nothingToLand(): Promise<AutoMergeResult> {
+      const sha = delivery?.commit?.trim();
+      const missing = sha ? await notOnMain(repoPath, sha, defaultBranch) : null;
+      if (missing) return { status: "skipped", code: "not-on-main", reason: missing };
+      return { status: "nothing", branch, deliveryDrift: drift };
+    }
 
     /** The full sha the bar measured (`noRealign` only), set by the pin check below. The merge takes THIS, never the branch name: a name is read again at the merge. */
     let pinnedSha: string | null = null;
@@ -1076,6 +1210,31 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         const head = await runGit(repoPath, ["symbolic-ref", "--short", "-q", "HEAD"]);
         const cur = head.stdout.trim();
 
+        // The branch as origin has it, before anything measures it. This checkout
+        // may not have it (then `branch-missing` closed the card with nothing
+        // landed) or may hold an older tip (then the merge left origin's later
+        // commits out). The fetch is non-forced, so it only creates the branch
+        // or fast-forwards it; if origin still holds patches we lack (branch
+        // diverged, or checked out in a worktree) the land refuses. The remote
+        // lanes push the carried branch (`deliveryBranch`, else `priorBranch`)
+        // to origin before a run starts from it (`ensureBranchOnOrigin`), so a
+        // card that ran elsewhere usually finds its branch there.
+        const stale = await fetchBranchFromOrigin(repoPath, branch)
+          ?? (delivery?.branch?.trim() && delivery.branch.trim() !== branch ? await fetchBranchFromOrigin(repoPath, delivery.branch.trim()) : null);
+        if (stale) return { status: "skipped", code: "branch-stale", reason: stale };
+
+        // A delivered commit this checkout has never seen: the delivery did not
+        // arrive (a node bundle that failed to plant records the node's commit and
+        // no branch). Landing the branch found here would publish the round
+        // BEFORE it, the one a person sent back.
+        const delivered = delivery?.commit?.trim() || "";
+        if (delivered && (await runGit(repoPath, ["cat-file", "-e", `${delivered}^{commit}`])).code !== 0) {
+          return {
+            status: "skipped", code: "delivery-absent",
+            reason: `il commit consegnato \`${delivered.slice(0, 8)}\` non è in questo checkout: la consegna non è arrivata, e \`${branch}\` è il lavoro di un giro precedente`,
+          };
+        }
+
         // Quale ramo si pubblica, e cosa dire se non è lo scatto della consegna.
         // PRIMA di ogni controllo: tutto quello che segue (ahead, commit propri,
         // merge) deve parlare del ramo che atterrerà davvero.
@@ -1163,12 +1322,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const sha = delivery?.commit?.trim();
           if (sha) {
             if ((await commitIsIn(repoPath, sha, defaultBranch, { runGit })) === true) {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
             const toccati = await runGit(repoPath, ["diff", "--name-only", `${sha}^`, sha]);
             const visti = toccati.code === 0 && toccati.stdout.trim().length > 0;
             if (visti && (await commitStatusFromRepo(repoPath, sha, defaultBranch, runGit)) === "merged") {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
           }
           // LA SECONDA PROVA, per le card che il commit di consegna non ce l'hanno.
@@ -1193,7 +1352,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           // il drawer per mostrare il diff di un land, non una seconda copia
           // della regola.
           if ((await landedMergeRange(repoPath, taskId, { runGit, mainRef: defaultBranch })) !== null) {
-            return { status: "nothing", branch, deliveryDrift: drift };
+            return nothingToLand();
           }
           /* LA TERZA PROVA: il TITOLO della card fra i soggetti di main.
            *
@@ -1227,13 +1386,13 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               "log", defaultBranch, "-n", "1", "-F", `--grep=${titolo}`, "--format=%H",
             ]);
             if (perTitle.code === 0 && perTitle.stdout.trim()) {
-              return { status: "nothing", branch, deliveryDrift: drift };
+              return nothingToLand();
             }
           }
           return { status: "skipped", code: "branch-missing", reason: `branch '${branch}' non trovato o non confrontabile con '${defaultBranch}'` };
         }
         if (ahead.stdout.trim() === "0") {
-          return { status: "nothing", branch, deliveryDrift: drift };
+          return nothingToLand();
         }
 
         // Squash-merged on GitHub: the branch commits are not ancestors of main,
@@ -1242,6 +1401,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // nothing to land; stop before touching the (possibly dirty) checkout.
         if (await branchContentIsOnMain(repoPath, branch, defaultBranch, runGit)) {
           console.log(`[task-automerge] ${branch}: content already on ${defaultBranch} (squash-merged), nothing to land`);
+          return nothingToLand();
+        }
+        // The same squash, after which main kept editing those files: the tip no longer
+        // matches, but a commit of main did. Without this the realign below conflicts and
+        // pulls a done card back to In Progress (card 360127d1, PR #1106). Asked of `base`,
+        // the main the realign merges: the squash lands on origin first.
+        if (await branchContentWasOnMain(repoPath, branch, base, runGit)) {
+          console.log(`[task-automerge] ${branch}: content already in ${base} history (squash-merged), nothing to land`);
           return { status: "nothing", branch, deliveryDrift: drift };
         }
 
@@ -1356,6 +1523,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         let onlyOwn: { total: number; mine: number; others: string[] } | null = null;
         let ownRefs: string[] = [];
         try { ownRefs = deps.ownBranches?.(taskId) ?? []; } catch { ownRefs = []; }
+        ownRefs = [...ownRefs, ...(declared?.ownRefs ?? [])];
         const others = await otherLocalBranches(repoPath, branch, { mainRef: base, runGit, ownRefs });
         if (others === null) {
           return {

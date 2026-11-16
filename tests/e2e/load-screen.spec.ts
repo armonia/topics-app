@@ -320,7 +320,7 @@ test.describe("the load screen of the PC", () => {
       await expect(rowB.getByTestId("session-detail")).toHaveText("studio-x · Sonnet 5 · Mac");
       // The tokens of the session: the total (input + output + cache written) with the split under it.
       await expect(rowA.getByTestId("session-tokens-value")).toHaveText(/^\d+(\.\d)?k$/);
-      await expect(rowA.getByTestId("session-tokens")).toContainText("↓38.0k ↑");
+      await expect(rowA.getByTestId("session-tokens")).toContainText("↓38k ↑");
       // CPU and memory of everything it launched, and the part shared with the other session named.
       await expect(rowA.getByTestId("session-memory-value")).not.toHaveText("-");
       await expect(rowA.getByTestId("session-memory")).toContainText("condivisi");

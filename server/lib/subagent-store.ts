@@ -55,6 +55,10 @@ export interface SubagentRow {
   sessionKey: string | null;
   /** The engine's tool names the profile allows, null = no restriction. Native children only. */
   tools: string[] | null;
+  /** The paired node this child's run lives on, set together with `remoteRunId`. Null = a local child. */
+  remoteMachineId: string | null;
+  /** The node's run id for this child (`node-client.ts#createRun`). Null = a local child. */
+  remoteRunId: string | null;
 }
 
 type Db = Pick<Database, "query" | "run">;
@@ -65,6 +69,7 @@ interface RawRow {
   claude_session_id: string | null; state: SubagentState; turns_reported: number; reported_at: string | null;
   created_at: string; ended_at: string | null;
   runtime: string | null; session_key: string | null; tools: string | null;
+  remote_machine_id: string | null; remote_run_id: string | null;
 }
 
 function parseTools(raw: string | null): string[] | null {
@@ -83,9 +88,10 @@ const fromRaw = (r: RawRow): SubagentRow => ({
   claudeSessionId: r.claude_session_id, state: r.state, turnsReported: r.turns_reported,
   reportedAt: r.reported_at, createdAt: r.created_at, endedAt: r.ended_at,
   runtime: r.runtime === "topics" ? "topics" : "claude-code", sessionKey: r.session_key, tools: parseTools(r.tools),
+  remoteMachineId: r.remote_machine_id, remoteRunId: r.remote_run_id,
 });
 
-const COLUMNS = "id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, reported_at, created_at, ended_at, runtime, session_key, tools";
+const COLUMNS = "id, parent_session_key, name, model, agent_type, effort, prompt_snippet, cwd, branch, claude_session_id, state, turns_reported, reported_at, created_at, ended_at, runtime, session_key, tools, remote_machine_id, remote_run_id";
 
 /**
  * Every read and write is best-effort: a database without the table (an old
@@ -102,8 +108,8 @@ function attempt<T>(fallback: T, fn: () => T): T {
 
 export function insertSubagent(
   db: Db,
-  row: Omit<SubagentRow, "state" | "turnsReported" | "reportedAt" | "endedAt" | "runtime" | "sessionKey" | "tools">
-    & Partial<Pick<SubagentRow, "runtime" | "sessionKey" | "tools">> & { runtimeReason?: SubagentRuntimeReason },
+  row: Omit<SubagentRow, "state" | "turnsReported" | "reportedAt" | "endedAt" | "runtime" | "sessionKey" | "tools" | "remoteMachineId" | "remoteRunId">
+    & Partial<Pick<SubagentRow, "runtime" | "sessionKey" | "tools" | "remoteMachineId" | "remoteRunId">> & { runtimeReason?: SubagentRuntimeReason },
 ): void {
   attempt(undefined, () => {
     db.run(
@@ -150,6 +156,21 @@ export function isSubagentEngaged(db: Db, id: string): boolean {
   return attempt(false, () => {
     const r = db.query("SELECT engaged_at AS v FROM subagents WHERE id = ?").get(id) as { v: string | null } | null;
     return !!r?.v;
+  });
+}
+
+/** This child's run moved to a paired node (sottoagenti-nodo, trace 2/3): both set together, never one without the other. */
+export function markSubagentRemote(db: Db, id: string, remote: { machineId: string; runId: string }): void {
+  attempt(undefined, () => {
+    db.run("UPDATE subagents SET remote_machine_id = ?, remote_run_id = ? WHERE id = ?", [remote.machineId, remote.runId, id]);
+  });
+}
+
+/** Children whose run already sits on this node, right now: the seat `pickNodeForChild` fills next (SUBAGENT-27). */
+export function countRunningRemoteChildren(db: Db, machineId: string): number {
+  return attempt(0, () => {
+    const r = db.query("SELECT COUNT(*) AS n FROM subagents WHERE remote_machine_id = ? AND state = 'running'").get(machineId) as { n: number } | null;
+    return r?.n ?? 0;
   });
 }
 

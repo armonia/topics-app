@@ -18,6 +18,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 function git(cwd: string, ...args: string[]): string {
   const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
@@ -356,7 +357,7 @@ describe("own-commits — il runner iniettato", () => {
  * regressione da cui nasce questo file.
  */
 describe("own-commits — il cablaggio della consegna in server.ts", () => {
-  const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  const src = readServerSource();
   // IL BACKFILL HA TRASLOCATO il 18/08 (`services/delivery-backfill.ts`), quando
   // il cancello di dimensione ha protestato su `server.ts`. Il cancello segue il
   // codice: la domanda che sorveglia — «si chiede il commit PROPRIO, mai la

@@ -344,6 +344,24 @@ jobs:
       contents: read
       issues: write
     steps:
+      # Senza checkout e bun lo step «Estrai i nomi» non trovava né lo script né il
+      # runtime, il `2>/dev/null || echo` lo nascondeva, e dal primo giorno la issue
+      # #538 diceva «elenco non disponibile» a ogni notte (misurato il 16/11 su cinque run).
+      - name: Checkout (serve scripts/e2e-failed-titles.ts)
+        if: needs.e2e-full.result != 'success'
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            scripts/e2e-failed-titles.ts
+            .bun-version
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        if: needs.e2e-full.result != 'success'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       # `always()` sopra + questa condizione: si segnala su qualunque esito non verde,
       # `cancelled` incluso — una nightly cancellata a meta' non e' una nightly passata.
       # I NOMI DEI ROSSI, non il link a un run da aprire.

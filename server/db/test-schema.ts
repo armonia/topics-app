@@ -206,9 +206,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   land_intent TEXT CHECK (land_intent IN ('human', 'auto')),
   land_intent_at TEXT,
   land_intent_commit TEXT,
-  -- 20261111140000: the plain-words «Per te» summary and the key of the material it came from.
-  for_you TEXT,
-  for_you_key TEXT
+  -- 20261115120000: the Jarvis channel chat the work is followed in (display only).
+  channel_topic_id TEXT,
+  -- 20261115220000: 1 while that run is still open on the node.
+  node_run_open INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**
@@ -291,7 +292,7 @@ export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 
 export const TASKS_FK_STUBS_DDL = `CREATE TABLE IF NOT EXISTS agent_profiles (id TEXT PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT);
+CREATE TABLE IF NOT EXISTS topics (id TEXT PRIMARY KEY, name TEXT, icon TEXT);
 CREATE TABLE IF NOT EXISTS machines (id TEXT PRIMARY KEY, base_url TEXT, slots INTEGER);
 ${APP_SETTINGS_DDL}
 ${TERMINAL_SESSIONS_DDL};

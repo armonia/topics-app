@@ -10,8 +10,8 @@
  * the old gateway provider). Nothing in the type system sees that, so this script reads the
  * route predicates of the real router sources and looks for overlaps.
  *
- * HOW. For each router in the table, the factory named in server.ts
- * (`const xRouter = createX(...)`) leads to its source file, plus the files of
+ * HOW. For each router in the table, the factory named in server.ts or in a stage module of
+ * server/boot/ (`const xRouter = createX(...)`) leads to its source file, plus the files of
  * the sub-routers it builds (topics composes chat, history, edit...). The
  * TypeScript AST of those files yields CLAIMS: a path predicate inside an `if`
  * that does not just `return null`, with the methods tested in that condition,
@@ -42,7 +42,7 @@
  * Run: `bun run check:route-shadowing`        (exit 0 clean, 1 findings)
  *      `bun run check:route-shadowing --all`  (also print every claim)
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import ts from "../client/node_modules/typescript";
 
@@ -1284,18 +1284,36 @@ export function findInnerShadows(source: string, file: string, router: string): 
 
 // --- the real routers -----------------------------------------------------------
 
-/** Router variable in server.ts -> factory source file. */
-function routerFiles(serverSrc: string, order: string[]): Map<string, string> {
+/** One source file the boot reads routers from: server.ts and the stage modules under server/boot/. */
+interface BootSource { path: string; src: string }
+
+/** Router variable in the boot sources -> factory source file. */
+function routerFiles(sources: BootSource[], order: string[]): Map<string, string> {
   const imports = new Map<string, string>();
-  for (const m of serverSrc.matchAll(/import\s*\{([^}]*)\}\s*from\s*"(\.\/server\/[^"]+)"/g)) {
-    for (const name of m[1].split(",").map((s) => s.trim().split(/\s+as\s+/).pop()!.trim()).filter(Boolean)) imports.set(name, m[2]);
+  for (const { path, src } of sources) {
+    for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*"(\.{1,2}\/[^"]+)"/g)) {
+      for (const name of m[1].split(",").map((s) => s.trim().split(/\s+as\s+/).pop()!.trim()).filter(Boolean)) imports.set(name, resolve(dirname(path), m[2]));
+    }
   }
+  const allSrc = sources.map((s) => s.src).join("\n");
   const out = new Map<string, string>();
   for (const name of order) {
-    const def = serverSrc.match(new RegExp(`const ${name} = (?:[^;]*?\\? )?(create\\w+)\\(`));
+    const def = allSrc.match(new RegExp(`const ${name} = (?:[^;]*?\\? )?(create\\w+)\\(`));
     const spec = def && imports.get(def[1]);
-    if (!spec) throw new Error(`check-route-shadowing: cannot find the factory of ${name} in server.ts`);
-    out.set(name, resolveTs(join(ROOT, spec)));
+    if (!spec) throw new Error(`check-route-shadowing: cannot find the factory of ${name} in server.ts or server/boot/`);
+    out.set(name, resolveTs(spec));
+  }
+  return out;
+}
+
+/** server.ts plus every stage module under server/boot/: since the boot was split, the routers are built there. */
+function readBootSources(): BootSource[] {
+  const out: BootSource[] = [{ path: join(ROOT, "server.ts"), src: readFileSync(join(ROOT, "server.ts"), "utf8") }];
+  const dir = join(ROOT, "server", "boot");
+  if (existsSync(dir)) {
+    for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts") && !n.endsWith(".test.ts")).sort()) {
+      out.push({ path: join(dir, f), src: readFileSync(join(dir, f), "utf8") });
+    }
   }
   return out;
 }
@@ -1364,8 +1382,7 @@ function main(): number {
   }
   const all = args.includes("--all");
   const order = routerOrder();
-  const serverSrc = readFileSync(join(ROOT, "server.ts"), "utf8");
-  const files = routerFiles(serverSrc, order);
+  const files = routerFiles(readBootSources(), order);
   const claimsByRouter = new Map<string, Claim[]>();
   const inner: Overlap[] = [];
   let opaque = 0;

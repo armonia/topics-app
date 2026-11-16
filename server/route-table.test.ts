@@ -2,8 +2,6 @@
  * @covers GATE-17
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   API_ROUTER_ORDER,
   CONDITIONAL_API_ROUTERS,
@@ -13,6 +11,7 @@ import {
   type ApiRouterName,
 } from "./route-table";
 import type { RouteHandler } from "./types";
+import { readServerSource } from "../tests/helpers/server-source";
 
 // Golden precedence list. It is the order of the `||` chain that server.ts
 // used before the table (commit 31fd118b9). A change here is a precedence
@@ -132,7 +131,7 @@ describe("API route table", () => {
   });
 
   test("server.ts hands every router to the table and keeps no chain of its own", () => {
-    const src = readFileSync(join(import.meta.dir, "..", "server.ts"), "utf8");
+    const src = readServerSource();
     const call = src.match(/const apiRouteTable = buildRouteTable\(\{([\s\S]*?)\}\);/);
     expect(call).not.toBeNull();
     const passed = call![1].split(",").map((s) => s.trim()).filter(Boolean);

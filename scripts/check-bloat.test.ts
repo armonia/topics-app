@@ -175,11 +175,29 @@ describe("check-bloat, ratchet mode", () => {
     expect(out).toContain("DUPLICATION rose");
   });
 
-  test("a cured file is reported, and never fails the gate", () => {
+  test("a cured file is red until the baseline records it", () => {
     const dir = repo({ "src/big.ts": longFile(20), "scripts/bloat-baseline.json": BASELINE({ "src/big.ts": 300 }, 0) });
     const { code, out } = run(dir);
-    expect(code).toBe(0);
-    expect(out).toContain("cured");
+    expect(code).toBe(1);
+    expect(out).toContain("CURED, NOT LOCKED");
+  });
+
+  test("a file that shrank by more than the floor is red until the ceiling follows it down", () => {
+    const dir = repo({ "src/big.ts": longFile(400), "scripts/bloat-baseline.json": BASELINE({ "src/big.ts": 600 }, 0) });
+    const { code, out } = run(dir);
+    expect(code).toBe(1);
+    expect(out).toContain("SHRANK, NOT LOCKED");
+  });
+
+  test("a small shrink stays green: no baseline edit for every little refactor", () => {
+    const dir = repo({ "src/big.ts": longFile(290), "scripts/bloat-baseline.json": BASELINE({ "src/big.ts": 300 }, 0) });
+    expect(run(dir).code).toBe(0);
+  });
+
+  test("once recorded, the cured file is green", () => {
+    const dir = repo({ "src/big.ts": longFile(20), "scripts/bloat-baseline.json": BASELINE({ "src/big.ts": 300 }, 0) });
+    expect(run(dir, "--update-baseline").code).toBe(0);
+    expect(run(dir).code).toBe(0);
   });
 });
 

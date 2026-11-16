@@ -91,6 +91,8 @@ fn budget_and_priority_offer_the_original_values_under_their_explaining_headers(
             match x {
                 Node::Item { id, .. } if id.starts_with("proj-budget:quiet:") => out.push(id.clone()),
                 Node::Sub { children, .. } | Node::Row { children, .. } | Node::Card { children, .. } => walk(children, out),
+                // a project row comes wrapped in its icon
+                Node::Icon { node, .. } => walk(std::slice::from_ref(&**node), out),
                 _ => {}
             }
         }
@@ -102,12 +104,15 @@ fn budget_and_priority_offer_the_original_values_under_their_explaining_headers(
 }
 
 #[test]
-fn names_are_readable_and_a_dead_project_with_a_setting_is_still_listed() {
+fn names_are_readable_and_a_dead_project_is_never_listed_whatever_it_carries() {
     let t = table();
     assert!(t.contains("Busy one |") && !t.contains("busy-slug |"), "the slug is not a name: {t}");
-    assert!(t.contains("Prince of Persia |"), "a dead project with a budget stays: {t}");
-    assert!(!t.contains("Ghost"), "a dead project with no setting goes: {t}");
-    assert!(t.contains("1 lavori in corso in 1 su 4") || t.contains("2 lavori in corso in 1 su 4"), "{t}");
+    assert!(!t.contains("Prince of Persia"), "a dead project with a budget of 3% is not listed: {t}");
+    assert!(!t.contains("Ghost"), "a dead project with no setting is not listed: {t}");
+    assert!(t.contains("1 lavori in corso in 1 su 3") || t.contains("2 lavori in corso in 1 su 3"), "the count is of the listed ones: {t}");
+    // a priority does not bring a dead one back either
+    let by_priority = live().replace(r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"normale""#, r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"alta""#);
+    assert!(by_priority.contains(r#""priority":"alta""#) && !dump_text(&project_table(&Some(by_priority), &None, NOW, 3600)).contains("Ghost"));
 }
 
 #[test]
