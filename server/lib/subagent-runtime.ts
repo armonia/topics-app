@@ -190,8 +190,12 @@ function resultOf(child: Pick<ChildRef, 'id' | 'name' | 'cwd'>, row: SubagentRow
 /**
  * One result of one turn, recorded once: the dedup advances (in memory and on
  * the row), then a foreground call collects it or it goes to the parent.
+ *
+ * Exported for a remote child (SUBAGENT-27/28, `routes/terminal.ts`): there is
+ * no transcript tick to notice its turn ended, only the node's own report on
+ * the run, so the route calls this itself once it reads the run as finished.
  */
-function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitCode: number | null): void {
+export function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitCode: number | null): void {
   const key = resultKey(result);
   if (deliveredResultKeys.has(key)) return;
   deliveredResultKeys.add(key);

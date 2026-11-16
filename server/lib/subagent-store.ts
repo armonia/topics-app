@@ -166,6 +166,14 @@ export function markSubagentRemote(db: Db, id: string, remote: { machineId: stri
   });
 }
 
+/** Children whose run already sits on this node, right now: the seat `pickNodeForChild` fills next (SUBAGENT-27). */
+export function countRunningRemoteChildren(db: Db, machineId: string): number {
+  return attempt(0, () => {
+    const r = db.query("SELECT COUNT(*) AS n FROM subagents WHERE remote_machine_id = ? AND state = 'running'").get(machineId) as { n: number } | null;
+    return r?.n ?? 0;
+  });
+}
+
 /** The native child whose chat is this session, or null (a CLI child, a person's chat). */
 export function getSubagentBySessionKey(db: Db, sessionKey: string): SubagentRow | null {
   return attempt(null, () => {
