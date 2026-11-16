@@ -1,7 +1,9 @@
 //! Tests of the tray menu: pure functions plus a fake local service. Card 23ec388a.
 
 use super::*;
+use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::time::Duration;
 use std::sync::mpsc;
 
 const PROCS: &str = r#"{"at":1000,"units":[
