@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.25",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A restart no longer reports a child running on a node as lost (#1151)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/unwary-kindling (card 77006327) (#1137)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.24",
     "date": "2026-11-16",
     "sections": {

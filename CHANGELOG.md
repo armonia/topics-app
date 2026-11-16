@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.25 — 2026-11-16
+
+### Sotto il cofano
+- A restart no longer reports a child running on a node as lost (#1151)
+- topics/unwary-kindling (card 77006327) (#1137)
+
 ## 2.4.24 — 2026-11-16
 
 ### Sotto il cofano
