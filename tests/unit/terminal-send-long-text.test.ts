@@ -1,3 +1,7 @@
+/**
+ * Long /send text reaches a Claude TUI whole: pasted, Enter sent apart.
+ * @covers TERM-SEND-01
+ */
 import { describe, expect, test } from "bun:test";
 import { PASTE_MIN_BYTES, resolveTerminalSend } from "../../server/routes/terminal-bridge-send";
 
