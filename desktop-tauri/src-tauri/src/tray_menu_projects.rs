@@ -3,7 +3,7 @@
 //! priority) and how long a quiet project has been quiet. Pure: service answers in,
 //! `Node`s out. Every figure is the service's own; only the wording is composed here.
 
-use crate::tray_menu::{budget_priority_nodes, civil, item, n, note, parse, s, sub, Node};
+use crate::tray_menu::{budget_priority_nodes, cell, civil, head_row, item, n, note, parse, row, s, second_line, sub, with_icon, Look, Node, Priority, Table};
 use serde_json::Value;
 
 fn comma(v: f64, digits: usize) -> String {
@@ -203,7 +203,7 @@ fn grouped<'a>(list: &[&'a Value]) -> Vec<(&'a Value, usize)> {
 
 /// One row per live agent under the project row: what it does, tokens per hour, model and since when.
 fn agent_rows(p: &Value, now_ms: i64) -> Vec<Node> {
-    let mut out = vec![Node::Row { id: String::new(), cells: vec![shown_name(p).to_uppercase()], header: true, children: Vec::new() }];
+    let mut out = vec![head_row(Table::Plain, vec![shown_name(p).to_uppercase()])];
     for (a, k) in grouped(&agents_of(p)) {
         let title = Some(s(a, "title")).filter(|t| !t.trim().is_empty()).map(String::from).unwrap_or_else(|| cap_first(s(a, "kind")));
         let hour = a.get("use").map_or(0.0, |u| n(u, "hourTokens"));
@@ -216,12 +216,7 @@ fn agent_rows(p: &Value, now_ms: i64) -> Vec<Node> {
         if !open_url(a).is_empty() {
             kids.push(item(&format!("session-open:{}", open_url(a)), "Apri la sessione"));
         }
-        out.push(Node::Row {
-            id: String::new(),
-            cells: vec![clip(&title, 40), if hour > 0.0 { format!("{}/h", tok_text(hour)) } else { String::new() }, model],
-            header: false,
-            children: kids,
-        });
+        out.push(row(Table::AgentWork, vec![clip(&title, 40), if hour > 0.0 { format!("{}/h", tok_text(hour)) } else { "–".into() }, model], kids));
     }
     out
 }
@@ -236,23 +231,13 @@ fn res_text(a: &Value) -> String {
 
 /// «AGENTI VIVI ADESSO»: type, since when, last activity, CPU and memory, a sub-agent indented under its launcher.
 fn agent_table(p: &Value, now_ms: i64) -> Vec<Node> {
-    let mut out = vec![Node::Row {
-        id: String::new(),
-        cells: ["AGENTI VIVI ADESSO", "tipo", "da", "ultima attività", "CPU · memoria"].map(String::from).to_vec(),
-        header: true,
-        children: Vec::new(),
-    }];
+    let mut out = vec![head_row(Table::Agents, ["AGENTI VIVI ADESSO", "tipo", "da", "ultima attività", "CPU · memoria"].map(String::from).to_vec())];
     for a in agents_of(p) {
         let depth = a.get("depth").and_then(Value::as_i64).unwrap_or(0).max(0) as usize;
         let model = if depth > 0 { format!("{}↳ {}", "   ".repeat(depth - 1), s(a, "model")) } else { s(a, "model").to_string() };
         let ago = a.get("lastActivity").and_then(Value::as_f64).map_or("–".into(), |t| ago_text(now_ms, t as i64));
         let kids = Some(s(a, "title")).filter(|t| !t.is_empty()).map(|t| vec![note(t)]).unwrap_or_default();
-        out.push(Node::Row {
-            id: String::new(),
-            cells: vec![model, s(a, "kind").into(), dur_text((now_ms - n(a, "startedAt") as i64) as f64), ago, res_text(a)],
-            header: false,
-            children: kids,
-        });
+        out.push(row(Table::Agents, vec![cell(model), cell(s(a, "kind")), dur_text((now_ms - n(a, "startedAt") as i64) as f64), ago, res_text(a)], kids));
     }
     out
 }
@@ -260,12 +245,7 @@ fn agent_table(p: &Value, now_ms: i64) -> Vec<Node> {
 /// The week per provider, today's sessions and tokens, the last queued job.
 fn week_nodes(p: &Value, heavy: &Value, now_ms: i64) -> Vec<Node> {
     let mut out = vec![
-        Node::Row {
-            id: String::new(),
-            cells: vec!["Questa settimana".into(), format!("Claude {}", pct_short(n(p, "claude"))), format!("Codex {}", pct_short(n(p, "codex"))), format!("Muse {}", pct_short(n(p, "muse")))],
-            header: false,
-            children: Vec::new(),
-        },
+        row(Table::Week, vec!["Questa settimana".into(), format!("Claude {}", pct_short(n(p, "claude"))), format!("Codex {}", pct_short(n(p, "codex"))), format!("Muse {}", pct_short(n(p, "muse")))], Vec::new()),
         note("% dell'abbonamento usato dai lavori di questo progetto"),
     ];
     let name = s(p, "name");
@@ -310,31 +290,42 @@ fn latest_activity(p: &Value) -> f64 {
     agents_of(p).iter().map(|a| a.get("lastActivity").and_then(Value::as_f64).unwrap_or(0.0)).fold(0.0, f64::max)
 }
 
-/// A dead project is listed only while it still carries a budget or a priority of its own.
+/// A dead project is never listed, whatever budget or priority it still carries.
 fn listed(p: &Value) -> bool {
-    !p.get("dead").and_then(Value::as_bool).unwrap_or(false) || p.get("budgetPct").map_or(false, |b| !b.is_null()) || matches!(s(p, "priority"), "alta" | "bassa")
+    !p.get("dead").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// The icon before a project's name: its own picture when the poller read it, else the folder.
+pub(crate) fn project_icon_spec(p: &Value) -> String {
+    let name = s(p, "name");
+    if !name.is_empty() && crate::tray_menu::project_icon_png(name).is_some() { format!("png:{name}") } else { "sf:folder".into() }
+}
+
+fn priority_of(p: &Value) -> Priority {
+    match s(p, "priority") {
+        "alta" => Priority::High,
+        "bassa" => Priority::Low,
+        _ => Priority::Normal,
+    }
 }
 
 /// The projects table: a header row, then one row per project, who works first (the latest activity on top),
-/// braked and quiet ones after, the dead ones with a setting last.
+/// braked and quiet ones after. A dead project has no row.
 pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: i64, offset: i64) -> Vec<Node> {
     let v = parse(live);
     let heavy = parse(heavy);
     let now_ms = now * 1000;
     let Some(ps) = v.get("projects").and_then(Value::as_array) else { return vec![note("Progetti: il servizio non risponde")] };
     let mut rows: Vec<&Value> = ps.iter().filter(|p| listed(p)).collect();
-    let dead = |p: &Value| p.get("dead").and_then(Value::as_bool).unwrap_or(false);
-    let rank = |p: &Value| if working(p) { 0 } else if dead(p) { 4 } else if s(p, "state") == "frenato" { 1 } else if s(p, "state") == "in coda" { 2 } else { 3 };
+    let rank = |p: &Value| if working(p) { 0 } else if s(p, "state") == "frenato" { 1 } else if s(p, "state") == "in coda" { 2 } else { 3 };
     rows.sort_by(|a, b| rank(a).cmp(&rank(b)).then(latest_activity(b).partial_cmp(&latest_activity(a)).unwrap_or(std::cmp::Ordering::Equal)));
     let busy = rows.iter().filter(|p| working(p)).count();
     let agents: usize = rows.iter().map(|p| agent_count(p)).sum();
-    let mut out = vec![Node::Row {
-        id: String::new(),
-        cells: ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec(),
-        header: true,
-        children: Vec::new(),
-    }];
-    out.push(note(if agents == 0 { "nessun lavoro in corso · consumo in % della settimana".to_string() } else { format!("{agents} lavori in corso in {busy} su {} · consumo in % della settimana", rows.len()) }));
+    // the small grey line under the header is the header's own second line, as in the original tray
+    let summary = if agents == 0 { "nessun lavoro in corso · consumo in % della settimana".to_string() } else { format!("{agents} lavori in corso in {busy} su {} · consumo in % della settimana", rows.len()) };
+    let mut head = ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec();
+    head.push(second_line(summary));
+    let mut out = vec![head_row(Table::Projects, head)];
     for p in rows {
         let hour: f64 = agents_of(p).iter().map(|a| a.get("use").map_or(0.0, |u| n(u, "hourTokens"))).sum();
         let pct = |k: &str| if n(p, k) > 0.0 { comma(n(p, k), 1) } else { "–".into() };
@@ -347,12 +338,17 @@ pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: 
         } else {
             page
         };
-        out.push(Node::Row {
-            id: String::new(),
-            cells: vec![shown_name(p).to_string(), pct("claude"), pct("codex"), pct("muse"), if hour > 0.0 { tokens_short(hour) } else { "–".into() }, state_cell(p, now_ms)],
-            header: false,
-            children: kids,
-        });
+        out.push(with_icon(
+            project_icon_spec(p),
+            Node::Row {
+                id: String::new(),
+                cells: vec![cell(shown_name(p)), pct("claude"), pct("codex"), pct("muse"), if hour > 0.0 { tokens_short(hour) } else { "–".into() }, state_cell(p, now_ms)],
+                header: false,
+                table: Table::Projects,
+                look: Look { bold: working(p), priority: priority_of(p) },
+                children: kids,
+            },
+        ));
     }
     out
 }

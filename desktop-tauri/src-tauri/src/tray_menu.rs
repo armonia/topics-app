@@ -20,10 +20,105 @@ pub enum Node {
     Sub { label: String, children: Vec<Node> },
     /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
     Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
-    /// A table row: one cell per column, aligned by tab stops. `children` open on hover.
-    Row { id: String, cells: Vec<String>, header: bool, children: Vec<Node> },
+    /// A table row: one cell per column, aligned by the tab stops of its `table`. `children` open on hover.
+    Row { id: String, cells: Vec<String>, header: bool, table: Table, look: Look, children: Vec<Node> },
     /// Puts a system icon (`sf:<symbol name>`) or an app's own icon (`app:<bundle path>`) before any other row.
     Icon { icon: String, node: Box<Node> },
+}
+
+/// The tables of the menu. Each has its own right-aligned tab stops, in points from the text start,
+/// the ones of the original tray (ClaudeUsage.swift): a column count that does not match the stops
+/// makes a cell overrun its neighbour or the menu's edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Table {
+    /// One cell, or a first cell with a second line under it: no stops.
+    #[default]
+    Plain,
+    /// Projects: Claude, Codex, Muse, rate per hour, state.
+    Projects,
+    /// Processes: CPU, GPU, network, memory.
+    Procs,
+    /// Live agents of one project, with CPU and memory: kind, since, last activity, CPU · memory.
+    Agents,
+    /// One live agent under a project row: rate per hour, model · since.
+    AgentWork,
+    /// The week of a project per provider.
+    Week,
+}
+
+/// The widest a tab stop may go: past it the menu clips the text.
+pub const TAB_MAX: f64 = 470.0;
+
+impl Table {
+    pub fn tabs(self) -> &'static [f64] {
+        match self {
+            Table::Plain => &[],
+            Table::Projects => &[238.0, 280.0, 322.0, 366.0, 436.0],
+            Table::Procs => &[275.0, 330.0, 405.0, 470.0],
+            Table::Agents => &[145.0, 235.0, 315.0, 455.0],
+            Table::AgentWork => &[300.0, 436.0],
+            Table::Week => &[225.0, 315.0, 405.0],
+        }
+    }
+}
+
+/// How a project's priority shows before its name: an arrow, as in the original tray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Priority {
+    #[default]
+    Normal,
+    High,
+    Low,
+}
+
+/// Looks of a row that the cells alone do not say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Look {
+    /// The first cell in semibold: a project with agents at work, a verdict line.
+    pub bold: bool,
+    pub priority: Priority,
+}
+
+/// A data row of a table, without a look of its own.
+pub(crate) fn row(table: Table, cells: Vec<String>, children: Vec<Node>) -> Node {
+    Node::Row { id: String::new(), cells, header: false, table, look: Look::default(), children }
+}
+
+/// The header row of a table.
+pub(crate) fn head_row(table: Table, cells: Vec<String>) -> Node {
+    Node::Row { id: String::new(), cells, header: true, table, look: Look::default(), children: Vec::new() }
+}
+
+/// A one-line row with its first cell in semibold and an optional small grey line under it.
+pub(crate) fn verdict_row(text: impl Into<String>, under: Option<String>) -> Node {
+    let mut cells = vec![text.into()];
+    cells.extend(under.map(second_line));
+    Node::Row { id: String::new(), cells, header: false, table: Table::Plain, look: Look { bold: true, ..Look::default() }, children: Vec::new() }
+}
+
+/// A cell is never left empty: a figure that is not there reads `–`.
+pub(crate) fn cell(text: impl Into<String>) -> String {
+    let t: String = text.into();
+    if t.trim().is_empty() { "–".into() } else { t }
+}
+
+/// Greedy word wrap at `width` characters, the way the original tray wraps its notes.
+pub(crate) fn wrap_words(text: &str, width: usize) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for w in text.split_whitespace() {
+        if !cur.is_empty() && cur.chars().count() + 1 + w.chars().count() > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(w);
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines.join("\n")
 }
 
 /// `node` with the icon `spec` at the start of its row, as the original tray draws it.
@@ -80,13 +175,16 @@ impl Snapshot {
             let _ = std::fs::write(p, b);
         }
         let backup = live_backup.or_else(|| backup_cache.and_then(|p| std::fs::read_to_string(p).ok()));
+        let live = http_get(base, "/api/live");
+        // The icons are read here, on the poller's thread: never when the menu opens.
+        fetch_project_icons(base, &live);
         Snapshot {
             board: http_get(base, "/api/board"),
             overview: http_get(base, "/api/overview"),
             heavy: http_get(base, "/api/heavy"),
             procs: http_get(base, "/api/mac/procs"),
             automations: http_get(base, "/api/automations/summary"),
-            live: http_get(base, "/api/live"),
+            live,
             gates: http_get(base, "/api/gates"),
             machines: http_get(base, "/api/machines"),
             trust: http_get(base, "/api/mac/trust"),
@@ -97,6 +195,39 @@ impl Snapshot {
     }
     pub fn service_up(&self) -> bool {
         self.board.is_some() || self.overview.is_some() || self.gates.is_some() || self.procs.is_some()
+    }
+}
+
+/// The icon of each project as the service serves it (PNG), by project name, with the path it came from.
+static PROJECT_ICONS: std::sync::Mutex<Option<std::collections::HashMap<String, (String, Vec<u8>)>>> = std::sync::Mutex::new(None);
+
+/// The icon read for a project, if any: the menu draws it 15×15 before the name.
+pub(crate) fn project_icon_png(name: &str) -> Option<Vec<u8>> {
+    PROJECT_ICONS.lock().ok()?.as_ref()?.get(name).map(|(_, png)| png.clone())
+}
+
+pub(crate) fn store_project_icon(name: &str, path: &str, png: Vec<u8>) {
+    if let Ok(mut g) = PROJECT_ICONS.lock() {
+        g.get_or_insert_with(Default::default).insert(name.into(), (path.into(), png));
+    }
+}
+
+/// Reads the icon of every listed project that has one and is not cached under the same path yet.
+/// A project whose icon cannot be read keeps the folder symbol and is asked again on the next poll.
+fn fetch_project_icons(base: &str, live: &Option<String>) {
+    let v = parse(live);
+    for p in v.get("projects").and_then(Value::as_array).into_iter().flatten().filter(|p| p.get("dead").and_then(Value::as_bool) != Some(true)) {
+        let (name, path) = (s(p, "name"), s(p, "icon"));
+        if name.is_empty() || !path.starts_with('/') {
+            continue;
+        }
+        let cached = PROJECT_ICONS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(name).map(|(at, _)| at == path))).unwrap_or(false);
+        if cached {
+            continue;
+        }
+        if let Some(png) = crate::tray_quota::http_get_bytes(base, path).filter(|b| !b.is_empty()) {
+            store_project_icon(name, path, png);
+        }
     }
 }
 
@@ -642,6 +773,16 @@ pub enum Action {
     OpenUrl(String),
     TogglePref(String),
     Open(String),
+    /// A command of a machine (Hetzner: «Spegni tutti»): the dialog says `confirm`, a yes sends the request.
+    ConfirmedHttp { label: String, machine: String, confirm: String, method: &'static str, path: String },
+}
+
+/// Separates the fields of a machine command packed in a menu id (the sentence of the dialog may hold any other sign).
+const ACTION_SEP: char = '\u{1f}';
+
+/// The menu id of a machine command: `machine-act:<method>␟<path>␟<label>␟<machine>␟<confirm>`.
+pub(crate) fn machine_action_id(machine: &str, method: &str, path: &str, label: &str, confirm: &str) -> String {
+    format!("machine-act:{method}{ACTION_SEP}{path}{ACTION_SEP}{label}{ACTION_SEP}{machine}{ACTION_SEP}{confirm}")
 }
 
 /// A menu id to the thing it does. `None` = not a hub id.
@@ -686,6 +827,17 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         // Only addresses of the places a session lives in; nothing else is handed to the system.
         let ok = ["claude://", "https://", "http://127.0.0.1", "http://localhost"].iter().any(|p| url.starts_with(p));
         return ok.then(|| Action::OpenUrl(url.to_string()));
+    }
+    if id.starts_with("machine-open:") {
+        // The Processes view lists every machine together: there is no per-machine page to pick.
+        return Some(Action::Open("processes".into()));
+    }
+    if let Some(rest) = id.strip_prefix("machine-act:") {
+        let mut f = rest.split(ACTION_SEP);
+        let (method, path, label, machine, confirm) = (f.next()?, f.next()?, f.next()?, f.next()?, f.next()?);
+        // Only the service's own commands, only the verbs it uses.
+        let method = ["POST", "DELETE", "PUT"].into_iter().find(|m| *m == method)?;
+        return path.starts_with("/api/").then(|| Action::ConfirmedHttp { label: label.into(), machine: machine.into(), confirm: confirm.into(), method, path: path.into() });
     }
     if id == "dashboard-open" {
         return Some(Action::OpenUrl(crate::tray_quota::hub_base()));
