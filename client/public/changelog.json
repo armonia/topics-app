@@ -1,5 +1,29 @@
 [
   {
+    "version": "2.4.23",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "archive node mirrors once the card is done or archived (#1146)",
+          "en": "",
+          "scope": "dispatcher",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-16 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.22",
     "date": "2026-11-16",
     "sections": {
