@@ -52,16 +52,12 @@ fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
     assert!(t.contains("Idle one | – | – | – | – | –"));
 }
 
-const MACHINES: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
-
 #[test]
-fn a_remote_machine_submenu_holds_the_graphic_detail_not_just_text() {
-    let sn = Snapshot { machines: Some(MACHINES.into()), ..snap() };
+fn a_remote_machine_submenu_opens_with_its_state_lines_not_a_picture() {
+    let machines = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","pct":40,"history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
+    let sn = Snapshot { machines: Some(machines.into()), ..snap() };
     let t = dump_text(&build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines_for(&[], &sn), true));
-    assert!(t.contains("[card machine-detail:pc]"), "{t}");
-    assert!(!t.contains("Si sta addormentando"), "the lines live in the card");
-    let plain = dump_text(&menu());
-    assert!(!plain.contains("machine-detail") && plain.contains("[card machine:pc]"));
+    assert!(!t.contains("machine-detail") && t.contains("[card machine:pc]"), "{t}");
 }
 
 #[test]
@@ -166,4 +162,64 @@ fn tray_menu_dump() {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     let machines = machines_for(&[], &sn);
     std::fs::write(out, dump_text(&build_menu_rich(&sn, Prefs::default(), now, &machines, true))).unwrap();
+}
+
+/// The three machines of the `/api/machines` contract (brief «tray-nodi-uniformi»):
+/// every one with cpu, mem and disk, the server also its spend, every one with its procs.
+const UNIFORM_BOARD: &str = r#"{"machines":[
+ {"id":"local","name":"MacBook","state":"lavora","level":0,"lines":["Tutto tranquillo"],"metrics":[{"key":"cpu","pct":20},{"key":"mem","pct":50},{"key":"disk","pct":70}]},
+ {"id":"pc","name":"PC Windows","state":"lavora","level":0,"lines":["Collegato dal Mac"],"metrics":[{"key":"cpu","pct":5},{"key":"mem","pct":32},{"key":"disk","pct":97}]},
+ {"id":"hetzner","name":"Server Hetzner","state":"lavora","level":0,"lines":["Nodo fisso acceso"],"metrics":[{"key":"cpu","pct":3},{"key":"mem","pct":41},{"key":"disk","pct":22},{"key":"spend","name":"Spesa","pct":14,"level":2,"value":"8,44/60 €"}]}]}"#;
+const UNIFORM_MACHINES: &str = r#"[
+ {"id":"local","lines":["Tutto tranquillo"],"metrics":[{"key":"cpu","name":"CPU","pct":20,"history":[]}],"procs":[]},
+ {"id":"pc","lines":["Collegato dal Mac"],"metrics":[{"key":"cpu","name":"CPU","pct":5,"history":[{"t":1,"v":5}]}],"procs":[{"name":"node.exe","cpu_pct":40.5,"mem_mb":812,"cmd":"node vitest"},{"name":"cargo.exe","cpu_pct":12,"mem_mb":300}]},
+ {"id":"hetzner","lines":["Nodo fisso acceso"],"metrics":[{"key":"cpu","name":"CPU","pct":3,"history":[{"t":1,"v":3}]},{"key":"spend","name":"Spesa","pct":14,"value":"8,44/60 €","history":[]}],"procs":[{"name":"bun","cpu_pct":2.1,"mem_mb":420,"cmd":"bun server"}]}]"#;
+
+fn uniform_cards() -> Vec<Node> {
+    let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(UNIFORM_MACHINES.into()), procs: Some(r#"{"units":[{"id":"u1","name":"Topics","type":"app","n":3,"memMB":900,"pids":[]}]}"#.into()), ..Default::default() };
+    machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true))
+}
+
+#[test]
+fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
+    let cards = uniform_cards();
+    assert_eq!(cards.len(), 3);
+    let mut heads: Vec<Vec<String>> = Vec::new();
+    for c in &cards {
+        let Node::Card { key, children, .. } = c else { panic!("not a card: {c:?}") };
+        fn bare(n: &Node) -> &Node {
+            if let Node::Icon { node, .. } = n { bare(node) } else { n }
+        }
+        let children: Vec<Node> = children.iter().map(|n| bare(n).clone()).collect();
+        let children = &children;
+        let k = children.len();
+        assert!(k >= 5, "{key}: {}", dump_text(children));
+        // the state first, then a separator and the process table, then the finder
+        assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
+        let sep = children.iter().position(|n| matches!(n, Node::Sep)).expect("a separator");
+        let Node::Row { header: true, cells, .. } = &children[sep + 1] else { panic!("{key}: the process table follows the state:\n{}", dump_text(children)) };
+        assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
+        heads.push(cells[1..].to_vec());
+        assert!(matches!(children[sep + 2], Node::Row { header: false, .. }), "{key}: at least one process row");
+        assert!(matches!(children[k - 2], Node::Sep), "{key}");
+        assert!(matches!(&children[k - 1], Node::Item { label, .. } if label == "Cerca in una finestra…"), "{key}");
+    }
+    assert!(heads.windows(2).all(|w| w[0] == w[1]), "same columns everywhere: {heads:?}");
+    let t = dump_text(&cards);
+    // GPU and network are not read on a remote machine: the idle dash of the MacBook, the memory with its unit
+    assert!(t.contains("node.exe | 41% | – | – | 812 MB | processo · node vitest") && t.contains("bun | 2% | – | – | 420 MB"), "{t}");
+    let rows = |n: &Node| if let Node::Card { children, .. } = n { children.clone() } else { vec![] };
+    for c in &cards {
+        fn cells(n: &Node) -> Option<Vec<String>> {
+            match n {
+                Node::Icon { node, .. } => cells(node),
+                Node::Row { cells, header: false, .. } => Some(cells.clone()),
+                _ => None,
+            }
+        }
+        // the row's second line is marked as such, never a sixth column that the memory runs into
+        for r in rows(c).iter().filter_map(cells).filter(|r| r.len() == 6) {
+            assert!(r[5].starts_with('\n') && !r[4].contains('\n'), "{r:?}");
+        }
+    }
 }
