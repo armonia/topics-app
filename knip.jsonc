@@ -389,7 +389,10 @@
         // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
         // questa riga risulta «file morto» e tiene rosso il cancello per
         // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
-        "server/routes/files.git-commit-harness.ts!"
+        "server/routes/files.git-commit-harness.ts!",
+        // `bun run review:open-prs` - prepares review prompts for every open PR
+        // on a read-only mirror clone. Run by hand (or from a cron), not imported.
+        "scripts/review-open-prs.ts!"
       ],
       "project": [
         "server/**/*.{ts,mjs}",
