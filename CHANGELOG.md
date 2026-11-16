@@ -2,6 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.17 — 2026-11-16
+
+### Correzioni
+- **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
+- **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
+- **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
+
+### Sotto il cofano
+- topics/morose-hickory (card c0809cc6) (#1116)
+- Split server.ts into a boot chain: stages in server/boot, front door in server/routes (#1120)
+- native write_file: the OS temp dir is always writable
+- write-roots tests: refused targets outside the temp dir
+- a failed tool with an empty body still carries a message (#1123)
+- runtime test: outside-workspace write target not under temp dir
+- topics/lofty-ferret (card dbe67d8c) (#1075)
+- **e2e** · serialize spec files on the shared test server across workers (#1122)
+- Remote sub-agents: refused runs stay local, a node behind origin fetches before planting (#1128)
+- Indice solido: mutation score dei moduli critici (spec-flow D9) e bloat che scende solo (#1117)
+- voice-call: fix role-flipped dropped-call greeting and repeat-request correction with brain on (#1121)
+- **deploy-outcome** · scope the 300 ms spawn cap to the deadline test (#1132)
+- Node child runs are not held by the board's heavy turn (#1131)
+
 ## 2.4.16 — 2026-11-16
 
 ### Sotto il cofano

@@ -1,5 +1,111 @@
 [
   {
+    "version": "2.4.17",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "clear /login message when an expired token's refresh fails before the turn (#1125)",
+          "en": "",
+          "scope": "native",
+          "breaking": false
+        },
+        {
+          "it": "il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)",
+          "en": "",
+          "scope": "terminal",
+          "breaking": false
+        },
+        {
+          "it": "sveglia comment on a review card rejects and requeues like board_review reject (#1124)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "a branch carried to another machine lands or is refused, never accepted (#1028)",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "topics/morose-hickory (card c0809cc6) (#1116)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Split server.ts into a boot chain: stages in server/boot, front door in server/routes (#1120)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "native write_file: the OS temp dir is always writable",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "write-roots tests: refused targets outside the temp dir",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a failed tool with an empty body still carries a message (#1123)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "runtime test: outside-workspace write target not under temp dir",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/lofty-ferret (card dbe67d8c) (#1075)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "serialize spec files on the shared test server across workers (#1122)",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Remote sub-agents: refused runs stay local, a node behind origin fetches before planting (#1128)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Indice solido: mutation score dei moduli critici (spec-flow D9) e bloat che scende solo (#1117)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "voice-call: fix role-flipped dropped-call greeting and repeat-request correction with brain on (#1121)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "scope the 300 ms spawn cap to the deadline test (#1132)",
+          "en": "",
+          "scope": "deploy-outcome",
+          "breaking": false
+        },
+        {
+          "it": "Node child runs are not held by the board's heavy turn (#1131)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.16",
     "date": "2026-11-16",
     "sections": {
