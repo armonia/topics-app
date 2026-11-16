@@ -60,7 +60,7 @@ import { liveAgentCount, RUNS_HERE_SQL } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { BoardSettingsPatch } from "../../shared/board";
 import { ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES, WAITING_MEMORY_REASON, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, deriveQueueReason, deriveSubtaskWork, formatStatusEvent, hasPlanApproveOption, isAgentWorking, isUnattributedSubtask, noteParkedChildrenResolved, parseQuestionBlock, questionAsksHuman, readTaskWeight, statusEventEnters, waitReasonKey } from "../../shared/board";
-import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
+import { agentWaitWindowMinutes } from "../../shared/agent-wait-cap";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Il vocabolario delle etichette e la regola che le deriva: una sola
 // dichiarazione, letta anche dal client e dalla derivazione alla consegna.
@@ -4795,7 +4795,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       // A done card waits for nothing: same rule as `release`.
       if (row.status === "done") return rowToTask(row);
-      const mins = clampInt(minutes ?? 15, 1, 1440);
+      const askedMins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
       // The count: same reason ⇒ it goes on, new reason ⇒ it restarts from one.
@@ -4827,15 +4827,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // itself (`sweepMachineWaitedOut`). Written before the caps so the park
       // right below reads it too.
       db.prepare("UPDATE tasks SET wait_source = ? WHERE id = ?").run(source === "machine" ? "machine" : "agent", taskId);
-      const ceiling = source === "machine" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;
-      if (streak > ceiling || serieMs >= WAIT_SERIES_MAX_MS) {
+      // A machine wait is a silent node and still parks at its caps (it comes
+      // back by itself). An agent wait never parks: scheduled work stays in
+      // todo and the window GROWS with each repeat, so the cost of re-checking
+      // falls instead of the card landing in backlog.
+      const isMachine = source === "machine";
+      if (isMachine && (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS)) {
         return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
+      const mins = isMachine ? askedMins : Math.max(askedMins, agentWaitWindowMinutes(streak));
 
       const note =
         (detto ? `In attesa: ${detto}. ` : "In attesa di una condizione esterna. ") +
         `Rilascio lo slot, il task torna in coda e riprovo tra ~${mins} min` +
-        (streak > 1 ? ` (attesa ${streak} di ${ceiling}).` : ".");
+        (streak > 1 ? ` (attesa ${streak}).` : ".");
       // Note first (author = the agent by default) so the "perché è fermo" trail
       // survives clearing the topic link.
       try { this.addComment({ taskId, author: by ?? "agent", content: note }); } catch { /* dedupe/best-effort */ }
@@ -5337,6 +5342,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // clear the series on the way in (see `update`), and `backlog` is where
       // this park already put it: re-parking would rewrite the note forever.
       if (row.status !== "todo" && row.status !== "in_progress") return null;
+      // An agent's wait is never judged by the caps: it stays in todo.
+      if (row.wait_source !== "machine") return null;
       const since = (row.wait_since ?? null) as string | null;
       if (!since) return null;
       const ts = now();

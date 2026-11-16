@@ -33,7 +33,7 @@ describe("la serie di attese sfonda il tetto senza che nessun turno riparta", ()
   function waitingCard(reason = "aspetto che la CI finisca"): string {
     const t = s.create({ projectId: PID, text: "consegna bloccata", status: "todo" });
     s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: t.id, reason, minutes: 15, by: "claude" });
+    s.deferForWait({ taskId: t.id, reason, minutes: 15, by: "claude", source: "machine" });
     return t.id;
   }
 
@@ -133,7 +133,7 @@ describe("la serie di attese sfonda il tetto senza che nessun turno riparta", ()
  * on a wait that is neither a series nor expired.
  */
 // The second declaration of a series is a MACHINE one here (`source: "machine"`):
-// an agent's second wait parks at once (`AGENT_WAIT_STREAK_CAP`), and these
+// an agent wait never parks (its window grows instead), and these
 // cases are about the duration judge, which only a longer series reaches.
 describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto", () => {
   let db: Database; let s: TaskService;
@@ -144,7 +144,7 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
   function longWait(minutes: number, reason = "aspetto la finestra di manutenzione"): string {
     const t = s.create({ projectId: PID, text: "consegna bloccata", status: "todo" });
     s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: t.id, reason, minutes, by: "claude" });
+    s.deferForWait({ taskId: t.id, reason, minutes, by: "claude", source: "machine" });
     return t.id;
   }
 
@@ -292,7 +292,7 @@ describe("un turno ripartito senza ridichiarare l'attesa chiude la serie", () =>
   function waitThenTurn(): string {
     const t = s.create({ projectId: PID, text: "consegna bloccata", status: "todo" });
     s.claim({ taskId: t.id, cap: 5, maxAttempts: 5 });
-    s.deferForWait({ taskId: t.id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    s.deferForWait({ taskId: t.id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude", source: "machine" });
     clock.t += 30 * 60_000; // the wake-up rings and a turn answers it
     expect(s.claim({ taskId: t.id, cap: 5, maxAttempts: 5 })).not.toBeNull();
     return t.id;
