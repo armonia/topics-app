@@ -19,6 +19,8 @@
  */
 import * as nodeFs from "node:fs";
 import { join } from "node:path";
+import type { ProvidersSnapshot } from "../../shared/types";
+import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -209,6 +211,8 @@ export interface NodeClient {
   }): Promise<NodeRunReport>;
   fetchBundle(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<BundleResult>;
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
+  /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
+  codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -554,6 +558,16 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         { method: "DELETE", headers: headersFor(token, delegatedHeaders(delegation)) },
         "cancel run",
       );
+    },
+
+    async codingModels({ baseUrl, token }) {
+      const out = await callJson<Partial<ProvidersSnapshot>>(
+        `${baseUrl}/api/providers/snapshot`,
+        { method: "GET", headers: headersFor(token) },
+        "read models",
+      );
+      const ready = (out.providers ?? []).filter((p) => p?.status === "ready" && CLAUDE_CODING_PROVIDERS.includes(p.name));
+      return [...new Set(ready.flatMap((p) => (Array.isArray(p.models) ? p.models.filter((m) => typeof m === "string") : [])))];
     },
   };
 }
