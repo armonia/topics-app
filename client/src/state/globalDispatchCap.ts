@@ -35,6 +35,9 @@ export interface GlobalDispatchCapState {
   cap: GlobalDispatchCap | null;
   /** La macchina viva. `null` = sonda non ancora risposta (o non disponibile). */
   capacity: DispatchCapacity | null;
+  /** Every overflow-reachable machine, from the same probe as `capacity`.
+   *  `null`/absent = not read yet, or an older server that does not send it. */
+  nodes?: DispatchCapacity['nodes'];
   /** Una scrittura è in volo: l'interruttore non va ribaltato due volte. */
   saving: boolean;
   /**
@@ -71,7 +74,7 @@ export interface SpendState {
  *  ora legge di qui invece di sondare per conto suo. */
 const CAPACITY_POLL_MS = 15000;
 
-const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, saving: false, spend: null, checksFloorGB: null };
+const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, nodes: undefined, saving: false, spend: null, checksFloorGB: null };
 
 /** L'IDENTITÀ conta: `useSyncExternalStore` richiama lo snapshot a ogni render e
  *  un oggetto nuovo ogni volta è un ciclo infinito. Si sostituisce solo quando
@@ -199,7 +202,7 @@ export async function saveSpendCaps(patch: { perTaskCents?: number; perDayCents?
 
 /** L'ultima lettura della macchina (sonda o test). */
 export function adoptDispatchCapacity(capacity: DispatchCapacity): void {
-  publish({ ...state, capacity });
+  publish({ ...state, capacity, nodes: capacity.nodes });
 }
 
 /**

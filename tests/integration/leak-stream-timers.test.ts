@@ -13,7 +13,7 @@
  * `setTimeout` created while the probe is installed is recorded with the stack
  * that created it, and dropped again when it is cleared OR when it fires. The
  * counter is "pending handles whose creation stack points at
- * `server/routes/chat.ts`". Baseline before the turns, same number after.
+ * `server/routes/chat.ts` or one of its `chat-*.ts` sibling modules". Baseline before the turns, same number after.
  *
  * THIS DRIVES THE REAL ROUTE. `createChatRouter(ctx, ...)` is the production
  * factory, `POST /api/chat` is the production path, and the turns end through
@@ -56,8 +56,12 @@ afterAll(() => cleanupTestDataDir(ROOT));
 /** One full turn per cycle, over the four end paths above. */
 const CYCLES = 24;
 
-/** The file whose timers we are counting. */
-const OWNER = "server/routes/chat.ts";
+/**
+ * The files whose timers we are counting: the chat router and its sibling
+ * modules. The split moved the SOFT re-arm into chat-timers.ts and the deferred
+ * timers into chat-finalize.ts, so matching chat.ts alone would miss them.
+ */
+const OWNER = /server[\\/]routes[\\/]chat(-[\w-]+)?\.ts/;
 
 interface TimerProbe {
   /** Pending handles created from OWNER right now. */
@@ -100,7 +104,7 @@ function installTimerProbe(): TimerProbe {
 
   const count = () => {
     let n = 0;
-    for (const stack of pending.values()) if (stack.includes(OWNER)) n++;
+    for (const stack of pending.values()) if (OWNER.test(stack)) n++;
     return n;
   };
 

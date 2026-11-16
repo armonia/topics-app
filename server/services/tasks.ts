@@ -983,6 +983,10 @@ export interface TaskService {
   nodeRunOf(taskId: string): string | null;
   /** Remember (or forget, with null) the card's run on a paired node. */
   setNodeRun(taskId: string, runId: string | null): void;
+  /** True while the card's run on a node is open (created and not yet landed or cancelled). */
+  nodeRunIsOpen(taskId: string): boolean;
+  /** The run came home (its delivery landed): the id stays for the next cancel, but nothing is running. */
+  closeNodeRun(taskId: string): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /**
@@ -4038,6 +4042,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           service.addComment({ taskId: id, author: "system", content: incompleteCardNotice(bornGaps), projectId: input.projectId });
         } catch { /* best-effort: the flag on the card is what matters */ }
       }
+      // A card BORN pinned (`stayLocal` from the composer) has no
+      // `stayLocalUntil` either, same as a human toggling it later on an
+      // existing card — same reason trail applies (see `update`, above).
+      if (input.stayLocal) {
+        const reason = (input.stayLocalReason ?? "").trim();
+        try {
+          service.addComment({
+            taskId: id, author: "system", kind: "service", projectId: input.projectId,
+            content: reason
+              ? `«Solo Mac», senza scadenza: ${reason}`
+              : "«Solo Mac», senza scadenza: pin manuale alla nascita, nessuna ragione scritta.",
+          });
+        } catch { /* best-effort: the pin stands without its line */ }
+      }
       // Its own statement, and only when there is a stage: a board on the
       // default workflow writes the same row as before.
       if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
@@ -4733,6 +4751,26 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       put("updated_at", now());
 
       db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params, taskId);
+      // A PERMANENT `stayLocal` (no `stayLocalUntil`) gets a reason on the
+      // thread, not only on the row: `task-dispatcher-remote-node-empty.ts`
+      // is the one place the DISPATCHER pins a card for good, and it already
+      // writes its own explanation there — skip it here (`by === "dispatcher"`)
+      // or this comment would double up. Every OTHER caller (the PATCH route,
+      // the TaskDetail toggle, the composer checkbox) reaches this same spot,
+      // so a permanent pin set by a person never goes unexplained, even
+      // without a reason typed in (`stayLocalReason` falls back to a generic
+      // line rather than staying silent).
+      if (patch.stayLocal === true && patch.stayLocalUntil === undefined && by !== "dispatcher") {
+        const reason = (patch.stayLocalReason ?? "").trim();
+        try {
+          this.addComment({
+            taskId, author: by, kind: "service",
+            content: reason
+              ? `«Solo Mac», senza scadenza: ${reason}`
+              : "«Solo Mac», senza scadenza: pin manuale, nessuna ragione scritta.",
+          });
+        } catch { /* best-effort: the pin stands without its line */ }
+      }
       if (patch.parentTaskId) releaseContainerFromCardContract(patch.parentTaskId);
       if (nextStage === STAGE_AI_REVIEW && (row.stage !== STAGE_AI_REVIEW || current !== "review")) announceAiReview(taskId);
       // Un task che ESCE da review si porta dietro la sua richiesta di
@@ -6693,7 +6731,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     setNodeRun(taskId, runId) {
-      db.prepare("UPDATE tasks SET node_run_id = ? WHERE id = ?").run(runId, taskId);
+      db.prepare("UPDATE tasks SET node_run_id = ?, node_run_open = ? WHERE id = ?").run(runId, runId ? 1 : 0, taskId);
+    },
+
+    nodeRunIsOpen(taskId) {
+      const row = db.prepare("SELECT node_run_open FROM tasks WHERE id = ?").get(taskId) as { node_run_open: number } | null;
+      return row?.node_run_open === 1;
+    },
+
+    closeNodeRun(taskId) {
+      db.prepare("UPDATE tasks SET node_run_open = 0 WHERE id = ?").run(taskId);
     },
 
     setLandIntent({ taskId, who, inCi }): Task {

@@ -20,11 +20,6 @@ const BOARD: &str = r#"{
 
 const BACKUP: &str = r#"{"last_ok":1799990000,"last_read_check":1799900000,"last_restore_ok":1799000000,"pending_since":null,
  "runs":[{"at":1797500000,"ok":true},{"at":1797600000,"ok":false},{"at":1799990000,"ok":true}],"icloud":{"files":10,"uploaded":10,"bytes":3221225472}}"#;
-/// Shape of `/api/machines`; the snapshot reads the real answer from TRAY_MENU_SNAPSHOT_DETAILS.
-const DETAILS: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[
-  {"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1000,"v":10},{"t":2000,"v":60},{"t":3000,"v":30}]},
-  {"key":"disk","name":"Disco","pct":97,"level":2,"note":"27 GB liberi","history":[]}],
-  "timeline":{"window":3000,"segments":[{"t0":0,"t1":1500,"state":"lavora"},{"t0":1500,"t1":3000,"state":"dorme"}]}}]"#;
 const NOW: i64 = 1_800_000_000;
 
 #[test]
@@ -66,13 +61,15 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
-fn a_reading_the_dial_cannot_show_goes_in_the_line_under_it() {
+fn a_reading_the_dial_cannot_show_is_a_legend_row_not_the_line() {
     let spend = Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() };
-    let cpu = Metric { key: "cpu".into(), name: "CPU".into(), pct: Some(40), ..Default::default() };
-    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu], ..Default::default() };
-    // the dial's own readings stay in the legend; the spend leads the line, the reason follows
-    assert_eq!(card_line(&m), "Spesa 8,44/60 € · Oltre il tetto");
-    assert_eq!(card_line(&MachineCard { reason: "x".into(), ..Default::default() }), "x");
+    let cpu = Metric { key: "cpu".into(), pct: Some(30), ..Default::default() };
+    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu.clone()], ..Default::default() };
+    assert_eq!(card_line(&m), "Oltre il tetto");
+    assert_eq!(extra_rows(&m).iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), ["spend"]);
+    // the swap is the note of the memory row, never a row of its own
+    let swap = Metric { key: "swap".into(), value: "5/6 GB".into(), ..Default::default() };
+    assert!(extra_rows(&MachineCard { metrics: vec![swap, cpu], ..Default::default() }).is_empty());
     assert_eq!(card_line(&MachineCard::default()), "");
 }
 
@@ -96,16 +93,19 @@ fn backup_card_has_the_private_archive_the_foot_and_the_next_run() {
 }
 
 #[test]
-fn the_reason_line_sits_below_the_legend_inside_the_card() {
-    // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
-    let (edge, cy) = (38.0, 84.0);
-    let with = card_layout(cy, edge, true);
-    // 11 pt text: its top must clear the GPU row's baseline, and its baseline stay inside the frame
-    assert!(with.reason_y - 11.0 > with.last_row + 2.0, "{with:?}");
-    assert!(with.reason_y + 4.0 <= with.h + 3.0, "{with:?}");
-    let without = card_layout(cy, edge, false);
-    assert!(without.last_row + 4.0 <= without.h + 3.0, "{without:?}");
-    assert!(with.h > without.h);
+fn the_server_card_is_the_pc_card_with_one_more_row_for_its_spend() {
+    let p = Palette::new(true);
+    let hw = |k: &str, v: u32| Metric { key: k.into(), pct: Some(v), ..Default::default() };
+    let pc = MachineCard { id: "pc".into(), name: "PC".into(), badge: "lavora".into(), metrics: vec![hw("cpu", 5), hw("mem", 32), hw("disk", 97)], ..Default::default() };
+    let mut server = MachineCard { id: "hetzner".into(), name: "Server".into(), ..pc.clone() };
+    let plain = draw_machine_card(&server, p);
+    server.metrics.push(Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() });
+    let with_spend = draw_machine_card(&server, p);
+    assert_eq!(plain.cv.h, draw_machine_card(&pc, p).cv.h, "same card as the PC");
+    assert_eq!(with_spend.cv.h, plain.cv.h + 36, "the spend takes one legend row (18 pt at 2x)");
+    // a server that measures only its spend still gets the dial, not a different card
+    let only_spend = MachineCard { metrics: vec![server.metrics[3].clone()], ..server.clone() };
+    assert_eq!(draw_machine_card(&only_spend, p).cv.h, with_spend.cv.h);
 }
 
 #[test]
@@ -123,7 +123,6 @@ fn every_view_renders_ink_at_the_menu_width() {
 }
 
 /// TRAY_MENU_SNAPSHOT_DIR=/tmp/x cargo test --lib tray_menu_views -- snapshot
-/// (TRAY_MENU_SNAPSHOT_DETAILS: the service's /api/machines answer, for the machine submenu cards)
 /// writes machines.png, quota.png and backup.png (dark and light) from the fake answers above,
 /// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given, plus the
 /// Topics machines (the client's `set_app_status` list) from TRAY_MENU_SNAPSHOT_MACHINES.
@@ -131,7 +130,7 @@ fn every_view_renders_ink_at_the_menu_width() {
 fn snapshot() {
     let Ok(dir) = std::env::var("TRAY_MENU_SNAPSHOT_DIR") else { return };
     let read = |k: &str, d: &str| std::env::var(k).ok().map(|f| std::fs::read_to_string(f).unwrap()).unwrap_or(d.to_string());
-    let (board, backup, details) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP), read("TRAY_MENU_SNAPSHOT_DETAILS", DETAILS));
+    let (board, backup) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP));
     let now = if std::env::var("TRAY_MENU_SNAPSHOT_BOARD").is_ok() { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 } else { NOW };
     // the process table is native rows, not a picture: its text goes next to the pictures
     if let (Ok(procs), Ok(trust)) = (std::env::var("TRAY_MENU_SNAPSHOT_PROCS"), std::env::var("TRAY_MENU_SNAPSHOT_TRUST")) {
@@ -148,8 +147,6 @@ fn snapshot() {
         let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
         let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
-        // the submenu cards of the machines that have graphs: PC, cloud server
-        pics.extend(crate::tray_menu_detail::machine_details(&details).iter().filter(|d| crate::tray_menu_detail::has_graphics(d)).map(|d| crate::tray_menu_detail::draw_machine_detail(d, p)));
         pics.extend(backup_card(&backup, now).map(|b| draw_backup_card(&b, p)));
         let total: u32 = pics.iter().map(|x| x.cv.h).sum();
         let (w, bg) = (pics[0].cv.w, if dark { 40u8 } else { 236 });

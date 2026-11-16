@@ -558,9 +558,19 @@ describe("la coda di memoria e la capacità parlano col prezzo della board", () 
     };
     const h = await withOneQuietTurn({ held: 20, budget: sample });
     h.svc.setGlobalCap({ auto: false, max: 4, mode: "resources", budgetShare: 0.8 });
-    expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: true, costMemGB: 1 });
+    expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: true, costMemGB: 0.1 });
     sample.availableMemGB = 0.2;
     expect(h.dispatcher.childAdmissionPreview?.()).toMatchObject({ admit: false, blockedBy: "memory" });
+  });
+
+  it("a native child is priced at its own cost and floor, not the card's 6 GB floor", async () => {
+    // 3 GB held: under the card floor (6) but over the child floor (1.5).
+    const h = await withOneQuietTurn({ held: 3 });
+    expect(h.dispatcher.admissionPreview?.(QUIET)?.blockedBy).toBe("floor");
+    expect(h.dispatcher.childAdmissionPreview?.()?.blockedBy ?? null).toBeNull();
+    // Under its own floor the child is held too.
+    const low = await withOneQuietTurn({ held: 1.2 });
+    expect(low.dispatcher.childAdmissionPreview?.()?.blockedBy).toBe("floor");
   });
 
   it("l'anteprima del figlio non muove l'isteresi del cancello", async () => {
