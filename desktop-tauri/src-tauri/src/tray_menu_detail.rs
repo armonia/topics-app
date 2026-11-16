@@ -34,6 +34,17 @@ pub struct MachineDetail {
     pub segments: Vec<(i64, i64, String)>,
     pub window: i64,
     pub lines: Vec<String>,
+    /// The processes that weigh, as the service read them (`procs`), heaviest first.
+    pub procs: Vec<RemoteProc>,
+}
+
+/// One process of a machine the service reads from afar (PC, cloud server).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RemoteProc {
+    pub name: String,
+    pub cpu_pct: f64,
+    pub mem_mb: f64,
+    pub cmd: String,
 }
 
 fn text(v: &Value, k: &str) -> String {
@@ -58,6 +69,12 @@ pub fn machine_details(body: &str) -> Vec<MachineDetail> {
             segments: tl.and_then(|t| t.get("segments")).and_then(Value::as_array).map(|a| a.iter().filter_map(|s| Some((s.get("t0")?.as_i64()?, s.get("t1")?.as_i64()?, text(s, "state")))).collect()).unwrap_or_default(),
             window: tl.and_then(|t| t.get("window")).and_then(Value::as_i64).unwrap_or(86_400),
             lines: m.get("lines").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default(),
+            procs: m.get("procs").and_then(Value::as_array).map(|a| a.iter().filter(|x| !text(x, "name").is_empty()).map(|x| RemoteProc {
+                name: text(x, "name"),
+                cpu_pct: x.get("cpu_pct").and_then(Value::as_f64).unwrap_or(0.0),
+                mem_mb: x.get("mem_mb").and_then(Value::as_f64).unwrap_or(0.0),
+                cmd: text(x, "cmd"),
+            }).collect()).unwrap_or_default(),
         }
     }).collect()
 }
@@ -117,15 +134,13 @@ pub fn draw_machine_detail(d: &MachineDetail, p: Palette) -> Pic {
     let h = detail_height(d);
     let mut pic = Pic::new(MENU_W, h + 6.0);
     pic.frame(PAD, 3.0, CARD_W, h, p);
-    draw_detail_body(&mut pic, d, 12.0, true, p);
+    draw_detail_body(&mut pic, d, 12.0, p);
     pic
 }
 
-/// The readings, the state band and (optionally) the service's lines, from `top`
-/// down, into a picture the caller sized. Returns the y under the last row.
-/// The first-level card of a machine with no hardware gauges (a cloud server) draws
-/// the same rows without a frame, under its header.
-pub fn draw_detail_body(pic: &mut Pic, d: &MachineDetail, top: f32, with_lines: bool, p: Palette) -> f32 {
+/// The readings, the state band and the service's lines, from `top` down, into a
+/// picture the caller sized. Returns the y under the last row.
+fn draw_detail_body(pic: &mut Pic, d: &MachineDetail, top: f32, p: Palette) -> f32 {
     let end = d.segments.iter().map(|s| s.1).max().or_else(|| d.metrics.iter().flat_map(|m| m.history.iter().map(|x| x.0)).max()).unwrap_or(0);
     let span = (end - d.window, end);
     let chart_w = MENU_W - PAD - 14.0 - CHART_X;
@@ -171,18 +186,11 @@ pub fn draw_detail_body(pic: &mut Pic, d: &MachineDetail, top: f32, with_lines: 
         }
         y += 44.0;
     }
-    if with_lines {
-        for l in &d.lines {
-            pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, l, 10.5, MENU_W - PAD - 14.0 - X0), X0, y + 11.0, 10.5, p.fg, p.dim);
-            y += 15.0;
-        }
+    for l in &d.lines {
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, l, 10.5, MENU_W - PAD - 14.0 - X0), X0, y + 11.0, 10.5, p.fg, p.dim);
+        y += 15.0;
     }
     y
-}
-
-/// Height of the body alone (readings and band), for a card that sizes itself around it.
-pub fn detail_body_height(d: &MachineDetail) -> f32 {
-    d.metrics.len() as f32 * ROW_H + if d.segments.is_empty() { 0.0 } else { 44.0 }
 }
 
 #[cfg(test)]
