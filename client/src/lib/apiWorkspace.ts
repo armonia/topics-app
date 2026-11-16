@@ -1,7 +1,7 @@
 import type { FileNode, GitStatus, GitBranch, GitLogEntry, GitCommitDetail, GitHunkSummary, DetectedScript, TopicGoal, GoalStepStatus } from '../types';
 import { apiFetch } from './shell/net';
 import type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';
-import type { LiveWork } from '../../../shared/live-work';
+import type { LiveChildren, LiveWork } from '../../../shared/live-work';
 import type { ContextEnvelope, ProviderPayload } from '../../../shared/context-envelope';
 import { API_BASE, ApiError, readErrorBody, request } from './apiBase';
 
@@ -447,6 +447,8 @@ export interface ScriptOutput {
 /** What a chat has at work now: the rows of the strip under it (chat-live-work). */
 export const liveWorkApi = {
   get: (topicId: string) => request<LiveWork>(`/topics/${encodeURIComponent(topicId)}/live-work`),
+  /** Every sub-agent at work, over all chats. */
+  children: () => request<LiveChildren>('/live-work'),
 };
 /** A run of a command from the chat (CHAT-RUN-03): the server's row, one shape on both sides. */
 export type { CommandRun as CommandRunInfo } from '../../../shared/command-runs';

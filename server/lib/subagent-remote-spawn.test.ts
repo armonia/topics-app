@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnRemoteChild, MAX_CHILD_BUNDLE_BYTES, nodeModelOf, type RemoteChildSpawnInput } from "./subagent-remote-spawn";
-import { macOnlyResourceOf } from "./subagent-remote-wiring";
+import { childAnswerOf, macOnlyResourceOf } from "./subagent-remote-wiring";
 import { randomBytes } from "node:crypto";
 import type { ChildNodeCandidate } from "./subagent-remote-run";
 
@@ -162,5 +162,21 @@ describe("macOnlyResourceOf", () => {
     expect(macOnlyResourceOf("read the tmux pane of the build", null)).toBe("session");
     expect(macOnlyResourceOf("edit ~/.claude/settings.json", null)).toBe("macos");
     expect(macOnlyResourceOf("refactor server/lib/foo.ts and add a test", null)).toBeNull();
+  });
+});
+
+describe("childAnswerOf", () => {
+  const c = (author: string, kind: string, content: string) => ({ id: content, author, kind, content, createdAt: "2026-11-16T08:00:00Z" });
+  it("the agent's delivery, not a service comment written after it", () => {
+    expect(childAnswerOf([
+      c("system", "service", "Card specchiata"), c("agent:a", "comment", "question first"),
+      c("agent:a", "delivery", "Added note-1.txt"), c("agent:a", "status", "in_progress→review"),
+      c("verifier", "service", "Anteprima: non allegata."),
+    ])).toBe("Added note-1.txt");
+  });
+  it("no delivery: the agent's last word; no agent at all: the last comment", () => {
+    expect(childAnswerOf([c("agent:a", "comment", "half way"), c("verifier", "service", "x")])).toBe("half way");
+    expect(childAnswerOf([c("system", "service", "parked")])).toBe("parked");
+    expect(childAnswerOf([])).toBe("");
   });
 });

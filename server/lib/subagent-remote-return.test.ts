@@ -53,6 +53,30 @@ describe("settleRemoteChildBranch", () => {
     expect(readFileSync(join(parent, "b.txt"), "utf8")).toBe("from the child\n");
   });
 
+  it("the node delivers under its own worktree branch: adopted as the child's branch all the same", async () => {
+    const parent = tempDir("subagent-return-parent-named-");
+    git(parent, "init", "-q", "-b", "main");
+    writeFileSync(join(parent, "a.txt"), "base\n");
+    git(parent, "add", ".");
+    git(parent, "commit", "-q", "-m", "base");
+    // What a real node does (16/11): its card runs in `topics/<name>`, and that is the bundle's only head.
+    const node = tempDir("subagent-return-node-named-");
+    git(node, "clone", "-q", parent, ".");
+    git(node, "checkout", "-q", "-b", "topics/flickering-anchor");
+    writeFileSync(join(node, "note.txt"), "figlio 1 fatto\n");
+    git(node, "add", ".");
+    git(node, "commit", "-q", "-m", "prova d: note 1");
+    const bytes = await bundleBranch(node, "topics/flickering-anchor");
+
+    const result = await settleRemoteChildBranch({
+      repoPath: parent, branch: "topics-child-9", deliveredBranch: "topics/flickering-anchor",
+      fetchBundle: async () => ({ empty: false, bytes: bytes! }),
+    });
+    expect(result).toEqual({ ok: true });
+    git(parent, "checkout", "-q", "topics-child-9");
+    expect(readFileSync(join(parent, "note.txt"), "utf8")).toBe("figlio 1 fatto\n");
+  });
+
   it("the node answers with no bundle: ok:false, not a throw", async () => {
     const parent = tempDir("subagent-return-parent-empty-");
     git(parent, "init", "-q", "-b", "main");

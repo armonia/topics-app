@@ -92,6 +92,8 @@ export const PROJECT_WORDS = new Set([
   "requeue",
   // cancelled: the exact value of GitHub's run `conclusion` field, so it cannot be renamed to the American spelling (`server/services/ci-supersede.ts`).
   "cancelled",
+  // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
+  "countdown",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.

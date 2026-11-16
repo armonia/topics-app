@@ -135,9 +135,6 @@
       "fmtAttesa",
       "fmtTok"
     ],
-    "client/src/components/Board/nightModeText.ts": [
-      "formatCountdown"
-    ],
     "client/src/components/Board/planPanel.test.ts": [
       "chiacchiera",
       "dopo",
