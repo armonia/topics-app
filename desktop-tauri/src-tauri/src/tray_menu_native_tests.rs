@@ -209,3 +209,10 @@ fn the_menu_a_status_item_receives_is_decorated() {
         assert!(leaked.is_empty(), "markers left in the menu the status item received: {leaked:?}");
     }
 }
+
+#[test]
+fn the_type_sizes_and_icon_sizes_are_those_of_the_original_tray() {
+    // ClaudeUsage.swift: rowFont 13, rowNum 12.5, rowSmall 10.5, header 10, symbols 13, providers 13, project pictures 15
+    assert_eq!([NAME_PT, NUM_PT, SMALL_PT, HEAD_PT], [13.0, 12.5, 10.5, 10.0]);
+    assert_eq!([SYMBOL_PT, PROVIDER_PT, PROJECT_ICON_PT], [13.0, 13.0, 15.0]);
+}
