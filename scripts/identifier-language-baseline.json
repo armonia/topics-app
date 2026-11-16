@@ -3538,6 +3538,10 @@
       "provB",
       "vero"
     ],
+    "server/providers/claude-code-session.ts": [
+      "certsDir",
+      "useTls"
+    ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
       "ppWithSidechain",
       "sidechain"
@@ -3554,9 +3558,7 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "certsDir",
-      "oneshotKey",
-      "useTls"
+      "oneshotKey"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -4770,6 +4772,9 @@
       "tagliato",
       "titolo",
       "titoloMigliore"
+    ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
     ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
