@@ -1,5 +1,244 @@
 [
   {
+    "version": "2.4.16",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "same card and same submenu for Mac, PC and the cloud server (#1118)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "every machine submenu opens with its state lines, memory with its unit (#1119)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.15",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.14",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "approve as superseded never enters the CI phase (#1114)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.13",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.12",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una corsa parcheggiata sul nodo non blocca più la card (#1108)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.11",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.10",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.9",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "topics/small-mist (card 3f078feb) (#1102)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Admission preview: a native sub-agent pays its real cost, not a card's floor",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.8",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "decorate the menu the status item receives, not its idle menu (#1101)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.7",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.6",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "an open question keeps its status through a partial output and a re-announcement (#1059)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/private-raven (card 819c9836) (#1085)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/gloomy-fern (card 2fbdd455) (#1087)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/watchful-marble (card a5acfe57) (#1083)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/peaceful-grove (card 19d684fb) (#1079)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/peachy-kelp (card 629398ee) (#1070)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.5",
     "date": "2026-11-15",
     "sections": {
@@ -47,6 +286,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -55,8 +299,40 @@
     "version": "2.4.4",
     "date": "2026-11-15",
     "sections": {
-      "new": [],
-      "fixes": [],
+      "new": [
+        {
+          "it": "native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "account cards wear row icons, state icons and reset arrows as the original tray",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "state icons for queued and braked projects, provider icons in the limits submenu",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        },
+        {
+          "it": "process rows carry their second line as the original tray",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "machine card flat-detail condition compiles",
+          "en": "",
+          "scope": "tray",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -69,6 +345,12 @@
           "it": "topics/cheery-orbit (card 475724bc) (#868)",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)",
+          "en": "",
+          "scope": "tray",
           "breaking": false
         }
       ]
@@ -220,6 +502,12 @@
           "breaking": false
         },
         {
+          "it": "mobile board audit (read-only, no code change)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)",
           "en": "",
           "scope": null
@@ -242,6 +530,11 @@
       "internal": [
         {
           "it": "voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cloud node: commits carry the Mac checkout's git identity, not a stale global one",
           "en": "",
           "scope": null
         }

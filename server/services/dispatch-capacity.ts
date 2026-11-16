@@ -399,6 +399,17 @@ export const CLI_AGENT_PEAK_GB = 0.42;
  * (it is fed only after a local check runs, review-checks.ts:509).
  */
 export const NATIVE_NO_LOCAL_CHECK_RESERVATION_GB = 1;
+/**
+ * What one NATIVE sub-agent weighs: an array of messages inside the running
+ * server, 2.3 MB marginal, plus the tool output it holds. Priced at the top of
+ * the 50-100 MB range seen in the live server. A card carries a worktree and the
+ * repo gates (the 6-12 GB floor); a child carries neither, so it is not charged
+ * as one.
+ */
+export const NATIVE_CHILD_PRICE_GB = 0.1;
+/** The memory floor for opening one more native child: the machine's own
+ *  headroom, not the card floor, since a child launches no checks. */
+export const NATIVE_CHILD_FLOOR_GB = 1.5;
 
 /**
  * Memoria REALMENTE disponibile, in GB: quella che la macchina puo' dare SENZA
@@ -682,6 +693,9 @@ export interface MemoryFloorHold {
    *  is the whole condition for one card under the floor, and an off-lane agent
    *  resident on this Mac is not none. */
   ourWorkRunning: boolean;
+  /** Replaces the runtime's floor for a caller that is not a card (a native
+   *  sub-agent: `NATIVE_CHILD_FLOOR_GB`). Absent = the card floor. */
+  floorGB?: number;
 }
 
 /** Memory that cannot be measured here (not macOS): it never blocks. */
@@ -794,8 +808,8 @@ export function dispatchResourceVerdict(
   }
   const mem = (() => { try { return readMemory(); } catch { return MEMORY_NOT_MEASURABLE; } })();
   if (!mem.measurable) return NOTHING_HOLDS;
-  const floor = agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB;
-  const gb = (n: number) => n.toFixed(1);
+  const floor = hold.floorGB ?? (agentsAreProcesses ? DISPATCH_MEM_FLOOR_GB : DISPATCH_MEM_FLOOR_NATIVE_GB);
+  const gb =(n: number) => n.toFixed(1);
   const cardGB = Math.max(0, hold.cardGB);
   const reservedGB = Math.max(0, hold.reservedGB);
   const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;

@@ -37,7 +37,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
+import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, NATIVE_CHILD_FLOOR_GB, NATIVE_CHILD_PRICE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
 import { NoCheckExemptionLedger, reservationForRuntime } from "./dispatch-no-check-exemption";
@@ -1469,7 +1469,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * so it charges N x price itself.
    */
   let lastMemoryStartGB: number | null = null;
-  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number): ResourceFloorVerdict {
+  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number, floorGB?: number): ResourceFloorVerdict {
     const price = priceGB ?? agentMemPrice(projectId);
     const launchEntries = regularLocalLaunchEntries(cleanupReservations);
     const launches = launchEntries.map(([, at]) => at);
@@ -1498,6 +1498,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nothing on this Mac to spend them.
     return deps.resourceBlock?.({
       cardGB: price,
+      ...(floorGB != null ? { floorGB } : {}),
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length + exemptReservedCards,
       spendingHere: launches.length + exemptReservedCards + Math.max(0, checks) > 0,
@@ -1702,14 +1703,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * The same preview for ONE SUB-AGENT: the door that opens children asks it in
    * "by resources" mode, where the number of agents does not apply. A child is
    * an agent and its light commands (`reservationForRuntime`), not the typical
-   * card of a board, which carries a worktree and the repo gates.
+   * card of a board, which carries a worktree and the repo gates. A native child
+   * pays its real cost (a message array in the running server, with a floor of
+   * its own); a CLI child is a process and keeps the CLI price and floor.
    */
   function childAdmissionPreview(): DispatchAdmission | null {
-    const price = reservationForRuntime(deps.isCliRuntime?.() ?? false);
+    const cli = deps.isCliRuntime?.() ?? false;
+    const price = cli ? reservationForRuntime(true) : NATIVE_CHILD_PRICE_GB;
+    const floorGB = cli ? undefined : NATIVE_CHILD_FLOOR_GB;
     return buildDispatchAdmissionPreview({
       frozenCount: activeFrozenCount,
       drainBlock,
-      floorVerdict: () => floorVerdict(false, undefined, price),
+      floorVerdict: () => floorVerdict(false, undefined, price, floorGB),
       globalCap: () => deps.svc.getGlobalCap(),
       budgetVerdict: (cap) => budgetVerdict(cap, price),
       memoryClause,

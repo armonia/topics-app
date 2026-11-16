@@ -2,6 +2,71 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.16 — 2026-11-16
+
+### Sotto il cofano
+- same card and same submenu for Mac, PC and the cloud server (#1118)
+- every machine submenu opens with its state lines, memory with its unit (#1119)
+
+## 2.4.15 — 2026-11-16
+
+### Sotto il cofano
+- Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)
+
+## 2.4.14 — 2026-11-15
+
+### Sotto il cofano
+- approve as superseded never enters the CI phase (#1114)
+
+## 2.4.13 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)
+
+## 2.4.12 — 2026-11-15
+
+### Sotto il cofano
+- una corsa parcheggiata sul nodo non blocca più la card (#1108)
+- Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)
+
+## 2.4.11 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)
+- un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)
+
+## 2.4.10 — 2026-11-15
+
+### Sotto il cofano
+- Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)
+
+## 2.4.9 — 2026-11-15
+
+### Sotto il cofano
+- topics/small-mist (card 3f078feb) (#1102)
+- Admission preview: a native sub-agent pays its real cost, not a card's floor
+
+## 2.4.8 — 2026-11-15
+
+### Sotto il cofano
+- decorate the menu the status item receives, not its idle menu (#1101)
+
+## 2.4.7 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)
+
+## 2.4.6 — 2026-11-15
+
+### Sotto il cofano
+- Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)
+- an open question keeps its status through a partial output and a re-announcement (#1059)
+- topics/private-raven (card 819c9836) (#1085)
+- topics/gloomy-fern (card 2fbdd455) (#1087)
+- topics/watchful-marble (card a5acfe57) (#1083)
+- topics/peaceful-grove (card 19d684fb) (#1079)
+- topics/peachy-kelp (card 629398ee) (#1070)
+
 ## 2.4.5 — 2026-11-15
 
 ### Correzioni
@@ -14,12 +79,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - decision note for daily summary overruns and waits (#1057)
 - a busy database goes straight to the caller instead of a second whole-row attempt (#1039)
 - topics/open-rivet (card b2b33bf0) (#998)
+- Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement
 
 ## 2.4.4 — 2026-11-15
+
+### Novità
+- **tray** · native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)
+- **tray** · account cards wear row icons, state icons and reset arrows as the original tray
+- **tray** · state icons for queued and braked projects, provider icons in the limits submenu
+- **tray** · process rows carry their second line as the original tray
+
+### Correzioni
+- **tray** · machine card flat-detail condition compiles
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
 - topics/cheery-orbit (card 475724bc) (#868)
+- **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
 
 ## 2.4.3 — 2026-11-15
 
@@ -60,6 +136,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
+- mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
 - voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)
 
@@ -67,6 +144,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)
+- Cloud node: commits carry the Mac checkout's git identity, not a stale global one
 
 ## 2.3.114 — 2026-11-14
 

@@ -108,3 +108,12 @@ fn tray_rows_carry_the_icon_of_their_kind() {
     assert_eq!(unit_icon(&serde_json::json!({"type": "servizio"}), ""), "sf:gearshape");
     assert_eq!(unit_icon(&serde_json::json!({"type": "app"}), ""), "sf:app", "an app with no bundle falls back to the kind sign");
 }
+
+#[test]
+fn a_remote_command_line_keeps_the_program_name_and_fits_under_the_row() {
+    assert_eq!(short_cmd("/srv/x/_tool/node/24/bin/node --test"), "node --test");
+    assert_eq!(short_cmd(r"C:\Windows\System32\svchost.exe -k netsvcs"), "svchost.exe -k netsvcs");
+    assert_eq!(short_cmd(""), "");
+    let long = short_cmd(&format!("/a/b/chrome {}", "--flag ".repeat(20)));
+    assert!(long.starts_with("chrome --flag") && long.ends_with('…') && long.chars().count() <= 56, "{long}");
+}

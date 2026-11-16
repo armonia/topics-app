@@ -52,7 +52,27 @@ configureSubagentRuntime({
   },
   broadcast: () => broadcastTerminalSessions(),
   handler: () => subAgentExitHandler,
+  machineRoom: () => childMachineRoom(),
 });
+
+/**
+ * Room for one more child, decided by memory and not by a number: the cards'
+ * admission priced for a child, read ONLY on its memory axes (`floor` = the
+ * RAM and disk floor, `memory` = the free-memory quota). Not the CPU: a native
+ * child spends its turn waiting on the model, and a busy Mac must not come
+ * back as a fixed cap under another name.
+ */
+function childMachineRoom(): { admit: boolean; reason: string } | null {
+  const a = childAdmissionPreview?.() ?? null;
+  if (!a || a.admit || (a.blockedBy !== "memory" && a.blockedBy !== "floor")) return a ? { admit: true, reason: "" } : null;
+  const gb = (n: number | null | undefined) => (typeof n === "number" ? `${n.toFixed(1)} GB` : "?");
+  const reason = a.blockedBy === "floor"
+    ? (a.reason ?? "memory or disk floor")
+    : a.memClause === "footprint"
+      ? `Topics holds ${gb(a.ourMemGB)} of its ${gb(a.usableMemGB)} ceiling`
+      : `a child needs ${gb(a.costMemGB)}, ${gb(a.freeQuotaMemGB)} free for Topics`;
+  return { admit: false, reason };
+}
 
 
 // ─────────────────────────────────────────────────────────────────────────────
