@@ -2,9 +2,9 @@
  * @covers GATE-02
  */
 // Wrapper around `spec-flow check-mutation` (spec-flow >= 0.4.0).
-// Finché la 0.4.0 non è pubblicata su npm il comando non esiste nella versione installata:
-// in quel caso il ratchet avvisa e non blocca, invece di tenere rossa ogni PR per un motivo
-// che non dipende dalla PR. Appena il bump entra, il comando gira e torna bloccante da solo.
+// Until 0.4.0 is on npm the installed version has no such command: the ratchet warns and
+// passes instead of keeping every PR red for a reason the PR cannot fix. Once the bump lands
+// the command exists and the ratchet blocks again by itself.
 import { spawnSync } from "node:child_process";
 
 const BIN = "spec-flow";
