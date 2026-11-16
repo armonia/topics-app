@@ -21,7 +21,7 @@
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
-import { changeUndoneOn } from "./change-undone";
+import { changeUndoneOn, someHunkUndoneOn } from "./change-undone";
 import { runGit } from "../lib/run-git";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
@@ -323,6 +323,56 @@ export async function branchContentIsOnMain(
   // macOS defaults to core.precomposeunicode=true, which rewrites argv pathspecs to NFC: a path stored
   // in NFD (committed from Linux or the web) would then match nothing and `--quiet` would exit 0.
   return (await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
+}
+
+/** How many commits of `mainRef` `branchContentWasOnMain` inspects at most: a bound, not a guess. */
+const WAS_ON_MAIN_CANDIDATES = 200;
+
+/**
+ * The squash check of `branchContentIsOnMain`, asked of main's HISTORY instead of its tip.
+ *
+ * A pull request squash-merged on GitHub, after which main kept editing the same files: the
+ * tip no longer matches the branch, so the tip check says "not on main", the land tries to
+ * bring main into the branch, conflicts, and pulls a card that was already done back to In
+ * Progress (card 360127d1, 2026-11-15, PR #1106).
+ *
+ * The proof: a commit C of `mainRef` that descends from the merge-base and at which every
+ * file the branch changed is identical to the branch. Merging the branch into C then gives C
+ * back (those files are equal on both sides, every other file is the base on the branch
+ * side), so the branch holds nothing C lacks, and C is inside main. The same strictness as
+ * the tip check: literal paths, no renames, no noise filter, and an empty list proves
+ * nothing.
+ */
+export async function branchContentWasOnMain(
+  repoPath: string,
+  branch: string,
+  mainRef = "main",
+  runGit?: GitRunner,
+): Promise<boolean> {
+  const base = (await gitOut(repoPath, ["merge-base", mainRef, branch], runGit)).trim();
+  if (!base) return false;
+  const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", base, branch], runGit))
+    .split("\0")
+    .filter((p) => p.length > 0);
+  if (changed.length === 0) return false;
+  const literal = changed.map((p) => `:(literal)${p}`);
+  // Only main's own line after the fork, and only commits that touched those files: the
+  // content can only have become equal at one of them.
+  const candidates = (await gitOut(repoPath, [
+    "-c", "core.precomposeunicode=false",
+    "rev-list", "--first-parent", `-n${WAS_ON_MAIN_CANDIDATES}`, `${base}..${mainRef}`, "--", ...literal,
+  ], runGit)).split("\n").map((s) => s.trim()).filter(Boolean);
+  for (const sha of candidates) {
+    if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", base, sha], runGit)) !== 0) continue;
+    const same = await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, sha, "--", ...literal], runGit);
+    if (same !== 0) continue;
+    // C held the work, but main may have taken some of it back since (a `git revert C`, or one
+    // edit of two removed from a file): then landing again is real work, and "nothing" would
+    // close the card without it. Asked hunk by hunk, so an edit undone inside a busy file counts;
+    // "cannot tell" is not a yes.
+    return (await someHunkUndoneOn(repoPath, base, branch, mainRef, literal, runGit)) === false;
+  }
+  return false;
 }
 
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */
