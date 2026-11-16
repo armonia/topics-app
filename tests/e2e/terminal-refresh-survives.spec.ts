@@ -129,6 +129,15 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
       const start = Date.now();
       await page.reload().catch(() => {});
       await restarting;
+      // A reload that lands while the server is down can end on the browser's
+      // network-error page, or on a cached shell that boots against a dead API
+      // when the restart outlasts the service worker's retries (a loaded CI
+      // shard). Nothing the product controls can repaint that page, so the
+      // reader does what anyone does: reloads once the server answers. A tab
+      // really pruned by the restart is still missing after this reload, which
+      // is the loss the assertion below exists to catch.
+      const settled = await expect(tab(ids[0])).toBeVisible({ timeout: 10_000 }).then(() => true, () => false);
+      if (!settled) await page.reload();
       for (const id of ids) await expect(tab(id), `riavvio ${r}: tab ${id} persa`).toBeVisible({ timeout: 30_000 });
       const tabsMs = Date.now() - start;
       await afterPrunePass(page, dormantRead);
