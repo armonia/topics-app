@@ -992,11 +992,26 @@ export async function runAgentTurn(
   opts: AgentTurnOptions,
   handler: StreamHandler,
 ): Promise<{ turnEnd: TurnEndInfo; text: string; usage: RoundResult["usage"] }> {
-  const token = await getAccessToken();
+  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+  let token: string | null;
+  try {
+    token = await getAccessToken();
+  } catch (err) {
+    // `getAccessToken` throws (it does not return null) when the token is past
+    // its margin and the renewal itself fails — an expired or revoked refresh
+    // token, not a transient one: the mid-turn 401 path already gives a clear
+    // sentence (`retry.ts`), this is its sibling for a turn that cannot even
+    // start. Without this, the raw `OAUTH_REFRESH_FAILED` text reached the
+    // chat instead of telling the person what to do.
+    const detail = err instanceof Error ? err.message : String(err);
+    const msg = `sessione Claude scaduta: ${detail}. Fai \`claude\` → /login, poi riprova`;
+    handler.onError(msg);
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
+  }
   if (!token) {
     const msg = "nessuna credenziale Claude: fai `claude` → /login una volta, poi riprova";
     handler.onError(msg);
-    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
   }
 
   // MCP schemas go deferred and load on request (`tool-deferral.ts`). Wrapped

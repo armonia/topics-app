@@ -5,8 +5,8 @@
  * @covers NATDEL-04
  */
 import { describe, expect, test, mock } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import * as delegate from './browser-native-delegate';
+import { readServerSource } from "../tests/helpers/server-source";
 
 const { createNativeDelegateRegistry, handleNativeDelegationFrame } = delegate;
 const isFrameAllowed = (delegate as { isNativeDelegateFrameAllowed?: (raw: unknown) => boolean }).isNativeDelegateFrameAllowed
@@ -14,7 +14,7 @@ const isFrameAllowed = (delegate as { isNativeDelegateFrameAllowed?: (raw: unkno
 
 describe('native delegate frame ownership', () => {
   test('the socket filter runs before browser message parsing', () => {
-    const source = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+    const source = readServerSource();
     const parse = source.indexOf('const raw = JSON.parse(');
     const delegation = source.indexOf('handleNativeDelegationFrame(', parse);
     expect(parse).toBeGreaterThanOrEqual(0);

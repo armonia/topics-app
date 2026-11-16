@@ -9,6 +9,7 @@ import { budgetSample, computeDispatchCapacity, governorRead, newOtherLoadState,
 import { _resetFreezableRuns, createBudgetGovernor, registerFreezableRun } from "../services/budget-governor";
 import { setActiveSwapFreezer, swapFrozenCount } from "./swap-freeze-hold";
 import { _resetFleetUsageCache, _setChildrenCpuSource, _setMachineCpuSource, shortLivedCpuPercent, fleetLoadSync, getFleetUsage, type FleetLoadReading } from "./fleet-usage";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 const targets = [{ id: "a", kind: "check" as const, startedAt: 1 }, { id: "b", kind: "check" as const, startedAt: 2 }];
 const over = { used: 10, budget: 5, targets };
@@ -63,10 +64,10 @@ describe("card 10469e3e: a cached reading is one sample", () => {
 
 describe("card 10469e3e: the beat refreshes the fleet reading before both consumers", () => {
   test("reconcile and the governor both wait for the same fresh reading", () => {
-    const src = readFileSync(new URL("../../server.ts", import.meta.url), "utf8");
+    const src = readServerSource();
     const beat = src.slice(src.indexOf("const freshFleet = getFleetUsage()"));
     expect(beat.startsWith("const freshFleet")).toBe(true);
-    expect(beat.slice(0, 900)).toContain("freshFleet\n      .then(() => taskDispatcher.reconcile");
+    expect(beat.slice(0, 900)).toContain("freshFleet\n        .then(() => taskDispatcher.reconcile");
     expect(beat.slice(0, 1800)).toContain("freshFleet.then(() => budgetGovernor.sampleOnce())");
   });
 });

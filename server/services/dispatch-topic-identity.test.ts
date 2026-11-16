@@ -5,11 +5,10 @@
  * @covers AICTRL-01, MSEL-06
  */
 import { describe, expect, it } from 'bun:test';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from './dispatch-topic-identity';
 import { resolveTopicProvider } from '../providers/resolve-topic-provider';
 import type { ProvidersSnapshot } from '../../shared/types';
+import { readServerSource } from "../../tests/helpers/server-source";
 
 function entry(name: string, models: string[]) {
   return { name, label: name, status: 'ready' as const, models, requirements: [], capabilities: ['coding-tasks'] };
@@ -163,7 +162,7 @@ describe('identità del topic dispacciato', () => {
 
 it('il dispatcher di server.ts passa da questa decisione, e non riscrive piu` il provider a "topics"', () => {
   // Secondario: sopra si prova la regola, qui che il chiamante vero la usa. allow-italian: dice il confine di questa prova
-  const source = readFileSync(join(import.meta.dir, '../../server.ts'), 'utf8');
+  const source = readServerSource();
   expect(source.includes('resolveDispatchTopicIdentity')).toBe(true);
   expect(/provider\s*=\s*["']topics["']/.test(source)).toBe(false);
 });
