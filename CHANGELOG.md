@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.20 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: adopt the branch the node delivered under (#1144)
+
 ## 2.4.19 — 2026-11-16
 
 ### Sotto il cofano

@@ -147,14 +147,20 @@ async function originHeadAncestor(repoPath: string, n: number, run: GitRunner): 
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
 }
 
-/** Plants a carried bundle as `carriedRef(branch)` in the node's checkout. */
+/**
+ * Plants a carried bundle as `carriedRef(branch)` in the node's checkout. `sourceBranch` is
+ * the bundle's own head when it differs: a node's run delivers under its worktree branch
+ * (`topics/<name>`), not under the `topics-child-<id>` the parent adopts (16/11: every child
+ * that came back was lost on "couldn't find remote ref").
+ */
 export async function plantCarriedBranch(
   repoPath: string,
   branch: string,
   bytes: Uint8Array,
   run: GitRunner = branchGit,
+  sourceBranch: string = branch,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
+  if (!isPlainBranchName(branch) || !isPlainBranchName(sourceBranch)) return { ok: false, reason: "not a valid branch name" };
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
   try {
     const file = join(dir, "branch.bundle");
@@ -168,7 +174,7 @@ export async function plantCarriedBranch(
       verified = await run(repoPath, ["bundle", "verify", file]);
     }
     if (verified.code !== 0) return { ok: false, reason: `invalid bundle: ${(verified.stderr ?? "").trim().slice(-120)}` };
-    const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${branch}:${carriedRef(branch)}`]);
+    const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${sourceBranch}:${carriedRef(branch)}`]);
     return fetched.code === 0 ? { ok: true } : { ok: false, reason: `fetch from bundle failed: ${(fetched.stderr ?? "").trim().slice(-120)}` };
   } finally {
     await rm(dir, { recursive: true, force: true });
