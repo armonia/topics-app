@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.19",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote children: resolve a model alias against the node's own catalog (#1138)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.18",
     "date": "2026-11-16",
     "sections": {
