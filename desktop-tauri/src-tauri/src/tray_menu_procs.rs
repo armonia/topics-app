@@ -274,6 +274,18 @@ fn rankings(real: &[&Value], cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     with_icon("sf:chart.bar", sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
 }
 
+/// A command line as the second line of a row: the program's own name (not its
+/// path) and its arguments, cut to what fits under the row. A full path ran past the
+/// menu's edge and an NSMenu widens itself to its longest title.
+fn short_cmd(cmd: &str) -> String {
+    const ROOM: usize = 56;
+    let mut words = cmd.split_whitespace();
+    let Some(first) = words.next() else { return String::new() };
+    let program = first.rsplit(['/', '\\']).next().unwrap_or(first);
+    let line = std::iter::once(program).chain(words).collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= ROOM { line } else { format!("{}…", line.chars().take(ROOM - 1).collect::<String>().trim_end()) }
+}
+
 /// The process table of a machine read from afar (PC, cloud server): the same header
 /// and columns as this computer's, one row per process the service listed. GPU and
 /// network are not read there: `–`, as an idle column of this computer reads.
@@ -285,7 +297,10 @@ pub fn remote_procs_table(procs: &[crate::tray_menu_detail::RemoteProc]) -> Vec<
     let total: f64 = procs.iter().map(|p| p.mem_mb).sum();
     let mut out = vec![head(&format!("GIRA ADESSO · {} · {}", procs.len(), mem_text(total)))];
     out.extend(procs.iter().take(SHOWN).map(|p| {
-        let second = if p.cmd.is_empty() { "processo".to_string() } else { format!("processo · {}", p.cmd) };
+        let second = match short_cmd(&p.cmd) {
+            c if c.is_empty() => "processo".to_string(),
+            c => format!("processo · {c}"),
+        };
         let cells = vec![p.name.clone(), cpu_text(p.cpu_pct), "–".into(), "–".into(), mem_text(p.mem_mb), second_line(second)];
         with_icon("sf:gearshape", Node::Row { id: String::new(), cells, header: false, children: Vec::new() })
     }));
