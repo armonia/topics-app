@@ -1,9 +1,9 @@
 name: Mutation (indice solido)
 
-# The "solido" index: the mutation score of the critical modules (scripts/mutation-critical.ts).
-# Runs every night on main and on PRs that touch those modules or their tests. Red when a
-# module falls under its baseline (scripts/mutation-baseline.json). At night, when one rises,
-# the baseline follows it onto main: the ratchet tightens by itself.
+# The "solido" index, spec-flow D9 Tier A: the mutation score of the modules in
+# spec-flow.completeness.json (mutation.tierA). Runs every night on main and on PRs that touch
+# those modules or their tests. Red when a module falls under spec-flow.mutation-baseline.json.
+# At night, when one rises, the baseline follows it onto main: the ratchet tightens by itself.
 # quality-bar reads the last finished run on main (measure `mutation-main`).
 
 on:
@@ -12,9 +12,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "scripts/mutation-critical.ts"
-      - "scripts/mutation-baseline.json"
-      - "scripts/check-mutation.ts"
+      - "spec-flow.completeness.json"
+      - "spec-flow.mutation-baseline.json"
       - "stryker.config.mjs"
       - "server/services/landing-verdict*.ts"
       - "server/services/landing-files*.ts"
@@ -68,10 +67,10 @@ jobs:
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           bun run check:mutation --update-baseline
-          if git diff --quiet scripts/mutation-baseline.json; then exit 0; fi
+          if git diff --quiet spec-flow.mutation-baseline.json; then exit 0; fi
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
-          git add scripts/mutation-baseline.json
+          git add spec-flow.mutation-baseline.json
           git commit -m "mutation: baseline follows the scores that rose tonight"
           git push origin HEAD:main || echo "::warning::main moved, the baseline rises on the next run"
 
