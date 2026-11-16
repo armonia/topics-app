@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.20",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote children: adopt the branch the node delivered under (#1144)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.19",
     "date": "2026-11-16",
     "sections": {
