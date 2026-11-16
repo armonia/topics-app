@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { formatTerminalKillLog, recordedExitCode } from './terminal-kill';
+import { readServerSource } from "../../tests/helpers/server-source";
 
 // The terminal route is split into sibling modules; the scans read them as one text.
 const ROUTES = readdirSync(resolve(import.meta.dir, '../routes'))
@@ -15,7 +16,7 @@ const ROUTES = readdirSync(resolve(import.meta.dir, '../routes'))
   .map((name) => readFileSync(resolve(import.meta.dir, '../routes', name), 'utf8'))
   .join('\n');
 const BRIDGE = readFileSync(resolve(import.meta.dir, '../pty-bridge.mjs'), 'utf8');
-const SERVER = readFileSync(resolve(import.meta.dir, '../../server.ts'), 'utf8');
+const SERVER = readServerSource();
 
 function killMessages(): string[] {
   return ROUTES.split('\n')

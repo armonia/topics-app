@@ -25,10 +25,11 @@ import { join } from "path";
 import { resolveDataDir, resolveStateDir } from "../../server/lib/data-dir";
 import { dataDirForPort } from "../e2e/helpers/test-server";
 import { E2E_DEFAULT_PORT } from "../e2e/helpers/worktree-port";
+import { readServerSource } from "../helpers/server-source";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const START_TEST_SERVER = readFileSync(join(ROOT, "scripts/start-test-server.sh"), "utf8");
-const SERVER_TS = readFileSync(join(ROOT, "server.ts"), "utf8");
+const SERVER_TS = readServerSource();
 
 describe("E2E-ISO-01 · il banco non scrive nella cartella viva", () => {
   test("resolveStateDir onora TOPICS_DATA_DIR invece della cartella del repo", () => {

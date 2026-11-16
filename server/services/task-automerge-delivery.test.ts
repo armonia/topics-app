@@ -488,11 +488,11 @@ describe("land vs consegna — su git vero", () => {
   }, 30_000);
 });
 
-describe("server.ts wires the land through declaredDeliveryFor and nothing of its own", () => {
+describe("the server boot wires the land through declaredDeliveryFor and nothing of its own", () => {
   // The wiring is the one place a regression hid: the logic can be right in
   // `declaredDeliveryFor` while server.ts goes back to reading `deliveryBranch`
-  // alone (12/11). server.ts cannot be imported in a test, so the test reads it.
-  const source = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+  // alone (12/11). The boot module cannot be imported in a test, so the test reads it.
+  const source = readFileSync(join(import.meta.dir, "../boot/preview-delivery.ts"), "utf8");
   const at = source.indexOf("createTaskAutoMerge({");
   const block = source.slice(at, source.indexOf("log: (msg, err) => console.error", at))
     .split(/\r?\n/).filter((line) => !line.trim().startsWith("//")).join("\n");

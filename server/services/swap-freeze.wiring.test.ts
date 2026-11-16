@@ -21,8 +21,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readServerSource } from "../../tests/helpers/server-source";
 
-const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+const server = readServerSource();
 const killTree = readFileSync(join(import.meta.dir, "../lib/kill-agent-tree.ts"), "utf8");
 
 /** The index of a piece of wiring, with a readable failure when it is gone. */
@@ -77,8 +78,8 @@ describe("the freezer is wired in the one order that works", () => {
     // Without it `inFlight` is unknown, read as "no limit": the only card of
     // Topics is frozen again a minute after the exemption admitted it.
     const start = at(server, "const swapFreezer = createSwapFreezer({", "the freezer");
-    const block = server.slice(start, server.indexOf("\n});", start));
-    expect(block).toContain("ourWorkInFlight: () => turniInVolo() + (checksGateRunningCount?.() ?? 0),");
+    const block = server.slice(start, server.indexOf("\n  });", start));
+    expect(block).toContain("ourWorkInFlight: () => turniInVolo() + (late.checksGateRunningCount?.() ?? 0),");
   });
 
   test("the silence clocks read the hold", () => {
