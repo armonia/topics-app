@@ -34,6 +34,13 @@ pub(crate) fn with_icon(spec: impl Into<String>, node: Node) -> Node {
 pub(crate) fn item(id: &str, label: impl Into<String>) -> Node {
     Node::Item { id: id.into(), label: label.into(), enabled: true }
 }
+/// A row's second line (kind, owner, since): the native menu draws it under the row,
+/// small and grey, whatever column it would otherwise land in. A table with fewer
+/// columns than the tab stops (the processes: 4 against 5) used to print it as one
+/// more column, clipped against the memory («204 MBproc»).
+pub(crate) fn second_line(text: impl Into<String>) -> String {
+    format!("\n{}", text.into())
+}
 pub(crate) fn note(label: impl Into<String>) -> Node {
     Node::Item { id: String::new(), label: label.into(), enabled: false }
 }
@@ -611,7 +618,8 @@ pub fn dump_text(nodes: &[Node]) -> String {
                     go(children, depth + 1, out);
                 }
                 Node::Row { cells, children, .. } => {
-                    out.push_str(&format!("{pad}{}\n", cells.join(" | ")));
+                    let flat: Vec<&str> = cells.iter().map(|c| c.trim_start_matches('\n')).collect();
+                    out.push_str(&format!("{pad}{}\n", flat.join(" | ")));
                     go(children, depth + 1, out);
                 }
                 Node::Icon { node, .. } => go(std::slice::from_ref(&**node), depth, out),
