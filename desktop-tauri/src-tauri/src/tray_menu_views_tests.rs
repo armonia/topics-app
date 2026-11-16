@@ -66,13 +66,15 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
-fn a_reading_the_dial_cannot_show_goes_in_the_line_under_it() {
+fn a_reading_the_dial_cannot_show_is_a_legend_row_not_the_line() {
     let spend = Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() };
-    let cpu = Metric { key: "cpu".into(), name: "CPU".into(), pct: Some(40), ..Default::default() };
-    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu], ..Default::default() };
-    // the dial's own readings stay in the legend; the spend leads the line, the reason follows
-    assert_eq!(card_line(&m), "Spesa 8,44/60 € · Oltre il tetto");
-    assert_eq!(card_line(&MachineCard { reason: "x".into(), ..Default::default() }), "x");
+    let cpu = Metric { key: "cpu".into(), pct: Some(30), ..Default::default() };
+    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu.clone()], ..Default::default() };
+    assert_eq!(card_line(&m), "Oltre il tetto");
+    assert_eq!(extra_rows(&m).iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), ["spend"]);
+    // the swap is the note of the memory row, never a row of its own
+    let swap = Metric { key: "swap".into(), value: "5/6 GB".into(), ..Default::default() };
+    assert!(extra_rows(&MachineCard { metrics: vec![swap, cpu], ..Default::default() }).is_empty());
     assert_eq!(card_line(&MachineCard::default()), "");
 }
 
@@ -96,16 +98,19 @@ fn backup_card_has_the_private_archive_the_foot_and_the_next_run() {
 }
 
 #[test]
-fn a_machine_without_hardware_gauges_takes_the_spend_rows_and_the_state_band() {
+fn the_server_card_is_the_pc_card_with_one_more_row_for_its_spend() {
     let p = Palette::new(true);
-    let m = machine_cards_from_board(BOARD);
-    let details = crate::tray_menu_detail::machine_details(r#"[{"id":"hetzner","metrics":[{"name":"Spesa","pct":14,"level":2,"value":"8,44/60 €","history":[{"t":100,"v":10},{"t":200,"v":14}]}],"timeline":{"window":200,"segments":[{"t0":0,"t1":200,"state":"spento"}]}}]"#);
-    let cloud = MachineCard { id: "hetzner".into(), name: "Server".into(), badge: "spento".into(), metrics: vec![Metric { key: "spend".into(), pct: Some(14), ..Default::default() }], ..Default::default() };
-    let flat = draw_machine_card(&cloud, details.first(), p);
-    let bare = draw_machine_card(&cloud, None, p);
-    assert!(flat.cv.h > bare.cv.h, "the rows and the band take height");
-    // a machine with gauges never takes the flat rows, whatever detail it is given
-    assert_eq!(draw_machine_card(&m[0], details.first(), p).cv.h, draw_machine_card(&m[0], None, p).cv.h);
+    let hw = |k: &str, v: u32| Metric { key: k.into(), pct: Some(v), ..Default::default() };
+    let pc = MachineCard { id: "pc".into(), name: "PC".into(), badge: "lavora".into(), metrics: vec![hw("cpu", 5), hw("mem", 32), hw("disk", 97)], ..Default::default() };
+    let mut server = MachineCard { id: "hetzner".into(), name: "Server".into(), ..pc.clone() };
+    let plain = draw_machine_card(&server, p);
+    server.metrics.push(Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() });
+    let with_spend = draw_machine_card(&server, p);
+    assert_eq!(plain.cv.h, draw_machine_card(&pc, p).cv.h, "same card as the PC");
+    assert_eq!(with_spend.cv.h, plain.cv.h + 36, "the spend takes one legend row (18 pt at 2x)");
+    // a server that measures only its spend still gets the dial, not a different card
+    let only_spend = MachineCard { metrics: vec![server.metrics[3].clone()], ..server.clone() };
+    assert_eq!(draw_machine_card(&only_spend, p).cv.h, with_spend.cv.h);
 }
 
 #[test]
@@ -113,7 +118,7 @@ fn every_view_renders_ink_at_the_menu_width() {
     let p = Palette::new(true);
     let m = machine_cards_from_board(BOARD);
     for card in &m {
-        let pic = draw_machine_card(card, None, p);
+        let pic = draw_machine_card(card, p);
         assert_eq!(pic.cv.w, (MENU_W * 2.0) as u32);
         assert!(pic.cv.px.chunks(4).any(|px| px[3] > 0));
     }
@@ -146,8 +151,7 @@ fn snapshot() {
             .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())
             .unwrap_or_default().iter().filter_map(|m| m.card()).collect();
         let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
-        let details_all = crate::tray_menu_detail::machine_details(&details);
-        let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, details_all.iter().find(|d| d.id == m.id && !m.id.is_empty()), p)).collect();
+        let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
         // the submenu cards of the machines that have graphs: PC, cloud server
         pics.extend(crate::tray_menu_detail::machine_details(&details).iter().filter(|d| crate::tray_menu_detail::has_graphics(d)).map(|d| crate::tray_menu_detail::draw_machine_detail(d, p)));

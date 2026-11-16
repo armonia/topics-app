@@ -274,6 +274,24 @@ fn rankings(real: &[&Value], cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     with_icon("sf:chart.bar", sub(format!("Classifiche per CPU, GPU, rete e memoria · CPU totale {} · 100% = un core intero", cpu_text(total)), kids))
 }
 
+/// The process table of a machine read from afar (PC, cloud server): the same header
+/// and columns as this computer's, one row per process the service listed. GPU and
+/// network are not read there, so they say `n/d`. No list = the reason is already in
+/// the machine's lines above it.
+pub fn remote_procs_table(procs: &[crate::tray_menu_detail::RemoteProc]) -> Vec<Node> {
+    if procs.is_empty() {
+        return vec![note("Nessun processo letto adesso")];
+    }
+    let total: f64 = procs.iter().map(|p| p.mem_mb).sum();
+    let mut out = vec![head(&format!("GIRA ADESSO · {} · {}", procs.len(), mem_text(total)))];
+    out.extend(procs.iter().take(SHOWN).map(|p| {
+        let second = if p.cmd.is_empty() { "processo".to_string() } else { format!("processo · {}", p.cmd) };
+        let cells = vec![p.name.clone(), cpu_text(p.cpu_pct), "n/d".into(), "n/d".into(), mem_text(p.mem_mb), second];
+        with_icon("sf:gearshape", Node::Row { id: String::new(), cells, header: false, children: Vec::new() })
+    }));
+    out
+}
+
 #[cfg(test)]
 #[path = "tray_menu_procs_tests.rs"]
 mod tests;

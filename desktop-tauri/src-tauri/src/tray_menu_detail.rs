@@ -34,6 +34,17 @@ pub struct MachineDetail {
     pub segments: Vec<(i64, i64, String)>,
     pub window: i64,
     pub lines: Vec<String>,
+    /// The processes that weigh, as the service read them (`procs`), heaviest first.
+    pub procs: Vec<RemoteProc>,
+}
+
+/// One process of a machine the service reads from afar (PC, cloud server).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RemoteProc {
+    pub name: String,
+    pub cpu_pct: f64,
+    pub mem_mb: f64,
+    pub cmd: String,
 }
 
 fn text(v: &Value, k: &str) -> String {
@@ -58,6 +69,12 @@ pub fn machine_details(body: &str) -> Vec<MachineDetail> {
             segments: tl.and_then(|t| t.get("segments")).and_then(Value::as_array).map(|a| a.iter().filter_map(|s| Some((s.get("t0")?.as_i64()?, s.get("t1")?.as_i64()?, text(s, "state")))).collect()).unwrap_or_default(),
             window: tl.and_then(|t| t.get("window")).and_then(Value::as_i64).unwrap_or(86_400),
             lines: m.get("lines").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default(),
+            procs: m.get("procs").and_then(Value::as_array).map(|a| a.iter().filter(|x| !text(x, "name").is_empty()).map(|x| RemoteProc {
+                name: text(x, "name"),
+                cpu_pct: x.get("cpu_pct").and_then(Value::as_f64).unwrap_or(0.0),
+                mem_mb: x.get("mem_mb").and_then(Value::as_f64).unwrap_or(0.0),
+                cmd: text(x, "cmd"),
+            }).collect()).unwrap_or_default(),
         }
     }).collect()
 }
