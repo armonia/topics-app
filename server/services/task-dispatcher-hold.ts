@@ -9,7 +9,7 @@ import { effectiveTopicsRouting, taskModelSelection } from "../../shared/task-co
 import { WorktreeRefusalError } from "./worktree-manager";
 import { providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
-import { holdKey, CHIP_QUEUED } from "./task-dispatcher-support";
+import { CHIP_QUEUED } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createProviderHold(ctx: DispatcherCtx) {

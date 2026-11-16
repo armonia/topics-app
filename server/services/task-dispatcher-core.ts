@@ -14,7 +14,7 @@ import { NoCheckExemptionLedger } from "./dispatch-no-check-exemption";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { DispatcherDeps } from "./task-dispatcher-types";
 import { DEFAULT_RETRY_CAP } from "./task-dispatcher-support";
-import type { DispatcherCtx, RunSlot, TaskLedger, LiveTurn } from "./task-dispatcher-context";
+import type { RunSlot, TaskLedger, LiveTurn } from "./task-dispatcher-context";
 
 export function createDispatcherCore(deps: DispatcherDeps) {
 
