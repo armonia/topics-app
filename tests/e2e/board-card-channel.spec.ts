@@ -137,6 +137,33 @@ test.describe("Canale sulla card", () => {
     }
   });
 
+  test("a 200 px il thread finisce con ellissi, dentro la card", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    const chip = page.locator(`[data-task-card="${discordCard}"]`).getByTestId("card-channel");
+    await expect(chip).toBeVisible();
+    const result = await chip.evaluate((el) => {
+      const host = el.parentElement!;
+      host.style.width = "200px";
+      host.style.maxWidth = "200px";
+      const thread = el.querySelector<HTMLElement>("[data-testid='card-channel-thread']");
+      const style = thread ? getComputedStyle(thread) : null;
+      return {
+        hasThread: !!thread,
+        inside: el.getBoundingClientRect().right <= host.getBoundingClientRect().right + 0.5,
+        clipped: !!thread && thread.scrollWidth > thread.clientWidth + 1,
+        ellipsis: style?.textOverflow === "ellipsis",
+        hidden: style?.overflow === "hidden",
+      };
+    });
+    expect(result.hasThread).toBe(true);
+    expect(result.inside).toBe(true);
+    expect(result.ellipsis).toBe(true);
+    expect(result.hidden).toBe(true);
+    expect(result.clipped).toBe(true);
+  });
+
   test("la card dice il canale, il chip apre la chat, la card senza canale resta pulita", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     await page.setViewportSize({ width: 1440, height: 900 });

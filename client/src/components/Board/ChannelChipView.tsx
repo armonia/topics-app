@@ -56,7 +56,7 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
       {thread && (
         <span data-testid="card-channel-thread-row" className="flex min-w-0 max-w-full items-center gap-1">
           <MessagesSquare className="h-3 w-3 shrink-0" aria-label="thread" />
-          <span data-testid="card-channel-thread" className={full ? '' : 'min-w-0 truncate'}>{thread.text}</span>
+          <span data-testid="card-channel-thread" className={full ? '' : 'block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap'}>{thread.text}</span>
         </span>
       )}
     </button>
