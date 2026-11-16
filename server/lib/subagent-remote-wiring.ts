@@ -10,7 +10,7 @@ import { getDatabase } from "../db";
 import type { AppContext } from "../types";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { isGitRepo, runGit } from "../services/turn-checkpoints";
-import type { BundleResult, CreateRunBody, NodeRunReport } from "../services/node-client";
+import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from "../services/node-client";
 import { normalizePromptSnippet } from "./claude-subagent-transcript";
 import { emitChildResult } from "./subagent-runtime";
 import { countRunningRemoteChildren, getSubagent, insertSubagent, markSubagentRemote, runningSubagents, setSubagentState, type SubagentRow } from "./subagent-store";
@@ -66,6 +66,17 @@ export function macOnlyResourceOf(prompt: string, agentType: string | null): Mac
   if (SESSION_WORK.test(text)) return "session";
   if (classifyStayLocal({ text }) === "KEEP") return "macos";
   return null;
+}
+
+/**
+ * What the child answered, out of the node's card comments: the agent's delivery, else its
+ * last word. The node's own services write after it (16/11: the verifier's "preview not
+ * attached" note was the last comment, and the parent read that as the child's answer).
+ */
+export function childAnswerOf(comments: readonly NodeRunComment[]): string {
+  const byAgent = comments.filter((c) => c.author.startsWith("agent:") && c.kind !== "status");
+  const delivery = byAgent.filter((c) => c.kind === "delivery").at(-1);
+  return (delivery ?? byAgent.at(-1) ?? comments.at(-1))?.content ?? "";
 }
 
 export type SpawnRemoteChildAttemptResult =
@@ -163,14 +174,14 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       const failed = report.status === "backlog" && (report.dispatchState === "failed" || report.dispatchState === "blocked");
       if (report.status !== "review" && !failed) return; // still running
       if (getSubagent(getDatabase(), row.id)?.state !== "running") return; // already settled by another tick
-      const lastText = report.comments.length ? report.comments[report.comments.length - 1]!.content : "";
+      const lastText = childAnswerOf(report.comments);
       if (failed) {
         finish(row, { failed: true, text: lastText, detail: report.dispatchError || report.reason || "the node parked the run" });
         return;
       }
       if (row.branch) {
         const settled = await settleRemoteChildBranch({
-          repoPath: row.cwd, branch: row.branch,
+          repoPath: row.cwd, branch: row.branch, deliveredBranch: report.deliveryBranch,
           fetchBundle: () => r.fetchBundle({ baseUrl, token, runId }),
         });
         if (!settled.ok) {
