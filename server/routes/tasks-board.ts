@@ -93,6 +93,8 @@ export interface BoardRouteDeps {
     over?: { cwd?: string | null; landed?: string | null; extra?: Array<string | null | undefined> },
   ) => Promise<void>;
   captureDelivery: <T extends { id: string; status: string }>(task: T, prevStatus?: string) => Promise<T>;
+  /** Backfills a review card's own commit when its branch outran the last capture. */
+  capturaConsegna: (taskId: string) => Promise<boolean>;
   triggerUrlProbe: (taskId: string, outputUrl: string | null, projectId?: string) => void;
   cutLiveTurn: (t: { id: string; assignedTopicId: string | null; dispatchState: string | null }, reason: string, cause: StopCause) => boolean;
   enqueueLand: (projectId: string, taskId: string) => LandingTicket;
@@ -130,6 +132,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     resolveBoardId,
     sweepRemoteDelivery,
     captureDelivery,
+    capturaConsegna,
     triggerUrlProbe,
     cutLiveTurn,
     enqueueLand,
@@ -850,8 +853,32 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             try { svc.addComment({ taskId: bReview.taskId, author: HUMAN, content: said, projectId: bReview.projectId, origin: actionOrigin }); }
             catch { /* the phase is what matters */ }
           }
+          // A branch with no commit ever captured for it (the periodic backfill has
+          // not run yet) used to fall through `enterCiPhase`'s `!deliveryCommit`
+          // guard straight into the plain approve below, closing the card `done`
+          // with nothing measured and nothing landed (e73d7a2d, 16/11). Capture it
+          // NOW instead of waiting for the next pass.
+          let curForCi = cur;
+          if (!curForCi.deliveryCommit) {
+            let captured = false;
+            try { captured = await capturaConsegna(bReview.taskId); } catch { captured = false; }
+            curForCi = svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? curForCi;
+            // `captured` false ⇒ git could not say ANYTHING about this branch
+            // (no worktree, branch pruned): not accountable, so the approve must
+            // not guess and must not silently close `done` either. `captured`
+            // true with `deliveryCommit` still null is the OTHER, legitimate
+            // reading — verified, this card produced no commit of its own — and
+            // falls through below exactly as before: `enterCiPhase` declines on
+            // its own `!deliveryCommit` guard, so the plain approve closes it.
+            if (!captured) {
+              return json({
+                error: "this card's branch could not be read (no worktree, no branch to ask git): capture it again, or approve with `superseded` if the branch is to be discarded",
+                code: "delivery_commit_missing",
+              }, 409);
+            }
+          }
           if (enterCiPhase(bReview.projectId, bReview.taskId)) {
-            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? cur, 202);
+            return json(svc.get(bReview.taskId, { projectId: bReview.projectId })?.task ?? curForCi, 202);
           }
         }
       }
