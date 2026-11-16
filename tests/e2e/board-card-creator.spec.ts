@@ -103,8 +103,10 @@ test.describe("Creatore sulla card", () => {
 
     await expect(page.locator(`[data-task-card="${mine.id}"]`).getByTestId("card-created-by")).toHaveAttribute("data-created-by-kind", "human");
     const bareCard = page.locator(`[data-task-card="${bare.id}"]`);
-    await expect(bareCard.getByTestId("card-created-by")).toHaveText("J");
-    await expect(bareCard.getByTestId("card-created-by")).toHaveAttribute("title", /jarvis/);
+    // Jarvis is told apart from any other agent: his avatar and his name, in the same slot.
+    await expect(bareCard.getByTestId("card-created-by")).toHaveAttribute("data-created-by-jarvis", "true");
+    await expect(bareCard.getByTestId("card-created-by")).toHaveText("JJarvis");
+    await expect(bareCard.getByTestId("card-created-by")).toHaveAttribute("title", /Jarvis/);
     await expect(bareCard.getByTestId("card-incomplete")).toBeVisible();
     await expect(page.locator(`[data-task-card="${full.id}"]`).getByTestId("card-incomplete")).toHaveCount(0);
 

@@ -138,7 +138,10 @@ describe("beforeMerge is asked under the chain, after the fetch, right before th
     const card = { archived: false, humanAsk: null as string | null };
     const order: string[] = [];
     const runGit: typeof defaultRunGit = async (cwd, args) => {
-      if (args[0] === "fetch") {
+      // Only the fetch of the base is the network read under test: the one that
+      // brings the card's own branch from origin (`refs/heads/<b>:refs/heads/<b>`)
+      // runs earlier, before anything is measured.
+      if (args[0] === "fetch" && !args.some((x) => x.startsWith("refs/heads/"))) {
         order.push("fetch");
         // The card is archived and asks the person while the network is being read.
         await new Promise((r) => setTimeout(r, 50));

@@ -26,6 +26,8 @@ import { FolderTree } from 'lucide-react';
 import type { PaneType } from '../../types';
 import { tabSlotCommand, tabSlotSignal } from '../../lib/tabSlot';
 import { useT } from '../../hooks/useT';
+import { useChildRow } from '../../state/childWork';
+import { runningLine, workLine } from '../../lib/workLine';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -47,7 +49,7 @@ import {
   TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner,
   SparkLoader, LoaderSlot,
 } from './StreamingIndicator';
-import { useBoardAttention, useBoardTabCounts } from './BoardTabCounts';
+import { useBoardAttention, useBoardRunning, useBoardTabCounts } from './BoardTabCounts';
 
 /** The slot's width, in px. Fixed and always reserved (TABSLOT-02). */
 const SLOT_PX = 20;
@@ -137,11 +139,12 @@ function BoardSlot(props: TabSlotProps) {
   const counts = useBoardTabCounts(projectPath);
   const lit = useBoardAttention(projectPath);
   const inProgress = counts.find((c) => c.status === 'in_progress')?.n ?? 0;
+  const timeLeft = runningLine(tr, useBoardRunning(projectPath));
   // The tooltip says what the NUMBER is made of: the same lit cards, by why
   // they wait (steps included), then the cards in progress the ring stands for.
   const summary = [
     ...lit.groups.map((g) => tr(`attention.board.reason.${g.status}`, { n: g.count })),
-    ...(inProgress > 0 ? [`${STATUS_LABEL.in_progress}: ${inProgress}`] : []),
+    ...(inProgress > 0 ? [`${STATUS_LABEL.in_progress}: ${inProgress}${timeLeft ? ` (${timeLeft})` : ''}`] : []),
   ].join(' · ');
   return (
     <SlotView
@@ -320,6 +323,8 @@ export function TabLabel({
   const lastActivityAt = useSubjectLastActivity(subjectId ?? undefined);
   const projectStart = useProjectWorkStart(projectPath);
   const [hoveredAt, setHoveredAt] = useState(0);
+  // A sub-agent's own tab: what is left of its work and what it weighs, from the rows its chat's strip shows.
+  const child = useChildRow(subjectId);
   let elapsed = '';
   if (hoveredAt > 0) {
     if (projectStart) {
@@ -334,6 +339,10 @@ export function TabLabel({
           : tr('activity.finishedAgo', { label });
       }
     }
+  }
+  if (child && hoveredAt > 0) {
+    const line = workLine(tr, { estimateMs: child.estimateMs, elapsedMs: hoveredAt - Date.parse(child.startedAt), weight: child.weight });
+    if (line) elapsed = elapsed ? `${elapsed}\n${line}` : line;
   }
   return (
     <span

@@ -34,6 +34,8 @@ import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
 import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../shared/channel-origin";
+import { channelPlaceOf } from "./channel-place";
 import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { parseCreatedBy, UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 /** Automatic requeues of a machine-parked card before it stays for a human. */
@@ -123,6 +125,7 @@ export {
 import type { MergeOutcome, ServiceOpts, TaskService } from "./tasks-service-types";
 export type { TaskService };
 import { parseChecksJson, parseChecksProgress, parseChecksCi } from "./tasks-checks";
+import { isNodeChildRun } from "./node-child-run";
 export { parseChecksJson, parseChecksProgress, parseChecksCi };
 
 /**
@@ -1798,6 +1801,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.bar ? { bar: r.bar } : {}),
       ...liveCardGaps(r),
       ...openerOf(r),
+      ...channelOf(r),
       // The workflow column, only when it is not the default one: a board with
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
@@ -1918,16 +1922,40 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * deleted chat would open a ghost tab). Display only.
    */
   let openerNameQuery: ReturnType<typeof db.prepare> | null = null;
+  function topicBrief(id: string): { name: string | null; kind: ChannelKind | null } | null {
+    try {
+      // Prepared once: a list of thousands of cards would otherwise compile one statement per row.
+      openerNameQuery ??= db.prepare("SELECT name, icon FROM topics WHERE id = ?");
+      const t = openerNameQuery.get(id) as { name?: string | null; icon?: string | null } | null;
+      return t ? { name: t.name ?? null, kind: channelKindOfIcon(t.icon) } : null;
+    } catch { return null; }
+  }
   function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: string | null }): { openerTopicId?: string; openerName?: string } {
     const id = r.origin_topic_id ?? r.created_by_topic_id;
     if (!id) return {};
-    try {
-      // Prepared once: a list of thousands of cards would otherwise compile one statement per row.
-      openerNameQuery ??= db.prepare("SELECT name FROM topics WHERE id = ?");
-      const t = openerNameQuery.get(id) as { name?: string | null } | null;
-      if (!t) return {};
-      return { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) };
-    } catch { return {}; }
+    const t = topicBrief(id);
+    return t ? { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) } : {};
+  }
+
+  /**
+   * The Jarvis channel a card's work came from: the chat linked on purpose
+   * (`channel_topic_id`) wins, else the opener chat when it is itself a channel
+   * chat. Only while that chat exists and wears a channel mark: a deleted chat
+   * would open a ghost tab, and an ordinary chat is not a channel. Display only.
+   */
+  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace } } {
+    for (const id of [r.channel_topic_id, r.origin_topic_id, r.created_by_topic_id]) {
+      if (!id) continue;
+      const t = topicBrief(id);
+      if (t?.kind) {
+        let place: ChannelPlace | null = null;
+        try { place = channelPlaceOf(t.name ?? ""); } catch { /* the bridge database is optional */ }
+        return { channel: { topicId: id, name: t.name ?? "", kind: t.kind, ...(place ? { place } : {}) } };
+      }
+      // An explicit link names the channel: when it is gone the card is NOT re-attributed to another chat.
+      if (id === r.channel_topic_id) return {};
+    }
+    return {};
   }
 
   function rowToTask(r: any): Task {
@@ -3064,8 +3092,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         : null;
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, bar, created_missing)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, channel_topic_id, bar, created_missing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3081,7 +3109,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         parseCreatedBy(input.createdBy),
         input.stayLocal ? 1 : 0,
         input.baseBranch?.trim() || null,
-        bornSource, input.originTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
+        bornSource, input.originTopicId?.trim() || null, input.channelTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
       );
       if (bornGaps?.length) {
         try {
@@ -3461,6 +3489,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (patch.description !== undefined) put("description", patch.description);
       if (patch.bar !== undefined) put("bar", patch.bar?.trim() || null);
       if (patch.createdSource !== undefined) put("created_source", patch.createdSource?.trim().slice(0, 160) || null);
+      if (patch.channelTopicId !== undefined) {
+        const link = patch.channelTopicId?.trim() || null;
+        // A link to a chat that does not exist would show nothing and open a ghost tab.
+        if (link && !topicBrief(link)) throw new TaskServiceError("invalid_input", `channel chat ${link} not found`);
+        put("channel_topic_id", link);
+      }
       if (patch.priority !== undefined) {
         put("priority", patch.priority);
         // An explicit write (human OR the agent fulfilling "auto") settles it.
@@ -4620,9 +4654,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (!remote && heavyInFlight() && !noCheckExemption) return null;
+      // A node's spawn_agent child shares the machine with a heavy turn (node-child-run.ts).
+      const child = isNodeChildRun(rowToTask(row));
+      if (!remote && heavyInFlight() && !noCheckExemption && !child) return null;
       if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
-      if (!remote && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
+      if (!remote && !child && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap
       // holds no matter how many boards dispatch at once. The task itself is
@@ -4686,6 +4722,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     release({ taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
+      // remote-run path released it with `requeue` at 13:05 (`reopenedBy:
+      // dispatcher`), the next claim started an agent on finished work, which
+      // then asked whether to close it. Several callers release without looking
+      // at the column (mirror retirement, weekly limit, restart requeue, empty
+      // node run): the guard lives here, once, for all of them. The link to the
+      // topic is still cleared and the reason still lands as a note (the GC
+      // writes why it unbound or abandoned a worktree); the column and the
+      // reopen mark are not touched.
+      if (row.status === "done") {
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
+        }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
+        ).run(now(), taskId);
+        return rowToTask(getTaskRow(taskId));
+      }
       // Note first (so the "worked in topic X" trail survives clearing the link).
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
@@ -4738,6 +4793,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deferForWait({ taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card waits for nothing: same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
@@ -4799,6 +4856,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason, deliveredTip }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card is never carried back to review by the system: a remote run
+      // that reports after the card was closed must not reopen it
+      // (`reopenedBy: dispatcher`, measured 12/11 on 17436204). Same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const ts = now();
       // SAME TIP AS THE ONE SENT BACK, NO WORD FROM THE AGENT: a resumed turn
       // that hands in the commit that was just rejected did no work, and
@@ -5787,6 +5848,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
     closeNodeRun(taskId) {
       db.prepare("UPDATE tasks SET node_run_open = 0 WHERE id = ?").run(taskId);
+    },
+
+    retiredNodeRuns() {
+      const rows = db.prepare(
+        `SELECT id, node_run_id, machine_id, delegated_start_capability_id FROM tasks
+          WHERE node_run_id IS NOT NULL AND (status = 'done' OR COALESCE(archived, 0) = 1)`,
+      ).all() as { id: string; node_run_id: string; machine_id: string | null; delegated_start_capability_id: string | null }[];
+      return rows.map((r) => ({ taskId: r.id, runId: r.node_run_id, machineId: r.machine_id, capabilityId: r.delegated_start_capability_id }));
     },
 
     setLandIntent({ taskId, who, inCi }): Task {

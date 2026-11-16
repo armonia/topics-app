@@ -11,6 +11,7 @@ import { useLiveWork, visibleRows } from '../../state/liveWork';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { WorkMeter } from '../Board/WorkMeter';
 import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -107,6 +108,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
+        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} weight={row.weight} className="ml-auto" />}
       </button>
       {state === 'ended' && (
         <button

@@ -36,7 +36,7 @@ export interface ReadRemoteChildInput {
   baseUrlOf: (machineId: string) => string | null;
   tokenOf: (machineId: string) => string | null;
   readRun: (input: { baseUrl: string; token: string; runId: string; since?: string }) => Promise<{
-    comments: Array<{ id: string; content: string; createdAt: string }>;
+    comments: Array<{ id: string; content: string; createdAt: string; author?: string; kind?: string }>;
   }>;
 }
 
@@ -50,7 +50,16 @@ export type ReadRemoteChildResult =
   | { ok: false; reason: string };
 
 /**
- * One comment on the node's run = one assistant event here: the node's report
+ * Whether a node's card comment is the child speaking: its agent (`agent:<id>` on a paired
+ * Topics, `agent` on the Claude cloud), and not a status move. Everything else is the node's
+ * own bookkeeping. The one rule both the read log and the final answer use.
+ */
+export function isChildVoice(c: { author?: string; kind?: string }): boolean {
+  return !!c.author && (c.author === "agent" || c.author.startsWith("agent:")) && c.kind !== "status";
+}
+
+/**
+ * One comment the child wrote on the node's run = one assistant event here: the node's report
  * has no tool-call shape of its own, so there is nothing finer to split it
  * into. A node that cannot be reached answers `ok: false`, never a throw, so
  * the route says 502 instead of 500.
@@ -60,7 +69,7 @@ export async function readRemoteChild(input: ReadRemoteChildInput): Promise<Read
   const token = input.tokenOf(input.machineId);
   if (!baseUrl || !token) return { ok: false, reason: "node address or token unavailable" };
   const { log } = input;
-  let comments: Array<{ id: string; content: string; createdAt: string }>;
+  let comments: Array<{ id: string; content: string; createdAt: string; author?: string; kind?: string }>;
   try {
     ({ comments } = await input.readRun({ baseUrl, token, runId: input.runId, since: log.lastAt }));
   } catch (err) {
@@ -69,8 +78,13 @@ export async function readRemoteChild(input: ReadRemoteChildInput): Promise<Read
   for (const c of comments) {
     if (log.seen.has(c.id)) continue;
     log.seen.add(c.id);
-    log.texts.push(c.content);
     if (!log.lastAt || c.createdAt > log.lastAt) log.lastAt = c.createdAt;
+    // What the child said, not the node's own bookkeeping around it: the mirror note, status
+    // moves, the verifier's preview line, and the "archived while working" note the node writes
+    // when this Mac archives the run after its branch came home (16/11, read as the answer).
+    // A comment with no author (an older node) is kept: better a noisy log than a lost line.
+    if (c.author !== undefined && !isChildVoice(c)) continue;
+    log.texts.push(c.content);
   }
   // A `since` past the end means this log was born again (the Map lives in memory and the server
   // restarted): replaying from 0 shows something twice, clamping to the end would lose it for good.

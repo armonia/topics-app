@@ -210,7 +210,7 @@ describe('la misura del turno sulla card', () => {
 
   test('il modello e il provider sono nel CONTENUTO della riga, non solo nel titolo', () => {
     // Guard against the model moving into `title` alone: the visible text must carry it.
-    expect(src).toContain('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>');
+    expect(src).toContain('<span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>');
     expect(live).toContain('<span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>');
     // The model label must never be cut: no truncate on it.
     expect(live).not.toContain('min-w-0 truncate">{label');
@@ -226,9 +226,9 @@ describe('la misura del turno sulla card', () => {
     // The model WRAPS (no truncate, no nowrap on its side): «Sonnet 5 · Claude …» was the cut.
     expect(src).not.toContain('<span className="min-w-0 truncate">{measureLine}</span>');
     expect(live).not.toContain('min-w-0 truncate">{label');
-    expect(src.slice(start, start + 1200)).toContain('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>');
+    expect(src.slice(start, start + 1200)).toContain('<span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>');
     // Tokens come AFTER the time in the text, so truncation drops them first.
-    const content = src.slice(src.indexOf('<span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
+    const content = src.slice(src.indexOf('<span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>'), src.indexOf('<span data-testid="card-spend">'));
     expect(content.indexOf('fmtMs(task.agentMs)')).toBeLessThan(content.indexOf('fmtTok(costo)'));
     expect(live).toContain('<span className="min-w-0 break-words">{label');
   });
@@ -269,8 +269,9 @@ describe('la misura del turno sulla card', () => {
   test('«ora» sta dentro la fascia, in lavorazione e in review; fuori solo se non c\'è fascia', () => {
     expect(live).toContain('{trailing}');
     const start = src.indexOf('data-testid="card-measure"');
-    const band = src.slice(start, src.indexOf('{updatedAgo(\'\')}', start) + 20);
-    expect(band).toContain("{updatedAgo('')}");
+    const band = src.slice(start, src.indexOf("updatedAgo('')}", start) + 20);
+    // While the card works the countdown speaks for the time: a bare «ora» next to the clock said nothing.
+    expect(band).toContain("{task.status !== 'in_progress' && updatedAgo('')}");
     expect(src).toContain("{!measureShown && updatedAgo('ml-auto text-app-text-muted')}");
   });
 

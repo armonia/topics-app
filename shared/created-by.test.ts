@@ -22,7 +22,8 @@ test("splitCreatedBy returns kind and name", () => {
 
 test("the card names who opened it: a named agent or schedule, «you» for a person, nothing without an author", () => {
   const tr = (key: string, p?: Record<string, string | number>) => `${key}|${p?.name ?? ""}`;
-  expect(creatorChip({ createdBy: "agent:jarvis" }, tr)?.label).toBe("jarvis");
+  expect(creatorChip({ createdBy: "agent:jarvis" }, tr)).toMatchObject({ label: "board.card.channelJarvis|", jarvis: true, initial: "b" });
+  expect(creatorChip({ createdBy: "agent:zeno" }, tr)).toMatchObject({ label: "zeno", jarvis: false });
   expect(creatorChip({ createdBy: "cron:nightly" }, tr)?.label).toBe("board.card.createdByCron|nightly");
   expect(creatorChip({ createdBy: "human" }, tr)?.label).toBe("board.card.createdByMe|");
   expect(creatorChip({ createdBy: "agent:api" }, tr)?.label).toBe("board.card.createdByApi|");
