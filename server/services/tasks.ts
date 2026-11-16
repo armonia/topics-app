@@ -4686,6 +4686,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     release({ taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
+      // remote-run path released it with `requeue` at 13:05 (`reopenedBy:
+      // dispatcher`), the next claim started an agent on finished work, which
+      // then asked whether to close it. Several callers release without looking
+      // at the column (mirror retirement, weekly limit, restart requeue, empty
+      // node run): the guard lives here, once, for all of them. The link to the
+      // topic is still cleared and the reason still lands as a note (the GC
+      // writes why it unbound or abandoned a worktree); the column and the
+      // reopen mark are not touched.
+      if (row.status === "done") {
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
+        }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
+        ).run(now(), taskId);
+        return rowToTask(getTaskRow(taskId));
+      }
       // Note first (so the "worked in topic X" trail survives clearing the link).
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
@@ -4738,6 +4757,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deferForWait({ taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card waits for nothing: same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";
@@ -4799,6 +4820,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     deliverToReviewBySystem({ taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason, deliveredTip }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card is never carried back to review by the system: a remote run
+      // that reports after the card was closed must not reopen it
+      // (`reopenedBy: dispatcher`, measured 12/11 on 17436204). Same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const ts = now();
       // SAME TIP AS THE ONE SENT BACK, NO WORD FROM THE AGENT: a resumed turn
       // that hands in the commit that was just rejected did no work, and

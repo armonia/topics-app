@@ -28,6 +28,7 @@
  * @covers GUEST-15
  * @covers GUEST-17
  */
+import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -939,6 +940,33 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(h.task().deliveryBranch).toBeNull();
     expect(h.comments().some((c) => c.content.includes("il commit di base 1234abcd non è in questo checkout"))).toBe(true);
   });
+
+  it("impianto fallito senza commit del nodo: la consegna è segnata assente, il land non ha ramo da prendere", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, commitCount: 0, reason: "bundle non applicabile" },
+      readRun: () => Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe(UNPLANTED_DELIVERY_COMMIT);
+  });
+
+  it("impianto fallito con il commit del nodo: si registra quel commit, mai un ramo", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, commitCount: 0, reason: "bundle non applicabile" },
+      readRun: () =>
+        Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", deliveryCommit: "deadbeefdeadbeef", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe("deadbeefdeadbeef");
+  });
 });
 
 describe("review senza ramo: il nodo scrive lo stato e poi il ramo", () => {
@@ -1334,7 +1362,9 @@ describe("una corsa remota persa non riporta mai indietro una card chiusa", () =
       const t = h.task();
       expect(t.status).toBe(expected);
       if (label === "archiviata") expect(h.svc.isArchived!(TASK)).toBe(true);
-      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(1);
+      // A done card's run is cancelled the moment the card is seen done (see
+      // task-dispatcher-remote-node-done.test.ts): it is never "lost", so no note.
+      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(label === "done" ? 0 : 1);
       expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
     });
   }
