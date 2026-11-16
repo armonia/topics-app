@@ -77,6 +77,11 @@ describe("spawnRemoteChild", () => {
     expect(result).toEqual({ ok: false, reason: "node address or token unavailable" });
   });
 
+  it("the node throws on create (no checkout of this origin): null, the child stays local instead of a 500", async () => {
+    const result = await spawnRemoteChild(baseInput({ createRun: async () => { throw new Error("create run answered 404: no_such_repo"); } }));
+    expect(result).toBeNull();
+  });
+
   it("a mac-only resource the child needs: null, the run is never created", async () => {
     let created = 0;
     const result = await spawnRemoteChild(baseInput({ macOnlyResource: "browser", createRun: async () => { created += 1; return { runId: "x" }; } }));
