@@ -13,6 +13,7 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
+import type { ForYou } from '../../../shared/for-you';
 import type { BoardWorkflow, WorkflowPresetId, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
 export { STAGE_CI, WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
@@ -681,6 +682,8 @@ export interface BoardTask {
   stage?: string | null;
   /** The question for the person the delivery carried (Human review). */
   humanAsk?: string;
+  /** The plain-words summary the system wrote for the person (see `shared/for-you.ts`). */
+  forYou?: ForYou;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
   landIntentCommit?: string;
