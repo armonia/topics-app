@@ -215,7 +215,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-nightly-shard-${{ matrix.shard }}
-          path: test-results/html-report
+          # `--reporter=line,json` sostituisce i reporter del config, html compreso:
+          # `html-report` non esisteva mai e l'upload diceva «No files were found» a
+          # ogni notte rossa (run 43857847933). Video, trace e screenshot dei rossi
+          # stanno in `artifacts/`, ed è lì che si guarda un test che cade.
+          path: |
+            test-results/html-report
+            test-results/artifacts
+          if-no-files-found: warn
           # 3, non 7: questi report pesano fino a 35 MB l'uno e un rosso si guarda entro il
           # giorno — tre giorni sono gia' larghi. NON e' una misura anti-quota, per quanto il
           # commento qui dicesse il contrario fino al 16/08: topics-app e' un repo PUBBLICO,
@@ -344,6 +351,24 @@ jobs:
       contents: read
       issues: write
     steps:
+      # Senza checkout e bun lo step «Estrai i nomi» non trovava né lo script né il
+      # runtime, il `2>/dev/null || echo` lo nascondeva, e dal primo giorno la issue
+      # #538 diceva «elenco non disponibile» a ogni notte (misurato il 16/11 su cinque run).
+      - name: Checkout (serve scripts/e2e-failed-titles.ts)
+        if: needs.e2e-full.result != 'success'
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            scripts/e2e-failed-titles.ts
+            .bun-version
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Bun
+        if: needs.e2e-full.result != 'success'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
       # `always()` sopra + questa condizione: si segnala su qualunque esito non verde,
       # `cancelled` incluso — una nightly cancellata a meta' non e' una nightly passata.
       # I NOMI DEI ROSSI, non il link a un run da aprire.

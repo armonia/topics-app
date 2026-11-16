@@ -169,6 +169,46 @@ describe("card origin and agent-card contract", () => {
     expect(res.body.openerName).toBe("Coordinator");
   });
 
+  test("channel: an opener chat with a brand icon is a channel; an ordinary or missing chat is not", async () => {
+    topic(db, "chan-d", "#Video Zeno: musica e voce da rifare");
+    db.run("UPDATE topics SET icon = 'Discord' WHERE id = 'chan-d'");
+    topic(db, "chan-w", "Gruppo Studio");
+    db.run("UPDATE topics SET icon = 'WhatsApp' WHERE id = 'chan-w'");
+    const d = await post("/api/boards/pX/tasks", { text: "from discord", originTopicId: "chan-d" }, { "X-Topics-Agent": "jarvis" });
+    expect(d.status).toBe(201);
+    expect(d.body.channel).toEqual({ topicId: "chan-d", name: "#Video Zeno: musica e voce da rifare", kind: "discord" });
+    const w = await post("/api/boards/pX/tasks", { text: "from whatsapp", originTopicId: "chan-w" });
+    expect(w.body.channel).toEqual({ topicId: "chan-w", name: "Gruppo Studio", kind: "whatsapp" });
+    const plain = await post("/api/boards/pX/tasks", { text: "from a plain chat", originTopicId: "top-s1" });
+    expect(plain.body.openerName).toBe("Riunione clienti");
+    expect(plain.body.channel).toBeUndefined();
+    const ghost = await post("/api/boards/pX/tasks", { text: "from nowhere", originTopicId: "no-such-topic" });
+    expect(ghost.body.openerTopicId).toBeUndefined();
+    expect(ghost.body.channel).toBeUndefined();
+  });
+
+  test("channelTopicId links the channel at birth and after, and wakes nothing (display only, no origin)", async () => {
+    topic(db, "chan-d", "#Posta Giuseppe");
+    db.run("UPDATE topics SET icon = 'Discord' WHERE id = 'chan-d'");
+    const born = await post("/api/boards/pX/tasks", { text: "linked at birth", channelTopicId: "chan-d" });
+    expect(born.body.channel).toMatchObject({ topicId: "chan-d", kind: "discord" });
+    // The channel is NOT the opener: no origin chat, so no wake and no in_progress move hang on it.
+    expect(born.body.openerTopicId).toBeUndefined();
+    const bare = await post("/api/boards/pX/tasks", { text: "linked later" });
+    expect(bare.body.channel).toBeUndefined();
+    const patched = (await rawCall(router, "PATCH", `/api/boards/pX/tasks/${bare.body.id}`, { channelTopicId: "chan-d" }, { "X-Topics-Agent": "jarvis" }))!;
+    expect(patched.status).toBe(200);
+    const got = await (await call(router, "GET", `/api/boards/pX/tasks/${bare.body.id}`))!.json();
+    expect(got.task.channel).toMatchObject({ topicId: "chan-d", name: "#Posta Giuseppe", kind: "discord" });
+    expect(got.task.openerTopicId).toBeUndefined();
+    // A chat that does not exist cannot be linked; an unlink clears; a deleted channel chat shows nothing.
+    const bad = (await rawCall(router, "PATCH", `/api/boards/pX/tasks/${bare.body.id}`, { channelTopicId: "nope" }, { "X-Topics-Agent": "jarvis" }))!;
+    expect(bad.status).toBe(400);
+    db.run("DELETE FROM topics WHERE id = 'chan-d'");
+    const gone = await (await call(router, "GET", `/api/boards/pX/tasks/${bare.body.id}`))!.json();
+    expect(gone.task.channel).toBeUndefined();
+  });
+
   test("a deleted origin chat is not offered as a link", async () => {
     const t = await post("/api/sessions/s1/tasks", { text: "orphan" });
     db.run("DELETE FROM topics WHERE id = 'top-s1'");

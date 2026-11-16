@@ -4,6 +4,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readDispatcherSource } from "../../tests/helpers/dispatcher-source";
 
 /**
  * `docs/board-protocol.md` si presenta come LA COPIA CANONICA del protocollo e
@@ -35,7 +36,7 @@ import { join } from "node:path";
  * declare who it speaks to is.
  */
 const REPO = join(import.meta.dir, "..", "..");
-const dispatcher = readFileSync(join(REPO, "server/services/task-dispatcher.ts"), "utf8");
+const dispatcher = readDispatcherSource();
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
 const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
 const mcp = readFileSync(join(REPO, "server/mcp/topics-mcp-server.ts"), "utf8");

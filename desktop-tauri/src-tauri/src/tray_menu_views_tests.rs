@@ -172,3 +172,9 @@ fn snapshot() {
         enc.write_header().unwrap().write_image_data(&px).unwrap();
     }
 }
+
+#[test]
+fn tray_machine_logos_have_the_sizes_of_the_original_tray() {
+    // machineSym in ClaudeUsage.swift: the Apple logo at 14, a cloud at 13, the Windows logo at 12
+    assert_eq!([machine_glyph_side("apple.logo"), machine_glyph_side("cloud"), machine_glyph_side("windows")], [14.0, 13.0, 12.0]);
+}

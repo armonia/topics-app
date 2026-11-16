@@ -118,14 +118,27 @@ fn machine_glyph_of(m: &MachineCard) -> &'static str {
     }
 }
 
+/// The size of a machine's logo, in points: the original tray draws the Apple logo at 14, a cloud at 13
+/// and the Windows logo at 12 (`machineSym`), each centred in the same slot.
+pub(crate) fn machine_glyph_side(glyph: &str) -> f32 {
+    match glyph {
+        "apple.logo" => 14.0,
+        "cloud" => 13.0,
+        _ => 12.0,
+    }
+}
+
 /// The machine's logo in the menu's own ink, as the original tray draws it: the system's Apple logo,
 /// the Windows logo as it is, a cloud for a server.
 fn draw_machine_glyph(pic: &mut Pic, m: &MachineCard, x: f32, y: f32, p: Palette) {
-    let side = 17.0;
-    match machine_glyph_of(m) {
-        "windows" => pic.windows_logo(x + 2.0, y + 2.5, side - 4.0, p.fg, 1.0),
+    let slot = 17.0;
+    let glyph = machine_glyph_of(m);
+    let side = machine_glyph_side(glyph);
+    let (gx, gy) = (x + (slot - side) / 2.0, y + (slot - side) / 2.0);
+    match glyph {
+        "windows" => pic.windows_logo(gx, gy, side, p.fg, 1.0),
         name => match system_symbol(name) {
-            Some(mask) => pic.mask(x, y, side, &mask, p.fg, 1.0),
+            Some(mask) => pic.mask(gx, gy, side, &mask, p.fg, 1.0),
             // no system symbol to draw (not a Mac): a small display
             None => {
                 pic.stroke_rrect(x + 1.0, y + 3.0, 15.0, 11.0, 2.5, 1.4, p.fg, 0.9);

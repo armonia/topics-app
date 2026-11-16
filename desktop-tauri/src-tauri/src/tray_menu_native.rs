@@ -6,6 +6,7 @@
 //! Card 1aba05b4.
 
 use crate::mac::{class, id, msg_send, nil, NSRect, NSSize};
+use crate::tray_menu::{Look, Priority, Table};
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::Mutex;
@@ -22,6 +23,9 @@ struct CardImage {
 struct TableRow {
     cells: Vec<String>,
     header: bool,
+    /// The tab stops of the table the row belongs to: each table has its own, as in the original tray.
+    tabs: &'static [f64],
+    look: Look,
 }
 
 static CARDS: Mutex<Option<HashMap<String, CardImage>>> = Mutex::new(None);
@@ -47,15 +51,26 @@ pub fn register_card(key: &str, png: &[u8], w: f32, h: f32) -> String {
     format!("{CARD_MARK}{key}")
 }
 
-/// The marker title of a table row; `n` makes each one unique.
-pub fn register_row(n: usize, cells: &[String], header: bool) -> String {
+/// The marker title of a table row; `n` makes each one unique. The row carries the tab stops of its
+/// own table: one set for all of them overran the right edge of the menu.
+pub fn register_row(n: usize, cells: &[String], header: bool, table: Table, look: Look) -> String {
     let key = n.to_string();
-    ROWS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.clone(), TableRow { cells: cells.to_vec(), header });
+    ROWS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.clone(), TableRow { cells: cells.to_vec(), header, tabs: table.tabs(), look });
     format!("{ROW_MARK}{key}")
 }
 
-/// Right-aligned tab stops of the projects table, in points from the text start.
-const TABS: [f64; 5] = [268.0, 322.0, 376.0, 436.0, 506.0];
+/// The type sizes of the original tray (ClaudeUsage.swift `rowFont`, `rowNum`, `rowSmall`, the header
+/// and `titledFont`), the same on every row of the menu.
+pub const NAME_PT: f64 = 13.0;
+pub const NUM_PT: f64 = 12.5;
+pub const SMALL_PT: f64 = 10.5;
+pub const HEAD_PT: f64 = 10.0;
+/// `NSFontWeightSemibold`.
+const SEMIBOLD: f64 = 0.3;
+/// Symbol size of an icon in front of a row, and the size of a provider's logo and a project's picture.
+pub const SYMBOL_PT: f64 = 13.0;
+pub const PROVIDER_PT: f64 = 13.0;
+pub const PROJECT_ICON_PT: f64 = 15.0;
 
 /// True when the menu is drawn on a dark surface.
 pub fn dark() -> bool {
@@ -149,15 +164,37 @@ pub(crate) unsafe fn decorate_menu(menu: id) {
             let _: () = msg_send![mi, setTitle: ns("")];
         } else if let Some(key) = title.strip_prefix(ROW_MARK) {
             if let Some(r) = ROWS.lock().unwrap().as_ref().and_then(|m| m.get(key)) {
+                // the plain title first: setting it after the attributed one would be free to drop it
+                let plain = r.cells.join(" ");
+                let _: () = msg_send![mi, setTitle: ns(&plain)];
                 let t = row_title(r);
                 if t != nil {
                     let _: () = msg_send![mi, setAttributedTitle: t];
                 }
-                let plain = r.cells.join(" ");
-                let _: () = msg_send![mi, setTitle: ns(&plain)];
+            }
+        } else if !title.is_empty() {
+            let separator: bool = msg_send![mi, isSeparatorItem];
+            let view: id = msg_send![mi, view];
+            if !separator && view == nil {
+                let enabled: bool = msg_send![mi, isEnabled];
+                let t = plain_title(&title, enabled);
+                let _: () = msg_send![mi, setAttributedTitle: t];
             }
         }
     }
+}
+
+/// A simple item or note at the size of the original tray's rows (13, not the menu's default 14): an
+/// enabled item in the menu's ink, a note in the secondary one (an explicit colour is not faded).
+unsafe fn plain_title(title: &str, enabled: bool) -> id {
+    let font: id = msg_send![class!(NSFont), systemFontOfSize: NAME_PT];
+    let color: id = if enabled { msg_send![class!(NSColor), labelColor] } else { msg_send![class!(NSColor), secondaryLabelColor] };
+    let d: id = msg_send![class!(NSMutableDictionary), dictionary];
+    let _: () = msg_send![d, setObject: font, forKey: ns("NSFont")];
+    let _: () = msg_send![d, setObject: color, forKey: ns("NSColor")];
+    let s: id = msg_send![class!(NSAttributedString), alloc];
+    let s: id = msg_send![s, initWithString: ns(title), attributes: d];
+    msg_send![s, autorelease]
 }
 
 /// An item's icon: an app's own icon from its bundle, or a system symbol (template, so it follows the menu's ink).
@@ -169,7 +206,20 @@ unsafe fn icon_image(spec: &str) -> id {
             return nil;
         }
         let img: id = msg_send![shared, copy];
-        let _: () = msg_send![img, setSize: NSSize::new(15.0, 15.0)];
+        let _: () = msg_send![img, setSize: NSSize::new(PROJECT_ICON_PT, PROJECT_ICON_PT)];
+        return msg_send![img, autorelease];
+    }
+    if let Some(name) = spec.strip_prefix("png:") {
+        // a project's own picture, read by the poller; 15×15 and in its own colours, as the original draws it
+        let Some(png) = crate::tray_menu::project_icon_png(name) else { return nil };
+        let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() as *const std::ffi::c_void, length: png.len()];
+        let img: id = msg_send![class!(NSImage), alloc];
+        let img: id = msg_send![img, initWithData: data];
+        if img == nil {
+            return nil;
+        }
+        let _: () = msg_send![img, setSize: NSSize::new(PROJECT_ICON_PT, PROJECT_ICON_PT)];
+        let _: () = msg_send![img, setTemplate: false];
         return msg_send![img, autorelease];
     }
     if let Some(provider) = spec.strip_prefix("provider:") {
@@ -188,7 +238,7 @@ unsafe fn icon_image(spec: &str) -> id {
         if img == nil {
             return nil;
         }
-        let _: () = msg_send![img, setSize: NSSize::new(14.0, 14.0)];
+        let _: () = msg_send![img, setSize: NSSize::new(PROVIDER_PT, PROVIDER_PT)];
         // a template: the menu inks it like its symbols, one family of icons
         let _: () = msg_send![img, setTemplate: true];
         return msg_send![img, autorelease];
@@ -199,12 +249,13 @@ unsafe fn icon_image(spec: &str) -> id {
     if base == nil {
         return nil;
     }
-    let cfg: id = msg_send![class!(NSImageSymbolConfiguration), configurationWithPointSize: 13.0f64, weight: 0.0f64];
+    let cfg: id = msg_send![class!(NSImageSymbolConfiguration), configurationWithPointSize: SYMBOL_PT, weight: 0.0f64];
     let color: id = match tone {
         "bad" => msg_send![class!(NSColor), systemRedColor],
         "warn" => msg_send![class!(NSColor), systemOrangeColor],
         "ok" => msg_send![class!(NSColor), systemGreenColor],
         "info" => msg_send![class!(NSColor), systemBlueColor],
+        "teal" => msg_send![class!(NSColor), systemTealColor],
         _ => nil,
     };
     let cfg: id = if color == nil {
@@ -247,13 +298,27 @@ unsafe fn attrs(font: id, color: id, para: id) -> id {
     d
 }
 
+/// An inline symbol (13×12, as the original tray's `inlineIcon`) as an attributed piece.
+unsafe fn inline_symbol(spec: &str) -> Option<id> {
+    let image = icon_image(spec);
+    if image == nil {
+        return None;
+    }
+    let att: id = msg_send![class!(NSTextAttachment), new];
+    let _: () = msg_send![att, setImage: image];
+    let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
+    let piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
+    let _: () = msg_send![att, release];
+    Some(piece)
+}
+
 /// One table row as an attributed string: cells separated by tabs, the numbers in a
-/// monospaced-digit face, the header small and grey.
+/// monospaced-digit face, the header small and grey, the name semibold when the row's look says so.
 unsafe fn row_title(r: &TableRow) -> id {
     let para: id = msg_send![class!(NSMutableParagraphStyle), new];
     let stops: id = msg_send![class!(NSMutableArray), array];
     let opts: id = msg_send![class!(NSDictionary), dictionary];
-    for loc in TABS {
+    for &loc in r.tabs {
         let tab: id = msg_send![class!(NSTextTab), alloc];
         // NSTextAlignmentRight = 1 on macOS.
         let tab: id = msg_send![tab, initWithTextAlignment: 1isize, location: loc, options: opts];
@@ -266,18 +331,20 @@ unsafe fn row_title(r: &TableRow) -> id {
     let _: () = msg_send![para, setLineBreakMode: 2usize];
     let label: id = msg_send![class!(NSColor), labelColor];
     let dim: id = msg_send![class!(NSColor), secondaryLabelColor];
-    let weight_semibold = 0.3f64;
-    let (name_font, num_font, small): (id, id, id) = (
-        msg_send![class!(NSFont), systemFontOfSize: 13.0f64],
-        msg_send![class!(NSFont), monospacedDigitSystemFontOfSize: 12.5f64, weight: 0.0f64],
-        msg_send![class!(NSFont), systemFontOfSize: 10.0f64, weight: weight_semibold],
-    );
-    let small_regular: id = msg_send![class!(NSFont), systemFontOfSize: 10.5f64];
+    let name_font: id = if r.look.bold && !r.header {
+        msg_send![class!(NSFont), systemFontOfSize: NAME_PT, weight: SEMIBOLD]
+    } else {
+        msg_send![class!(NSFont), systemFontOfSize: NAME_PT]
+    };
+    let num_font: id = msg_send![class!(NSFont), monospacedDigitSystemFontOfSize: NUM_PT, weight: 0.0f64];
+    let small: id = msg_send![class!(NSFont), systemFontOfSize: HEAD_PT, weight: SEMIBOLD];
+    let small_regular: id = msg_send![class!(NSFont), systemFontOfSize: SMALL_PT];
     let out: id = msg_send![class!(NSMutableAttributedString), alloc];
     let out: id = msg_send![out, init];
     for (i, cell) in r.cells.iter().enumerate() {
-        // a cell past the columns is the row's second line (kind, owner, since), small and grey
-        if !r.header && (i > TABS.len() || cell.starts_with('\n')) {
+        // a cell that starts a line, or one past the columns of a row, is the row's second line
+        // (kind, owner, since), small and grey; the header has one too (the summary under «PROGETTI») allow-italian: quoted menu wording
+        if cell.starts_with('\n') || (!r.header && i > r.tabs.len()) {
             let piece: id = msg_send![class!(NSAttributedString), alloc];
             let piece: id = msg_send![piece, initWithString: ns(&format!("\n{}", cell.trim_start_matches('\n'))), attributes: attrs(small_regular, dim, para)];
             let _: () = msg_send![out, appendAttributedString: piece];
@@ -294,6 +361,21 @@ unsafe fn row_title(r: &TableRow) -> id {
         } else {
             (num_font, label)
         };
+        // A priority other than normal goes before the name, as the Projects page draws it.
+        if i == 0 && !r.header {
+            let arrow = match r.look.priority {
+                Priority::High => Some("sf:arrow.up|warn"),
+                Priority::Low => Some("sf:arrow.down|teal"),
+                Priority::Normal => None,
+            };
+            if let Some(glyph) = arrow.and_then(|spec| inline_symbol(spec)) {
+                let _: () = msg_send![out, appendAttributedString: glyph];
+                let gap: id = msg_send![class!(NSAttributedString), alloc];
+                let gap: id = msg_send![gap, initWithString: ns(" "), attributes: attrs(font, color, para)];
+                let _: () = msg_send![out, appendAttributedString: gap];
+                let _: () = msg_send![gap, release];
+            }
+        }
         // The state cell leads with a system symbol, as the original tray draws it: playing for agents at work, a moon for still.
         let glyph = if i > 0 && !r.header { state_glyph(cell) } else { None };
         let (lead, text) = match glyph {
@@ -305,14 +387,8 @@ unsafe fn row_title(r: &TableRow) -> id {
             let piece: id = msg_send![piece, initWithString: ns(&lead), attributes: attrs(font, color, para)];
             let _: () = msg_send![out, appendAttributedString: piece];
             let _: () = msg_send![piece, release];
-            let image = icon_image(spec);
-            if image != nil {
-                let att: id = msg_send![class!(NSTextAttachment), new];
-                let _: () = msg_send![att, setImage: image];
-                let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
-                let glyph_piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
+            if let Some(glyph_piece) = inline_symbol(spec) {
                 let _: () = msg_send![out, appendAttributedString: glyph_piece];
-                let _: () = msg_send![att, release];
             }
         }
         let piece: id = msg_send![class!(NSAttributedString), alloc];

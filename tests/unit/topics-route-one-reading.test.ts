@@ -129,7 +129,11 @@ const READERS = new Set([
   "server/providers/resolve-topic-provider.ts",
   "server/services/dispatch-topic-identity.ts",
   "server/services/task-auto-model.ts",
-  "server/services/task-dispatcher.ts",
+  // The dispatcher's readers, split out of task-dispatcher.ts (which no longer mentions the preference).
+  "server/services/task-dispatcher-fanout.ts",
+  "server/services/task-dispatcher-hold.ts",
+  "server/services/task-dispatcher-launch.ts",
+  "server/services/task-dispatcher-claim.ts",
   "client/src/lib/topicsRoutingGate.ts",
   "client/src/components/Chat/ProviderModelPicker.tsx",
   "client/src/components/Shared/ModelSelector/ModelList.tsx",
