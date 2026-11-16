@@ -6,6 +6,10 @@
       "new": [],
       "fixes": [
         {
+          "text": "focus-pane mounts the panel with the same force-open fallback as open-pane",
+          "scope": "browser"
+        },
+        {
           "text": "approve re-captures a missing delivery_commit before deciding CI",
           "scope": null
         }
