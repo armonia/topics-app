@@ -40,6 +40,15 @@ export type RemoteChildSpawnResult =
 export const MAX_CHILD_BUNDLE_BYTES = 64 * 1024 * 1024;
 
 /**
+ * Commits of origin's default a child bundle carries along. A node only fetches origin
+ * when one of its own cards needs it, so its checkout runs behind main by the merges of
+ * the last hours: a bundle cut at the sender's origin/HEAD then lacks its prerequisites
+ * and the node refuses it (16/11: every child to the PC). 200 commits of topics-app are
+ * a few MB, well under the cap.
+ */
+export const CHILD_BUNDLE_MARGIN_COMMITS = 200;
+
+/**
  * `null` means this spawn was never a candidate (`decideRemoteSpawn` said no,
  * or there is no origin for a node to find the project by): the caller's
  * local path is what actually runs, this never decided against it.
@@ -52,7 +61,7 @@ export async function spawnRemoteChild(input: RemoteChildSpawnInput): Promise<Re
   if (!node) return null;
   const branch = `topics-child-${input.id}`;
   if (!isPlainBranchName(branch)) return null;
-  const bytes = await snapshotParentAsBundle({ repoPath: input.cwd, snapshotBranch: branch });
+  const bytes = await snapshotParentAsBundle({ repoPath: input.cwd, snapshotBranch: branch, marginCommits: CHILD_BUNDLE_MARGIN_COMMITS });
   if (!bytes) return null;
   // The bundle rides base64 inside one JSON body: an unignored build artefact would make a
   // gigabyte request. Over the cap the child stays here, where it needs no copy at all.
