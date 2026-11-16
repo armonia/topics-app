@@ -2,7 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.21 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane (#1142)
+
+### Sotto il cofano
+- list the seven flaky e2e tests found by the ledger (#1140)
+
 ## 2.4.20 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane
 
 ### Sotto il cofano
 - Remote children: adopt the branch the node delivered under (#1144)

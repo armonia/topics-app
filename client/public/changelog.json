@@ -1,10 +1,41 @@
 [
   {
+    "version": "2.4.21",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "add stable deps to two useEffect hooks in KanbanBoardPane (#1142)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "list the seven flaky e2e tests found by the ledger (#1140)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.20",
     "date": "2026-11-16",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "add stable deps to two useEffect hooks in KanbanBoardPane",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
