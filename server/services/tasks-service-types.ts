@@ -656,6 +656,11 @@ export interface TaskService {
   nodeRunIsOpen(taskId: string): boolean;
   /** The run came home (its delivery landed): the id stays for the next cancel, but nothing is running. */
   closeNodeRun(taskId: string): void;
+  /**
+   * Cards out of the cycle (done or archived) that still remember a node run: their mirror on the
+   * node is still open. Optional so fakes need not implement it.
+   */
+  retiredNodeRuns?(): { taskId: string; runId: string; machineId: string | null; capabilityId: string | null }[];
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /**
