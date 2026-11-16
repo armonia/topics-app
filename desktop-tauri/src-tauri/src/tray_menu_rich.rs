@@ -57,7 +57,7 @@ pub(crate) fn remote_reading_nodes(detail: Option<&MachineDetail>) -> Vec<Node> 
     out
 }
 
-/// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power
+/// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power allow-italian: quoted menu wording
 /// symbol, that asks before it calls. The id carries everything the dialog and the call need.
 pub(crate) fn machine_action_nodes(machine: &MachineCard, detail: Option<&MachineDetail>) -> Vec<Node> {
     detail.map_or(&[][..], |d| &d.actions[..]).iter().map(|a| {

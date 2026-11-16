@@ -307,7 +307,7 @@ fn remote_row(p: &RemoteProc) -> Node {
     with_icon("sf:gearshape", row(Table::RemoteProcs, cells, kids))
 }
 
-/// «Tutto il resto»: the rows past the shown ones and, when the service counts them, the processes it
+/// «Tutto il resto»: the rows past the shown ones and, when the service counts them, the processes it allow-italian: quoted menu wording
 /// did not list. No rest, no row.
 fn remote_rest(ranked: &[&RemoteProc], total: Option<crate::tray_menu_detail::ProcsTotal>) -> Option<Node> {
     let icon = "sf:ellipsis.circle";
@@ -329,7 +329,7 @@ fn remote_rest(ranked: &[&RemoteProc], total: Option<crate::tray_menu_detail::Pr
 }
 
 /// The process section of a machine read from afar (PC, cloud server), in the order of this computer's:
-/// «GIRA ADESSO» with the count and memory the service gives (`procsTotal`), the first `SHOWN`, the rest
+/// «GIRA ADESSO» with the count and memory the service gives (`procsTotal`), the first `SHOWN`, the rest allow-italian: quoted menu wording
 /// in a submenu, then the CPU and memory rankings. What a remote machine does not have (trust check,
 /// GPU and network per process, closing a process) is not here at all.
 pub fn remote_procs_table(detail: Option<&MachineDetail>) -> Vec<Node> {

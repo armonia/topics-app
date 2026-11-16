@@ -343,7 +343,7 @@ unsafe fn row_title(r: &TableRow) -> id {
     let out: id = msg_send![out, init];
     for (i, cell) in r.cells.iter().enumerate() {
         // a cell that starts a line, or one past the columns of a row, is the row's second line
-        // (kind, owner, since), small and grey; the header has one too (the summary under «PROGETTI»)
+        // (kind, owner, since), small and grey; the header has one too (the summary under «PROGETTI») allow-italian: quoted menu wording
         if cell.starts_with('\n') || (!r.header && i > r.tabs.len()) {
             let piece: id = msg_send![class!(NSAttributedString), alloc];
             let piece: id = msg_send![piece, initWithString: ns(&format!("\n{}", cell.trim_start_matches('\n'))), attributes: attrs(small_regular, dim, para)];

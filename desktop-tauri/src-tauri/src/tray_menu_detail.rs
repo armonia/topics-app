@@ -17,7 +17,7 @@ pub struct MachineDetail {
     pub os: String,
     /// How many processes the machine runs in all and what they hold, when the service counts them (`procsTotal`).
     pub procs_total: Option<ProcsTotal>,
-    /// The commands the service offers on this machine (Hetzner: «Spegni tutti»).
+    /// The commands the service offers on this machine (Hetzner: «Spegni tutti»). allow-italian: quoted menu wording
     pub actions: Vec<MachineAction>,
     /// The readings (CPU, memory, disk, spend...) with the service's own words about each.
     pub metrics: Vec<DetailMetric>,

@@ -373,7 +373,7 @@ fn dump_detailed(nodes: &[Node], depth: usize, out: &mut String) {
 
 /// Run by hand with `-- --ignored tray_dump_of_the_real_menu`, with `TRAY_DUMP_DIR` on a folder that holds the
 /// service's answers as files (`board`, `overview`, `heavy`, `procs`, `automations`, `live`, `gates`,
-/// `machines`, `trust`, `backup`, and `ps` for the CPU of each process) and writes `nuovo-menu-v7.txt` there.
+/// `machines`, `trust`, `backup`, and `ps` for the CPU of each process) and writes `nuovo-menu-v7.txt` there. allow-italian: quoted output file name
 #[test]
 #[ignore = "needs the service's answers on disk: set TRAY_DUMP_DIR"]
 fn tray_dump_of_the_real_menu() {
