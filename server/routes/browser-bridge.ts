@@ -43,6 +43,7 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { makeFocusPaneFlow } from "./browser-bridge-focus";
 import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { isAgentOwnedTopic } from "../../shared/agent-owned";
@@ -226,18 +227,10 @@ export function createBrowserBridgeRouter(
     json, broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS, portOwnershipWarning,
   });
 
-  /**
-   * `browser/focus-pane`'s own force-open: nobody attached to the plain
-   * `browser:focus-pane` broadcast (no window already shows this pane), so
-   * nudge the primary window to mount one, same as open-pane's fallback.
-   * The context already has a live page (headless or native) — this only
-   * needs its CURRENT url to seed the forced pane, not a fresh navigation.
-   */
-  async function forceOpenFocusedPane(contextId: string): Promise<boolean> {
-    const url = browserService?.getUrl(contextId)?.url ?? "";
-    broadcastToAll({ type: "browser:force-open", contextId, url });
-    return waitForAttachedPane(contextId, PANE_WAIT_MS);
-  }
+  const focusPaneFlow = makeFocusPaneFlow({
+    broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS,
+    currentUrl: (contextId) => browserService?.getUrl(contextId)?.url,
+  });
 
   /**
    * The open-pane routes answer through here: the sequence, plus the stderr
@@ -793,9 +786,7 @@ export function createBrowserBridgeRouter(
           if (!target) return json({ error: "No browser pane bound to this session (pass contextId from browser_list_tabs)" }, 404);
           ctxId = target.contextId;
         }
-        broadcastToAll({ type: "browser:focus-pane", contextId: ctxId });
-        const attached = await waitForAttachedPane(ctxId, PANE_WAIT_MS);
-        const mounted = attached || await forceOpenFocusedPane(ctxId);
+        const mounted = await focusPaneFlow(ctxId);
         return json({ ok: true, contextId: ctxId, mounted });
       }
     }
