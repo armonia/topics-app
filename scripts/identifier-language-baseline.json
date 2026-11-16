@@ -1684,7 +1684,6 @@
     "client/src/state/chatQueue.ts": [
       "readback",
       "rec",
-      "requeueFront",
       "unshiftTurn"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
@@ -2440,6 +2439,72 @@
       "righe",
       "stato",
       "trovatiScorrendo"
+    ],
+    "server/boot/browser.ts": [
+      "savedOpenaiApiKey"
+    ],
+    "server/boot/delivery-audit.ts": [
+      "visti"
+    ],
+    "server/boot/dispatch-prep.ts": [
+      "turniInVolo"
+    ],
+    "server/boot/dispatcher.ts": [
+      "testo"
+    ],
+    "server/boot/front.ts": [
+      "opzioniServer"
+    ],
+    "server/boot/governor.ts": [
+      "MEMSIG_EVERY_MS",
+      "memsigAt"
+    ],
+    "server/boot/headless-turns.ts": [
+      "runHeadlessWoken"
+    ],
+    "server/boot/heartbeat.ts": [
+      "flipped",
+      "rec",
+      "snapMgr"
+    ],
+    "server/boot/http.ts": [
+      "tlsCert",
+      "tlsKey",
+      "useTls"
+    ],
+    "server/boot/listen.ts": [
+      "fetchCompresso",
+      "pathname"
+    ],
+    "server/boot/preview-delivery.ts": [
+      "forma",
+      "lista"
+    ],
+    "server/boot/quiescence.ts": [
+      "attesaQuiescenza",
+      "attesaS",
+      "avvisato",
+      "avviso",
+      "inizio",
+      "prov",
+      "sorti",
+      "turnFinishedStmt",
+      "ultimoRinvioLoggatoS",
+      "verdetto"
+    ],
+    "server/boot/reattach.ts": [
+      "CtxRipresa",
+      "adottaTurniRisvegliati",
+      "prov"
+    ],
+    "server/boot/relay.ts": [
+      "interruttoreRelay",
+      "relayLicenzaTimer",
+      "riga"
+    ],
+    "server/boot/routers-first.ts": [
+      "licenzaSvc",
+      "webrtcBridge"
     ],
     "server/browser-chromium-extensions.test.ts": [
       "NOMAN"
@@ -3469,6 +3534,10 @@
       "provB",
       "vero"
     ],
+    "server/providers/claude-code-session.ts": [
+      "certsDir",
+      "useTls"
+    ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
       "ppWithSidechain",
       "sidechain"
@@ -3485,9 +3554,7 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "certsDir",
-      "oneshotKey",
-      "useTls"
+      "oneshotKey"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -3673,6 +3740,14 @@
       "SilenceableTopic",
       "proj"
     ],
+    "server/routes/access-gate.ts": [
+      "codiceRifiuto",
+      "concessa",
+      "dettaglio",
+      "princ",
+      "principali",
+      "richiesto"
+    ],
     "server/routes/account.test.ts": [
       "MIGRAZIONI",
       "RADICE",
@@ -3841,6 +3916,9 @@
       "scaduto",
       "toplevelProc"
     ],
+    "server/routes/front-door.ts": [
+      "pathname"
+    ],
     "server/routes/history.ts": [
       "prov"
     ],
@@ -3945,6 +4023,9 @@
     ],
     "server/routes/regenerate-evidence.ts": [
       "testo"
+    ],
+    "server/routes/static-files.ts": [
+      "dentroProgetto"
     ],
     "server/routes/status.ts": [
       "topicCountStmt"
@@ -4060,6 +4141,18 @@
       "corpo",
       "langField",
       "testo"
+    ],
+    "server/routes/ws-close.ts": [
+      "bset"
+    ],
+    "server/routes/ws-message.ts": [
+      "offeredSdp"
+    ],
+    "server/routes/ws-open.ts": [
+      "bset",
+      "inviaIniziale",
+      "ospiteWS",
+      "tipo"
     ],
     "server/services/agent-census.test.ts": [
       "coordTopic",
@@ -4676,6 +4769,9 @@
       "titolo",
       "titoloMigliore"
     ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
+    ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
       "fuori"
@@ -4719,7 +4815,6 @@
       "figlio",
       "landata",
       "nuovo",
-      "requeued",
       "riga",
       "riletta",
       "vivo"
@@ -5022,11 +5117,7 @@
     ],
     "shared/board.ts": [
       "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN",
-      "PARKED_REQUEUED_TAIL",
-      "PARKED_REQUEUE_NOTE_LIKE",
-      "REQUEUE_PARKED_LABEL",
-      "isRequeueParkedLabel"
+      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5078,7 +5169,6 @@
       "isPreviewablePath"
     ],
     "shared/notify-actions.test.ts": [
-      "requeue",
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [

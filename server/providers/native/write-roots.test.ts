@@ -3,7 +3,7 @@
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, existsSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { insideAnyRoot, loadWriteRoots } from "./write-roots";
 import { executeTool } from "./tools";
@@ -44,7 +44,8 @@ describe("write_file with declared roots", () => {
   test("outside and undeclared stays refused", async () => {
     const ws = join(dir, "ws");
     mkdirSync(ws);
-    const target = join(dir, "elsewhere", "f.txt");
+    // Not under the temp dir: that one is always writable.
+    const target = join(homedir(), ".write-roots-test-never-written", "f.txt");
     const r = await executeTool("write_file", { path: target, content: "x" }, { workspace: ws });
     expect(r.isError).toBe(true);
     expect(existsSync(target)).toBe(false);
@@ -65,7 +66,7 @@ describe("write_file and edit_file into a declared root", () => {
       expect(ok.isError).toBeFalsy();
       const ed = await executeTool("edit_file", { path: join(root, "sub", "f.txt"), old: "one", new: "two" }, { workspace: ws });
       expect(ed.isError).toBeFalsy();
-      const no = await executeTool("write_file", { path: join(dir, "declared-x", "f.txt"), content: "x" }, { workspace: ws });
+      const no = await executeTool("write_file", { path: join(homedir(), ".write-roots-test-never-written", "f.txt"), content: "x" }, { workspace: ws });
       expect(no.isError).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.APP_DATA_DIR; else process.env.APP_DATA_DIR = prev;

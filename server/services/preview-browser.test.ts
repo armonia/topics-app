@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createPreviewBrowser } from "./preview-browser";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 type PlaywrightModule = typeof import("playwright-core");
 
@@ -118,10 +119,10 @@ describe("preview browser (KANBAN-95)", () => {
   });
 
   test("server.ts wires the preview captures to this module, not to the Chromium browser service", () => {
-    const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+    const src = readServerSource();
     const start = src.indexOf("previewManager = createPreviewManager({");
     expect(start).toBeGreaterThan(-1);
-    const block = src.slice(start, src.indexOf("\n});", start));
+    const block = src.slice(start, src.indexOf("\n  });", start));
     const deps = block.slice(block.indexOf("emptyAppShell:"), block.indexOf("currentOutputUrl:"));
     expect(deps).toContain("previewBrowser.emptyAppShell(");
     expect(deps).toContain("previewBrowser.screenshot(");

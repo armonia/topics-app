@@ -2,11 +2,9 @@
  * @covers RUNTIME-09
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { getProvider, tryGetProvider } from "./index";
+import { readServerSource } from "../../tests/helpers/server-source";
 
-const REPO = join(import.meta.dir, "..", "..");
 
 /**
  * `getProvider` throws on an unknown name. Seven call sites in server.ts were
@@ -35,7 +33,7 @@ describe("tryGetProvider", () => {
 });
 
 describe("server.ts asks for a provider it can live without", () => {
-  const src = readFileSync(join(REPO, "server.ts"), "utf8");
+  const src = readServerSource();
 
   test("every optional-shaped claude-code lookup goes through tryGetProvider", () => {
     // The shape of the mistake, not a count: a `getProvider(...)` whose result is

@@ -24,9 +24,10 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
+import { readServerSource } from "../helpers/server-source";
 
 const ROOT = join(import.meta.dir, "..", "..");
-const SERVER = readFileSync(join(ROOT, "server.ts"), "utf8");
+const SERVER = readServerSource();
 const STATUS = readFileSync(join(ROOT, "server/routes/status.ts"), "utf8");
 
 /** The call arguments, normalised: the comparison is what matters. */

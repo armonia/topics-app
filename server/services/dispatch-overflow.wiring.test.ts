@@ -12,11 +12,10 @@
  * @covers KANBAN-76
  */
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { githubOriginFrom, overflowMachinesFrom, type OverflowMachineRow } from "./dispatch-overflow";
+import { readServerSource } from "../../tests/helpers/server-source";
 
-const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+const server = readServerSource();
 
 /** The source of the `createTaskDispatcher({ ... })` call: the wiring must be inside it. */
 function dispatcherCall(): string {

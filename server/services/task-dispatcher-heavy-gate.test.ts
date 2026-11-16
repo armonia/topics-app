@@ -424,3 +424,60 @@ describe("freno del peso — l'attesa ha una fine", () => {
     expect(h.task("l1")!.queueReason!.key).not.toContain("slot");
   });
 });
+
+describe("heavy hold: a node's spawn_agent child does not wait for it", () => {
+  function heavyInFlight(h: ReturnType<typeof harness>) {
+    board(h);
+    h.db.run("INSERT OR IGNORE INTO topics (id) VALUES ('topic-x')");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority, dispatch_weight, dispatch_state, assigned_topic_id)
+       VALUES ('inflight', ?, 'heavy at work', 'in_progress', '2026-11-16T03:00:00.000Z', '2026-11-16T03:00:00.000Z', 0, 4, 'heavy', 'working', 'topic-x')`,
+      [PID],
+    );
+  }
+  function seedMirror(h: ReturnType<typeof harness>, id: string, origin: string, baseBranch: string) {
+    seedTask(h.db, { id });
+    h.db.run("UPDATE tasks SET claude_task_id = ?, base_branch = ? WHERE id = ?", [`node-run:${origin}`, baseBranch, id]);
+  }
+
+  it("the child mirror starts while a heavy turn holds the machine", async () => {
+    const h = harness();
+    heavyInFlight(h);
+    seedMirror(h, "child", "sub-1", "topics-child-sub-1");
+    seedTask(h.db, { id: "l1" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("child")!.status).toBe("in_progress");
+    // An ordinary light card still waits for the heavy turn.
+    expect(h.task("l1")!.status).toBe("todo");
+  });
+
+  it("a mirrored board card (its own branch) still waits", async () => {
+    const h = harness();
+    heavyInFlight(h);
+    seedMirror(h, "mirror", "KANBAN-9", "task/KANBAN-9");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("mirror")!.status).toBe("todo");
+  });
+
+  it("a child that is itself heavy waits like any heavy turn", async () => {
+    const h = harness();
+    heavyInFlight(h);
+    seedMirror(h, "child", "sub-1", "topics-child-sub-1");
+    h.db.run("UPDATE tasks SET dispatch_weight = 'heavy' WHERE id = 'child'");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("child")!.status).toBe("todo");
+  });
+
+  it("the child still counts against the seat cap", async () => {
+    const h = harness();
+    heavyInFlight(h);
+    h.svc.setGlobalCap({ auto: false, max: 1 });
+    seedMirror(h, "child", "sub-1", "topics-child-sub-1");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("child")!.status).toBe("todo");
+  });
+});

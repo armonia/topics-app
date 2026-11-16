@@ -21,6 +21,18 @@
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { isMachineStop, machineStopToolError } from "./abort-cause";
 
+/**
+ * The text a failed tool result carries. A provider can flag `is_error` with an
+ * empty body (an aborted MCP call, a content block that is not text), and an
+ * empty error reads as "failed with no message" while the stored row, which keys
+ * its status on the error text, says success: the same call counted both ways.
+ * A failure always says something.
+ */
+export function failedToolText(result: string, toolName?: string): string {
+  if (result.trim()) return result;
+  return `${toolName ?? "tool"} reported a failure with no message; the call may or may not have run, check its effect before retrying`;
+}
+
 export interface ToolOutcome {
   status: "success" | "error";
   /** Present only on the error: the sentence the user reads on the tool. */

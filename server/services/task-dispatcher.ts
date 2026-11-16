@@ -31,38 +31,22 @@ import { activeFrozenCount } from "./budget-governor";
 import { LAND_ACTION_LABEL, UNASSIGNED_PROJECT_ID, commentAsksHuman, type Task, type TaskService } from "./tasks";
 import { type SessionUsage } from "./transcript-usage";
 import { onHumanHoldChange } from "../lib/human-hold-events";
-import { logActivity, type ActivityLogEntry } from "../db/activity-log";
+import { logActivity } from "../db/activity-log";
 import type { TaskAttemptStore } from "./task-attempts";
 import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
+import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, NATIVE_CHILD_FLOOR_GB, NATIVE_CHILD_PRICE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
-import type { HeldMemory } from "./mem-signal";
-import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
+import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, NATIVE_CHILD_FLOOR_GB, NATIVE_CHILD_PRICE_GB, effectiveDispatchCap, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { NoCheckExemptionLedger, reservationForRuntime } from "./dispatch-no-check-exemption";
 import { createNoCheckReservationManager } from "./dispatch-no-check-reservations";
 import { createCardPrices } from "./dispatch-card-price";
 import { createCardWeightMeter } from "./dispatch-card-weight";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, setMemoryWait, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
-import {
-  bookSessionCost,
-  createSpendBrake,
-  overTaskSpendCap,
-  taskSpendMessage,
-  type SessionLedger,
-} from "./task-dispatcher-spend-cap";
-import type { OutboundMessage } from "../../shared/ws-outbound";
-import {
-  classifyTurnError,
-  consumesAttempt,
-  describeTurnEnd,
-  needsHuman,
-  shouldResume,
-  type TurnEndInfo,
-} from "../providers/stop-reason";
-import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
+import { bookSessionCost, createSpendBrake, overTaskSpendCap, taskSpendMessage, type SessionLedger } from "./task-dispatcher-spend-cap";
+import { classifyTurnError, consumesAttempt, describeTurnEnd, needsHuman, shouldResume, type TurnEndInfo } from "../providers/stop-reason";
+import { createRemoteNodeLane, isNodeSessionKey, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
 import { wakeBreaker } from "./wake-breaker";
 import { effectiveSlots, machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
@@ -75,1048 +59,19 @@ import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
 import { providerHoldKey, providerHoldLabel, type DispatchWork } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
-import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
-import type { StopCause } from "../lib/abort-cause";
+import { type OutputLanguage } from "../../shared/types";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
-import { hasCommandShell } from "../lib/command-process";
 import { isDeliverySheetPath } from "../../shared/media-kind";
-
-/** Fallback retry cap when a board's setting can't be read (default 2). */
-const DEFAULT_RETRY_CAP = 2;
-const WAITING_MEMORY = "waiting-memory" as const;
-
-/** The tool a dispatched session is running, as the session tracker knows it. */
-/**
- * Working rule for every kickoff: Topics is a product for anybody, so no single
- * person's data is hard-coded. Exported so the unit test reads the same sentence
- * the agent receives; `docs/board-protocol.md` carries the human copy.
- */
-export const GENERIC_PRODUCT_RULE =
-  "- Topics is a product for ANYONE: never write one person's names, paths, IPs, accounts or servers into the code. " +
-  "What varies between users lives in settings, in the machines table or in a configurable adapter. " +
-  "Does a personal value look needed? It goes into configuration, with an empty default that works.";
-
-export interface SessionActivity { name: string; input?: unknown; since: number }
-
-/** How much of a tool input travels on the wire: the card cuts further. */
-const LIVE_TOOL_INPUT_CHARS = 200;
-
-/**
- * The ONE line that says what a tool is doing, taken from its input.
- *
- * A tool input is an object shaped by the tool, and the card wants a string:
- * the command for Bash, the path for the file tools, the pattern for a search.
- * Anything else falls back to the first string field, then to nothing, never
- * to a JSON dump. Pure and exported so the mapping is tested on its own.
- */
-export function summarizeToolInput(name: string, input: unknown): string | null {
-  if (!input || typeof input !== "object") return typeof input === "string" ? cut(input) : null;
-  const o = input as Record<string, unknown>;
-  const keys = /^bash$/i.test(name) ? ["command", "description"]
-    : /^(edit|write|read|notebookedit|multiedit)$/i.test(name) ? ["file_path", "notebook_path", "path"]
-    : /^(grep|glob|websearch|webfetch)$/i.test(name) ? ["pattern", "query", "url"]
-    : /^(task|agent)$/i.test(name) ? ["description", "prompt"]
-    : ["command", "file_path", "path", "pattern", "query", "url", "description", "prompt"];
-  for (const k of keys) {
-    const v = o[k];
-    if (typeof v === "string" && v.trim()) return cut(v);
-  }
-  for (const v of Object.values(o)) if (typeof v === "string" && v.trim()) return cut(v);
-  return null;
-}
-function cut(v: string): string {
-  const one = v.trim().replace(/\s+/g, " ");
-  return one.length > LIVE_TOOL_INPUT_CHARS ? one.slice(0, LIVE_TOOL_INPUT_CHARS) : one;
-}
-
-/** What the dispatcher needs from the outside world — all injected. */
-export interface DispatcherDeps {
-  svc: TaskService;
-  /** Where `task:unowned` leaves its activity_log row (the real writer when unset). */
-  recordActivity?: (entry: ActivityLogEntry) => void;
-  /** Stop command process groups when an automated landing closes a card. */
-  stopCardProcesses?: (cardId: string) => void | Promise<void>;
-  /**
-   * Resolve a board-hash projectId to its filesystem path and (if the project
-   * is registered in the ProjectStore) the store UUID needed for worktrees.
-   * Returns null when the board can't be mapped back to a project on disk.
-   */
-  resolveProject: (projectId: string) => { path: string; projectStoreId: string | null } | null;
-  /**
-   * The "generale" catch-all workspace path (a project-less task's dispatch
-   * cwd). A session whose resolved path is this one is presented STANDALONE
-   * (see createTopic `standalone`) — no phantom "generale" project. Absent in
-   * tests / hosts without a workspace.
-   */
-  catchAllProjectPath?: string;
-  /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; /** AICTRL-01 routing switch */ topicsRouting?: boolean | null; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
-    topicId: string;
-    sessionKey: string;
-  };
-  /**
-   * Create a git worktree for `projectStoreId` and resolve once it's ready to
-   * the worktree id, or throw if creation failed. Absent = the host can't
-   * provide worktrees at all (tests / degraded mode). `baseBranch` = a node's
-   * mirror card born from the origin card's own branch (`Task.baseBranch`),
-   * not from main.
-   */
-  createWorktree?: (projectStoreId: string, opts?: { baseBranch?: string }) => Promise<string>;
-  /**
-   * Scrive sulla card la fotografia della consegna (ramo, commit, diffstat) e le
-   * etichette derivate, leggendo il worktree. Torna `true` se c'e' un ramo.
-   *
-   * SERVE QUI perche' la consegna forzata dal sistema decide cosa dire al
-   * reviewer leggendo quelle colonne — e nel percorso del dispatcher nessuno le
-   * scriveva mai. Vedi `services/task-delivery-capture.ts`.
-   */
-  captureDelivery?: (taskId: string) => Promise<boolean>;
-  /** Measure a planted node delivery's bar and offer it to the automatic land (`services/node-delivery-meter.ts`). */
-  measureDelivery?: (taskId: string) => Promise<void>;
-  /**
-   * I FILE LASCIATI NEL WORKTREE E MAI COMMITTATI, o `null` se non si sa.
-   *
-   * ── Perche' esiste ────────────────────────────────────────────────────────
-   * La fotografia di consegna legge la STORIA di git: ramo, commit, diffstat.
-   * Un turno che muore prima del commit non lascia storia, quindi la card
-   * concludeva «nessun ramo e nessun file toccato» — e chi rivedeva chiudeva o
-   * rilanciava una card il cui lavoro era li', sul disco, intatto.
-   *
-   * Misurato il 18/08/2026 su due card in colonna review, entrambe con zero
-   * commit e la stessa frase addosso: `fervent-snow` aveva QUATTRO file
-   * modificati (la regola sui sottotask del tentativo morto, 367 righe, test
-   * verdi) e `bashful-wren` TRE. Le ultime parole dell'agente della seconda,
-   * recuperate dalla sessione, erano letteralmente «Changes are staged but not
-   * committed». Nessuno dei due l'avrebbe mai saputo dalla card.
-   *
-   * `null` = non misurabile (nessun worktree, git muto): resta il testo
-   * storico, che e' un silenzio onesto. Un elenco vuoto invece e' una misura:
-   * il worktree c'e' ed e' davvero pulito.
-   */
-  uncommittedInWorktree?: (taskId: string) => Promise<string[] | null>;
-  /**
-   * IL PAVIMENTO: perché la MACCHINA non regge un altro agente adesso, o `null`
-   * se lo regge. Non è il tetto — il tetto è una preferenza e può valere
-   * «nessun limite», questo no. Assente (test, host degradato) = non blocca
-   * mai: una guardia che non si sa misurare non deve poter fermare la board.
-   *
-   * `hold` is what the reading cannot see, as separate facts: the price of one
-   * card, the memory kept for the local turns in flight, and whether any of our
-   * work is on the machine (see `floorVerdict`).
-   *
-   * A VERDICT and not a sentence: which floor spoke keys the wait (the 120 s
-   * warm-up and the real floor share their first word), and the memory floor
-   * standing down for the first card is a fact only this answer carries.
-   */
-  resourceBlock?: (hold: MemoryFloorHold) => ResourceFloorVerdict | null;
-  /** The same two-minute low-memory window used by the normal resource floor. */
-  heldMemory?: () => HeldMemory | null;
-  /** Latest measured memory reading and timestamp from the existing probe. */
-  memoryReading?: () => { freeGB: number | null; at: number | null };
-  /** Process-local ring maintained by the existing memory sampling beat. */
-  memoryHistory?: () => DispatchMemoryHistoryPoint[];
-  /** Cached process owners; this callback must not start another probe. */
-  memoryConsumers?: () => Array<{ label: string; gb: number }>;
-  /** Whether the selected agent runtime is the CLI process runtime. */
-  isCliRuntime?: () => boolean;
-  /**
-   * WHAT TOPICS IS TAKING OF THIS MACHINE, for the cap "by resources": our own
-   * core-units and gigabytes, what the others are taking, and the agents
-   * already in flight, read NOW. Only consulted when the '*' row says
-   * `mode = resources`; in count mode it is never called.
-   *
-   * It is a dependency and not a call to `computeDispatchCapacity` because the
-   * test that matters ("over the budget nothing starts, under it it does") has
-   * to fix the measure, and a real reading would assert on whatever the suite
-   * is running next to. `null` or absent = not measurable, and a gate that
-   * cannot measure does not close: it reads as "admit".
-   */
-  budgetSample?: () => MachineBudgetSample | null;
-  /**
-   * What the last few agents actually cost, in core-units, gates included. The
-   * median of these is the price of admission (`estimatedAgentCost`): a fixed
-   * number would price a compiling agent like one waiting on the API. Absent =
-   * no history, and the estimate falls back to its floor, never to zero.
-   */
-  agentCostSamples?: () => number[];
-  /** The same price list in gigabytes: the peak footprint of each recent card's
-   *  pre-review checks, one number per card. The median of these prices the
-   *  memory of one more agent, and an empty list prices it at the floor (never
-   *  at zero). */
-  agentMemSamples?: () => number[];
-  /** One card's pre-review check peak in GB, folded into its measured weight (`dispatch-card-weight.ts`). */
-  cardCheckPeakGB?: (taskId: string) => number | null;
-  /** Delete a worktree we created (called when its attempt is discarded — requeue/park/setup-fail). */
-  deleteWorktree?: (worktreeId: string) => Promise<void>;
-  /**
-   * Il worktree contiene LAVORO che sparirebbe cancellandolo — commit non su
-   * main, o modifiche non committate (junk escluso)?
-   *
-   * Serve per non buttare via una consegna quando un tentativo viene rimesso in
-   * coda. Il cleanup dopo il turno presume che un tentativo requeued/parked non
-   * abbia prodotto niente: è vero quasi sempre, ed è falso proprio nel caso che
-   * fa danno — l'agente committa, POI il turno viene troncato
-   * dall'infrastruttura, il task torna in `todo`/`backlog`, e il branch coi
-   * commit viene cancellato con la cartella.
-   *
-   * Assente ⇒ si risponde `false` e il comportamento resta quello storico. È
-   * una scelta consapevole: rendere obbligatoria la sonda spegnerebbe la
-   * pulizia su ogni host che non la fornisce, e la pulizia esiste per un motivo
-   * (senza, ogni ritentativo orfana un worktree). La sonda vera la fornisce
-   * server.ts; qui il valore di default tiene in piedi i test.
-   */
-  worktreeHasWork?: (worktreeId: string) => Promise<boolean>;
-  /** Capacità viva della macchina (`computeDispatchCapacity`). Serve alla
-   *  modalità notturna per sapere se il carico è sceso.
-   *
-   *  `reason` è la stessa riga che la board mostra sotto il tetto automatico
-   *  (core, RAM, quanta CPU si sta mangiando la flotta). Finisce sulla card di
-   *  chi aspetta il tetto pieno, così il numero non arriva mai nudo. */
-  capacity?: () => { load1: number; cores: number; reason?: string };
-  /**
-   * Il carico attribuibile a NOI: quanti core stanno bruciando i processi della
-   * nostra flotta (agenti, pty-bridge, sidecar), da `getFleetUsage`.
-   *
-   * Esiste perché `capacity().load1` risponde a un'altra domanda. Il load
-   * average è la coda di esecuzione dell'INTERA macchina, e il freno del peso
-   * non decide se il Mac è occupato: decide se un task pesante può prendersi la
-   * macchina senza pestare i piedi agli agenti già in volo. Sono due misure
-   * diverse, e la notte del 12/08 hanno dato due risposte opposte sullo stesso
-   * host: load1 fra 37 e 48, la nostra flotta a 0,75% su 1200% di CPU. Il
-   * carico erano le app dell'umano, e il freno le ha scambiate per noi.
-   *
-   * `coreUnits` è in unità di core (1 = un core saturo), la stessa scala di
-   * `load1`, così la soglia si legge allo stesso modo. Assente o `null` = host
-   * senza sonda: si ricade su `load1`, che è il comportamento storico.
-   */
-  ownLoad?: () => { coreUnits: number; cores: number } | null;
-  /**
-   * Adesso, in ms. Iniettabile perché l'attesa del freno adesso ha una SCADENZA,
-   * e un test su una scadenza che non può muovere l'orologio misurerebbe solo la
-   * propria pazienza.
-   */
-  now?: () => number;
-  /** Quante sessioni UMANE sono vive adesso. È il segnale «sono via» del turno
-   *  notturno: finché c'è qualcuno al lavoro, non si dispaccia. */
-  humanSessionsLive?: () => number;
-  /**
-   * A private per-task working dir for a CATCH-ALL task (creates it, returns the
-   * path). Giving each project-less task its own cwd makes its topic's
-   * `projectPath` unique, so the task's own splittable workspace claims the
-   * agent's browser panes (projectPath-match) instead of them vanishing — the
-   * "fuori progetto" gap. Absent = host without a workspace (tests / degraded):
-   * the catch-all task then keeps the shared catch-all dir (old behaviour).
-   */
-  catchAllTaskDir?: (taskId: string) => string;
-  /**
-   * Choose a model for a task on "modello auto" (task.model === null), BEFORE
-   * the agent spawns — a fast one-shot classifier (see task-model-picker.ts).
-   * Returns the concrete model id (null = keep the provider default). Absent =
-   * host without a classifier (tests / degraded); "auto" then keeps the default.
-   * Classification failures fall back within the chosen provider. Missing
-   * provider/catalog errors stay actionable and never cross to another provider.
-   */
-  /** The classifier selects model/provider, reasoning effort and independent machine weight. */
-  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string; topicsRouting?: boolean }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
-  /** An unconstrained Auto task may choose a ready coding runtime that is not itself held right now. */
-  automaticModelAvailable?: () => boolean;
-  /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
-   *  the reserved `board_settings['*']` row says `auto`. Absent ⇒ auto falls
-   *  back to that row's fixed number. There is no per-board cap: the field that
-   *  suggested one was written by nobody's reader and has been removed. */
-  recommendedCap?: () => number;
-  /**
-   * Quante barre di check pre-review stanno girando ADESSO (dal registro
-   * `checksGate.runningCount()`).
-   *
-   * Ogni barra vale uno slot di capacita': `test:unit` da solo dura ~322s e
-   * satura piu' core. Sei barre insieme il 18/08 hanno portato il loadavg a
-   * 78,83 su 12 core. Il freno deve contarle accanto agli agenti in volo, cosi'
-   * un dispatch nuovo aspetta finche' sia gli agenti che le barre stanno dentro
-   * il tetto. Assente = non si contano (comportamento storico, mai zero-denial).
-   */
-  checksRunning?: () => number;
-  /** The task's checks run gave its lane back and only waits on the pull request CI
-   *  (KANBAN-84): its turn holds no memory here, so admission does not reserve any. */
-  checksOffLane?: (taskId: string) => boolean;
-  /** Drive ONE headless turn to completion; resolves when the turn ends. */
-  /**
-   * Drive ONE headless turn to completion; resolves when the turn ends.
-   * `contextMode`: "full" (default) re-assembles the whole context envelope
-   * (CLAUDE.md/README/awareness/memory…); "lean" sends only the role prompt +
-   * cwd awareness. The dispatched session is persistent (the CLI keeps prior
-   * turns), so a resume/continuation doesn't need the full envelope re-injected
-   * into history — that only compounds cache write/read on every later call.
-   */
-  /**
-   * `timeoutMs` is DECLASSED TO REPORTING ONLY: it no longer cuts a turn, it is
-   * just what the host compares an over-long turn against and logs. The kill
-   * mechanism is `idleMs` — the passive stall detector's silence threshold
-   * (see `server/lib/stall-detector.ts`): once the session goes quiet for that
-   * long, a cheap judge decides "alive" (rearm, keep going) or "stuck" (recycle
-   * — abort + resume the SAME session). Absent `idleMs` ⇒ the host's own
-   * default.
-   */
-  runTurn: (sessionKey: string, content: string, opts: { timeoutMs: number; idleMs?: number; contextMode?: "full" | "lean"; dispatchedFor?: string[] }) => Promise<TurnEndInfo | void>;
-  /**
-   * True if a still-running agent turn for this session survived a server
-   * restart in the ai-bridge broker (provider.hasLiveSession). When present and
-   * true, reconcile REATTACHES to the live turn (non-lossy) instead of RESUMING
-   * from scratch. Absent (non-broker provider / flag off) ⇒ reconcile always
-   * resumes, unchanged.
-   */
-  hasLiveSession?: (sessionKey: string) => Promise<boolean>;
-  /** Drive a REATTACH turn to completion (adopt the surviving broker child and
-   *  finish it). Injected alongside hasLiveSession. */
-  reattach?: (sessionKey: string, opts: { timeoutMs: number; idleMs?: number }) => Promise<TurnEndInfo | void>;
-  /**
-   * Is the agent PROCESS behind this session still alive? (provider
-   * `isTurnProcessAlive` — the same probe the stream watchdog trusts to tell a
-   * thinking-but-mute child from a dead one.)
-   *
-   * The dispatcher's own "a turn is running" bookkeeping is `inFlight`, which is
-   * pure memory: it clears when the turn's promise settles. If the child dies in
-   * a way that never settles that promise, the task is invisible to every sweep
-   * (`reconcile` skips whatever is inFlight) and the card sits on `working` until
-   * the wall-clock timeout — 20 minutes in the best case, forever in the worst.
-   * This probe is what closes that hole (see `sweepDeadTurns`).
-   *
-   * Three answers, on purpose:
-   *   true  → alive (a long silence is NOT death: a thinking agent is alive)
-   *   false → the process is gone
-   *   null  → the host CAN'T TELL (no provider probe). Never buries anything —
-   *           ignorance must not read as death.
-   * Absent ⇒ the net is off entirely (tests/degraded keep the old behaviour).
-   *
-   * NB: deliberately NOT `hasLiveSession`, which answers false whenever the
-   * ai-bridge broker is off — as a liveness signal that would bury every live
-   * turn on a non-broker host.
-   */
-  isTurnAlive?: (sessionKey: string) => boolean | null;
-  /**
-   * Usage consumed so far by this session (from its transcript usage records,
-   * deduplicated by API message id — see transcript-usage.ts). Best-effort —
-   * absent/throwing = zeros. The dispatcher records the PER-TURN DELTA on the
-   * task, so totals survive retries on fresh sessions.
-   */
-  getSessionUsage?: (sessionKey: string) => SessionUsage;
-  /**
-   * What the session is doing RIGHT NOW: the tool it is running, its input and
-   * when it started; `null` when no tool is running or the host cannot tell.
-   * The live ticker rides it on `task:usage-live` so the card can say
-   * «Bash · bun run test:unit · 3m» instead of a bare stopwatch: a 14-minute
-   * turn that is running the unit suite and one that is stuck looked the same,
-   * and telling them apart meant opening the chat, which is what the board was
-   * meant to spare. Best-effort, never persisted.
-   */
-  sessionActivity?: (sessionKey: string) => SessionActivity | null;
-  /**
-   * The agent's LAST assistant prose in the session (trimmed), or null. Used to
-   * GUARANTEE a delivery carries the agent's own words: when a turn ends and the
-   * agent never called comment_task, the dispatcher mirrors this text into a task
-   * comment so the reviewer always reads "what I did" — instead of landing on a
-   * bare system note (or losing a worked task to `failed`). Synchronous (reads
-   * the local message store). Absent (tests/degraded) ⇒ no mirror, old behaviour.
-   */
-  getLastAgentText?: (sessionKey: string) => { text: string; id: string } | null;
-  /**
-   * A task just reached `review` (self-delivered or system-delivered): boot a
-   * live preview server from its worktree, point output_url at the LOCAL
-   * deep-link (never prod), and attach a screenshot as a `review-note`. Fired
-   * best-effort (void) — the review chip is already set, the preview populates a
-   * few seconds later. Absent (tests/degraded) ⇒ no preview, old behaviour.
-   */
-  preparePreview?: (taskId: string) => Promise<void>;
-  /** Tear a task's preview server down (land / approve / close / reap). */
-  teardownPreview?: (taskId: string) => Promise<void>;
-  /**
-   * La card è consegnata: butta dal suo worktree gli artefatti rigenerabili
-   * (dipendenze, cache di build) tenendo cartella, branch e commit.
-   *
-   * Qui e non al land, perché la maggior parte delle card NON landa subito: sono
-   * i giorni fra la consegna e l'ok umano a costare ~260 MB l'una, ed è lì che il
-   * disco è passato da 30 a 64 GB in una notte. L'host è l'unico che sa se in
-   * quel worktree c'è un'anteprima viva — la decisione su QUANDO farlo sta di là
-   * (vedi `worktree-slim`), qui c'è solo il momento in cui ha senso chiederlo.
-   * Assente (test/degradato) ⇒ nessuno snellimento, comportamento di prima.
-   */
-  slimWorktree?: (taskId: string) => Promise<void>;
-  /**
-   * True if the topic still exists. Used to SELF-HEAL a dead binding: a task
-   * whose `assigned_topic_id` points at a topic that was later reaped (its agent
-   * tab deleted) would be skipped forever by the eligibility filter (`!assignedTopicId`)
-   * and sit in todo with no chip, never claimed. `tick` clears such dead links so
-   * the task is dispatchable again. Absent (tests/degraded) ⇒ no heal, bindings
-   * are trusted as-is (the pre-existing behaviour).
-   */
-  topicExists?: (topicId: string) => boolean;
-  /** The actual binding inherited when a dependent reuses its blocker's session. */
-  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } | null;
-  /** MSEL-06: writes the effective switch on a reused session that never had
-   *  one (a card topic from before the column existed), before its turn, so
-   *  the chat resolver does not read its `null` with the chat scope. */
-  setTopicRouting?: (topicId: string, topicsRouting: boolean) => void;
-  /** Same coding-provider resolution as createTopic, including the live default
-   *  and the Topics switch (with ON every selection runs on the native engine). */
-  resolveTaskProvider?: (model?: string | null, topicsRouting?: boolean) => string;
-  /**
-   * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
-   * del suo repo?
-   *
-   * Serve al cancello che impedisce di rifare lavoro già atterrato. Il difetto è
-   * misurato: 32 card ridispacciate in un giorno, e due sole (`4ec47331`,
-   * `e54a9be6`) hanno bruciato 3,26M token per riprodurre codice che su main
-   * c'era già. Il land ha il suo cancello, ma una card torna in coda anche per
-   * altre strade — un trascinamento, un `done→todo`, un orfano recuperato — e da
-   * lì nessuno riguardava il repo prima di far partire un agente.
-   *
-   * Due cose che la risposta deve fare, e nessuna delle due è ovvia:
-   *  - chiedere del COMMIT, non del ramo: dopo il land il ramo è potato, e
-   *    chiedere di lui risponderebbe «non c'è» su un lavoro atterrato;
-   *  - guardare il CONTENUTO, non la sola discendenza: il land RICOPIA i commit
-   *    (`cherry-pick -C <sha>`), quindi dopo un land riuscito il commit di
-   *    consegna non è antenato di main. Un cancello basato sull'ancestry sarebbe
-   *    quasi sempre inerte — proprio sul caso normale. L'ospite lo risolve con la
-   *    stessa strada dell'audit degli atterraggi (`commitStatusFromRepo`).
-   *
-   * Tre valori: `true` dentro, `false` fuori, `null` non contabile. Solo il
-   * `true` chiude la card — su «non lo so» si dispaccia come sempre, perché
-   * chiudere una card sul dubbio significa buttare via il lavoro che manca.
-   * Assente (test/host degradato) ⇒ cancello spento, comportamento storico.
-   */
-  deliveryLanded?: (repoPath: string, commit: string) => Promise<boolean | null>;
-  /**
-   * Claude sessions running OUTSIDE Topics right now at/under a directory
-   * (see services/external-sessions.ts). The dispatcher can only see its OWN
-   * agents, so without this a task lands in a repo the human is editing by
-   * hand in a terminal and the two fight over the working tree.
-   *
-   * Two outcomes, by dispatch mode (see the guard in `tick`):
-   *  - in-place dispatch (worktree isolation OFF) → HOLD: same directory,
-   *    guaranteed collision. The todos stay in `todo` with the 'queued' chip
-   *    (one system note per hold episode), and the periodic reconcile re-ticks
-   *    the board, so dispatch RESUMES BY ITSELF once the session goes quiet —
-   *    no human intervention, no re-queue.
-   *  - worktree dispatch → proceed (the agent gets its own tree) but WARN in
-   *    the task thread, since the branch it lands on is the contended one.
-   * Absent (tests/degraded) ⇒ no guard, the pre-existing behaviour.
-   *
-   * The census this reads keeps its previous answer when a scan throws (see
-   * services/external-sessions.ts): a transient fs error never reads as "repo
-   * free", so the guard never releases a hold on a lie.
-   */
-  externalSessionsAt?: (path: string) => Array<{ cwd: string; branch: string | null }>;
-  /**
-   * Registro dei tentativi di fan-out (migration 065). Presente ⇒ una board con
-   * `dispatchFanOut > 1` lancia N agenti in parallelo, ognuno nel suo worktree,
-   * e l'umano sceglie quale tenere. Assente (test/host degradato) ⇒ il fan-out è
-   * semplicemente spento: `launch` resta l'unica strada, byte per byte.
-   */
-  attempts?: TaskAttemptStore;
-  /**
-   * Fotografia del lavoro di UN worktree rispetto al punto da cui è partito:
-   * commit di testa e diffstat contro `merge-base`. Serve a mettere i tentativi
-   * uno accanto all'altro senza chiedere all'umano di aprire N diff per capire
-   * chi ha fatto qualcosa. Best-effort: null ⇒ "non lo so", che `attemptHasWork`
-   * legge come "nessuna modifica" (mai come lavoro fantasma).
-   */
-  attemptStats?: (worktreeId: string) => Promise<{ commit: string | null; filesChanged: number; insertions: number; deletions: number } | null>;
-  /** Il branch di un worktree (l'etichetta che l'umano riconosce nel confronto). */
-  worktreeBranch?: (worktreeId: string) => string | null;
-  /** Setup script outcome retained by WorktreeManager until the next restart. */
-  worktreeSetupResult?: (worktreeId: string) => { status: "not-configured" | "succeeded" | "failed" | "timed-out"; exitCode: number | null; output: string[] } | null;
-  /** Archivia il topic di un tentativo scartato (la sua chat esce dalle tab). */
-  archiveTopic?: (topicId: string) => void;
-  /** Broadcast a WS message so live boards reflect chip/state changes. */
-  broadcast: (message: OutboundMessage) => void;
-  log?: (msg: string, err?: unknown) => void;
-  /** Grace window (ms) between the →todo signal and the claim. Default 6000. */
-  graceMs?: number;
-  /**
-   * Pause before resuming a turn that died QUICKLY (< the backoff itself) —
-   * an instant death is a provider outage (credit/limit/connection), not work
-   * to redo: retrying immediately burns the whole retry budget in seconds.
-   * Default 60000.
-   */
-  retryBackoffMs?: number;
-  /**
-   * How long a turn is IMMUNE to the liveness net after its session is bound.
-   * The provider registers its child only once the turn actually spawns (context
-   * assembly first), so a young run legitimately probes as "no process". Default
-   * 60000 — with the 10s reconcile poll a dead session is buried in ~60-70s
-   * instead of the 20-minute wall-clock, and a starting one is never touched.
-   */
-  livenessGraceMs?: number;
-  /**
-   * Ogni quanto ripassa l'anteprima viva della card (token, tempo, triage).
-   * Default 4000. Esiste per i test: senza, provare che il chip del triage si
-   * spegne quando l'agente lascia il primo segno vorrebbe dire aspettare
-   * quattro secondi veri.
-   */
-  usageTickMs?: number;
-  /**
-   * THE REMOTE LANE: absent means no card can run anywhere but here.
-   * Its shape and its whole behaviour live in `task-dispatcher-remote-node.ts`.
-   */
-  node?: NodeDeps;
-  /**
-   * THE OVERFLOW: the machines a card held by this Mac's memory floor can move
-   * to (`dispatch-overflow.ts`), never this one. Absent = no card ever moves by
-   * itself, the historical behaviour. Needs `node`: the move hands the card to
-   * the remote lane.
-   */
-  overflowMachines?: () => OverflowMachine[];
-  /** Does the Claude plan have credit for a cloud run? Absent = no Claude provider hold. */
-  cloudCredit?: () => boolean;
-  /** Is the project's origin a GitHub repository (the cloud clones nothing else)? Absent = no, Cloud is never chosen. */
-  githubOriginOf?: (projectId: string) => Promise<boolean>;
-  /** Live delegated authority. A marked task fails closed when this is absent. */
-  delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
-  /** Node-local bindings stay delegated even after expiry makes their live policy disappear. */
-  isDelegatedTask?: (taskId: string) => boolean;
-  /** Persist a delegated phase. Dispatch/resume return the absolute persisted deadline. */
-  recordDelegatedPhase?: (input: {
-    taskId: string;
-    phase: "dispatch" | "resume" | "cancelled" | "completed" | "failed";
-    executionSessionId?: string | null;
-    outcome?: string | null;
-  }) => boolean | number;
-  /** Stops a live local turn when its authorizing capability is revoked. */
-  abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
-  /**
-   * A `run_command` of this session will wake it: it still runs, or it ended
-   * and the turn its wake row opens is not over yet (`routes/processes.ts`
-   * `commandWakeState`). A card whose turn ends on one waits for that wake
-   * instead of being nudged. Absent: never.
-   */
-  awaitsCommandWake?: (sessionKey: string) => boolean;
-  /**
-   * A `spawn_agent` child of this session will wake it: a turn of it is open,
-   * or its result waits for the chat (`lib/subagent-runtime.ts`
-   * `subagentWakeOwed`). Read like `awaitsCommandWake`. Absent: never.
-   */
-  awaitsSubagentWake?: (sessionKey: string) => boolean;
-  /** A turn in flight on the session that the dispatcher did not start: a command's wake, a person's message (`activeStreams`). */
-  isSessionBusy?: (sessionKey: string) => boolean;
-  /**
-   * When the session's last chat row was written (ms), or null: where a
-   * restart finds the start of the silence a command wait is bounded by.
-   * Absent: the wait starts at the boot.
-   */
-  lastSessionRowAt?: (sessionKey: string) => number | null;
-}
-
-export interface TaskDispatcher {
-  /**
-   * The card a session works for while its turn is in flight, or null: the
-   * attention store puts a mid-turn wait of a board agent on its card, not
-   * on its topic (notifications-redesign, `server/attention/wire.ts`).
-   */
-  taskForSession(sessionKey: string): string | null;
-  /** The sessions of the cards in flight: their topics are board agents' (rule 2 of the attention state). */
-  sessionsInFlight(): string[];
-  /** Try to fill free slots on one board: claim + launch the oldest eligible todo(s). */
-  tick(projectId: string): Promise<void>;
-  /** Human moved a task INTO todo → schedule a debounced tick (shows `queued`). */
-  onEnterTodo(projectId: string, taskId: string): void;
-  /** Human moved a task OUT of todo before it claimed → cancel the pending launch. */
-  onLeaveTodo(taskId: string): void;
-  /**
-   * The dispatched agent DECLARED an external-condition wait (wait_for_condition):
-   * park the task back in todo with a `waiting` chip + note + deferral window so
-   * it releases its slot instead of holding it. The live turn is still winding
-   * down; onTurnEnd sees the `waiting` chip and leaves it be, and the periodic
-   * tick re-dispatches once the window elapses. Returns the updated task.
-   * `source: "machine"` is a wait no agent declared (a silent node): its retry
-   * opens no turn, so it keeps the wide streak cap, while an agent's wait stops
-   * at the second one (`AGENT_WAIT_STREAK_CAP`).
-   */
-  deferWait(taskId: string, reason: string, minutes?: number, source?: "agent" | "machine"): Task;
-  /**
-   * Lo stato della modalità notturna della board, per l'interfaccia. Sola
-   * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle
-   * impostazioni non può dire una cosa diversa da quella che il dispatcher fa.
-   */
-  /**
-   * How many times the resource floor held the queue, and for how long in
-   * total. Read-only and without effects: it states the invariant that already
-   * holds ("under the floor no card starts") by making it measurable, it does
-   * not change it. `heldMs` includes the episode in flight.
-   *
-   * The numbers belong to THIS process: `since` says when the count began,
-   * because a restart zeroes them and a count without its window reads like a
-   * time series it is not.
-   */
-  admissionHolds(): {
-    episodes: number;
-    heldMs: number;
-    holding: boolean;
-    /** When the floor was last really consulted (see `heldMs`). */
-    lastSeenAt: string;
-    since: string;
-  };
-  nightStatus(projectId: string): {
-    enabled: boolean;
-    until: string | null;
-    startedAt: string | null;
-    action: "off" | "dispatch" | "wait" | "expire";
-    reason: string | null;
-    load1: number;
-    cores: number;
-    busySessions: number;
-    endsInMs: number | null;
-  };
-  /** A task reached `done` → nudge the todos it was blocking (they are now claimable). */
-  onBlockerDone(taskId: string): void;
-  /**
-   * Re-kick the task's EXISTING topic with a human message (a "Serve te" answer
-   * or a review rejection). The caller has already moved the task back to
-   * `in_progress` (via reviewDecision); this resumes the same agent tab so the
-   * conversation continues instead of spawning a fresh one.
-   */
-  resume(taskId: string, humanMessage: string, opts?: { commentIds?: string[] }): Promise<void>;
-  /**
-   * Boot + periodic sweep. Three passes:
-   *  0. LIVENESS: a turn we still believe is running but whose agent process is
-   *     gone (dead for two consecutive sweeps) is closed and recovered — the case
-   *     "server alive, session dead", invisible to the orphan pass by definition.
-   *  1. ORPHANS: a restart-orphaned in-progress task RESUMES on its own persisted
-   *     session (topic/worktree/CLI --resume) when it still has one; only orphans
-   *     without a resumable session are requeued.
-   *  2. Then tick every board with queued todos.
-   */
-  reconcile(opts?: { reason?: "boot" | "poll" }): Promise<void>;
-  /**
-   * Lo spegnimento scrive un bit sulle card che stavano lavorando.
-   *
-   * Si chiama PRIMA di `shutdown()`, che svuota `inFlight`: dopo, la mappa e'
-   * vuota e questa riga varrebbe zero. Ritorna quante card ha marcato.
-   */
-  markInterrupted(by: string): number;
-  /**
-   * What the budget gate WOULD answer for one more agent right now, without
-   * moving its hysteresis state. `null` outside the budget mode or without a
-   * sample. Read by GET /api/system/dispatch-capacity, so the panel's verdict
-   * is the gate's and not a second opinion.
-   */
-  admissionPreview?(projectId?: string | null): DispatchAdmission | null;
-  /** The same, priced for one sub-agent: what the spawn door asks in "by resources" mode. */
-  childAdmissionPreview?(): DispatchAdmission | null;
-  /** Read-only data for the dispatch memory dashboard. */
-  memoryQueueSnapshot(): DispatchMemoryQueueSnapshot;
-  /** The cards a provider's wall keeps in Todo, and the cards at work per runtime (HUBBR-20). */
-  dispatchWork?(): DispatchWork;
-  /** One reading of the server's process tree in GB, on the `[memsig]` minute: it weighs the local cards in flight. */
-  sampleCardWeight(treeGB: number | null): void;
-  /** Start one selected memory-waiting card, preserving all other admission gates. */
-  startAnyway(projectId: string, taskId: string): Promise<{ ok: boolean; code?: string }>;
-  /** Cancel all timers (test teardown / shutdown). */
-  shutdown(): void;
-  /** True while a launch for this task is in flight (test/introspection). */
-  isInFlight(taskId: string): boolean;
-  /**
-   * How many task launches are in flight right now (setup + turn + teardown).
-   * The quiescence signal a restart must wait on: a planned restart
-   * (approve self-restart / graceful shutdown) blocks until this is 0 so it
-   * never cuts an agent mid-turn. Backed by `inFlight`, not `liveTurns`
-   * (the latter is only the turn window, missing setup/wind-down).
-   */
-  busyCount(): number;
-  /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
-  busyIds(): string[];
-  /**
-   * Every overflow-reachable machine (cloud row and paired nodes), with the
-   * seats it is declared to have and how many it is carrying now: what a
-   * client needs to tell "the Mac is full" apart from "the Mac is full AND
-   * there is nowhere else to send a card" (`/api/system/dispatch-capacity`).
-   */
-  nodeStatus(): { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[];
-  /**
-   * The sessions those runs are bound to (setup slots, still without one, are
-   * left out). A card turn streams through /api/chat, so the restart gate
-   * needs these keys to tell a card's own stream from a person's chat.
-   */
-  busySessionKeys(): string[];
-  /**
-   * The turns behind `busyCount()`, each with the session it streams on.
-   *
-   * The restart gate needs the PAIR: it asks the checks gate, by task id,
-   * whether that card's delivery is only waiting on our own checks, and then
-   * has to take that card's own stream out of the chat sources too (a card
-   * turn streams through /api/chat, so its session is also a stream key).
-   */
-  busyTurns(): Array<{ taskId: string; sessionKey: string }>;
-  /**
-   * A planned restart is on its way: from now until the process is replaced,
-   * start NO new turn. Queue picks, slot wake-ups and resumes all park where
-   * they are, bindings intact, and the boot reconcile of the next process
-   * resumes them on their own sessions.
-   *
-   * Without this `restart-when-idle` never fired under a live fleet: the wait
-   * looks for zero card turns, and with a queue behind a full cap a new turn
-   * starts the second one ends. Measured on 2026-09-04: a restart requested
-   * at 04:50 was still deferred 18,482 s later, three turns at a time, while
-   * the landed server fixes and a migration sat on disk unapplied.
-   */
-  drain(reason: string): void;
-  /**
-   * Reopen the door closed by `drain` while the restart is still waiting: the
-   * holder is a chat, not a card, and the wait has no bound of ours, so
-   * refusing card turns would freeze the board for as long as that chat runs
-   * (`lib/quiescence.ts`, `dispatchDoor`). The caller closes it again the
-   * moment only cards hold.
-   */
-  undrain(reason: string): void;
-  /** Cancel only queued or active work bound to one revoked capability. */
-  revokeDelegatedCapability(capabilityId: string): Promise<number>;
-}
-
-/**
- * Dove cade l'effort quando la board dice "auto" ma il classificatore non
- * risponde. NON e' una preferenza: e' cio' che la board faceva prima che l'auto
- * esistesse, quindi un giudice muto lascia le cose esattamente come stavano
- * invece di spostarle di nascosto.
- */
-/** Quanti errori del provider di fila si perdonano prima di ricominciare a
- *  pagare tentativi. Tre: una raffica si assorbe, un guasto cronico no. */
-/**
- * Dove cade l'effort quando la board dice "auto" ma il classificatore non
- * risponde. NON è una preferenza: è ciò che la board faceva prima che l'auto
- * esistesse, quindi un giudice muto lascia le cose come stavano.
- *
- * Vive solo su questo ramo: su main l'effort automatico non c'è (scelta del
- * cherry-pick di `ed607a5a`, per non portare metà di una feature).
- */
-const DEFAULT_AUTO_EFFORT = "medium";
-
-const FREE_PROVIDER_ERRORS = 3;
-
-/** How long the post-turn git stat may take before the slot is released without it. */
-const ATTEMPT_STATS_DEADLINE_MS = 15_000;
-async function withDeadline<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
-  try { return await Promise.race([p, late]); }
-  finally { if (timer) clearTimeout(timer); }
-}
-
-/**
- * Sotto quale carico PER CORE la macchina è «scarica» abbastanza da far partire
- * un task pesante.
- *
- * 1.0, cioè il punto in cui la coda del processore è ancora dentro il numero di
- * core: sopra di lì i processi si aspettano già a vicenda, ed è esattamente lo
- * stato in cui una compilazione fa male a tutti gli altri. È più severo dell'1,5
- * della modalità notturna (`night-mode.ts`) di proposito: lì la domanda è «la
- * persona sta lavorando?», qui è «c'è margine per un lavoro che si prende tutto?»
- * — e la seconda vuole un margine vero, non l'assenza di un intralcio.
- */
-const HEAVY_MAX_LOAD_PER_CORE = 1.0;
-
-/**
- * Lo stesso margine, ma misurato su NOI (`DispatcherDeps.ownLoad`): sopra metà
- * dei core occupati dalla nostra flotta un task pesante non si prenderebbe la
- * macchina da solo, che è l'unica cosa che il peso esiste per garantire.
- *
- * Più severo dell'1,0 sul load di sistema, e deve esserlo: quello contava anche
- * i processi di chiunque altro, quindi la stessa soglia applicata a una misura
- * che vede solo noi sarebbe un freno che non frena quasi mai. Su questo host
- * (12 core) sono 6 core-unità, cioè 600% nella scala di `ps`, contro le 0,75
- * misurate la notte del 12/08 con la board ferma: due ordini di grandezza di
- * margine, che è quanto serviva e non c'era.
- *
- * PERCHÉ FINO AL 13/08 QUESTO RAMO NON POTEVA MORDERE, e non è colpa del conto.
- * La soglia è tarata su metà dei core della macchina, ma la flotta quei core
- * non li poteva prendere: il job launchd del server non dichiarava
- * `ProcessType`, e senza quella chiave launchd applica limiti di risorsa
- * ridotti al job e a tutto il suo albero, fino a ogni `claude`. Misurato quel
- * giorno con lo stesso banco eseguito dentro e fuori il clamp, a parità di
- * carico: la flotta si fermava fra 3,6 e 4,4 core-unità mentre un processo non
- * clampato ne prendeva 10, e un `tsc` costava 4,63 s contro 2,65. Sotto la
- * soglia di 6 non ci si arrivava mai, quindi il ramo `ownLoad` restava aperto
- * per costruzione. La chiave la scrive ora
- * `scripts/apply-topics-host-plist.sh`, e questo numero torna raggiungibile
- * solo dopo che il server è ripartito con quel plist. Se un giorno il freno
- * ricominciasse a non frenare, si guarda prima il plist e poi questa soglia.
- */
-const HEAVY_MAX_OWN_LOAD_PER_CORE = 0.5;
-
-/**
- * Quanto può durare l'attesa di un task pesante prima che parta comunque.
- *
- * Senza scadenza la guardia non era una precedenza, era un blocco: la coda è
- * ordinata per priorità e poi per anzianità, il ramo trattenuto fa `break`, e
- * un pesante con priorità alta si piazza in testa e ferma la board INTERA.
- * Misurato il 12/08: due `in_progress` col tetto a 9, per ore, finché non si è
- * abbassata a mano la priorità delle due card pesanti.
- *
- * Quindici minuti perché l'attesa deve poter servire a qualcosa (un turno che
- * finisce libera la macchina in quell'ordine di grandezza) senza mai diventare
- * indefinita. Scaduto il tetto il task parte lo stesso, e il thread dice perché.
- */
-const HEAVY_HOLD_MAX_MS = 15 * 60_000;
-
-/** Ogni quanto un resume in attesa ricontrolla se si è liberato un posto. */
-const RESUME_SLOT_RETRY_MS = 5_000;
-
-/**
- * How often a held resume may rewrite the SAME hold just to refresh its numbers.
- *
- * Measured on 15/09/2026: every retry rewrote `dispatch_error` with the memory
- * reading of that instant (5.7, 5.9, 6.0 GB), touched `updated_at` and sent
- * `task:updated` to every client. Seven held cards made about 70 frames a
- * minute, and each frame re-rendered the app tree and rebuilt the tray menu.
- * A different hold is written at once; the same hold with other numbers waits
- * this long, so the card is never stale for more than a minute.
- */
-const HELD_RESUME_REFRESH_MS = 60_000;
-
-/**
- * Which WAIT a held resume's sentence describes: two sentences with the same key
- * are the same wait, and the second one is only a refresh.
- *
- * Figures never count: "5.9 GB" and "6.0 GB" say the same thing. And for the
- * machine floor (`resources`) the words do not count either, only the RESOURCE,
- * the same key `admissionBlock` logs by. One memory episode goes through three
- * sentences (under the floor, reserved for the agents starting, climbing back
- * towards the restart line), and with the hysteresis holding the composer turns
- * "under" into "climbing" exactly at the floor: on the 15/09 readings (5.7, 5.9,
- * 6.0, 5.8) a key on the words still rewrote the card about every other retry.
- *
- * THE RESOURCE COMES FROM THE VERDICT, NOT FROM THE FIRST WORD, and that is the
- * whole of KANBAN-91. "Memoria: la sto misurando da 11 s su 120" and "Memoria
- * quasi finita: la lettura più bassa…" share their first word, so they shared
- * this key - and the warm-up is a 120 s state guaranteed at every boot, so it
- * always wrote first and the real reason never reached the card at all: 80
- * comments out of 80 after 15/09/2026 17:49 carried the warm-up, zero carried
- * the floor, while `dispatch_error` beside them was refreshed every 60 s with
- * the right text. Reading the resource from `ResourceFloorVerdict.kind` splits
- * the two WITHOUT going back to keying on the words, which PR #63 removed
- * because the app names inside the memory sentence rewrote the card at every
- * retry.
- */
-function holdKey(kind: DispatchBlockKind | null, reason: string | null, floor: ResourceFloorKind | null = null): string {
-  if (reason == null) return `${kind}:`;
-  if (kind === "resources") return `${kind}:${floor ?? "?"}`;
-  return `${kind}:${reason.replace(/\d+(?:[.,]\d+)*/g, "#")}`;
-}
-
-/**
- * THE NOTE A HELD RESUME WRITES IN THE THREAD IS A STATE, ONE SLOT PER CARD.
- *
- * Its register (`waitingForSlot`) lives in memory and is born empty at every
- * boot, and the `addComment` dedupe window is 10 s: on this machine boots are
- * 35+ minutes apart, so every boot said the wait again. Measured on 24/09/2026:
- * 17 identical Codex-wall notes on 89919742, and 33 memory-floor notes on 13
- * cards (6 on bab77cb3 in three hours) that differ only in their figures, so no
- * identical-text guard could catch them.
- *
- * These are the openings of every sentence `resumeHold` can return (the floor,
- * the 24h and per-card spend, the pressure budget, the drain, the provider
- * wall) plus the cap-only line and the sentences older code wrote, so a pile
- * already in a thread is emptied by the next note. The tick's note on a todo
- * card says the same machine state in the same words, so it shares the slot.
- * `replaces` only touches rows
- * by the same author and kind (`system`, `service`): a person or an agent
- * starting a comment with the same words is never touched.
- */
-const RESUME_WAIT_OPENINGS: readonly string[] = [
-  // allow-italian: openings of the Italian wait sentences this slot replaces
-  "Memoria quasi finita:", "Memoria in risalita:", "Memoria: la sto misurando", "Memoria oltre la soglia", // allow-italian: sentence openings
-  "Disco quasi pieno:", "Tetto di spesa giornaliero raggiunto", "Tetto di spesa per card raggiunto:", // allow-italian: sentence openings
-  "Topics usa ", "Topics è al tetto di memoria", "Non c'è memoria per un altro agent:", // allow-italian: sentence openings
-  "Riavvio del server in arrivo (", "In attesa di uno slot:", // allow-italian: sentence openings
-  `${providerHoldLabel("claude")}: `, `${providerHoldLabel("codex")}: `,
-];
-
-/**
- * The boot note of a card that was waiting for a seat, as a slot. The claim
- * window of `claimInterruption` is three minutes and guards concurrent writers
- * within one boot: across boots it let one copy through each time (15 on
- * 89919742). The card is still waiting for the same seat, so one row says it.
- */
-const BOOT_QUEUED_NOTE = "Server ripartito mentre la card aspettava uno slot"; // allow-italian: opening of the boot note
-
-/**
- * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
- *
- * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
- * GLOBALE: chi viene interrogato per primo li riempie, e chi sta in fondo non
- * ne trova mai. Misurato l'11/08 sul DB vivo: una board 26 claim su 31 in
- * un'ora, un'altra con tre card in coda ZERO — non per priorità, per posizione.
- */
-export function rotateFrom<T>(items: readonly T[], cursor: number): T[] {
-  if (items.length < 2) return [...items];
-  const da = ((cursor % items.length) + items.length) % items.length;
-  return [...items.slice(da), ...items.slice(0, da)];
-}
-
-const CHIP_QUEUED = DISPATCH_CHIP_QUEUED;
-const CHIP_WORKING = "working";
-const CHIP_NEEDS_INPUT = "needs_input";
-// Review, but with a difference the human cares about: "serve te" = the agent
-// ASKED something (its last word is a question block, answer required);
-// "delivered" = clean hand-off, the agent believes the work is done.
-const CHIP_DELIVERED = "delivered";
-// Park states (task lands in backlog). Distinct on purpose so the board doesn't
-// read every stop as a neutral manual "fermato":
-//  - failed  = the agent genuinely failed (timeout without review after the cap,
-//              repeated setup errors) → red "fallito" chip, the human decides.
-//  - blocked = a config issue the human must fix before it can run at all
-//              (no worktree, project path unresolvable) → amber "da sistemare".
-const CHIP_FAILED = "failed";
-const CHIP_BLOCKED = "blocked";
-/** Why a dependent parks when its blocker's session runs with the other Topics
- *  routing switch, or with the same one OFF on another runtime than the one the
- *  dependent names (reusedSessionRouteConflict). */
-const REUSED_SESSION_ROUTE_REASON = {
-  "switch-on": "This task has Topics routing off, but the previous session runs with the switch on, through the Topics engine. Turn the switch on or turn off session reuse before starting the task.",
-  "switch-off": "This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.",
-  engine: "This task has Topics routing off and asks for a direct run, but the previous session runs on the Topics engine. Turn off session reuse before starting the task.",
-  direct: "This task names the Topics engine as its runtime, but the previous session runs directly on its provider. Turn off session reuse before starting the task.",
-} as const;
-// The agent DECLARED an external-condition wait (wait_for_condition): the task is
-// back in `todo`, its slot freed, and a deferral window keeps it out of the claim
-// until it elapses — then the tick re-dispatches it. It never produced output, so
-// it must never read as a delivery.
-const CHIP_WAITING = "waiting";
-// Consecutive sweeps that must all say "the process is gone" before the liveness
-// net closes a turn. Two, not one: a single sweep can catch a legitimate blind
-// spot (a child mid-respawn, a probe that answered during a restart window), and
-// killing a live turn is far worse than recovering one sweep later.
-const LIVENESS_DEAD_SWEEPS = 2;
-// The two states that mean "a dispatch turn is genuinely live" — reconcile only
-// resumes IN PLACE from these, so a human dragging a review/done task into
-// In Progress (dispatch_state null/needs_input) is never falsely "orphaned".
-const ACTIVE_DISPATCH_STATES = new Set([CHIP_WORKING, "starting"]);
-// Gli stati da cui un task in_progress SENZA turno vivo va recuperato — cioè i
-// tre che solo il dispatcher scrive. `queued` è il terzo, e per un pezzo non
-// c'era: un'attesa che vive in memoria (il rinvio del resume a tetto pieno)
-// muore col processo e lascia la card in_progress col chip «aspetto il turno».
-// Da fuori sembra occupata, e per l'umano lo è; dentro non c'è più nessuno che
-// la riprenda. Misurate l'11/08: sette card ferme così da 40 minuti su una
-// board che ne faceva girare una sola.
-//
-// Restano fuori i chip che scrive UNA PERSONA (null, needs_input, delivered):
-// lì il task è in mano sua e recuperarlo sarebbe rubarglielo.
-const RECOVERABLE_DISPATCH_STATES = new Set([...ACTIVE_DISPATCH_STATES, CHIP_QUEUED]);
-
-/**
- * Human phrasing for the external-session guard: how many sessions, where, and
- * on which branch — enough for the human to recognise their own terminal.
- * Pure (exported for the dispatcher tests).
- */
-export function describeIntruders(intruders: Array<{ cwd: string; branch: string | null }>): string {
-  const n = intruders.length;
-  const head = intruders[0];
-  const where = head ? `${head.cwd}${head.branch ? ` (branch ${head.branch})` : ""}` : "";
-  if (n === 1) return `c'è una sessione Claude esterna viva su ${where}`;
-  return `ci sono ${n} sessioni Claude esterne vive su questo repo (la più recente su ${where})`;
-}
-
-/**
- * LONG COMMANDS, AS A BOARD AGENT RUNS THEM: started as a Topics process and
- * waited for inside the turn, in the kickoff and in the fan-out kickoff alike.
- *
- * The board judges a turn when it ends. `run_command` tells an ordinary chat
- * it may end its turn and be woken; a card that did so spent an attempt, or
- * met its wake between two reads of the dispatcher, and a fan-out attempt was
- * compared without the outcome (verifiers of 28/09). The advice before this,
- * `run_script` or `&` and a poll now and then, left the command outside the
- * turn too. Where the bridge offers no `run_command` (Windows,
- * `hasCommandShell`) it names `run_script`, as the system prompt does.
- *
- * A dev server left up for the reviewer's tab is not one of these commands:
- * read against «never end your turn while a command you started still runs»,
- * the agent had to stop the server the tab it delivers needs (verifiers of
- * 28/09, third round).
- */
-export function longCommandsRule(platform: NodeJS.Platform = process.platform): string {
-  const cmd = hasCommandShell(platform);
-  const start = cmd ? "run_command (run_script for a script the manifest declares)" : "run_script";
-  return `LONG COMMANDS (build, test, install >~2 min): start them with ${start}, never with \`&\` or a background Bash, and get their outcome with wait_for_process in this SAME turn, calling it again while it answers 'timeout'. `
-    + "Never end your turn while one of them still runs, even when the tool says it will wake you: the board reads the end of your turn as the end of your work. "
-    + `A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn${cmd ? " (started with run_command, pass wake=false)" : ""}.`;
-}
-
-/**
- * Il fronte terminale di FALLIMENTO, gemello di `emitReviewReadyEdge`.
- *
- * Il taglio è `requeue === false`: solo lì il task si ferma e resta fermo. Un
- * requeue NON si annuncia — il task riparte da solo e un banner sarebbe rumore
- * su un ritentativo che si auto-guarisce; i siti che passano `requeue:
- * !exhausted` diventano terminali quando i tentativi finiscono, e allora il
- * fronte parte da sé senza che nessuno debba ricordarsene.
- *
- * Pura ed esportata per il test dell'edge: la decisione è una sola riga, ma è
- * la differenza fra "ti avviso quando serve" e "ti avviso a ogni ritentativo".
- */
-export function parkedEdgeEvent(
-  task: { id: string; projectId: string; text?: string | null },
-  args: { requeue: boolean; reason?: string; parkState?: string | null },
-): { type: "task:parked"; projectId: string; taskId: string; taskTitle: string; state: "failed" | "blocked" | "waited_out"; reason?: string } | null {
-  if (args.requeue !== false) return null;
-  return {
-    type: "task:parked",
-    projectId: task.projectId,
-    taskId: task.id,
-    taskTitle: task.text || "Task",
-    // 'blocked' = configurazione da sistemare, 'failed' = l'agent non ha
-    // prodotto niente, 'waited_out' = la serie di attese ha sfondato il tetto.
-    // Sono tre domande diverse per l'umano, e il chip è l'unica cosa che le
-    // distingue: la copy del banner e della push si legge di qui.
-    state: args.parkState === CHIP_BLOCKED
-      ? "blocked"
-      : args.parkState === PARKED_WAITED_OUT
-        ? "waited_out"
-        : "failed",
-    ...(args.reason ? { reason: args.reason } : {}),
-  };
-}
-
-/**
- * Persistent role for the task-scoped topic (the per-turn task rides in the
- * user message).
- *
- * Era una costante, e la sua lingua era l'italiano perché così l'aveva scritta
- * chi l'ha scritta: un agente kanban rispondeva in italiano anche con
- * l'interfaccia in inglese, mentre la stessa persona in chat veniva servita in
- * inglese perché LÌ la costante era inglese. Due bocche, due lingue, nessuna
- * scelta. Adesso il ruolo resta italiano — è il testo del protocollo di board,
- * e quello non si traduce a ogni giro — ma la LINGUA DELLE RISPOSTE la decide
- * `languageDirective`, la stessa che serve chat e terminale.
- */
-function rolePrompt(lang?: OutputLanguage): string {
-  const base =
-    "You are an agent working ONE SINGLE task of a Kanban board, in the current working directory, " +
-    "up to the `review` state. Minimal communication: short status comments at the milestones. " +
-    "You cannot take the task to `done` (that needs the human's ok).";
-  const directive = lang ? languageDirective(lang) : languageDirective();
-  return directive ? `${base} ${directive}` : base;
-}
-
-/**
- * La lingua EFFETTIVA di una board: il suo override, se ne ha uno, altrimenti
- * la preferenza globale — la stessa che serve chat e terminale.
- *
- * È qui e non nel chiamante perché «uguali» (l'impostazione in Preferenze e
- * quella sulla board) deve voler dire lo STESSO VALORE EFFETTIVO, non due
- * valori da tenere allineati a mano: se la risoluzione vivesse in due punti,
- * il primo giorno che uno dei due dimentica il ripiego le due superfici
- * mostrerebbero la stessa scelta e produrrebbero lingue diverse.
- */
-function boardLanguage(settings: { language?: string } | null | undefined): OutputLanguage {
-  const raw = (settings?.language ?? "").trim().toLowerCase();
-  if (raw && raw !== "inherit" && (OUTPUT_LANGUAGES as readonly string[]).includes(raw)) {
-    return raw as OutputLanguage;
-  }
-  return resolveOutputLanguage();
-}
-
+import type { DispatcherDeps, TaskDispatcher } from "./task-dispatcher-types";
+export type { DispatcherDeps, TaskDispatcher };
+import { DEFAULT_RETRY_CAP, WAITING_MEMORY, GENERIC_PRODUCT_RULE, summarizeToolInput, DEFAULT_AUTO_EFFORT, FREE_PROVIDER_ERRORS, ATTEMPT_STATS_DEADLINE_MS, withDeadline, HEAVY_MAX_LOAD_PER_CORE, HEAVY_MAX_OWN_LOAD_PER_CORE, HEAVY_HOLD_MAX_MS, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, CHIP_NEEDS_INPUT, CHIP_DELIVERED, CHIP_FAILED, CHIP_BLOCKED, REUSED_SESSION_ROUTE_REASON, CHIP_WAITING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES, describeIntruders, longCommandsRule, parkedEdgeEvent, rolePrompt, boardLanguage } from "./task-dispatcher-support";
 import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
 import { warnIfBusy } from "../lib/sqlite-busy";
+import { isNodeChildRun } from "./node-child-run";
+export { GENERIC_PRODUCT_RULE, summarizeToolInput, rotateFrom, describeIntruders, longCommandsRule, parkedEdgeEvent };
+
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
@@ -2872,7 +1827,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //
     // Si legge PRIMA della release: dopo, il legame non c'è più e non si
     // saprebbe più quale topic ritirare.
-    const boundTopicId = deps.svc.get(args.taskId)?.task?.assignedTopicId ?? null;
+    const before = deps.svc.get(args.taskId)?.task;
+    const boundTopicId = before?.assignedTopicId ?? null;
+    const wasDone = before?.status === "done";
     const task = deps.svc.release(args);
     // Il registro dei token vale finché il task è in mano al dispatcher: al
     // rilascio le sue sessioni sono chiuse, e la base del prossimo giro va
@@ -2885,7 +1842,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       catch (err) { log(`archivio del topic ${boundTopicId} fallito al rilascio`, err); }
     }
     emit(task);
-    const parked = opts?.announce === false ? null : parkedEdgeEvent(task, args);
+    // A release that found the card done changed nothing about its column:
+    // no parked edge, so no push for a card that is finished.
+    const parked = opts?.announce === false || wasDone ? null : parkedEdgeEvent(task, args);
     if (parked) {
       try { deps.broadcast(parked); } catch { /* best-effort */ }
     }
@@ -5604,7 +4563,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const eligibleNoCheckTaskExists = heavyBusy && todos.some((task) =>
       !inFlight.has(task.id) && !remoteCard(task) && noCheckReservationFor(task) !== null,
     );
-    if (heavyBusy && !eligibleNoCheckTaskExists) {
+    // A node's spawn_agent child is not held by the heavy turn (node-child-run.ts).
+    const childPasses = (t: Task) => remoteCard(t) || isNodeChildRun(t);
+    const eligibleChildExists = heavyBusy && todos.some((task) => !inFlight.has(task.id) && isNodeChildRun(task));
+    if (heavyBusy && !eligibleNoCheckTaskExists && !eligibleChildExists) {
       // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
       // senso stesso del peso — quel task si prende la macchina da solo. Niente
       // di questa board parte finché non ha finito, e la coda riparte da sé al
@@ -5618,7 +4580,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // macchina si è liberata. Il tetto esiste per l'attesa che potrebbe non
       // finire mai, non per quella che finisce quando finisce un turno.
       for (const t of todos) {
-        if (remoteCard(t)) continue;
+        if (childPasses(t)) continue;
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
@@ -5627,7 +4589,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       // A heavy turn takes THIS machine; a card running elsewhere does not
       // compete with it, so only the remote cards go on to the claim.
-      todos = todos.filter(remoteCard);
+      todos = todos.filter(childPasses);
       if (todos.length === 0) return;
     }
     const nowMs = clock();
@@ -5648,12 +4610,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     todos = [...todos.filter(remoteCard), ...todos.filter((t) => !remoteCard(t))];
     const heavyCall = new Map<string, "go" | "hold" | "forced">();
     for (const t of todos) {
-      if (heavyBusy && !remoteCard(t)) {
+      if (heavyBusy && !childPasses(t)) {
         // The ordinary heavyBusy path returns before touching load timers.
         heavyCall.set(t.id, t.dispatchWeight === "heavy" ? "hold" : "go");
         continue;
       }
-      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || remoteCard(t)) {
+      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || childPasses(t)) {
         // Non trattenuto: l'attesa (se c'era) è finita, e il prossimo hold
         // ricomincia a contare da capo invece di ereditare quella vecchia.
         heavyHoldSince.delete(t.id);
@@ -5913,7 +4875,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         && floorNow.kind !== "disk"
         && !exemptionDaySpend
         && candidateBudget.allowed;
-      const needsNoCheckExemption = heavyBusy
+      const needsNoCheckExemption = (heavyBusy && !isNodeChildRun(t))
         || (!!resourceFloor && floorNow.kind === "memory")
         || candidateBudget.needed;
       const useNoCheckExemption = noCheckExemption && needsNoCheckExemption;
@@ -5926,7 +4888,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         queueChip(t, WAITING_MEMORY);
         continue;
       }
-      if (heavyBusy && !useNoCheckExemption && !remoteTask) {
+      if (heavyBusy && !useNoCheckExemption && !remoteTask && !isNodeChildRun(t)) {
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
