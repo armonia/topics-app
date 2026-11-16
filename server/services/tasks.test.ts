@@ -2344,7 +2344,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261113140000: the run this card last created on a paired node.
          node_run_id = 'run-abc',
          -- 20261114010000: the decision to land, who took it and on which commit.
-         land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234'
+         land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234',
+         -- 20261111140000: the plain-words summary and the key it came from.
+         for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite
