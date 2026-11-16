@@ -43,6 +43,7 @@ import { createFanOut } from "./task-dispatcher-fanout";
 import { createTurnEnd } from "./task-dispatcher-turn-end";
 import { createResume } from "./task-dispatcher-resume";
 import { createTick } from "./task-dispatcher-tick";
+import { createClaim } from "./task-dispatcher-claim";
 import { createReconcile } from "./task-dispatcher-reconcile";
 import { createBoardEvents } from "./task-dispatcher-events";
 import type { DispatcherCtx } from "./task-dispatcher-context";
@@ -64,6 +65,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   ctx.turnEnd = createTurnEnd(ctx);
   ctx.resume = createResume(ctx);
   ctx.tick = createTick(ctx);
+  ctx.claim = createClaim(ctx);
   ctx.reconcile = createReconcile(ctx);
   ctx.events = createBoardEvents(ctx);
   const { admissionCountingSince, inFlight, log, shared } = ctx.core;

@@ -20,6 +20,7 @@ import type { createFanOut } from "./task-dispatcher-fanout";
 import type { createTurnEnd } from "./task-dispatcher-turn-end";
 import type { createResume } from "./task-dispatcher-resume";
 import type { createTick } from "./task-dispatcher-tick";
+import type { createClaim } from "./task-dispatcher-claim";
 import type { createReconcile } from "./task-dispatcher-reconcile";
 import type { createBoardEvents } from "./task-dispatcher-events";
 
@@ -127,6 +128,8 @@ export interface DispatcherCtx {
   resume: ReturnType<typeof createResume>;
   /** Published by createTick. */
   tick: ReturnType<typeof createTick>;
+  /** Published by createClaim. */
+  claim: ReturnType<typeof createClaim>;
   /** Published by createReconcile. */
   reconcile: ReturnType<typeof createReconcile>;
   /** Published by createBoardEvents. */
