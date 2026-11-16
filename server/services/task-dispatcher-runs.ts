@@ -24,7 +24,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
     log, emit: (...args) => ctx.queue.emit(...args), inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit: (...args) => ctx.queue.releaseAndEmit(...args), deferWait: (...args) => ctx.rest.deferWait(...args),
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
-    languageOf: (...args) => ctx.rest.langFor(...args),
+    languageOf: (...args) => ctx.kickoff.langFor(...args),
   });
   function drainBlock(): string | null {
     return shared.draining
@@ -61,7 +61,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
       commandWaits.set(task.id, { sessionKey, since });
       // The wake's turn is booked from here when the wait ends: after a
       // restart the ledger is empty, and a row born at the end counts it as 0.
-      ctx.rest.anchorUsage(task.id, sessionKey, task.model ?? null);
+      ctx.usage.anchorUsage(task.id, sessionKey, task.model ?? null);
     }
     return true;
   }
@@ -85,7 +85,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
       if (t?.status !== "in_progress" && t?.status !== "review") continue;
       // The wake's turn was not ours, so no turn end of ours booked its
       // tokens; when the card delivered from it, none ever would.
-      ctx.rest.bookUsageFloor(taskId, w.sessionKey);
+      ctx.usage.bookUsageFloor(taskId, w.sessionKey);
       ctx.rest.onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
     }
   }

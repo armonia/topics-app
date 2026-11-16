@@ -13,6 +13,10 @@ import type { createProviderHold } from "./task-dispatcher-hold";
 import type { createRunTracking } from "./task-dispatcher-runs";
 import type { createOverflow } from "./task-dispatcher-overflow";
 import type { createQueueSignals } from "./task-dispatcher-queue";
+import type { createUsageLedger } from "./task-dispatcher-usage";
+import type { createKickoff } from "./task-dispatcher-kickoff";
+import type { createLaunch } from "./task-dispatcher-launch";
+import type { createFanOut } from "./task-dispatcher-fanout";
 import type { createRest } from "./task-dispatcher-rest";
 
 /**
@@ -105,6 +109,14 @@ export interface DispatcherCtx {
   overflow: ReturnType<typeof createOverflow>;
   /** Published by createQueueSignals. */
   queue: ReturnType<typeof createQueueSignals>;
+  /** Published by createUsageLedger. */
+  usage: ReturnType<typeof createUsageLedger>;
+  /** Published by createKickoff. */
+  kickoff: ReturnType<typeof createKickoff>;
+  /** Published by createLaunch. */
+  launch: ReturnType<typeof createLaunch>;
+  /** Published by createFanOut. */
+  fanout: ReturnType<typeof createFanOut>;
   /** Published by createRest. */
   rest: ReturnType<typeof createRest>;
 }

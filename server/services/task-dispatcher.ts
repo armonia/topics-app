@@ -36,6 +36,10 @@ import { createProviderHold } from "./task-dispatcher-hold";
 import { createRunTracking } from "./task-dispatcher-runs";
 import { createOverflow } from "./task-dispatcher-overflow";
 import { createQueueSignals } from "./task-dispatcher-queue";
+import { createUsageLedger } from "./task-dispatcher-usage";
+import { createKickoff } from "./task-dispatcher-kickoff";
+import { createLaunch } from "./task-dispatcher-launch";
+import { createFanOut } from "./task-dispatcher-fanout";
 import { createRest } from "./task-dispatcher-rest";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 export type { DispatcherDeps, TaskDispatcher };
@@ -49,6 +53,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   ctx.runs = createRunTracking(ctx);
   ctx.overflow = createOverflow(ctx);
   ctx.queue = createQueueSignals(ctx);
+  ctx.usage = createUsageLedger(ctx);
+  ctx.kickoff = createKickoff(ctx);
+  ctx.launch = createLaunch(ctx);
+  ctx.fanout = createFanOut(ctx);
   ctx.rest = createRest(ctx);
   const { admissionCountingSince, inFlight, log, shared } = ctx.core;
 

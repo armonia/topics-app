@@ -312,7 +312,7 @@ export function createQueueSignals(ctx: DispatcherCtx) {
     // Il registro dei token vale finché il task è in mano al dispatcher: al
     // rilascio le sue sessioni sono chiuse, e la base del prossimo giro va
     // riletta dalla tabella (che nel frattempo le contiene tutte).
-    ctx.rest.forgetUsage(args.taskId);
+    ctx.usage.forgetUsage(args.taskId);
     if (boundTopicId) {
       // Best-effort: un topic che non si archivia non deve impedire il rilascio
       // del task — il task è la cosa che qualcun altro sta aspettando.
