@@ -45,6 +45,8 @@ export interface SpawnRemoteChildAttemptInput {
 
 /** Failed settles in a row (bundle not arriving, adopt refused, node unpaired) before the parent hears "failed": ~1 min at the 5 s watch. */
 export const SETTLE_TRIES = 12;
+/** How long a node may stay silent before its child is reported lost. */
+export const UNREACHABLE_GIVE_UP_MS = 30 * 60_000;
 
 const BROWSER_WORK = /\bbrowser\b|\bplaywright\b|\bchrome\b|\bsafari\b|\bscreenshot\b|\bbrowser_\w+/i;
 const JARVIS_WORK = /\bjarvis\b|\bimessage\b|\bwhatsapp\b|\bgmail\b|\bcalendar\b/i;
@@ -69,11 +71,13 @@ export type SpawnRemoteChildAttemptResult =
   | { ok: true; agentId: string; name: string; cwd: string; branch: string }
   | { ok: false; reason: string };
 
-export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRoad) {
+export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRoad, unreachableGiveUpMs = UNREACHABLE_GIVE_UP_MS) {
   const settling = new Set<string>();
   // Failed settles in a row per child, in memory: a restart gives each child its tries again,
   // which only costs a few more polls of a run that is already done.
   const misses = new Map<string, number>();
+  // First failed read of the run per child; also in memory, so a restart restarts the clock.
+  const unreachableSince = new Map<string, number>();
 
   /** Paired nodes only, online, with a free seat (SUBAGENT-27): never the cloud machine, which has no door for a bare child run. */
   function childNodeCandidates(): ChildNodeCandidate[] {
@@ -140,8 +144,18 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       } else {
         try {
           report = await r.readRun({ baseUrl, token, runId });
-        } catch { return; } // the node did not answer: the next tick tries again
+        } catch (err) {
+          // The node did not answer. A sleeping PC or a reboot is normal, so this waits much longer
+          // than a failed fetch, but not forever: a node gone for good would hold a cap seat.
+          const since = unreachableSince.get(row.id) ?? Date.now();
+          unreachableSince.set(row.id, since);
+          if (Date.now() - since >= unreachableGiveUpMs) {
+            finish(row, { failed: true, text: "", detail: `the node has not answered for ${Math.round(unreachableGiveUpMs / 60_000)} min: ${err instanceof Error ? err.message : String(err)} (run ${runId} may still be there)` });
+          }
+          return;
+        }
       }
+      unreachableSince.delete(row.id);
       // "blocked": the node parked the run itself (`task-dispatcher.ts`'s
       // CHIP_BLOCKED) — it will never come back no matter how many more
       // times this polls it.
@@ -185,6 +199,7 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
   /** Retires the row and tells the parent, the same way a local child's turn ends (`emitChildResult`). */
   function finish(row: SubagentRow, outcome: { failed: boolean; text: string; detail?: string }): void {
     misses.delete(row.id);
+    unreachableSince.delete(row.id);
     setSubagentState(getDatabase(), row.id, outcome.failed ? "lost" : "retired");
     emitChildResult(row.parentSessionKey, {
       status: outcome.failed ? "failed" : "completed",

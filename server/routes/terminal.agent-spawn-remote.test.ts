@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
-import { SETTLE_TRIES } from "../lib/subagent-remote-wiring";
+import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
 import type { AppContext } from "../types";
@@ -249,6 +249,38 @@ test("read_agent on a review'd remote child adopts its branch and retires the ro
 
     // Read from the object store, not a checkout: autocrlf on a Windows runner rewrites the file.
     expect(git(parentRepo, "show", `${branch}:b.txt`)).toBe("from the child");
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+  }
+});
+
+test("a node that never answers again frees the child's cap seat after the give-up window, as lost", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-remote-mute-"));
+  const machineId = "node-fake-mute";
+  mkdirSync(join(tempRoot, "state", "nodes"), { recursive: true });
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+  const agentId = crypto.randomUUID();
+  insertSubagent(getDatabase(), {
+    id: agentId, parentSessionKey: "pty:mute-parent", name: "remote child", model: null, agentType: null, effort: null,
+    promptSnippet: "do it on the node", cwd: tempRoot, branch: null, claudeSessionId: null, createdAt: new Date().toISOString(),
+  });
+  markSubagentRemote(getDatabase(), agentId, { machineId, runId: "run-mute-1" });
+  let window = 60_000;
+  const road = () => ({
+    baseUrlOf: () => "http://fake-node.test", tokenOf: () => "t".repeat(32),
+    readRun: async () => { throw new Error("connect ECONNREFUSED"); },
+    createRun: async () => ({ runId: "x" }), fetchBundle: async () => { throw new Error("unused"); },
+  });
+  try {
+    const ctx = baseCtx(tempRoot, machineId, "http://fake-node.test", {});
+    const slow = createRemoteSubagentWiring(ctx, road as never, window);
+    await slow.settleIfDone(getSubagent(getDatabase(), agentId)!);
+    // A short silence (a PC asleep) keeps the child running.
+    expect(getSubagent(getDatabase(), agentId)?.state).toBe("running");
+    window = 0;
+    const fast = createRemoteSubagentWiring(ctx, road as never, window);
+    await fast.settleIfDone(getSubagent(getDatabase(), agentId)!);
+    expect(getSubagent(getDatabase(), agentId)?.state).toBe("lost");
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
   }
