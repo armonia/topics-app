@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.4.14",
+    "version": "2.4.15",
     "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.14",
+    "date": "2026-11-15",
     "sections": {
       "new": [],
       "fixes": [],
