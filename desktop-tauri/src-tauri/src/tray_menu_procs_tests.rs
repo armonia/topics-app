@@ -117,3 +117,21 @@ fn a_remote_command_line_keeps_the_program_name_and_fits_under_the_row() {
     let long = short_cmd(&format!("/a/b/chrome {}", "--flag ".repeat(20)));
     assert!(long.starts_with("chrome --flag") && long.ends_with('…') && long.chars().count() <= 56, "{long}");
 }
+
+#[test]
+fn a_unit_that_can_be_closed_is_set_in_semibold_and_one_that_cannot_is_not() {
+    fn looks(nodes: &[Node], out: &mut Vec<(String, bool)>) {
+        for n in nodes {
+            match n {
+                Node::Icon { node, .. } => looks(std::slice::from_ref(&**node), out),
+                Node::Row { cells, header: false, look, .. } => out.push((cells[0].clone(), look.bold)),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    looks(&procs_table(&snap()), &mut found);
+    for (name, bold) in [("App A", true), ("Leftover C", true), ("Service B", false)] {
+        assert_eq!(found.iter().find(|(n, _)| n == name).map(|(_, b)| *b), Some(bold), "{name}: {found:?}");
+    }
+}

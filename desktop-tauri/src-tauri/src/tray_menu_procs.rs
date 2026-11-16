@@ -3,7 +3,7 @@
 //! list, the trust check, the macOS row and the rankings. Pure: service answers in,
 //! `Node`s out. Every word about a process is the service's own. Card ad8b474a.
 
-use crate::tray_menu::{head_row, item, mem_text, n, note, parse, row, s, second_line, sub, verdict_row, with_icon, Node, Snapshot, Table};
+use crate::tray_menu::{bold_row, head_row, item, mem_text, n, note, parse, row, s, second_line, sub, verdict_row, with_icon, Node, Snapshot, Table};
 use crate::tray_menu_detail::{MachineDetail, RemoteProc};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -147,7 +147,9 @@ fn unit_row(u: &Value, cpu: &HashMap<u32, f64>, trust: &Value) -> Node {
     let c = cpu_of(u, cpu);
     let worst = flags_of(u, trust).iter().map(|f| s(f, "level")).fold("", |w, l| if l == "grave" || (l == "attenzione" && w != "grave") { l } else { w });
     let cells = vec![crate::tray_menu::cell(s(u, "name")), cpu_text(c), gpu_text(u), net_text(u), mem_text(n(u, "memMB")), second_line(under)];
-    with_icon(unit_icon(u, worst), row(Table::Procs, cells, kids))
+    // a unit that can be closed is the one the row's gesture is for: its name in semibold, as in the original
+    let make = if closable(u) { bold_row } else { row };
+    with_icon(unit_icon(u, worst), make(Table::Procs, cells, kids))
 }
 
 /// The row's icon: a shield when something about it is suspect, an app's own icon,

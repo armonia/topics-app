@@ -91,6 +91,11 @@ pub(crate) fn row(table: Table, cells: Vec<String>, children: Vec<Node>) -> Node
     Node::Row { id: String::new(), cells, header: false, table, look: Look::default(), children }
 }
 
+/// A data row whose first cell is in semibold: what the original tray sets apart (a unit that can be closed).
+pub(crate) fn bold_row(table: Table, cells: Vec<String>, children: Vec<Node>) -> Node {
+    Node::Row { id: String::new(), cells, header: false, table, look: Look { bold: true, ..Look::default() }, children }
+}
+
 /// The header row of a table.
 pub(crate) fn head_row(table: Table, cells: Vec<String>) -> Node {
     Node::Row { id: String::new(), cells, header: true, table, look: Look::default(), children: Vec::new() }
