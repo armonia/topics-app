@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.29",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
     "version": "2.4.27",
     "date": "2026-11-16",
     "sections": {
