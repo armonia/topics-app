@@ -19,10 +19,9 @@
  * frames are driven in `turno-troncato.test.ts`).
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readServerSource } from "../../tests/helpers/server-source";
 
-const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+const server = readServerSource();
 
 /** The source of the block that opens with `opener`, up to `closer`. */
 function block(opener: string, closer: string): string {
