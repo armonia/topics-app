@@ -1,3 +1,7 @@
+/**
+import { resolve } from "node:path";
+ * @covers REVIEWPR-01
+ */
 import { describe, expect, test } from "bun:test";
 import {
   buildReviewPrompt,
@@ -85,7 +89,7 @@ describe("parseArgs", () => {
     const options = parseArgs(["--run-haiku", "--limit", "5", "--out", "/tmp/x"], "/tmp/out");
     expect(options.runHaiku).toBe(true);
     expect(options.limit).toBe(5);
-    expect(options.out).toBe("/tmp/x");
+    expect(options.out).toBe(resolve("/tmp/x"));
   });
 
   test("rejects unknown flags, missing values and a bad limit", () => {
