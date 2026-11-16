@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildReviewPrompt,
   parseArgs,
-  parseOpenPrs,
+  parseOpenPullRequests,
   repoFromRemote,
   truncateDiff,
   type OpenPr,
@@ -31,20 +31,20 @@ describe("repoFromRemote", () => {
   });
 });
 
-describe("parseOpenPrs", () => {
+describe("parseOpenPullRequests", () => {
   test("accepts the shape gh pr list prints", () => {
-    expect(parseOpenPrs(JSON.stringify([pr]))).toEqual([pr]);
-    expect(parseOpenPrs("[]")).toEqual([]);
+    expect(parseOpenPullRequests(JSON.stringify([pr]))).toEqual([pr]);
+    expect(parseOpenPullRequests("[]")).toEqual([]);
   });
 
   test("throws on a non-array or a row with a missing field", () => {
-    expect(() => parseOpenPrs('{"number":1}')).toThrow("did not return an array");
+    expect(() => parseOpenPullRequests('{"number":1}')).toThrow("did not return an array");
     const { title: _title, ...noTitle } = pr;
-    expect(() => parseOpenPrs(JSON.stringify([noTitle]))).toThrow("entry 0");
+    expect(() => parseOpenPullRequests(JSON.stringify([noTitle]))).toThrow("entry 0");
   });
 
   test("throws on invalid JSON", () => {
-    expect(() => parseOpenPrs("not json")).toThrow();
+    expect(() => parseOpenPullRequests("not json")).toThrow();
   });
 });
 

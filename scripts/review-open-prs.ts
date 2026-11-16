@@ -54,7 +54,7 @@ function isOpenPr(value: unknown): value is OpenPr {
 }
 
 // Validates the JSON printed by `gh pr list --json ...`. Throws on any drift.
-export function parseOpenPrs(json: string): OpenPr[] {
+export function parseOpenPullRequests(json: string): OpenPr[] {
   const data: unknown = JSON.parse(json);
   if (!Array.isArray(data)) throw new Error("gh pr list did not return an array");
   return data.map((item, index) => {
@@ -70,7 +70,7 @@ export function truncateDiff(diff: string, maxChars: number): string {
 }
 
 // The review brief for one PR. It is English on purpose: it is a prompt, not a UI text.
-export function buildReviewPrompt(pr: OpenPr, diffstat: string, diff: string, maxChars: number): string {
+export function buildReviewPrompt(pr: OpenPr, diffSummary: string, diff: string, maxChars: number): string {
   const draft = pr.isDraft ? " (draft)" : "";
   return [
     `You are reviewing pull request #${pr.number} "${pr.title}" (${pr.url}).`,
@@ -80,7 +80,7 @@ export function buildReviewPrompt(pr: OpenPr, diffstat: string, diff: string, ma
     "Do not edit files and do not run commands: the diff below is all you read.",
     "",
     "Diffstat:",
-    diffstat.trim() || "(empty)",
+    diffSummary.trim() || "(empty)",
     "",
     "Diff:",
     "```diff",
@@ -146,7 +146,7 @@ async function ensureMirror(mirror: string, origin: string): Promise<void> {
 
 // Fetches the PR head and its base into refs of the mirror, then reads the diff.
 // Nothing is checked out and the mirror is never pushed to.
-async function fetchAndDiff(mirror: string, pr: OpenPr): Promise<{ diffstat: string; diff: string }> {
+async function fetchAndDiff(mirror: string, pr: OpenPr): Promise<{ diffSummary: string; diff: string }> {
   const head = `refs/review/pr-${pr.number}`;
   const base = `refs/review/base-${pr.number}`;
   await run("git", [
@@ -155,12 +155,12 @@ async function fetchAndDiff(mirror: string, pr: OpenPr): Promise<{ diffstat: str
     `+refs/heads/${pr.baseRefName}:${base}`,
   ]);
   const range = `${base}...${head}`;
-  const diffstat = await run("git", ["-C", mirror, "diff", "--no-color", "--stat", range]);
+  const diffSummary = await run("git", ["-C", mirror, "diff", "--no-color", "--stat", range]);
   const diff = await run("git", ["-C", mirror, "diff", "--no-color", "--no-ext-diff", range]);
-  return { diffstat, diff };
+  return { diffSummary, diff };
 }
 
-async function callHaiku(prompt: string): Promise<string> {
+async function callReviewModel(prompt: string): Promise<string> {
   return run("claude", ["-p", "--model", REVIEW_MODEL], { stdin: new Blob([prompt]) });
 }
 
@@ -180,11 +180,11 @@ export async function main(argv: string[]): Promise<number> {
     "pr", "list", "--repo", repo, "--state", "open", "--limit", String(options.limit),
     "--json", "number,title,url,headRefName,baseRefName,isDraft,updatedAt",
   ]);
-  const prs = parseOpenPrs(listing);
+  const pullRequests = parseOpenPullRequests(listing);
   const reviewsDir = join(options.out, "reviews");
   await mkdir(reviewsDir, { recursive: true });
 
-  if (prs.length === 0) {
+  if (pullRequests.length === 0) {
     console.log(`No open pull requests in ${repo}.`);
     return 0;
   }
@@ -194,14 +194,14 @@ export async function main(argv: string[]): Promise<number> {
 
   const failures: string[] = [];
   const lines: string[] = [];
-  for (const pr of prs) {
+  for (const pr of pullRequests) {
     try {
-      const { diffstat, diff } = await fetchAndDiff(mirror, pr);
-      const prompt = buildReviewPrompt(pr, diffstat, diff, DEFAULT_DIFF_CHARS);
+      const { diffSummary, diff } = await fetchAndDiff(mirror, pr);
+      const prompt = buildReviewPrompt(pr, diffSummary, diff, DEFAULT_DIFF_CHARS);
       const promptFile = join(reviewsDir, `pr-${pr.number}.prompt.md`);
       await writeFile(promptFile, prompt);
       if (options.runHaiku) {
-        const review = await callHaiku(prompt);
+        const review = await callReviewModel(prompt);
         await writeFile(join(reviewsDir, `pr-${pr.number}.review.md`), review);
         lines.push(indexLine(pr, `reviewed on ${REVIEW_MODEL}`));
       } else {
@@ -216,7 +216,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const header = `# Open pull requests of ${repo}\n\nPrepared ${new Date().toISOString()}.\n`;
   await writeFile(join(options.out, "index.md"), `${header}\n${lines.join("\n")}\n`);
-  console.log(`${prs.length} open PR(s) of ${repo} in ${options.out}`);
+  console.log(`${pullRequests.length} open PR(s) of ${repo} in ${options.out}`);
   if (!options.runHaiku) {
     console.log("Dry run: prompts only. Add --run-haiku to call the model (spends tokens).");
   } else if (failures.length === 0) {
