@@ -33,6 +33,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
+import { readServerSource } from "../helpers/server-source";
 import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -63,7 +64,7 @@ function providerPreferenceOrder(): string[] {
  * REPLACEMENT, and its own docstring calls it the order "di RIPIEGO".
  */
 function bootDefaultChain(): { pairs: [string, string][]; fallback: string } {
-  const src = read("server.ts");
+  const src = readServerSource();
   const decl = src.match(/const requestedProviderType\s*=([\s\S]*?);\n\n/);
   expect(decl, "the requestedProviderType boot default no longer parses out of server.ts").toBeTruthy();
   const credentialSource = read("server/services/api-provider-credentials.ts");

@@ -489,8 +489,6 @@
       ]
     },
 
-    "server.ts": 7569,
-
     "server/attention/store.ts": {
       "lines": 1292,
       "why": [

@@ -27,6 +27,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { serverSourceFiles } from "../helpers/server-source";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -51,6 +52,9 @@ function codeLines(relative: string): string[] {
 
 const codeOf = (relative: string): string => codeLines(relative).join("\n");
 
+/** The code of the whole server boot: `server.ts`, its stages and the HTTP/WebSocket front door. */
+const bootCode = (): string => serverSourceFiles().map(codeOf).join("\n");
+
 /**
  * Every place allowed to hand a viewport to the shared page, and why.
  *
@@ -61,13 +65,13 @@ const codeOf = (relative: string): string => codeLines(relative).join("\n");
  * path through REST would have to move this comment first.
  */
 const DOORS = new Set([
-  "server.ts",
+  "server/boot/browser.ts",
   "server/routes/browser.ts",
   "server/browser-service.ts",
 ]);
 
 const SOURCES = [
-  "server.ts",
+  ...serverSourceFiles(),
   "server/routes/browser.ts",
   "server/browser-service.ts",
   "server/browser-viewport-arbiter.ts",
@@ -87,28 +91,36 @@ describe("una porta sola sul viewport condiviso", () => {
     // calls it after asking the arbiter. That is why there is no `if` left
     // next to the call to mutate away. What this test defends is that nobody
     // adds a SECOND, unguarded call somewhere else in the file.
-    const lines = codeLines("server.ts");
+    const lines = codeLines("server/boot/browser.ts");
     const opening = lines.findIndex((line) => /createViewportWiring\(/.test(line));
-    expect(opening, "server.ts non costruisce piu' il wiring del viewport").toBeGreaterThan(-1);
+    expect(opening, "il boot non costruisce piu' il wiring del viewport").toBeGreaterThan(-1);
 
     const calls = lines
       .map((line, index) => ({ line, index }))
       .filter(({ line }) => /browserService\.resize\(/.test(line));
-    expect(calls.length, "nessuna chiamata a browserService.resize in server.ts").toBe(1);
+    expect(calls.length, "nessuna chiamata a browserService.resize nel boot del browser").toBe(1);
 
     for (const { line, index } of calls) {
       const insideDeps = index > opening && index <= opening + DEPS_WINDOW_LINES;
       expect(
         insideDeps,
-        `server.ts:${index + 1} applica un viewport fuori dalle dipendenze del wiring (${line.trim()})`,
+        `server/boot/browser.ts:${index + 1} applica un viewport fuori dalle dipendenze del wiring (${line.trim()})`,
       ).toBe(true);
+    }
+
+    // The boot is split over several files now: no other one may call it either.
+    for (const file of serverSourceFiles().filter((f) => f !== "server/boot/browser.ts")) {
+      expect(
+        /browserService\.resize\(/.test(codeOf(file)),
+        `${file} applica un viewport fuori dal wiring`,
+      ).toBe(false);
     }
   });
 
   it("ogni frame del socket del browser passa dal wiring", () => {
     // `onFrame` is the door: input and resize both go through it, and it is
     // what decides. Two call sites, one per branch of the message handler.
-    const source = codeOf("server.ts");
+    const source = bootCode();
     const doorCalls = source.match(/viewportWiring\.onFrame\(/g) ?? [];
     expect(
       doorCalls.length,
@@ -133,9 +145,9 @@ describe("una porta sola sul viewport condiviso", () => {
     // The Tauri shell opens a socket on the context to EXECUTE, not to watch.
     // Left in the audience, its device queues as a spectator and the shell's
     // own streaming socket ends up behind a phone that is only looking.
-    const lines = codeLines("server.ts");
+    const lines = codeLines("server/routes/ws-message.ts");
     const registered = lines.findIndex((line) => /delegated === 'registered'/.test(line));
-    expect(registered, "il ramo della registrazione nativa non e' piu' in server.ts").toBeGreaterThan(-1);
+    expect(registered, "il ramo della registrazione nativa non e' piu' nel gestore dei messaggi del socket").toBeGreaterThan(-1);
     const branch = lines.slice(registered, registered + 20).join("\n");
     expect(
       /viewportWiring\.onNativeExecutor\(/.test(branch),
@@ -146,7 +158,7 @@ describe("una porta sola sul viewport condiviso", () => {
   it("quando il driver esce, al successore si chiede la misura", () => {
     // The heir already sent this size once and deduplicates it, so without the
     // question the page keeps the viewport of whoever just left.
-    const lines = codeLines("server.ts");
+    const lines = codeLines("server/routes/ws-close.ts");
     const disconnect = lines.findIndex((line) => /viewportWiring\.onClose\(/.test(line));
     expect(disconnect, "il close non avvisa piu' l'arbitro").toBeGreaterThan(-1);
     expect(
@@ -164,7 +176,7 @@ describe("una porta sola sul viewport condiviso", () => {
     // Without this call nobody is in the audience, so the arbiter has no first
     // arrival to fall back on and the last resize wins again.
     expect(
-      /viewportWiring\.onOpen\(/.test(codeOf("server.ts")),
+      /viewportWiring\.onOpen\(/.test(bootCode()),
       "nessuno avvisa l'arbitro quando una pane si affaccia sul contesto",
     ).toBe(true);
   });
