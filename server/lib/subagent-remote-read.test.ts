@@ -75,9 +75,11 @@ describe("readRemoteChild keeps only the child's own voice", () => {
       { id: "5", author: "agent:7de6", kind: "status", content: "in_progress→review", createdAt: at(4) },
       { id: "6", author: "user", kind: "comment", content: "archived while the agent worked", createdAt: at(5) },
       { id: "7", author: "agent", kind: "delivery", content: "cloud result", createdAt: at(6) },
+      { id: "ask-1", author: "system", kind: "service", content: "the cloud session asks for Bash", createdAt: at(7) },
+      { id: "stall-run-1", author: "system", kind: "service", content: "the cloud session is silent", createdAt: at(8) },
     ];
     const r = await readRemoteChild({ ...base, log: emptyRemoteChildLog(), since: 0, readRun: async () => ({ comments }) });
-    expect(r.ok && r.events.map((e) => e.text)).toEqual(["working on it", "Added note-1.txt", "cloud result"]);
+    expect(r.ok && r.events.map((e) => e.text)).toEqual(["working on it", "Added note-1.txt", "cloud result", "the cloud session asks for Bash", "the cloud session is silent"]);
   });
 
   it("a node that sends no author keeps every line, as before", async () => {

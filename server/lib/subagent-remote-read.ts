@@ -50,12 +50,21 @@ export type ReadRemoteChildResult =
   | { ok: false; reason: string };
 
 /**
- * Whether a node's card comment is the child speaking: its agent (`agent:<id>` on a paired
- * Topics, `agent` on the Claude cloud), and not a status move. Everything else is the node's
- * own bookkeeping. The one rule both the read log and the final answer use.
+ * Whether a node's card comment is worth the parent's eyes. What is dropped is the node's
+ * known bookkeeping only: status moves, the paired node's own service notes (mirror, worktree,
+ * verifier preview: author `system`/`verifier`, kind `service`, or the `Nuovo worktree` line),
+ * and the `user` note it writes when this Mac archives the run once the branch is home
+ * (16/11, read as the answer). Anything else stays, a cloud permission ask or stall included.
  */
-export function isChildVoice(c: { author?: string; kind?: string }): boolean {
-  return !!c.author && (c.author === "agent" || c.author.startsWith("agent:")) && c.kind !== "status";
+const BOOKKEEPING_AUTHORS = new Set(["dispatcher", "verifier", "user"]);
+export function isChildVoice(c: { id?: string; author?: string; kind?: string }): boolean {
+  if (c.kind === "status") return false;
+  if (!c.author) return true;
+  if (c.author === "agent" || c.author.startsWith("agent:")) return true;
+  if (BOOKKEEPING_AUTHORS.has(c.author)) return false;
+  // `system` is both: the paired node's mirror and worktree notes, and the cloud's notes that
+  // need a person (ask-, refused-, stall-). Only the cloud's carry those ids.
+  return c.author === "system" && /^(ask|refused|stall)-/.test(c.id ?? "");
 }
 
 /**
@@ -79,11 +88,8 @@ export async function readRemoteChild(input: ReadRemoteChildInput): Promise<Read
     if (log.seen.has(c.id)) continue;
     log.seen.add(c.id);
     if (!log.lastAt || c.createdAt > log.lastAt) log.lastAt = c.createdAt;
-    // What the child said, not the node's own bookkeeping around it: the mirror note, status
-    // moves, the verifier's preview line, and the "archived while working" note the node writes
-    // when this Mac archives the run after its branch came home (16/11, read as the answer).
-    // A comment with no author (an older node) is kept: better a noisy log than a lost line.
-    if (c.author !== undefined && !isChildVoice(c)) continue;
+    // The node's own bookkeeping is not the child talking (`isChildVoice`).
+    if (!isChildVoice(c)) continue;
     log.texts.push(c.content);
   }
   // A `since` past the end means this log was born again (the Map lives in memory and the server
