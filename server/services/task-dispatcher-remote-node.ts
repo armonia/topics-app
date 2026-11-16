@@ -1252,6 +1252,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       await landNodeDelivery(taskId, node, report);
     }
+    await retireClosedMirrors();
   }
 
   /**
@@ -1316,6 +1317,49 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     lastNodeRun.delete(taskId);
     try { releaseAndEmit({ taskId, requeue: false }); }
     catch (err) { log(`node: done card ${taskId} was not released`, err); }
+  }
+
+  /**
+   * Mirrors left open on the node by cards that left the cycle (done or archived) after their run
+   * came home. `landNodeDelivery` closes the slot here, and nothing else archived the mirror over
+   * there: it stayed in review and the node GC kept its worktree forever (16/11, 145 worktrees on
+   * the PC, disk under the dispatch floor). The cancel archives the node card, the branch stays
+   * pinned there. Best effort and idempotent: a silent node is retried next round, a 404 is done.
+   * A card in review here is NOT retired: a review sent back resumes from the branch.
+   */
+  async function retireClosedMirrors(): Promise<void> {
+    const client = host.client;
+    if (!client || !svc.retiredNodeRuns) return;
+    let rows: ReturnType<NonNullable<TaskService["retiredNodeRuns"]>>;
+    try { rows = svc.retiredNodeRuns(); } catch (err) { log("node: retired mirrors not read", err); return; }
+    for (const row of rows) {
+      // A live slot belongs to retireDoneRun or the restart path, not to this sweep.
+      if (inFlight.has(row.taskId) || launching.has(row.taskId)) continue;
+      if (!row.machineId) { lastNodeRun.delete(row.taskId); continue; }
+      const baseUrl = client.baseUrlOf(row.machineId);
+      const policy = row.capabilityId ? host.delegatedPolicyForTask?.(row.taskId) ?? null : null;
+      const token = policy
+        ? client.delegatedTokenOf?.(row.machineId, policy.id) ?? client.tokenOf(row.machineId)
+        : client.tokenOf(row.machineId);
+      if (!baseUrl || !token) continue;
+      try {
+        await client.cancelRun({
+          baseUrl, token, runId: row.runId,
+          delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined,
+        });
+      } catch (err) {
+        if (!(isNodeError(err) && err.status === 404)) {
+          log(`node: mirror of run ${row.runId} (card ${row.taskId}) not archived, retrying next round`, err);
+          continue;
+        }
+      }
+      // Only clear the id that was cancelled: a new dispatch may have written another meanwhile.
+      if (lastNodeRun.get(row.taskId) === row.runId) lastNodeRun.delete(row.taskId);
+    }
   }
 
   async function cancelTask(taskId: string): Promise<boolean | null> {
