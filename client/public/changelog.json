@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.22",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote children: archive the node's run once the branch is home (#1145)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.21",
     "date": "2026-11-16",
     "sections": {

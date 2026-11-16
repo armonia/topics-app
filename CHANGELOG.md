@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.22 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: archive the node's run once the branch is home (#1145)
+
 ## 2.4.21 — 2026-11-16
 
 ### Correzioni
