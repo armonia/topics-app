@@ -196,3 +196,35 @@ describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
     expect(git(parent, "branch", "--list", "topics/no-origin-snapshot")).toBe("");
   });
 });
+
+describe("plantCarriedBranch on a node whose checkout is behind origin", () => {
+  it("fetches origin once when the bundle's prerequisite commits are missing, then plants", async () => {
+    // origin moves on; the sender has fetched it, the node has not.
+    const origin = tempDir("subagent-origin-");
+    git(origin, "init", "-q", "--bare", "-b", "main");
+    const seed = tempDir("subagent-seed-");
+    git(seed, "clone", "-q", origin, ".");
+    writeFileSync(join(seed, "a.txt"), "base\n");
+    git(seed, "add", ".");
+    git(seed, "commit", "-q", "-m", "base");
+    git(seed, "push", "-q", "origin", "HEAD:main");
+    const node = tempDir("subagent-node-");
+    git(node, "clone", "-q", origin, ".");
+    writeFileSync(join(seed, "a.txt"), "moved\n");
+    git(seed, "commit", "-q", "-am", "main moves on");
+    git(seed, "push", "-q", "origin", "HEAD:main");
+
+    const sender = tempDir("subagent-sender-");
+    git(sender, "clone", "-q", origin, ".");
+    git(sender, "remote", "set-head", "origin", "main");
+    git(sender, "switch", "-q", "-c", "topics/child-behind");
+    writeFileSync(join(sender, "b.txt"), "child\n");
+    git(sender, "add", ".");
+    git(sender, "commit", "-q", "-m", "child work");
+    const { bundleBranch } = await import("../services/branch-on-origin");
+    const bundle = await bundleBranch(sender, "topics/child-behind");
+    expect(bundle).not.toBeNull();
+
+    expect(await plantCarriedBranch(node, "topics/child-behind", bundle!)).toEqual({ ok: true });
+  });
+});

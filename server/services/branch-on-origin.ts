@@ -131,7 +131,14 @@ export async function plantCarriedBranch(
   try {
     const file = join(dir, "branch.bundle");
     await writeFile(file, bytes);
-    const verified = await run(repoPath, ["bundle", "verify", file]);
+    let verified = await run(repoPath, ["bundle", "verify", file]);
+    // The bundle leaves out what the sender's origin/HEAD holds. A node whose checkout has not
+    // fetched since then lacks those commits: one fetch of origin brings them (16/11, the PC
+    // refused every child with "lacks these prerequisite commits").
+    if (verified.code !== 0 && /prerequisite/i.test(verified.stderr ?? "")) {
+      await run(repoPath, ["fetch", "--no-tags", "-q", "origin"]);
+      verified = await run(repoPath, ["bundle", "verify", file]);
+    }
     if (verified.code !== 0) return { ok: false, reason: `invalid bundle: ${(verified.stderr ?? "").trim().slice(-120)}` };
     const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${branch}:${carriedRef(branch)}`]);
     return fetched.code === 0 ? { ok: true } : { ok: false, reason: `fetch from bundle failed: ${(fetched.stderr ?? "").trim().slice(-120)}` };
