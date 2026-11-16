@@ -124,6 +124,11 @@ pub fn parse_overview(body: &str) -> Option<Vec<Column>> {
 
 /// Minimal blocking GET returning the body of a 200 response.
 pub fn http_get(base: &str, path: &str) -> Option<String> {
+    http_get_bytes(base, path).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// The same GET for a body that is not text (a project's icon).
+pub fn http_get_bytes(base: &str, path: &str) -> Option<Vec<u8>> {
     let rest = base.strip_prefix("http://")?;
     let hostport = rest.split('/').next()?;
     let addr = hostport.to_socket_addrs().ok()?.next()?;
@@ -134,12 +139,9 @@ pub fn http_get(base: &str, path: &str) -> Option<String> {
     write!(s, "GET {path} HTTP/1.0\r\nHost: {hostport}\r\nConnection: close\r\n\r\n").ok()?;
     let mut buf = Vec::new();
     s.read_to_end(&mut buf).ok()?;
-    let text = String::from_utf8_lossy(&buf);
-    let (head, body) = text.split_once("\r\n\r\n")?;
-    head.starts_with("HTTP/1.0 200")
-        .then_some(())
-        .or_else(|| head.starts_with("HTTP/1.1 200").then_some(()))?;
-    Some(body.to_string())
+    let cut = buf.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = String::from_utf8_lossy(&buf[..cut]);
+    (head.starts_with("HTTP/1.0 200") || head.starts_with("HTTP/1.1 200")).then(|| buf[cut + 4..].to_vec())
 }
 
 pub fn hub_base() -> String {

@@ -2485,9 +2485,6 @@ pub(crate) fn app_setup(
                         let a = app.clone();
                         let _ = std::thread::Builder::new().name("tray-refresh".into()).spawn(move || refresh_hub_menu(&a));
                     }
-                } else if id.starts_with("machine-open:") {
-                    // Every machine's detail lives in the Processes view.
-                    tray_dispatch(app, "topics:tray-open-processes", None);
                 } else if id.starts_with("board:") {
                     // La testa della sezione e il piede di ogni sottomenu:
                     // portano alla board, che è dove il lavoro si guarda per
