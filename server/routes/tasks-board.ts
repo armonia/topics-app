@@ -1182,6 +1182,17 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       } catch { return false; }
     };
 
+    // A card an AGENT delivered to review has a pending review approval; one a
+    // person moved to review by hand never had a run, so there is nothing to
+    // requeue and a comment on it stays a note (tests/e2e/board-comment-live-update).
+    const hasPendingDelivery = (taskId: string): boolean => {
+      try {
+        return !!ctx.db.query(
+          "SELECT 1 FROM approvals WHERE task_id = ? AND approval_type = 'review' AND status = 'pending' LIMIT 1",
+        ).get(taskId);
+      } catch { return false; }
+    };
+
     const bComments = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/comments");
     if (bComments && method === "POST") {
       const body = (await readJSON(req)) as any;
@@ -1343,7 +1354,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // ONLY: see the `else` below for why a STEP never takes this
           // branch.
           if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task)
-              && (isNodeCard(task) || !task.assignedTopicId)) {
+              && (isNodeCard(task) || (!task.assignedTopicId && hasPendingDelivery(task.id)))) {
             const rejected = svc.reviewDecision({
               taskId: task.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
             });

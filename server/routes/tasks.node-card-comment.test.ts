@@ -87,6 +87,17 @@ describe("comment on a card in review", () => {
     expect(resumed).toEqual([]);
   });
 
+  // A card a PERSON moved to review (no agent delivery, no pending approval)
+  // never ran: a comment on it stays a note, it is not requeued.
+  test("a local card put in review by hand (no delivery) stays in review as a note", async () => {
+    const id = await cardInReview(localId, { withTopic: false });
+    db.prepare("DELETE FROM approvals WHERE task_id = ?").run(id);
+    const resp = (await call(router, "POST", `/api/boards/${BOARD}/tasks/${id}/comments`, { content: "domanda" }))!;
+    expect((await resp.json()).delivery).not.toBe("queued");
+    expect(statusOf(id)).toBe("review");
+    expect(entered).toEqual([]);
+  });
+
   // A STALE local row (an old hostname this same Mac had before, `base_url`
   // NULL, a different id than today's `upsertLocal()`) is NOT a node:
   // `isRemoteTask` (task-dispatcher.ts) reads a missing address as local, and
