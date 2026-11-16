@@ -59,8 +59,10 @@ test.describe("Board touch targets", () => {
       await openBoard(page);
       const audit = await auditSurface(page, '[data-testid="kanban-board"]', MIN_TAP);
       expect(audit.coarse, "the audit must run under a coarse pointer").toBe(true);
+      // The audit lists only the targets that fall short, so an empty list is the pass.
       const buttons = audit.targets.filter((t) => t.tag === "button");
-      expect(buttons.length, "the board must expose buttons to measure").toBeGreaterThan(0);
+      const measurable = await page.locator('[data-testid="kanban-board"] button:visible').count();
+      expect(measurable, "the board must expose buttons to measure").toBeGreaterThan(0);
       const small = buttons
         .filter((t) => t.hit.w < MIN_TAP || t.hit.h < MIN_TAP)
         .map((t) => `${t.testid ?? t.selector} ${t.hit.w}x${t.hit.h} (box ${t.box.w}x${t.box.h})`);
