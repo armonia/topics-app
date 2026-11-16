@@ -129,7 +129,11 @@ const READERS = new Set([
   "server/providers/resolve-topic-provider.ts",
   "server/services/dispatch-topic-identity.ts",
   "server/services/task-auto-model.ts",
-  "server/services/task-dispatcher.ts",
+  // The dispatcher's readers, split out of task-dispatcher.ts (which no longer mentions the preference).
+  "server/services/task-dispatcher-fanout.ts",
+  "server/services/task-dispatcher-hold.ts",
+  "server/services/task-dispatcher-launch.ts",
+  "server/services/task-dispatcher-claim.ts",
   "client/src/lib/topicsRoutingGate.ts",
   "client/src/components/Chat/ProviderModelPicker.tsx",
   "client/src/components/Shared/ModelSelector/ModelList.tsx",
@@ -139,7 +143,8 @@ const READERS = new Set([
 const PASSAGES = new Set([
   "server/providers/topic-provider-resolver.ts", "server/lib/session-control-core.ts", "server/routes/fork.ts",
   "server/utils.ts", "server/services/tasks.ts", "server/routes/topics.ts", "server/routes/topics-update.ts", "server/routes/tasks-board.ts",
-  "server/routes/task-patch.ts", "server/routes/chat.ts", "server/routes/chat-provider.ts", "server/services/task-shapes.ts", "server.ts",
+  "server/services/task-dispatcher-types.ts", // dispatcher contract types, moved out of task-dispatcher.ts
+  "server/routes/task-patch.ts", "server/routes/chat.ts", "server/routes/chat-provider.ts", "server/services/task-shapes.ts", "server/boot/dispatcher.ts",
   "shared/board.ts", "shared/types.ts", "client/src/types/index.ts", "client/src/lib/board.ts",
   "client/src/hooks/useCardBoardSettings.ts", "client/src/components/Board/BoardSettingsPanel.tsx",
   "client/src/components/Board/FloatingTaskComposer.tsx", "client/src/components/Board/KanbanBoardPane.tsx",

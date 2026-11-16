@@ -7,11 +7,10 @@
  * @covers LAND-05
  */
 import { expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 test("server.ts hands the auto-lander the server's whole turn count", () => {
-  const src = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+  const src = readServerSource();
   const line = src.split("\n").find((l) => l.includes("liveTurnCount:"));
   expect(line).toBeDefined();
   expect(line).toContain("autoLandTurnCount");
@@ -26,7 +25,7 @@ test("server.ts hands the auto-lander the server's whole turn count", () => {
 });
 
 test("server.ts reads the delivery's paths from the exact commit's net diff, not from the own-commit walk or the branch tip", () => {
-  const src = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+  const src = readServerSource();
   const at = src.indexOf("deliveryFiles: async");
   expect(at).toBeGreaterThan(0);
   const body = src.slice(at, src.indexOf("liveTurnCount:", at));
@@ -38,7 +37,7 @@ test("server.ts reads the delivery's paths from the exact commit's net diff, not
 });
 
 test("asked from inside the land, the count leaves out that land's own slot in the queue (or it would never find the server idle)", () => {
-  const src = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+  const src = readServerSource();
   const at = src.indexOf("async function autoLandTurnCount");
   const body = src.slice(at, at + 1300);
   expect(body).toContain("insideLand");
@@ -49,7 +48,7 @@ test("asked from inside the land, the count leaves out that land's own slot in t
 });
 
 test("server.ts asks git which delivered files the bar's configuration names, as of the same commit", () => {
-  const src = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+  const src = readServerSource();
   const at = src.indexOf("deliveryReferenced: async");
   expect(at).toBeGreaterThan(0);
   const body = src.slice(at, src.indexOf("liveTurnCount:", at));

@@ -13,8 +13,6 @@
  * no write can stretch: the proof below runs at 8 s, where a write counts.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
 import { createTopicsRouter } from "./topics";
@@ -25,12 +23,12 @@ import { cancelled } from "../providers/stop-reason";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 const ROOT = testTmpDir("chat-sse-ping");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
 afterAll(() => cleanupTestDataDir(ROOT));
 
-const REPO_ROOT = join(import.meta.dir, "..", "..");
 
 /** Reads a response to the end, keeping what arrived before a reset. */
 async function readAll(resp: Response): Promise<{ body: string; cut: boolean }> {
@@ -282,7 +280,7 @@ describe("the board's stall watch with pings on the stream", () => {
     // wiring is checked on the source. A ping must not end the drain either:
     // pings flow only until the route finalizes, and an end deposited while
     // they flow is a superseded turn's, or not final yet.
-    const source = readFileSync(join(REPO_ROOT, "server.ts"), "utf8");
+    const source = readServerSource();
     const reader = source.slice(source.indexOf("async function watchHeadlessBody("));
     const loop = reader.slice(0, reader.indexOf("finally {"));
     expect(loop).toMatch(/if \(isSseCommentOnly\(value\)\) continue;\n\s*detector\.noteActivity\(\);/);

@@ -1,0 +1,12 @@
+-- 20261115120000-task-channel-topic.sql
+--
+-- tasks.channel_topic_id: the Jarvis channel chat (a Discord channel or thread,
+-- a WhatsApp group) the card's work is followed in. DISPLAY ONLY: the board
+-- shows the channel mark and name and opens that chat on click, nothing more.
+--
+-- It is not `origin_topic_id` on purpose. A card with an origin chat is a request
+-- THAT chat is waiting on: its outcome wakes the chat (`card-outcome-wake`) and a
+-- turn of that chat moves the card to in_progress (`channel-origin-cards`). A
+-- card Jarvis opens from a channel but parks in todo for a date, or one linked
+-- afterwards to a channel that already answered, must not wake anybody.
+ALTER TABLE tasks ADD COLUMN channel_topic_id TEXT;

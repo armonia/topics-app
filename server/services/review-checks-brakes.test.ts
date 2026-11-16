@@ -31,6 +31,7 @@ import {
 } from "./review-checks-brakes";
 import { heldMemory, type HeldMemory, type MemSample, type SwapVerdict } from "./mem-signal";
 import { _resetCardMemPeaks, recentCardMemPeaksGB } from "../lib/card-memory-peaks";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 const CALM: SwapVerdict = { sustained: false, pagesReadBackPerS: 1, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 };
 const SUSTAINED: SwapVerdict = { sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 };
@@ -201,7 +202,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
   }, 150_000);
 
   test("the shutdown, the route and the governor are wired: gracefulShutdown stops the checks after the thaw, the route passes the floor, the governor reads the CPU only", () => {
-    const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+    const server = readServerSource();
     // The governor's reading is `governorReading`, the CPU only (low memory
     // freezing nothing is tested on it in shared/machine-budget.test.ts): no
     // memory term comes back through the call site either.

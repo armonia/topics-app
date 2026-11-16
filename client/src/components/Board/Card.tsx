@@ -49,6 +49,10 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { PRIORITY_DOT, PRIORITY_LABEL, DISPATCH_CHIP, COMPACT_MD_CLS, COMMENTO_PIEGA_CHARS, RICHIESTA_PIEGA_CHARS, mediaPaneIdFor, type LiveUsage, type OpenTask } from './constants';
 import { copyText } from '../../lib/clipboard';
 import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState } from '../../lib/taskSession';
+import { TaskCountdown } from './TaskCountdown';
+import { TaskContextChip } from './TaskContextChip';
+import { TaskChildrenChip } from './TaskChildrenChip';
+import { estimatesByProject } from '../../../../shared/task-countdown';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -63,6 +67,8 @@ import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
 import { creatorChip, incompleteChip } from './createdByLabel';
 import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
+import { channelChip } from './channelChip';
+import { ChannelChipView } from './ChannelChipView';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { STATUS_CHIP, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { BoardCommandHint } from './BoardCommandHint';
@@ -193,6 +199,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
     scroller.addEventListener('scroll', update, { passive: true });
     return () => { resizeObserver.disconnect(); scroller.removeEventListener('scroll', update); };
   }, [virtualized, layout]);
+  const estimateByProject = useMemo(() => estimatesByProject(tasksById.values()), [tasksById]);
   const renderCard = useCallback((t: BoardTask) => (
     <Card
       key={t.id} task={t} onOpen={onOpen} showProject={showProject} onRefetch={onRefetch} onOpenTopic={onOpenTopic}
@@ -204,6 +211,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
+      estimateMs={estimateByProject.get(t.projectId) ?? null}
       // The live event OR the thread: the first dies with the process, the
       // second does not, and an unanswered question survives a restart.
       awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
@@ -212,7 +220,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       archived={archived}
       density={density}
     />
-  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived, density]);
+  ), [onOpen, showProject, onRefetch, onOpenTopic, cardError, onCardError, resolveSession, paneBoardId, paneSettings, tasksById, projectPathById, liveById, estimateByProject, awaitingHuman, justMoved, justCreated, archived, density]);
 
   // Responsive columns. The board is a scroll-snap carousel at EVERY breakpoint:
   // each column `snap-center`s to the middle as its own "slide", so whenever the
@@ -472,6 +480,8 @@ type CardDragProps = {
 };
 
 type CardProps = {
+  /** Departure estimate learned from the project's closed cards; null = none. */
+  estimateMs?: number | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -515,7 +525,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -1084,6 +1094,8 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   const runInitiator = runInitiatorName(task);
   // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
   const creator = creatorChip(task, tr);
+  // WHICH Jarvis channel the work came from (Discord, WhatsApp), one click from its chat.
+  const channel = channelChip(task, tr);
   const incomplete = incompleteChip(task, tr);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
@@ -1096,7 +1108,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
   const dueChip = dueDateChip(task, tr, Date.now(), locale);
   const plannedChip = scheduledChip(task, tr, locale);
-  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !compact && !!(channel || creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1535,7 +1547,16 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             ><AlarmClock className="h-3 w-3 shrink-0" /> {plannedChip.label}</span>
           )}
-          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {/* When the conductor closes the card, the assignee is only a name on
+              it: say so in the chip itself (visible on touch), not in a tooltip. */}
+          {task.assignedTo && (
+            <span
+              data-testid="card-assignee"
+              data-closes={conductorCloses ? 'conductor' : undefined}
+              title={tr(conductorCloses ? 'board.card.assigneeNameOnlyTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })}
+              className={`rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
+            >@{task.assignedTo}{conductorCloses ? ` · ${tr('board.card.assigneeNameOnly')}` : ''}</span>
+          )}
           {dueChip && (
             <span
               data-testid="card-due-date"
@@ -1555,6 +1576,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             >{task.lastActorPersonName}</span>
           )}
           {creator && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
             <span
@@ -1615,8 +1637,10 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
       {/* COMPACT: of the whole band only the live facts stay, the ones that say
           the card cannot move (blocker) or that a person is awaited (review age).
           After the band in the source, so the band's chips keep their order. */}
-      {compact && (blockedChip || attesa || plannedChip) && (
+      {compact && (channel || creator?.jarvis || blockedChip || attesa || plannedChip) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
+          {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {plannedChip && (
             <span
               data-testid="card-scheduled"
@@ -1990,11 +2014,18 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               })
               : tr('board.card.modelTitle', { model: modelLine })}
             data-testid="card-measure"
-            className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
-          ><span className="min-w-0 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
+            className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
+          ><span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}
+        {/* THE COUNTDOWN AND THE WEIGHT, on a row of their own under the effort chip: inside it they squeezed the
+            description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
+        {task.status === 'in_progress' && (
+          <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+          </div>
+        )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
             a node is named: an absent one means "here", and saying that on
             every card would be noise on all of them to inform one. */}
@@ -2034,6 +2065,18 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}
       {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mt-1" />}
+      {/* "Needs you" with no recorded reason: say in words what we DO know (the
+          agent asked for a person) without inventing the question,
+          which lives in the thread. The card is the button that opens it. */}
+      {task.status === 'review' && task.dispatchState === 'needs_input' && !task.dispatchError && (
+        <p
+          data-testid="card-needs-input-why"
+          data-source={task.humanAsk ? 'human-ask' : 'generic'}
+          className="mt-1 line-clamp-3 break-words text-compact md:text-mini leading-snug text-app-text-muted"
+        >
+          {task.humanAsk ? task.humanAsk : tr('board.card.needsInputWhy')}
+        </p>
+      )}
       {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
           out) kept its reason in the chip's tooltip, invisible on touch, and
           offered no gesture: the way back was guessing that a drag to Todo

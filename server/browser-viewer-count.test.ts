@@ -3,12 +3,11 @@
  */
 import { test, expect } from "bun:test";
 import type { Server } from "bun";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane, isSharedViewer, type ViewerFlags } from "./browser-viewer-count";
 import { upgradeWebSocket } from "./lib/ws-upgrade";
 import type { WSData } from "./types";
 import { startNativeExecutorSocket } from "../client/src/hooks/nativeExecutorSocket";
+import { readServerSource } from "../tests/helpers/server-source";
 
 const sockets = (...datas: ViewerFlags[]) => datas.map((data) => ({ data }));
 
@@ -180,7 +179,7 @@ test("a socket that is no longer open attaches nothing, and no socket attaches n
  * views frames).
  */
 test("server.ts polls this predicate for open-pane, and never starts the screencast for an executor socket", () => {
-  const code = readFileSync(join(import.meta.dir, "..", "server.ts"), "utf8")
+  const code = readServerSource()
     .split("\n")
     .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
     .join("\n");

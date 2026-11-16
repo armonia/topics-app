@@ -17,6 +17,7 @@
 import { useEffect, useMemo } from 'react';
 import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
 import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
+import { estimatesByProject, summarizeRunning, type RunningSummary } from '../../../../shared/task-countdown';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { rollupAttention, useAttentionRows } from '../../state/attention';
 import { boardLitCards } from '../../state/attentionRollups';
@@ -113,4 +114,19 @@ export function useBoardTabCounts(projectPath?: string): StatusCount[] {
   const cached = useMemo(() => readCachedCounts(cacheKey), [cacheKey]);
   useEffect(() => { if (loaded) rememberCounts(cacheKey, live); }, [loaded, live, cacheKey]);
   return loaded ? live : cached;
+}
+
+/**
+ * What the cards in progress of this board say about time (the soonest to
+ * finish, how many are late), from the same feed and the same history of
+ * closed cards the cards' own countdown reads. The tab's tooltip words it.
+ */
+export function useBoardRunning(projectPath?: string): RunningSummary {
+  const tasks = useBoardTasks();
+  const projectId = useBoardProjectId(projectPath);
+  return useMemo(() => {
+    if (projectPath && !projectId) return summarizeRunning([], new Map());
+    const running = tasks.filter((t) => t.status === 'in_progress' && !t.parentTaskId && (!projectId || t.projectId === projectId));
+    return summarizeRunning(running, estimatesByProject(tasks));
+  }, [tasks, projectId, projectPath]);
 }

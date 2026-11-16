@@ -12,7 +12,6 @@
  * @covers ASK-11
  */
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
 import { join } from "path";
 import { finalizeOrphanedRunningTools } from "../../server/lib/boot-orphan-tools";
 import { loadOwedAnswers } from "../../server/lib/owed-answers";
@@ -25,6 +24,7 @@ import {
   ctx, handlers, streamEnds, setModelConnected, setProviderRefusal, QUESTION, HOUR, askOnRow, storedCall, bootServer,
   machineTurnInFlight, until, receivedBy, modelReceived, useQuestionBench, forgetStreamLikeARestart,
 } from "./helpers/question-bench";
+import { readServerSource } from "../helpers/server-source";
 
 useQuestionBench("question-answer-order");
 
@@ -170,7 +170,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe("after a restart, an owed answer is there for the first message", () => {
   test("server.ts loads the answers the rows owe into the relay, held, before the server listens", () => {
-    const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+    const src = readServerSource();
     const hold = src.indexOf("answerRelay?.hold()");
     const load = src.indexOf("finalizeOrphanedRunningTools(db, brokerBootHolds)");
     // The index is read after the sweep, which indexes the marks older than it.

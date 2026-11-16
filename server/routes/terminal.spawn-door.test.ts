@@ -15,6 +15,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { boardAgentCap, boardSpawnMode, setChildAdmissionPreview } from "./terminal";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 let tmpRoot: string;
 
@@ -73,8 +74,8 @@ describe("boardSpawnMode", () => {
 describe("the wiring", () => {
   test("the route passes the mode to the one rule, and server.ts hands over the dispatcher's child gate", () => {
     const route = readFileSync(join(import.meta.dir, "terminal.ts"), "utf8");
-    const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+    const server = readServerSource();
     expect(route).toContain("boardSpawnRefusal(getDatabase(), { parentSessionKey: parentKey, cap: boardAgentCap(), ...boardSpawnMode() })");
-    expect(server).toContain("setChildAdmissionPreview(() => taskDispatcher.childAdmissionPreview?.() ?? null)");
+    expect(server).toContain("setChildAdmissionPreview(() => late.taskDispatcher.childAdmissionPreview?.() ?? null)");
   });
 });

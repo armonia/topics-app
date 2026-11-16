@@ -147,6 +147,8 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   source: { to: "createdSource", read: asStringOrNull },
   createdSource: { to: "createdSource", read: asStringOrNull },
   created_source: { to: "createdSource", read: asStringOrNull },
+  channelTopicId: { to: "channelTopicId", read: asStringOrNull },
+  channel_topic_id: { to: "channelTopicId", read: asStringOrNull },
   kanbanOrder: { to: "kanbanOrder", read: asNumber },
   dueDate: { to: "dueDate", read: asStringOrNull },
   scheduled: { to: "scheduled", read: asScheduled },

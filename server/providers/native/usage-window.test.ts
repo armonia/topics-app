@@ -70,6 +70,18 @@ describe("the usage windows", () => {
     expect(providerHold(NOW)).toBeNull();
   });
 
+  test("a 401 recovers the token once and reads again", async () => {
+    const seen: string[] = [];
+    const fetchImpl = (async (_u: unknown, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization!;
+      seen.push(auth);
+      return auth === "Bearer new" ? new Response(JSON.stringify(measured)) : new Response("expired", { status: 401 });
+    }) as unknown as typeof fetch;
+    expect(await fetchUsage("old", fetchImpl, async () => "new")).not.toBeNull();
+    expect(seen).toEqual(["Bearer old", "Bearer new"]);
+    expect(await fetchUsage("old", fetchImpl, async () => null)).toBeNull();
+  });
+
   test("a success under a hold lifts it only when the windows say so", async () => {
     const spentJson = { ...measured, five_hour: { utilization: 100, resets_at: RESET_5H } };
     const spent = (async () => new Response(JSON.stringify(spentJson))) as unknown as typeof fetch;

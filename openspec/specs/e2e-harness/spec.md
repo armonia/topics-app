@@ -609,3 +609,33 @@ MISURA: `tests/unit/stale-fake-anthropic.test.ts`.
 #### Scenario: una credenziale vera
 - **GIVEN** una credenziale senza il token finto e un base URL non di loopback
 - **THEN** restano identici
+
+### Requirement: E2E-GATE-14 — Due worker non si cancellano lo stato a vicenda sullo stesso server di prova
+
+Il ripristino della baseline (`POST /api/test/reset`) e il pane store (una sola
+riga `ui_state`) sono dell'INTERO server, non di un worker. Con
+`--workers=2` il `beforeAll` di un file su un worker azzera topic e pane del
+file che sta girando sull'altro: i rossi escono come «Processi» che non compare
+o una scheda che non c'è più.
+
+Il confine ermetico SHALL tenere un lock fra processi, legato al server di
+prova, dal ripristino del file fino al suo `afterAll`: i file si danno il turno
+sul server. Il lock SHALL portare il PID del titolare, così un worker ucciso a
+metà file non blocca gli altri. L'attesa del turno SHALL stare fuori dal
+timeout dell'hook: un file che tiene il server più a lungo di un timeout di test
+mette in coda l'altro, non lo fa fallire.
+
+MISURATO il 13/11/2026 su topics/silent-plateau: `--workers=2 --repeat-each=3`
+sul server :13334 dava 6 rossi e 13 instabili (file-context-menu:85,
+file-explorer-panels:220 e :255, file-explorer:303, tab-notifications:131),
+contro 0 rossi con un worker.
+
+MISURA: `tests/unit/e2e-server-lock.test.ts`.
+
+#### Scenario: un secondo file mentre il primo gira
+- **GIVEN** il lock tenuto da un worker vivo
+- **THEN** l'altro worker aspetta e prende il lock solo quando viene rilasciato
+
+#### Scenario: un worker morto col lock in mano
+- **GIVEN** un lock con il PID di un processo che non esiste
+- **THEN** il lock viene ripreso
