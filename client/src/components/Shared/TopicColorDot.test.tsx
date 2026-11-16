@@ -7,7 +7,7 @@
  * `renderToStaticMarkup` (no DOM library in this project), same pattern as
  * `Segmented.test.tsx`.
  *
- * @covers 300620c0
+ * @covers SIDEBAR-COLOR-01
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
