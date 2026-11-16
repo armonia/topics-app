@@ -7,7 +7,7 @@ import { declaredProviderName, reasoningElsewhereMessage } from "./commandRoutin
 import { refreshAndSay } from "../lib/background-notice";
 import { consumeFork } from "../lib/chat-fork-store";
 import { topicCommandProcesses } from "./processes";
-import { liveWorkOf } from "./live-work";
+import { liveChildrenOf, liveWorkOf } from "./live-work";
 import { isEligibleGlobalOrchestratorSession, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 import { clearActionFor } from "./clearPolicy";
 import { EFFORT_TIERS } from "../../shared/effort";
@@ -230,6 +230,9 @@ export function createCommandRoutes(
         return json([...commands, ...subagentProcesses(sessions)]);
       } catch { return json(commands); }
     }
+
+    // Every sub-agent at work, over all chats: for the surfaces that are not under one chat.
+    if (method === "GET" && pathname === "/api/live-work") return json(liveChildrenOf(ctx));
 
     {
       // The strip under the chat: what works for it now (chat-live-work).
