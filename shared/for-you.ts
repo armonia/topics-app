@@ -4,7 +4,7 @@
  * description, delivery, comments and question.
  */
 export interface ForYou {
-  /** What the card asks of the person, one line; «Niente: va solo chiusa.» when nothing. */
+  /** What the card asks of the person, one line; «Niente: va solo chiusa.» when nothing. // allow-italian: quoted UI string */
   asked: string;
   /** What had happened. */
   happened: string;
