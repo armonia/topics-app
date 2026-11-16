@@ -93,6 +93,17 @@ import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
 
 // These moved to sibling modules; this path stays their public home.
+/**
+ * Scheduled or waiting work an agent opens (a cron, "recheck after 02:00", an
+ * external wait) is not an idea: it starts in todo, waiting, not in backlog.
+ */
+function scheduledWait(body: unknown): { reason: string; minutes: number } | null {
+  const b = body as { wait_reason?: unknown; wait_minutes?: unknown } | null;
+  if (typeof b?.wait_reason !== "string" || !b.wait_reason.trim()) return null;
+  if (typeof b.wait_minutes !== "number" || !Number.isFinite(b.wait_minutes) || b.wait_minutes < 1) return null;
+  return { reason: b.wait_reason.trim(), minutes: b.wait_minutes };
+}
+
 export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
 export { matchGuestTaskAction } from "./tasks-guests";
 export type { TasksRouterOpts } from "./tasks-opts";
@@ -1046,7 +1057,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
             // A coordinator records work; a human still decides when a card is
             // runnable. This preserves normal board lifecycle accounting.
-            status: "backlog",
+            status: scheduledWait(body) ? "todo" : "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             createdByTopicId: globalSession.topicId,
             createdSource: resolveCreatedSource(req, body as Record<string, unknown> | null) ?? "coordinator",
@@ -1054,7 +1065,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             bar: typeof body?.bar === "string" ? body.bar : null,
             createdBy: "agent:coordinator",
           });
-          broadcastToAll({ type: "task:created", projectId, task });
+          const wait = scheduledWait(body);
+          if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:coordinator" });
+          broadcastToAll({ type: "task:created", projectId, task: wait ? svc.get(task.id)!.task : task });
           confirmCardOrigin({ db, broadcast: broadcastToAll, recordActivity: logActivity }, {
             taskId: task.id, projectId, title: task.text, createdBy: "agent:coordinator",
             sessionKey: sk, topicId: globalSession.topicId,
@@ -1212,10 +1225,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             description: typeof body?.description === "string" ? body.description : null,
             priority: typeof body?.priority === "number" ? body.priority : undefined,
             assignedTo: typeof body?.assignee === "string" ? body.assignee : null,
-            // Agents/MCP always create into `backlog` (intake), never straight into
-            // the "todo" run-queue: a task only becomes dispatch-eligible when a
-            // HUMAN moves it to todo. Symmetric to the agent-cannot-mark-done gate.
-            status: "backlog",
+            // Agents/MCP create into `backlog` (intake): a task only becomes
+            // dispatch-eligible when a HUMAN moves it to todo. The exception is
+            // scheduled work (wait_reason + wait_minutes): it is not an idea, so
+            // it starts in todo, waiting, with its first retry time.
+            status: scheduledWait(body) ? "todo" : "backlog",
             idempotencyKey: typeof body?.idempotency_key === "string" ? body.idempotency_key : null,
             parentTaskId: typeof body?.parent_task_id === "string" ? body.parent_task_id : null,
             // PROVENIENZA (migration 093): chi sta scrivendo. Viene dal topic
@@ -1230,7 +1244,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             originTopicId: sess.topicId,
             bar: typeof body?.bar === "string" ? body.bar : null,
           });
-          broadcastToAll({ type: "task:created", projectId: sess.projectId, task });
+          const wait = scheduledWait(body);
+          if (wait) svc.deferForWait({ taskId: task.id, reason: wait.reason, minutes: wait.minutes, by: "agent:session" });
+          broadcastToAll({ type: "task:created", projectId: sess.projectId, task: wait ? svc.get(task.id)!.task : task });
           // The chat's request became a card: the chat is told, the coordinator
           // reads it in the log (`services/card-origin-notice.ts`).
           if (sess.topicId) {

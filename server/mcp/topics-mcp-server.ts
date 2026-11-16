@@ -292,7 +292,7 @@ const TOOLS = [
   {
     name: "create_task",
     description:
-      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate). Pass parent_task_id to nest it as a subtask (unlimited depth; a parent with open subtasks cannot be closed).",
+      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session: do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate). Pass parent_task_id to nest it as a subtask (unlimited depth; a parent with open subtasks cannot be closed). Scheduled or waiting work (a cron, \"recheck after 02:00\", an external wait) is NOT an idea: pass wait_reason and wait_minutes and the card is created in Todo with the waiting chip and that retry time, instead of Backlog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -301,6 +301,8 @@ const TOOLS = [
         priority: { type: "number", description: "0–4 (default 2)." },
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        wait_reason: { type: "string", description: "What the card waits for (a time, a cron, an external condition). With wait_minutes, the card starts in Todo, waiting." },
+        wait_minutes: { type: "number", description: "Minutes until the first attempt (1-1440)." },
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
         bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
@@ -422,7 +424,7 @@ const TOOLS = [
   {
     name: "wait_for_condition",
     description:
-      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet. Declare a wait ONCE per condition, with a window long enough for it to arrive: a second wait for the same condition parks the task in the backlog for a human to decide.",
+      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review': it produced nothing yet. A repeat for the same condition keeps the task in Todo with a LONGER window (15 min, 1 h, 6 h, 24 h), it never parks it in the backlog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2257,7 +2259,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -2275,6 +2277,8 @@ export async function callCreateTask(
   // cioè esattamente il guasto che il cancello doveva impedire.
   if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) reqBody.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
+  if (typeof toolArgs.wait_reason === "string" && toolArgs.wait_reason.trim()) reqBody.wait_reason = toolArgs.wait_reason;
+  if (typeof toolArgs.wait_minutes === "number") reqBody.wait_minutes = toolArgs.wait_minutes;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
   const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
