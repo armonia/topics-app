@@ -493,7 +493,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
           break;
         }
       }
-      // Un fallimento con corpo vuoto resta un fallimento con un messaggio.
+      // A failure with an empty body is still a failure with a message.
       if (isError) result = failedToolText(result, toolName);
 
       const endedAt = priorToolTimes(toolCallId).endedAt ?? Date.now();
