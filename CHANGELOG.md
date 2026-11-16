@@ -2,7 +2,216 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.26 — 2026-11-16
+
+### Sotto il cofano
+- font, icone, margini, icone dei progetti, morti fuori, voci agganciate, PC e Hetzner come il Mac (#1154)
+- la card dice da quale canale di Jarvis nasce il lavoro (#1060)
+- La issue della nightly diceva «elenco non disponibile» ogni notte: al job esito mancavano checkout e bun (#1155)
+
+## 2.4.25 — 2026-11-16
+
+### Sotto il cofano
+- A restart no longer reports a child running on a node as lost (#1151)
+- topics/unwary-kindling (card 77006327) (#1137)
+
+## 2.4.24 — 2026-11-16
+
+### Sotto il cofano
+- **deps** · spec-flow 0.4.0 (#1148)
+- Remote children: read_agent shows the child's own voice, not the node's bookkeeping (#1149)
+- topics/vigilant-specter (card 791984dc) (#1081)
+
+## 2.4.23 — 2026-11-16
+
+### Correzioni
+- **dispatcher** · archive node mirrors once the card is done or archived (#1146)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-16 [skip ci]
+
+## 2.4.22 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: archive the node's run once the branch is home (#1145)
+
+## 2.4.21 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane (#1142)
+
+### Sotto il cofano
+- list the seven flaky e2e tests found by the ledger (#1140)
+
+## 2.4.20 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane
+
+### Sotto il cofano
+- Remote children: adopt the branch the node delivered under (#1144)
+
+## 2.4.19 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: resolve a model alias against the node's own catalog (#1138)
+
+## 2.4.18 — 2026-11-16
+
+### Sotto il cofano
+- Node child runs: a heavy child waits for the heavy turn like any heavy card (#1135)
+- Child bundles carry 200 commits of origin's default for a node that has not fetched lately (#1136)
+
+## 2.4.17 — 2026-11-16
+
+### Correzioni
+- **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
+- **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
+- **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
+
+### Sotto il cofano
+- topics/morose-hickory (card c0809cc6) (#1116)
+- Split server.ts into a boot chain: stages in server/boot, front door in server/routes (#1120)
+- native write_file: the OS temp dir is always writable
+- write-roots tests: refused targets outside the temp dir
+- a failed tool with an empty body still carries a message (#1123)
+- runtime test: outside-workspace write target not under temp dir
+- topics/lofty-ferret (card dbe67d8c) (#1075)
+- **e2e** · serialize spec files on the shared test server across workers (#1122)
+- Remote sub-agents: refused runs stay local, a node behind origin fetches before planting (#1128)
+- Indice solido: mutation score dei moduli critici (spec-flow D9) e bloat che scende solo (#1117)
+- voice-call: fix role-flipped dropped-call greeting and repeat-request correction with brain on (#1121)
+- **deploy-outcome** · scope the 300 ms spawn cap to the deadline test (#1132)
+- Node child runs are not held by the board's heavy turn (#1131)
+
+## 2.4.16 — 2026-11-16
+
+### Sotto il cofano
+- same card and same submenu for Mac, PC and the cloud server (#1118)
+- every machine submenu opens with its state lines, memory with its unit (#1119)
+
+## 2.4.15 — 2026-11-16
+
+### Sotto il cofano
+- the effort band wraps instead of squeezing its text
+- Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)
+- round token figures read «38k» now
+
+## 2.4.14 — 2026-11-15
+
+### Sotto il cofano
+- approve as superseded never enters the CI phase (#1114)
+- countdown and weight on a row of their own, singular sub-agent, 40k not 40.0k, no bare «ora» while working; e2e layout guard
+
+## 2.4.13 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)
+
+## 2.4.12 — 2026-11-15
+
+### Sotto il cofano
+- countdown e2e: fold the phone sidebar sheet with the sidebar shortcut
+- countdown e2e: reopen the phone sidebar sheet before picking the chat
+- una corsa parcheggiata sul nodo non blocca più la card (#1108)
+- Sub-agent bundle: never adopt a branch that is checked out in the parent or its worktrees (#1109)
+- countdown e2e: the chat shot uses a top-level chat of its own
+
+## 2.4.11 — 2026-11-15
+
+### Sotto il cofano
+- countdown e2e: click, the context has no touch
+- countdown e2e: open the card by its own click event under the phone sheet
+- Sotto-agenti 2/5 e 3/5: chi può uscire dal Mac e il pacchetto git andata e ritorno (#1106)
+- un gettone per nodo cloud, relay ridistribuito, blocco 3 annotato (#1105)
+
+## 2.4.10 — 2026-11-15
+
+### Sotto il cofano
+- countdown e2e: shots of every surface at four widths in both themes, uploaded as a CI artifact
+- countdown e2e: close the phone sidebar sheet before opening the card
+- Admission preview: a native sub-agent pays its real cost, not a card's floor (#1103)
+- countdown e2e: close the phone sidebar sheet by choosing the board row
+
+## 2.4.9 — 2026-11-15
+
+### Sotto il cofano
+- topics/small-mist (card 3f078feb) (#1102)
+- Admission preview: a native sub-agent pays its real cost, not a card's floor
+
+## 2.4.8 — 2026-11-15
+
+### Sotto il cofano
+- countdown e2e: the context chip is context-share
+- countdown e2e: reopen the board to read the feed again between steps
+- countdown e2e: open the details panel and answer the drawer's own card read
+- countdown e2e: answer the drawer read on either task route
+- decorate the menu the status item receives, not its idle menu (#1101)
+- countdown e2e: on a phone the board opens from the pane store
+
+## 2.4.7 — 2026-11-15
+
+### Sotto il cofano
+- countdown e2e: seed through the request fixture and print the refusal
+- countdown e2e: the closed cards are closed in the feed, the API refuses to create a done card
+- Sotto-agenti: tetto deciso dalla memoria, CLI solo se chiesta (#1095)
+
+## 2.4.6 — 2026-11-15
+
+### Sotto il cofano
+- Fase CI: una card senza esito verde proprio sul suo commit si misura da sola (#1084)
+- an open question keeps its status through a partial output and a re-announcement (#1059)
+- topics/private-raven (card 819c9836) (#1085)
+- topics/gloomy-fern (card 2fbdd455) (#1087)
+- topics/watchful-marble (card a5acfe57) (#1083)
+- topics/peaceful-grove (card 19d684fb) (#1079)
+- exact context of the task session in the weight block and on the card
+- Sub-agents: countdown and weight on their row, tab, list and the card that launched them
+- Work in progress: the same countdown and weight on the sidebar, board tab, bell, agents list and tray
+- Work countdown: e2e spec with video and four widths in both themes, naming and lint fixes
+- topics/peachy-kelp (card 629398ee) (#1070)
+- live-work: route for all chats back after the main merge; bundle ceiling follows the CI measure
+- countdown e2e: seed the board of a real project folder
+
+## 2.4.5 — 2026-11-15
+
+### Correzioni
+- **subagent-result** · track a Bash the CLI itself moved to the background (#1066)
+
+### Sotto il cofano
+- Native runtime: per-turn temp folder, rm allowed there or on files the turn created
+- Guardia per turno: tracciamento dei percorsi creati estratto in permissions.ts (bloat)
+- note on the night DM quota hold and its probe cure (#1062)
+- decision note for daily summary overruns and waits (#1057)
+- a busy database goes straight to the caller instead of a second whole-row attempt (#1039)
+- topics/open-rivet (card b2b33bf0) (#998)
+- countdown to completion and exact session weight on cards and drawer
+- task-countdown test: declare covered requirement
+- identifier words: countdown
+- Node gate: lanes that sign their own branch (Claude cloud) skip the git identity requirement
+- identifier baseline: formatCountdown now covered
+
+## 2.4.4 — 2026-11-15
+
+### Novità
+- **tray** · native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)
+- **tray** · account cards wear row icons, state icons and reset arrows as the original tray
+- **tray** · state icons for queued and braked projects, provider icons in the limits submenu
+- **tray** · process rows carry their second line as the original tray
+
+### Correzioni
+- **tray** · machine card flat-detail condition compiles
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
+- topics/cheery-orbit (card 475724bc) (#868)
+- **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
+
 ## 2.4.3 — 2026-11-15
+
+### Correzioni
+- **heavy-slot** · the cpu ceiling holds even the first request
 
 ### Sotto il cofano
 - job con Playwright fissati a ubuntu-24.04 (#1049)
@@ -38,6 +247,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
+- mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
 - voice-call: il rumore non tiene la linea occupata, i «grazie» inventati non chiudono, le frasi corte lette in due modi arrivano al cervello in due modi (#1012)
 
@@ -45,6 +255,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - voice-call: dalla chiamata vera delle 20:07, eco del saluto, passi ripetuti, risultato detto due volte (#999)
+- Cloud node: commits carry the Mac checkout's git identity, not a stale global one
 
 ## 2.3.114 — 2026-11-14
 

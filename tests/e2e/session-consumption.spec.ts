@@ -115,7 +115,7 @@ test.describe("what each session costs", () => {
     // The server is used by both: each is billed 1/2 of it, and the cell says so.
     await expect(rowA.getByTestId("session-memory")).toContainText("1/2 server di Topics");
     await expect(rowB.getByTestId("session-memory")).toContainText("1/2 server di Topics");
-    await expect(rowA.getByTestId("session-tokens")).toContainText("↓38.0k");
+    await expect(rowA.getByTestId("session-tokens")).toContainText("↓38k");
     // Output tokens per second, from the growth of the counter.
     await expect.poll(async () => (await rowA.getByTestId("session-tps-value").textContent()) ?? "-", { timeout: 60_000 }).not.toBe("-");
     // The processes are the detail inside the session, closed by default.
@@ -146,7 +146,7 @@ test.describe("what each session costs", () => {
     await drawer.getByTestId("task-details-toggle").click();
     const block = drawer.getByTestId("card-consumption");
     await expect(block).toBeVisible({ timeout: 30_000 });
-    await expect(block.getByTestId("session-tokens")).toContainText("↓38.0k");
+    await expect(block.getByTestId("session-tokens")).toContainText("↓38k");
     await expect(block.getByTestId("session-memory-value")).not.toHaveText("-");
     await expect(block.getByTestId("session-clock")).toBeVisible();
     // It is THIS card's session, not the other one: the other card's title is nowhere in the block.

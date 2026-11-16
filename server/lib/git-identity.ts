@@ -99,3 +99,36 @@ export async function gitEnvFor(cwd: string): Promise<Record<string, string | un
   }
   return (await known) ? process.env : { ...process.env, ...FALLBACK_ENV };
 }
+
+export interface RepoIdentity {
+  name: string;
+  email: string;
+}
+
+async function configValue(cwd: string, key: string): Promise<string> {
+  try {
+    const proc = spawnBounded(["git", "-C", cwd, "config", key], {
+      // Explicit and not inherited, same reason as `probe`: `Bun.spawn` without
+      // `env` freezes the environment as of process START, not of this call, and
+      // a test that sets `GIT_CONFIG_GLOBAL` right before calling would go unseen.
+      stdout: "pipe", stderr: "ignore", timeoutMs: SPAWN_TIMEOUT.query, env: process.env,
+    });
+    const out = (await new Response(proc.stdout).text()).trim();
+    return (await proc.exited) === 0 ? out : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The identity THIS checkout signs commits with — `git config user.name` /
+ * `user.email`, no fallback. Dispatching a card to another machine needs the
+ * real value, never a stand-in: the land (LAND-13) attributes a commit to
+ * whoever the ORIGIN repo's config names, so a node that invents its own
+ * identity produces a commit the land then refuses. `null` = neither is set,
+ * which must stop the dispatch rather than hand the node an empty one.
+ */
+export async function repoIdentity(cwd: string): Promise<RepoIdentity | null> {
+  const [name, email] = await Promise.all([configValue(cwd, "user.name"), configValue(cwd, "user.email")]);
+  return name || email ? { name, email } : null;
+}

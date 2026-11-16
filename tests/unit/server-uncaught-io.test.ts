@@ -22,9 +22,10 @@
  * correct and loops forever, and only an exit code proves it does not.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readServerSource } from "../helpers/server-source";
 
 const dir = mkdtempSync(join(process.env.JCODE_SCRATCH_DIR ?? tmpdir(), "uncaught-"));
 // An `afterAll`, not `process.on("exit")`: `bun test` never calls an exit
@@ -73,7 +74,7 @@ setTimeout(() => { console.error("STILL ALIVE"); process.exit(0); }, 120);
  * `console.error` is kept so the child can report which branch it took.
  */
 function handlerSource(): string {
-  const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  const src = readServerSource();
   const setLine = src.split("\n").find((l) => l.includes("const SURVIVABLE_IO"));
   if (!setLine) throw new Error("SURVIVABLE_IO not found in server.ts");
   const start = src.indexOf('process.on("uncaughtException"');
@@ -134,7 +135,7 @@ describe("the copy in this test matches the real handler", () => {
     // The duplication above is a deliberate trade, and this is what keeps it
     // honest: widen the set in server.ts without touching this file and the
     // test goes red.
-    const src = await Bun.file(join(import.meta.dir, "..", "..", "server.ts")).text();
+    const src = readServerSource();
     const line = src.split("\n").find((l) => l.includes("const SURVIVABLE_IO"));
     expect(line, "SURVIVABLE_IO not found in server.ts").toBeDefined();
     for (const code of ["EPIPE", "ECONNRESET", "ECONNABORTED", "ERR_STREAM_DESTROYED", "ERR_STREAM_WRITE_AFTER_END"]) {

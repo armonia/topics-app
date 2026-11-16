@@ -28,6 +28,7 @@
  * @covers GUEST-15
  * @covers GUEST-17
  */
+import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { describe, it, expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -317,6 +318,8 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
       machine_name: "Portatile",
       node_base_url: BASE_URL,
       origin_url: "git@github.com:acme/alpha.git",
+      git_author_name: "Ada Lovelace",
+      git_author_email: "ada@example.test",
     });
     expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
     expect(h.created[0].body).toEqual({
@@ -351,6 +354,33 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     expect(note).toContain("il nodo «Portatile» non è pronto: il PC non si sveglia (wol senza risposta)");
     // The slot is free again: the retry is not blocked by a ghost run.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("no git identity on this checkout: the card is parked and never reaches the node (LAND-13)", async () => {
+    const hook = hookFake({ ok: true });
+    const h = harness({ hooks: hook.runner, gitIdentityOf: async () => null });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(0);
+    expect(h.calls).toEqual([]);
+    const t = h.task();
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("blocked");
+    const note = h.comments().map((c) => c.content).join("\n");
+    expect(note).toContain("non ha un'identità git");
+  });
+
+  it("no git identity but a lane that signs its own branch (Claude cloud): the gate lets the card through", async () => {
+    const hook = hookFake({ ok: true });
+    const h = harness({ hooks: hook.runner, gitIdentityOf: async () => null, skipsGitIdentity: () => true });
+    h.seed();
+
+    await dispatch(h);
+
+    expect(hook.seen).toHaveLength(1);
+    expect(h.task().dispatchState).not.toBe("blocked");
   });
 
   it("two vetoes in a row open the wake breaker: the node stops being a sleeping target", async () => {
@@ -910,6 +940,33 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(h.task().deliveryBranch).toBeNull();
     expect(h.comments().some((c) => c.content.includes("il commit di base 1234abcd non è in questo checkout"))).toBe(true);
   });
+
+  it("impianto fallito senza commit del nodo: la consegna è segnata assente, il land non ha ramo da prendere", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, commitCount: 0, reason: "bundle non applicabile" },
+      readRun: () => Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe(UNPLANTED_DELIVERY_COMMIT);
+  });
+
+  it("impianto fallito con il commit del nodo: si registra quel commit, mai un ramo", async () => {
+    const h = harness({
+      bundle: new Uint8Array([9, 9]),
+      planted: { planted: false, commit: null, commitCount: 0, reason: "bundle non applicabile" },
+      readRun: () =>
+        Promise.resolve(report({ status: "review", deliveryBranch: "topics/corsa-remota", deliveryCommit: "deadbeefdeadbeef", baseSha: "1234abcd" })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().deliveryBranch).toBeNull();
+    expect(h.task().deliveryCommit).toBe("deadbeefdeadbeef");
+  });
 });
 
 describe("review senza ramo: il nodo scrive lo stato e poi il ramo", () => {
@@ -1305,7 +1362,9 @@ describe("una corsa remota persa non riporta mai indietro una card chiusa", () =
       const t = h.task();
       expect(t.status).toBe(expected);
       if (label === "archiviata") expect(h.svc.isArchived!(TASK)).toBe(true);
-      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(1);
+      // A done card's run is cancelled the moment the card is seen done (see
+      // task-dispatcher-remote-node-done.test.ts): it is never "lost", so no note.
+      expect(h.comments().filter((c) => c.content.includes("persa")).length).toBe(label === "done" ? 0 : 1);
       expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
     });
   }

@@ -135,9 +135,6 @@
       "fmtAttesa",
       "fmtTok"
     ],
-    "client/src/components/Board/nightModeText.ts": [
-      "formatCountdown"
-    ],
     "client/src/components/Board/planPanel.test.ts": [
       "chiacchiera",
       "dopo",
@@ -892,6 +889,9 @@
       "mapCoordinates",
       "vid"
     ],
+    "client/src/hooks/chatHistory.ts": [
+      "riconciliato"
+    ],
     "client/src/hooks/chatRequestPayload.test.ts": [
       "bolla",
       "contenuto",
@@ -907,6 +907,15 @@
     "client/src/hooks/chatRequestPayload.ts": [
       "speso",
       "testo"
+    ],
+    "client/src/hooks/chatSend.ts": [
+      "idemKey"
+    ],
+    "client/src/hooks/chatShared.ts": [
+      "SSE_FAILSAFE_MS"
+    ],
+    "client/src/hooks/chatStreamEvents.ts": [
+      "passaAncheAlMittente"
     ],
     "client/src/hooks/liveTurn.test.ts": [
       "utente"
@@ -961,14 +970,10 @@
       "bordi"
     ],
     "client/src/hooks/useChat.ts": [
-      "SSE_FAILSAFE_MS",
       "arr",
       "buf",
       "clearSSEFailsafe",
-      "idemKey",
       "liveDeltaRafRef",
-      "passaAncheAlMittente",
-      "riconciliato",
       "scheduleSSEFailsafe",
       "sseFailsafeRef",
       "toolUpdateRafRef"
@@ -1191,9 +1196,11 @@
       "perdiIlFilo",
       "persa"
     ],
-    "client/src/lib/api.ts": [
-      "ProfiloGitHubClient",
+    "client/src/lib/apiBase.ts": [
       "obj"
+    ],
+    "client/src/lib/apiSystem.ts": [
+      "ProfiloGitHubClient"
     ],
     "client/src/lib/auth/session.test.ts": [
       "fetchVero",
@@ -1677,7 +1684,6 @@
     "client/src/state/chatQueue.ts": [
       "readback",
       "rec",
-      "requeueFront",
       "unshiftTurn"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
@@ -2433,6 +2439,72 @@
       "righe",
       "stato",
       "trovatiScorrendo"
+    ],
+    "server/boot/browser.ts": [
+      "savedOpenaiApiKey"
+    ],
+    "server/boot/delivery-audit.ts": [
+      "visti"
+    ],
+    "server/boot/dispatch-prep.ts": [
+      "turniInVolo"
+    ],
+    "server/boot/dispatcher.ts": [
+      "testo"
+    ],
+    "server/boot/front.ts": [
+      "opzioniServer"
+    ],
+    "server/boot/governor.ts": [
+      "MEMSIG_EVERY_MS",
+      "memsigAt"
+    ],
+    "server/boot/headless-turns.ts": [
+      "runHeadlessWoken"
+    ],
+    "server/boot/heartbeat.ts": [
+      "flipped",
+      "rec",
+      "snapMgr"
+    ],
+    "server/boot/http.ts": [
+      "tlsCert",
+      "tlsKey",
+      "useTls"
+    ],
+    "server/boot/listen.ts": [
+      "fetchCompresso",
+      "pathname"
+    ],
+    "server/boot/preview-delivery.ts": [
+      "forma",
+      "lista"
+    ],
+    "server/boot/quiescence.ts": [
+      "attesaQuiescenza",
+      "attesaS",
+      "avvisato",
+      "avviso",
+      "inizio",
+      "prov",
+      "sorti",
+      "turnFinishedStmt",
+      "ultimoRinvioLoggatoS",
+      "verdetto"
+    ],
+    "server/boot/reattach.ts": [
+      "CtxRipresa",
+      "adottaTurniRisvegliati",
+      "prov"
+    ],
+    "server/boot/relay.ts": [
+      "interruttoreRelay",
+      "relayLicenzaTimer",
+      "riga"
+    ],
+    "server/boot/routers-first.ts": [
+      "licenzaSvc",
+      "webrtcBridge"
     ],
     "server/browser-chromium-extensions.test.ts": [
       "NOMAN"
@@ -3462,6 +3534,10 @@
       "provB",
       "vero"
     ],
+    "server/providers/claude-code-session.ts": [
+      "certsDir",
+      "useTls"
+    ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
       "ppWithSidechain",
       "sidechain"
@@ -3478,9 +3554,7 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "certsDir",
-      "oneshotKey",
-      "useTls"
+      "oneshotKey"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -3666,6 +3740,14 @@
       "SilenceableTopic",
       "proj"
     ],
+    "server/routes/access-gate.ts": [
+      "codiceRifiuto",
+      "concessa",
+      "dettaglio",
+      "princ",
+      "principali",
+      "richiesto"
+    ],
     "server/routes/account.test.ts": [
       "MIGRAZIONI",
       "RADICE",
@@ -3793,26 +3875,11 @@
       "evalResult"
     ],
     "server/routes/chat.ts": [
-      "adoptWoken",
       "adottaTurnoVivo",
-      "avviso",
-      "cevt",
       "chatIdempotency",
-      "evt",
-      "haProdotto",
       "idempotencyKey",
       "idempotencySlot",
-      "inTok",
-      "isWoken",
-      "localhostScanCarry",
-      "localhostScanWindow",
-      "outTok",
-      "riprendeDaSolo",
-      "scartata",
-      "soloCompattazione",
-      "uevt",
-      "verdetto",
-      "vuota"
+      "isWoken"
     ],
     "server/routes/claude-hooks.ts": [
       "isLocalhost"
@@ -3848,6 +3915,9 @@
       "risposta",
       "scaduto",
       "toplevelProc"
+    ],
+    "server/routes/front-door.ts": [
+      "pathname"
     ],
     "server/routes/history.ts": [
       "prov"
@@ -3903,17 +3973,23 @@
       "primo",
       "secondo"
     ],
+    "server/routes/processes-detection.ts": [
+      "pcwd"
+    ],
+    "server/routes/processes-output.ts": [
+      "buf"
+    ],
+    "server/routes/processes-shells.ts": [
+      "esitoShellMorta",
+      "unregisterPreviewProcess"
+    ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "buf",
       "dpid",
-      "esitoShellMorta",
-      "pcwd",
       "rilevati",
-      "rilevato",
-      "unregisterPreviewProcess"
+      "rilevato"
     ],
     "server/routes/profile.ts": [
       "servizio"
@@ -3948,6 +4024,9 @@
     "server/routes/regenerate-evidence.ts": [
       "testo"
     ],
+    "server/routes/static-files.ts": [
+      "dentroProgetto"
+    ],
     "server/routes/status.ts": [
       "topicCountStmt"
     ],
@@ -3963,6 +4042,26 @@
       "esito",
       "migliore",
       "prov"
+    ],
+    "server/routes/tasks-checks-delivery.ts": [
+      "spente"
+    ],
+    "server/routes/tasks-intake.ts": [
+      "aggiornata",
+      "esc",
+      "fresca",
+      "migliore",
+      "prov",
+      "titoloInSottofondo"
+    ],
+    "server/routes/tasks-land.ts": [
+      "aperti",
+      "capturaConsegna",
+      "elenco"
+    ],
+    "server/routes/tasks-reap.ts": [
+      "capturaConsegna",
+      "nota"
     ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
@@ -3993,37 +4092,36 @@
       "vivo"
     ],
     "server/routes/tasks.ts": [
-      "aggiornata",
-      "aperti",
-      "capturaConsegna",
       "condivisi",
-      "elenco",
-      "esc",
-      "fresca",
       "giaScelto",
       "identita",
-      "miePath",
-      "migliore",
-      "nota",
-      "prov",
-      "spente",
-      "titoloInSottofondo"
+      "miePath"
+    ],
+    "server/routes/terminal-children.ts": [
+      "buf"
+    ],
+    "server/routes/terminal-queries.ts": [
+      "cbs"
+    ],
+    "server/routes/terminal-session-create.ts": [
+      "autoNameOpencodeSession",
+      "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/terminal.ts": [
-      "autoNameOpencodeSession",
-      "buf",
-      "cbs",
       "idemKey",
-      "idempotencyCache",
-      "sweepAutoNameOpencodeSessions"
+      "idempotencyCache"
+    ],
+    "server/routes/topics-tool-response.ts": [
+      "normalised",
+      "submittedAt"
+    ],
+    "server/routes/topics-ui-state.ts": [
+      "rec"
     ],
     "server/routes/topics.ts": [
       "detectLocalhostAutoNav",
       "localhostMatch",
-      "normalised",
-      "rec",
-      "stmt",
-      "submittedAt"
+      "stmt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"
@@ -4043,6 +4141,18 @@
       "corpo",
       "langField",
       "testo"
+    ],
+    "server/routes/ws-close.ts": [
+      "bset"
+    ],
+    "server/routes/ws-message.ts": [
+      "offeredSdp"
+    ],
+    "server/routes/ws-open.ts": [
+      "bset",
+      "inviaIniziale",
+      "ospiteWS",
+      "tipo"
     ],
     "server/services/agent-census.test.ts": [
       "coordTopic",
@@ -4540,8 +4650,26 @@
     "server/services/task-diff-range.ts": [
       "introducing"
     ],
+    "server/services/task-dispatcher-admission.ts": [
+      "gcap"
+    ],
     "server/services/task-dispatcher-cap-note.test.ts": [
       "nota"
+    ],
+    "server/services/task-dispatcher-claim.ts": [
+      "atteso",
+      "chiusa",
+      "dietro",
+      "posti",
+      "tappo",
+      "vivi"
+    ],
+    "server/services/task-dispatcher-core.ts": [
+      "untilHHMM"
+    ],
+    "server/services/task-dispatcher-events.ts": [
+      "dep",
+      "marcate"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
       "righe",
@@ -4557,11 +4685,41 @@
       "righe",
       "seedOrfana"
     ],
+    "server/services/task-dispatcher-kickoff.ts": [
+      "buildFanoutKickoff",
+      "langFor"
+    ],
+    "server/services/task-dispatcher-launch.ts": [
+      "gia"
+    ],
     "server/services/task-dispatcher-nudge.test.ts": [
       "INTERO",
       "processo",
       "riga",
       "seedOrfana"
+    ],
+    "server/services/task-dispatcher-reconcile.ts": [
+      "acceso",
+      "detta",
+      "nota",
+      "perche"
+    ],
+    "server/services/task-dispatcher-runs.ts": [
+      "unsubscribeHumanHold"
+    ],
+    "server/services/task-dispatcher-tick.ts": [
+      "fermi",
+      "fila",
+      "perche"
+    ],
+    "server/services/task-dispatcher-turn-end.ts": [
+      "lavoroNonCommittato",
+      "mossa",
+      "nienteDaVedere",
+      "sporchi"
+    ],
+    "server/services/task-dispatcher-usage.ts": [
+      "stillTriaging"
     ],
     "server/services/task-dispatcher.test.ts": [
       "ALTRA",
@@ -4592,33 +4750,6 @@
       "storico",
       "testi",
       "testo"
-    ],
-    "server/services/task-dispatcher.ts": [
-      "acceso",
-      "atteso",
-      "buildFanoutKickoff",
-      "chiusa",
-      "dep",
-      "detta",
-      "dietro",
-      "fermi",
-      "fila",
-      "gcap",
-      "gia",
-      "langFor",
-      "lavoroNonCommittato",
-      "marcate",
-      "mossa",
-      "nienteDaVedere",
-      "nota",
-      "perche",
-      "posti",
-      "sporchi",
-      "stillTriaging",
-      "tappo",
-      "unsubscribeHumanHold",
-      "untilHHMM",
-      "vivi"
     ],
     "server/services/task-intake.ts": [
       "STOPWORDS",
@@ -4658,6 +4789,9 @@
       "tagliato",
       "titolo",
       "titoloMigliore"
+    ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
     ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
@@ -4702,7 +4836,6 @@
       "figlio",
       "landata",
       "nuovo",
-      "requeued",
       "riga",
       "riletta",
       "vivo"
@@ -5005,11 +5138,7 @@
     ],
     "shared/board.ts": [
       "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN",
-      "PARKED_REQUEUED_TAIL",
-      "PARKED_REQUEUE_NOTE_LIKE",
-      "REQUEUE_PARKED_LABEL",
-      "isRequeueParkedLabel"
+      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5061,7 +5190,6 @@
       "isPreviewablePath"
     ],
     "shared/notify-actions.test.ts": [
-      "requeue",
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [

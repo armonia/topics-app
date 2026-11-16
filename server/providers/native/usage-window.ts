@@ -8,6 +8,7 @@
 // message does not tell them apart; the usage endpoint does.
 
 import { setProviderHold, clearProviderHold, providerHold, recordPlanUsage, type UsageWindowKind } from "../../lib/provider-hold";
+import { recoverAfter401 } from "./auth";
 import type { PlanUsage, PlanUsageWindow } from "../../../shared/provider-hold";
 
 export const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -68,12 +69,24 @@ export function observePlanUsage(usage: Usage | null, nowMs: number = Date.now()
 
 /** Read the windows with the session's OAuth token. Never throws: a usage
  *  endpoint that is down must not decide anything. */
-export async function fetchUsage(token: string, fetchImpl: typeof fetch = fetch): Promise<Usage | null> {
+export async function fetchUsage(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+  recover: (stale: string) => Promise<string | null> = recoverAfter401,
+): Promise<Usage | null> {
+  const read = (t: string) => fetchImpl(USAGE_URL, {
+    headers: { Authorization: `Bearer ${t}`, "anthropic-beta": "oauth-2025-04-20" },
+    signal: AbortSignal.timeout(10_000),
+  });
   try {
-    const res = await fetchImpl(USAGE_URL, {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(10_000),
-    });
+    let res = await read(token);
+    // An expired or revoked token (the CLI rotated the pair) is one re-read or
+    // renewal away from working: retry once with the recovered token.
+    if (res.status === 401) {
+      const fresh = await recover(token);
+      if (!fresh) return null;
+      res = await read(fresh);
+    }
     if (!res.ok) return null;
     return parseUsage(await res.json());
   } catch {

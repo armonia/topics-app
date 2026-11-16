@@ -110,6 +110,18 @@ describe("what is not a prompt, and a turn that waits for its background work", 
     expect(promptCount(lines)).toBe(1);
     expect(classifyChildTurn(lines, 1)).toEqual({ status: "completed", partial: false, text: "Callers: 3 files." });
   });
+
+  test("a Bash the CLI itself moved to the background past its timeout is still background work (13/11)", () => {
+    const lines = fixture("background-timeout");
+    const beforeNotification = lines.slice(0, 5);
+    // No run_in_background was asked for: only the tool_result's backgroundTaskId says so.
+    expect(classifyChildTurn(beforeNotification, 1)).toBeNull();
+    expect(pendingChildTurns(beforeNotification, idle)).toEqual([]);
+    expect(classifyChildTurn(lines, 1)).toEqual({ status: "completed", partial: false, text: "The three dots are on the page." });
+    expect(pendingChildTurns(lines, idle)).toEqual([{
+      turn: 1, outcome: { status: "completed", partial: false, text: "The three dots are on the page." },
+    }]);
+  });
 });
 
 describe("pendingChildTurns", () => {

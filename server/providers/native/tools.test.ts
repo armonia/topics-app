@@ -16,7 +16,7 @@
  * @covers RT-11
  */
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -133,6 +133,16 @@ function jpegWithLargeMetadata(width: number, height: number): Buffer {
   sof0.writeUInt16BE(height, 5); sof0.writeUInt16BE(width, 7); sof0[9] = 3;
   return Buffer.concat([Buffer.from([0xff, 0xd8]), app1(), app1(), sof0, Buffer.from([0xff, 0xd9])]);
 }
+
+describe("write_file into the OS scratch dir", () => {
+  test("a write under the temp dir is accepted even though it is outside the workspace", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tools-scratch-"));
+    const target = join(dir, "note.txt");
+    const r = await executeTool("write_file", { path: target, content: "hi" }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(readFileSync(target, "utf-8")).toBe("hi");
+  });
+});
 
 describe("read_file outside the workspace: only a raster image, only as an image", () => {
   const outsideDir = mkdtempSync(join(tmpdir(), "tools-perimeter-"));

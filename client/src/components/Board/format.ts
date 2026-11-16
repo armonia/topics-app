@@ -212,7 +212,10 @@ export const fmtUsd = (cents: number | null | undefined, locale: string): string
 };
 
 export const fmtTok = (n: number): string =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  n >= 1_000_000 ? `${trimZero(n / 1_000_000)}M` : n >= 1000 ? `${trimZero(n / 1000)}k` : String(n);
+
+/** One decimal, without a trailing «.0»: «40k», «1.2k». */
+const trimZero = (x: number): string => x.toFixed(1).replace(/\.0$/, '');
 
 /** Keep the selected model and version recognizable in task chips. */
 export const fmtModel = (m: string | null | undefined): string => {
