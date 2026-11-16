@@ -15,6 +15,8 @@ export interface SettleRemoteChildInput {
   /** The parent's own checkout, where the branch is adopted. */
   repoPath: string;
   branch: string;
+  /** The branch the node delivered under (`report.deliveryBranch`): the head its bundle holds. */
+  deliveredBranch?: string | null;
   fetchBundle: () => Promise<BundleResult>;
   run?: GitRunner;
 }
@@ -30,7 +32,7 @@ export async function settleRemoteChildBranch(input: SettleRemoteChildInput): Pr
     return { ok: false, reason: `the bundle did not arrive from the node: ${err instanceof Error ? err.message : String(err)}` };
   }
   if (bundle.empty) return { ok: false, reason: "the node answered with no branch bundle" };
-  const planted = await plantCarriedBranch(repoPath, branch, bundle.bytes, input.run);
+  const planted = await plantCarriedBranch(repoPath, branch, bundle.bytes, input.run, input.deliveredBranch || branch);
   if (!planted.ok) return { ok: false, reason: `branchBundle: ${planted.reason}` };
   return adoptCarriedBranch({ repoPath, branch, run: input.run });
 }

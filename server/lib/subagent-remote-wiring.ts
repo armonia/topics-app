@@ -170,7 +170,7 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       }
       if (row.branch) {
         const settled = await settleRemoteChildBranch({
-          repoPath: row.cwd, branch: row.branch,
+          repoPath: row.cwd, branch: row.branch, deliveredBranch: report.deliveryBranch,
           fetchBundle: () => r.fetchBundle({ baseUrl, token, runId }),
         });
         if (!settled.ok) {
