@@ -208,7 +208,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // The human board routes live in tasks-board.ts; same closure values, passed by name.
   const boardRoutes = createBoardRoutes({
     ctx, dispatcher, opts, matchRoute, json, readJSON, broadcastToAll, svc, scheduledCards: opts?.scheduledCards, askRouting, landings,
-    emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery,
+    emitReviewReadyEdge, titoloInSottofondo, resolveBoardId, sweepRemoteDelivery, captureDelivery, capturaConsegna,
     triggerUrlProbe, cutLiveTurn, enqueueLand, enqueueLandOnDone, enterCiPhase, landDirect, proposeDeployIfConfigured, runDeploy,
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });

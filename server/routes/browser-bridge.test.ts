@@ -306,10 +306,10 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
     const byId = await h.post("/api/topics/t1/browser/focus-pane");
     const bySession = await h.post("/api/sessions/topic%3At1/browser/focus-pane");
 
-    expect(await byId!.json()).toEqual({ ok: true, contextId: "t1" });
+    expect(await byId!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
     // La sessionKey arriva percent-encoded dal sottoprocesso MCP: senza
     // decodifica `topic%3At1` non troverebbe nessuna topic e finirebbe in 404.
-    expect(await bySession!.json()).toEqual({ ok: true, contextId: "t1" });
+    expect(await bySession!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
   });
 
   test("un pannello già aperto vince sull'id della topic (browserState.contextId)", async () => {
@@ -318,7 +318,7 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
 
     const resp = await h.post("/api/topics/t1/browser/focus-pane");
 
-    expect(await resp!.json()).toEqual({ ok: true, contextId: "ctx-esistente" });
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "ctx-esistente", mounted: true });
   });
 
   test("terminale: la sessionKey che non è di nessuna chat diventa term-<id>, non un 404", async () => {
@@ -327,7 +327,7 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
 
     const resp = await h.post("/api/sessions/term-abc/browser/focus-pane");
 
-    expect(await resp!.json()).toEqual({ ok: true, contextId: "term-term-abc" });
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "term-term-abc", mounted: true });
   });
 
   test("sessione senza chat né terminale ⇒ 404 che dice come uscirne", async () => {
@@ -348,6 +348,46 @@ describe("risoluzione del contesto — le tre provenienze di un contextId", () =
     // La forma :id parla di topic: se la topic non c'è la richiesta è sbagliata,
     // non «prova anche fra i terminali».
     expect(resp!.status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// focus-pane: a headless context no window shows must end up MOUNTED from
+// here, not just signalled to a listener that isn't there (card 6e893f97:
+// `open_browser_pane` + `browser_focus_tab` answered "NO visible pane is
+// mounted" and the page stayed invisible on both desktop and web).
+// ---------------------------------------------------------------------------
+describe("focus-pane — deve MONTARE il pannello, non solo segnalarlo", () => {
+  test("nessuna pane si aggancia al broadcast ⇒ ripiego force-open con l'URL vivo del contesto", async () => {
+    const h = harness({ paneAttached: false, liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "t1", mounted: false });
+    expect(h.typed("browser:focus-pane")).toEqual([{ type: "browser:focus-pane", contextId: "t1" }]);
+    expect(h.typed("browser:force-open")).toEqual([
+      { type: "browser:force-open", contextId: "t1", url: "https://example.com/admin" },
+    ]);
+  });
+
+  test("il ripiego funziona: la pane si aggancia dopo force-open ⇒ mounted true", async () => {
+    const h = harness({ paneAttached: "dopo-force-open", liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    const resp = await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(await resp!.json()).toEqual({ ok: true, contextId: "t1", mounted: true });
+    expect(h.typed("browser:force-open")).toHaveLength(1);
+  });
+
+  test("una finestra prende già il broadcast ⇒ nessun force-open (il ripiego non raddoppia i pannelli)", async () => {
+    const h = harness({ liveUrls: { t1: "https://example.com/admin" } });
+    h.addTopic("t1");
+
+    await h.post("/api/topics/t1/browser/focus-pane");
+
+    expect(h.typed("browser:force-open")).toEqual([]);
   });
 });
 

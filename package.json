@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.4.26",
+  "version": "2.4.28",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -110,6 +110,7 @@
     "worktrees:orphans": "bun run scripts/worktree-orphans.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
+    "review:open-prs": "bun run scripts/review-open-prs.ts",
     "report:webcontent": "bun run scripts/webcontent-owners.ts",
     "report:branches": "bun run scripts/branch-audit.ts",
     "report:landed": "bun run scripts/check-done-landed.ts",

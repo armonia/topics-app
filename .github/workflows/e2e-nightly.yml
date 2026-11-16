@@ -215,7 +215,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-nightly-shard-${{ matrix.shard }}
-          path: test-results/html-report
+          # `--reporter=line,json` sostituisce i reporter del config, html compreso:
+          # `html-report` non esisteva mai e l'upload diceva «No files were found» a
+          # ogni notte rossa (run 43857847933). Video, trace e screenshot dei rossi
+          # stanno in `artifacts/`, ed è lì che si guarda un test che cade.
+          path: |
+            test-results/html-report
+            test-results/artifacts
+          if-no-files-found: warn
           # 3, non 7: questi report pesano fino a 35 MB l'uno e un rosso si guarda entro il
           # giorno — tre giorni sono gia' larghi. NON e' una misura anti-quota, per quanto il
           # commento qui dicesse il contrario fino al 16/08: topics-app e' un repo PUBBLICO,

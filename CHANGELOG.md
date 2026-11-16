@@ -2,6 +2,26 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.27 — 2026-11-16
+
+### Correzioni
+- **browser** · focus-pane mounts the panel with the same force-open fallback as open-pane
+- approve re-captures a missing delivery_commit before deciding CI
+
+### Sotto il cofano
+- a reload during a server restart gets one more reload once the server answers (card 10e0dd3d) (#1158)
+- La nightly rossa caricava un report che non esiste: ora carica video, trace e screenshot dei test che cadono (#1161)
+- worktree-gc: keep worktrees of running or recently ended sub-agents (#1164)
+- E2E time slack: discount the load two Playwright processes per runner add by design (#1141)
+- **browser** · move focus-pane mount flow into browser-bridge-focus to keep browser-bridge under the bloat limit
+- Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)
+- Split server/services/tasks.ts into tasks/ sibling modules by responsibility (#1165)
+- Usage read: say why the plan usage is unreadable (expired token, endpoint refusal) (#1178)
+- Delegation nudge: count wait_for_process and browser_eval as inline work, drop the last-step exit (#1177)
+- topics/cryptic-chimera (card 638aa944) (#1171)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-16 [skip ci]
+- topics/precise-marsh (card b89ed087) (#1183)
+
 ## 2.4.26 — 2026-11-16
 
 ### Sotto il cofano
@@ -68,6 +88,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
 - **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
 - **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **usage** · a 401 on the plan usage read recovers the OAuth token once and retries
 - **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
 
 ### Sotto il cofano
@@ -204,6 +225,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tray** · machine card flat-detail condition compiles
 
 ### Sotto il cofano
+- needs_input and name-only assignee are readable on the card, not only in tooltips
+- a needs_input card shows the agent's actual question (human_ask) on the card, generic line only when none
+- no-reason needs_input says 'Question not recorded' instead of claiming a thread question
+- card-assignee governed by task.assignedTo
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
 - topics/cheery-orbit (card 475724bc) (#868)
 - **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
@@ -246,6 +271,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - mark quoted menu wording in comments
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
+- audit dell'header della board a quattro larghezze
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
 - mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)

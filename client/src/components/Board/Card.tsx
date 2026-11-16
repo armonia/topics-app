@@ -1547,7 +1547,16 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             ><AlarmClock className="h-3 w-3 shrink-0" /> {plannedChip.label}</span>
           )}
-          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {/* When the conductor closes the card, the assignee is only a name on
+              it: say so in the chip itself (visible on touch), not in a tooltip. */}
+          {task.assignedTo && (
+            <span
+              data-testid="card-assignee"
+              data-closes={conductorCloses ? 'conductor' : undefined}
+              title={tr(conductorCloses ? 'board.card.assigneeNameOnlyTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })}
+              className={`rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
+            >@{task.assignedTo}{conductorCloses ? ` · ${tr('board.card.assigneeNameOnly')}` : ''}</span>
+          )}
           {dueChip && (
             <span
               data-testid="card-due-date"
@@ -2056,6 +2065,18 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}
       {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mt-1" />}
+      {/* "Needs you" with no recorded reason: say in words what we DO know (the
+          agent asked for a person) without inventing the question,
+          which lives in the thread. The card is the button that opens it. */}
+      {task.status === 'review' && task.dispatchState === 'needs_input' && !task.dispatchError && (
+        <p
+          data-testid="card-needs-input-why"
+          data-source={task.humanAsk ? 'human-ask' : 'generic'}
+          className="mt-1 line-clamp-3 break-words text-compact md:text-mini leading-snug text-app-text-muted"
+        >
+          {task.humanAsk ? task.humanAsk : tr('board.card.needsInputWhy')}
+        </p>
+      )}
       {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
           out) kept its reason in the chip's tooltip, invisible on touch, and
           offered no gesture: the way back was guessing that a drag to Todo

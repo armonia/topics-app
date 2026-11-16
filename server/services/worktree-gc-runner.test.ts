@@ -147,6 +147,19 @@ describe("le cartelle vive fermano la potatura", () => {
     expect(toccati).toEqual([]);
   });
 
+  it("a sub-agent row keeps its worktree while running and for 24h after it ended", async () => {
+    const run = async (state: string, endedAgoH: number | null) => {
+      const f = fakeDeps({ worktreeStore: { list: () => [readyRow("w1", "/tmp/wt/w1")] } });
+      const ended = endedAgoH === null ? null : new Date(Date.now() - endedAgoH * 3600_000).toISOString();
+      f.db.run("CREATE TABLE IF NOT EXISTS subagents (id TEXT, cwd TEXT, state TEXT, ended_at TEXT)");
+      f.db.run("INSERT INTO subagents (id, cwd, state, ended_at) VALUES ('a', '/tmp/wt/w1', ?, ?)", [state, ended]);
+      return (await createWorktreeGcRunner(f.deps).runWorktreeGc())!.keptReasons["sessione viva nella cartella"];
+    };
+    expect(await run("running", null)).toBe(1);
+    expect(await run("retired", 2)).toBe(1);
+    expect(await run("retired", 30)).toBeUndefined();
+  });
+
   it("a chat topic mid-turn keeps its worktree; without the topic the same one is reaped", async () => {
     const mk = (withTopic: boolean, active: boolean) => {
       const f = fakeDeps({
