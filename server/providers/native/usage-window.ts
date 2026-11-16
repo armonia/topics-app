@@ -84,10 +84,16 @@ export async function fetchUsage(
     // renewal away from working: retry once with the recovered token.
     if (res.status === 401) {
       const fresh = await recover(token);
-      if (!fresh) return null;
+      if (!fresh) {
+        console.warn("[usage] the OAuth token is expired and could not be renewed: the plan usage is unreadable until a new /login");
+        return null;
+      }
       res = await read(fresh);
     }
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[usage] the usage endpoint answered ${res.status}: the plan usage is unreadable`);
+      return null;
+    }
     return parseUsage(await res.json());
   } catch {
     return null;
