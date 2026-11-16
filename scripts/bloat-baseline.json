@@ -481,7 +481,7 @@
     },
 
     "scripts/check-route-shadowing.ts": {
-      "lines": 1417,
+      "lines": 1434,
       "why": [
         "2026-10-25, measured on the file after main was merged in: 1428 on the branch -> 1417, the KNOWN entry #425 removed on main (1006 there).",
         "2026-10-24, the round-3 fix measured row by row against main: 1345 -> 1358, a parameter is the request only for the function it belongs to (not a factory around the router, not a helper inside what is read), types and method names are not reads, a try that leaves through its catch keeps its winner, a body that refuses with !== and a clause entered past a statement stay unknown as on main, and snake_case, allow and throw read as check verbs; the callback rule goes. Same walk, so it stays in this file.",
@@ -490,8 +490,6 @@
         "2026-10-24, route-shadowing-gate (PR #424): 505 on main -> 1017, the check inside one router (findInnerShadows): it follows one request per method through the router's code (pathname and method only when they are the request's parameters, every name looked up the way the language scopes it, the earlier condition evaluated on the literal path, any return, throw, break or continue as leaving, a switch whose every case leaves, a match bound through a ternary on the method, a gate with no path test as the reason a method is not served, the methods the literal's own ifs, case or body refuse or switch on). It shares the path helpers and KNOWN with the claims, so it stays in this file."
       ]
     },
-
-    "server.ts": 7718,
 
     "server/attention/store.ts": {
       "lines": 1292,
@@ -600,7 +598,7 @@
 
     "server/routes/tasks.ts": 1498,
 
-    "server/routes/terminal.ts": 1147,
+    "server/routes/terminal.ts": 1201,
 
     "server/routes/topics.control.test.ts": 869,
 
@@ -616,13 +614,13 @@
 
     "server/services/relay-client.ts": 1300,
 
-    "server/services/review-checks-brakes.test.ts": 1000,
+    "server/services/review-checks-brakes.test.ts": 1001,
 
     "server/services/review-checks.ts": 997,
 
     "server/services/task-automerge.test.ts": 1068,
 
-    "server/services/task-automerge.ts": 1699,
+    "server/services/task-automerge.ts": 1707,
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
@@ -639,7 +637,7 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1312,
+      "lines": 1317,
       "why": [
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
@@ -660,7 +658,7 @@
 
     "server/services/tasks.test.ts": 2857,
 
-    "server/services/tasks.ts": 7523,
+    "server/services/tasks.ts": 7536,
 
     "server/services/worktree-gc.test.ts": 919,
 
