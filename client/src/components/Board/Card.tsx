@@ -67,6 +67,8 @@ import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
 import { creatorChip, incompleteChip } from './createdByLabel';
 import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
+import { channelChip } from './channelChip';
+import { ChannelChipView } from './ChannelChipView';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
 import { STATUS_CHIP, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { BoardCommandHint } from './BoardCommandHint';
@@ -1092,6 +1094,8 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   const runInitiator = runInitiatorName(task);
   // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
   const creator = creatorChip(task, tr);
+  // WHICH Jarvis channel the work came from (Discord, WhatsApp), one click from its chat.
+  const channel = channelChip(task, tr);
   const incomplete = incompleteChip(task, tr);
   // LA RIGA DEI CHIP ESISTE SE C'È ALMENO UN CHIP, e questo elenco è la lista
   // di quelli possibili: chi ne aggiunge uno e non lo scrive qui ottiene un
@@ -1104,7 +1108,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
   const dueChip = dueDateChip(task, tr, Date.now(), locale);
   const plannedChip = scheduledChip(task, tr, locale);
-  const hasMetaRow = !compact && !!(creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !compact && !!(channel || creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1563,6 +1567,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             >{task.lastActorPersonName}</span>
           )}
           {creator && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
             <span
@@ -1623,8 +1628,10 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
       {/* COMPACT: of the whole band only the live facts stay, the ones that say
           the card cannot move (blocker) or that a person is awaited (review age).
           After the band in the source, so the band's chips keep their order. */}
-      {compact && (blockedChip || attesa || plannedChip) && (
+      {compact && (channel || creator?.jarvis || blockedChip || attesa || plannedChip) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
+          {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+          {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {plannedChip && (
             <span
               data-testid="card-scheduled"

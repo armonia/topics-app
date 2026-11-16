@@ -77,6 +77,7 @@
         // the result into public/ only once whole. Nobody imports it - it is a
         // command - but its publishing rules live next to it in
         // `build-client-publish.ts`, which its test does import.
+        "scripts/backfill-card-channel.ts!", // lancio a mano: bun run scripts/backfill-card-channel.ts [--apply] (collega le card aperte al canale di Jarvis)
         "scripts/build-client.ts!",
         "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
         "scripts/assert-sig.ts!", // invoked by .github/workflows/tauri-release.yml (publish job)
