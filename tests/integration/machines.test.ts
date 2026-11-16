@@ -161,6 +161,7 @@ describe("Phase D · multi-machine", () => {
       readRun: async () => { throw new Error("not in this test"); },
       fetchBundle: async () => { throw new Error("not in this test"); },
       cancelRun: async () => { throw new Error("not in this test"); },
+      codingModels: async () => { throw new Error("not in this test"); },
     };
     ctx.nodeClient = fakeNode;
     const router = createMachinesRouter(ctx);
@@ -238,6 +239,7 @@ describe("Phase D · multi-machine", () => {
       readRun: async () => { throw new Error("not in this test"); },
       fetchBundle: async () => { throw new Error("not in this test"); },
       cancelRun: async () => { throw new Error("not in this test"); },
+      codingModels: async () => { throw new Error("not in this test"); },
     };
     const router = createMachinesRouter(ctx);
     const codes: string[] = [];

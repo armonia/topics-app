@@ -291,6 +291,18 @@ describe("node-client · corse", () => {
     expect(JSON.parse(String(calls[0].init.body))).toEqual(body);
   });
 
+  test("codingModels: only the ready Claude coding runtimes of the node, with its token", async () => {
+    const { fetch, calls } = fakeFetch([jsonResponse({ providers: [
+      { name: "claude-code", status: "ready", models: ["claude-haiku-5-5", "claude-opus-5"] },
+      { name: "topics", status: "ready", models: ["claude-opus-5", "claude-sonnet-5"] },
+      { name: "codex", status: "ready", models: ["gpt-5.4"] },
+      { name: "claude", status: "loading", models: ["claude-haiku-4-5"] },
+    ] })]);
+    expect(await client(fetch).codingModels({ baseUrl: BASE, token: TOKEN })).toEqual(["claude-haiku-5-5", "claude-opus-5", "claude-sonnet-5"]);
+    expect([calls[0]!.init.method, calls[0]!.url]).toEqual(["GET", `${BASE}/api/providers/snapshot`]);
+    expect(headerOf(calls[0]!, "cookie")).toBe(`topics_device=${TOKEN}`);
+  });
+
   test("readRun senza cursore non manda nessuna query", async () => {
     const { fetch, calls } = fakeFetch([jsonResponse({ status: "working", comments: [] })]);
     await client(fetch).readRun({ baseUrl: BASE, token: TOKEN, runId: "run-9" });
