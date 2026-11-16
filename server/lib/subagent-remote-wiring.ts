@@ -47,7 +47,7 @@ export interface SpawnRemoteChildAttemptInput {
 export const SETTLE_TRIES = 12;
 
 const BROWSER_WORK = /\bbrowser\b|\bplaywright\b|\bchrome\b|\bsafari\b|\bscreenshot\b|\bbrowser_\w+/i;
-const JARVIS_WORK = /\bjarvis\b|\bopenclaw\b|\bimessage\b|\bwhatsapp\b|\bgmail\b|\bcalendar\b/i;
+const JARVIS_WORK = /\bjarvis\b|\bimessage\b|\bwhatsapp\b|\bgmail\b|\bcalendar\b/i;
 const SESSION_WORK = /\bsession_(list|read|send)\b|\btopics-term\b|\btmux\b/i;
 
 /**
