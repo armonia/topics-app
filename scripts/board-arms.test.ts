@@ -15,6 +15,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { readDispatcherSource } from "../tests/helpers/dispatcher-source";
 import {
   ARM_IDS,
   ARMS_FILE,
@@ -31,10 +32,8 @@ import {
 } from "./board-arms";
 
 const REPO = resolve(import.meta.dir, "..");
-// The dispatcher's prompt text lives across the dispatcher and its support module.
-const dispatcherSrc = ["server/services/task-dispatcher.ts", "server/services/task-dispatcher-support.ts"]
-  .map((file) => readFileSync(join(REPO, file), "utf8"))
-  .join("\n");
+// The dispatcher's prompt text lives across the dispatcher and its sibling modules.
+const dispatcherSrc = readDispatcherSource();
 
 describe("replica dell'envelope di dispatch", () => {
   it("ogni frase-ancora esiste ancora nel dispatcher", () => {
