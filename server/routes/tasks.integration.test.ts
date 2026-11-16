@@ -28,7 +28,7 @@ const MERGED = {
 describe("the CI phase", () => {
   let db: Database; let svc: TaskService;
   let verdicts: Array<IntegrationMeasure["verdict"]>; let measured: string[][]; let merges: string[];
-  let commit = "abc1234";
+  let commit: string | null = "abc1234";
   let between: string[] | null = [];
   let landSkips = false;
   let measureGate: Promise<void> = Promise.resolve();
@@ -207,6 +207,11 @@ describe("the CI phase", () => {
     const s = await setup();
     await s.deliver();
     db.prepare("UPDATE tasks SET delivery_commit = NULL WHERE id = ?").run(s.id);
+    // Approve re-asks git before giving up on the CI phase (e73d7a2d, 16/11):
+    // `commit` must answer the same "nothing of its own" the row was just set
+    // to, or the recapture would just restore the real commit above and this
+    // would stop testing the "verified empty" case it is named for.
+    commit = null;
     const r = (await call(s.router, "POST", `/api/boards/${s.projectId}/tasks/${s.id}/review`, { decision: "approve" }))!;
     expect(r.status).toBe(200);
     expect(s.read().stage).toBeUndefined();
