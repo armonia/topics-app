@@ -109,7 +109,14 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
 fn native_rows() {
     let Ok(dir) = std::env::var("TRAY_MENU_NATIVE_SNAPSHOT") else { return };
     let base = std::env::var("TRAY_MENU_HUB").unwrap_or_else(|_| crate::tray_quota::hub_base());
-    let snap = crate::tray_menu::Snapshot::fetch(&base, None);
+    let mut snap = crate::tray_menu::Snapshot::fetch(&base, None);
+    // TRAY_MENU_NATIVE_MACHINES=<file>: an /api/machines answer in place of the live one
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_MACHINES") {
+        snap.machines = Some(std::fs::read_to_string(f).unwrap());
+    }
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_BOARD") {
+        snap.board = Some(std::fs::read_to_string(f).unwrap());
+    }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
     let machines = crate::tray_menu_rich::machines_for(&[], &snap);
     for (name, dark) in [("dark", true), ("light", false)] {
@@ -118,6 +125,15 @@ fn native_rows() {
         let first = menu.iter().find_map(|n| if let Node::Card { children, .. } = n { Some(children.clone()) } else { None }).unwrap_or_default();
         std::fs::write(format!("{dir}/native-top-{name}.png"), unsafe { render(&menu, dark) }).unwrap();
         std::fs::write(format!("{dir}/native-mac-{name}.png"), unsafe { render(&first, dark) }).unwrap();
+        // every machine: its card alone and its submenu, side by side they must read the same
+        for n in &menu {
+            if let Node::Card { key, children, .. } = n {
+                if let Some(id) = key.strip_prefix("machine:") {
+                    std::fs::write(format!("{dir}/card-{id}-{name}.png"), unsafe { render(std::slice::from_ref(n), dark) }).unwrap();
+                    std::fs::write(format!("{dir}/sub-{id}-{name}.png"), unsafe { render(children, dark) }).unwrap();
+                }
+            }
+        }
     }
 }
 
