@@ -70,8 +70,8 @@ export function macOnlyResourceOf(prompt: string, agentType: string | null): Mac
 
 /**
  * What the child answered, out of the node's card comments: the agent's delivery, else its
- * last word. The node's own services write after it (16/11: «Anteprima: non allegata» from
- * the verifier was the last comment, and the parent read that as the child's answer).
+ * last word. The node's own services write after it (16/11: the verifier's "preview not
+ * attached" note was the last comment, and the parent read that as the child's answer).
  */
 export function childAnswerOf(comments: readonly NodeRunComment[]): string {
   const byAgent = comments.filter((c) => c.author.startsWith("agent:") && c.kind !== "status");
