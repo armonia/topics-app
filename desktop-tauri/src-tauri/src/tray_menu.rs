@@ -51,6 +51,7 @@ pub enum Table {
 /// The widest a tab stop may go: `menuTextMax` of the original tray (540 - 104). AppKit puts about 103 pt of
 /// image and margins around a row's text, and past this the menu grows wider than its cards; the original
 /// itself notes that beyond ~460 the menu clips (ClaudeUsage.swift, agents table).
+#[cfg(test)]
 pub const TAB_MAX: f64 = 436.0;
 
 impl Table {
@@ -112,25 +113,6 @@ pub(crate) fn verdict_row(text: impl Into<String>, under: Option<String>) -> Nod
 pub(crate) fn cell(text: impl Into<String>) -> String {
     let t: String = text.into();
     if t.trim().is_empty() { "–".into() } else { t }
-}
-
-/// Greedy word wrap at `width` characters, the way the original tray wraps its notes.
-pub(crate) fn wrap_words(text: &str, width: usize) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for w in text.split_whitespace() {
-        if !cur.is_empty() && cur.chars().count() + 1 + w.chars().count() > width {
-            lines.push(std::mem::take(&mut cur));
-        }
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(w);
-    }
-    if !cur.is_empty() {
-        lines.push(cur);
-    }
-    lines.join("\n")
 }
 
 /// `node` with the icon `spec` at the start of its row, as the original tray draws it.
@@ -851,7 +833,9 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
         let (method, path, label, machine, confirm) = (f.next()?, f.next()?, f.next()?, f.next()?, f.next()?);
         // Only the service's own commands, only the verbs it uses.
         let method = ["POST", "DELETE", "PUT"].into_iter().find(|m| *m == method)?;
-        return path.starts_with("/api/").then(|| Action::ConfirmedHttp { label: label.into(), machine: machine.into(), confirm: confirm.into(), method, path: path.into() });
+        // The service may give no sentence: the dialog still asks, with the command's own name.
+        let confirm = if confirm.trim().is_empty() { format!("{label}?") } else { confirm.to_string() };
+        return path.starts_with("/api/").then(|| Action::ConfirmedHttp { label: label.into(), machine: machine.into(), confirm, method, path: path.into() });
     }
     if id == "dashboard-open" {
         return Some(Action::OpenUrl(crate::tray_quota::hub_base()));

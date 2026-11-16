@@ -321,6 +321,13 @@ fn a_command_that_is_not_the_services_own_is_refused() {
 }
 
 #[test]
+fn a_command_without_a_sentence_still_asks_before_it_calls() {
+    let id = crate::tray_menu::machine_action_id("M", "POST", "/api/x", "Spegni tutti", "");
+    let Some(crate::tray_menu::Action::ConfirmedHttp { confirm, .. }) = action_for(&id, &None) else { panic!("not a confirmed call") };
+    assert_eq!(confirm, "Spegni tutti?");
+}
+
+#[test]
 fn the_finder_of_a_machine_opens_the_processes_view_of_the_client() {
     assert_eq!(action_for("machine-open:hetzner", &None), Some(crate::tray_menu::Action::OpenProcesses));
     assert_eq!(action_for("machine-open:local", &None), Some(crate::tray_menu::Action::OpenProcesses));
