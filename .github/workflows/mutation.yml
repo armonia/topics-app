@@ -1,14 +1,14 @@
 name: Mutation (indice solido)
 
-# L'indice «solido»: il mutation score dei moduli critici (scripts/mutation-critical.ts).
-# Gira ogni notte su main e sulle PR che toccano quei moduli o i loro test. Rosso se un
-# modulo scende sotto la sua baseline (scripts/mutation-baseline.json). Di notte, se uno
-# sale, la baseline sale con lui e il commit va su main: il ratchet si stringe da solo.
-# quality-bar legge l'ultimo giro finito su main (misura `mutation-main`).
+# The "solido" index: the mutation score of the critical modules (scripts/mutation-critical.ts).
+# Runs every night on main and on PRs that touch those modules or their tests. Red when a
+# module falls under its baseline (scripts/mutation-baseline.json). At night, when one rises,
+# the baseline follows it onto main: the ratchet tightens by itself.
+# quality-bar reads the last finished run on main (measure `mutation-main`).
 
 on:
   schedule:
-    - cron: "41 2 * * *" # 02:41 UTC, prima dell'e2e notturno
+    - cron: "41 2 * * *" # 02:41 UTC, before the nightly e2e
   workflow_dispatch:
   pull_request:
     paths:
@@ -55,19 +55,16 @@ jobs:
       - name: Rebuild node-pty (Linux)
         run: npm rebuild node-pty
 
-      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+      - name: Restore the +x bit on spawn-helper (postinstall was skipped)
         run: bun run scripts/fix-node-pty-exec-bit.ts
 
-      - name: I moduli del recinto e quelli del filtro pull_request coincidono
-        run: bun run scripts/check-mutation.ts --paths-match .github/workflows/mutation.yml
-
-      - name: Stryker sui moduli critici
+      - name: Stryker on the critical modules
         run: bun run mutation --concurrency 4
 
-      - name: Ratchet contro la baseline
+      - name: Ratchet against the baseline
         run: bun run check:mutation
 
-      - name: Score salito, la baseline lo segue (solo di notte su main)
+      - name: Score rose, the baseline follows (main only, not PRs)
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           bun run check:mutation --update-baseline
@@ -75,8 +72,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git add scripts/mutation-baseline.json
-          git commit -m "mutation: la baseline segue gli score saliti stanotte"
-          git push origin HEAD:main || echo "::warning::main si e' mosso, la baseline sale al prossimo giro"
+          git commit -m "mutation: baseline follows the scores that rose tonight"
+          git push origin HEAD:main || echo "::warning::main moved, the baseline rises on the next run"
 
       - name: Report
         if: always()

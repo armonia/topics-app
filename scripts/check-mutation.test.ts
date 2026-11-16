@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { judge, overall, raised, scoresOf } from "./check-mutation.ts";
+import { judge, missingFromPaths, overall, raised, scoresOf } from "./check-mutation.ts";
 
 const report = (files: Record<string, string[]>) => ({
   files: Object.fromEntries(Object.entries(files).map(([f, s]) => [f, { mutants: s.map((status) => ({ status })) }])),
@@ -39,5 +39,16 @@ describe("check:mutation", () => {
   test("--update-baseline non abbassa mai", () => {
     const s = scoresOf(report({ "a.ts": ["Killed", "Survived"], "b.ts": ["Killed"] }));
     expect(raised(["a.ts", "b.ts"], s, { "a.ts": 80, "b.ts": 10 })).toEqual({ "a.ts": 80, "b.ts": 100 });
+  });
+
+  test("un modulo critico fuori dal filtro della PR viene detto", () => {
+    const wf = `    paths:\n      - "server/services/a*.ts"\n`;
+    expect(missingFromPaths(["server/services/a.ts", "server/services/b.ts"], wf)).toEqual(["server/services/b.ts"]);
+  });
+
+  test("il workflow vero copre tutti i moduli critici", async () => {
+    const { CRITICAL } = await import("./mutation-critical.ts");
+    const wf = await Bun.file(new URL("../.github/workflows/mutation.yml", import.meta.url)).text();
+    expect(missingFromPaths(CRITICAL.map((m) => m.source), wf)).toEqual([]);
   });
 });

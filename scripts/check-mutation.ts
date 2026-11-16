@@ -1,29 +1,29 @@
 #!/usr/bin/env bun
 /**
- * L'INDICE «SOLIDO»: quanta parte degli errori possibili i test prendono davvero.
+ * THE "SOLIDO" INDEX: how many of the possible bugs the tests actually catch.
  *
- * La copertura delle righe dice che una riga è stata eseguita, non che un errore
- * in quella riga farebbe diventare rosso qualcosa. Il mutation score sì: Stryker
- * rompe il codice apposta (stryker.config.mjs) e conta quante rotture la suite
- * prende. Score = (killed + timeout) / (killed + timeout + survived + no coverage).
- * I mutanti che non compilano o che si rompono da soli non contano né a favore né
- * contro: non provano niente.
+ * Line coverage says a line ran, not that a bug in it would turn anything red.
+ * The mutation score does: Stryker breaks the code on purpose (stryker.config.mjs)
+ * and counts how many of those breaks the suite catches.
+ * Score = (killed + timeout) / (killed + timeout + survived + no coverage).
+ * Mutants that do not compile or crash on their own count neither way: they
+ * prove nothing.
  *
- * PERCHÉ UN RATCHET. Come `check:bloat` e `check:any-budget`: si parte da dove
- * siamo, e il numero di ogni modulo può solo salire. Un modulo che scende è un
- * test indebolito o un ramo nuovo senza test, ed è rosso. Uno che sale stampa
- * la riga per fissarlo (`--update-baseline`), che non abbassa mai niente:
- * abbassare una soglia è una modifica a mano della baseline, che si vede in review.
+ * WHY A RATCHET. Like `check:bloat` and `check:any-budget`: start from where we
+ * are, and each module's number can only go up. A module that drops means a
+ * weakened test or a new branch without one, and it is red. One that rises
+ * prints the line to lock it in (`--update-baseline`), which never lowers
+ * anything: lowering a bar is a hand edit of the baseline, visible in review.
  *
- * Anche al 100% non è «certo»: prova che i test prendono ogni mutazione che
- * Stryker sa fare, non che il comportamento voluto sia quello giusto. Per quello
- * ci sono le spec (`check:spec-coverage`).
+ * Even 100% is not "certain": it proves the tests catch every mutation Stryker
+ * knows how to make, not that the intended behaviour is the right one. That is
+ * what the specs are for (`check:spec-coverage`).
  *
- * Uso:
- *   bun run check:mutation                    confronta reports/mutation/mutation.json con la baseline
- *   bun run check:mutation --update-baseline  fissa gli score saliti (mai quelli scesi)
- *   bun run check:mutation --report <file>    legge un altro report
- * Il report lo scrive `bun run mutation` (pesante: in CI gira nel job `mutation`).
+ * Usage:
+ *   bun run check:mutation                    compare reports/mutation/mutation.json with the baseline
+ *   bun run check:mutation --update-baseline  lock in the scores that rose (never the ones that fell)
+ *   bun run check:mutation --report <file>    read another report
+ * The report comes from `bun run mutation` (heavy: in CI it runs in the Mutation workflow).
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -39,7 +39,7 @@ const UNDETECTED = new Set(["Survived", "NoCoverage"]);
 export type FileScore = { detected: number; undetected: number; score: number };
 type Report = { files: Record<string, { mutants: { status: string }[] }> };
 
-/** Lo score di ogni file del report, in percento con un decimale. */
+/** Each file's score in the report, as a percentage with one decimal. */
 export function scoresOf(report: Report): Record<string, FileScore> {
   const out: Record<string, FileScore> = {};
   for (const [file, { mutants }] of Object.entries(report.files ?? {})) {
@@ -51,7 +51,7 @@ export function scoresOf(report: Report): Record<string, FileScore> {
   return out;
 }
 
-/** L'indice di tutto il recinto: mutanti presi su mutanti validi, non la media dei file. */
+/** The index of the whole scope: caught mutants over valid ones, not the mean of the files. */
 export function overall(scores: Record<string, FileScore>): number {
   const d = Object.values(scores).reduce((s, f) => s + f.detected, 0);
   const u = Object.values(scores).reduce((s, f) => s + f.undetected, 0);
@@ -61,9 +61,9 @@ export function overall(scores: Record<string, FileScore>): number {
 export type Verdict = { file: string; ok: boolean; line: string };
 
 /**
- * Ogni modulo critico contro la sua baseline. Rosso se manca nel report (non
- * misurato non è passato), se manca nella baseline (un modulo entra con il suo
- * numero), o se lo score è sceso.
+ * Every critical module against its baseline. Red if it is missing from the report
+ * (unmeasured is not passing), missing from the baseline (a module enters with its
+ * number), or if its score fell.
  */
 export function judge(
   critical: string[],
@@ -83,7 +83,7 @@ export function judge(
   });
 }
 
-/** La baseline nuova: per ogni modulo il massimo fra quella vecchia e lo score di oggi. */
+/** The new baseline: for each module the max of the old one and today's score. */
 export function raised(
   critical: string[],
   scores: Record<string, FileScore>,
@@ -106,6 +106,18 @@ function normalize(p: string): string {
 
 function round1(n: number): number {
   return Math.floor(n * 10) / 10;
+}
+
+/**
+ * The critical sources the workflow's `pull_request.paths` filter does NOT name.
+ * Without this, a module added to CRITICAL enters the nightly run but a PR that
+ * weakens it never starts the job: you find out the next morning, on a red main.
+ */
+export function missingFromPaths(critical: string[], workflowText: string): string[] {
+  const globs = [...workflowText.matchAll(/^\s*-\s*"([^"]+)"\s*$/gm)].map((m) => m[1]);
+  const matches = (file: string, glob: string) =>
+    new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*")}$`).test(file);
+  return critical.filter((f) => !globs.some((g) => matches(f, g)));
 }
 
 if (import.meta.main) {

@@ -1,9 +1,9 @@
 /**
- * I moduli su cui si misura il mutation score: quelli dove un errore che i test non
- * prendono costa davvero (un land che fonde il ramo sbagliato, una card lanciata a spese
- * di chi non doveva, un permesso concesso). Ogni voce: il sorgente da mutare e i file di
- * test che lo esercitano. Un modulo entra qui con il suo score di partenza nella baseline
- * (`bun run check:mutation --update-baseline`), e da lì può solo salire.
+ * The modules whose mutation score is measured: the ones where a bug the tests miss
+ * really costs (a land that merges the wrong branch, a card launched at the wrong
+ * account's expense, a permission granted). Each entry: the source to mutate and the
+ * test files that exercise it. A module enters with its starting score in the baseline
+ * (`bun run check:mutation --update-baseline`), and from there it can only go up.
  */
 export type CriticalModule = { source: string; tests: string[] };
 
