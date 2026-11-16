@@ -52,6 +52,8 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/lib/stt.ts", snippet: "Bun.spawn([cfg.ffmpegBin", why: "Bun's `timeout:` (a single process, no children)" },
   { file: "server/lib/warm-lister.ts", snippet: "Bun.spawn(opts.argv", why: "the warm shell: a request past `timeoutMs` kills it, `idleMs` without one stops it, and it ends with the server's stdin" },
   { file: "server/routes/e2e.ts", snippet: "Bun.spawn([process.execPath, \"-e\", script]", why: "e2e-only stand-in for a session's CLI: held until the test stops it or the server ends" },
+  { file: "server/boot/preview-delivery.ts", snippet: "const proc = Bun.spawn(cmd, { stdout: \"pipe\"", why: "preview identity probe (`lsof`): the timer on the next line kills it after `ms`" },
+  { file: "server/boot/preview-delivery.ts", snippet: "const child = Bun.spawn(cmd, {", why: "a preview's dev server: lives until the preview is stopped" },
   { file: "server/providers/native/image-normalize.ts", snippet: "promisify(execFile)", why: "declaration; the `sips` call has `timeout`" },
   { file: "server/integrations/chrome-cookies.ts", snippet: "promisify(execFile)", why: "declaration; the calls have `timeout`" },
 ];

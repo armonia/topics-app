@@ -29,6 +29,15 @@ export function carriedBranch(task: { deliveryBranch?: string | null; priorBranc
   return task.deliveryBranch?.trim() || task.priorBranch?.trim() || null;
 }
 
+/**
+ * The delivery commit of a node round that came back with nothing planted and
+ * no commit of its own: there is a delivery, and it is not in this checkout.
+ * No real commit has this id, so the land's `delivery-absent` check refuses it
+ * (otherwise `no-branch` or `priorBranch` would close the card over code that
+ * never arrived).
+ */
+export const UNPLANTED_DELIVERY_COMMIT = "0".repeat(40);
+
 export type BranchOnOrigin = { ok: true } | { ok: false; reason: string };
 
 /** The real git: bounded, no prompt for credentials (a prompt nobody answers is a hang). */
@@ -94,6 +103,9 @@ export async function bundleBranch(
   repoPath: string | null | undefined,
   branch: string,
   run: GitRunner = branchGit,
+  // How far behind the sender's origin/HEAD the receiver's checkout may be: 0 = the receiver
+  // has fetched at least as recently as the sender (the card lane's assumption).
+  marginCommits = 0,
 ): Promise<Uint8Array | null> {
   if (!repoPath || !isPlainBranchName(branch)) return null;
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
@@ -106,9 +118,16 @@ export async function bundleBranch(
     // The tip-only bundle is safe only when origin/HEAD exists and already holds
     // the parent: without it the node may lack the branch's history entirely.
     const hasOriginHead = (await run(repoPath, ["rev-parse", "--verify", "-q", "refs/remotes/origin/HEAD"])).code === 0;
-    const attempts = hasOriginHead
-      ? [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []]
-      : [[]];
+    // A margin leaves out only what origin's default held `marginCommits` back, so a node that
+    // has not fetched the newest commits still has every prerequisite.
+    const marginBase = marginCommits > 0 ? await originHeadAncestor(repoPath, marginCommits, run) : null;
+    const thin = [["--not", "refs/remotes/origin/HEAD"], ["--not", `${ref}~1`], []];
+    const attempts = !hasOriginHead
+      ? [[]]
+      : marginCommits === 0
+        ? thin
+        // With a margin the cut-at-origin/HEAD tries are what the node refuses: never them.
+        : marginBase ? [["--not", marginBase], []] : [[]];
     for (const not of attempts) {
       const made = await run(repoPath, ["bundle", "create", file, ref, ...not]);
       if (made.code === 0) return new Uint8Array(await readFile(file));
@@ -119,21 +138,43 @@ export async function bundleBranch(
   }
 }
 
-/** Plants a carried bundle as `carriedRef(branch)` in the node's checkout. */
+/**
+ * The first-parent ancestor `n` commits behind origin/HEAD. On a shorter history, null:
+ * the caller's next try (the whole history) then carries everything, which is small anyway.
+ */
+async function originHeadAncestor(repoPath: string, n: number, run: GitRunner): Promise<string | null> {
+  const r = await run(repoPath, ["rev-parse", "--verify", "-q", `refs/remotes/origin/HEAD~${n}`]);
+  return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+
+/**
+ * Plants a carried bundle as `carriedRef(branch)` in the node's checkout. `sourceBranch` is
+ * the bundle's own head when it differs: a node's run delivers under its worktree branch
+ * (`topics/<name>`), not under the `topics-child-<id>` the parent adopts (16/11: every child
+ * that came back was lost on "couldn't find remote ref").
+ */
 export async function plantCarriedBranch(
   repoPath: string,
   branch: string,
   bytes: Uint8Array,
   run: GitRunner = branchGit,
+  sourceBranch: string = branch,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
-  if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
+  if (!isPlainBranchName(branch) || !isPlainBranchName(sourceBranch)) return { ok: false, reason: "not a valid branch name" };
   const dir = await mkdtemp(join(tmpdir(), "topics-carry-"));
   try {
     const file = join(dir, "branch.bundle");
     await writeFile(file, bytes);
-    const verified = await run(repoPath, ["bundle", "verify", file]);
+    let verified = await run(repoPath, ["bundle", "verify", file]);
+    // The bundle leaves out what the sender's origin/HEAD holds. A node whose checkout has not
+    // fetched since then lacks those commits: one fetch of origin brings them (16/11, the PC
+    // refused every child with "lacks these prerequisite commits").
+    if (verified.code !== 0 && /prerequisite/i.test(verified.stderr ?? "")) {
+      await run(repoPath, ["fetch", "--no-tags", "-q", "origin"]);
+      verified = await run(repoPath, ["bundle", "verify", file]);
+    }
     if (verified.code !== 0) return { ok: false, reason: `invalid bundle: ${(verified.stderr ?? "").trim().slice(-120)}` };
-    const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${branch}:${carriedRef(branch)}`]);
+    const fetched = await run(repoPath, ["fetch", "--no-tags", file, `+refs/heads/${sourceBranch}:${carriedRef(branch)}`]);
     return fetched.code === 0 ? { ok: true } : { ok: false, reason: `fetch from bundle failed: ${(fetched.stderr ?? "").trim().slice(-120)}` };
   } finally {
     await rm(dir, { recursive: true, force: true });

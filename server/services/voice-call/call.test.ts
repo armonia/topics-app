@@ -35,6 +35,14 @@ describe("call prompts", () => {
     expect(opening(P, { kind: "outgoing", reason: " " })).toContain("cosa gli serve");
   });
 
+  test("a dropped line resumes the thread whoever called whoever, without saying who called back", () => {
+    for (const d of [{ kind: "incoming" as const }, { kind: "outgoing" as const, reason: "la riunione delle 15 è spostata alle 16" }]) {
+      const o = opening(P, d, true);
+      expect(o).toContain("è caduta la linea");
+      expect(o).not.toContain("ti ha richiamato");
+    }
+  });
+
   test("the tools are the handoff, the hang up and the speed; with the brain the ask tool replaces the handoff", () => {
     expect(names(tools({ kind: "incoming" }, P))).toEqual(["affida_a_jarvis", "chiudi_chiamata", "velocita"]);
     expect(systemPrompt(P, { kind: "incoming" }, "sabato")).toContain("chiudi_chiamata");
@@ -789,5 +797,20 @@ describe("call loop", () => {
     expect(w.first("capito_male")?.data.whisper).toBe("tu devi assegnare un compito a me");
     expect(w.first("azione_fermata")?.data.whisper).toBe("tu devi assegnare un compito a me");
     expect(w.handed).toEqual([]);
+  });
+
+  test("with the brain on, asking to repeat a phrase whisper understood is stopped too", async () => {
+    const w = new World({ brain: true, whisper: true });
+    await w.greet();
+    w.say(1500);
+    await w.advance(1600);
+    // the voice believes it misheard and decides on its own to ask to repeat,
+    // without calling the brain: whisper's transcript is the real one
+    w.main.emit({ type: "heard", text: "Tú debes leer completamente" });
+    w.main.emit({ type: "said", text: "Scusa, non ho capito bene, puoi ripetere?" });
+    await w.advance(1200);
+    for (const p of w.whispers) p.resolve({ ok: true, text: "puoi mandare la mail a Marco" });
+    await w.advance(100);
+    expect(w.first("capito_male")?.data.whisper).toBe("puoi mandare la mail a Marco");
   });
 });

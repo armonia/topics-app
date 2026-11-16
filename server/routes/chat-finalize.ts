@@ -1,4 +1,5 @@
 import { classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
+import { writeWhenFree } from "../lib/sqlite-busy";
 import { stripSlowAnnotation } from "./stream-markers";
 import { logStreamAborted, logStreamComplete, logStreamError, logStreamRecovered } from "../db/activity-log";
 import { recordTurnEnd } from "../providers/turn-end-registry";
@@ -429,7 +430,8 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
     }
 
     const latencyMs = Math.max(0, Date.now() - turn.turnStartMs - humanWait.totalMs());
-    const finalizedMsg = updateLastMessage(sessionKey, {
+    // Busy waits for the lock on its own (lib/sqlite-busy.ts); a free database stays synchronous.
+    const finalizedMsg = writeWhenFree(`final write of ${partialMsg.id}`, () => updateLastMessage(sessionKey, {
       content: turn.fullContent,
       thinking: turn.fullThinking || undefined,
       blocks: blocks.length > 0 ? blocks : undefined,
@@ -447,7 +449,7 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
       cacheReadTokens: turn.cacheReadTokens,
       cacheCreationTokens: turn.cacheCreationTokens,
       cacheCreation1hTokens: turn.cacheCreation1hTokens,
-    }, ownRow);
+    }, ownRow)) ?? null;
     // THE ROW IS NOW WHOLE: nothing may still owe it a write.
     // `clearAllTimers` runs at the TOP of this function, and everything
     // between there and here keeps touching the timeline (every tool

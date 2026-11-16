@@ -60,6 +60,12 @@ export interface SubagentRuntimeDeps {
   broadcast(): void;
   /** Where a result for a chat parent goes (`setSubAgentExitHandler`). */
   handler(): ((info: SubAgentExitInfo) => void) | null;
+  /**
+   * The machine's answer for ONE more child: the dispatcher's gate priced for
+   * a sub-agent (`childAdmissionPreview`). Null or absent = the machine cannot
+   * be measured, which lets the child through, as the dispatcher does.
+   */
+  machineRoom?(): { admit: boolean; reason: string } | null;
 }
 
 let configured: SubagentRuntimeDeps | null = null;
@@ -184,8 +190,12 @@ function resultOf(child: Pick<ChildRef, 'id' | 'name' | 'cwd'>, row: SubagentRow
 /**
  * One result of one turn, recorded once: the dedup advances (in memory and on
  * the row), then a foreground call collects it or it goes to the parent.
+ *
+ * Exported for a remote child (SUBAGENT-27/28, `routes/terminal.ts`): there is
+ * no transcript tick to notice its turn ended, only the node's own report on
+ * the run, so the route calls this itself once it reads the run as finished.
  */
-function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitCode: number | null): void {
+export function emitChildResult(parentSessionKey: string, result: SubAgentResult, exitCode: number | null): void {
   const key = resultKey(result);
   if (deliveredResultKeys.has(key)) return;
   deliveredResultKeys.add(key);
@@ -471,6 +481,10 @@ function reportLostChildren(): void {
     // A native child has no terminal to lose: its turn may have survived the
     // restart, and `native-subagents.ts` adopts it (`adoptNativeChildrenAtBoot`).
     if (row.runtime === "topics") continue;
+    // A child running on a node has no terminal here either: the node keeps working through
+    // this restart and the remote watch settles it (`subagent-remote-wiring.ts`). Stored with
+    // the default runtime, it was reported lost on every land's restart (16/11, 3 of 6 mid-run).
+    if (row.remoteMachineId) continue;
     reportChildEnd({
       id: row.id, name: row.name, createdAt: row.createdAt, cwd: row.cwd,
       claudeSessionId: row.claudeSessionId ?? undefined, parentSessionKey: row.parentSessionKey,
@@ -499,8 +513,16 @@ function sweepDormantChildRows(now = Date.now()): void {
 }
 
 
-/** Max live sub-agents on the whole machine (choice 4): every child is one more Claude CLI in RAM. */
-const MAX_LIVE_SUBAGENTS = 6;
+/**
+ * The machine-wide cap on children is memory, not a number.
+ *
+ * It was 6 (choice 4 of subagent-tool-standard, 01/10) when every child was a
+ * Claude CLI of ~300 MB. Since 04/10 children run on the engine at 40-60 MB:
+ * on 15/11 six native children, one of them working for six hours, held every
+ * slot with 22 GB free, and every chat that delegated got a 429. Now the cards'
+ * admission decides, priced for one child (`machineRoom`). Against a parent
+ * that keeps spawning, the 5 children per parent and the depth of 2 remain.
+ */
 
 /**
  * Why a new child of `parentKey` cannot start, or null (SUBAGENT-15). Counted
@@ -517,10 +539,10 @@ export function subagentLimitRefusal(parentKey: string, live: { depth: number; c
   }
   const mine = new Set([...runningSubagents(db, parentKey).map((r) => r.id), ...live.childIds]);
   if (mine.size >= MAX_CHILDREN_PER_PARENT) return `max ${MAX_CHILDREN_PER_PARENT} live sub-agents per session`;
-  const all = runningSubagents(db);
-  if (all.length >= MAX_LIVE_SUBAGENTS) {
-    const holders = all.map((r) => `"${r.name}" (${r.parentSessionKey})`).join(", ");
-    return `machine-wide limit of ${MAX_LIVE_SUBAGENTS} live sub-agents reached; holding the slots: ${holders}. Stop one with stop_agent, or wait for one to finish.`;
+  let room: { admit: boolean; reason: string } | null = null;
+  try { room = configured?.machineRoom?.() ?? null; } catch { /* unmeasurable: lets it through */ }
+  if (room && !room.admit) {
+    return `no memory for another sub-agent right now (${room.reason}; ${runningSubagents(db).length} live). Wait for one to finish, or stop one with stop_agent.`;
   }
   return null;
 }

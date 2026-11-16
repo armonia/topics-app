@@ -624,3 +624,24 @@ pubblico, ciò che raggiunge persone, sicurezza e soldi, dipendenze o il giudice
 #### Scenario: codice tecnico contro posto di una persona
 - **GIVEN** una consegna verde che tocca solo `server/lib/git-numstat.ts`
 - **THEN** SHALL atterrare da sola; la stessa con `client/src/App.tsx` o `.github/workflows/ci.yml` SHALL aspettare una persona
+
+### Requirement: LAND-18 — Un ramo portato su un'altra macchina atterra o si rifiuta, mai si accetta
+
+Una card senza `deliveryBranch` ma con `priorBranch` SHALL atterrare quel ramo,
+preso anche da origin, oppure SHALL tornare in review col motivo; NON SHALL
+essere accettata come «niente da atterrare». Il land SHALL rifiutare con
+`branch-stale` solo quando origin porta patch che il ramo locale non ha (un ramo
+solo ribasato atterra), e SHALL rifiutare con `delivery-absent` quando il commit
+consegnato non c'è in questo checkout (un impianto dal nodo fallito).
+
+#### Scenario: ramo solo su origin
+- **GIVEN** una card con `deliveryBranch` nullo e `priorBranch` presente solo su origin
+- **THEN** il land SHALL portarne i commit su main
+
+#### Scenario: ramo ribasato dopo il push
+- **GIVEN** un ramo pushato, poi ribasato su un main più nuovo
+- **THEN** il land SHALL atterrarlo
+
+#### Scenario: impianto fallito
+- **GIVEN** una card rimandata indietro il cui giro sul nodo torna senza impianto
+- **THEN** il land NON SHALL atterrare il ramo del giro precedente

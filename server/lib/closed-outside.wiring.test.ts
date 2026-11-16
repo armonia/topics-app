@@ -19,10 +19,9 @@
  * frames are driven in `turno-troncato.test.ts`).
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readServerSource } from "../../tests/helpers/server-source";
 
-const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+const server = readServerSource();
 
 /** The source of the block that opens with `opener`, up to `closer`. */
 function block(opener: string, closer: string): string {
@@ -46,8 +45,8 @@ describe("server.ts closes and relights turn rows only through the helpers", () 
     expect(end, "endReattachLeg is not on the leg's own chain").toBeLessThan(body.indexOf("continue;", leg));
   });
 
-  test("the stale-stream sweeper closes a row through finalizeStaleRow", () => {
-    expect(block("function runStaleStreamPass(): void {", "\n}\n")).toContain("finalizeMessage: (args) => finalizeStaleRow(db, args)");
+  test("the stale-stream sweeper closes a row through finalizeStaleRowWhenFree (busy = retried)", () => {
+    expect(block("function runStaleStreamPass(): void {", "\n}\n")).toContain("finalizeMessage: (args) => finalizeStaleRowWhenFree(db, args)");
   });
 
   test("the orphan-tool cleanup runs after the boot's partial sweep, with the broker's live sessions", () => {

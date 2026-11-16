@@ -9,9 +9,8 @@
  */
 import { describe, expect, test, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { runIncrementalVacuum } from "./db-incremental-vacuum";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 const open: Database[] = [];
 afterEach(() => {
@@ -110,7 +109,7 @@ describe("server.ts wiring", () => {
   // server.ts cannot boot in a unit test, so the wiring is read off the file:
   // the round runs on a timer, asks the restart gate's predicate, and the
   // timer stops with the server.
-  const SERVER = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  const SERVER = readServerSource();
 
   test("a timer runs the round with whatIsStillWorking() as the busy predicate", () => {
     const call = SERVER.match(/setInterval\(\(\) => \{\s*runIncrementalVacuum\(\{[\s\S]*?\}, INCREMENTAL_VACUUM_EVERY_MS\)/);

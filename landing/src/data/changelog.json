@@ -1,5 +1,73 @@
 [
   {
+    "version": "2.4.23",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "archive node mirrors once the card is done or archived (#1146)",
+          "scope": "dispatcher"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.21",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "add stable deps to two useEffect hooks in KanbanBoardPane (#1142)",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.20",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "add stable deps to two useEffect hooks in KanbanBoardPane",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.17",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "clear /login message when an expired token's refresh fails before the turn (#1125)",
+          "scope": "native"
+        },
+        {
+          "text": "il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)",
+          "scope": "terminal"
+        },
+        {
+          "text": "sveglia comment on a review card rejects and requeues like board_review reject (#1124)",
+          "scope": "board"
+        },
+        {
+          "text": "a branch carried to another machine lands or is refused, never accepted (#1028)",
+          "scope": "land"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.5",
     "date": "2026-11-15",
     "sections": {
@@ -8,6 +76,37 @@
         {
           "text": "track a Bash the CLI itself moved to the background (#1066)",
           "scope": "subagent-result"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.4",
+    "date": "2026-11-15",
+    "sections": {
+      "new": [
+        {
+          "text": "native rows and cards look like the original tray (app icons, one symbol family, submenu rows drawn)",
+          "scope": "tray"
+        },
+        {
+          "text": "account cards wear row icons, state icons and reset arrows as the original tray",
+          "scope": "tray"
+        },
+        {
+          "text": "state icons for queued and braked projects, provider icons in the limits submenu",
+          "scope": "tray"
+        },
+        {
+          "text": "process rows carry their second line as the original tray",
+          "scope": "tray"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "machine card flat-detail condition compiles",
+          "scope": "tray"
         }
       ],
       "perf": []

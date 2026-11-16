@@ -9,9 +9,6 @@
 
 use crate::tray_quota::http_get;
 use serde_json::{json, Value};
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
@@ -20,12 +17,115 @@ pub enum Node {
     Sub { label: String, children: Vec<Node> },
     /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
     Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
-    /// A table row: one cell per column, aligned by tab stops. `children` open on hover.
-    Row { id: String, cells: Vec<String>, header: bool, children: Vec<Node> },
+    /// A table row: one cell per column, aligned by the tab stops of its `table`. `children` open on hover.
+    Row { id: String, cells: Vec<String>, header: bool, table: Table, look: Look, children: Vec<Node> },
+    /// Puts a system icon (`sf:<symbol name>`) or an app's own icon (`app:<bundle path>`) before any other row.
+    Icon { icon: String, node: Box<Node> },
+}
+
+/// The tables of the menu. Each has its own right-aligned tab stops, in points from the text start,
+/// the ones of the original tray (ClaudeUsage.swift): a column count that does not match the stops
+/// makes a cell overrun its neighbour or the menu's edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Table {
+    /// One cell, or a first cell with a second line under it: no stops.
+    #[default]
+    Plain,
+    /// Projects: Claude, Codex, Muse, rate per hour, state.
+    Projects,
+    /// Processes: CPU, GPU, network, memory.
+    Procs,
+    /// Processes of a machine read from afar: CPU and memory only, in the last two columns of `Procs`.
+    RemoteProcs,
+    /// Live agents of one project, with CPU and memory: kind, since, last activity, CPU · memory.
+    Agents,
+    /// One live agent under a project row: rate per hour, model · since.
+    AgentWork,
+    /// The week of a project per provider.
+    Week,
+}
+
+/// The widest a tab stop may go: `menuTextMax` of the original tray (540 - 104). AppKit puts about 103 pt of
+/// image and margins around a row's text, and past this the menu grows wider than its cards; the original
+/// itself notes that beyond ~460 the menu clips (ClaudeUsage.swift, agents table).
+#[cfg(test)]
+pub const TAB_MAX: f64 = 436.0;
+
+impl Table {
+    pub fn tabs(self) -> &'static [f64] {
+        match self {
+            Table::Plain => &[],
+            Table::Projects => &[238.0, 280.0, 322.0, 366.0, 436.0],
+            // The original's [275, 330, 405, 470] ended 34 pt past the margin, where the menu clips; the same
+            // steps (55, 75, 65) are squeezed to 56, 62, 56 so the memory column ends on 436 like the projects'.
+            Table::Procs => &[262.0, 318.0, 380.0, 436.0],
+            Table::RemoteProcs => &[380.0, 436.0],
+            Table::Agents => &[145.0, 235.0, 315.0, 436.0],
+            Table::AgentWork => &[300.0, 436.0],
+            Table::Week => &[225.0, 315.0, 405.0],
+        }
+    }
+}
+
+/// How a project's priority shows before its name: an arrow, as in the original tray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Priority {
+    #[default]
+    Normal,
+    High,
+    Low,
+}
+
+/// Looks of a row that the cells alone do not say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Look {
+    /// The first cell in semibold: a project with agents at work, a verdict line.
+    pub bold: bool,
+    pub priority: Priority,
+}
+
+/// A data row of a table, without a look of its own.
+pub(crate) fn row(table: Table, cells: Vec<String>, children: Vec<Node>) -> Node {
+    Node::Row { id: String::new(), cells, header: false, table, look: Look::default(), children }
+}
+
+/// A data row whose first cell is in semibold: what the original tray sets apart (a unit that can be closed).
+pub(crate) fn bold_row(table: Table, cells: Vec<String>, children: Vec<Node>) -> Node {
+    Node::Row { id: String::new(), cells, header: false, table, look: Look { bold: true, ..Look::default() }, children }
+}
+
+/// The header row of a table.
+pub(crate) fn head_row(table: Table, cells: Vec<String>) -> Node {
+    Node::Row { id: String::new(), cells, header: true, table, look: Look::default(), children: Vec::new() }
+}
+
+/// A one-line row with its first cell in semibold and an optional small grey line under it.
+pub(crate) fn verdict_row(text: impl Into<String>, under: Option<String>) -> Node {
+    let mut cells = vec![text.into()];
+    cells.extend(under.map(second_line));
+    Node::Row { id: String::new(), cells, header: false, table: Table::Plain, look: Look { bold: true, ..Look::default() }, children: Vec::new() }
+}
+
+/// A cell is never left empty: a figure that is not there reads `–`.
+pub(crate) fn cell(text: impl Into<String>) -> String {
+    let t: String = text.into();
+    if t.trim().is_empty() { "–".into() } else { t }
+}
+
+/// `node` with the icon `spec` at the start of its row, as the original tray draws it.
+pub(crate) fn with_icon(spec: impl Into<String>, node: Node) -> Node {
+    Node::Icon { icon: spec.into(), node: Box::new(node) }
 }
 
 pub(crate) fn item(id: &str, label: impl Into<String>) -> Node {
     Node::Item { id: id.into(), label: label.into(), enabled: true }
+}
+/// A row's second line (kind, owner, since): the native menu draws it under the row,
+/// small and grey, whatever column it would otherwise land in. A table with fewer
+/// columns than the tab stops (the processes: 4 against 5) used to print it as one
+/// more column, clipped against the memory («204 MBproc»).
+pub(crate) fn second_line(text: impl Into<String>) -> String {
+    format!("\n{}", text.into())
 }
 pub(crate) fn note(label: impl Into<String>) -> Node {
     Node::Item { id: String::new(), label: label.into(), enabled: false }
@@ -66,13 +166,16 @@ impl Snapshot {
             let _ = std::fs::write(p, b);
         }
         let backup = live_backup.or_else(|| backup_cache.and_then(|p| std::fs::read_to_string(p).ok()));
+        let live = http_get(base, "/api/live");
+        // The icons are read here, on the poller's thread: never when the menu opens.
+        fetch_project_icons(base, &live);
         Snapshot {
             board: http_get(base, "/api/board"),
             overview: http_get(base, "/api/overview"),
             heavy: http_get(base, "/api/heavy"),
             procs: http_get(base, "/api/mac/procs"),
             automations: http_get(base, "/api/automations/summary"),
-            live: http_get(base, "/api/live"),
+            live,
             gates: http_get(base, "/api/gates"),
             machines: http_get(base, "/api/machines"),
             trust: http_get(base, "/api/mac/trust"),
@@ -83,6 +186,39 @@ impl Snapshot {
     }
     pub fn service_up(&self) -> bool {
         self.board.is_some() || self.overview.is_some() || self.gates.is_some() || self.procs.is_some()
+    }
+}
+
+/// The icon of each project as the service serves it (PNG), by project name, with the path it came from.
+static PROJECT_ICONS: std::sync::Mutex<Option<std::collections::HashMap<String, (String, Vec<u8>)>>> = std::sync::Mutex::new(None);
+
+/// The icon read for a project, if any: the menu draws it 15×15 before the name.
+pub(crate) fn project_icon_png(name: &str) -> Option<Vec<u8>> {
+    PROJECT_ICONS.lock().ok()?.as_ref()?.get(name).map(|(_, png)| png.clone())
+}
+
+pub(crate) fn store_project_icon(name: &str, path: &str, png: Vec<u8>) {
+    if let Ok(mut g) = PROJECT_ICONS.lock() {
+        g.get_or_insert_with(Default::default).insert(name.into(), (path.into(), png));
+    }
+}
+
+/// Reads the icon of every listed project that has one and is not cached under the same path yet.
+/// A project whose icon cannot be read keeps the folder symbol and is asked again on the next poll.
+fn fetch_project_icons(base: &str, live: &Option<String>) {
+    let v = parse(live);
+    for p in v.get("projects").and_then(Value::as_array).into_iter().flatten().filter(|p| p.get("dead").and_then(Value::as_bool) != Some(true)) {
+        let (name, path) = (s(p, "name"), s(p, "icon"));
+        if name.is_empty() || !path.starts_with('/') {
+            continue;
+        }
+        let cached = PROJECT_ICONS.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(name).map(|(at, _)| at == path))).unwrap_or(false);
+        if cached {
+            continue;
+        }
+        if let Some(png) = crate::tray_quota::http_get_bytes(base, path).filter(|b| !b.is_empty()) {
+            store_project_icon(name, path, png);
+        }
     }
 }
 
@@ -537,7 +673,7 @@ pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64
         return vec![note("Automazioni: il servizio non risponde")];
     }
     let mut out = vec![
-        item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64)),
+        with_icon("sf:clock.arrow.circlepath", item("open:automations", format!("Automazioni · {} ti aspettano · {} rotte", n(&v, "needsYou") as i64, n(&v, "broken") as i64))),
     ];
     if let Some(c) = v.get("calendar") {
         let next = c.get("next").filter(|x| !s(x, "title").is_empty()).map(|x| {
@@ -548,7 +684,7 @@ pub(crate) fn automation_nodes(body: &Option<String>, now_secs: i64, offset: i64
                 None => title,
             }
         });
-        out.push(item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default())));
+        out.push(with_icon("sf:calendar", item("open:calendar", format!("In calendario · {}{}", n(c, "count") as i64, next.map(|t| format!(" · {t}")).unwrap_or_default()))));
     }
     out
 }
@@ -604,9 +740,11 @@ pub fn dump_text(nodes: &[Node]) -> String {
                     go(children, depth + 1, out);
                 }
                 Node::Row { cells, children, .. } => {
-                    out.push_str(&format!("{pad}{}\n", cells.join(" | ")));
+                    let flat: Vec<&str> = cells.iter().map(|c| c.trim_start_matches('\n')).collect();
+                    out.push_str(&format!("{pad}{}\n", flat.join(" | ")));
                     go(children, depth + 1, out);
                 }
+                Node::Icon { node, .. } => go(std::slice::from_ref(&**node), depth, out),
             }
         }
     }
@@ -615,138 +753,8 @@ pub fn dump_text(nodes: &[Node]) -> String {
     o
 }
 
-// ------------------------------------------------------------------ actions
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Action {
-    Http { method: &'static str, path: String, body: Option<Value> },
-    /// `unit`: the census id to re-read before closing; `None` = the leftovers group.
-    /// `force`: SIGKILL instead of SIGTERM, behind its own confirmation.
-    ClosePids { name: String, unit: Option<String>, pids: Vec<u32>, force: bool },
-    OpenUrl(String),
-    TogglePref(String),
-    Open(String),
-}
-
-/// A menu id to the thing it does. `None` = not a hub id.
-pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
-    let http = |method, path: &str, body| Some(Action::Http { method, path: path.into(), body });
-    if let Some(p) = id.strip_prefix("brake-unlock-off:") {
-        return http("DELETE", &format!("/api/override?provider={p}"), None);
-    }
-    if let Some(p) = id.strip_prefix("brake-unlock:") {
-        return http("POST", "/api/override", Some(json!({"provider": p, "hours": 2, "by": "tray"})));
-    }
-    match id {
-        "brake-hold" => return http("POST", "/api/hold", Some(json!({"hours": 1, "by": "tray"}))),
-        "brake-hold-off" => return http("DELETE", "/api/hold", None),
-        "proc-close-leftovers" => {
-            return Some(Action::ClosePids { name: "i resti senza padrone".into(), unit: None, pids: leftover_pids(procs), force: false });
-        }
-        _ => {}
-    }
-    if let Some(rest) = id.strip_prefix("proj-budget:") {
-        let (name, b) = rest.rsplit_once(':')?;
-        let b: i64 = b.parse().ok()?;
-        let val = if b == 0 { Value::Null } else { json!(b) };
-        return http("POST", "/api/project-settings", Some(json!({"name": name, "budgetPct": val})));
-    }
-    if let Some(rest) = id.strip_prefix("proj-priority:") {
-        let (name, p) = rest.rsplit_once(':')?;
-        return http("POST", "/api/project-settings", Some(json!({"name": name, "priority": p})));
-    }
-    if let Some(u) = id.strip_prefix("proc-close:") {
-        let (name, pids) = unit_pids(procs, u)?;
-        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids, force: false });
-    }
-    if let Some(u) = id.strip_prefix("proc-force:") {
-        let (name, pids) = unit_pids(procs, u)?;
-        return Some(Action::ClosePids { name, unit: Some(u.to_string()), pids, force: true });
-    }
-    if let Some(name) = id.strip_prefix("proj-open:") {
-        return Some(Action::Open(format!("project:{name}")));
-    }
-    if let Some(url) = id.strip_prefix("session-open:") {
-        // Only addresses of the places a session lives in; nothing else is handed to the system.
-        let ok = ["claude://", "https://", "http://127.0.0.1", "http://localhost"].iter().any(|p| url.starts_with(p));
-        return ok.then(|| Action::OpenUrl(url.to_string()));
-    }
-    if id == "dashboard-open" {
-        return Some(Action::OpenUrl(crate::tray_quota::hub_base()));
-    }
-    if let Some(k) = id.strip_prefix("pref:") {
-        return Some(Action::TogglePref(k.into()));
-    }
-    id.strip_prefix("open:").map(|w| Action::Open(w.into()))
-}
-
-/// Sends one request to the service; true on a 2xx answer.
-pub fn http_send(base: &str, method: &str, path: &str, body: Option<&Value>) -> bool {
-    let Some(rest) = base.strip_prefix("http://") else { return false };
-    let hostport = rest.split('/').next().unwrap_or("");
-    let Some(addr) = hostport.to_socket_addrs().ok().and_then(|mut a| a.next()) else { return false };
-    let Ok(mut st) = TcpStream::connect_timeout(&addr, Duration::from_secs(2)) else { return false };
-    let _ = st.set_read_timeout(Some(Duration::from_secs(10)));
-    let payload = body.map(Value::to_string).unwrap_or_default();
-    // One write: head and body leave together.
-    let req = format!(
-        "{method} {path} HTTP/1.0\r\nHost: {hostport}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nConnection: close\r\n\r\n{payload}",
-        payload.len()
-    );
-    if st.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
-    let mut buf = Vec::new();
-    let _ = st.read_to_end(&mut buf);
-    let text = String::from_utf8_lossy(&buf);
-    text.split_whitespace().nth(1).map_or(false, |c| c.starts_with('2'))
-}
-
-/// The pids that may still be closed once the person said yes: the ones the menu showed AND
-/// that a census read just now still lists for the same unit (a pid that left or was reused
-/// by another process is not in it).
-pub fn still_closable(fresh: &Option<String>, unit: Option<&str>, shown: &[u32]) -> Vec<u32> {
-    let now: Vec<u32> = match unit {
-        Some(u) => unit_pids(fresh, u).map(|(_, p)| p).unwrap_or_default(),
-        None => leftover_pids(fresh),
-    };
-    shown.iter().copied().filter(|p| now.contains(p)).collect()
-}
-
-/// A census older than this is not a basis for signalling anything.
-pub const CENSUS_MAX_AGE_MS: i64 = 90_000;
-
-/// The census carries the time it was taken (`at`, ms); one without it, or too old, is refused.
-pub fn census_is_fresh(body: &str, now_ms: i64) -> bool {
-    serde_json::from_str::<Value>(body).ok().and_then(|v| v.get("at").and_then(Value::as_i64)).map_or(false, |at| now_ms - at <= CENSUS_MAX_AGE_MS)
-}
-
-/// The close, after the dialog: nothing without a yes; with it, a fresh census decides the pids.
-pub fn close_confirmed(
-    confirmed: bool,
-    now_ms: i64,
-    fresh_census: impl FnOnce() -> Option<String>,
-    unit: Option<&str>,
-    shown: &[u32],
-    kill: impl FnOnce(&[u32]) -> usize,
-) -> usize {
-    if !confirmed {
-        return 0;
-    }
-    let census = fresh_census().filter(|c| census_is_fresh(c, now_ms));
-    let pids = still_closable(&census, unit, shown);
-    if pids.is_empty() { 0 } else { kill(&pids) }
-}
-
-/// SIGTERM so the process gets to save, or SIGKILL when the person chose the forced close.
-/// Only pids the census listed as closable.
-pub fn terminate(pids: &[u32], force: bool) -> usize {
-    let signal = if force { "-KILL" } else { "-TERM" };
-    pids.iter()
-        .filter(|p| **p > 1)
-        .filter(|p| std::process::Command::new("kill").args([signal, &p.to_string()]).status().map_or(false, |s| s.success()))
-        .count()
-}
+// The actions of the rows live in tray_menu_actions.rs; re-exported so callers keep one path.
+pub use crate::tray_menu_actions::*;
 
 #[cfg(test)]
 #[path = "tray_menu_tests.rs"]

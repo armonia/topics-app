@@ -1,4 +1,5 @@
 import type { StreamHandler } from "../providers";
+import { warnIfBusy } from "../lib/sqlite-busy";
 import { onFirstModelEvent } from "../lib/answer-relay";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { computeCleanBroadcastDelta } from "./stream-markers";
@@ -17,6 +18,7 @@ import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
 import type { ChatTurnScope } from "./chat-turn-scope";
+import { failedToolText } from "../lib/tool-finalize-status";
 
 /** Builds the provider stream handler of a turn. */
 export function createStreamHandler(turn: ChatTurnScope): void {
@@ -482,13 +484,17 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       // the in-memory blocks (the running ToolCall is already there
       // courtesy of onToolStart).
       let detail: import("../types").ToolCallDetail | undefined;
+      let toolName: string | undefined;
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
         if (b.kind === "tool" && b.toolCall.id === toolCallId) {
+          toolName = b.toolCall.name;
           detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result, { failed: !!isError });
           break;
         }
       }
+      // A failure with an empty body is still a failure with a message.
+      if (isError) result = failedToolText(result, toolName);
 
       const endedAt = priorToolTimes(toolCallId).endedAt ?? Date.now();
       if (isError) {
@@ -748,7 +754,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         }
         turn.captureProviderUsage(message);
       }
-      finalizeStream("done", undefined, message?.turnEnd);
+      void finalizeStream("done", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (done) of ${sessionKey}`));
     },
 
     onError: (error: string) => {
@@ -770,7 +776,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       // stdin). Nel dubbio si rimanda: due token in piu' contro un modello
       // che non sa in che progetto si trova.
       undoInlineMarkAfterFailedTurn();
-      finalizeStream("error", error);
+      void finalizeStream("error", error).catch(warnIfBusy(`finalize (error) of ${sessionKey}`));
     },
 
     onAborted: (message?: any) => {
@@ -787,7 +793,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         // the guard inside, and the row stays as it was.
         turn.captureProviderUsage(message);
       }
-      finalizeStream("aborted", undefined, message?.turnEnd);
+      void finalizeStream("aborted", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (aborted) of ${sessionKey}`));
     },
   }, () => turn.streamState === "finalized", late), heardCarry);
   turn.handler = handler;

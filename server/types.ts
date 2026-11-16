@@ -425,6 +425,23 @@ export interface AppContext {
    * be provable without a second server on the network.
    */
   nodeClient?: import("./services/node-client").NodeClient;
+  /**
+   * The road to a node's runs that the card lane uses too, «Cloud Claude»
+   * included (its own client and token): what a sub-agent route needs to
+   * read or stop a child running on a node. Unset until the server wires it.
+   */
+  remoteNode?: {
+    readRun: import("./services/node-client").NodeClient["readRun"];
+    cancelRun: import("./services/node-client").NodeClient["cancelRun"];
+    /** Starts a child's run there (SUBAGENT-27/28): never routed to the cloud lane, a child has no task for it. */
+    createRun: import("./services/node-client").NodeClient["createRun"];
+    /** Fetches the child's returning branch bundle (SUBAGENT-26/28), same restriction as `createRun`. */
+    fetchBundle: import("./services/node-client").NodeClient["fetchBundle"];
+    /** The Claude ids a paired node can run, to resolve a child's model alias there. */
+    codingModels: import("./services/node-client").NodeClient["codingModels"];
+    baseUrlOf: (machineId: string) => string | null;
+    tokenOf: (machineId: string) => string | null;
+  };
 
   // Paths
   PORT: number;

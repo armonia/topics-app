@@ -14,7 +14,12 @@ import type { ClaudeSessionTracker } from "../lib/claude-session-tracker";
 import { normalizePromptSnippet } from "../lib/claude-subagent-transcript";
 import { resolveSubagentLaunch } from "../lib/subagent-launch";
 import { endedSubagents, getSubagent, insertSubagent, resumeVerdict, setSubagentState } from "../lib/subagent-store";
-import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
+import { stopRemoteChild } from "../lib/subagent-remote-stop";
+import { emptyRemoteChildLog, readRemoteChild, type RemoteChildLog } from "../lib/subagent-remote-read";
+import { createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
+import { decodeLogSince, encodeLogOffset, randomLogEpoch } from "../lib/subagent-remote-log-epoch";
+import { readNodeToken } from "../services/node-client";
+import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngine, nativeChildPlace, outsideCwdPreamble, placeableUnderKnownProject, readNativeChildOutput, sendToNativeChild, spawnNativeChild, stopNativeChild } from "../lib/native-subagents";
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
 import { boardSpawnRefusal } from "../services/agent-census";
@@ -95,6 +100,41 @@ const idempotencyCache = createIdempotencyCache();
 
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
+  // The road to a child's run on a node: the server's own (`ctx.remoteNode`,
+  // «Cloud Claude» included) once it is wired, read at each call because the
+  // server wires it after this router is built. Without it, a paired Topics
+  // node through its token file, the only kind a bare context knows.
+  const remoteRoad = () => ctx.remoteNode ?? {
+    baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+    tokenOf: (machineId: string) => readNodeToken(ctx.STATE_DIR, machineId),
+    readRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["readRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.readRun(input)
+      : Promise.reject(new Error("no node client configured")),
+    cancelRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["cancelRun"]>[0]) => ctx.nodeClient
+      ? ctx.nodeClient.cancelRun(input)
+      : Promise.reject(new Error("no node client configured")),
+    createRun: (input: Parameters<NonNullable<AppContext["remoteNode"]>["createRun"]>[0]) =>
+      ctx.nodeClient ? ctx.nodeClient.createRun(input) : Promise.reject(new Error("no node client configured")),
+    fetchBundle: (input: Parameters<NonNullable<AppContext["remoteNode"]>["fetchBundle"]>[0]) =>
+      ctx.nodeClient ? ctx.nodeClient.fetchBundle(input) : Promise.reject(new Error("no node client configured")),
+    codingModels: (input: Parameters<NonNullable<AppContext["remoteNode"]>["codingModels"]>[0]) =>
+      ctx.nodeClient ? ctx.nodeClient.codingModels(input) : Promise.reject(new Error("no node client configured")),
+  };
+  // One log per remote child run, the output `read_agent` pages through by
+  // index (`subagent-remote-read.ts`). In memory: a restart starts each log
+  // again from what the node still reports, which is all of it on a paired
+  // Topics and the pending part on the cloud.
+  const remoteChildLogs = new Map<string, RemoteChildLog>();
+  // This process's own mark on every cursor it hands out (SUBAGENT-28, the
+  // known debt from #1110): a `since` from before a restart carries a
+  // different epoch and replays from 0 instead of silently skipping the
+  // rebuilt log's first entries. See `subagent-remote-log-epoch.ts`.
+  const childLogEpoch = randomLogEpoch();
+  // SUBAGENT-25/26/27 wiring (SUBAGENT-28): which children may leave this
+  // Mac, the bundle round trip and the node's seat, kept out of this already
+  // sized-up route (`subagent-remote-wiring.ts`).
+  const remoteChildren = createRemoteSubagentWiring(ctx, remoteRoad);
+  remoteChildren.startWatch();
   setTerminalBroadcast(ctx.broadcastToAll);
   setTerminalWorktreeStore(ctx.worktreeStore);
   if (tracker) setTerminalTracker(tracker);
@@ -699,12 +739,39 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return errorResponse(429, `board concurrency cap reached (${boardRefusal.live}/${boardRefusal.cap} live agents)`);
           }
         }
+        // SUBAGENT-25/26/27 wiring (SUBAGENT-28, `subagent-remote-wiring.ts`):
+        // sequenced on the PARENT's own cwd, before any local worktree or
+        // process is paid for. `null` = never eligible, the local path right
+        // below (unchanged) is what runs then.
+        {
+          const chosenNameForRemote = typeof body.name === "string" && body.name ? body.name : null;
+          const remote = await remoteChildren.trySpawnRemote({
+            cwd, prompt, name: chosenNameForRemote ?? `agent ${crypto.randomUUID().slice(0, 8)}`,
+            model: launch.model, modelSource: launch.modelSource, modelNote: launch.modelNote,
+            effort: launch.effort, agentType: launch.agent,
+            runtime: body.runtime,
+            runtimeReason: body.runtime === "topics" ? "asked" : "default",
+            parentSessionKey: parentKey,
+          });
+          if (remote) {
+            if (!remote.ok) return errorResponse(502, `Failed to start sub-agent on a node: ${remote.reason}`);
+            broadcastTerminalSessions();
+            return json({
+              agentId: remote.agentId, name: remote.name, cwd: remote.cwd, branch: remote.branch, runtime: "topics",
+              model: launch.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
+              agentType: launch.agent, effort: launch.effort,
+              // A node run is one-shot and polled, never waited on like a local PTY.
+              notify: parentKey.startsWith("topic:") ? "chat" : "read_agent",
+              runInBackground: true,
+            });
+          }
+        }
         // WORKTREE-14, and the opt-in IS the point: without `isolation` the
         // child inherits the parent's directory exactly as it always has. A
         // checkout is ~600 MB and MAX_CHILDREN_PER_PARENT allows five of them,
         // so a worktree default would bill that to every chat that delegates.
         const isolation = body.isolation === "worktree" ? "worktree" : "inherit";
-        // subagent-nativi: the engine, unless the call asks for the CLI or the engine cannot take it.
+        // subagent-nativi: the engine, and the CLI only when the call asks for it.
         const choice = childRuntimeFor(body.runtime, () => isolation === "worktree"
           ? { ok: true, projectPath: null, worktreeId: null } // decided once the worktree exists
           : nativeChildPlace({
@@ -715,7 +782,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           }));
         if (!choice.ok) return errorResponse(choice.status, choice.error);
         let nativePlace = choice.runtime === "topics" ? choice.place : null;
-        const runtimeNote = choice.runtime === "claude-code" ? choice.note : null;
         let branch: string | null = null;
         if (isolation === "worktree") {
           const project = resolveAgentProject(
@@ -756,7 +822,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           try {
             if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
             const child = spawnNativeChild({
-              id, parentSessionKey: parentKey, name, prompt, cwd,
+              id, parentSessionKey: parentKey, name, cwd,
+              prompt: nativePlace.outsideCwd ? outsideCwdPreamble(nativePlace.outsideCwd) + prompt : prompt,
               parentTopic, projectPath: nativePlace.projectPath, worktreeId: nativePlace.worktreeId, branch,
               ...engine, effort: launch.effort, agentType: launch.agent,
               promptSnippet: normalizePromptSnippet(prompt),
@@ -791,7 +858,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             promptSnippet: session.spawnPromptSnippet, cwd: session.cwd, branch,
             claudeSessionId: session.claudeSessionId ?? null, createdAt: session.createdAt,
             // Only a CLI the call asked for stays on the CLI when resumed.
-            runtimeReason: body.runtime === "claude-code" ? "asked" : runtimeNote ? "fallback" : "default",
+            runtimeReason: "asked",
           });
           noteChildSeeded(id);
           if (foreground) holdForeground(id, parentKey, FOREGROUND_WAIT_MS + 60_000);
@@ -807,7 +874,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
           scheduleClaudeSubAgentIdCapture(id);
           return json({
             agentId: id, name: session.name, cwd: session.cwd, branch,
-            runtime: "claude-code", ...(runtimeNote ? { runtimeNote } : {}),
+            runtime: "claude-code",
             model: launch.model, modelSource: launch.modelSource, ...(launch.modelNote ? { modelNote: launch.modelNote } : {}),
             agentType: launch.agent, effort: launch.effort,
             // How the parent hears of the result: a chat is woken, a terminal reads.
@@ -852,6 +919,13 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         {
           // A native child: the next turn of its chat, whatever its state.
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): the node's run is one-shot, same as a card's — there is no
+          // "send more input" on it, so this is a clear refusal, not a 404.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            return errorResponse(409, `sub-agent "${row.name}" runs on a paired node: it cannot take more input mid-run, stop it and spawn a new one`);
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             if (!input) return errorResponse(400, "input (string) is required");
@@ -931,6 +1005,36 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(readM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): its output is the node's own report on the run, not a local
+          // transcript.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            const since = decodeLogSince(childLogEpoch, Number(url.searchParams.get("since") || "0"));
+            const logKey = `${row.remoteMachineId}:${row.remoteRunId}`;
+            const log = remoteChildLogs.get(logKey) ?? emptyRemoteChildLog();
+            remoteChildLogs.set(logKey, log);
+            const road = remoteRoad();
+            // The node's full report, not just its comments: captured here so
+            // `settleIfDone` below reads completion off the SAME answer this
+            // call already paid for, never a second one.
+            let report: Awaited<ReturnType<typeof road.readRun>> | undefined;
+            const result = await readRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              log,
+              since,
+              baseUrlOf: road.baseUrlOf,
+              tokenOf: road.tokenOf,
+              readRun: async (input) => {
+                report = await road.readRun(input);
+                return { comments: report.comments };
+              },
+            });
+            if (!result.ok) return errorResponse(502, result.reason);
+            if (row.state === "running") await remoteChildren.settleIfDone(row, report);
+            return json({ ...result, nextOffset: encodeLogOffset(childLogEpoch, result.nextOffset) });
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));
@@ -963,6 +1067,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         const agentId = decodeURIComponent(stopM.agentId);
         {
           const row = getSubagent(getDatabase(), agentId);
+          // A child whose run lives on a paired node (sottoagenti-nodo, trace
+          // 4): no local process to stop, no native chat either — `cancelRun`
+          // there is the whole of "stop" for it.
+          if (row?.remoteMachineId && row.remoteRunId) {
+            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            await stopRemoteChild({
+              machineId: row.remoteMachineId,
+              runId: row.remoteRunId,
+              ...remoteRoad(),
+            });
+            remoteChildLogs.delete(`${row.remoteMachineId}:${row.remoteRunId}`);
+            setSubagentState(getDatabase(), agentId, "stopped");
+            return json({ ok: true, branch: row.branch });
+          }
           if (row?.runtime === "topics") {
             if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
             await stopNativeChild(row, { archive: true });
