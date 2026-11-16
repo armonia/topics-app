@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.4.16",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "same card and same submenu for Mac, PC and the cloud server (#1118)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "every machine submenu opens with its state lines, memory with its unit (#1119)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.15",
     "date": "2026-11-16",
     "sections": {

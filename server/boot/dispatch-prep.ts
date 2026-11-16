@@ -323,6 +323,11 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   const remoteNodeRoad = {
     readRun: (input: Parameters<typeof nodeClient.readRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
     cancelRun: (input: Parameters<typeof nodeClient.cancelRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
+    // A child never picks the cloud machine as a seat (`childNodeCandidates`,
+    // `routes/terminal.ts`): it has no card to mirror a cloud session onto. Both
+    // stay on the paired-node client only, same door a card's `createRun` uses.
+    createRun: (input: Parameters<typeof nodeClient.createRun>[0]) => nodeClient.createRun(input),
+    fetchBundle: (input: Parameters<typeof nodeClient.fetchBundle>[0]) => nodeClient.fetchBundle(input),
     baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
     tokenOf: (machineId: string) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
       ? CLOUD_NODE_TOKEN
