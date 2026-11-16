@@ -46,6 +46,9 @@ import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from 
 
 const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+// Overlays that keep the keyboard over the late focus of a new terminal.
+const OVERLAY_ROLES = ['dialog', 'menu', 'listbox'] as const;
+
 const DARK_THEME = {
   // Near-neutral dark gray matched to the project sidebar's dark chrome. The
   // chrome is translucent vibrancy (reads gray, not blue), so an OPAQUE terminal
@@ -622,7 +625,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const held = document.activeElement;
       const typingElsewhere = held instanceof HTMLElement && !el.contains(held)
         && (held.isContentEditable || held.matches('input, textarea, select')
-          || held.closest('[role="dialog"], [role="menu"], [role="listbox"]') !== null);
+          || OVERLAY_ROLES.some((r) => held.closest(`[role=${r}]`) !== null));
       if (!typingElsewhere) term.focus();
     }, 600);
 
