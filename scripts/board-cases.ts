@@ -64,6 +64,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dispatcherSourceFiles, readDispatcherSource } from "../tests/helpers/dispatcher-source";
 
 // Moduli VERI del server. Tutti puri (nessun DB, nessun timer al caricamento):
 // permission-bridge e ask-user-bridge sono due Map in memoria, human-hold le
@@ -261,7 +262,10 @@ export function sourceAssert(
   if (!existsSync(abs)) {
     return { kind: "source", claim, command, status: "fail", detail: `file mancante: ${rel}`, files: [rel] };
   }
-  const src = readFileSync(abs, "utf8");
+  // The dispatcher entry stands for the whole dispatcher (entry plus its sibling modules).
+  const wholeDispatcher = rel === DISPATCHER_ENTRY;
+  const src = wholeDispatcher ? readDispatcherSource() : readFileSync(abs, "utf8");
+  const touched = wholeDispatcher ? dispatcherSourceFiles() : [rel];
   try {
     for (const needle of opts.contains ?? []) {
       must(src.includes(needle), `atteso ma assente in ${rel}: ${JSON.stringify(needle)}`);
@@ -279,7 +283,7 @@ export function sourceAssert(
       must(j > i, `ordine sbagliato in ${rel}: ${first} deve precedere ${second}`);
       parts.push(`${first} precede ${second}`);
     }
-    return { kind: "source", claim, command, status: "pass", detail: parts.join("; "), files: [rel] };
+    return { kind: "source", claim, command, status: "pass", detail: parts.join("; "), files: touched };
   } catch (err) {
     return {
       kind: "source",
@@ -287,7 +291,7 @@ export function sourceAssert(
       command,
       status: "fail",
       detail: err instanceof Error ? err.message : String(err),
-      files: [rel],
+      files: touched,
     };
   }
 }
@@ -524,6 +528,9 @@ function addCase(row: Omit<CaseRow, "proofIdx">, rowProofs: Proof[]): void {
  * volta che qualcuno aggiunge un componente. Fuori restano solo i file di test.
  */
 const BOARD_DIR = "client/src/components/Board";
+/** The dispatcher entry file: standing for the whole dispatcher in source assertions and fingerprints. */
+const DISPATCHER_ENTRY = "server/services/task-dispatcher.ts";
+
 const BOARD_SURFACE: string[] = readdirSync(resolve(ROOT, BOARD_DIR))
   .filter((f) => (f.endsWith(".tsx") || f.endsWith(".ts")) && !f.includes(".test."))
   .sort()
@@ -1019,7 +1026,7 @@ async function build(only?: string): Promise<void> {
           );
           const hits = (res.stdout ?? "").trim();
           must(hits === "", `ensureAgentSummary esiste dopotutto: ${hits}`);
-          const disp = readFileSync(resolve(ROOT, "server/services/task-dispatcher.ts"), "utf8");
+          const disp = readDispatcherSource();
           must(disp.includes("function recoverAgentWords("), "recoverAgentWords non c'è più");
           must(disp.includes("deliverToReviewBySystem"), "la consegna di sistema non c'è più");
           return "0 occorrenze di ensureAgentSummary; recoverAgentWords + deliverToReviewBySystem presenti";
@@ -1663,7 +1670,7 @@ async function emitCasesFile(path: string): Promise<number> {
     [
       "scripts/board-cases.ts",
       ...proofs.flatMap((p) => p.files ?? []),
-      ...cases.flatMap((c) => c.subjects),
+      ...cases.flatMap((c) => c.subjects.flatMap((f) => (f === DISPATCHER_ENTRY ? dispatcherSourceFiles() : [f]))),
     ],
     ROOT,
   );

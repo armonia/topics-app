@@ -48,6 +48,8 @@ export interface ParentSnapshotInput {
   repoPath: string;
   /** A plain, throwaway branch name this call owns for the length of one snapshot. */
   snapshotBranch: string;
+  /** Commits of origin's default to carry along for a receiver that has not fetched lately (`bundleBranch`). */
+  marginCommits?: number;
   run?: GitRunner;
 }
 
@@ -93,7 +95,7 @@ export async function snapshotParentAsBundle(input: ParentSnapshotInput): Promis
   const made = await run(repoPath, ["update-ref", tempRef, snapshotSha, ""]);
   if (made.code !== 0) return null;
   try {
-    return await bundleBranch(repoPath, snapshotBranch, run);
+    return await bundleBranch(repoPath, snapshotBranch, run, input.marginCommits ?? 0);
   } finally {
     // Always, even on a thrown error above: the parent's checkout must come
     // out of this call with exactly the branches it went in with.

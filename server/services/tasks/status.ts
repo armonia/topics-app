@@ -12,6 +12,7 @@ import { AGENT_WAIT_STREAK_CAP } from "../../../shared/agent-wait-cap";
 import { PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, UNOWNED_BACKLOG_SQL, QUEUED_ROOT_BOARDS_SQL } from "../../lib/task-timer-reads";
 import { UNOWNED_BACKLOG_MS } from "../../../shared/created-by";
 import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-capacity";
+import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
 export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepWaitedOut" | "sweepUnownedBacklog" | "applyBoardWorkflow" | "sweepStaleAiReview" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
@@ -28,6 +29,7 @@ export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: Re
     hasChildrenInFlight,
     hasFreshAgentComment,
     heavyInFlight,
+    topicBrief,
     isParentAlive,
     logStatus,
     markReopened,
@@ -484,6 +486,12 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
       if (patch.description !== undefined) put("description", patch.description);
       if (patch.bar !== undefined) put("bar", patch.bar?.trim() || null);
       if (patch.createdSource !== undefined) put("created_source", patch.createdSource?.trim().slice(0, 160) || null);
+      if (patch.channelTopicId !== undefined) {
+        const link = patch.channelTopicId?.trim() || null;
+        // A link to a chat that does not exist would show nothing and open a ghost tab.
+        if (link && !topicBrief(link)) throw new TaskServiceError("invalid_input", `channel chat ${link} not found`);
+        put("channel_topic_id", link);
+      }
       if (patch.priority !== undefined) {
         put("priority", patch.priority);
         // An explicit write (human OR the agent fulfilling "auto") settles it.
@@ -947,9 +955,11 @@ claim({ taskId, cap, maxAttempts, agentId, scope, machineIdle, noCheckExemption,
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (!remote && heavyInFlight() && !noCheckExemption) return null;
+      // A node's spawn_agent child shares the machine with a heavy turn (node-child-run.ts).
+      const child = isNodeChildRun(rowToTask(row));
+      if (!remote && heavyInFlight() && !noCheckExemption && !child) return null;
       if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
-      if (!remote && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
+      if (!remote && !child && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap
       // holds no matter how many boards dispatch at once. The task itself is
@@ -1013,6 +1023,25 @@ isDispatchBlocked(taskId): boolean {
 release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAttempt, keepStatus }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A DONE CARD STAYS DONE. Measured 12/11 on 403aad1f: closed at 13:04, a
+      // remote-run path released it with `requeue` at 13:05 (`reopenedBy:
+      // dispatcher`), the next claim started an agent on finished work, which
+      // then asked whether to close it. Several callers release without looking
+      // at the column (mirror retirement, weekly limit, restart requeue, empty
+      // node run): the guard lives here, once, for all of them. The link to the
+      // topic is still cleared and the reason still lands as a note (the GC
+      // writes why it unbound or abandoned a worktree); the column and the
+      // reopen mark are not touched.
+      if (row.status === "done") {
+        if (reason && reason.trim()) {
+          try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
+        }
+        db.prepare(
+          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL,
+              dispatch_state = NULL, dispatch_error = NULL, updated_at = ? WHERE id = ?`,
+        ).run(now(), taskId);
+        return rowToTask(getTaskRow(taskId));
+      }
       // Note first (so the "worked in topic X" trail survives clearing the link).
       if (reason && reason.trim()) {
         try { this.addComment({ taskId, author: by ?? "system", content: reason }); } catch { /* dedupe/best-effort */ }
@@ -1065,6 +1094,8 @@ release(this: TaskService, { taskId, requeue, reason, by, parkState, rollbackAtt
 deferForWait(this: TaskService, { taskId, reason, minutes, by, source }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card waits for nothing: same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const mins = clampInt(minutes ?? 15, 1, 1440);
       const ts = now();
       const detto = reason && reason.trim() ? reason.trim() : "";

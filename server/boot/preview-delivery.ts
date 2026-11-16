@@ -3,7 +3,7 @@
  */
 import { join } from "path";
 import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
-import { createTaskAutoMerge, worktreeRealDirt } from "../services/task-automerge";
+import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
 import { createPreviewManager, type PreviewProcess } from "../services/preview-manager";
 import { createPreviewBrowser } from "../services/preview-browser";
@@ -257,24 +257,19 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // Attempt branches plus the card's own delivery/prior pointers: an old delivery
     // branch of the same card is its history, never "another session".
     ownBranches: (taskId) => cardOwnBranches(taskId),
-    declaredDelivery: (taskId) => {
-      const task = dispatcherSvc.get(taskId)?.task;
-      if (!task) return null;
-      const branch = task.deliveryBranch ?? null;
-      if (!branch) return null;
-      let repoPath: string | null = null;
-      try {
-        repoPath = resolveProjectPath(
-          task.projectId,
-          buildProjectCandidates({
-            projectStore: ctx.projectStore,
-            workspaceDir: DISPATCH_WORKSPACE_DIR,
-            extraPaths: dispatchExtraPaths,
-          }),
-        )?.path ?? null;
-      } catch (err) { console.warn("[land] checkout non risolto per", taskId, err); }
-      return { repoPath, branch };
-    },
+    // A card that ran on another machine declares its branch as `priorBranch`.
+    declaredDelivery: declaredDeliveryFor({
+      getTask: (taskId) => dispatcherSvc.get(taskId)?.task,
+      resolveRepoPath: (projectId) => resolveProjectPath(
+        projectId,
+        buildProjectCandidates({
+          projectStore: ctx.projectStore,
+          workspaceDir: DISPATCH_WORKSPACE_DIR,
+          extraPaths: dispatchExtraPaths,
+        }),
+      )?.path ?? null,
+      log: (msg, err) => console.warn(msg, err),
+    }),
     log: (msg, err) => console.error(msg, err ?? ""),
   });
 

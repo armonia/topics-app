@@ -9,10 +9,11 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readDispatcherSource } from "../../tests/helpers/dispatcher-source";
 import { GENERIC_PRODUCT_RULE } from "./task-dispatcher";
 
 const REPO = join(import.meta.dir, "..", "..");
-const dispatcher = readFileSync(join(REPO, "server/services/task-dispatcher.ts"), "utf8");
+const dispatcher = readDispatcherSource();
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
 
 describe("regola Topics generica nel kickoff", () => {

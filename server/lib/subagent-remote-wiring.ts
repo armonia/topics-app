@@ -10,11 +10,12 @@ import { getDatabase } from "../db";
 import type { AppContext } from "../types";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { isGitRepo, runGit } from "../services/turn-checkpoints";
-import type { BundleResult, CreateRunBody, NodeRunReport } from "../services/node-client";
+import type { BundleResult, CreateRunBody, NodeRunComment, NodeRunReport } from "../services/node-client";
 import { normalizePromptSnippet } from "./claude-subagent-transcript";
 import { emitChildResult } from "./subagent-runtime";
 import { countRunningRemoteChildren, getSubagent, insertSubagent, markSubagentRemote, runningSubagents, setSubagentState, type SubagentRow } from "./subagent-store";
 import { settleRemoteChildBranch } from "./subagent-remote-return";
+import { isChildVoice } from "./subagent-remote-read";
 import { type ChildNodeCandidate } from "./subagent-remote-run";
 import { spawnRemoteChild } from "./subagent-remote-spawn";
 import type { MacOnlyResource } from "./subagent-remote-decision";
@@ -24,8 +25,11 @@ export interface RemoteRoad {
   baseUrlOf: (machineId: string) => string | null;
   tokenOf: (machineId: string) => string | null;
   readRun: (input: { baseUrl: string; token: string; runId: string }) => Promise<NodeRunReport>;
+  /** Archives the run on the node once its branch is home (`DELETE /api/nodes/runs/:id`). */
+  cancelRun?: (input: { baseUrl: string; token: string; runId: string }) => Promise<void>;
   createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
   fetchBundle: (input: { baseUrl: string; token: string; runId: string }) => Promise<BundleResult>;
+  codingModels?: (input: { baseUrl: string; token: string }) => Promise<string[]>;
 }
 
 export interface SpawnRemoteChildAttemptInput {
@@ -67,6 +71,17 @@ export function macOnlyResourceOf(prompt: string, agentType: string | null): Mac
   return null;
 }
 
+/**
+ * What the child answered, out of the node's card comments: the agent's delivery, else its
+ * last word. The node's own services write after it (16/11: the verifier's "preview not
+ * attached" note was the last comment, and the parent read that as the child's answer).
+ */
+export function childAnswerOf(comments: readonly NodeRunComment[]): string {
+  const byAgent = comments.filter(isChildVoice);
+  const delivery = byAgent.filter((c) => c.kind === "delivery").at(-1);
+  return (delivery ?? byAgent.at(-1) ?? comments.at(-1))?.content ?? "";
+}
+
 export type SpawnRemoteChildAttemptResult =
   | { ok: true; agentId: string; name: string; cwd: string; branch: string }
   | { ok: false; reason: string };
@@ -103,7 +118,7 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       macOnlyResource: macOnlyResourceOf(input.prompt, input.agentType),
       originUrl: originCheck.code === 0 && originCheck.stdout ? originCheck.stdout : null,
       nodes: childNodeCandidates(),
-      baseUrlOf: road().baseUrlOf, tokenOf: road().tokenOf, createRun: road().createRun,
+      baseUrlOf: road().baseUrlOf, tokenOf: road().tokenOf, createRun: road().createRun, nodeModels: road().codingModels,
     });
     if (!remote) return null;
     if (!remote.ok) return { ok: false, reason: remote.reason };
@@ -162,14 +177,14 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       const failed = report.status === "backlog" && (report.dispatchState === "failed" || report.dispatchState === "blocked");
       if (report.status !== "review" && !failed) return; // still running
       if (getSubagent(getDatabase(), row.id)?.state !== "running") return; // already settled by another tick
-      const lastText = report.comments.length ? report.comments[report.comments.length - 1]!.content : "";
+      const lastText = childAnswerOf(report.comments);
       if (failed) {
         finish(row, { failed: true, text: lastText, detail: report.dispatchError || report.reason || "the node parked the run" });
         return;
       }
       if (row.branch) {
         const settled = await settleRemoteChildBranch({
-          repoPath: row.cwd, branch: row.branch,
+          repoPath: row.cwd, branch: row.branch, deliveredBranch: report.deliveryBranch,
           fetchBundle: () => r.fetchBundle({ baseUrl, token, runId }),
         });
         if (!settled.ok) {
@@ -184,6 +199,13 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
         }
       }
       finish(row, { failed: false, text: lastText });
+      // The branch is home: the node's card is archived, so its worktree (~0.9 GB with the
+      // dependencies) goes with the node's own GC instead of piling up (16/11: 130 of them on
+      // the PC, 12 GB, until its disk floor refused every new child). Best effort: the work
+      // is already here, a node that does not answer only keeps a stale card.
+      if (r.cancelRun) await r.cancelRun({ baseUrl, token, runId }).catch((err: unknown) => {
+        console.warn(`[spawn] remote child ${row.id}: run ${runId} not archived on the node: ${err instanceof Error ? err.message : String(err)}`);
+      });
     } finally {
       settling.delete(row.id);
     }

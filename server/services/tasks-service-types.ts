@@ -1,17 +1,53 @@
-/**
- * The `TaskService` contract itself, split out from `tasks.ts` for size:
- * this interface alone was ~830 lines. Type-only, so moving it changes
- * nothing about how the service behaves.
- */
+/** The task service contract (options, merge outcome, the TaskService surface), split out of tasks.ts (types only). */
+import type { Actor, UpdateBoardSettingsPatch } from "./tasks";
+import type { RepoProbe } from "./deliveryReportChecks";
+import { type CheckRun } from "./review-checks";
+import { type LandingAuditCandidate } from "./landing-candidates";
+import { type WorkflowPresetId } from "../../shared/workflow";
+import type { ParkedChildrenDecision } from "../../shared/board";
+import { type LabelSource, type TaskFile } from "../../shared/task-labels";
+import { type Neighbour } from "../../shared/task-similarity";
+import type { TaskComment, BoardSettings, TaskWeight, GlobalDispatchCap, GlobalCapPatch, TaskActionOrigin } from "../../shared/board";
+import type { Task, CreateTaskInput, UpdateTaskPatch, ListTasksInput } from "./task-shapes";
 
-import type { Actor, UpdateBoardSettingsPatch } from "../tasks";
-import type { BoardSettings, GlobalCapPatch, GlobalDispatchCap, ParkedChildrenDecision, TaskActionOrigin, TaskComment, TaskWeight } from "../../../shared/board";
-import type { CheckRun } from "../review-checks";
-import type { CreateTaskInput, ListTasksInput, Task, UpdateTaskPatch } from "../task-shapes";
-import type { LabelSource, TaskFile } from "../../../shared/task-labels";
-import type { LandingAuditCandidate } from "../landing-candidates";
-import type { Neighbour } from "../../../shared/task-similarity";
-import type { WorkflowPresetId } from "../../../shared/workflow";
+export interface ServiceOpts {
+  now?: () => string;
+  uuid?: () => string;
+  /** Window within which an identical comment (same task+author+content) is deduped. */
+  commentDedupeMs?: number;
+  /** Window within which a second interruption note on the same task stays silent. */
+  interruptClaimMs?: number;
+  /** Window within which a repeated chat nudge on the same task collapses to one line. */
+  nudgeClaimMs?: number;
+  /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
+  fileExists?: (p: string) => boolean;
+  /**
+   * Scrive la SCHEDA DI CONSEGNA su disco e torna il path (null se non si e'
+   * potuto). Iniettata dall'host perche' questo servizio non conosce la media
+   * dir e non deve toccare il filesystem: vedi `services/delivery-sheet.ts`.
+   */
+  writeDeliverySheet?: (taskId: string, svg: string) => string | null;
+  /**
+   * The repository a delivery report talks about: the agent's worktree first
+   * (a cited file may exist only on the delivery branch), then the board's
+   * project. `null` = this server's own checkout, which is right for exactly
+   * one board. The server wires this; the service cannot know where projects
+   * live.
+   */
+  repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
+  /** Complete host-known repository roots, including registered and archived projects. */
+  listRepoRoots?: () => string[];
+  /** Visible project directories, used as a fallback by older hosts. */
+  listProjectDirs?: () => string[];
+  /** How a root becomes a probe (tests pass a fake). */
+  probeFor?: (root: string) => RepoProbe;
+  /**
+   * A delivery note that waited on git has just been written: after the update
+   * that asked for it returned, so after its caller broadcast the card. The
+   * host sends the card again, or an open board or drawer never shows the note.
+   */
+  onLateDeliveryNote?: (taskId: string, projectId: string | undefined) => void;
+}
 
 /** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
 export interface MergeOutcome {
@@ -620,6 +656,11 @@ export interface TaskService {
   nodeRunIsOpen(taskId: string): boolean;
   /** The run came home (its delivery landed): the id stays for the next cancel, but nothing is running. */
   closeNodeRun(taskId: string): void;
+  /**
+   * Cards out of the cycle (done or archived) that still remember a node run: their mirror on the
+   * node is still open. Optional so fakes need not implement it.
+   */
+  retiredNodeRuns?(): { taskId: string; runId: string; machineId: string | null; capabilityId: string | null }[];
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /**

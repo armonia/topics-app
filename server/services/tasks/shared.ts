@@ -30,7 +30,8 @@ import { checkStage, clearAiReviewReminderStamp, readBoardWorkflow } from "../bo
 import { requestAiReviewNotice } from "../ai-review-notice";
 import { waitsLineAsk } from "../../../shared/waits-on-person";
 import { EFFORT_TIERS } from "../../../shared/effort";
-import { type CheckRun } from "../review-checks";
+import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../../shared/channel-origin";
+import { channelPlaceOf } from "../channel-place";
 
 /** Automatic requeues of a machine-parked card before it stays for a human. */
 export const MACHINE_RETRY_CAP = 3;
@@ -83,75 +84,8 @@ export function commentAsksHuman(content: string | null | undefined): boolean {
   return questionAsksHuman(parsed);
 }
 
-/**
- * `tasks.checks_json` → `CheckRun[]`. Tollerante come il parser delle impostazioni:
- * un JSON storto (riga scritta a mano, formato di una versione precedente) vale
- * "nessuna evidenza", non un'eccezione che fa esplodere OGNI lettura del task.
- */
-export function parseChecksJson(raw: unknown): CheckRun[] | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.length ? (parsed as CheckRun[]) : null;
-    // FORMA NUOVA: `{ progress, runs }`, scritta mentre la corsa e' in volo.
-    // I `runs` parziali sono comunque risultati veri (i comandi gia' finiti),
-    // e chi legge questa funzione li vuole uguale.
-    if (parsed && typeof parsed === "object" && Array.isArray((parsed as { runs?: unknown }).runs)) {
-      const runs = (parsed as { runs: CheckRun[] }).runs;
-      return runs.length ? runs : null;
-    }
-    return null;
-  } catch { return null; }
-}
-
-/**
- * A che punto e' la corsa dei controlli: `{ done, total }`, o `null`.
- *
- * Vive in `checks_json` accanto ai run parziali (vedi `recordChecks`). Esiste
- * perche' la card diceva «check in corso» e basta — segnalato: «se c'e'
- * qualcosa in corso, dovrebbe esserci un progress».
- */
-export function parseChecksProgress(raw: unknown): { done: number; total: number } | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
-    const p = (parsed as { progress?: unknown }).progress;
-    if (!p || typeof p !== "object") return null;
-    const { done, total } = p as { done?: unknown; total?: unknown };
-    // Numeri veri e coerenti, o niente: un «3 su 0» a schermo e' peggio del
-    // silenzio, e un NaN attraversa tutto fino alla card.
-    if (typeof done !== "number" || typeof total !== "number") return null;
-    if (!Number.isFinite(done) || !Number.isFinite(total)) return null;
-    if (total <= 0 || done < 0 || done > total) return null;
-    return { done, total };
-  } catch { return null; }
-}
-
-/**
- * The pull request and the CI run a delivery is waiting on, or `null`.
- *
- * Same lodging as the progress, and for the same reason: it is worth something
- * for the minutes of the wait and nothing after it, so a column and a migration
- * would be out of proportion. Only `https://` links are kept — the value is
- * rendered as a link on the card, and the only writer is the CI reader, but a
- * check on the shape costs one line and closes the question.
- */
-export function parseChecksCi(raw: unknown): { prUrl: string; runUrl?: string } | null {
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
-    const ci = (parsed as { ci?: unknown }).ci;
-    if (!ci || typeof ci !== "object") return null;
-    const { prUrl, runUrl } = ci as { prUrl?: unknown; runUrl?: unknown };
-    const link = (v: unknown): string | null => (typeof v === "string" && v.startsWith("https://") ? v : null);
-    const pr = link(prUrl);
-    if (!pr) return null;
-    const runLink = link(runUrl);
-    return runLink ? { prUrl: pr, runUrl: runLink } : { prUrl: pr };
-  } catch { return null; }
-}
+import { parseChecksJson, parseChecksProgress, parseChecksCi } from "../tasks-checks";
+export { parseChecksJson, parseChecksProgress, parseChecksCi };
 
 /**
  * L'effort di board accetta anche `auto`, come il modello.
@@ -1701,6 +1635,7 @@ function mapRow(r: any, b: TaskBatch): Task {
       ...(r.bar ? { bar: r.bar } : {}),
       ...liveCardGaps(r),
       ...openerOf(r),
+      ...channelOf(r),
       // The workflow column, only when it is not the default one: a board with
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
@@ -1822,16 +1757,41 @@ function rowsToTasks(rows: readonly any[]): Task[] {
    */
   let openerNameQuery: ReturnType<typeof db.prepare> | null = null;
 
+function topicBrief(id: string): { name: string | null; kind: ChannelKind | null } | null {
+    try {
+      // Prepared once: a list of thousands of cards would otherwise compile one statement per row.
+      openerNameQuery ??= db.prepare("SELECT name, icon FROM topics WHERE id = ?");
+      const t = openerNameQuery.get(id) as { name?: string | null; icon?: string | null } | null;
+      return t ? { name: t.name ?? null, kind: channelKindOfIcon(t.icon) } : null;
+    } catch { return null; }
+  }
+
 function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: string | null }): { openerTopicId?: string; openerName?: string } {
     const id = r.origin_topic_id ?? r.created_by_topic_id;
     if (!id) return {};
-    try {
-      // Prepared once: a list of thousands of cards would otherwise compile one statement per row.
-      openerNameQuery ??= db.prepare("SELECT name FROM topics WHERE id = ?");
-      const t = openerNameQuery.get(id) as { name?: string | null } | null;
-      if (!t) return {};
-      return { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) };
-    } catch { return {}; }
+    const t = topicBrief(id);
+    return t ? { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) } : {};
+  }
+
+  /**
+   * The Jarvis channel a card's work came from: the chat linked on purpose
+   * (`channel_topic_id`) wins, else the opener chat when it is itself a channel
+   * chat. Only while that chat exists and wears a channel mark: a deleted chat
+   * would open a ghost tab, and an ordinary chat is not a channel. Display only.
+   */
+  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace } } {
+    for (const id of [r.channel_topic_id, r.origin_topic_id, r.created_by_topic_id]) {
+      if (!id) continue;
+      const t = topicBrief(id);
+      if (t?.kind) {
+        let place: ChannelPlace | null = null;
+        try { place = channelPlaceOf(t.name ?? ""); } catch { /* the bridge database is optional */ }
+        return { channel: { topicId: id, name: t.name ?? "", kind: t.kind, ...(place ? { place } : {}) } };
+      }
+      // An explicit link names the channel: when it is gone the card is NOT re-attributed to another chat.
+      if (id === r.channel_topic_id) return {};
+    }
+    return {};
   }
 
 function rowToTask(r: any): Task {
@@ -2645,6 +2605,7 @@ function getTaskRow(taskId: string): any {
     now,
     openerNameQuery,
     openerOf,
+    topicBrief,
     parkedChildren,
     parkedQuestionStillStanding,
     previewImagesFor,

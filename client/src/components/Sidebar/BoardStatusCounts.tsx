@@ -8,6 +8,8 @@ import { useAttentionRows } from '../../state/attention';
 import { boardAttention } from '../../state/attentionRollups';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
 import { useT } from '../../hooks/useT';
+import { estimatesByProject, summarizeRunning } from '../../../../shared/task-countdown';
+import { runningLine } from '../../lib/workLine';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useProjectIconsPresent } from '../Shared/projectIconStore';
 import {
@@ -214,8 +216,16 @@ export function BoardRowSummary({ byStatus }: { byStatus: Record<TaskStatus, Boa
   const rows = useAttentionRows();
   const lit = useMemo(() => boardAttention(rows, null, null).count, [rows]);
   const counts = useMemo(() => boardRowCounts(byStatus, lit), [byStatus, lit]);
+  // The cards in progress also say when the first should be done, from the same estimate the cards draw.
+  const timeLeft = useMemo(() => {
+    const running = (byStatus?.in_progress ?? []).filter((t) => !t.parentTaskId);
+    const all = Object.values(byStatus ?? {}).flat();
+    return runningLine(tr, summarizeRunning(running, estimatesByProject(all)));
+  }, [byStatus, tr]);
   const countTitle = (status: TaskStatus, n: number): string =>
-    status === 'review' ? tr('attention.board.waiting', { n }) : `${STATUS_LABEL[status]}: ${n}`;
+    status === 'review' ? tr('attention.board.waiting', { n })
+      : status === 'in_progress' && timeLeft ? `${STATUS_LABEL[status]}: ${n} (${timeLeft})`
+      : `${STATUS_LABEL[status]}: ${n}`;
 
   // `null` = non ancora misurato, ed è un valore DIVERSO da 0. Zero è una
   // misura vera («qui non c'è spazio») e va annunciata col «+N»; null è

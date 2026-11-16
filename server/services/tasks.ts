@@ -1,5 +1,4 @@
 
-import type { RepoProbe } from "./deliveryReportChecks";
 import type { Database } from "bun:sqlite";
 
 import { parseReviewChecks, serializeReviewChecks } from "./review-checks";
@@ -92,47 +91,8 @@ const VALID_DISPATCH_MCP = new Set(["bridge-only", "inherit"]);
  */
 export { projectIdForPath } from "../../shared/board";
 
-export interface ServiceOpts {
-  now?: () => string;
-  uuid?: () => string;
-  /** Window within which an identical comment (same task+author+content) is deduped. */
-  commentDedupeMs?: number;
-  /** Window within which a second interruption note on the same task stays silent. */
-  interruptClaimMs?: number;
-  /** Window within which a repeated chat nudge on the same task collapses to one line. */
-  nudgeClaimMs?: number;
-  /** Injectable for tests: whether a media path exists on disk (default node:fs existsSync). */
-  fileExists?: (p: string) => boolean;
-  /**
-   * Scrive la SCHEDA DI CONSEGNA su disco e torna il path (null se non si e'
-   * potuto). Iniettata dall'host perche' questo servizio non conosce la media
-   * dir e non deve toccare il filesystem: vedi `services/delivery-sheet.ts`.
-   */
-  writeDeliverySheet?: (taskId: string, svg: string) => string | null;
-  /**
-   * The repository a delivery report talks about: the agent's worktree first
-   * (a cited file may exist only on the delivery branch), then the board's
-   * project. `null` = this server's own checkout, which is right for exactly
-   * one board. The server wires this; the service cannot know where projects
-   * live.
-   */
-  repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
-  /** Complete host-known repository roots, including registered and archived projects. */
-  listRepoRoots?: () => string[];
-  /** Visible project directories, used as a fallback by older hosts. */
-  listProjectDirs?: () => string[];
-  /** How a root becomes a probe (tests pass a fake). */
-  probeFor?: (root: string) => RepoProbe;
-  /**
-   * A delivery note that waited on git has just been written: after the update
-   * that asked for it returned, so after its caller broadcast the card. The
-   * host sends the card again, or an open board or drawer never shows the note.
-   */
-  onLateDeliveryNote?: (taskId: string, projectId: string | undefined) => void;
-}
-
-import type { TaskService } from "./tasks/task-service-type";
-export type { TaskService };
+import type { ServiceOpts, TaskService } from "./tasks-service-types";
+export type { ServiceOpts, TaskService };
 
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
   const shared = createTasksShared(db, opts);
@@ -352,8 +312,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         : null;
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, bar, created_missing)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing, created_by, stay_local, base_branch, created_source, origin_topic_id, channel_topic_id, bar, created_missing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -369,7 +329,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         parseCreatedBy(input.createdBy),
         input.stayLocal ? 1 : 0,
         input.baseBranch?.trim() || null,
-        bornSource, input.originTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
+        bornSource, input.originTopicId?.trim() || null, input.channelTopicId?.trim() || null, bornBar, bornGaps ? bornGaps.join(",") : null,
       );
       if (bornGaps?.length) {
         try {

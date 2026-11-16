@@ -437,6 +437,8 @@ export interface AppContext {
     createRun: import("./services/node-client").NodeClient["createRun"];
     /** Fetches the child's returning branch bundle (SUBAGENT-26/28), same restriction as `createRun`. */
     fetchBundle: import("./services/node-client").NodeClient["fetchBundle"];
+    /** The Claude ids a paired node can run, to resolve a child's model alias there. */
+    codingModels: import("./services/node-client").NodeClient["codingModels"];
     baseUrlOf: (machineId: string) => string | null;
     tokenOf: (machineId: string) => string | null;
   };

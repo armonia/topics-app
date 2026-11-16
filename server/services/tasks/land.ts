@@ -5,7 +5,7 @@ import { DELIVERY_SNAPSHOT_COLUMNS, TaskServiceError } from "./shared";
 import { type Task } from "../task-shapes";
 import { type TaskStatus, isAgentWorking, DEPLOY_ACTION_LABEL } from "../../../shared/board";
 import { markTargetNotificationsSeen } from "../../db/notification-log";
-import { type MergeOutcome } from "./task-service-type";
+import { type MergeOutcome } from "../tasks-service-types";
 import { STAGE_CI } from "../../../shared/workflow";
 import { listLandingAuditCandidates as listLandingAuditCandidatesQuery } from "../landing-candidates";
 

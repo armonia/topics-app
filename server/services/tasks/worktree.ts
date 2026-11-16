@@ -4,7 +4,7 @@ import type { createTasksShared } from "./shared";
 import { type Task } from "../task-shapes";
 import { TaskServiceError, VALID_EFFORT } from "./shared";
 
-export function createWorktreeMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "boardProjectForTopic" | "taskForTopic" | "bindTopic" | "recordAgentUsage" | "raiseAgentUsage" | "nodeRunOf" | "setNodeRun" | "nodeRunIsOpen" | "closeNodeRun" | "setModel"> {
+export function createWorktreeMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "boardProjectForTopic" | "taskForTopic" | "bindTopic" | "recordAgentUsage" | "raiseAgentUsage" | "nodeRunOf" | "setNodeRun" | "nodeRunIsOpen" | "closeNodeRun" | "retiredNodeRuns" | "setModel"> {
   const {
     archiveSubtree,
     getTaskRow,
@@ -277,6 +277,14 @@ nodeRunIsOpen(taskId) {
 
 closeNodeRun(taskId) {
       db.prepare("UPDATE tasks SET node_run_open = 0 WHERE id = ?").run(taskId);
+    },
+
+retiredNodeRuns() {
+      const rows = db.prepare(
+        `SELECT id, node_run_id, machine_id, delegated_start_capability_id FROM tasks
+          WHERE node_run_id IS NOT NULL AND (status = 'done' OR COALESCE(archived, 0) = 1)`,
+      ).all() as { id: string; node_run_id: string; machine_id: string | null; delegated_start_capability_id: string | null }[];
+      return rows.map((r) => ({ taskId: r.id, runId: r.node_run_id, machineId: r.machine_id, capabilityId: r.delegated_start_capability_id }));
     },
 
 setModel({ taskId, model, effort }): Task {

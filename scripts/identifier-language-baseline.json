@@ -135,9 +135,6 @@
       "fmtAttesa",
       "fmtTok"
     ],
-    "client/src/components/Board/nightModeText.ts": [
-      "formatCountdown"
-    ],
     "client/src/components/Board/planPanel.test.ts": [
       "chiacchiera",
       "dopo",
@@ -1687,7 +1684,6 @@
     "client/src/state/chatQueue.ts": [
       "readback",
       "rec",
-      "requeueFront",
       "unshiftTurn"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
@@ -3538,6 +3534,10 @@
       "provB",
       "vero"
     ],
+    "server/providers/claude-code-session.ts": [
+      "certsDir",
+      "useTls"
+    ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
       "ppWithSidechain",
       "sidechain"
@@ -3554,9 +3554,7 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "certsDir",
-      "oneshotKey",
-      "useTls"
+      "oneshotKey"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -4652,8 +4650,26 @@
     "server/services/task-diff-range.ts": [
       "introducing"
     ],
+    "server/services/task-dispatcher-admission.ts": [
+      "gcap"
+    ],
     "server/services/task-dispatcher-cap-note.test.ts": [
       "nota"
+    ],
+    "server/services/task-dispatcher-claim.ts": [
+      "atteso",
+      "chiusa",
+      "dietro",
+      "posti",
+      "tappo",
+      "vivi"
+    ],
+    "server/services/task-dispatcher-core.ts": [
+      "untilHHMM"
+    ],
+    "server/services/task-dispatcher-events.ts": [
+      "dep",
+      "marcate"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
       "righe",
@@ -4669,11 +4685,41 @@
       "righe",
       "seedOrfana"
     ],
+    "server/services/task-dispatcher-kickoff.ts": [
+      "buildFanoutKickoff",
+      "langFor"
+    ],
+    "server/services/task-dispatcher-launch.ts": [
+      "gia"
+    ],
     "server/services/task-dispatcher-nudge.test.ts": [
       "INTERO",
       "processo",
       "riga",
       "seedOrfana"
+    ],
+    "server/services/task-dispatcher-reconcile.ts": [
+      "acceso",
+      "detta",
+      "nota",
+      "perche"
+    ],
+    "server/services/task-dispatcher-runs.ts": [
+      "unsubscribeHumanHold"
+    ],
+    "server/services/task-dispatcher-tick.ts": [
+      "fermi",
+      "fila",
+      "perche"
+    ],
+    "server/services/task-dispatcher-turn-end.ts": [
+      "lavoroNonCommittato",
+      "mossa",
+      "nienteDaVedere",
+      "sporchi"
+    ],
+    "server/services/task-dispatcher-usage.ts": [
+      "stillTriaging"
     ],
     "server/services/task-dispatcher.test.ts": [
       "ALTRA",
@@ -4704,33 +4750,6 @@
       "storico",
       "testi",
       "testo"
-    ],
-    "server/services/task-dispatcher.ts": [
-      "acceso",
-      "atteso",
-      "buildFanoutKickoff",
-      "chiusa",
-      "dep",
-      "detta",
-      "dietro",
-      "fermi",
-      "fila",
-      "gcap",
-      "gia",
-      "langFor",
-      "lavoroNonCommittato",
-      "marcate",
-      "mossa",
-      "nienteDaVedere",
-      "nota",
-      "perche",
-      "posti",
-      "sporchi",
-      "stillTriaging",
-      "tappo",
-      "unsubscribeHumanHold",
-      "untilHHMM",
-      "vivi"
     ],
     "server/services/task-intake.ts": [
       "STOPWORDS",
@@ -4770,6 +4789,9 @@
       "tagliato",
       "titolo",
       "titoloMigliore"
+    ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
     ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
@@ -4814,7 +4836,6 @@
       "figlio",
       "landata",
       "nuovo",
-      "requeued",
       "riga",
       "riletta",
       "vivo"
@@ -5133,11 +5154,7 @@
     ],
     "shared/board.ts": [
       "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN",
-      "PARKED_REQUEUED_TAIL",
-      "PARKED_REQUEUE_NOTE_LIKE",
-      "REQUEUE_PARKED_LABEL",
-      "isRequeueParkedLabel"
+      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5189,7 +5206,6 @@
       "isPreviewablePath"
     ],
     "shared/notify-actions.test.ts": [
-      "requeue",
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [

@@ -117,6 +117,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
       ctx.nodeClient ? ctx.nodeClient.createRun(input) : Promise.reject(new Error("no node client configured")),
     fetchBundle: (input: Parameters<NonNullable<AppContext["remoteNode"]>["fetchBundle"]>[0]) =>
       ctx.nodeClient ? ctx.nodeClient.fetchBundle(input) : Promise.reject(new Error("no node client configured")),
+    codingModels: (input: Parameters<NonNullable<AppContext["remoteNode"]>["codingModels"]>[0]) =>
+      ctx.nodeClient ? ctx.nodeClient.codingModels(input) : Promise.reject(new Error("no node client configured")),
   };
   // One log per remote child run, the output `read_agent` pages through by
   // index (`subagent-remote-read.ts`). In memory: a restart starts each log

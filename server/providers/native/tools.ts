@@ -35,6 +35,7 @@ import { globAnswer, globFiles } from "./glob-files";
 import { resolveSearchRoot } from "./search-root";
 import { imageShape } from "../../services/image-shape";
 import { imageCaption, type ToolImage } from "./image-normalize";
+import { tmpdir } from "os";
 import { insideAnyRoot, loadWriteRoots } from "./write-roots";
 
 import { expandHome } from "../../lib/expand-home";
@@ -183,7 +184,9 @@ function safeWritePath(ctx: ToolContext, raw: string): string {
     return safePath(ctx, expanded);
   } catch (err) {
     const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
-    if (insideAnyRoot(abs, loadWriteRoots(resolve(ctx.workspace)))) return abs;
+    // The OS scratch dir is always writable: it is disposable by definition.
+    const scratch = [...new Set([tmpdir(), "/tmp"].map((d) => resolve(d)))];
+    if (insideAnyRoot(abs, [...scratch, ...loadWriteRoots(resolve(ctx.workspace))])) return abs;
     throw err;
   }
 }

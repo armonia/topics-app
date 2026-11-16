@@ -61,6 +61,10 @@ export function createDeliveryMethods(db: Database, _opts: ServiceOpts, shared: 
 deliverToReviewBySystem(this: TaskService, { taskId, reason, cause, nextMove, uncommittedFiles, messageId, quietReason, deliveredTip }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
+      // A done card is never carried back to review by the system: a remote run
+      // that reports after the card was closed must not reopen it
+      // (`reopenedBy: dispatcher`, measured 12/11 on 17436204). Same rule as `release`.
+      if (row.status === "done") return rowToTask(row);
       const ts = now();
       // SAME TIP AS THE ONE SENT BACK, NO WORD FROM THE AGENT: a resumed turn
       // that hands in the commit that was just rejected did no work, and

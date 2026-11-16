@@ -481,6 +481,10 @@ function reportLostChildren(): void {
     // A native child has no terminal to lose: its turn may have survived the
     // restart, and `native-subagents.ts` adopts it (`adoptNativeChildrenAtBoot`).
     if (row.runtime === "topics") continue;
+    // A child running on a node has no terminal here either: the node keeps working through
+    // this restart and the remote watch settles it (`subagent-remote-wiring.ts`). Stored with
+    // the default runtime, it was reported lost on every land's restart (16/11, 3 of 6 mid-run).
+    if (row.remoteMachineId) continue;
     reportChildEnd({
       id: row.id, name: row.name, createdAt: row.createdAt, cwd: row.cwd,
       claudeSessionId: row.claudeSessionId ?? undefined, parentSessionKey: row.parentSessionKey,

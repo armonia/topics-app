@@ -727,19 +727,29 @@ function main(): void {
     );
   }
 
-  // Improvements never fail. They do get said out loud, or the baseline rots.
+  // An improvement has to be LOCKED IN, in the same commit that made it. Until
+  // 16/11 it only printed a line, and nobody had to act on it: a file split in
+  // half kept its old ceiling, so it could grow back to it and stay green. A
+  // ratchet that never tightens is a fence, not a ratchet: the gate stopped
+  // things getting worse and never made them better. Now a file that left the list, or shrank
+  // by more than GROWTH_FLOOR, is red until `--update-baseline` records it.
+  // Small shrinks stay a note: requiring a baseline edit for every 10-line
+  // refactor would turn the file into the merge magnet the v2 format fights.
   for (const [file, was] of Object.entries(baseline.files)) {
     const now = sizes.find((s) => s.file === file);
     if (!now) {
-      console.log(`[check-bloat] baseline entry gone (renamed or deleted): ${file} (was ${was})`);
+      problems.push(`STALE  ${file} is in the baseline (${was}) but gone (renamed or deleted). Run --update-baseline.`);
     } else if (now.lines <= opts.maxLines) {
-      console.log(`[check-bloat] cured: ${file} is down to ${now.lines}. Run --update-baseline to lock it in.`);
+      problems.push(`CURED, NOT LOCKED  ${file} is down to ${now.lines} (baseline ${was}). Run --update-baseline.`);
+    } else if (was - now.lines > GROWTH_FLOOR) {
+      problems.push(
+        `SHRANK, NOT LOCKED  ${file}: ${was} -> ${now.lines}. Run --update-baseline so the ceiling follows it down.`,
+      );
     }
   }
   if (duplicatedLines < Math.floor(baseline.duplicated_lines * 0.95)) {
-    console.log(
-      `[check-bloat] duplication is down (${baseline.duplicated_lines} -> ${duplicatedLines}). ` +
-        `Run --update-baseline to lock it in.`,
+    problems.push(
+      `DUPLICATION down, not locked: ${baseline.duplicated_lines} -> ${duplicatedLines}. Run --update-baseline.`,
     );
   }
 
