@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.18",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Node child runs: a heavy child waits for the heavy turn like any heavy card (#1135)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Child bundles carry 200 commits of origin's default for a node that has not fetched lately (#1136)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.17",
     "date": "2026-11-16",
     "sections": {

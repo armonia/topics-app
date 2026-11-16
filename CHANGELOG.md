@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.18 — 2026-11-16
+
+### Sotto il cofano
+- Node child runs: a heavy child waits for the heavy turn like any heavy card (#1135)
+- Child bundles carry 200 commits of origin's default for a node that has not fetched lately (#1136)
+
 ## 2.4.17 — 2026-11-16
 
 ### Correzioni
