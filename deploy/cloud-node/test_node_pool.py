@@ -1,5 +1,5 @@
 """Bench for the permanent-node drain: fake DB (slot_busy) and fake ssh. Run: python3 deploy/cloud-node/test_node_pool.py"""
-import importlib.machinery, importlib.util, os, unittest
+import base64, importlib.machinery, importlib.util, os, shutil, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["NODE_POOL_LOG"] = "/tmp/node-pool-test.log"
@@ -77,6 +77,55 @@ class Drain(unittest.TestCase):
         self.run_at(t + np.DRAIN_MAX_S)
         self.assertEqual(self.patches, [0, 4])
         self.assertEqual(self.restarts(), [])
+
+
+class SyncRepoIdentity(unittest.TestCase):
+    """The clone the node makes for a run signs commits with the Mac checkout's identity, read by
+    the dispatcher and carried in the hook payload (`git_author_name`/`git_author_email`), never one
+    of the node's own: a foreign author is exactly what the land (LAND-13) refuses.
+
+    @covers LAND-13
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        np.ST = self.tmp
+        self.ssh_scripts = []
+        np.ssh = lambda ip, cmd, timeout=120, inp=None: (self.ssh_scripts.append(cmd), R(0))[1]
+        self.subprocess_calls = []
+
+        def fake_run(args, **kwargs):
+            self.subprocess_calls.append(args)
+            if "bundle" in args and "create" in args:
+                open(args[args.index("create") + 1], "wb").close()
+
+            class Done:
+                returncode = 0
+                stdout = "refs/remotes/origin/main"
+                stderr = ""
+            return Done()
+
+        np.subprocess.run = fake_run
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_node_clone_gets_the_checkout_identity_as_local_config(self):
+        sl = {"ip": "1.2.3.4", "server_id": "s1", "n": 1}
+        np.sync_repo(sl, "https://github.com/acme/alpha", "/Users/me/alpha", "Ada Lovelace", "ada@example.test")
+
+        self.assertEqual(len(self.ssh_scripts), 1)
+        script = self.ssh_scripts[0]
+        self.assertIn('git -C $d config user.name "$(echo ', script)
+        self.assertIn('git -C $d config user.email "$(echo ', script)
+        self.assertEqual(base64.b64encode(b"Ada Lovelace").decode(), self.name64_in(script))
+        self.assertEqual(base64.b64encode(b"ada@example.test").decode(), self.email64_in(script))
+
+    def name64_in(self, script):
+        return script.split('git -C $d config user.name "$(echo ')[1].split(" |")[0]
+
+    def email64_in(self, script):
+        return script.split('git -C $d config user.email "$(echo ')[1].split(" |")[0]
 
 
 if __name__ == "__main__":

@@ -247,6 +247,11 @@ export function createCiPhase(deps: CiPhaseDeps) {
       sendBackToAgent(projectId, taskId, redBounceMessage(done + 1, why));
     },
     giveUp: (projectId, taskId, why) => giveUp(projectId, taskId, why),
+    // No green bar on the card's own exact commit: measured alone (services/integration-queue.ts, `solo`).
+    solo: (projectId, taskId) => {
+      const t = deps.svc.get(taskId, { projectId })?.task;
+      return !t || t.checksState !== "pass" || !t.deliveryCommit || t.checksCommit !== t.deliveryCommit;
+    },
     stillWanted: (projectId, taskId) => {
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (!t || t.status !== "review" || !t.landIntent || !t.deliveryCommit) return false;

@@ -138,8 +138,8 @@ const READERS = new Set([
 ]);
 const PASSAGES = new Set([
   "server/providers/topic-provider-resolver.ts", "server/lib/session-control-core.ts", "server/routes/fork.ts",
-  "server/utils.ts", "server/services/tasks.ts", "server/routes/topics.ts", "server/routes/tasks-board.ts",
-  "server/routes/task-patch.ts", "server/routes/chat.ts", "server/services/task-shapes.ts", "server.ts",
+  "server/utils.ts", "server/services/tasks.ts", "server/routes/topics.ts", "server/routes/topics-update.ts", "server/routes/tasks-board.ts",
+  "server/routes/task-patch.ts", "server/routes/chat.ts", "server/routes/chat-provider.ts", "server/services/task-shapes.ts", "server.ts",
   "shared/board.ts", "shared/types.ts", "client/src/types/index.ts", "client/src/lib/board.ts",
   "client/src/hooks/useCardBoardSettings.ts", "client/src/components/Board/BoardSettingsPanel.tsx",
   "client/src/components/Board/FloatingTaskComposer.tsx", "client/src/components/Board/KanbanBoardPane.tsx",
@@ -150,7 +150,7 @@ const PASSAGES = new Set([
 /** Boolean coercions of the preference that are not readings: a write that
  *  normalises a request body, and a flag already resolved by its caller. */
 const ALLOWED_COERCIONS = [
-  "server/routes/topics.ts:topic.topicsRouting = body.topicsRouting === null ? null : !!body.topicsRouting;",
+  "server/routes/topics-update.ts:topic.topicsRouting = body.topicsRouting === null ? null : !!body.topicsRouting;",
   "server/services/task-auto-model.ts:const viaEngine = !!deps.topicsRouting && restrictedProvider !== 'topics';",
 ];
 

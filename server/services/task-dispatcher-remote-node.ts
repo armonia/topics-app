@@ -77,6 +77,19 @@ export interface NodeDeps {
   localMachineId?: () => string | null;
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
+  /**
+   * The identity this checkout signs commits with (`git-identity.ts`'s
+   * `repoIdentity`), `null` when none is configured. The node must sign the
+   * run's commits with THIS identity, never one of its own: the land (LAND-13)
+   * refuses a foreign author. Absent = no gate, the historical behaviour.
+   */
+  gitIdentityOf?: (projectId: string) => Promise<{ name: string; email: string } | null>;
+  /**
+   * A lane whose commits are not signed by this identity (the Claude cloud
+   * signs its own branch): the gate above does not apply to it. Absent = every
+   * lane needs the identity.
+   */
+  skipsGitIdentity?: (baseUrl: string) => boolean;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
   /**
    * Makes sure a card's own branch is on origin, pushing it when this checkout
@@ -410,6 +423,20 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    // The commits the node is about to make must carry THIS checkout's
+    // identity, not one the node invents: LAND-13 refuses any other author.
+    // Missing identity is not a silent node (retrying changes nothing), so it
+    // parks the card with the fix in words instead of deferring.
+    const gitIdentity = await Promise.resolve(node.gitIdentityOf?.(task.projectId) ?? null).catch(() => null);
+    if (node.gitIdentityOf && !gitIdentity && !node.skipsGitIdentity?.(baseUrl)) {
+      parkNodeCard(
+        task,
+        `Questa card è assegnata al nodo «${name}», ma questo checkout non ha un'identità git (\`git config user.name\`/` +
+          "`user.email`): senza di essa il land rifiuterebbe i commit della corsa come di un autore estraneo. " +
+          "Configura l'identità git di questo progetto, oppure togli la macchina dalla card.",
+      );
+      return;
+    }
     // A CARD THAT ALREADY HAS A BRANCH STARTS FROM IT over there (a rerun after
     // a review). Started from main, the delivery lacked that branch's commits and
     // conflicted with them at the land (df5fd8c5, 30/10/2026: 5 files). The node
@@ -464,6 +491,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         machine_name: name,
         node_base_url: baseUrl,
         origin_url: originUrl,
+        git_author_name: gitIdentity?.name ?? "",
+        git_author_email: gitIdentity?.email ?? "",
       })).catch((err): HookOutcome => {
         // A runner that throws said nothing: same rule as a hook that never answered.
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
@@ -886,6 +915,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The slot goes first: the run is over on the node, and what follows is
     // bookkeeping this board owes the card, not a run to keep polling.
     inFlight.delete(taskId);
+    svc.closeNodeRun(taskId);
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
@@ -1091,6 +1121,27 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         await cancelTask(taskId);
         continue;
       }
+      // A human PATCHed the card back to `todo` while this remote slot was
+      // still open — the usual move to try to restart a card that looks
+      // stuck. `inFlight` is dispatcher memory, not a card field: the patch
+      // alone never freed it, so the next poll kept re-mirroring the node's
+      // old chip onto a card whose mandate had already changed, and the card
+      // sat in `todo` forever — only a restart (which empties `inFlight`)
+      // ever unstuck it. `review`/`done`/archived are NOT this case: those
+      // already have their own dedicated treatment below (never requeued),
+      // and unconditionally cancelling here would race it. Cancel the stale
+      // run and free the slot: the ordinary dispatch loop picks the card up
+      // again on its own, on its next tick.
+      if (task && task.status === "todo") {
+        inFlight.delete(taskId);
+        try {
+          await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+          lastNodeRun.delete(taskId);
+        } catch (err) {
+          log(`nodo: la corsa ${node.runId} non si è cancellata dopo il cambio di stato di ${taskId}`, err);
+        }
+        continue;
+      }
       let report: NodeRunReport;
       try {
         report = await client.readRun({
@@ -1142,6 +1193,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         continue;
       }
       mirrorNodeReport(taskId, node, report);
+      // The node parked the run ITSELF (`backlog` + `failed`/`blocked`: its own
+      // dispatch ran out of road, e.g. no runtime for the model). It will never
+      // come back no matter how many more times this polls it, and mirroring
+      // the chip forever only kept the slot open and the card frozen wherever
+      // it happened to be. Close the slot here and park the card with the
+      // node's own reason, instead of waiting for a human to notice the chip
+      // and drag the card back to `todo`.
+      if (
+        task && task.status === "in_progress" && !svc.isArchived?.(taskId)
+        && report.status === "backlog" && (report.dispatchState === "failed" || report.dispatchState === CHIP_BLOCKED)
+      ) {
+        inFlight.delete(taskId);
+        lastNodeRun.delete(taskId);
+        const why = report.reason || report.dispatchError || "nessun motivo riportato";
+        parkNodeCard(task, `Il nodo «${nodeName(node.machineId)}» ha parcheggiato la corsa: ${why}`);
+        continue;
+      }
       if (report.status !== "review") continue;
       if (stopOnWeeklyLimit(taskId, report, task)) continue;
       // A paired node never sends `reason`: review with no branch and no error may be
@@ -1166,6 +1234,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
+    // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
+    // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
+    // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
+    if (!svc.nodeRunIsOpen(task.id)) return false;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
