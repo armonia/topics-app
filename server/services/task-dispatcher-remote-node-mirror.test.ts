@@ -3,6 +3,8 @@
  * leaves the cycle (done or archived) the mirror is archived on the node, so the
  * node GC can free its worktree (16/11: 117 mirrors in review on the PC).
  * A card still in review here keeps its mirror.
+ *
+ * @covers KANBAN-76
  */
 import { describe, expect, it } from "bun:test";
 import { NodeError } from "./node-client";
@@ -55,5 +57,16 @@ describe("mirror of a delivered run", () => {
     await poll(h);
     expect(h.svc.nodeRunOf(TASK)).toBeNull();
     expect(h.calls.filter((c) => c === "cancel:run-1").length).toBe(2);
+  });
+
+  it("a node that never answers does not hold the poll", async () => {
+    const h = await delivered({ cancelRun: () => new Promise<void>(() => {}) });
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = ?", [TASK]);
+    const started = Date.now();
+    await poll(h, 3);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // One sweep at a time: the hung cancel is not asked again while it is still pending.
+    expect(h.calls.filter((c) => c === "cancel:run-1")).toEqual(["cancel:run-1"]);
+    expect(h.svc.nodeRunOf(TASK)).toBe("run-1");
   });
 });
