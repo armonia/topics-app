@@ -46,6 +46,9 @@ import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from 
 
 const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
 
+// Overlays that keep the keyboard over the late focus of a new terminal.
+const OVERLAY_ROLES = ['dialog', 'menu', 'listbox'] as const;
+
 const DARK_THEME = {
   // Near-neutral dark gray matched to the project sidebar's dark chrome. The
   // chrome is translucent vibrancy (reads gray, not blue), so an OPAQUE terminal
@@ -614,12 +617,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // opened from a button or a menu item that still holds the focus. It yields
     // only to a text field outside the terminal (this pane's find bar, the chat
     // composer): taking the cursor from there mid-word sent the rest of the word
-    // to the shell.
+    // to the shell. It also yields to an overlay opened in those 600 ms (the
+    // inbox, a menu): the inbox reopened right after Enter lost its focused
+    // row to this timer, and ↓/E went to the shell (attention-inbox e2e).
     setTimeout(() => {
       doFit();
       const held = document.activeElement;
       const typingElsewhere = held instanceof HTMLElement && !el.contains(held)
-        && (held.isContentEditable || held.matches('input, textarea, select'));
+        && (held.isContentEditable || held.matches('input, textarea, select')
+          || OVERLAY_ROLES.some((r) => held.closest(`[role=${r}]`) !== null));
       if (!typingElsewhere) term.focus();
     }, 600);
 
