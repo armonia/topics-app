@@ -67,7 +67,16 @@ export async function spawnRemoteChild(input: RemoteChildSpawnInput): Promise<Re
     baseBranch: branch,
     branchBundle: Buffer.from(bytes).toString("base64"),
   };
-  const started = await startRemoteChildRun({ node, body, baseUrlOf: input.baseUrlOf, tokenOf: input.tokenOf, createRun: input.createRun });
+  let started: Awaited<ReturnType<typeof startRemoteChildRun>>;
+  try {
+    started = await startRemoteChildRun({ node, body, baseUrlOf: input.baseUrlOf, tokenOf: input.tokenOf, createRun: input.createRun });
+  } catch (err) {
+    // The node said no to this run (it has no checkout of this origin, `no_such_repo`, or it is
+    // down): the child stays here, the same "no" as every step above. Throwing made the route
+    // answer 500 and the parent's spawn failed outright on the first unknown repo (16/11).
+    console.warn(`[spawn] remote child ${input.id}: ${node.name} refused the run, staying local: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
   if (!started.ok) return { ok: false, reason: started.reason };
   return { ok: true, machineId: node.machineId, runId: started.runId, branch };
 }
