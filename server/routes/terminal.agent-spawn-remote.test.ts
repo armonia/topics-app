@@ -7,12 +7,14 @@
  *
  * @covers SUBAGENT-28
  */
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import * as net from "net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
+import { SETTLE_TRIES } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
 import type { AppContext } from "../types";
@@ -21,6 +23,18 @@ const AGENT_TOKEN = "f".repeat(64);
 const originalTopicsHome = process.env.TOPICS_HOME;
 const originalStandalone = process.env.TOPICS_DISABLE_PTY_BRIDGE;
 let topicsHome: string | null = null;
+
+// A remote child never opens a PTY, but the router's boot `ensureBridge()` would start a REAL bridge,
+// whose log lands in the real /tmp (CI 16/11: the unit gate's "a test writes outside TMPDIR"). A fake one on a
+// socket stands in, the same way `terminal.agent-spawn.test.ts` does.
+let fakeBridge: net.Server | null = null;
+beforeEach(async () => {
+  const socketPath = `/tmp/tcs-${crypto.randomUUID().slice(0, 8)}.sock`;
+  fakeBridge = net.createServer(() => {});
+  await new Promise<void>((ok, ko) => { fakeBridge!.once("error", ko); fakeBridge!.listen(socketPath, ok); });
+  _setPtyBridgeSocketPath(socketPath);
+});
+afterEach(() => { fakeBridge?.close(); fakeBridge = null; });
 
 afterEach(() => {
   if (originalTopicsHome === undefined) delete process.env.TOPICS_HOME;
@@ -70,6 +84,50 @@ function baseCtx(tempRoot: string, machineId: string, machineBaseUrl: string, ov
     ...overrides,
   } as unknown as AppContext;
 }
+
+test("a child that needs this Mac (a browser) or asks an unknown runtime never starts a node run", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-remote-stay-"));
+  topicsHome = join(tempRoot, "topics-home");
+  mkdirSync(topicsHome, { recursive: true });
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
+  mkdirSync(join(tempRoot, "state", "nodes"), { recursive: true });
+  const machineId = "node-fake-stay";
+  writeFileSync(join(tempRoot, "state", "nodes", `${machineId}.token`), "t".repeat(32));
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+
+  const origin = join(tempRoot, "origin.git");
+  mkdirSync(origin, { recursive: true });
+  git(origin, "init", "-q", "--bare");
+  const childRepo = join(tempRoot, "repo");
+  git(tempRoot, "clone", "-q", origin, "repo");
+  writeFileSync(join(childRepo, "a.txt"), "base\n");
+  git(childRepo, "add", ".");
+  git(childRepo, "commit", "-q", "-m", "base");
+  git(childRepo, "push", "-q", "origin", "HEAD");
+
+  let created = 0;
+  const ctx = baseCtx(tempRoot, machineId, "http://fake-node.test", {
+    nodeClient: { createRun: async () => { created += 1; return { runId: "run-x" }; } },
+  } as unknown as Partial<AppContext>);
+
+  try {
+    const router = createTerminalRouter(ctx);
+    const url = new URL("http://topics.test/api/sessions/pty%3Aparent-stay/agents/spawn");
+    const spawn = (body: Record<string, unknown>) => router(
+      new Request(url, { method: "POST", headers: { "content-type": "application/json", "x-daemon-token": AGENT_TOKEN }, body: JSON.stringify({ cwd: childRepo, ...body }) }),
+      url, url.pathname, "POST",
+    );
+    // Whatever the local path answers (it may well refuse in this bare test context), the node is never asked.
+    await spawn({ prompt: "open the page in the browser and take a screenshot" });
+    expect(created).toBe(0);
+    const unknown = await spawn({ prompt: "refactor a.txt", runtime: "foo" });
+    expect(created).toBe(0);
+    expect(unknown?.status).toBe(400);
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+  }
+});
 
 test("a spawn in a git repo with origin and a free node starts remotely, never a local process", async () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-remote-"));
@@ -189,9 +247,64 @@ test("read_agent on a review'd remote child adopts its branch and retires the ro
     const row = getSubagent(getDatabase(), agentId);
     expect(row?.state).toBe("retired");
 
-    git(parentRepo, "checkout", "-q", branch);
-    const { readFileSync } = await import("fs");
-    expect(readFileSync(join(parentRepo, "b.txt"), "utf8")).toBe("from the child\n");
+    // Read from the object store, not a checkout: autocrlf on a Windows runner rewrites the file.
+    expect(git(parentRepo, "show", `${branch}:b.txt`)).toBe("from the child");
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+  }
+});
+
+test("a bundle that does not arrive keeps the child running and its work recoverable, never a fake 'completed'", async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-remote-miss-"));
+  topicsHome = join(tempRoot, "topics-home");
+  mkdirSync(topicsHome, { recursive: true });
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
+  const machineId = "node-fake-miss";
+  mkdirSync(join(tempRoot, "state", "nodes"), { recursive: true });
+  writeFileSync(join(tempRoot, "state", "nodes", `${machineId}.token`), "t".repeat(32));
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+
+  const parentRepo = join(tempRoot, "parent");
+  mkdirSync(parentRepo, { recursive: true });
+  git(parentRepo, "init", "-q", "-b", "main");
+  writeFileSync(join(parentRepo, "a.txt"), "base\n");
+  git(parentRepo, "add", ".");
+  git(parentRepo, "commit", "-q", "-m", "base");
+
+  const agentId = crypto.randomUUID();
+  const parentKey = "pty:miss-parent";
+  insertSubagent(getDatabase(), {
+    id: agentId, parentSessionKey: parentKey, name: "remote child", model: null, agentType: null, effort: null,
+    promptSnippet: "do it on the node", cwd: parentRepo, branch: "topics-child-miss-1", claudeSessionId: null, createdAt: new Date().toISOString(),
+  });
+  markSubagentRemote(getDatabase(), agentId, { machineId, runId: "run-miss-1" });
+
+  let fetches = 0;
+  const ctx = baseCtx(tempRoot, machineId, "http://fake-node.test", {
+    nodeClient: {
+      readRun: async () => ({
+        status: "review", dispatchState: null, dispatchError: null,
+        comments: [{ id: "c-1", author: "agent", content: "done", kind: "assistant", createdAt: "2026-11-15T12:00:00.000Z" }],
+        deliveryBranch: "topics-child-miss-1", deliveryCommit: null, baseSha: null, stat: null,
+      }),
+      fetchBundle: async () => { fetches += 1; throw new Error("connection reset"); },
+    },
+  } as unknown as Partial<AppContext>);
+
+  try {
+    const router = createTerminalRouter(ctx);
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(parentKey)}/agents/${agentId}/read`);
+    const read = () => router(new Request(url, { method: "GET", headers: { "x-daemon-token": AGENT_TOKEN } }), url, url.pathname, "GET");
+
+    expect((await read())?.status).toBe(200);
+    // One failed fetch: still running, so the next read or watch tick fetches again.
+    expect(getSubagent(getDatabase(), agentId)?.state).toBe("running");
+
+    for (let i = 1; i < SETTLE_TRIES; i++) await read();
+    // Out of tries: the parent hears "failed" (state lost), not "completed" with a branch that does not exist.
+    expect(fetches).toBe(SETTLE_TRIES);
+    expect(getSubagent(getDatabase(), agentId)?.state).toBe("lost");
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
   }

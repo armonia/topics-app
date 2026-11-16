@@ -28,11 +28,16 @@ export interface RemoteChildSpawnInput {
   baseUrlOf: (machineId: string) => string | null;
   tokenOf: (machineId: string) => string | null;
   createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
+  /** Override of `MAX_CHILD_BUNDLE_BYTES`, for tests. */
+  maxBundleBytes?: number;
 }
 
 export type RemoteChildSpawnResult =
   | { ok: true; machineId: string; runId: string; branch: string }
   | { ok: false; reason: string };
+
+/** Largest parent snapshot a child carries to a node (raw bytes, before base64): 64 MiB. */
+export const MAX_CHILD_BUNDLE_BYTES = 64 * 1024 * 1024;
 
 /**
  * `null` means this spawn was never a candidate (`decideRemoteSpawn` said no,
@@ -49,6 +54,9 @@ export async function spawnRemoteChild(input: RemoteChildSpawnInput): Promise<Re
   if (!isPlainBranchName(branch)) return null;
   const bytes = await snapshotParentAsBundle({ repoPath: input.cwd, snapshotBranch: branch });
   if (!bytes) return null;
+  // The bundle rides base64 inside one JSON body: an unignored build artefact would make a
+  // gigabyte request. Over the cap the child stays here, where it needs no copy at all.
+  if (bytes.byteLength > (input.maxBundleBytes ?? MAX_CHILD_BUNDLE_BYTES)) return null;
   const body: CreateRunBody = {
     originTaskId: input.id,
     originUrl: input.originUrl,

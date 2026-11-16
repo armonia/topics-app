@@ -747,7 +747,7 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             cwd, prompt, name: chosenNameForRemote ?? `agent ${crypto.randomUUID().slice(0, 8)}`,
             model: launch.model, modelSource: launch.modelSource, modelNote: launch.modelNote,
             effort: launch.effort, agentType: launch.agent,
-            runtime: body.runtime === "topics" || body.runtime === "claude-code" ? body.runtime : undefined,
+            runtime: body.runtime,
             runtimeReason: body.runtime === "topics" ? "asked" : "default",
             parentSessionKey: parentKey,
           });

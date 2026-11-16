@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnRemoteChild, type RemoteChildSpawnInput } from "./subagent-remote-spawn";
+import { spawnRemoteChild, MAX_CHILD_BUNDLE_BYTES, type RemoteChildSpawnInput } from "./subagent-remote-spawn";
+import { macOnlyResourceOf } from "./subagent-remote-wiring";
+import { randomBytes } from "node:crypto";
 import type { ChildNodeCandidate } from "./subagent-remote-run";
 
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" };
@@ -73,5 +75,33 @@ describe("spawnRemoteChild", () => {
   it("the node refuses the run: ok:false with its reason, not a throw", async () => {
     const result = await spawnRemoteChild(baseInput({ tokenOf: () => null }));
     expect(result).toEqual({ ok: false, reason: "node address or token unavailable" });
+  });
+
+  it("a mac-only resource the child needs: null, the run is never created", async () => {
+    let created = 0;
+    const result = await spawnRemoteChild(baseInput({ macOnlyResource: "browser", createRun: async () => { created += 1; return { runId: "x" }; } }));
+    expect(result).toBeNull();
+    expect(created).toBe(0);
+  });
+
+  it("a parent snapshot over the cap stays here instead of riding a huge JSON body", async () => {
+    const cwd = tempRepo();
+    // Incompressible bytes over a small cap: the same path as an unignored artefact over the real one.
+    writeFileSync(join(cwd, "artefact.bin"), randomBytes(256 * 1024));
+    let created = 0;
+    const result = await spawnRemoteChild(baseInput({ cwd, maxBundleBytes: 64 * 1024, createRun: async () => { created += 1; return { runId: "x" }; } }));
+    expect(result).toBeNull();
+    expect(created).toBe(0);
+    expect(MAX_CHILD_BUNDLE_BYTES).toBe(64 * 1024 * 1024);
+  });
+});
+
+describe("macOnlyResourceOf", () => {
+  it("names the resource a prompt needs from this Mac, and nothing for plain code work", () => {
+    expect(macOnlyResourceOf("open the page in the browser and take a screenshot", null)).toBe("browser");
+    expect(macOnlyResourceOf("ask Jarvis to send it on WhatsApp", null)).toBe("jarvis");
+    expect(macOnlyResourceOf("read the tmux pane of the build", null)).toBe("session");
+    expect(macOnlyResourceOf("edit ~/.claude/settings.json", null)).toBe("macos");
+    expect(macOnlyResourceOf("refactor server/lib/foo.ts and add a test", null)).toBeNull();
   });
 });
