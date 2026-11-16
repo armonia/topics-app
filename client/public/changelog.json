@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.14",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "approve as superseded never enters the CI phase (#1114)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.13",
     "date": "2026-11-15",
     "sections": {
