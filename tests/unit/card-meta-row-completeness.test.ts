@@ -78,6 +78,7 @@ describe("la fascia dei chip conosce tutti i suoi chip", () => {
     // e non è dedotta: dedurla dal sorgente vorrebbe dire riscrivere JSX, e un
     // parser approssimativo darebbe verdi falsi proprio nel caso che conta.
     const governatoDa: Record<string, string> = {
+      "card-assignee": "task.assignedTo",
       "card-delivery-stat": "deliveryStat",
       "card-due-date": "dueChip",
       "card-scheduled": "plannedChip",
