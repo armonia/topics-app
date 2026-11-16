@@ -61,4 +61,10 @@ describe("the e2e bench hands the slack factor down", () => {
     expect(call).toBeGreaterThan(0);
     expect(call).toBeGreaterThan(seeding);
   });
+
+  it("two processes per runner: the load they add by design does not widen waits", () => {
+    const env = { E2E_PROCS_PER_RUNNER: "2" };
+    expect(handDownTimeSlack(env, { load: 4.9, cores: 4 }).slack).toBe(1.3);
+    expect(handDownTimeSlack({}, { load: 4.9, cores: 4 }).slack).toBe(2.5);
+  });
 });

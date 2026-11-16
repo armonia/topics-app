@@ -41,6 +41,9 @@ import { topicSessionKey } from "./agent-census";
  * l'anteprima) nascono DOPO il punto in cui la fabbrica viene costruita, e
  * leggerle alla chiamata e' esattamente cio' che l'hoisting garantiva prima.
  */
+/** How long after a sub-agent ended its worktree is still kept (it can be resumed). */
+const SUBAGENT_GRACE_MS = 24 * 3600_000;
+
 export interface WorktreeGcDeps {
   db: Database;
   /**
@@ -471,6 +474,17 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
           const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];
           if (rows.some((r) => deps.chatActive!(topicSessionKey(r.id)))) return true;
         }
+        // A `spawn_agent` child has a worktree but no card and no terminal:
+        // keep the folder while it runs and for 24h after it ended, the window
+        // in which `send_to_agent` can still resume it.
+        try {
+          const since = new Date(Date.now() - SUBAGENT_GRACE_MS).toISOString();
+          const kids = deps.db.prepare(
+            "SELECT cwd FROM subagents WHERE state = 'running' OR ended_at IS NULL OR ended_at > ?",
+          ).all(since) as { cwd: string }[];
+          const base = w.absPath.endsWith("/") ? w.absPath : `${w.absPath}/`;
+          if (kids.some((k) => k.cwd === w.absPath || k.cwd.startsWith(base))) return true;
+        } catch { /* table absent in old hosts: nothing to protect */ }
         const cwds = deps.liveCwds?.() ?? [];
         if (!cwds.length) return false;
         // The directory itself or a descendant of it: a child that did `cd
