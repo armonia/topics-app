@@ -24,6 +24,8 @@ export interface RemoteRoad {
   baseUrlOf: (machineId: string) => string | null;
   tokenOf: (machineId: string) => string | null;
   readRun: (input: { baseUrl: string; token: string; runId: string }) => Promise<NodeRunReport>;
+  /** Archives the run on the node once its branch is home (`DELETE /api/nodes/runs/:id`). */
+  cancelRun?: (input: { baseUrl: string; token: string; runId: string }) => Promise<void>;
   createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
   fetchBundle: (input: { baseUrl: string; token: string; runId: string }) => Promise<BundleResult>;
   codingModels?: (input: { baseUrl: string; token: string }) => Promise<string[]>;
@@ -196,6 +198,13 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
         }
       }
       finish(row, { failed: false, text: lastText });
+      // The branch is home: the node's card is archived, so its worktree (~0.9 GB with the
+      // dependencies) goes with the node's own GC instead of piling up (16/11: 130 of them on
+      // the PC, 12 GB, until its disk floor refused every new child). Best effort: the work
+      // is already here, a node that does not answer only keeps a stale card.
+      if (r.cancelRun) await r.cancelRun({ baseUrl, token, runId }).catch((err: unknown) => {
+        console.warn(`[spawn] remote child ${row.id}: run ${runId} not archived on the node: ${err instanceof Error ? err.message : String(err)}`);
+      });
     } finally {
       settling.delete(row.id);
     }
