@@ -17,6 +17,7 @@ import { buildContextUpdate } from "../usage/usage-update";
 import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
+import { rememberCodexHoldLogin } from "../lib/codex-login-watch";
 import type { ChatTurnScope } from "./chat-turn-scope";
 import { failedToolText } from "../lib/tool-finalize-status";
 
@@ -768,6 +769,7 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         const limit = parseCodexUsageLimit(error);
         if (limit) {
           setProviderHold({ ...limit, window: "usage_limit", provider: "codex" });
+          rememberCodexHoldLogin();
           console.warn(`[StreamWS] Codex usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
         }
       }
