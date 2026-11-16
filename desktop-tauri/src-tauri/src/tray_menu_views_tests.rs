@@ -20,11 +20,6 @@ const BOARD: &str = r#"{
 
 const BACKUP: &str = r#"{"last_ok":1799990000,"last_read_check":1799900000,"last_restore_ok":1799000000,"pending_since":null,
  "runs":[{"at":1797500000,"ok":true},{"at":1797600000,"ok":false},{"at":1799990000,"ok":true}],"icloud":{"files":10,"uploaded":10,"bytes":3221225472}}"#;
-/// Shape of `/api/machines`; the snapshot reads the real answer from TRAY_MENU_SNAPSHOT_DETAILS.
-const DETAILS: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[
-  {"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1000,"v":10},{"t":2000,"v":60},{"t":3000,"v":30}]},
-  {"key":"disk","name":"Disco","pct":97,"level":2,"note":"27 GB liberi","history":[]}],
-  "timeline":{"window":3000,"segments":[{"t0":0,"t1":1500,"state":"lavora"},{"t0":1500,"t1":3000,"state":"dorme"}]}}]"#;
 const NOW: i64 = 1_800_000_000;
 
 #[test]
@@ -128,7 +123,6 @@ fn every_view_renders_ink_at_the_menu_width() {
 }
 
 /// TRAY_MENU_SNAPSHOT_DIR=/tmp/x cargo test --lib tray_menu_views -- snapshot
-/// (TRAY_MENU_SNAPSHOT_DETAILS: the service's /api/machines answer, for the machine submenu cards)
 /// writes machines.png, quota.png and backup.png (dark and light) from the fake answers above,
 /// or from TRAY_MENU_SNAPSHOT_BOARD / TRAY_MENU_SNAPSHOT_BACKUP files when given, plus the
 /// Topics machines (the client's `set_app_status` list) from TRAY_MENU_SNAPSHOT_MACHINES.
@@ -136,7 +130,7 @@ fn every_view_renders_ink_at_the_menu_width() {
 fn snapshot() {
     let Ok(dir) = std::env::var("TRAY_MENU_SNAPSHOT_DIR") else { return };
     let read = |k: &str, d: &str| std::env::var(k).ok().map(|f| std::fs::read_to_string(f).unwrap()).unwrap_or(d.to_string());
-    let (board, backup, details) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP), read("TRAY_MENU_SNAPSHOT_DETAILS", DETAILS));
+    let (board, backup) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP));
     let now = if std::env::var("TRAY_MENU_SNAPSHOT_BOARD").is_ok() { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 } else { NOW };
     // the process table is native rows, not a picture: its text goes next to the pictures
     if let (Ok(procs), Ok(trust)) = (std::env::var("TRAY_MENU_SNAPSHOT_PROCS"), std::env::var("TRAY_MENU_SNAPSHOT_TRUST")) {
@@ -153,8 +147,6 @@ fn snapshot() {
         let snap = crate::tray_menu::Snapshot { board: Some(board.clone()), ..Default::default() };
         let mut pics: Vec<Pic> = crate::tray_menu_rich::machines_for(&client, &snap).iter().map(|m| draw_machine_card(m, p)).collect();
         pics.extend(draw_quota_panel(&quota_cards(&board), p));
-        // the submenu cards of the machines that have graphs: PC, cloud server
-        pics.extend(crate::tray_menu_detail::machine_details(&details).iter().filter(|d| crate::tray_menu_detail::has_graphics(d)).map(|d| crate::tray_menu_detail::draw_machine_detail(d, p)));
         pics.extend(backup_card(&backup, now).map(|b| draw_backup_card(&b, p)));
         let total: u32 = pics.iter().map(|x| x.cv.h).sum();
         let (w, bg) = (pics[0].cv.w, if dark { 40u8 } else { 236 });

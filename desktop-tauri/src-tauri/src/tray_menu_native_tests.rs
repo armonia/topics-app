@@ -37,10 +37,16 @@ fn lines_of(nodes: &[Node], out: &mut Vec<Line>) {
     }
 }
 
+/// A row with a second line (kind, owner, since) is two lines tall, as the real menu sizes it.
+fn line_h(l: &Line) -> f64 {
+    let two = l.row.as_ref().map_or(false, |r| !r.header && r.cells.iter().enumerate().any(|(i, c)| i > 5 || c.starts_with('\n')));
+    l.card.as_ref().map_or(if l.sep { 9.0 } else if two { ROW_H + 14.0 } else { ROW_H }, |c| c.2)
+}
+
 unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
     let mut lines = Vec::new();
     lines_of(nodes, &mut lines);
-    let height: f64 = lines.iter().map(|l| l.card.as_ref().map_or(if l.sep { 9.0 } else { ROW_H }, |c| c.2)).sum::<f64>() + 8.0;
+    let height: f64 = lines.iter().map(|l| line_h(l)).sum::<f64>() + 8.0;
     let name = if dark { "NSAppearanceNameDarkAqua" } else { "NSAppearanceNameAqua" };
     let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns(name)];
     let _: () = msg_send![class!(NSAppearance), setCurrentAppearance: appearance];
@@ -56,7 +62,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
     let _: () = msg_send![class!(NSBezierPath), fillRect: full];
     let mut top = 4.0;
     for l in &lines {
-        let h = l.card.as_ref().map_or(if l.sep { 9.0 } else { ROW_H }, |c| c.2);
+        let h = line_h(l);
         let y = height - top - h;
         if l.sep {
             let c: id = msg_send![class!(NSColor), separatorColor];
@@ -73,7 +79,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
                 let img = icon_image(spec);
                 if img != nil {
                     let s: NSSize = msg_send![img, size];
-                    let _: () = msg_send![img, drawInRect: NSRect::new(crate::mac::NSPoint::new(10.0 + (16.0 - s.width) / 2.0, y + (ROW_H - s.height) / 2.0), s)];
+                    let _: () = msg_send![img, drawInRect: NSRect::new(crate::mac::NSPoint::new(10.0 + (16.0 - s.width) / 2.0, y + (h - s.height) / 2.0), s)];
                 }
             }
             let title: id = match &l.row {
@@ -86,7 +92,7 @@ unsafe fn render(nodes: &[Node], dark: bool) -> Vec<u8> {
                     msg_send![s, initWithString: ns(&l.text), attributes: attrs(font, color, para)]
                 }
             };
-            let _: () = msg_send![title, drawInRect: NSRect::new(crate::mac::NSPoint::new(34.0, y + 3.0), NSSize::new(WIDTH - 60.0, ROW_H - 4.0))];
+            let _: () = msg_send![title, drawInRect: NSRect::new(crate::mac::NSPoint::new(34.0, y + 3.0), NSSize::new(WIDTH - 60.0, h - 4.0))];
             if l.arrow {
                 let chev: id = msg_send![class!(NSImage), imageWithSystemSymbolName: ns("chevron.right"), accessibilityDescription: nil];
                 if chev != nil {

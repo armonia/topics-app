@@ -5,7 +5,7 @@
 
 use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, note, parse, s, sub, tick, Node, Prefs, Snapshot};
 use crate::tray_menu_projects::project_table;
-use crate::tray_menu_detail::{draw_machine_detail, has_graphics, machine_details};
+use crate::tray_menu_detail::machine_details;
 use crate::tray_menu_pic::Palette;
 use crate::tray_menu_procs::{procs_table, remote_procs_table};
 use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
@@ -15,21 +15,17 @@ fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Optio
     Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
 }
 
-/// Every machine card, the same graphic for all of them, and the same submenu: its
-/// state (the graphs of the service's reading, or its lines), the processes that
-/// weigh in the same table, the finder. This computer keeps its lines and its own
-/// census (`/api/mac/procs`); the others take the service's `procs`.
+/// Every machine card, the same graphic for all of them, and the same submenu as the
+/// MacBook's: its state lines, the processes that weigh in the same table, the
+/// finder. This computer takes its own census (`/api/mac/procs`); the others the
+/// service's `procs`.
 fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
     machines
         .iter()
         .filter_map(|m| {
             let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
-            let mut kids: Vec<Node> = Vec::new();
-            match found.filter(|d| has_graphics(d) && !m.local) {
-                Some(d) => kids.extend(card(&format!("machine-detail:{}", m.id), draw_machine_detail(d, p), Vec::new())),
-                None => kids.extend(m.lines.iter().map(note)),
-            }
+            let mut kids: Vec<Node> = m.lines.iter().map(note).collect();
             if !kids.is_empty() {
                 kids.push(Node::Sep);
             }

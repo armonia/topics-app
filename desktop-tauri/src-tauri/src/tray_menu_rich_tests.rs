@@ -52,16 +52,12 @@ fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
     assert!(t.contains("Idle one | – | – | – | – | –"));
 }
 
-const MACHINES: &str = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","name":"CPU","pct":40,"level":0,"note":"adesso","history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
-
 #[test]
-fn a_remote_machine_submenu_holds_the_graphic_detail_not_just_text() {
-    let sn = Snapshot { machines: Some(MACHINES.into()), ..snap() };
+fn a_remote_machine_submenu_opens_with_its_state_lines_not_a_picture() {
+    let machines = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","pct":40,"history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
+    let sn = Snapshot { machines: Some(machines.into()), ..snap() };
     let t = dump_text(&build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines_for(&[], &sn), true));
-    assert!(t.contains("[card machine-detail:pc]"), "{t}");
-    assert!(!t.contains("Si sta addormentando"), "the lines live in the card");
-    let plain = dump_text(&menu());
-    assert!(!plain.contains("machine-detail") && plain.contains("[card machine:pc]"));
+    assert!(!t.contains("machine-detail") && t.contains("[card machine:pc]"), "{t}");
 }
 
 #[test]
@@ -199,7 +195,7 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
         let k = children.len();
         assert!(k >= 5, "{key}: {}", dump_text(children));
         // the state first, then a separator and the process table, then the finder
-        assert!(matches!(children[0], Node::Card { .. } | Node::Item { .. }), "{key}: status first");
+        assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
         let sep = children.iter().position(|n| matches!(n, Node::Sep)).expect("a separator");
         let Node::Row { header: true, cells, .. } = &children[sep + 1] else { panic!("{key}: the process table follows the state:\n{}", dump_text(children)) };
         assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
@@ -210,5 +206,20 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
     }
     assert!(heads.windows(2).all(|w| w[0] == w[1]), "same columns everywhere: {heads:?}");
     let t = dump_text(&cards);
-    assert!(t.contains("node.exe | 41% |") && t.contains("bun | 2% |"), "{t}");
+    // GPU and network are not read on a remote machine: the idle dash of the MacBook, the memory with its unit
+    assert!(t.contains("node.exe | 41% | – | – | 812 MB | processo · node vitest") && t.contains("bun | 2% | – | – | 420 MB"), "{t}");
+    let rows = |n: &Node| if let Node::Card { children, .. } = n { children.clone() } else { vec![] };
+    for c in &cards {
+        fn cells(n: &Node) -> Option<Vec<String>> {
+            match n {
+                Node::Icon { node, .. } => cells(node),
+                Node::Row { cells, header: false, .. } => Some(cells.clone()),
+                _ => None,
+            }
+        }
+        // the row's second line is marked as such, never a sixth column that the memory runs into
+        for r in rows(c).iter().filter_map(cells).filter(|r| r.len() == 6) {
+            assert!(r[5].starts_with('\n') && !r[4].contains('\n'), "{r:?}");
+        }
+    }
 }
