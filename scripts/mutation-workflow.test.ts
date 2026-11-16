@@ -1,3 +1,6 @@
+/**
+ * @covers GATE-02
+ */
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
