@@ -1380,6 +1380,8 @@ jobs:
         # every 30 s says whether a red came with a saturated runner.
         run: |
           PROCS=2
+          # Tells global-setup the load of two processes is by design (time slack).
+          export E2E_PROCS_PER_RUNNER=$PROCS
           SHARD=${{ matrix.shard }}
           # Several runners share the permanent node: each takes its own band of
           # 10 ports, from its HOME (/srv/rh-<i>, set per runner by
