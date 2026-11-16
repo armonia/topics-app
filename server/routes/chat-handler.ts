@@ -18,6 +18,7 @@ import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
 import type { ChatTurnScope } from "./chat-turn-scope";
+import { failedToolText } from "../lib/tool-finalize-status";
 
 /** Builds the provider stream handler of a turn. */
 export function createStreamHandler(turn: ChatTurnScope): void {
@@ -483,13 +484,17 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       // the in-memory blocks (the running ToolCall is already there
       // courtesy of onToolStart).
       let detail: import("../types").ToolCallDetail | undefined;
+      let toolName: string | undefined;
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
         if (b.kind === "tool" && b.toolCall.id === toolCallId) {
+          toolName = b.toolCall.name;
           detail = deriveToolDetail(b.toolCall.name, b.toolCall.args, result, { failed: !!isError });
           break;
         }
       }
+      // A failure with an empty body is still a failure with a message.
+      if (isError) result = failedToolText(result, toolName);
 
       const endedAt = priorToolTimes(toolCallId).endedAt ?? Date.now();
       if (isError) {
