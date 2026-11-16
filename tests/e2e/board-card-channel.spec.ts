@@ -104,6 +104,39 @@ test.describe("Canale sulla card", () => {
     await seedProjectPane(page.request, PROJECT_PATH);
   });
 
+  test("il testo del canale non sparisce e se si taglia lo fa con ellissi, dentro la card", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/");
+    await openProjectBoard(page);
+    for (const id of [discordCard, whatsappCard]) {
+      const chip = page.locator(`[data-task-card="${id}"]`).getByTestId("card-channel");
+      await expect(chip).toBeVisible();
+      const result = await chip.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        const host = el.closest("[data-task-card]")!.getBoundingClientRect();
+        const pieces = [...el.querySelectorAll<HTMLElement>("[data-testid='card-channel-server'],[data-testid='card-channel-channel'],[data-testid='card-channel-thread']")];
+        return {
+          inside: box.right <= host.right + 0.5,
+          pieces: pieces.map((p) => ({
+            level: p.dataset.testid,
+            text: (p.textContent ?? "").trim(),
+            width: p.getBoundingClientRect().width,
+            clipped: p.scrollWidth > p.clientWidth + 1,
+            ellipsis: getComputedStyle(p).textOverflow === "ellipsis",
+          })),
+        };
+      });
+      expect(result.inside).toBe(true);
+      expect(result.pieces.length).toBeGreaterThan(0);
+      for (const piece of result.pieces) {
+        expect(piece.text.length).toBeGreaterThan(0);
+        expect(piece.width).toBeGreaterThan(8);
+        if (piece.clipped) expect(piece.ellipsis).toBe(true);
+        if (piece.level === "card-channel-server") expect(piece.clipped).toBe(false);
+      }
+    }
+  });
+
   test("la card dice il canale, il chip apre la chat, la card senza canale resta pulita", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
     await page.setViewportSize({ width: 1440, height: 900 });

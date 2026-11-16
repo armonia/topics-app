@@ -27,6 +27,8 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
   full?: boolean;
 }) {
   const Mark = CHANNEL_MARKS[MARK_KEY[chip.kind]]!;
+  const head = chip.segments.filter((seg) => seg.level !== 'thread');
+  const thread = chip.segments.find((seg) => seg.level === 'thread');
   return (
     <button
       type="button"
@@ -34,24 +36,29 @@ export function ChannelChipView({ chip, notify, open = openTabInApp, full = fals
       data-channel-kind={chip.kind}
       title={chip.title}
       aria-label={chip.title}
-      className={`flex min-w-0 max-w-full ${full ? 'flex-wrap' : 'overflow-hidden'} items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 transition-colors md:text-mini ${TONE[chip.kind]}`}
+      className={`flex min-w-0 max-w-full flex-wrap items-center gap-x-1 gap-y-0.5 overflow-hidden rounded px-1.5 py-0.5 text-left text-compact leading-4 transition-colors md:text-mini ${TONE[chip.kind]}`}
       onClick={(e) => { e.stopPropagation(); open({ kind: 'chat', key: chip.topicId }, { notify }); }}
     >
-      <Mark className="h-3 w-3 shrink-0" aria-hidden />
-      {chip.segments.map((seg, i) => {
-        const last = i === chip.segments.length - 1;
-        // The server is always whole, the thread keeps its text until the very end, the channel gives way first.
-        const shrink = full ? '' : seg.level === 'server' ? 'shrink-0 whitespace-nowrap'
-          : seg.level === 'thread' ? 'min-w-0 shrink-[0.3] truncate'
-          : last ? 'min-w-0 shrink truncate' : 'min-w-[3rem] shrink-[4] truncate';
-        return (
-          <Fragment key={i}>
-            {i > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}
-            {seg.level === 'thread' && <MessagesSquare className="h-3 w-3 shrink-0" aria-label="thread" />}
-            <span data-testid={`card-channel-${seg.level}`} className={shrink}>{seg.text}</span>
-          </Fragment>
-        );
-      })}
+      {/* Row one: mark, server (never cut), channel (cuts first). The thread drops to row two when the path does not fit. */}
+      <span data-testid="card-channel-head" className="flex min-w-0 max-w-full items-center gap-1">
+        <Mark className="h-3 w-3 shrink-0" aria-hidden />
+        {head.map((seg, i) => {
+          const last = i === head.length - 1;
+          const shrink = full ? '' : seg.level === 'server' ? 'shrink-0 whitespace-nowrap' : last ? 'min-w-0 shrink truncate' : 'min-w-[3rem] shrink truncate';
+          return (
+            <Fragment key={i}>
+              {i > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}
+              <span data-testid={`card-channel-${seg.level}`} className={shrink}>{seg.text}</span>
+            </Fragment>
+          );
+        })}
+      </span>
+      {thread && (
+        <span data-testid="card-channel-thread-row" className="flex min-w-0 max-w-full items-center gap-1">
+          <MessagesSquare className="h-3 w-3 shrink-0" aria-label="thread" />
+          <span data-testid="card-channel-thread" className={full ? '' : 'min-w-0 truncate'}>{thread.text}</span>
+        </span>
+      )}
     </button>
   );
 }
