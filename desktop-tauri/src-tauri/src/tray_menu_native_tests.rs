@@ -32,7 +32,7 @@ fn lines_of(nodes: &[Node], out: &mut Vec<Line>) {
             Node::Item { label, .. } => out.push(Line { icon: None, row: None, text: label.clone(), sep: false, arrow: false, card: None }),
             Node::Sub { label, .. } => out.push(Line { icon: None, row: None, text: label.clone(), sep: false, arrow: true, card: None }),
             Node::Card { png, w, h, children, .. } => out.push(Line { icon: None, row: None, text: String::new(), sep: false, arrow: !children.is_empty(), card: Some((png.clone(), *w as f64, *h as f64)) }),
-            Node::Row { cells, header, children, .. } => out.push(Line { icon: None, row: Some(TableRow { cells: cells.clone(), header: *header }), text: String::new(), sep: false, arrow: !children.is_empty(), card: None }),
+            Node::Row { cells, header, table, look, children, .. } => out.push(Line { icon: None, row: Some(TableRow { cells: cells.clone(), header: *header, tabs: table.tabs(), look: *look }), text: String::new(), sep: false, arrow: !children.is_empty(), card: None }),
         }
     }
 }
@@ -196,10 +196,10 @@ fn the_menu_a_status_item_receives_is_decorated() {
         let menu: id = msg_send![class!(NSMenu), new];
         raw_item(menu, &format!("{}Apri Topics", icon_mark("sf:macwindow")));
         raw_item(menu, &register_card("machine:local", &[], 280.0, 90.0));
-        let parent = raw_item(menu, &register_row(1, &["Projects".to_string(), "3".to_string()], true));
+        let parent = raw_item(menu, &register_row(1, &["Projects".to_string(), "3".to_string()], true, Table::Projects, Look::default()));
         let sub: id = msg_send![class!(NSMenu), new];
         raw_item(sub, &format!("{}Esci", icon_mark("sf:power")));
-        raw_item(sub, &register_row(2, &["alpha".to_string(), "1".to_string()], false));
+        raw_item(sub, &register_row(2, &["alpha".to_string(), "1".to_string()], false, Table::Projects, Look::default()));
         let _: () = msg_send![parent, setSubmenu: sub];
 
         let status: id = msg_send![probe_class, new];

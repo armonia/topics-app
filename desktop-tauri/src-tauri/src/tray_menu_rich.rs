@@ -3,9 +3,9 @@
 //! table, the options, automations, calendar and the backup card. Pure: service
 //! answers in, `Node`s out (the cards already drawn). Card 1aba05b4.
 
-use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, note, parse, s, sub, tick, Node, Prefs, Snapshot};
+use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, machine_action_id, note, parse, s, sub, tick, with_icon, Node, Prefs, Snapshot};
 use crate::tray_menu_projects::project_table;
-use crate::tray_menu_detail::machine_details;
+use crate::tray_menu_detail::{machine_details, MachineDetail, Segment};
 use crate::tray_menu_pic::Palette;
 use crate::tray_menu_procs::{procs_table, remote_procs_table};
 use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
@@ -15,27 +15,85 @@ fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Optio
     Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
 }
 
+/// How long a state lasted, in words: «21 h 40 min», «5 min».
+fn span_text(secs: f64) -> String {
+    let mins = (secs / 60.0).round() as u64;
+    match (mins / 60, mins % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
+
+/// Where the machine's state spent the window the service logged, longest first: «lavora 21 h · dorme 2 h».
+/// `None` when it logged nothing. Times in milliseconds are read as such.
+fn timeline_say(segments: &[Segment]) -> Option<String> {
+    let secs = |t: f64| if t > 1e11 { t / 1000.0 } else { t };
+    let mut spent: Vec<(String, f64)> = Vec::new();
+    for g in segments {
+        let len = (secs(g.t1) - secs(g.t0)).max(0.0);
+        match spent.iter_mut().find(|(s, _)| *s == g.state) {
+            Some(e) => e.1 += len,
+            None => spent.push((g.state.clone(), len)),
+        }
+    }
+    spent.retain(|(_, l)| *l >= 30.0);
+    spent.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    (!spent.is_empty()).then(|| format!("Ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{s} {}", span_text(*l))).collect::<Vec<_>>().join(" · ")))
+}
+
+/// The readings of a machine read from afar and how its state went through the day, as the original tray's
+/// remote submenu opens: a line per reading in the service's words, then the timeline. Text, not the
+/// bars and charts picture the submenus dropped on purpose.
+pub(crate) fn remote_reading_nodes(detail: Option<&MachineDetail>) -> Vec<Node> {
+    let Some(d) = detail else { return Vec::new() };
+    let mut out: Vec<Node> = d.metrics.iter().map(|x| {
+        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |p| format!("{}%", p.round() as i64)) };
+        let line = if x.note.is_empty() { format!("{} {value}", x.name) } else { format!("{} {value} · {}", x.name, x.note) };
+        let tone = match x.level { 0 => "ok", 1 => "warn", _ => "bad" };
+        with_icon(format!("sf:circle.fill|{tone}"), note(line))
+    }).collect();
+    out.extend(timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))));
+    out
+}
+
+/// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power
+/// symbol, that asks before it calls. The id carries everything the dialog and the call need.
+pub(crate) fn machine_action_nodes(machine: &MachineCard, detail: Option<&MachineDetail>) -> Vec<Node> {
+    detail.map_or(&[][..], |d| &d.actions[..]).iter().map(|a| {
+        let id = machine_action_id(&machine.name, &a.method, &a.url, &a.label, &a.confirm);
+        with_icon("sf:power", item(&id, format!("{}…", a.label)))
+    }).collect()
+}
+
 /// Every machine card, the same graphic for all of them, and the same submenu as the
 /// MacBook's: its state lines, the processes that weigh in the same table, the
-/// finder. This computer takes its own census (`/api/mac/procs`); the others the
-/// service's `procs`.
+/// commands of the machine, the finder. This computer takes its own census (`/api/mac/procs`);
+/// the others the service's `procs`.
 fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
     machines
         .iter()
         .filter_map(|m| {
             let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
-            let mut kids: Vec<Node> = m.lines.iter().map(note).collect();
+            let mut kids: Vec<Node> = if m.local { Vec::new() } else { remote_reading_nodes(found) };
+            if !kids.is_empty() && !m.lines.is_empty() {
+                kids.push(Node::Sep);
+            }
+            kids.extend(m.lines.iter().map(note));
             if !kids.is_empty() {
                 kids.push(Node::Sep);
             }
             if m.local {
                 kids.extend(procs_table(snap));
             } else {
-                kids.extend(remote_procs_table(found.map_or(&[][..], |d| &d.procs[..])));
+                kids.extend(remote_procs_table(found));
             }
             kids.push(Node::Sep);
-            kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
+            if !m.local {
+                kids.extend(machine_action_nodes(m, found));
+            }
+            kids.push(with_icon("sf:magnifyingglass", item(&format!("machine-open:{}", m.id), "Cerca in una finestra…")));
             card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
         })
         .collect()

@@ -26,7 +26,7 @@ fn rows_carry_cpu_gpu_network_and_memory_columns() {
     assert!(t.starts_with("GIRA ADESSO · 3 · 3,6 GB | CPU | GPU | rete | memoria"), "{t}");
     assert!(t.contains("App A | 1,7 core | 22% | 1,9 MB/s | 3,0 GB"), "{t}");
     assert!(t.contains("Service B | 3% | – | – | 500 MB"), "{t}");
-    assert!(t.contains("Leftover C | 0% | n/d | n/d | 100 MB"), "{t}");
+    assert!(t.contains("Leftover C | 0% | – | – | 100 MB"), "{t}");
 }
 
 #[test]

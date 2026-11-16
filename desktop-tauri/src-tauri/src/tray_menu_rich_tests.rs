@@ -2,7 +2,7 @@
 //! unreachable provider line and the clickable rows. Card 1aba05b4.
 
 use super::*;
-use crate::tray_menu::{action_for, dump_text};
+use crate::tray_menu::{action_for, dump_text, Table};
 
 const BOARD: &str = r#"{"machines":[
  {"id":"local","name":"Machine A","state":"impegnato","level":1,"lines":["CPU intasata"],"metrics":[{"key":"cpu","pct":55,"level":1,"note":"x"}]},
@@ -100,22 +100,36 @@ fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
     assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
 }
 
-#[test]
-fn every_clickable_row_has_an_action_or_is_a_tray_row() {
+/// Every clickable id of the whole menu, machines with commands and processes included.
+fn clickable_ids() -> Vec<String> {
     fn ids(nodes: &[Node], out: &mut Vec<String>) {
         for n in nodes {
             match n {
                 Node::Item { id, enabled: true, .. } if !id.is_empty() => out.push(id.clone()),
                 Node::Sub { children, .. } | Node::Card { children, .. } | Node::Row { children, .. } => ids(children, out),
+                Node::Icon { node, .. } => ids(std::slice::from_ref(&**node), out),
                 _ => {}
             }
         }
     }
+    let machines = r#"[{"id":"local","procs":[]},
+      {"id":"pc","procs":[{"name":"node.exe","cpu_pct":40,"mem_mb":800,"cmd":"node"}]},
+      {"id":"hetzner","procs":[{"name":"bun","cpu_pct":2,"mem_mb":400}],"actions":[{"id":"spegni","label":"Spegni tutti","method":"POST","url":"/api/hetzner/spegni","confirm":"Spegne i server."}]}]"#;
+    let board = UNIFORM_BOARD;
+    let procs = r#"{"units":[{"id":"app:a","name":"App A","type":"app","closable":true,"memMB":900,"pids":[10]},{"id":"rest:1","name":"Resto","type":"resto","closable":true,"memMB":100,"pids":[20]}]}"#;
+    let sn = Snapshot { board: Some(board.into()), machines: Some(machines.into()), procs: Some(procs.into()), live: Some(LIVE.into()), overview: Some(OVERVIEW.into()), gates: snap().gates, automations: snap().automations, ..Default::default() };
     let mut found = Vec::new();
-    ids(&menu(), &mut found);
-    assert!(found.iter().any(|i| i.starts_with("proj-open:")));
+    ids(&build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines_for(&[], &sn), true), &mut found);
+    found
+}
+
+#[test]
+fn every_clickable_row_has_an_action_or_is_a_tray_row() {
+    let found = clickable_ids();
+    assert!(found.iter().any(|i| i.starts_with("proj-open:")) && found.iter().any(|i| i.starts_with("machine-act:")) && found.iter().any(|i| i.starts_with("machine-open:")), "{found:?}");
+    // the two rows the tray's own click handler answers before the hub's (sidecar_boot.rs)
     let tray_rows = ["tray-new-chat", "tray-check-updates"];
-    let dead: Vec<&String> = found.iter().filter(|i| !tray_rows.contains(&i.as_str()) && !i.starts_with("machine-open:") && action_for(i, &None).is_none()).collect();
+    let dead: Vec<&String> = found.iter().filter(|i| !tray_rows.contains(&i.as_str()) && action_for(i, &Some(r#"{"units":[{"id":"app:a","name":"App A","pids":[10]},{"id":"rest:1","pids":[20]}]}"#.into())).is_none()).collect();
     assert!(dead.is_empty(), "rows that do nothing: {dead:?}");
 }
 
@@ -184,7 +198,6 @@ fn uniform_cards() -> Vec<Node> {
 fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
     let cards = uniform_cards();
     assert_eq!(cards.len(), 3);
-    let mut heads: Vec<Vec<String>> = Vec::new();
     for c in &cards {
         let Node::Card { key, children, .. } = c else { panic!("not a card: {c:?}") };
         fn bare(n: &Node) -> &Node {
@@ -196,18 +209,23 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
         assert!(k >= 5, "{key}: {}", dump_text(children));
         // the state first, then a separator and the process table, then the finder
         assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
-        let sep = children.iter().position(|n| matches!(n, Node::Sep)).expect("a separator");
-        let Node::Row { header: true, cells, .. } = &children[sep + 1] else { panic!("{key}: the process table follows the state:\n{}", dump_text(children)) };
+        let head = children.iter().position(|n| matches!(n, Node::Row { header: true, .. })).expect("a process table");
+        assert!(matches!(children[head - 1], Node::Sep), "{key}: a separator before the process table");
+        let Node::Row { cells, table, .. } = &children[head] else { unreachable!() };
         assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
-        heads.push(cells[1..].to_vec());
-        assert!(matches!(children[sep + 2], Node::Row { header: false, .. }), "{key}: at least one process row");
+        // the MacBook measures GPU and network per process; a remote machine does not, so it has no such columns
+        if key == "machine:local" {
+            assert_eq!((cells[1..].to_vec(), *table), (["CPU", "GPU", "rete", "memoria"].map(String::from).to_vec(), Table::Procs));
+        } else {
+            assert_eq!((cells[1..].to_vec(), *table), (["CPU", "memoria"].map(String::from).to_vec(), Table::RemoteProcs), "{key}");
+        }
+        assert!(matches!(children[head + 1], Node::Row { header: false, .. }), "{key}: at least one process row");
         assert!(matches!(children[k - 2], Node::Sep), "{key}");
         assert!(matches!(&children[k - 1], Node::Item { label, .. } if label == "Cerca in una finestra…"), "{key}");
     }
-    assert!(heads.windows(2).all(|w| w[0] == w[1]), "same columns everywhere: {heads:?}");
     let t = dump_text(&cards);
-    // GPU and network are not read on a remote machine: the idle dash of the MacBook, the memory with its unit
-    assert!(t.contains("node.exe | 41% | – | – | 812 MB | processo · node vitest") && t.contains("bun | 2% | – | – | 420 MB"), "{t}");
+    // no GPU or network column, no dash standing in for one; the memory with its unit
+    assert!(t.contains("node.exe | 41% | 812 MB | processo · node vitest") && t.contains("bun | 2% | 420 MB"), "{t}");
     let rows = |n: &Node| if let Node::Card { children, .. } = n { children.clone() } else { vec![] };
     for c in &cards {
         fn cells(n: &Node) -> Option<Vec<String>> {
@@ -217,9 +235,93 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
                 _ => None,
             }
         }
-        // the row's second line is marked as such, never a sixth column that the memory runs into
-        for r in rows(c).iter().filter_map(cells).filter(|r| r.len() == 6) {
-            assert!(r[5].starts_with('\n') && !r[4].contains('\n'), "{r:?}");
+        // the row's second line is marked as such, never one more column that the memory runs into
+        for r in rows(c).iter().filter_map(cells).filter(|r| r.last().map_or(false, |l| l.starts_with('\n'))) {
+            let last = r.len() - 1;
+            assert!(r[last].starts_with('\n') && !r[last - 1].contains('\n'), "{r:?}");
         }
     }
+}
+
+// ---- point 7: a remote machine's submenu as the MacBook's
+
+fn remote_sub(machines: &str) -> Vec<Node> {
+    let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(machines.into()), ..Default::default() };
+    let cards = machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true));
+    let Node::Card { children, .. } = &cards[2] else { panic!("the server card") };
+    children.clone()
+}
+
+fn many_procs(n: usize) -> String {
+    (0..n).map(|i| format!(r#"{{"name":"p{i:02}","cpu_pct":{},"mem_mb":{},"cmd":"/bin/p{i}"}}"#, 30 - i, 100 - i)).collect::<Vec<_>>().join(",")
+}
+
+#[test]
+fn a_remote_machine_counts_its_processes_from_the_total_and_folds_the_rest() {
+    let m = format!(r#"[{{"id":"hetzner","os":"Linux","procsTotal":{{"n":70,"memMB":5921}},"procs":[{}]}}]"#, many_procs(30));
+    let t = dump_text(&remote_sub(&m));
+    assert!(t.contains("GIRA ADESSO · 70 · 5,8 GB | CPU | memoria"), "N and memory are the machine's total, not the 30 listed:\n{t}");
+    // 15 rows shown, the other 15 listed plus the 40 the service did not list, in one submenu
+    assert!(t.contains("Tutto il resto (55) · "), "{t}");
+    assert!(t.contains("40 processi non elencati"), "{t}");
+    assert!(t.contains("p00 | 30% | 100 MB") && t.contains("p14 | 16% | 86 MB"), "the first fifteen rows are shown: {t}");
+}
+
+#[test]
+fn a_remote_machine_without_a_total_counts_what_it_lists_and_a_short_list_has_no_rest() {
+    let m = r#"[{"id":"hetzner","procs":[{"name":"bun","cpu_pct":2,"mem_mb":420,"cmd":"bun x"},{"name":"sshd","cpu_pct":0,"mem_mb":10}]}]"#;
+    let t = dump_text(&remote_sub(m));
+    assert!(t.contains("GIRA ADESSO · 2 · 430 MB | CPU | memoria"), "{t}");
+    assert!(!t.contains("Tutto il resto"), "nothing past the shown rows, nothing to fold: {t}");
+}
+
+#[test]
+fn a_remote_machine_invents_nothing_it_cannot_measure() {
+    let m = format!(r#"[{{"id":"hetzner","os":"Linux","procsTotal":{{"n":70,"memMB":5921}},"procs":[{}]}}]"#, many_procs(30));
+    let t = dump_text(&remote_sub(&m));
+    for invented in ["Processi attendibili", "Chiudi i resti", "Chiudi:", "PIÙ GPU", "PIÙ RETE", "GPU", "rete"] {
+        assert!(!t.contains(invented), "«{invented}» does not exist on a remote machine:\n{t}");
+    }
+    assert!(t.contains("PIÙ CPU ADESSO | CPU | memoria") && t.contains("PIÙ MEMORIA | CPU | memoria"), "the rankings it can fill stay: {t}");
+}
+
+#[test]
+fn a_remote_machine_shows_its_readings_and_its_day_like_the_original_submenu() {
+    let m = r#"[{"id":"hetzner","metrics":[{"key":"cpu","name":"CPU","pct":1,"level":0,"note":"0,2 di 16 core"},{"key":"spend","name":"Spesa","pct":14,"level":2,"value":"8,44/60 €","note":"oltre il tetto"}],
+      "timeline":{"window":86400,"segments":[{"t0":0,"t1":79200,"state":"lavora"},{"t0":79200,"t1":86400,"state":"dorme"}]},"procs":[]}]"#;
+    let t = dump_text(&remote_sub(m));
+    assert!(t.contains("CPU 1% · 0,2 di 16 core") && t.contains("Spesa 8,44/60 € · oltre il tetto"), "a line per reading, in the service's words: {t}");
+    assert!(t.contains("Ultime 24 h · lavora 22 h · dorme 2 h"), "{t}");
+    // a reading comes before the state lines, as the card did in the original
+    assert!(t.find("CPU 1%").unwrap() < t.find("Nodo fisso acceso").unwrap(), "{t}");
+}
+
+#[test]
+fn the_commands_of_a_machine_ask_first_and_call_the_service() {
+    let m = r#"[{"id":"hetzner","actions":[{"id":"spegni","label":"Spegni tutti","method":"POST","url":"/api/hetzner/spegni","confirm":"Spegne i server di offload."}]}]"#;
+    let children = remote_sub(m);
+    let id = children.iter().find_map(|n| match n {
+        Node::Icon { icon, node } if icon == "sf:power" => match &**node { Node::Item { id, label, .. } => Some((id.clone(), label.clone())), _ => None },
+        _ => None,
+    });
+    let (id, label) = id.expect("a power row for the command");
+    assert_eq!(label, "Spegni tutti…");
+    assert_eq!(
+        action_for(&id, &None),
+        Some(crate::tray_menu::Action::ConfirmedHttp { label: "Spegni tutti".into(), machine: "Server Hetzner".into(), confirm: "Spegne i server di offload.".into(), method: "POST", path: "/api/hetzner/spegni".into() })
+    );
+}
+
+#[test]
+fn a_command_that_is_not_the_services_own_is_refused() {
+    let id = |method: &str, path: &str| crate::tray_menu::machine_action_id("M", method, path, "x", "y");
+    assert_eq!(action_for(&id("GET", "/api/hetzner/spegni"), &None), None, "only the verbs the service uses");
+    assert_eq!(action_for(&id("POST", "http://evil.example/x"), &None), None, "only paths of the service");
+    assert_eq!(action_for("machine-act:POST", &None), None, "a truncated id does nothing");
+}
+
+#[test]
+fn the_finder_of_a_machine_opens_the_processes_view_of_the_client() {
+    assert_eq!(action_for("machine-open:hetzner", &None), Some(crate::tray_menu::Action::OpenProcesses));
+    assert_eq!(action_for("machine-open:local", &None), Some(crate::tray_menu::Action::OpenProcesses));
 }

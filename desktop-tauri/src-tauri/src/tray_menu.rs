@@ -38,6 +38,8 @@ pub enum Table {
     Projects,
     /// Processes: CPU, GPU, network, memory.
     Procs,
+    /// Processes of a machine read from afar: CPU and memory only, in the last two columns of `Procs`.
+    RemoteProcs,
     /// Live agents of one project, with CPU and memory: kind, since, last activity, CPU · memory.
     Agents,
     /// One live agent under a project row: rate per hour, model · since.
@@ -55,6 +57,7 @@ impl Table {
             Table::Plain => &[],
             Table::Projects => &[238.0, 280.0, 322.0, 366.0, 436.0],
             Table::Procs => &[275.0, 330.0, 405.0, 470.0],
+            Table::RemoteProcs => &[405.0, 470.0],
             Table::Agents => &[145.0, 235.0, 315.0, 455.0],
             Table::AgentWork => &[300.0, 436.0],
             Table::Week => &[225.0, 315.0, 405.0],
@@ -773,6 +776,8 @@ pub enum Action {
     OpenUrl(String),
     TogglePref(String),
     Open(String),
+    /// The Processes view of the client: it lists this computer and every remote machine together.
+    OpenProcesses,
     /// A command of a machine (Hetzner: «Spegni tutti»): the dialog says `confirm`, a yes sends the request.
     ConfirmedHttp { label: String, machine: String, confirm: String, method: &'static str, path: String },
 }
@@ -830,7 +835,7 @@ pub fn action_for(id: &str, procs: &Option<String>) -> Option<Action> {
     }
     if id.starts_with("machine-open:") {
         // The Processes view lists every machine together: there is no per-machine page to pick.
-        return Some(Action::Open("processes".into()));
+        return Some(Action::OpenProcesses);
     }
     if let Some(rest) = id.strip_prefix("machine-act:") {
         let mut f = rest.split(ACTION_SEP);
