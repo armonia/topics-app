@@ -614,12 +614,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // opened from a button or a menu item that still holds the focus. It yields
     // only to a text field outside the terminal (this pane's find bar, the chat
     // composer): taking the cursor from there mid-word sent the rest of the word
-    // to the shell.
+    // to the shell. It also yields to an overlay opened in those 600 ms (the
+    // inbox, a menu): the inbox reopened right after Enter lost its focused
+    // row to this timer, and ↓/E went to the shell (attention-inbox e2e).
     setTimeout(() => {
       doFit();
       const held = document.activeElement;
       const typingElsewhere = held instanceof HTMLElement && !el.contains(held)
-        && (held.isContentEditable || held.matches('input, textarea, select'));
+        && (held.isContentEditable || held.matches('input, textarea, select')
+          || held.closest('[role="dialog"], [role="menu"], [role="listbox"]') !== null);
       if (!typingElsewhere) term.focus();
     }, 600);
 
