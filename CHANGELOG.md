@@ -2,6 +2,77 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.22 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: archive the node's run once the branch is home (#1145)
+
+## 2.4.21 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane (#1142)
+
+### Sotto il cofano
+- list the seven flaky e2e tests found by the ledger (#1140)
+
+## 2.4.20 — 2026-11-16
+
+### Correzioni
+- **board** · add stable deps to two useEffect hooks in KanbanBoardPane
+
+### Sotto il cofano
+- Remote children: adopt the branch the node delivered under (#1144)
+
+## 2.4.19 — 2026-11-16
+
+### Sotto il cofano
+- Remote children: resolve a model alias against the node's own catalog (#1138)
+
+## 2.4.18 — 2026-11-16
+
+### Sotto il cofano
+- Node child runs: a heavy child waits for the heavy turn like any heavy card (#1135)
+- Child bundles carry 200 commits of origin's default for a node that has not fetched lately (#1136)
+
+## 2.4.17 — 2026-11-16
+
+### Correzioni
+- **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
+- **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
+- **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
+
+### Sotto il cofano
+- topics/morose-hickory (card c0809cc6) (#1116)
+- Split server.ts into a boot chain: stages in server/boot, front door in server/routes (#1120)
+- native write_file: the OS temp dir is always writable
+- write-roots tests: refused targets outside the temp dir
+- a failed tool with an empty body still carries a message (#1123)
+- runtime test: outside-workspace write target not under temp dir
+- topics/lofty-ferret (card dbe67d8c) (#1075)
+- **e2e** · serialize spec files on the shared test server across workers (#1122)
+- Remote sub-agents: refused runs stay local, a node behind origin fetches before planting (#1128)
+- Indice solido: mutation score dei moduli critici (spec-flow D9) e bloat che scende solo (#1117)
+- voice-call: fix role-flipped dropped-call greeting and repeat-request correction with brain on (#1121)
+- **deploy-outcome** · scope the 300 ms spawn cap to the deadline test (#1132)
+- Node child runs are not held by the board's heavy turn (#1131)
+
+## 2.4.16 — 2026-11-16
+
+### Sotto il cofano
+- same card and same submenu for Mac, PC and the cloud server (#1118)
+- every machine submenu opens with its state lines, memory with its unit (#1119)
+
+## 2.4.15 — 2026-11-16
+
+### Sotto il cofano
+- Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)
+
+## 2.4.14 — 2026-11-15
+
+### Sotto il cofano
+- approve as superseded never enters the CI phase (#1114)
+
 ## 2.4.13 — 2026-11-15
 
 ### Sotto il cofano

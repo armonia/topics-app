@@ -1252,6 +1252,34 @@ The work a remote child starts from SHALL be a snapshot of the parent's checkout
 - **WHEN** the child's branch is adopted
 - **THEN** the adoption is refused and the parent branch still points at its own commit
 
+### Requirement: SUBAGENT-28 — `spawn_agent` actually wires the remote lane, and the round trip ends at `read_agent`/`wait_agent`
+
+The `/agents/spawn` route SHALL sequence `decideRemoteSpawn` (SUBAGENT-25), the bundle snapshot and `pickNodeForChild`/`startRemoteChildRun` (SUBAGENT-26/27) on the parent's own cwd, before any local worktree or process is paid for: an eligible spawn with a free node SHALL start there (`subagents.remote_machine_id`/`remote_run_id` set, no local worktree created), and a spawn that was never eligible (no node, no origin, `decideRemoteSpawn` says local) SHALL fall through to today's local path unchanged. Once the node's run reaches `review`, the branch SHALL be fetched and adopted into the parent (SUBAGENT-26) and the row SHALL retire; the parent SHALL be told the same way a local child's turn ends, so both `read_agent` and `wait_agent` see the result, not `read_agent` alone. A run the node parked itself (`backlog` with a failed or blocked dispatch) SHALL also retire the row, as `failed`, without a branch to adopt.
+
+#### Scenario: A git repo with origin and a free node
+- **GIVEN** a `spawn_agent` call whose cwd is a git repo with an origin, and a paired node online with a free seat
+- **WHEN** the call is made
+- **THEN** the answer carries the node's run, no local worktree or process is created, and the child's row records the node and run
+
+#### Scenario: Never eligible, the local path is untouched
+- **GIVEN** a `spawn_agent` call with `runtime: "claude-code"`, or whose cwd has no origin, or with no node free
+- **WHEN** the call is made
+- **THEN** the child starts locally exactly as it did before this wiring existed
+
+#### Scenario: The node's run reaches review
+- **GIVEN** a remote child whose node answers `review` with a delivery branch
+- **WHEN** `read_agent` (or the background watch) next asks the node
+- **THEN** the branch is adopted into the parent, the row retires, and the result reaches both `read_agent` and a held `wait_agent`
+
+### Requirement: SUBAGENT-29 — A remote child's read cursor survives a restart
+
+`read_agent`'s cursor for a child running on a node (`nextOffset`, SUBAGENT-27) SHALL carry an epoch picked once per process boot. A `since` whose epoch does not match the current process (from before a restart, or `0` from a caller that never read) SHALL be read as index `0`: the in-memory log, rebuilt from the node's own report, is replayed from the start rather than skipping its first entries because they happen to already be at or past the asked-for index.
+
+#### Scenario: A since from before a restart
+- **GIVEN** a `since` cursor handed out by a previous process (a different epoch)
+- **WHEN** `read_agent` is called with it after a restart
+- **THEN** the rebuilt log is read from its start, not from the raw index the cursor carries
+
 ### Requirement: TITLES-CACHE-01 — A failed channel-titles fetch is retried by the next mount
 
 The channel titles are read once per window, but only a successful answer counts as the read. A non-ok response, or a body without `titles`, SHALL leave the cache empty so the next mount asks again; it SHALL NOT latch an empty object for the rest of the window.

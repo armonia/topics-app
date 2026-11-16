@@ -29,7 +29,7 @@ import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
-import { carriedBranch } from "./branch-on-origin";
+import { carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -915,6 +915,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The slot goes first: the run is over on the node, and what follows is
     // bookkeeping this board owes the card, not a run to keep polling.
     inFlight.delete(taskId);
+    svc.closeNodeRun(taskId);
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
@@ -941,6 +942,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             log(`nodo: impianto del ramo ${branch} fallito`, err);
             return { planted: false, commit: null, commitCount: 0, reason: "l'impianto del ramo è fallito su questa macchina" };
           });
+      // The bundle download and the plant are awaits: a card closed meanwhile
+      // keeps the delivery it was closed with, and the run is cancelled.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        return;
+      }
       if (planted.planted) {
         try {
           // `recordDelivery` and not `setDeliveryBranch` alone: the commit and
@@ -959,6 +966,18 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         if (host.captureDelivery) {
           try { await host.captureDelivery(taskId); } catch { /* never block the delivery on git */ }
         }
+      } else {
+        // The node's commit, with the branch columns left alone: the land then
+        // finds a delivered commit this checkout lacks and refuses, instead of
+        // landing `priorBranch`, the round a person sent back. Recording the
+        // node's branch would also break the next run, which starts from a
+        // branch it must find here or on origin.
+        try {
+          svc.recordDelivery({
+            taskId, branch: svc.get(taskId)?.task?.deliveryBranch ?? null,
+            commit: report.deliveryCommit || UNPLANTED_DELIVERY_COMMIT,
+          });
+        } catch (err) { log(`node: unplanted delivery not recorded on ${taskId}`, err); }
       }
     }
     const fresh = svc.get(taskId)?.task;
@@ -1111,6 +1130,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const [taskId, slot] of [...inFlight]) {
       const node = slot.node;
       if (!node) continue;
+      // A card closed while its run was alive: cancel the run on the node and
+      // clear the chip. Left alone, the mirror rewrote `working` on a done card
+      // and the delivery that followed carried it back to review (12/11, 17436204).
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       if (node.cancelPending) {
         await cancelTask(taskId);
         continue;
@@ -1176,6 +1202,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // collects two deliveries (KANBAN-77).
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
+      // The card may have been closed while `readRun` was in the air: the first
+      // look above predates the report, and mirroring it would write `working`
+      // back on a done card.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       node.fails = 0;
       node.setupFails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
@@ -1233,6 +1266,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
+    // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
+    // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
+    // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
+    if (!svc.nodeRunIsOpen(task.id)) return false;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
@@ -1261,6 +1298,24 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       log(`nodo: card ${task.id} non rimessa in coda dopo il riavvio`, err);
       return false;
     }
+  }
+
+  /**
+   * The run of a card that is already done. The cancel is best effort: a node
+   * that cannot be reached must not keep the slot forever, and a late report is
+   * harmless now that a done card ignores system deliveries.
+   */
+  async function retireDoneRun(taskId: string, node: NodeSlot): Promise<void> {
+    const client = host.client;
+    if (client) {
+      try {
+        await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+      } catch (err) { log(`node: run ${node.runId} of the done card ${taskId} was not cancelled`, err); }
+    }
+    inFlight.delete(taskId);
+    lastNodeRun.delete(taskId);
+    try { releaseAndEmit({ taskId, requeue: false }); }
+    catch (err) { log(`node: done card ${taskId} was not released`, err); }
   }
 
   async function cancelTask(taskId: string): Promise<boolean | null> {

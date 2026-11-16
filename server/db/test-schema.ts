@@ -207,7 +207,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   land_intent_at TEXT,
   land_intent_commit TEXT,
   -- 20261115120000: the Jarvis channel chat the work is followed in (display only).
-  channel_topic_id TEXT
+  channel_topic_id TEXT,
+  -- 20261115220000: 1 while that run is still open on the node.
+  node_run_open INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**

@@ -31,7 +31,10 @@ import {
 } from "./board-arms";
 
 const REPO = resolve(import.meta.dir, "..");
-const dispatcherSrc = readFileSync(join(REPO, "server/services/task-dispatcher.ts"), "utf8");
+// The dispatcher's prompt text lives across the dispatcher and its support module.
+const dispatcherSrc = ["server/services/task-dispatcher.ts", "server/services/task-dispatcher-support.ts"]
+  .map((file) => readFileSync(join(REPO, file), "utf8"))
+  .join("\n");
 
 describe("replica dell'envelope di dispatch", () => {
   it("ogni frase-ancora esiste ancora nel dispatcher", () => {
