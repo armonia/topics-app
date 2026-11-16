@@ -664,6 +664,8 @@
 
     "server/services/tasks.ts": 6582,
 
+    "server/services/voice-call/call.test.ts": 816,
+
     "server/services/worktree-gc.test.ts": 919,
 
     "server/services/worktree-gc.ts": 871,

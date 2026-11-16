@@ -384,10 +384,13 @@ export abstract class CallState {
     const asksRepeat = ["ripet", "non ho capito", "non ti sento", "in italiano", "sentito male"].some((p) => source.includes(p));
     const answering = !this.textTurn && (this.said.trim() !== "" || this.earWait !== null) && this.heard.trim() !== "";
     const g = this.heard.trim() === "" ? this.prevHeard : this.heard;
-    // with the brain the phrase already reaches it as whisper heard it:
-    // correcting Gemini relaunched the same question, and the assistant said two
-    // answers in a row (13/11)
-    if ((asksRepeat || answering) && !this.brainOn && heardWrong(g, w.text)) {
+    // with the brain on, a phrase it is already answering reaches it as whisper
+    // heard it: correcting it there relaunched the same question, and the
+    // assistant said two answers in a row (13/11). Asking to repeat is
+    // different: on its own, without calling the brain, so nothing there heard
+    // whisper's transcript yet, and it kept asking to repeat what whisper had
+    // understood fine.
+    if ((asksRepeat || (answering && !this.brainOn)) && heardWrong(g, w.text)) {
       this.hinted = w.seq;
       if (this.earWait !== null) {
         this.earWait = null;
