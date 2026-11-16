@@ -5563,3 +5563,31 @@ When a card opens a pull request, the delivery flow SHALL close any other open p
 #### Scenario: other cards and main
 - **WHEN** another card has a live run, or `main` has one
 - **THEN** neither SHALL be cancelled
+
+### Requirement: KANBAN-117 - A card in done is never picked up again
+
+A card in `done` SHALL NOT go back to the queue: `release` with `requeue` SHALL leave its status as it is, and a system delivery or a deferral SHALL NOT move it. A remote run still alive when the card is closed SHALL be cancelled on the node and its `dispatchState` cleared, and a report or a bundle that arrives afterwards SHALL NOT reopen the card.
+
+#### Scenario: closed while a remote attempt is queued
+- **WHEN** a card is moved to done and its attempt is then released with requeue
+- **THEN** the card SHALL stay done and the claim SHALL not return it
+
+#### Scenario: closed while the node is working
+- **WHEN** a card is moved to done while its run on a node is alive
+- **THEN** the next poll SHALL send the cancel, clear `dispatchState`, and the card SHALL stay done
+
+### Requirement: KANBAN-116 - A permanent "this machine only" pin without a reason is swept, not left standing
+
+A card's `stayLocal` pin with no `stayLocalUntil` SHALL be decided at boot by a sweep that classifies the card's text and description: a card naming a mac-only surface (tray, hub, launchd, a local-only process) SHALL keep its pin, and any other card SHALL have the pin cleared with exactly one reason comment recorded on the card. A pin a person set through the API with its own typed reason SHALL NOT be touched by a later sweep pass, and a second sweep pass over an already-decided card SHALL write nothing.
+
+#### Scenario: a pure-code card with a permanent pin
+- **WHEN** the sweep runs over a card with `stayLocal=1`, no `stayLocalUntil`, and text/description naming nothing mac-only
+- **THEN** the pin SHALL be cleared and a reason comment SHALL be recorded on the card
+
+#### Scenario: a card naming a mac-only surface
+- **WHEN** the sweep runs over a card whose text or description names the tray, the hub, launchd or a local-only process
+- **THEN** the pin SHALL stay, and no comment SHALL be written
+
+#### Scenario: a repeated sweep
+- **WHEN** the sweep runs a second time over a card it already decided
+- **THEN** it SHALL write nothing further

@@ -24,6 +24,7 @@
  * targets, and a swipe to the left on a finished row marks it seen.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { ChildWorkMeter } from '../Board/ChildWorkMeter';
 import {
   Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
   MessageCircleQuestion, MessageSquare, PauseCircle, Settings, ShieldAlert, SquareCheck, TerminalSquare,
@@ -94,14 +95,17 @@ function openSubject(item: Pick<InboxItem, 'kind' | 'id' | 'title' | 'url'>): vo
   }
 }
 
-export default function InboxPanel({ model, onWSMessage, onClose }: {
+export default function InboxPanel({ model, onWSMessage, onClose, tabRequest = null }: {
   model: InboxModel;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onClose: () => void;
+  /** The tab an open asked for (a hub's `#journal` asks for History); a new object per request. */
+  tabRequest?: { tab: Tab } | null;
 }) {
   const tr = useT();
   const { isTouch } = useMobile();
-  const [tab, setTab] = useState<Tab>('now');
+  const [tab, setTab] = useState<Tab>(tabRequest?.tab ?? 'now');
+  useEffect(() => { if (tabRequest) setTab(tabRequest.tab); }, [tabRequest]);
   const listRef = useRef<HTMLDivElement>(null);
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;
@@ -546,6 +550,7 @@ function QuietLine({ working, hub, downSince }: { working: InboxQuietItem[]; hub
                 >
                   <Icon size={13} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
                   <span className="text-compact text-app-text truncate">{q.title}</span>
+                  <ChildWorkMeter id={q.id} className="ml-2" />
                   <span className="text-compact text-app-text-muted truncate ml-auto flex-shrink min-w-0">
                     {q.firstTask
                       ? KNOWN_TASK_KINDS.has(q.firstTask.kind) ? `${tr(`inbox.task.${q.firstTask.kind}`)}: ${q.firstTask.label}` : q.firstTask.label

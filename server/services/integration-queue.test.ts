@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { createIntegrationQueue, type IntegrationMeasure } from "./integration-queue";
 
 /** A fake world: `bad` breaks the CI of any batch it is in, `conflicting` cannot be merged. */
-function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number } = {}) {
+function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number; solo?: string[] } = {}) {
   const batches: string[][] = [];
   const landed: string[] = [];
   const bounced: Array<{ id: string; why: string }> = [];
@@ -26,6 +26,7 @@ function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: bool
     land: async (_p, id) => { landed.push(id); },
     bounce: async (_p, id, why) => { bounced.push({ id, why }); },
     stillWanted: (_p, id) => !gone.has(id) && !landed.includes(id),
+    solo: opts.solo ? (_p, id) => opts.solo!.includes(id) : undefined,
   });
   return {
     q, batches, landed, bounced, gone,
@@ -57,6 +58,27 @@ describe("integration queue", () => {
     expect(w.landed).toEqual(["a", "b", "d"]);
     expect(w.bounced.map((b) => b.id)).toEqual(["c"]);
     expect(w.bounced[0]!.why).toContain("unit-ci");
+  });
+
+  test("a card without its own green bar is measured alone: its red costs one round and only itself", async () => {
+    const w = world({ bad: ["c"], solo: ["c"] });
+    w.hold();
+    for (const id of ["a", "c", "b", "d"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["a", "b", "d"], ["c"]]);
+    expect(w.landed).toEqual(["a", "b", "d"]);
+    expect(w.bounced.map((b) => b.id)).toEqual(["c"]);
+  });
+
+  test("an unproven card at the front is measured alone, the proven ones after it as one batch", async () => {
+    const w = world({ solo: ["a"] });
+    w.hold();
+    for (const id of ["a", "b", "c"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["a"], ["b", "c"]]);
+    expect(w.landed).toEqual(["a", "b", "c"]);
   });
 
   test("a conflicting card goes back to its agent and the batch goes on without it", async () => {

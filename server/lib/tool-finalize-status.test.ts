@@ -10,7 +10,7 @@
  * @covers CHAT-01
  */
 import { describe, test, expect } from "bun:test";
-import { toolOutcomeAtTurnEnd } from "./tool-finalize-status";
+import { failedToolText, toolOutcomeAtTurnEnd } from "./tool-finalize-status";
 
 describe("how the hanging tools are closed", () => {
   test("a turn that really finished leaves the tools successful", () => {
@@ -44,5 +44,15 @@ describe("how the hanging tools are closed", () => {
     // knows the reason and passes it separately: inferring "cut" from an absent
     // field would turn every watchdog into a false cut.
     expect(toolOutcomeAtTurnEnd("done", undefined)).toEqual({ status: "success" });
+  });
+});
+
+describe("failedToolText", () => {
+  test("keeps a real message untouched", () => {
+    expect(failedToolText("boom", "spawn_agent")).toBe("boom");
+  });
+  test("never leaves a failure without a message", () => {
+    expect(failedToolText("", "send_to_agent")).toContain("send_to_agent reported a failure");
+    expect(failedToolText("  \n")).toContain("tool reported a failure");
   });
 });

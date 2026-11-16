@@ -2,7 +2,7 @@
  * @covers TOPIC-01
  */
 import { describe, expect, test } from "bun:test";
-import { judgeBugIssues, judgeCiMain, judgeCrashLog, judgeCreateRoute, judgeE2eMain } from "./quality-bar";
+import { judgeBugIssues, judgeCiMain, judgeCrashLog, judgeCreateRoute, judgeE2eMain, judgeMutationMain } from "./quality-bar";
 
 // One healthy input and one mutant per measure: the mutant must turn it red.
 describe("quality bar measures", () => {
@@ -35,5 +35,11 @@ describe("quality bar measures", () => {
   test("create-route", () => {
     expect(judgeCreateRoute(0).ok).toBe(true);
     expect(judgeCreateRoute(1).ok).toBe(false);
+  });
+  test("mutation-main", () => {
+    expect(judgeMutationMain([{ status: "in_progress", conclusion: null, databaseId: 2 }, { status: "completed", conclusion: "success", databaseId: 1 }]).ok).toBe(true);
+    expect(judgeMutationMain([{ status: "completed", conclusion: "failure", databaseId: 1 }]).ok).toBe(false);
+    expect(judgeMutationMain([]).ok).toBe(false);
+    expect(judgeMutationMain(null).ok).toBe(false);
   });
 });

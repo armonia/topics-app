@@ -1657,7 +1657,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(finale.dispatchState).not.toBe("failed");
   });
 
-  test("la serie è per RAGIONE: una condizione diversa la fa ricominciare da uno", () => {
+  test("il conteggio è per RAGIONE, l'orologio no: una condizione diversa riparte da uno ma tiene `waitSince`", () => {
     const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
     attende(t.id, "la CI sta girando"); passa(16);
     const due = attende(t.id, "  LA CI   STA GIRANDO "); // stessa cosa, riscritta a mano
@@ -1666,8 +1666,10 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     passa(16);
 
     const altra = attende(t.id, "aspetto la risposta di Attilio");
-    expect(altra.waitStreak).toBe(1);                    // altra condizione, altra serie
-    expect(altra.waitSince).not.toBe(inizioSerie);
+    expect(altra.waitStreak).toBe(1);                    // other condition, count restarts
+    // ...but the clock keeps running: rewording must not reset the time cap
+    // (card 60c4b56a, five rewritten waits in three days, never stopped).
+    expect(altra.waitSince).toBe(inizioSerie);
   });
 
   test("alla soglia il task si ferma, ma col chip `waited_out` e senza la parola «fallito»", () => {
@@ -2269,7 +2271,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          delivery_commit = 'abc1234', landing_state = 'landed', landing_checked_at = ?,
          checks_state = 'green', checks_at = ?, checks_commit = 'abc1234', checks_json = ?,
          delivered_by = 'claude', delivered_reason = 'finito', dispatch_weight = 'heavy',
-         created_source = 'session:s1', origin_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine', overflow_skip_machine = 'pc-1', overflow_skip_until = '2999-01-01T00:00:00.000Z', scheduled_by = 'Jarvis', scheduled_at = '2999-01-01T09:00:00.000Z',
+         created_source = 'session:s1', origin_topic_id = 'top-1', channel_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine', overflow_skip_machine = 'pc-1', overflow_skip_until = '2999-01-01T00:00:00.000Z', scheduled_by = 'Jarvis', scheduled_at = '2999-01-01T09:00:00.000Z',
          created_by_topic_id = 'top-1', plan_comment_id = 'id-9', done_actor = 'human',
          reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
          landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',

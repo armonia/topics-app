@@ -33,6 +33,7 @@
  */
 
 import { emitHumanHoldChange } from './human-hold-events';
+import { writeWhenFree } from './sqlite-busy';
 
 export interface AskUserBridgeOptions {
   /** How long THIS wait blocks before giving up (ms). One poll leg, not the ask. */
@@ -347,7 +348,7 @@ export function deliverAnswer(
     // nothing: its asker never came for it, so it goes on its other way now.
     const sameQuestion = bufferedAnswerFits(prev, { toolCallId: opts.toolCallId, questions: opts.questions })
       && bufferedAnswerFits({ toolCallId: opts.toolCallId, questions: opts.questions }, prev);
-    if (!sameQuestion) prev.onUnclaimed?.(prev.answers);
+    if (!sameQuestion) handOn(sessionKey, prev.onUnclaimed, prev.answers);
   }
   const entry: BufferedAnswer = {
     answers,
@@ -357,11 +358,23 @@ export function deliverAnswer(
     timer: setTimeout(() => {
       if (buffered.get(sessionKey) !== entry) return;
       buffered.delete(sessionKey);
-      opts.onUnclaimed?.(answers);
+      handOn(sessionKey, opts.onUnclaimed, answers);
     }, ttl),
   };
   buffered.set(sessionKey, entry);
   return true;
+}
+
+/**
+ * An unclaimed answer handed on its other way (a message in the chat). From the
+ * TTL timer a busy database threw out of the timer and took the server down,
+ * and the answer with it: a person's answer is the one write that must not be
+ * lost, so a busy refusal is retried until the database lets go. The delivery
+ * is one transaction, so a refused try wrote nothing.
+ */
+function handOn(sessionKey: string, onUnclaimed: ((answers: Record<string, string>) => void) | undefined, answers: Record<string, string>): void {
+  if (!onUnclaimed) return;
+  writeWhenFree(`unclaimed answer of ${sessionKey}`, () => onUnclaimed(answers));
 }
 
 /**

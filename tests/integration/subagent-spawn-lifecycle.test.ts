@@ -67,7 +67,7 @@ async function until<T>(what: string, probe: () => T | undefined | false, ms = 2
 }
 
 async function spawn(name: string, prompt = LONG_PROMPT): Promise<{ agentId: string; cwd: string; child: FakeChild }> {
-  const res = await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/spawn`, "POST", { prompt, name });
+  const res = await call(`/api/sessions/${encodeURIComponent(PARENT)}/agents/spawn`, "POST", { prompt, name, runtime: "claude-code" });
   expect(res.status).toBe(200);
   const body = await res.json() as { agentId: string; cwd: string };
   return { ...body, child: bridge.children.get(body.agentId)! };

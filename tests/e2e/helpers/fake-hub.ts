@@ -201,7 +201,7 @@ function proxyProfiles(proxy: FakeProxy, now: number): Record<string, unknown> {
 }
 
 /** The hub's write paths that change the fake's state, and the proxy's. */
-const PROXY_WRITES = new Set(["switch", "priority", "account-cap", "account-enabled", "remove", "api-profiles", "settings"]);
+const PROXY_WRITES = new Set(["switch", "priority", "account-cap", "account-enabled", "remove", "api-profiles", "settings", "reserve-confirm"]);
 
 function applyProxyWrite(hub: FakeHub, path: string, body: Record<string, unknown>): { status: number; body: unknown } {
   const p = hub.proxy;
@@ -229,6 +229,9 @@ function applyProxyWrite(hub: FakeHub, path: string, body: Record<string, unknow
     case "remove":
       p.accounts = p.accounts.filter((a) => a.name !== body.name);
       return { status: 200, body: { ok: true } };
+    // The yes to the reserve (hub-service `sb/reserve.rs`): kept in `posts`, answered like the engine.
+    case "reserve-confirm":
+      return { status: 200, body: body.confirm === false ? { ok: true, confirmed: false } : { ok: true, confirmed: true, until: Date.now() + 3_600_000, untilText: "09:00" } };
     case "api-profiles": {
       const key = p.keys.find((k) => k.name === body.name);
       if (!key) return { status: 404, body: { error: "unknown key" } };

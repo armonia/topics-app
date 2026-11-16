@@ -38,7 +38,6 @@ import { join } from "node:path";
 
 const RADICE = join(import.meta.dir, "..", "..");
 const UTILS = readFileSync(join(RADICE, "server", "utils.ts"), "utf8");
-const SERVER = readFileSync(join(RADICE, "server.ts"), "utf8");
 
 /**
  * Il corpo di una funzione dichiarata con `function <nome>(`, fino alla
@@ -150,9 +149,10 @@ describe("le fan-out non possono dimenticare il filtro degli ospiti", () => {
     // `inviaIniziale` è la porta della raffica: applica la stessa regola dei
     // broadcast ai frame che una socket riceve appena si apre. Il gestore `open`
     // non deve tornare a mandare da solo — è così che il buco è nato.
-    const apre = SERVER.indexOf("wsClients.add(ws);");
+    const WS_OPEN = readFileSync(join(RADICE, "server/routes/ws-open.ts"), "utf8");
+    const apre = WS_OPEN.indexOf("wsClients.add(ws);");
     expect(apre, "il gestore `open` è cambiato: ritrova il punto").toBeGreaterThan(0);
-    const gestore = SERVER.slice(apre, SERVER.indexOf("\n    message(ws, message) {", apre));
+    const gestore = WS_OPEN.slice(apre);
     expect(gestore).toContain("const inviaIniziale");
     expect(gestore).toContain("isGuestHandshakeFrame");
     // Nessun `ws.send` nudo nella raffica: quelli sono i frame che sfuggirebbero.

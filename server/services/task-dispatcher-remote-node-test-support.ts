@@ -79,12 +79,18 @@ export interface NodeFakeOptions {
   readRun?: (runId: string) => Promise<NodeRunReport>;
   cancelRun?: (runId: string) => Promise<void>;
   bundle?: Uint8Array | null;
+  /** Runs while the bundle download is in the air (a closure can land there). */
+  onBundle?: () => void;
   planted?: { planted: boolean; commit: string | null; commitCount: number; reason: string | null };
   /** The `node-run` hook runner; absent = the lane's own default. */
   hooks?: LifecycleHookRunner;
   projectPathOf?: (projectId: string) => string | null;
   /** The origin lookup; absent = an immediate answer. */
   originUrlOf?: () => Promise<string | null>;
+  /** The checkout's git identity; absent = a configured one (the historical, ungated behaviour). `null` = none configured. */
+  gitIdentityOf?: () => Promise<{ name: string; email: string } | null>;
+  /** Lanes that skip the identity gate; absent = none. */
+  skipsGitIdentity?: () => boolean;
 }
 
 export function nodeFake(o: NodeFakeOptions = {}) {
@@ -106,6 +112,7 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     },
     fetchBundle: async () => {
       calls.push("bundle");
+      o.onBundle?.();
       return o.bundle && o.bundle.length > 0 ? { empty: false as const, bytes: o.bundle } : { empty: true as const };
     },
     cancelRun: async ({ runId }) => {
@@ -118,6 +125,8 @@ export function nodeFake(o: NodeFakeOptions = {}) {
     nameOf: () => "Portatile",
     localMachineId: () => "questa-macchina",
     originUrlOf: o.originUrlOf ?? (async () => "git@github.com:acme/alpha.git"),
+    gitIdentityOf: o.gitIdentityOf ?? (async () => ({ name: "Ada Lovelace", email: "ada@example.test" })),
+    ...(o.skipsGitIdentity ? { skipsGitIdentity: o.skipsGitIdentity } : {}),
     ...(o.hooks ? { hooks: o.hooks } : {}),
     ...(o.projectPathOf ? { projectPathOf: o.projectPathOf } : {}),
     plantBranch: async ({ branch, baseSha, bundle }) => {

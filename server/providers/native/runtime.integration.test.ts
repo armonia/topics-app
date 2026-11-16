@@ -13,7 +13,7 @@
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, copyFileSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { hasCredentials, getAccessToken } from "./auth";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
@@ -297,7 +297,7 @@ describe("i tool di coding", () => {
     const abs = await executeTool("read_file", { path: "/etc/hosts" }, ctx());
     expect(abs.isError).toBe(true);
 
-    const w = await executeTool("write_file", { path: "../fuori.txt", content: "no" }, ctx());
+    const w = await executeTool("write_file", { path: join(homedir(), ".never-written-by-tests", "fuori.txt"), content: "no" }, ctx());
     expect(w.isError).toBe(true);
   });
 

@@ -1,7 +1,9 @@
 //! Tests of the tray menu: pure functions plus a fake local service. Card 23ec388a.
 
 use super::*;
+use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::time::Duration;
 use std::sync::mpsc;
 
 const PROCS: &str = r#"{"at":1000,"units":[
@@ -69,7 +71,9 @@ fn a_refusing_service_is_not_success() {
 #[test]
 fn close_needs_a_closable_unit_and_lists_its_pids() {
     let p = Some(PROCS.to_string());
-    assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002] }));
+    assert_eq!(action_for("proc-close:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002], force: false }));
+    assert_eq!(action_for("proc-force:agent:1", &p), Some(Action::ClosePids { name: "Claude · alpha".into(), unit: Some("agent:1".into()), pids: vec![91001, 91002], force: true }));
+    assert_eq!(action_for("proc-force:macos", &p), None);
     assert_eq!(action_for("proc-close:macos", &p), None);
     assert_eq!(action_for("proc-close:gone", &p), None);
     assert_eq!(leftover_pids(&p), vec![91050, 91051]);
@@ -77,9 +81,9 @@ fn close_needs_a_closable_unit_and_lists_its_pids() {
 
 #[test]
 fn terminate_never_touches_pid_one_and_reports_failures() {
-    assert_eq!(terminate(&[0, 1]), 0);
+    assert_eq!(terminate(&[0, 1], false), 0);
     // a pid nobody owns: kill fails, nothing is counted
-    assert_eq!(terminate(&[4_000_000]), 0);
+    assert_eq!(terminate(&[4_000_000], true), 0);
 }
 
 #[test]
@@ -170,8 +174,8 @@ fn service_down_keeps_backup_when_configured() {
 fn full_menu_has_every_section() {
     let t = dump_text(&build_menu(&full_snap(), Prefs { five_hour: true, ..Default::default() }, 0, true));
     for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57,0% in 24 h", "Processi", "Apri Processi",
-        "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "Priorità normale ✓", "Rinnovi",
-        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · prossimo: Rinnovo", "Backup · nessun dato"] {
+        "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "normale ✓", "Rinnovi",
+        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · Rinnovo", "Backup · nessun dato"] {
         assert!(t.contains(want), "manca «{want}» in:\n{t}");
     }
     assert!(!t.contains("Mac e PC"), "the machine rows are drawn by the Topics tray, not here");
@@ -212,7 +216,7 @@ fn every_clickable_row_does_something() {
 #[test]
 fn an_exhausted_unlock_is_not_offered_for_revoking() {
     let g = Some(r#"{"providers":{"claude":{"state":"frenato"}},"overrides":[{"provider":"claude","exhausted":true}]}"#.to_string());
-    let t = dump_text(&brake_nodes(&g));
+    let t = dump_text(&brake_nodes(&g, false));
     assert!(t.contains("Sblocca claude per 2 ore") && !t.contains("Togli lo sblocco"));
 }
 
@@ -333,4 +337,122 @@ fn the_backup_comes_from_the_service_and_survives_it_going_down() {
     assert!(down.backup_set && down.backup.as_deref().unwrap().contains("last_ok"));
     let _ = std::fs::remove_dir_all(&dir);
     assert!(!Snapshot::fetch("http://127.0.0.1:1", Some(&cache)).backup_set, "never answered, no row");
+}
+
+#[test]
+fn tray_calendar_row_says_when_the_next_one_is_due() {
+    // 2026-11-10 08:00 UTC is 09:00 in the pinned +1 h zone, a Tuesday
+    let body = |at: i64| Some(format!(r#"{{"needsYou":1,"broken":0,"calendar":{{"count":72,"next":{{"title":"Leggere la carta SuperFlash dalle API e confrontarla","at":{at}}}}}}}"#));
+    let now = 1_794_297_600 - 3 * 86_400;
+    let t = dump_text(&automation_nodes(&body(1_794_297_600_000), now, 3600));
+    assert!(t.contains("In calendario · 72 · mar 10 nov 09:00 Leggere la carta SuperFlash dalle A…"), "{t}");
+    let tomorrow = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 86_400, 3600));
+    assert!(tomorrow.contains("· domani 09:00 "), "{tomorrow}");
+    let today = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 3600, 3600));
+    assert!(today.contains("· oggi 09:00 "), "{today}");
+}
+
+#[test]
+fn tray_force_close_has_its_own_row_and_kills_instead_of_asking() {
+    let t = dump_text(&procs_nodes(&Some(PROCS.into())));
+    assert!(t.contains("Chiudi…") && t.contains("Forza chiusura…"), "{t}");
+}
+
+// ---- point 3: each table has the tab stops of its own, none past the original's right margin
+
+#[test]
+fn tray_each_table_keeps_the_tab_stops_of_the_original_tray() {
+    // the numbers of ClaudeUsage.swift: projCols (menuTextMax = 540 - 104 = 436), procs, agents, week, one agent's work
+    assert_eq!(Table::Projects.tabs(), [238.0, 280.0, 322.0, 366.0, 436.0]);
+    // processes and agents: the original's stops with the last pulled in to the margin (it ended on 470 and 455)
+    assert_eq!(Table::Procs.tabs(), [262.0, 318.0, 380.0, 436.0]);
+    assert_eq!(Table::Agents.tabs(), [145.0, 235.0, 315.0, 436.0]);
+    assert_eq!(Table::Week.tabs(), [225.0, 315.0, 405.0]);
+    assert_eq!(Table::AgentWork.tabs(), [300.0, 436.0]);
+    // a remote machine's two columns sit on the net and memory stops of the processes table
+    assert_eq!(Table::RemoteProcs.tabs(), &Table::Procs.tabs()[2..]);
+    assert!(Table::Plain.tabs().is_empty());
+}
+
+#[test]
+fn tray_no_tab_stop_runs_past_the_right_margin_and_each_table_has_its_own() {
+    let all = [Table::Plain, Table::Projects, Table::Procs, Table::RemoteProcs, Table::Agents, Table::AgentWork, Table::Week];
+    for t in all {
+        let tabs = t.tabs();
+        assert!(tabs.windows(2).all(|w| w[0] < w[1]), "{t:?}: stops grow left to right");
+        assert!(tabs.iter().all(|x| *x <= TAB_MAX), "{t:?}: no stop past the margin ({TAB_MAX}): {tabs:?}");
+    }
+    // the projects table, the one the menu is as wide as, ends where the original's text ends: 436
+    assert_eq!(*Table::Projects.tabs().last().unwrap(), 436.0);
+    // the old single set [268, 322, 376, 436, 506] sent the last column past it; no table is it any more
+    assert!(all.iter().all(|t| t.tabs() != [268.0, 322.0, 376.0, 436.0, 506.0]));
+}
+
+#[test]
+fn tray_a_table_row_carries_its_table_to_the_native_menu() {
+    let r = row(Table::Projects, vec!["a".into()], Vec::new());
+    assert!(matches!(r, Node::Row { table: Table::Projects, .. }));
+    assert!(matches!(head_row(Table::Procs, vec!["h".into()]), Node::Row { table: Table::Procs, header: true, .. }));
+}
+
+// ---- point 4: the picture of a project is read from the service, off the menu's thread, and kept
+
+fn serve_icon(png: &'static [u8]) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = hits.clone();
+    std::thread::spawn(move || {
+        while let Ok((mut c, _)) = l.accept() {
+            let mut ask = String::new();
+            let mut b = [0u8; 512];
+            while !ask.contains("\r\n\r\n") {
+                let k = c.read(&mut b).unwrap_or(0);
+                if k == 0 {
+                    break;
+                }
+                ask.push_str(&String::from_utf8_lossy(&b[..k]));
+            }
+            if ask.starts_with("GET /api/project-icon?name=alpha ") {
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = c.write_all(b"HTTP/1.0 200 OK\r\nContent-Type: image/png\r\n\r\n");
+                let _ = c.write_all(png);
+            } else {
+                let _ = c.write_all(b"HTTP/1.0 404 Not Found\r\n\r\n{}");
+            }
+        }
+    });
+    (base, hits)
+}
+
+#[test]
+fn tray_a_project_icon_is_downloaded_once_kept_and_drawn_before_the_name() {
+    // bytes that are not text: a body read as UTF-8 would corrupt them
+    static PNG: &[u8] = &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00, 0x80];
+    let (base, hits) = serve_icon(PNG);
+    let live = Some(r#"{"projects":[
+      {"name":"alpha","icon":"/api/project-icon?name=alpha","claude":1,"codex":0,"muse":0,"state":"attivo","priority":"normale","agents":{"count":0,"list":[]}},
+      {"name":"beta","claude":1,"codex":0,"muse":0,"state":"attivo","priority":"normale","agents":{"count":0,"list":[]}},
+      {"name":"dead-one","dead":true,"icon":"/api/project-icon?name=dead-one","claude":0,"codex":0,"muse":0,"state":"fermo","priority":"normale","agents":{"count":0,"list":[]}}]}"#.to_string());
+    assert!(project_icon_png("alpha").is_none(), "nothing read yet");
+    fetch_project_icons(&base, &live);
+    fetch_project_icons(&base, &live);
+    assert_eq!(project_icon_png("alpha").as_deref(), Some(PNG), "the bytes as the service sent them");
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1, "kept: the second poll does not ask again");
+    assert!(project_icon_png("beta").is_none() && project_icon_png("dead-one").is_none(), "no icon path, or a dead project: nothing read");
+    // the row: its own picture where there is one, the folder where there is not
+    let nodes = crate::tray_menu_projects::project_table(&live, &None, 1_800_000_000, 0);
+    let icons: Vec<(String, String)> = nodes.iter().filter_map(|n| match n {
+        Node::Icon { icon, node } => match &**node { Node::Row { cells, .. } => Some((cells[0].clone(), icon.clone())), _ => None },
+        _ => None,
+    }).collect();
+    assert_eq!(icons, [("alpha".to_string(), "png:alpha".to_string()), ("beta".to_string(), "sf:folder".to_string())]);
+}
+
+#[test]
+fn tray_a_failed_icon_download_keeps_the_folder_and_is_asked_again() {
+    let live = Some(r#"{"projects":[{"name":"gamma","icon":"/api/project-icon?name=gamma"}]}"#.to_string());
+    fetch_project_icons("http://127.0.0.1:1", &live);
+    assert!(project_icon_png("gamma").is_none());
+    assert_eq!(crate::tray_menu_projects::project_icon_spec(&serde_json::json!({"name": "gamma"})), "sf:folder");
 }
