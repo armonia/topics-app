@@ -91,6 +91,8 @@ fn budget_and_priority_offer_the_original_values_under_their_explaining_headers(
             match x {
                 Node::Item { id, .. } if id.starts_with("proj-budget:quiet:") => out.push(id.clone()),
                 Node::Sub { children, .. } | Node::Row { children, .. } | Node::Card { children, .. } => walk(children, out),
+                // a project row comes wrapped in its icon
+                Node::Icon { node, .. } => walk(std::slice::from_ref(&**node), out),
                 _ => {}
             }
         }

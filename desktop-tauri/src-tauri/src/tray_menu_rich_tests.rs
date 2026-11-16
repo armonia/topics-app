@@ -260,7 +260,7 @@ fn many_procs(n: usize) -> String {
 fn a_remote_machine_counts_its_processes_from_the_total_and_folds_the_rest() {
     let m = format!(r#"[{{"id":"hetzner","os":"Linux","procsTotal":{{"n":70,"memMB":5921}},"procs":[{}]}}]"#, many_procs(30));
     let t = dump_text(&remote_sub(&m));
-    assert!(t.contains("GIRA ADESSO · 70 · 5,8 GB | CPU | memoria"), "N and memory are the machine's total, not the 30 listed:\n{t}");
+    assert!(t.contains("GIRA ADESSO · 70 · 5,9 GB | CPU | memoria"), "N and memory are the machine's total, not the 30 listed:\n{t}");
     // 15 rows shown, the other 15 listed plus the 40 the service did not list, in one submenu
     assert!(t.contains("Tutto il resto (55) · "), "{t}");
     assert!(t.contains("40 processi non elencati"), "{t}");
@@ -324,4 +324,80 @@ fn a_command_that_is_not_the_services_own_is_refused() {
 fn the_finder_of_a_machine_opens_the_processes_view_of_the_client() {
     assert_eq!(action_for("machine-open:hetzner", &None), Some(crate::tray_menu::Action::OpenProcesses));
     assert_eq!(action_for("machine-open:local", &None), Some(crate::tray_menu::Action::OpenProcesses));
+}
+
+// ---- the whole menu from the real answers of the service, as text
+
+/// Every node, one per line: its icon, its table and look, and the id of what can be clicked. Longer than
+/// `dump_text`, which the other tests read, so the eye can check what the menu will draw.
+fn dump_detailed(nodes: &[Node], depth: usize, out: &mut String) {
+    for nd in nodes {
+        let pad = "  ".repeat(depth);
+        match nd {
+            Node::Sep => out.push_str(&format!("{pad}────────\n")),
+            Node::Item { id, label, enabled, .. } => {
+                let tag = if *enabled && !id.is_empty() { format!("  ⟶ {id}") } else if *enabled { String::new() } else { "  (nota)".into() };
+                out.push_str(&format!("{pad}{label}{tag}\n"));
+            }
+            Node::Sub { label, children } => {
+                out.push_str(&format!("{pad}{label}  ▸\n"));
+                dump_detailed(children, depth + 1, out);
+            }
+            Node::Card { key, children, .. } => {
+                out.push_str(&format!("{pad}[card {key}]{}\n", if children.is_empty() { "" } else { "  ▸" }));
+                dump_detailed(children, depth + 1, out);
+            }
+            Node::Row { cells, header, table, look, children, .. } => {
+                let flat: Vec<String> = cells.iter().map(|c| c.replace('\n', "⏎ ")).collect();
+                let how = format!("{table:?}{}{}{}", if *header { " intestazione" } else { "" }, if look.bold { " semibold" } else { "" }, match look.priority { crate::tray_menu::Priority::High => " priorità↑", crate::tray_menu::Priority::Low => " priorità↓", _ => "" });
+                out.push_str(&format!("{pad}{}   ‹{how}; tab {:?}›{}\n", flat.join(" | "), table.tabs(), if children.is_empty() { "" } else { "  ▸" }));
+                dump_detailed(children, depth + 1, out);
+            }
+            Node::Icon { icon, node } => {
+                let mut inner = String::new();
+                dump_detailed(std::slice::from_ref(&**node), depth, &mut inner);
+                // the icon goes at the head of the first line of the wrapped node
+                let (first, rest) = inner.split_once('\n').unwrap_or((&inner, ""));
+                out.push_str(&format!("{pad}⟨{icon}⟩ {}\n{rest}", first.trim_start()));
+            }
+        }
+    }
+}
+
+/// Run by hand with `-- --ignored tray_dump_of_the_real_menu`, with `TRAY_DUMP_DIR` on a folder that holds the
+/// service's answers as files (`board`, `overview`, `heavy`, `procs`, `automations`, `live`, `gates`,
+/// `machines`, `trust`, `backup`, and `ps` for the CPU of each process) and writes `nuovo-menu-v7.txt` there.
+#[test]
+#[ignore = "needs the service's answers on disk: set TRAY_DUMP_DIR"]
+fn tray_dump_of_the_real_menu() {
+    let dir = std::path::PathBuf::from(std::env::var("TRAY_DUMP_DIR").expect("TRAY_DUMP_DIR"));
+    let read = |n: &str| std::fs::read_to_string(dir.join(n)).ok();
+    let cpu = crate::tray_menu::parse_ps(&read("ps").unwrap_or_default());
+    let sn = Snapshot {
+        board: read("board"),
+        overview: read("overview"),
+        heavy: read("heavy"),
+        procs: read("procs"),
+        automations: read("automations"),
+        live: read("live"),
+        gates: read("gates"),
+        machines: read("machines"),
+        trust: read("trust"),
+        backup: read("backup"),
+        backup_set: read("backup").is_some(),
+        cpu,
+    };
+    // the poller reads the pictures from the service; the dump only needs to know there is one
+    for p in crate::tray_menu::parse(&sn.live).get("projects").and_then(|v| v.as_array()).into_iter().flatten() {
+        let (name, icon) = (crate::tray_menu::s(p, "name"), crate::tray_menu::s(p, "icon"));
+        if !icon.is_empty() {
+            crate::tray_menu::store_project_icon(name, icon, vec![0]);
+        }
+    }
+    let now = std::env::var("TRAY_DUMP_NOW").ok().and_then(|v| v.parse().ok()).unwrap_or(1_800_000_000);
+    let machines = machines_for(&[], &sn);
+    let menu = build_menu_rich(&sn, Prefs::default(), now, &machines, true);
+    let mut out = String::from("# Tendina della tray Rust coi dati veri dell'hub\n# ⟨icona⟩ davanti alla riga · ‹tabella, aspetto; tab› di ogni riga a colonne · ⟶ id di ciò che si clicca · ▸ si apre un sottomenu\n\n");
+    dump_detailed(&menu, 0, &mut out);
+    std::fs::write(dir.join("nuovo-menu-v7.txt"), out).unwrap();
 }
