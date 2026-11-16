@@ -227,6 +227,19 @@ export function createBrowserBridgeRouter(
   });
 
   /**
+   * `browser/focus-pane`'s own force-open: nobody attached to the plain
+   * `browser:focus-pane` broadcast (no window already shows this pane), so
+   * nudge the primary window to mount one, same as open-pane's fallback.
+   * The context already has a live page (headless or native) — this only
+   * needs its CURRENT url to seed the forced pane, not a fresh navigation.
+   */
+  async function forceOpenFocusedPane(contextId: string): Promise<boolean> {
+    const url = browserService?.getUrl(contextId)?.url ?? "";
+    broadcastToAll({ type: "browser:force-open", contextId, url });
+    return waitForAttachedPane(contextId, PANE_WAIT_MS);
+  }
+
+  /**
    * The open-pane routes answer through here: the sequence, plus the stderr
    * line when the answer is a 5xx. The line is written where the route
    * answers, not inside openPaneFlow, because the auto-open before a page op
@@ -749,6 +762,15 @@ export function createBrowserBridgeRouter(
     // client-originated because tab-activation is device-local UI state. An
     // explicit body.contextId wins (VALIDATED against the live inventory —
     // focusing a dead pane is meaningless); else own via topic/term-<id>.
+    //
+    // A context with no pane ANYWHERE answered "ok" here while nothing ever
+    // mounted (card 6e893f97): the broadcast alone only wakes a window that
+    // already shows the pane, and the client never reopens one on its own
+    // (BROWSER-CHAT-05, deliberately — a focus must not surprise-open on every
+    // device). So the SAME fallback open-pane already has for the identical
+    // problem (`browser:force-open`, card 05105d29) applies here too: wait for
+    // a pane to attach, and if none does, force one open on the primary window
+    // with the context's current URL.
     {
       const byTopic = matchRoute(pathname, "/api/topics/:id/browser/focus-pane");
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/focus-pane");
@@ -772,7 +794,9 @@ export function createBrowserBridgeRouter(
           ctxId = target.contextId;
         }
         broadcastToAll({ type: "browser:focus-pane", contextId: ctxId });
-        return json({ ok: true, contextId: ctxId });
+        const attached = await waitForAttachedPane(ctxId, PANE_WAIT_MS);
+        const mounted = attached || await forceOpenFocusedPane(ctxId);
+        return json({ ok: true, contextId: ctxId, mounted });
       }
     }
 
