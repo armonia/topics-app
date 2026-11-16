@@ -223,6 +223,7 @@ test("read_agent on a review'd remote child adopts its branch and retires the ro
     promptSnippet: "do it on the node", cwd: parentRepo, branch, claudeSessionId: null, createdAt: new Date().toISOString(),
   });
   markSubagentRemote(getDatabase(), agentId, { machineId, runId: "run-settle-1" });
+  const archived: string[] = [];
 
   const ctx = baseCtx(tempRoot, machineId, "http://fake-node.test", {
     nodeClient: {
@@ -232,6 +233,7 @@ test("read_agent on a review'd remote child adopts its branch and retires the ro
         deliveryBranch: branch, deliveryCommit: null, baseSha: null, stat: null,
       }),
       fetchBundle: async () => ({ empty: false, bytes: bundleBytes! }),
+      cancelRun: async (input: { runId: string }) => { archived.push(input.runId); },
     },
   } as unknown as Partial<AppContext>);
 
@@ -249,6 +251,8 @@ test("read_agent on a review'd remote child adopts its branch and retires the ro
 
     // Read from the object store, not a checkout: autocrlf on a Windows runner rewrites the file.
     expect(git(parentRepo, "show", `${branch}:b.txt`)).toBe("from the child");
+    // Home, so the node's card is archived and its worktree can go (16/11: 130 left on the PC).
+    expect(archived).toEqual(["run-settle-1"]);
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
   }
