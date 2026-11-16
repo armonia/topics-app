@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.4.26",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "font, icone, margini, icone dei progetti, morti fuori, voci agganciate, PC e Hetzner come il Mac (#1154)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la card dice da quale canale di Jarvis nasce il lavoro (#1060)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La issue della nightly diceva «elenco non disponibile» ogni notte: al job esito mancavano checkout e bun (#1155)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.25",
     "date": "2026-11-16",
     "sections": {

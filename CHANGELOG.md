@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.26 — 2026-11-16
+
+### Sotto il cofano
+- font, icone, margini, icone dei progetti, morti fuori, voci agganciate, PC e Hetzner come il Mac (#1154)
+- la card dice da quale canale di Jarvis nasce il lavoro (#1060)
+- La issue della nightly diceva «elenco non disponibile» ogni notte: al job esito mancavano checkout e bun (#1155)
+
 ## 2.4.25 — 2026-11-16
 
 ### Sotto il cofano
