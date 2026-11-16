@@ -788,6 +788,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       }
     }); });
     return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2); };
+    // keepClearRef is a ref returned by useCreatedFlash — stable object, intentionally omitted.
+    // setScrollTarget is the useState setter from useCreatedFlash — stable, intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget, tasks]);
   // Un bersaglio che non atterra (filtro attivo, creazione in un'altra board)
   // non resta armato per sempre: scorrere mezzo minuto dopo sarebbe uno
@@ -796,6 +799,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     if (!scrollTarget) return;
     const t = setTimeout(() => setScrollTarget(null), CREATED_FLASH_MS);
     return () => clearTimeout(t);
+    // setScrollTarget is the useState setter from useCreatedFlash — stable, intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTarget]);
 
   // Task lookup by id for the parent chip ("⤴ epic…"). Best effort: a parent
