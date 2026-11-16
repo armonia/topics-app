@@ -26,6 +26,7 @@ export interface RemoteRoad {
   readRun: (input: { baseUrl: string; token: string; runId: string }) => Promise<NodeRunReport>;
   createRun: (input: { baseUrl: string; token: string; body: CreateRunBody }) => Promise<{ runId: string }>;
   fetchBundle: (input: { baseUrl: string; token: string; runId: string }) => Promise<BundleResult>;
+  codingModels?: (input: { baseUrl: string; token: string }) => Promise<string[]>;
 }
 
 export interface SpawnRemoteChildAttemptInput {
@@ -103,7 +104,7 @@ export function createRemoteSubagentWiring(ctx: AppContext, road: () => RemoteRo
       macOnlyResource: macOnlyResourceOf(input.prompt, input.agentType),
       originUrl: originCheck.code === 0 && originCheck.stdout ? originCheck.stdout : null,
       nodes: childNodeCandidates(),
-      baseUrlOf: road().baseUrlOf, tokenOf: road().tokenOf, createRun: road().createRun,
+      baseUrlOf: road().baseUrlOf, tokenOf: road().tokenOf, createRun: road().createRun, nodeModels: road().codingModels,
     });
     if (!remote) return null;
     if (!remote.ok) return { ok: false, reason: remote.reason };

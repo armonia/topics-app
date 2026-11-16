@@ -328,6 +328,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     // stay on the paired-node client only, same door a card's `createRun` uses.
     createRun: (input: Parameters<typeof nodeClient.createRun>[0]) => nodeClient.createRun(input),
     fetchBundle: (input: Parameters<typeof nodeClient.fetchBundle>[0]) => nodeClient.fetchBundle(input),
+    codingModels: (input: Parameters<typeof nodeClient.codingModels>[0]) => nodeClient.codingModels(input),
     baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
     tokenOf: (machineId: string) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
       ? CLOUD_NODE_TOKEN
