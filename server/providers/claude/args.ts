@@ -293,7 +293,7 @@ export function delegationHookSettings(scriptPath: string): { hooks: HooksBlock 
 }
 
 /** Inline work plus the delegation tools, as one CLI matcher (a regex on the tool name). */
-export const DELEGATION_HOOK_MATCHER = "Bash|Read|Grep|Glob|Agent|Task|mcp__topics__run_command|mcp__topics__read_process_output|mcp__topics__spawn_agent";
+export const DELEGATION_HOOK_MATCHER = "Bash|Read|Grep|Glob|Agent|Task|mcp__topics__run_command|mcp__topics__read_process_output|mcp__topics__wait_for_process|mcp__topics__browser_eval|mcp__topics__spawn_agent";
 
 /** Quale dei due tagli applicare. Il perché sta accanto a `toolTrim`. */
 export type ToolTrim = "chat" | "dispatched";
