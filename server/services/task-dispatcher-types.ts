@@ -613,6 +613,13 @@ export interface TaskDispatcher {
   /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
   busyIds(): string[];
   /**
+   * Every overflow-reachable machine (cloud row and paired nodes), with the
+   * seats it is declared to have and how many it is carrying now: what a
+   * client needs to tell "the Mac is full" apart from "the Mac is full AND
+   * there is nowhere else to send a card" (`/api/system/dispatch-capacity`).
+   */
+  nodeStatus(): { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[];
+  /**
    * The sessions those runs are bound to (setup slots, still without one, are
    * left out). A card turn streams through /api/chat, so the restart gate
    * needs these keys to tell a card's own stream from a person's chat.

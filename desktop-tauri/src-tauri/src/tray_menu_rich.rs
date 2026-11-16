@@ -5,9 +5,9 @@
 
 use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, note, parse, s, sub, tick, Node, Prefs, Snapshot};
 use crate::tray_menu_projects::project_table;
-use crate::tray_menu_detail::{draw_machine_detail, has_graphics, machine_details};
+use crate::tray_menu_detail::machine_details;
 use crate::tray_menu_pic::Palette;
-use crate::tray_menu_procs::procs_table;
+use crate::tray_menu_procs::{procs_table, remote_procs_table};
 use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
 use serde_json::Value;
 
@@ -15,31 +15,26 @@ fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Optio
     Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
 }
 
-/// Every machine card, the same graphic for all of them. The submenu of a machine
-/// holds its lines; the local one also the processes that weigh and the finder.
+/// Every machine card, the same graphic for all of them, and the same submenu as the
+/// MacBook's: its state lines, the processes that weigh in the same table, the
+/// finder. This computer takes its own census (`/api/mac/procs`); the others the
+/// service's `procs`.
 fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
     machines
         .iter()
         .filter_map(|m| {
-            let mut kids: Vec<Node> = Vec::new();
-            // the graphs of the service's own reading: bars, 24 h charts, the state band
-            let detail = details.iter().find(|d| d.id == m.id && !m.id.is_empty()).filter(|d| has_graphics(d) && !m.local);
-            if let Some(d) = detail {
-                let pic = draw_machine_detail(d, p);
-                kids.extend(card(&format!("machine-detail:{}", m.id), pic, Vec::new()));
-            } else {
-                kids.extend(m.lines.iter().map(note));
-            }
-            if m.local {
-                if !kids.is_empty() {
-                    kids.push(Node::Sep);
-                }
-                kids.extend(procs_table(snap));
-            }
+            let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
+            let mut kids: Vec<Node> = m.lines.iter().map(note).collect();
             if !kids.is_empty() {
                 kids.push(Node::Sep);
             }
+            if m.local {
+                kids.extend(procs_table(snap));
+            } else {
+                kids.extend(remote_procs_table(found.map_or(&[][..], |d| &d.procs[..])));
+            }
+            kids.push(Node::Sep);
             kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
             card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
         })
@@ -63,7 +58,11 @@ fn limits_node(snap: &Snapshot) -> Node {
     let mut kids: Vec<Node> = Vec::new();
     for a in &accounts {
         let g = a.get("gauge").cloned().unwrap_or(Value::Null);
-        kids.push(note(format!("{} · {}", s(a, "label"), s(&g, "short"))));
+        let line = note(format!("{} · {}", s(a, "label"), s(&g, "short")));
+        kids.push(match s(a, "provider") {
+            p @ ("claude" | "codex" | "muse") => crate::tray_menu::with_icon(&format!("provider:{p}"), line),
+            _ => line,
+        });
         let sentence = Some(s(&g, "cardSay")).filter(|t| !t.is_empty()).unwrap_or(s(&g, "say"));
         if !sentence.is_empty() {
             kids.push(note(sentence));
@@ -112,7 +111,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
-    m.push(sub("Altri abbonamenti e opzioni", more));
+    m.push(crate::tray_menu::with_icon("sf:slider.horizontal.3", sub("Altri abbonamenti e opzioni", more)));
     m.extend(automation_nodes(&snap.automations, now, local_offset_secs()));
     if let Some(b) = snap.backup.as_deref().and_then(|b| backup_card(b, now)) {
         m.push(Node::Sep);
@@ -120,7 +119,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     }
     // this menu is only drawn while the service answers, so its dashboard is always one click away
     m.push(Node::Sep);
-    m.push(item("dashboard-open", "Apri dashboard"));
+    m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
     m
 }
 

@@ -249,8 +249,9 @@ describe("squash gia' su main, ramo vivo", () => {
       git(repo, "add", "a.txt");
       git(repo, "commit", "-q", "-m", "later edit of a");
       const res = await land(repo, branch).tryMerge("t-sq-2", "Card squashata");
-      // Content differs, so the shortcut must NOT fire: the land goes on and
-      // realigning the branch on main hits the add/add conflict on a.txt.
+      // a.txt is a file the branch ADDED, and main rewrote its only line: from the content
+      // alone that is a revert of the card's line as much as an edit of it. The safe reading
+      // goes on with the land (a conflict reaches a person); "nothing" could lose the work.
       expect(res.status).not.toBe("nothing");
       expect(res.status).toBe("conflict");
     } finally {

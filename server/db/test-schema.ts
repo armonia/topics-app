@@ -205,7 +205,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261114010000: who decided the work goes to main ('human' | 'auto'), kept across a bounce.
   land_intent TEXT CHECK (land_intent IN ('human', 'auto')),
   land_intent_at TEXT,
-  land_intent_commit TEXT
+  land_intent_commit TEXT,
+  -- 20261115220000: 1 while that run is still open on the node.
+  node_run_open INTEGER NOT NULL DEFAULT 0
 )`;
 
 /**

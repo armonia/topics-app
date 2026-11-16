@@ -652,6 +652,10 @@ export interface TaskService {
   nodeRunOf(taskId: string): string | null;
   /** Remember (or forget, with null) the card's run on a paired node. */
   setNodeRun(taskId: string, runId: string | null): void;
+  /** True while the card's run on a node is open (created and not yet landed or cancelled). */
+  nodeRunIsOpen(taskId: string): boolean;
+  /** The run came home (its delivery landed): the id stays for the next cancel, but nothing is running. */
+  closeNodeRun(taskId: string): void;
   /** Update just the dispatch state/error (queued|starting|working|needs_input). */
   setDispatchState(args: { taskId: string; state: string | null; error?: string | null }): Task;
   /**
