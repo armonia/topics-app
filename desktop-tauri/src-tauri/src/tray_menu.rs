@@ -48,17 +48,21 @@ pub enum Table {
     Week,
 }
 
-/// The widest a tab stop may go: past it the menu clips the text.
-pub const TAB_MAX: f64 = 470.0;
+/// The widest a tab stop may go: `menuTextMax` of the original tray (540 - 104). AppKit puts about 103 pt of
+/// image and margins around a row's text, and past this the menu grows wider than its cards; the original
+/// itself notes that beyond ~460 the menu clips (ClaudeUsage.swift, agents table).
+pub const TAB_MAX: f64 = 436.0;
 
 impl Table {
     pub fn tabs(self) -> &'static [f64] {
         match self {
             Table::Plain => &[],
             Table::Projects => &[238.0, 280.0, 322.0, 366.0, 436.0],
-            Table::Procs => &[275.0, 330.0, 405.0, 470.0],
-            Table::RemoteProcs => &[405.0, 470.0],
-            Table::Agents => &[145.0, 235.0, 315.0, 455.0],
+            // The original's [275, 330, 405, 470] ended 34 pt past the margin, where the menu clips; the same
+            // steps (55, 75, 65) are squeezed to 56, 62, 56 so the memory column ends on 436 like the projects'.
+            Table::Procs => &[262.0, 318.0, 380.0, 436.0],
+            Table::RemoteProcs => &[380.0, 436.0],
+            Table::Agents => &[145.0, 235.0, 315.0, 436.0],
             Table::AgentWork => &[300.0, 436.0],
             Table::Week => &[225.0, 315.0, 405.0],
         }

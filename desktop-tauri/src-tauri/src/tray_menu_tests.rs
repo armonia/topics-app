@@ -362,11 +362,12 @@ fn tray_force_close_has_its_own_row_and_kills_instead_of_asking() {
 fn tray_each_table_keeps_the_tab_stops_of_the_original_tray() {
     // the numbers of ClaudeUsage.swift: projCols (menuTextMax = 540 - 104 = 436), procs, agents, week, one agent's work
     assert_eq!(Table::Projects.tabs(), [238.0, 280.0, 322.0, 366.0, 436.0]);
-    assert_eq!(Table::Procs.tabs(), [275.0, 330.0, 405.0, 470.0]);
-    assert_eq!(Table::Agents.tabs(), [145.0, 235.0, 315.0, 455.0]);
+    // processes and agents: the original's stops with the last pulled in to the margin (it ended on 470 and 455)
+    assert_eq!(Table::Procs.tabs(), [262.0, 318.0, 380.0, 436.0]);
+    assert_eq!(Table::Agents.tabs(), [145.0, 235.0, 315.0, 436.0]);
     assert_eq!(Table::Week.tabs(), [225.0, 315.0, 405.0]);
     assert_eq!(Table::AgentWork.tabs(), [300.0, 436.0]);
-    // a remote machine's two columns sit on the memory and the CPU stops of the processes table
+    // a remote machine's two columns sit on the net and memory stops of the processes table
     assert_eq!(Table::RemoteProcs.tabs(), &Table::Procs.tabs()[2..]);
     assert!(Table::Plain.tabs().is_empty());
 }
