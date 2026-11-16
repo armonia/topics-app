@@ -86,6 +86,10 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // requeue: putting a task back in `todo` for the dispatcher to claim fresh
+  // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
+  // the project's own word for it, already used as a parameter name project-wide.
+  "requeue",
   // cancelled: the exact value of GitHub's run `conclusion` field, so it cannot be renamed to the American spelling (`server/services/ci-supersede.ts`).
   "cancelled",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).

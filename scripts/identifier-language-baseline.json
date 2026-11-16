@@ -1687,7 +1687,6 @@
     "client/src/state/chatQueue.ts": [
       "readback",
       "rec",
-      "requeueFront",
       "unshiftTurn"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
@@ -3538,6 +3537,10 @@
       "provB",
       "vero"
     ],
+    "server/providers/claude-code-session.ts": [
+      "certsDir",
+      "useTls"
+    ],
     "server/providers/claude-code-subagent-coalesce.test.ts": [
       "ppWithSidechain",
       "sidechain"
@@ -3554,9 +3557,7 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "certsDir",
-      "oneshotKey",
-      "useTls"
+      "oneshotKey"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -4771,6 +4772,9 @@
       "titolo",
       "titoloMigliore"
     ],
+    "server/services/tasks-service-types.ts": [
+      "Neighbour"
+    ],
     "server/services/tasks-test-db.test.ts": [
       "colpevoli",
       "fuori"
@@ -4814,7 +4818,6 @@
       "figlio",
       "landata",
       "nuovo",
-      "requeued",
       "riga",
       "riletta",
       "vivo"
@@ -5117,11 +5120,7 @@
     ],
     "shared/board.ts": [
       "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN",
-      "PARKED_REQUEUED_TAIL",
-      "PARKED_REQUEUE_NOTE_LIKE",
-      "REQUEUE_PARKED_LABEL",
-      "isRequeueParkedLabel"
+      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
@@ -5173,7 +5172,6 @@
       "isPreviewablePath"
     ],
     "shared/notify-actions.test.ts": [
-      "requeue",
       "roundTripped"
     ],
     "shared/os-open-path.test.ts": [

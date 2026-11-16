@@ -10,6 +10,8 @@
  *   crash-log    crash-class lines in the tail of the server error log are zero
  *   create-route the one-call "create chat with model, effort and prompt"
  *                route keeps its test green
+ *   mutation-main the last Mutation run on main is green: no critical module
+ *                fell under its mutation score (the "solido" index)
  *
  * A measure that cannot be read (gh offline, no run found) is RED, never
  * green: unmeasured is not passing. `QUALITY_BAR_OFFLINE=1` skips only the
@@ -70,6 +72,19 @@ export function judgeCreateRoute(exitCode: number): Verdict {
   return { id: "create-route", ok: exitCode === 0, detail: exitCode === 0 ? "test green" : `test exit ${exitCode}` };
 }
 
+/**
+ * The "solido" index: the last finished Mutation workflow run on main. Green means
+ * no critical module fell under its mutation score (check:mutation).
+ * No run yet is red: unmeasured is not passing.
+ */
+export function judgeMutationMain(runs: CiRun[] | null): Verdict {
+  const id = "mutation-main";
+  if (!runs) return { id, ok: false, detail: "Mutation runs not readable" };
+  const last = runs.find((r) => r.status === "completed");
+  if (!last) return { id, ok: false, detail: "no finished Mutation run on main" };
+  return { id, ok: last.conclusion === "success", detail: `last finished run ${last.databaseId}: ${last.conclusion}` };
+}
+
 function gh(args: string[]): unknown | null {
   const r = Bun.spawnSync(["gh", ...args]);
   if (r.exitCode !== 0) return null;
@@ -84,7 +99,7 @@ function readLog(): string | null {
 export function collect(): Verdict[] {
   const out: Verdict[] = [];
   if (process.env.QUALITY_BAR_OFFLINE === "1") {
-    console.log("quality-bar: QUALITY_BAR_OFFLINE=1, ci-main, e2e-main and bug-issues NOT measured");
+    console.log("quality-bar: QUALITY_BAR_OFFLINE=1, ci-main, e2e-main, bug-issues and mutation-main NOT measured");
   } else {
     const runs = gh(["run", "list", "--branch", "main", "--workflow", "CI", "--limit", "5", "--json", "conclusion,status,databaseId"]) as CiRun[] | null;
     out.push(judgeCiMain(runs));
@@ -93,6 +108,8 @@ export function collect(): Verdict[] {
     out.push(judgeE2eMain(view?.jobs ?? null));
     const issues = gh(["issue", "list", "--label", "bug", "--state", "open", "--limit", "200", "--json", "number"]) as unknown[] | null;
     out.push(judgeBugIssues(issues ? issues.length : null));
+    const mutationRuns = gh(["run", "list", "--branch", "main", "--workflow", "mutation.yml", "--limit", "5", "--json", "conclusion,status,databaseId"]) as CiRun[] | null;
+    out.push(judgeMutationMain(mutationRuns));
   }
   out.push(judgeCrashLog(readLog()));
   const t = Bun.spawnSync(["bun", "test", "server/routes/topics.create-one-call.test.ts"], { stdout: "ignore", stderr: "ignore" });
