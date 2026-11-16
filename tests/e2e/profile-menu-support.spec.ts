@@ -25,7 +25,8 @@ async function openProfileMenu(page: Page) {
 }
 
 test.describe("la voce di supporto nel menu utente", () => {
-  test("apre l'invito Discord configurato in una finestra esterna", async ({ page }) => {
+  test("apre l'invito Discord configurato in una finestra esterna", async ({ page }, testInfo) => {
+    testInfo.annotations.push({ type: "spec", description: "USERMENU-11" });
     await goToApp(page);
     const menu = await openProfileMenu(page);
 
