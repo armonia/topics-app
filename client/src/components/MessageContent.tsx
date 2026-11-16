@@ -1208,7 +1208,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // è la forma di gran lunga più comune — quei 6px sono vuoto
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
-                {thinking && <ReasoningRow content={thinking} partial={partial} messageId={messageId} />}
+                {/* Live only while nothing came after it: once prose or a tool shows
+                    up the thinking is over and the row folds. */}
+                {thinking && <ReasoningRow content={thinking} partial={partial && !cleanText && legacyTools.length === 0} messageId={messageId} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}
