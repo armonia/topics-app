@@ -5535,3 +5535,47 @@ A comment written through the API or the MCP SHALL NOT show the owner's name. Th
 #### Scenario: a reject without the interface header
 - **WHEN** a script posts a reject on the review route
 - **THEN** the stored author SHALL be `user` and the agent SHALL receive the rejection after a restart
+
+### Requirement: KANBAN-114 - Heavy commands wait in one machine-wide line
+
+Topics SHALL serve one line for heavy commands (tests, typechecks, builds, renders) that every harness on the machine can ask before running one. A request SHALL be admitted when a place is free and the machine has room, measured on available memory first and CPU second, never on how many agents exist; with nothing running the first request SHALL be admitted unless memory is critically low. A place held by a process SHALL live as long as that process does, and SHALL be freed when it dies. The client SHALL fail open: with Topics off, in error, or past the wait limit, the command runs.
+
+#### Scenario: a full line
+- **WHEN** every place is held and another command asks
+- **THEN** it SHALL wait, and SHALL be admitted as soon as a place frees
+
+#### Scenario: a holder dies
+- **WHEN** the process holding a place exits without releasing it
+- **THEN** the place SHALL be freed and the next in line admitted
+
+#### Scenario: Topics does not answer
+- **WHEN** the client cannot reach Topics
+- **THEN** the command SHALL run at once
+
+### Requirement: KANBAN-115 - A redelivery supersedes the card's previous pull request and its live runs
+
+When a card opens a pull request, the delivery flow SHALL close any other open pull request of the same card (found by the card tag in the title, never `main`) with a comment naming the new one, and SHALL cancel the live (queued or in progress) CI runs of that pull request. On a redelivery to the same branch it SHALL cancel the queued runs of older commits of that branch. Pull requests and runs of other cards and of `main` SHALL NOT be touched.
+
+#### Scenario: a redelivery on a new branch
+- **WHEN** a card with pull request A on branch X is redelivered on branch Y
+- **THEN** A SHALL be closed with a «superseded by» comment, its live runs cancelled, and the new pull request opened
+
+#### Scenario: other cards and main
+- **WHEN** another card has a live run, or `main` has one
+- **THEN** neither SHALL be cancelled
+
+### Requirement: KANBAN-116 - A permanent "this machine only" pin without a reason is swept, not left standing
+
+A card's `stayLocal` pin with no `stayLocalUntil` SHALL be decided at boot by a sweep that classifies the card's text and description: a card naming a mac-only surface (tray, hub, launchd, a local-only process) SHALL keep its pin, and any other card SHALL have the pin cleared with exactly one reason comment recorded on the card. A pin a person set through the API with its own typed reason SHALL NOT be touched by a later sweep pass, and a second sweep pass over an already-decided card SHALL write nothing.
+
+#### Scenario: a pure-code card with a permanent pin
+- **WHEN** the sweep runs over a card with `stayLocal=1`, no `stayLocalUntil`, and text/description naming nothing mac-only
+- **THEN** the pin SHALL be cleared and a reason comment SHALL be recorded on the card
+
+#### Scenario: a card naming a mac-only surface
+- **WHEN** the sweep runs over a card whose text or description names the tray, the hub, launchd or a local-only process
+- **THEN** the pin SHALL stay, and no comment SHALL be written
+
+#### Scenario: a repeated sweep
+- **WHEN** the sweep runs a second time over a card it already decided
+- **THEN** it SHALL write nothing further

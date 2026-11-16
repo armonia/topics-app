@@ -18,7 +18,7 @@ import { armTurnDeadline, type TurnDeadline } from "./turn-deadline";
 import type { StallVerdict } from "./stall-judge";
 
 /** Who held the watch, or the judge's "alive": the reason a rearm names in the log. */
-export type StallRearmReason = "human" | "checks" | "freeze" | "background" | "subagent" | "alive";
+export type StallRearmReason = "human" | "checks" | "freeze" | "background" | "subagent" | "tool" | "alive";
 
 export interface StallDetectorOptions {
   /** How long the session must stay silent before the judge is asked. */
@@ -61,6 +61,14 @@ export interface StallDetectorOptions {
    * Bounded by the hold's own deadline (`lib/subagent-runtime.ts`).
    */
   isWaitingForSubagent?: () => boolean;
+  /**
+   * A tool call of the native turn is still running and younger than its cap
+   * (a long Bash: cargo test, a mutation run). The judge reads only the
+   * transcript tail, which is silent for the whole command, and a series of
+   * similar commands reads as "the same one repeated": it answered stuck and
+   * the recycle killed the work (13/11, two sub-agents).
+   */
+  isToolRunning?: () => boolean;
   /** The tail of the transcript to hand the judge. `null` = nothing readable
    *  right now — treated as "alive": never recycle on ignorance. */
   getTail: () => string | null;
@@ -93,7 +101,8 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
       ms: opts.idleMs,
       isWaitingForHuman: () =>
         opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false) || (opts.isFrozen?.() ?? false)
-        || (opts.isWaitingForBackground?.() ?? false) || (opts.isWaitingForSubagent?.() ?? false),
+        || (opts.isWaitingForBackground?.() ?? false) || (opts.isWaitingForSubagent?.() ?? false)
+        || (opts.isToolRunning?.() ?? false),
       now: opts.now,
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
@@ -101,7 +110,8 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
       onRearm: () => opts.onRearm?.(
         opts.isWaitingForHuman() ? "human" : opts.isFrozen?.() ? "freeze"
           : opts.isWaitingForBackground?.() ? "background"
-            : opts.isWaitingForSubagent?.() ? "subagent" : "checks",
+            : opts.isWaitingForSubagent?.() ? "subagent"
+              : opts.isToolRunning?.() ? "tool" : "checks",
       ),
       onExpired: () => {
         // Fire-and-continue: the inner timer has already stopped ticking (it

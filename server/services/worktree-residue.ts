@@ -33,7 +33,7 @@
  */
 import type { GitRunResult } from "./task-automerge";
 import { worktreeRegistrationLost } from "./worktree-registration";
-import { runGitWithIdentity } from "../lib/git-run-identity";
+import { runGit } from "../lib/run-git";
 import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 
 import { isConflicted } from "../../shared/git-conflict";
@@ -89,7 +89,7 @@ function hasConflict(porcelain: string): boolean {
 
 export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   // This function creates a commit: same identity and exit codes as the land.
-  return runGitWithIdentity(cwd, args, SPAWN_TIMEOUT.long);
+  return runGit(cwd, args, { identity: true, timeoutMs: SPAWN_TIMEOUT.long });
 }
 
 /**

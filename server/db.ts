@@ -332,7 +332,9 @@ function runMigrations(db: Database, baseDir: string): void {
         }
         console.log(`[DB] Backfilled schema_migrations for ${applied.size} previously-applied migration(s)`);
       }
-    } catch {}
+    } catch (e) {
+      console.error("[DB] schema_migrations backfill failed, old migrations may be applied again:", e);
+    }
   }
 
   // Un CONTATORE condiviso non è più un guasto silenzioso, ma resta un segnale

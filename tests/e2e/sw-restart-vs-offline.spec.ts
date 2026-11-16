@@ -7,6 +7,10 @@ import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: riparte dalla baseline del globalSetup. Vedi fixtures/hermetic.ts.
 hermetic(test);
+// This spec is ABOUT the service worker, so it opts out of the bench default
+// (`serviceWorkers: "block"` in playwright.config.ts, which keeps a worker from
+// swallowing the `page.route` stubs of every other spec).
+test.use({ serviceWorkers: "allow" });
 
 /**
  * Service worker — un riavvio del server NON deve servire la shell VECCHIA dalla

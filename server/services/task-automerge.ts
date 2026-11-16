@@ -36,10 +36,10 @@ import { worktreeRegistrationLost } from "./worktree-registration";
 import { findAttributionViolations } from "./land-attribution-gate";
 import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
-import { branchContentIsOnMain, commitStatusFromRepo } from "./branch-status";
+import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
 import { fetchRemoteBase } from "./worktree-base-ref";
-import { runGitWithIdentity } from "../lib/git-run-identity";
+import { runGit } from "../lib/run-git";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -391,7 +391,7 @@ export interface BuildOutcome extends GitRunResult {
 
 export async function defaultRunGit(cwd: string, args: string[]): Promise<GitRunResult> {
   // The land CREATES commits, so the signing identity matters (`git-identity.ts`).
-  return runGitWithIdentity(cwd, args, args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long);
+  return runGit(cwd, args, { identity: true, timeoutMs: args[0] === "fetch" ? SPAWN_TIMEOUT.query : SPAWN_TIMEOUT.long });
 }
 
 /** La firma del «manca un pezzo sotto» nell'output di git. */
@@ -1242,6 +1242,14 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // nothing to land; stop before touching the (possibly dirty) checkout.
         if (await branchContentIsOnMain(repoPath, branch, defaultBranch, runGit)) {
           console.log(`[task-automerge] ${branch}: content already on ${defaultBranch} (squash-merged), nothing to land`);
+          return { status: "nothing", branch, deliveryDrift: drift };
+        }
+        // The same squash, after which main kept editing those files: the tip no longer
+        // matches, but a commit of main did. Without this the realign below conflicts and
+        // pulls a done card back to In Progress (card 360127d1, PR #1106). Asked of `base`,
+        // the main the realign merges: the squash lands on origin first.
+        if (await branchContentWasOnMain(repoPath, branch, base, runGit)) {
+          console.log(`[task-automerge] ${branch}: content already in ${base} history (squash-merged), nothing to land`);
           return { status: "nothing", branch, deliveryDrift: drift };
         }
 

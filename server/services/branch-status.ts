@@ -21,6 +21,8 @@
 
 import { commitIsIn, listOwnCommits, type GitRunner } from "./own-commits";
 import { SPAWN_TIMEOUT, runBounded } from "../lib/bounded-spawn";
+import { changeUndoneOn, someHunkUndoneOn } from "./change-undone";
+import { runGit } from "../lib/run-git";
 
 /** Generated, build-output, lockfile and lockstep-version paths — never unique work. */
 const NOISE_RE =
@@ -49,14 +51,27 @@ export async function gitExit(cwd: string, args: string[], run?: GitRunner): Pro
   if (run) {
     try { return (await run(cwd, args)).code; } catch { return 1; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query })).exitCode ?? 1;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).code;
+}
+
+/** The published main, when the repo has an origin that has one. */
+export const ORIGIN_MAIN = "refs/remotes/origin/main";
+
+/**
+ * The main a landing verdict is asked of. "Landed" means on origin/main: a
+ * merge that only sits on this disk's main (card 48588f6e, 2026-11-12) is not
+ * published, and the next land would publish it with nobody looking. A repo
+ * with no origin main has no published one, and its local main is the product.
+ */
+export async function publishedMainRef(repoPath: string, run?: GitRunner): Promise<string> {
+  return (await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${ORIGIN_MAIN}^{commit}`], run)) === 0 ? ORIGIN_MAIN : "main";
 }
 
 export async function gitOut(cwd: string, args: string[], run?: GitRunner): Promise<string> {
   if (run) {
     try { const r = await run(cwd, args); return r.code === 0 ? r.stdout : ""; } catch { return ""; }
   }
-  return (await runBounded(["git", "-C", cwd, ...args], { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
+  return (await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.query })).stdout;
 }
 
 /**
@@ -81,6 +96,9 @@ export async function commitIsAncestor(
   commit: string,
   mainRef = "main",
 ): Promise<boolean | null> {
+  // Stays on `runBounded` on purpose: `runGit` folds a failed spawn into exit 1,
+  // which here would read as a verified "not an ancestor". This one needs
+  // the spawn failure to stay `null` ("cannot tell").
   const { exitCode } = await runBounded(["git", "-C", repoPath, "merge-base", "--is-ancestor", commit, mainRef], {
     stdout: "ignore", timeoutMs: SPAWN_TIMEOUT.query,
   });
@@ -108,8 +126,11 @@ export type BranchStatus = "gone" | "merged" | "unmerged";
  * sense, and because that union is cross-assigned to the worktree sweep's own
  * three-value type: widening it there would have made every caller of a
  * different question absorb an answer it cannot get.
+ *
+ * `reverted`: the commit reached main (ancestry or the land's copy) and its
+ * change was undone afterwards. Not "merged": the work is not in the product.
  */
-export type CommitStatus = BranchStatus | "empty";
+export type CommitStatus = BranchStatus | "empty" | "reverted";
 
 export async function branchStatusFromRepo(
   repoPath: string,
@@ -158,11 +179,31 @@ export async function commitStatusFromRepo(
   if (!commit) return "gone";
   if ((await gitExit(repoPath, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], runGit)) !== 0) return "gone";
 
+  // WHAT THE COMMIT ITSELF BRINGS. For a plain commit, its diff from its
+  // parent. For a MERGE, the diff from the side it merged in (`^2`): a
+  // "Merge main" on a card branch has main as second parent, and its diff from
+  // the first parent is main's own files, which are on main by definition. Read
+  // that way, the delivery of card 48588f6e (`5e3bdd62`, a "Merge main") said
+  // `merged` over a branch that never landed. From `^2` it says what the branch
+  // adds over the main it merged, which is the card's work.
+  const parents = (await gitOut(repoPath, ["rev-list", "--parents", "-n", "1", commit], runGit)).trim().split(/\s+/).slice(1);
+  const base = parents.length > 1 ? `${commit}^2` : parents.length === 1 ? `${commit}^` : null;
+  // Ancestry and the twin copy prove the change REACHED main, not that it is
+  // still there: a revert leaves both standing (`change-undone.ts`).
+  const undone = async () => base !== null && (await changeUndoneOn(repoPath, base, commit, mainRef, runGit)) === true;
+
   // (1) Discendenza. La domanda sta in `commitIsIn` perché non è solo di qui: il
   // cancello del land la fa per decidere se c'è qualcosa da pubblicare, questo
   // per decidere se c'è qualcosa da rifare. Due copie che divergono vogliono dire
   // ridispacciare ciò che il land ha appena chiuso.
-  if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return "merged";
+  if ((await commitIsIn(repoPath, commit, mainRef, { runGit })) === true) return (await undone()) ? "reverted" : "merged";
+
+  // A MERGE commit cannot speak for the branch under it. The realign step puts
+  // "bring origin/main into the branch" on the tip: its diff against the first
+  // parent is main's own commits, identical on main by construction, so check
+  // (3) would acquit a branch whose work is still outside (task 7dd1601a). Same
+  // answer as an empty commit: the audit then asks the branch.
+  if ((await gitOut(repoPath, ["rev-list", "--parents", "-n", "1", commit], runGit)).trim().split(/\s+/).length > 2) return "empty";
 
   // (2) La copia ricopiata dal land. `-F` perché l'oggetto di un commit è prosa
   // e contiene parentesi, backtick e accenti: come regex sarebbe un'altra
@@ -174,12 +215,12 @@ export async function commitStatusFromRepo(
   if (at && subject) {
     const twins = (await gitOut(repoPath, ["log", mainRef, "-F", `--grep=${subject}`, "--format=%at%x09%s"], runGit))
       .split("\n").map((l) => l.trim());
-    if (twins.includes(`${at}\t${subject}`)) return "merged";
+    if (twins.includes(`${at}\t${subject}`)) return (await undone()) ? "reverted" : "merged";
   }
 
   // (3) Il contenuto del SUO cambiamento, non di tutto il ramo. Su un commit
   // radice `^` non esiste: `show` lo elenca comunque.
-  const ownDiff = await gitOut(repoPath, ["diff", "--name-only", `${commit}^`, commit], runGit);
+  const ownDiff = base ? await gitOut(repoPath, ["diff", "--name-only", base, commit], runGit) : "";
   const changed = filterUniqueSourceFiles(
     (ownDiff.trim() ? ownDiff : await gitOut(repoPath, ["show", "--format=", "--name-only", commit], runGit)).split("\n"),
   );
@@ -282,6 +323,56 @@ export async function branchContentIsOnMain(
   // macOS defaults to core.precomposeunicode=true, which rewrites argv pathspecs to NFC: a path stored
   // in NFD (committed from Linux or the web) would then match nothing and `--quiet` would exit 0.
   return (await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, mainRef, "--", ...literal], runGit)) === 0;
+}
+
+/** How many commits of `mainRef` `branchContentWasOnMain` inspects at most: a bound, not a guess. */
+const WAS_ON_MAIN_CANDIDATES = 200;
+
+/**
+ * The squash check of `branchContentIsOnMain`, asked of main's HISTORY instead of its tip.
+ *
+ * A pull request squash-merged on GitHub, after which main kept editing the same files: the
+ * tip no longer matches the branch, so the tip check says "not on main", the land tries to
+ * bring main into the branch, conflicts, and pulls a card that was already done back to In
+ * Progress (card 360127d1, 2026-11-15, PR #1106).
+ *
+ * The proof: a commit C of `mainRef` that descends from the merge-base and at which every
+ * file the branch changed is identical to the branch. Merging the branch into C then gives C
+ * back (those files are equal on both sides, every other file is the base on the branch
+ * side), so the branch holds nothing C lacks, and C is inside main. The same strictness as
+ * the tip check: literal paths, no renames, no noise filter, and an empty list proves
+ * nothing.
+ */
+export async function branchContentWasOnMain(
+  repoPath: string,
+  branch: string,
+  mainRef = "main",
+  runGit?: GitRunner,
+): Promise<boolean> {
+  const base = (await gitOut(repoPath, ["merge-base", mainRef, branch], runGit)).trim();
+  if (!base) return false;
+  const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", base, branch], runGit))
+    .split("\0")
+    .filter((p) => p.length > 0);
+  if (changed.length === 0) return false;
+  const literal = changed.map((p) => `:(literal)${p}`);
+  // Only main's own line after the fork, and only commits that touched those files: the
+  // content can only have become equal at one of them.
+  const candidates = (await gitOut(repoPath, [
+    "-c", "core.precomposeunicode=false",
+    "rev-list", "--first-parent", `-n${WAS_ON_MAIN_CANDIDATES}`, `${base}..${mainRef}`, "--", ...literal,
+  ], runGit)).split("\n").map((s) => s.trim()).filter(Boolean);
+  for (const sha of candidates) {
+    if ((await gitExit(repoPath, ["merge-base", "--is-ancestor", base, sha], runGit)) !== 0) continue;
+    const same = await gitExit(repoPath, ["-c", "core.precomposeunicode=false", "diff", "--quiet", branch, sha, "--", ...literal], runGit);
+    if (same !== 0) continue;
+    // C held the work, but main may have taken some of it back since (a `git revert C`, or one
+    // edit of two removed from a file): then landing again is real work, and "nothing" would
+    // close the card without it. Asked hunk by hunk, so an edit undone inside a busy file counts;
+    // "cannot tell" is not a yes.
+    return (await someHunkUndoneOn(repoPath, base, branch, mainRef, literal, runGit)) === false;
+  }
+  return false;
 }
 
 /** Quanto ha prodotto un worktree rispetto al punto in cui ha forkato. */

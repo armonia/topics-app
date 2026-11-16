@@ -95,6 +95,9 @@ describe("runReviewChecks, a second queue after a freeze", () => {
       expect(Date.now() - started).toBeLessThan(15_000);
       expect(runs[0].ok).toBe(false);
       // The orphan is dead, not merely let go of (a zombie until reaped: dead).
+      // Poll briefly: the kernel may need a moment to deliver the kill on a loaded runner.
+      const settleBy = Date.now() + 5_000;
+      while (!(psStates([group]).get(group) ?? "Z").startsWith("Z") && Date.now() < settleBy) await new Promise((r) => setTimeout(r, 100));
       expect(psStates([group]).get(group) ?? "Z").toStartWith("Z");
     } finally {
       if (group > 1) try { process.kill(-group, "SIGKILL"); } catch { /* gone */ }

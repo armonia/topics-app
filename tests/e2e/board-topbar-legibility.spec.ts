@@ -59,31 +59,58 @@ import { removeTmpDir } from "./helpers/file-project";
 import {
   SHOTS, STAMP, ROOT, PROJECTS, dirOf, unlandedTitles,
   apiCreateTask, stubProbes, openProjectBoard, openGlobalBoard,
-  inlineChips, toolbarGeometry, audit,
+  inlineChips, toolbarGeometry, audit, stripWatch, watchStripResizes,
 } from "./helpers/board-topbar";
 
 hermetic(test);
 
 /**
- * The bar has stopped redistributing when two consecutive reads of the chip
- * count agree.
+ * The bar has stopped redistributing when the resize cycle for the CURRENT
+ * width has been delivered and the chip count has stopped moving.
  *
- * A ResizeObserver decides that count, so the honest wait is its OUTPUT going
- * quiet — not a stopwatch. This used to be spelled out inline with a fixed
- * 120 ms nap inside the poll, and guessed at with a flat 400 ms before the
- * layout audit; both are the same condition, so it lives in one place now.
+ * It used to be the second half alone: two consecutive reads of the count that
+ * agree. That is not the condition, because it is also satisfied by the count
+ * of the PREVIOUS viewport, which under load is where the poll's first two
+ * reads land - the observer's callback had not run yet. Measured on this
+ * machine, 4 failures out of 8 repetitions with CPU burners: at 1000px three
+ * chips from the 1440 layout were still visible and stuck 77, 165 and 255px out
+ * of the narrowed strip, after `chipsSettled` had declared the row settled.
+ *
+ * The order of the two reads is what makes them agree: the cycle is read FIRST
+ * and the count after it, so a recompute landing between them can only make the
+ * count fresher. The other way round the count would be the stale one.
+ *
+ * The frame barrier inside `stripWatch` is the other half of the same cure, and
+ * it is not a nap: the observers' broadcast happens INSIDE the frame, so a read
+ * that waits for two of them has crossed a whole cycle by construction.
+ * Measured, 20 repetitions under load each time: the two halves together 20/20
+ * green, the barrier alone 20/20 green, and neither of them (the previous wait,
+ * two agreeing counts read on the spot) 6 failures out of 20.
  *
  * @covers KANBAN-12
  */
 async function chipsSettled(page: import("@playwright/test").Page): Promise<number> {
   let previous = -1;
+  let previousGeneration = -1;
   let settled = -1;
   await expect
     .poll(
       async () => {
+        const watch = await stripWatch(page);
         const now = await inlineChips(page);
-        const quiet = now === previous;
+        // THE STRIP IS GONE: at the narrow widths of the PROJECT board the
+        // picker does not render at all (measured: at 1000px the node is no
+        // longer in the page). There is no row to redistribute and no chip to
+        // count, so that is an answer and not something to wait for.
+        const recomputed = !watch.present
+          || (!watch.stale
+            && watch.measuredFor === watch.current
+            // The same strip node as the previous read too: a remount in
+            // between would make two counts coming from two different bars agree.
+            && watch.generation === previousGeneration);
+        const quiet = recomputed && now === previous;
         previous = now;
+        previousGeneration = watch.generation;
         if (quiet) settled = now;
         return quiet;
       },
@@ -147,6 +174,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await openGlobalBoard(page);
+    // Before the first resize: see `watchStripResizes`.
+    await watchStripResizes(page);
 
     const conteggi: Record<string, number> = {};
     // The geometry travels in the messages: a "0 chips" without the width of
@@ -586,6 +615,8 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     await openProjectBoard(page);
+    // Before the first resize: see `watchStripResizes`.
+    await watchStripResizes(page);
 
     for (const [etichetta, width] of [["larga", 1440], ["media", 1000], ["stretta", 390]] as const) {
       await page.setViewportSize({ width, height: 900 });

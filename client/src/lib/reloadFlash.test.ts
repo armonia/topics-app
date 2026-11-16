@@ -19,7 +19,6 @@ import { findReloadSites, countByOwner, codeOnlyLines } from "./reloadSites";
  */
 
 const RUST_SRC = new URL("../../../desktop-tauri/src-tauri/src/", import.meta.url).pathname;
-const LIB_RS = `${RUST_SRC}lib.rs`;
 
 /** Tutto il sorgente del guscio, non solo `lib.rs`: un reload scritto in un file
  *  nuovo non deve poter nascere fuori dal campo visivo della guardia. */
@@ -27,6 +26,9 @@ const RUST_SOURCES = readdirSync(RUST_SRC)
   .filter((f) => f.endsWith(".rs"))
   .sort()
   .map((file) => ({ file, source: readFileSync(RUST_SRC + file, "utf8") }));
+
+/** lib.rs was split by seam: guards that grep the shell read every module. */
+const SHELL_SOURCE = RUST_SOURCES.map((s) => s.source).join("\n");
 
 type Kind = "silent" | "announced" | "self-limiting";
 
@@ -80,7 +82,7 @@ describe("reloadFlash", () => {
   });
 
   test("la chiave è la stessa che scrive il guscio nativo (lib.rs)", () => {
-    const rs = readFileSync(LIB_RS, "utf8");
+    const rs = SHELL_SOURCE;
     const decl = rs.match(/const RELOAD_WITH_FLASH_JS: &str =\s*"([^"]+)"/);
     expect(decl).not.toBeNull();
     const js = decl![1];
@@ -90,7 +92,7 @@ describe("reloadFlash", () => {
   });
 
   test("i tre reload CHIESTI dall'utente passano dalla STESSA funzione", () => {
-    const rs = readFileSync(LIB_RS, "utf8");
+    const rs = SHELL_SOURCE;
     // ⌘R intercettato dal monitor NSEvent, la voce Reload/Force Reload del menu,
     // e il comando app_reload_all sono TRE PORTE SULLO STESSO GESTO: «riparti».
     // Devono avere una semantica sola — ricaricare tutte le finestre UI — e il
@@ -131,7 +133,7 @@ describe("reloadFlash", () => {
     // `webview_windows()` per spiegare perché non si usa, e una guardia che
     // legge anche i commenti si fa smentire dalla propria spiegazione. È lo
     // stesso motivo per cui il censimento dei reload passa di lì.
-    const rs = codeOnlyLines(readFileSync(LIB_RS, "utf8")).join("\n");
+    const rs = codeOnlyLines(SHELL_SOURCE).join("\n");
     const corpo = rs.slice(rs.indexOf("fn reload_all_ui_windows("));
     const ciclo = corpo.slice(0, corpo.indexOf("\n}\n"));
     expect(ciclo).toContain("app.webviews()");
@@ -195,9 +197,8 @@ describe("reloadFlash", () => {
     // Il conteggio dei siti non basta: la costante è dichiarata una volta ma
     // può essere sparata da dieci punti diversi, e sarebbero dieci reload muti
     // con un solo `location.reload()` scritto. Si contano gli USI.
-    const lib = RUST_SOURCES.find((s) => s.file === "lib.rs")!;
-    const uses = codeOnlyLines(lib.source)
-      .filter((l) => !/^\s*(?:pub\s+)?const\s+COLD_START_RELOAD_JS\b/.test(l))
+    const uses = codeOnlyLines(SHELL_SOURCE)
+      .filter((l) => !/^\s*(?:pub(?:\([^)]*\))?\s+)?const\s+COLD_START_RELOAD_JS\b/.test(l))
       .join("\n")
       .match(/\bCOLD_START_RELOAD_JS\b/g) ?? [];
     expect(uses.length).toBe(1);

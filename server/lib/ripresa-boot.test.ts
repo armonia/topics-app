@@ -584,6 +584,20 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "error")).toBe(false);
   });
 
+  // topic 085fc6ec, 13/11: a CLI turn adopted after a restart, parked on a
+  // question, held the ledger open and was absent from `activeStreams`. The
+  // sweep resent into it four times, every 409 spent an attempt, and the cap
+  // notice became the chat's last word, hiding the question.
+  test("a turn the ledger holds open, with no stream in the map, is not resent and gets no cap notice", async () => {
+    const db = freshDb();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const calls: Array<Record<string, unknown>> = [];
+    const ctx = { ...ctxOf(db), bootedAtMs: Date.now(), isStreaming: () => false, turnOpen: () => true };
+    for (let sweep = 0; sweep < 6; sweep++) await quietly(() => riprendiTurniInterrotti(ctx, chatRoute(db, calls)));
+    expect(calls).toHaveLength(0);
+    expect(lastRow(db).role).toBe("user");
+  });
+
   test("l'ultima riga è dell'utente ma un turno è in volo, o è fresca: non si tocca", async () => {
     const live = freshDb();
     live.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);

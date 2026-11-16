@@ -46,6 +46,14 @@ export const GLOBAL_WORKFLOW_SCOPE = '*';
 export const STAGE_TRIAGE = 'triage';
 export const STAGE_AI_REVIEW = 'ai_review';
 export const STAGE_HUMAN_REVIEW = 'human_review';
+/**
+ * The CI phase: the work was accepted (a person's Approva/Landa or the
+ * automatic land) and waits for the integration queue to measure it together
+ * with main and land it. Nobody has to look at it, so it is out of the
+ * waiting-on-you count; it exists on every workflow, `default` included.
+ */
+export const STAGE_CI = 'ci';
+const CI_COLUMN: WorkflowColumn = { id: STAGE_CI, label: 'CI', base: 'review', explicitOnly: true };
 
 /**
  * The one copy of the status words, shared by the client (`STATUS_LABEL` in
@@ -63,7 +71,7 @@ export const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
 const plain = (s: TaskStatus): WorkflowColumn => ({ id: s, label: STATUS_COLUMN_LABEL[s], base: s });
 
 export const WORKFLOW_PRESETS: Record<WorkflowPresetId, readonly WorkflowColumn[]> = {
-  default: TASK_STATUSES.map(plain),
+  default: [...TASK_STATUSES.filter((s) => s !== 'done').map(plain), CI_COLUMN, plain('done')],
   // Triage takes the backlog: a card opened by a person or from a chat lands
   // there and is triaged (title, priority, dependency, missing information)
   // before it reaches Todo. AI review sits on `review` but only holds the cards
@@ -75,6 +83,7 @@ export const WORKFLOW_PRESETS: Record<WorkflowPresetId, readonly WorkflowColumn[
     plain('in_progress'),
     { id: STAGE_AI_REVIEW, label: 'AI review', base: 'review', explicitOnly: true },
     { id: STAGE_HUMAN_REVIEW, label: 'Human review', base: 'review' },
+    CI_COLUMN,
     plain('done'),
   ],
 };
@@ -95,6 +104,69 @@ export function resolveWorkflow(rows: { project?: string | null; global?: string
   if (isWorkflowPresetId(rows.project)) return { preset: rows.project, source: 'project', columns: WORKFLOW_PRESETS[rows.project] };
   if (isWorkflowPresetId(rows.global)) return { preset: rows.global, source: 'global', columns: WORKFLOW_PRESETS[rows.global] };
   return { preset: 'default', source: 'default', columns: WORKFLOW_PRESETS.default };
+}
+
+/**
+ * A path a person must look at before a card touching it lands: a glob on the
+ * repository path (`client/src/**`, `server/services/{a,b}.ts`) and why, in a
+ * few words. The generic list (dependencies, CI, public text, security...)
+ * lives in the code (`server/services/auto-land.ts`); a board adds what is
+ * specific to its repository. A test file never needs a person, wherever it is.
+ */
+export interface PersonPath { pattern: string; why: string }
+
+/** The rules of a workflow beside its columns. */
+export interface WorkflowRules {
+  /**
+   * Accepted work is measured together with main in the CI column before it
+   * lands. Takes effect only on a board with CI rows and auto-merge on.
+   */
+  ciPhase: boolean;
+  /** This board's paths on top of the generic list: the global row's first, then the project's. */
+  personPaths: PersonPath[];
+}
+
+/** One scope's row: `null`/absent = inherit (the global row, then the default). */
+export interface WorkflowRulesRow { ciPhase?: boolean | null; personPaths?: PersonPath[] | null }
+
+export const MAX_PERSON_PATHS = 200;
+
+/** The project's CI switch wins over the global one (on by default); the paths add up. */
+export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
+  const ciPhase = rows.project?.ciPhase ?? rows.global?.ciPhase ?? true;
+  return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])] };
+}
+
+/** A stored or sent list, checked; `null` when it is not a valid one. */
+export function parsePersonPaths(v: unknown): PersonPath[] | null {
+  if (!Array.isArray(v) || v.length > MAX_PERSON_PATHS) return null;
+  const out: PersonPath[] = [];
+  for (const x of v) {
+    const pattern = typeof x?.pattern === 'string' ? x.pattern.trim() : '';
+    const why = typeof x?.why === 'string' ? x.why.trim() : '';
+    if (!pattern || pattern.length > 300 || why.length > 80) return null;
+    out.push({ pattern, why: why || 'this board' });
+  }
+  return out;
+}
+
+/** The settings panel writes one path per line, `pattern # why`. */
+export function personPathsToText(paths: readonly PersonPath[]): string {
+  return paths.map((p) => `${p.pattern} # ${p.why}`).join('\n');
+}
+
+/** Back from the panel: blank lines and lines starting with `#` are skipped. */
+export function personPathsFromText(text: string): PersonPath[] {
+  const out: PersonPath[] = [];
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const cut = line.indexOf(' #');
+    const pattern = (cut < 0 ? line : line.slice(0, cut)).trim();
+    const why = cut < 0 ? '' : line.slice(cut + 2).trim();
+    if (pattern) out.push({ pattern, why: why || 'this board' });
+  }
+  return out;
 }
 
 export function workflowHasStage(columns: readonly WorkflowColumn[], stage: string): boolean {
@@ -129,7 +201,7 @@ export function columnOfTask(
  * that stage, so the count is the one of before.
  */
 export function awaitsHuman(task: { status: string; stage?: string | null }): boolean {
-  return task.status === 'review' && task.stage !== STAGE_AI_REVIEW;
+  return task.status === 'review' && task.stage !== STAGE_AI_REVIEW && task.stage !== STAGE_CI;
 }
 
 /**
@@ -141,7 +213,7 @@ export function awaitsHuman(task: { status: string; stage?: string | null }): bo
 export function awaitsHumanSql(hasStage: boolean, alias = ''): string {
   const c = alias ? `${alias}.` : '';
   return hasStage
-    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage != '${STAGE_AI_REVIEW}'))`
+    ? `(${c}status = 'review' AND (${c}stage IS NULL OR ${c}stage NOT IN ('${STAGE_AI_REVIEW}', '${STAGE_CI}')))`
     : `${c}status = 'review'`;
 }
 

@@ -12,8 +12,9 @@
  *
  * WHAT MOVES: a card that would run here (no machine, or this machine's own
  * row - the board default meaning "here", chosen by hand or not: the row does
- * not say which) and has been held by the memory floor
- * for more than `OVERFLOW_AFTER_MS`, in consecutive rounds. WHAT STAYS: a card or
+ * not say which), as soon as a free seat exists on a node or on the cloud,
+ * whatever this Mac's memory floor is doing: a seat elsewhere beats a wait
+ * here, and the card never answers to the floor over there. WHAT STAYS: a card or
  * a board explicitly marked "this Mac only" (`stayLocal` / `dispatchStayLocal`) -
  * local processes, Jarvis, sessions, macOS. A mark and not a guess on the
  * text: a heuristic that sends a macOS card to the cloud fails over there,
@@ -38,9 +39,6 @@
  * the remote run starts FROM that branch, pushed to origin first. A branch that
  * cannot reach origin keeps the card here (`overflowBranchReady`).
  */
-
-/** How long a card waits behind the memory floor before it moves (the floor's own window). */
-export const OVERFLOW_AFTER_MS = 2 * 60_000;
 
 /**
  * How many overflowed or hand-sent cards a machine runs at once before the
@@ -136,6 +134,34 @@ export function pickOverflowMachine(
     ?? null;
 }
 
+/**
+ * A machine no card may be pinned to right now: it declares zero slots (drained),
+ * or a paired node is offline and nothing can switch it on (only a node with a `node-run`
+ * hook and no recent failed wake can be woken). Decided from the machine row
+ * alone: no machine name or id is known here.
+ */
+export function machineForbidden(m: OverflowMachine, wakeBlocked?: (machineId: string) => boolean): boolean {
+  if (m.slots === 0) return true;
+  // The cloud row has no heartbeat and nothing to wake: its "online" only says
+  // whether the overflow may CHOOSE it, so it never forbids a card already pinned there.
+  if (m.kind === "cloud" || m.online) return false;
+  return !(m.wakeable && !wakeBlocked?.(m.id));
+}
+
+/**
+ * Where a card pinned to a forbidden machine goes: the best allowed machine
+ * with free room (the same order as the overflow), or `null` meaning "this
+ * machine" when none can take it.
+ */
+export function pickReassignTarget(
+  machines: readonly OverflowMachine[],
+  pinnedId: string,
+  opts: OverflowChoice,
+): OverflowMachine | null {
+  const allowed = machines.filter((m) => m.id !== pinnedId && !machineForbidden(m, opts.wakeBlocked));
+  return pickOverflowMachine(allowed, opts);
+}
+
 /** The idempotency key of a node's MIRROR card (`routes/nodes.ts`): it already runs where its origin sent it. */
 const MIRROR_KEY_PREFIX = "node-run:";
 
@@ -188,11 +214,21 @@ export function overflowEligible(
   return task.machineId == null || (localMachineId != null && task.machineId === localMachineId);
 }
 
-/** The one line on the card and in the thread: where it went and why. */
-export function overflowNote(machineName: string): string {
-  return `Spostata su ${machineName}: Mac pieno. La memoria di questa macchina è rimasta sotto il pavimento per più di 2 minuti, ` +
-    `e lì il pavimento non vale. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
+/**
+ * The one line on the card and in the thread: where it went and why. The card
+ * moves because a MACHINE had a free seat, not because the Mac's floor held
+ * it, so the line says nothing about a full Mac: this move happens whether or
+ * not the Mac is full.
+ */
+export function overflowNoteImmediate(machineName: string): string {
+  return `Spostata su ${machineName}: c'era un posto libero lì. Per tenerla sul Mac segnala «solo Mac» sulla card o sulla board: ` +
     `scegliere a mano questo Mac come macchina non basta, vale come la macchina predefinita.`;
+}
+
+/** The line on a card moved off a machine that cannot run it. */
+export function reassignNote(fromName: string, toName: string | null): string {
+  return `Spostata da ${fromName} a ${toName ?? "questo Mac"}: quella macchina non può accendersi o non prende più card, ` +
+    `e la card sarebbe rimasta in coda senza fine.`;
 }
 
 /** What the overflow reads of one row of the machine store. */
@@ -225,7 +261,7 @@ export function overflowMachinesFrom(input: {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
       ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false }
-      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots ? { slots: m.slots } : {}) });
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}) });
   }
   return out;
 }

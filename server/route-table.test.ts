@@ -61,6 +61,7 @@ const GOLDEN_ORDER = [
   "providersRouter",
   "appSettingsRouter",
   "calendarRouter",
+  "heavySlotRouter",
   "agentChannelsRouter",
   "agentConfigRouter",
   "tabsRouter",

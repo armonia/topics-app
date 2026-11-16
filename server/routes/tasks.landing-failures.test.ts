@@ -79,7 +79,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
    * which is the one column nobody reopens, with the code outside main and a
    * worktree GC free to prune that branch.
    */
-  async function landSkipping(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]> }> {
+  async function landSkipping(code: string | undefined): Promise<{ id: string; db: Database; resumed: Array<[string, string]>; rt: ReturnType<typeof createTasksRouter> }> {
     const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
     const autoMerge = {
       tryMerge: async () => ({ status: "skipped", reason: "non so quali commit siano suoi", code }),
@@ -97,7 +97,7 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
       .run(t.id, new Date().toISOString());
     await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
     await new Promise((res) => setTimeout(res, 20)); // the land runs fire-and-forget
-    return { id: t.id, db: d, resumed: r };
+    return { id: t.id, db: d, resumed: r, rt };
   }
 
   test("un land che NON isola i commit ritira la card da done, con la ragione nello STATO", async () => {
@@ -141,9 +141,13 @@ describe("un land fallito dice perche', e non lascia la card in done", () => {
     // nothing anywhere is not proof the work is on main, and only a confirmed
     // merge takes a card out of review. If the work is already over there by
     // somebody else's hand, the human who approves is the one who says so.
-    const { id, db: d } = await landSkipping("no-branch");
+    const { id, db: d, rt } = await landSkipping("no-branch");
     const t = createTaskService(d).get(id)!;
     expect(t.task.status).toBe("review");
     expect(t.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
+    // The reply a caller reads never says "accepted" for a land that did not happen.
+    const settled = await (await call(rt, "GET", `/api/boards/pX/tasks/${id}/land`))!.json();
+    expect(settled.landing?.reason ?? "").not.toMatch(/accettat/i);
+    expect(settled.landing?.reason ?? "").toContain("NON risulta su main");
   });
 });

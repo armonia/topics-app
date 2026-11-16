@@ -21,6 +21,11 @@ export function hookScriptPath(home: string = topicsHome()): string {
   return join(home, "claude-hooks", "post-hook.sh");
 }
 
+/** The delegation nudge (`lib/delegation-policy.ts`), next to the hook script. */
+export function delegationHookPath(home: string = topicsHome()): string {
+  return join(home, "claude-hooks", "delegation-nudge.sh");
+}
+
 /**
  * Write `content` at `path`, mode 0755, only when what is there differs (text
  * or mode). Returns whether it wrote. Throws on a disk error: the caller decides

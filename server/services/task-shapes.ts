@@ -240,6 +240,8 @@ export interface Task {
    * another machine starts FROM (`carriedBranch`).
    */
   priorBranch?: string;
+  /** Every delivery branch the card left behind (history behind `priorBranch`). */
+  pastDeliveryBranches?: string[];
   /**
    * ON THE WIRE only when set: the files the card's worktree held WITHOUT a
    * commit when it went back to the queue. Going back clears
@@ -270,6 +272,10 @@ export interface Task {
   stage?: string;
   /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
   humanAsk?: string;
+  /** Who decided the work goes to main ('human' | 'auto'); kept across a bounce. Absent = nobody yet. */
+  landIntent?: "human" | "auto";
+  /** The commit the decision to land was taken on. */
+  landIntentCommit?: string;
   /** The effort the task actually ran with (from the agent's topic). Read
    *  only: with the board on `auto` this is the only place the choice shows. */
   effort: string | null;
@@ -484,6 +490,8 @@ export interface CreateTaskInput {
   machineId?: string | null;
   /** The "this Mac only" mark, set at birth: the overflow dispatch never moves the card. */
   stayLocal?: boolean;
+  /** Why `stayLocal` holds with no expiry, for the audit trail — see `stayLocalReason` on the update patch below. */
+  stayLocalReason?: string | null;
   /** A node's mirror card: the branch its worktree starts from (default main). */
   baseBranch?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
@@ -568,6 +576,13 @@ export interface UpdateTaskPatch {
   stayLocal?: boolean;
   /** When `stayLocal` stops holding (ISO); null = for good. Set only by the dispatcher. */
   stayLocalUntil?: string | null;
+  /**
+   * Why a permanent `stayLocal` (no `stayLocalUntil`) holds, written to the
+   * thread as a system comment so a pin can be told apart from one nobody
+   * ever explained. Omit it and a permanent pin still gets a generic comment
+   * (see `tasks.ts`'s update path) rather than none at all.
+   */
+  stayLocalReason?: string | null;
   /** The node the overflow skips for this card, and until when (ISO). Set only by the dispatcher. */
   overflowSkip?: { machineId: string; until: string } | null;
   /** The executable acceptance bar; null clears. */

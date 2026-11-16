@@ -456,7 +456,7 @@ export function useProjectBrowserPanes({
         ensureBrowserPaneAndNavigateRef.current?.(nav.url, near, spawner ?? undefined, nav.contextId);
       }
     });
-  }, [projectPath, groups.length]);
+  }, [projectPath, groups.length, groupsRef]);
 
   // Consume a queued browser split: once the freshly added browser pane is
   // committed into its source group (beside the chat/terminal), split it OUT

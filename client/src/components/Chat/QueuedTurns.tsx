@@ -49,9 +49,11 @@ export interface QueuedTurnsProps {
   onSendNow?: () => void;
   /** A turn is still in flight: only changes what the button promises (stop it or not). */
   busy?: boolean;
+  /** The queue could not be written to storage (quota): a reload would lose it. */
+  unsaved?: boolean;
 }
 
-export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSendNow, busy }: QueuedTurnsProps) {
+export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSendNow, busy, unsaved }: QueuedTurnsProps) {
   const t = useT();
   if (turns.length === 0) return null;
   return (
@@ -62,6 +64,11 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
     // message and of the composer. With it, plus the same `px-4`/`px-2` as a
     // message row, a queued line ends exactly where a sent one does.
     <div data-testid="queued-bubbles" className={`chat-measure ${isMobile ? 'px-2' : 'px-4'}`}>
+      {unsaved && (
+        <div role="alert" data-testid="queue-unsaved" className="mb-1 text-mini text-red-500">
+          {t('chat.queue.unsaved')}
+        </div>
+      )}
       {turns.map((turn) => (
         <QueuedBubble
           key={turn.id}

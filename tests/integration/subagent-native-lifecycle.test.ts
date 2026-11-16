@@ -335,9 +335,12 @@ describe("the stale-stream sweep closes a child's open turn", () => {
     await staleSweep();
     await until("its result", () => reportsFor(id)[0], 15_000).catch(() => null);
     await sleep(1_000);
-    expect(reportsFor(id).map((r) => [r.outcome.status, r.outcome.reason])).toEqual([["stopped", { code: "swept" }]]);
+    expect(reportsFor(id).map((r) => [r.outcome.status, r.outcome.reason])).toEqual([["stopped", { code: "machine-cut", detail: "watchdog" }]]);
     // A cut turn did not complete: the child stays in view.
     expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(false);
+    // The parent is told how to resume it (card 753932c6).
+    const { formatSubAgentExitBody } = await import("../../server/routes/subagent-exit");
+    expect(formatSubAgentExitBody(reportsFor(id)[0]!, "en")).toContain(`send_to_agent\` with agent_id \`${id}\``);
   }, 40_000);
 
   test("R5-2 the sweep cuts a person's turn in a retired child's chat: the parent hears it, the child is not left running", async () => {

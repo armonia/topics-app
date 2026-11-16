@@ -32,6 +32,10 @@ export interface TranscriptEvent {
   content?: unknown;
   /** `attachment` records: a `queued_command` carries a notification too. */
   attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
+  /** A tool result's own metadata, next to `message.content`: the CLI puts the
+   *  background id it assigned here (`backgroundTaskId`) when it moves a
+   *  foreground call to the background on its own, not on the caller's say. */
+  toolUseResult?: { backgroundTaskId?: unknown } | unknown;
 }
 
 /** The record on this line, or null when the line is not a JSON object. */
@@ -116,6 +120,8 @@ export type SubAgentReason =
   | { code: 'tab-closed' }
   | { code: 'reloaded' }
   | { code: 'swept' }
+  /** The machine cut the turn (stall judge, watchdog, wall clock, superseded); `detail` is the cause. */
+  | { code: 'machine-cut'; detail: string }
   | { code: 'terminal-lost' };
 
 /** The result of one turn of one child, as it is delivered (SUBAGENT-11). */
@@ -169,11 +175,40 @@ const cutOutcome = (text: string, ending: SubAgentEnding, exitCode: number | nul
   };
 };
 
-/** The ids of the tool calls in this content that started work in the background. */
+/** The ids of the tool calls in this content that started work in the background:
+ *  asked for (`run_in_background`), or always backgrounded by nature (`Monitor`,
+ *  which the caller never flags). */
 function noteBackground(into: Set<string>, content: unknown): void {
   if (!Array.isArray(content)) return;
   for (const c of content) {
-    if (c && typeof c === 'object' && c.type === 'tool_use' && typeof c.id === 'string' && c.input?.run_in_background === true) into.add(c.id);
+    if (!c || typeof c !== 'object' || c.type !== 'tool_use' || typeof c.id !== 'string') continue;
+    if (c.name === 'Monitor' || c.input?.run_in_background === true) into.add(c.id);
+  }
+}
+
+/** A `tool_result`'s own text, in whatever shape the CLI gives it. */
+function toolResultText(c: { content?: unknown }): string {
+  if (typeof c.content === 'string') return c.content;
+  return contentText(c.content);
+}
+
+/** The words the CLI uses when it moves a call to the background on its own,
+ *  past its timeout: no `run_in_background` asked for it, so `noteBackground`
+ *  never sees it coming, only the result says so. */
+const MOVED_TO_BACKGROUND = /\b(?:moved to the background|running in background)\b/i;
+
+/** The ids of the tool calls whose RESULT, not their call, says the CLI moved
+ *  them to the background (a `Bash` past its timeout): the call carried no
+ *  `run_in_background`, so only `toolUseResult.backgroundTaskId` or the
+ *  result's own prose names it. */
+function noteBackgroundFromResult(into: Set<string>, ev: TranscriptEvent): void {
+  const content = ev.message?.content;
+  if (!Array.isArray(content)) return;
+  const r = ev.toolUseResult;
+  const hasBackgroundId = !!r && typeof r === 'object' && typeof (r as { backgroundTaskId?: unknown }).backgroundTaskId === 'string';
+  for (const c of content) {
+    if (!c || typeof c !== 'object' || c.type !== 'tool_result' || typeof c.tool_use_id !== 'string') continue;
+    if (hasBackgroundId || MOVED_TO_BACKGROUND.test(toolResultText(c))) into.add(c.tool_use_id);
   }
 }
 
@@ -224,6 +259,7 @@ function foldRecord(f: TurnFold, ev: TranscriptEvent): void {
   }
   if (ev.type === 'user') {
     // A tool result, an Escape marker or a notification: the turn is still open.
+    noteBackgroundFromResult(f.background, ev);
     f.state = 'working';
     f.closed = false;
     return;

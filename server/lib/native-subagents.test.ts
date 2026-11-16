@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
-import { engineModelOf, nativeChildPlace, nativeTurnOutcome, placeableUnderKnownProject } from "./native-subagents";
+import { childRuntimeFor, configureNativeSubagents, engineModelOf, nativeChildPlace, nativeTurnOutcome, placeableUnderKnownProject } from "./native-subagents";
 import { engineToolsOfProfile, toolAllowedByPolicy } from "./subagent-tool-policy";
 import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
 const OLD_HOME = LEGACY_DATA_DIR_NAME;
@@ -38,7 +38,7 @@ describe("how a child chat's turn ended, as a result (SUBAGENT-11)", () => {
   });
 
   test("a machine's cut is `stopped` with its reason; a person's Stop has none", () => {
-    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "watchdog" }, text: "⚠️ notice", stopped: false })).toMatchObject({ status: "stopped", reason: { code: "swept" } });
+    expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "watchdog" }, text: "⚠️ notice", stopped: false })).toMatchObject({ status: "stopped", reason: { code: "machine-cut", detail: "watchdog" } });
     expect(nativeTurnOutcome({ end: { end: "cancelled", cause: "user" }, text: "half", stopped: false }).reason).toBeUndefined();
   });
 });
@@ -52,14 +52,31 @@ describe("where a native child stands (SUBAGENT-17)", () => {
       .toEqual({ ok: true, projectPath: null, worktreeId: null });
   });
 
-  test("a cwd Topics does not know as a project is not a native child's home", () => {
-    expect(nativeChildPlace({ explicitCwd: "/Users/x/.ssh", parentTopic: { projectPath: "/p/a" }, parentCwd: null, knownProject: known }).ok).toBe(false);
+  test("a cwd Topics does not know as a project is not a native child's project: the child stays on the engine, in the parent's", () => {
+    expect(nativeChildPlace({ explicitCwd: "/Users/x/.ssh", parentTopic: { projectPath: "/p/a" }, parentCwd: null, knownProject: known }))
+      .toEqual({ ok: true, projectPath: "/p/a", worktreeId: null, outsideCwd: "/Users/x/.ssh" });
     expect(nativeChildPlace({ explicitCwd: "/p/known", parentTopic: null, parentCwd: null, knownProject: known })).toMatchObject({ ok: true, projectPath: "/p/known" });
   });
 
   test("a terminal parent's directory counts only when it is a known project", () => {
     expect(nativeChildPlace({ explicitCwd: null, parentTopic: null, parentCwd: "/p/known", knownProject: known })).toMatchObject({ ok: true, projectPath: "/p/known" });
-    expect(nativeChildPlace({ explicitCwd: null, parentTopic: null, parentCwd: "/tmp", knownProject: known }).ok).toBe(false);
+    expect(nativeChildPlace({ explicitCwd: null, parentTopic: null, parentCwd: "/tmp", knownProject: known }))
+      .toEqual({ ok: true, projectPath: null, worktreeId: null, outsideCwd: "/tmp" });
+  });
+
+  test("the CLI only when asked: an outside folder with no project to stand in is refused, not sent to a CLI", () => {
+    configureNativeSubagents({ engineReady: () => true } as never);
+    try {
+      const outside = () => nativeChildPlace({ explicitCwd: "/tmp", parentTopic: null, parentCwd: null, knownProject: known });
+      expect(childRuntimeFor(undefined, outside)).toMatchObject({ ok: false, status: 400 });
+      expect(childRuntimeFor("claude-code", outside)).toMatchObject({ ok: true, runtime: "claude-code" });
+      const inParent = () => nativeChildPlace({ explicitCwd: "/tmp", parentTopic: { projectPath: "/p/a" }, parentCwd: null, knownProject: known });
+      expect(childRuntimeFor(undefined, inParent)).toMatchObject({ ok: true, runtime: "topics", place: { projectPath: "/p/a", outsideCwd: "/tmp" } });
+    } finally {
+      configureNativeSubagents(null);
+    }
+    expect(childRuntimeFor(undefined, () => nativeChildPlace({ explicitCwd: null, parentTopic: { projectPath: "/p/a" }, parentCwd: null, knownProject: known })))
+      .toMatchObject({ ok: false, status: 503 });
   });
 });
 
@@ -97,7 +114,7 @@ describe("a folder a native child may call home (SUBAGENT-17)", () => {
     const knownProject = (p: string) => placeableUnderKnownProject(p, isProject, git);
     expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects/acme-night/feature-2", parentTopic: { projectPath: `/Users/x/${OLD_HOME}` }, parentCwd: null, knownProject }))
       .toEqual({ ok: true, projectPath: "/Users/x/Projects/acme-night/feature-2", worktreeId: null });
-    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects", parentTopic: { projectPath: `/Users/x/${OLD_HOME}` }, parentCwd: null, knownProject }).ok).toBe(false);
+    expect(nativeChildPlace({ explicitCwd: "/Users/x/Projects", parentTopic: { projectPath: `/Users/x/${OLD_HOME}` }, parentCwd: null, knownProject }).outsideCwd).toBe("/Users/x/Projects");
   });
 
   test("with the real git: a worktree of a known repository passes, a missing folder does not", () => {

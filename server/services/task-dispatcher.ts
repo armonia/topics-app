@@ -37,7 +37,7 @@ import { attemptHasWork, formatFanoutComment } from "../../shared/task-attempt";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type DispatchMemoryQueueSnapshot, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
-import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
+import { DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, NATIVE_CHILD_FLOOR_GB, NATIVE_CHILD_PRICE_GB, effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
 import { NoCheckExemptionLedger, reservationForRuntime } from "./dispatch-no-check-exemption";
@@ -65,7 +65,7 @@ import {
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
 import { carriedBranch } from "./branch-on-origin";
 import { wakeBreaker } from "./wake-breaker";
-import { OVERFLOW_AFTER_MS, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNote, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+import { effectiveSlots, machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { createDispatchMemoryQueuePublisher, createDispatchMemoryQueueSnapshot } from "./dispatch-memory-queue";
 import { createDispatchMemoryStartController } from "./dispatch-memory-start";
 import { buildDispatchAdmissionPreview } from "./dispatch-admission-preview";
@@ -727,6 +727,13 @@ export interface TaskDispatcher {
   /** The task ids behind `busyCount()`: what a restart is actually waiting for. */
   busyIds(): string[];
   /**
+   * Every overflow-reachable machine (cloud row and paired nodes), with the
+   * seats it is declared to have and how many it is carrying now: what a
+   * client needs to tell "the Mac is full" apart from "the Mac is full AND
+   * there is nowhere else to send a card" (`/api/system/dispatch-capacity`).
+   */
+  nodeStatus(): { id: string; name: string; kind: "cloud" | "node"; online: boolean; slots: number; used: number }[];
+  /**
    * The sessions those runs are bound to (setup slots, still without one, are
    * left out). A card turn streams through /api/chat, so the restart gate
    * needs these keys to tell a card's own stream from a person's chat.
@@ -1109,6 +1116,7 @@ function boardLanguage(settings: { language?: string } | null | undefined): Outp
 }
 
 import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
+import { warnIfBusy } from "../lib/sqlite-busy";
 
 export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /**
@@ -1355,6 +1363,45 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * stale row of this Mac (one per hostname) has none. An unknown local id or
    * address reads as local: the gates stay on rather than open.
    */
+  /** The card's pinned machine declares 0 slots: it takes no new card, pinned ones included. */
+  function pinnedMachineDrained(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
+  }
+  /**
+   * A Todo card pinned to a machine that cannot run it (zero slots, or offline
+   * with no way to wake it) moves to an allowed machine, or back here when none
+   * is free, instead of waiting for ever. Delegated and mirror cards are bound
+   * to their machine and stay. `true` = the card moved.
+   */
+  function reassignFromForbidden(
+    t: Task,
+    settings: { dispatchModel?: string | null },
+  ): boolean {
+    if (!t.machineId || !deps.overflowMachines) return false;
+    if (delegatedPolicy(t) !== undefined || t.claudeTaskId?.startsWith("node-run:")) return false;
+    let machines: OverflowMachine[] = [];
+    try { machines = deps.overflowMachines(); } catch (err) { log("reassign: machine list failed", err); return false; }
+    const pinned = machines.find((m) => m.id === t.machineId);
+    if (!pinned || !machineForbidden(pinned, (id) => wakeBreaker.isOpen(id))) return false;
+    let cloudCredit = true;
+    try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
+    const origin = overflowOriginOf(t.projectId);
+    const target = pickReassignTarget(machines, pinned.id, {
+      cloudCredit,
+      githubOrigin: origin.github,
+      model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
+      load: machineLoad,
+      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+    });
+    try {
+      const moved = deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: target?.id ?? null } });
+      emit(moved);
+      deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: reassignNote(pinned.name, target?.name ?? null) });
+    } catch (err) { log(`reassign: move of ${t.id} failed`, err); return false; }
+    log(`reassign: ${t.id} left ${pinned.name}, now ${target?.name ?? "local"}`);
+    return true;
+  }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
     let localMachine: string | null = null;
@@ -1422,7 +1469,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * so it charges N x price itself.
    */
   let lastMemoryStartGB: number | null = null;
-  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number): ResourceFloorVerdict {
+  function floorVerdict(cleanupReservations = true, projectId?: string | null, priceGB?: number, floorGB?: number): ResourceFloorVerdict {
     const price = priceGB ?? agentMemPrice(projectId);
     const launchEntries = regularLocalLaunchEntries(cleanupReservations);
     const launches = launchEntries.map(([, at]) => at);
@@ -1451,6 +1498,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // nothing on this Mac to spend them.
     return deps.resourceBlock?.({
       cardGB: price,
+      ...(floorGB != null ? { floorGB } : {}),
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length + exemptReservedCards,
       spendingHere: launches.length + exemptReservedCards + Math.max(0, checks) > 0,
@@ -1655,14 +1703,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * The same preview for ONE SUB-AGENT: the door that opens children asks it in
    * "by resources" mode, where the number of agents does not apply. A child is
    * an agent and its light commands (`reservationForRuntime`), not the typical
-   * card of a board, which carries a worktree and the repo gates.
+   * card of a board, which carries a worktree and the repo gates. A native child
+   * pays its real cost (a message array in the running server, with a floor of
+   * its own); a CLI child is a process and keeps the CLI price and floor.
    */
   function childAdmissionPreview(): DispatchAdmission | null {
-    const price = reservationForRuntime(deps.isCliRuntime?.() ?? false);
+    const cli = deps.isCliRuntime?.() ?? false;
+    const price = cli ? reservationForRuntime(true) : NATIVE_CHILD_PRICE_GB;
+    const floorGB = cli ? undefined : NATIVE_CHILD_FLOOR_GB;
     return buildDispatchAdmissionPreview({
       frozenCount: activeFrozenCount,
       drainBlock,
-      floorVerdict: () => floorVerdict(false, undefined, price),
+      floorVerdict: () => floorVerdict(false, undefined, price, floorGB),
       globalCap: () => deps.svc.getGlobalCap(),
       budgetVerdict: (cap) => budgetVerdict(cap, price),
       memoryClause,
@@ -2316,27 +2368,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const heavyHoldSince = new Map<string, number>();
   /** L'orologio del freno, iniettabile per i test (vedi `DispatcherDeps.now`). */
   const clock = (): number => deps.now?.() ?? Date.now();
-  // Since WHEN a local Todo card has been held by this machine's memory floor
-  // (ms): the overflow's clock (`OVERFLOW_AFTER_MS`). The clock measures an
-  // UNBROKEN hold, counted in ROUNDS of its board (`overflowRounds`): a round
-  // that did not mark the card held breaks it, whatever the reason. A spend
-  // cap, an invalid delegation, a heavy card in flight, a deferral, a paused
-  // board, a trip out of Todo: each of these leaves its board's round without
-  // the mark (many of them return before the loop even starts), so the next
-  // hold starts from zero instead of inheriting the time spent waiting for
-  // something else.
-  const memoryHeldSince = new Map<string, { since: number; projectId: string; round: number }>();
+  // The local Todo cards this machine's memory floor is holding right now, and
+  // the board round that last marked each of them held. The overflow no longer
+  // waits out a hold (a free seat elsewhere is taken at once), so no duration
+  // is kept: what is left of the record is which cards are held, which keeps
+  // the carried-branch answers (`overflowBranch`) alive only for them.
+  const memoryHeldCards = new Map<string, { projectId: string; round: number }>();
   /** Per board: how many dispatch rounds have begun. Bumped first thing, before any early return. */
   const overflowRounds = new Map<string, number>();
   function beginOverflowRound(projectId: string): number {
     const n = (overflowRounds.get(projectId) ?? 0) + 1;
     overflowRounds.set(projectId, n);
     return n;
-  }
-  /** The hold of `t` counted up to the previous round of its board, unbroken; `null` = none. */
-  function unbrokenHold(t: Task, round: number): { since: number } | null {
-    const held = memoryHeldSince.get(t.id);
-    return held && held.round >= round - 1 ? held : null;
   }
   // Per project: does it have the git origin the remote lane finds it by (a card
   // moved without one would be parked over there), and is that origin on GitHub
@@ -2361,6 +2404,33 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         .finally(() => { overflowOriginPending.delete(projectId); });
     }
     return known ?? { ok: false, github: false };
+  }
+  /**
+   * `true` only before this project's origin has EVER resolved (the lookup
+   * `overflowOriginOf` just kicked off is still in flight). SURFACED 2026-11-13:
+   * a fresh server's first dispatch tick for a project reads `origin.ok` as
+   * `false` while that lookup is pending, which is "unknown", not "no origin" -
+   * and a card that would otherwise move to a free node/cloud seat fell
+   * through to the Mac instead, on the one tick that mattered, because nothing
+   * told the caller the difference. Used to make THAT card wait one round for
+   * the answer instead of starting locally on a guess.
+   */
+  function overflowOriginUnresolved(projectId: string): boolean {
+    // `overflowOriginOf` is what actually KICKS OFF the lookup (its early
+    // return otherwise never runs when a card takes the deferral below
+    // instead of reaching `overflowCardToFreeSeat`, which is the only other caller):
+    // called here for that side effect too, not only to read the cache.
+    overflowOriginOf(projectId);
+    return !overflowOrigin.has(projectId);
+  }
+  /** Is there a seat on some OTHER online machine right now, origin aside -
+   *  cheap enough to ask before deciding whether a cold origin cache is worth
+   *  waiting out. */
+  function anyOverflowSeatElsewhere(localId: string | null, skipMachineId?: string | null): boolean {
+    if (!deps.overflowMachines) return false;
+    let machines: OverflowMachine[] = [];
+    try { machines = deps.overflowMachines(); } catch { return false; }
+    return machines.some((m) => m.id !== localId && m.id !== skipMachineId && m.online && machineLoad(m.id) < effectiveSlots(m));
   }
   // Per card: is its own delivery branch on origin (pushed now if this checkout
   // is ahead)? A card that already has a branch runs over there FROM it
@@ -2406,41 +2476,34 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     }
     return Math.max(n, live);
   }
-  /** The memory floor held this card in this round: its clock starts, or keeps running. */
+  /** The memory floor held this card in this round. */
   function markMemoryHeld(t: Task, round: number): void {
-    const held = unbrokenHold(t, round);
-    memoryHeldSince.set(t.id, { since: held?.since ?? clock(), projectId: t.projectId, round });
+    memoryHeldCards.set(t.id, { projectId: t.projectId, round });
   }
-  /**
-   * A card that leaves Todo (or comes back to it) loses its clock now. A board
-   * with nothing else queued does not tick (`boardsWithQueuedTodos`), so its
-   * round count stops and the end-of-round prune never runs: without this the
-   * card came back to Todo still carrying the old hold, and moved on the first
-   * round after it, with no wait at all.
-   */
+  /** A card that leaves Todo (or comes back to it) is no longer a held one. */
   function forgetOverflowClock(taskId: string): void {
-    memoryHeldSince.delete(taskId);
+    memoryHeldCards.delete(taskId);
     overflowBranch.delete(taskId);
   }
-  /** Boards that will not tick this pass hold nothing by memory: their clocks go. */
+  /** Boards that will not tick this pass hold nothing by memory: their records go. */
   function pruneOverflowClocksOutside(ticking: ReadonlySet<string>): void {
-    for (const [id, e] of [...memoryHeldSince]) if (!ticking.has(e.projectId)) forgetOverflowClock(id);
+    for (const [id, e] of [...memoryHeldCards]) if (!ticking.has(e.projectId)) forgetOverflowClock(id);
   }
-  /** End of a round on `projectId`: a card this round did not mark held loses its clock. */
+  /** End of a round on `projectId`: a card this round did not mark held loses its record. */
   function pruneOverflowClocks(projectId: string, round: number): void {
-    for (const [id, e] of [...memoryHeldSince]) {
-      if (e.projectId === projectId && e.round !== round) memoryHeldSince.delete(id);
+    for (const [id, e] of [...memoryHeldCards]) {
+      if (e.projectId === projectId && e.round !== round) memoryHeldCards.delete(id);
     }
-    for (const id of [...overflowBranch.keys()]) if (!memoryHeldSince.has(id)) overflowBranch.delete(id);
+    for (const id of [...overflowBranch.keys()]) if (!memoryHeldCards.has(id)) overflowBranch.delete(id);
   }
   /**
-   * THE OVERFLOW'S MOVE for one local card held by the memory floor: past
-   * `OVERFLOW_AFTER_MS` of unbroken hold it hands the card to the first machine
-   * that can take it (`pickOverflowMachine`). `true` = the card now runs
-   * elsewhere, and the caller sends it down the remote lane in this same round.
-   * `round.no` is the board's round (the clock's unit), `round.moved` its moves so far.
+   * THE OVERFLOW'S MOVE for one local card: as soon as a machine has a free
+   * seat for it (`pickOverflowMachine`) the card goes there, whatever this
+   * Mac's memory floor is doing. `true` = the card now runs elsewhere, and the
+   * caller sends it down the remote lane in this same round. `round.no` is the
+   * board's round, `round.moved` its moves so far.
    */
-  function overflowHeldCard(
+  function overflowCardToFreeSeat(
     t: Task,
     settings: { dispatchOverflow?: boolean; dispatchStayLocal?: boolean; dispatchModel?: string | null },
     round: { no: number; moved: number },
@@ -2451,11 +2514,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // A delegated card's authority names THIS machine (`policy.machineId`):
     // moved, it would be parked over there as no longer valid.
     const delegated = delegatedPolicy(t) !== undefined;
-    if (!localId || !overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)) { memoryHeldSince.delete(t.id); return false; }
-    // Asked from the first held round, so the answer is in by the time it matters.
+    if (!localId || !overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)) { memoryHeldCards.delete(t.id); return false; }
+    // Asked from the first round that sees the card, so the answer is in by the time it matters.
     const origin = overflowOriginOf(t.projectId);
-    const held = unbrokenHold(t, round.no);
-    if (!held || clock() - held.since < OVERFLOW_AFTER_MS || !origin.ok) return false;
+    if (!origin.ok) return false;
     if (round.moved >= OVERFLOW_MAX_PER_ROUND) return false;
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
@@ -2478,13 +2540,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     catch (err) { log(`overflow: move of ${t.id} failed`, err); return false; }
     if (!moved) return false;
     round.moved += 1;
-    memoryHeldSince.delete(t.id);
+    memoryHeldCards.delete(t.id);
     overflowBranch.delete(t.id);
     floorBlockSent.delete(t.id);
-    log(`overflow: ${t.id} moved to ${target.name} (${target.kind}), memory floor held it ${Math.round((clock() - held.since) / 1000)} s`);
+    log(`overflow: ${t.id} moved to ${target.name} (${target.kind}), a free seat there`);
     emit(moved);
-    try { deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: overflowNote(target.name) }); }
-    catch { /* the move stands without its line */ }
+    try {
+      deps.svc.addComment({
+        taskId: t.id,
+        author: "system",
+        kind: "service",
+        content: overflowNoteImmediate(target.name),
+      });
+    } catch { /* the move stands without its line */ }
     return true;
   }
   // Board a cui si è già detto "il fan-out qui non si applica" (worktree off).
@@ -3259,7 +3327,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   const UNIT_CI_KICKOFF_LINE =
     "- UNIT TESTS RUN ON GITHUB CI, NEVER HERE: the full unit suite of your delivery is read from the step `Unit + integration tests` of the `check` job, " +
     "in the pull request CI run of the exact commit the board measured, after the same push and draft pull request (one push and one wait serve the e2e row too). " +
-    "Do not run `bun run test:unit` on this machine; targeted `bun test <file>` for the files you touched stays allowed and is how you check your change before delivering. " +
+    "Do not run `bun run test:unit` on this machine; `bun run test:touched` picks the tests of your diff by itself (the changed tests plus every test that imports what you changed, the whole suite on config) and is how you check your change before delivering; do not choose the files by hand. " +
     "A red step comes back with `gh run view --job <id> --log-failed`; a step skipped, cancelled or never reached is NOT MEASURED, never green.";
 
   // The same question on a board WITHOUT that row: nobody pushes, nobody reads a
@@ -3303,6 +3371,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
         GENERIC_PRODUCT_RULE,
+        "- On macOS use `sed -i ''`, never `sed -i -e`: BSD sed reads `-e` as the backup suffix and leaves a `<file>-e` copy that lands in the delivery.",
         "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
         `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
@@ -4476,13 +4545,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { emit(deps.svc.get(taskId)?.task ?? cur); } catch { /* best-effort */ }
         if (reopened) {
           // Deferred a tick: the caller's finally still holds the inFlight slot.
-          setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
+          setTimeout(() => { void resumeInBackground(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
           return;
         }
         // Delivery intact: fall through to the review handling below (chip,
         // preview). The card stays where the agent put it.
       } else if (cur.status === "in_progress") {
-        setTimeout(() => { void resume(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
+        setTimeout(() => { void resumeInBackground(taskId, queued.map((q) => q.text).join("\n"), { commentIds: queuedCommentIds(queued) }); }, 0);
         return;
       }
       // No turn to resume: the card went back to the queue (a declared wait, a
@@ -4616,7 +4685,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {
             retryWaits.delete(taskId);
-            void resume(taskId, "", { continuation: true });
+            void resumeInBackground(taskId, "", { continuation: true });
           }, waitMs);
           retryWaits.set(taskId, retryTimer);
           broadcastRetryWait(bumped, { at: Date.now() + waitMs, attempt: bumped.dispatchAttempts, cap, free, end });
@@ -4725,7 +4794,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ? `${base}\n\nUltime parole dell'agent (recuperate dalla sessione): ${recovered.text}`
             : base;
           // "RICATTURA EVIDENZA" (RECAPTURE EVIDENCE) STARTS ON ITS OWN, BEFORE
-          // THE GATE, not after. No agent on this fleet can open a browser for its own before/after
+          // THE GATE, not after. No agent opens a browser by hand for its own before/after
           // shot (kickoff rule), so on a `visibile` card the auto-capture is
           // this door's ONLY chance to give the gate below something real to
           // find — awaited here, not fired in the background after the
@@ -4932,6 +5001,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       : null;
   }
 
+  /**
+   * `resume` from a timer or a poll, where nobody awaits it. Its writes
+   * (`setDispatchState` first) run inside a try/finally with no catch, so a
+   * busy database became an unhandled rejection and the server exited. A busy
+   * refusal now skips this pass with a warning: `finally` has freed the run,
+   * so the card is in progress with no live turn, which is exactly what the
+   * next reconcile poll resumes. Any other error stays the rejection it was.
+   */
+  function resumeInBackground(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
+    return resume(taskId, humanMessage, opts).catch(warnIfBusy(`resume of task ${taskId}`, (msg, err) => log(msg, err)));
+  }
+
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -5100,7 +5181,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // guardare in mezzo e vedere l'attesa sparita.
       const timer = setTimeout(() => {
         slotWaits.delete(taskId);
-        void resume(taskId, humanMessage, opts);
+        void resumeInBackground(taskId, humanMessage, opts);
       }, delay);
       slotWaits.set(taskId, { timer, message: humanMessage, commentIds: opts?.commentIds });
       return;
@@ -5250,6 +5331,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       endLiveTurn(taskId);
       recordTurnMs(taskId, t0);
       onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      // The adopted turn was opened by a launch that died with the old server,
+      // so nobody else closes its attempt. Left `running`, it reads as a live
+      // turn forever: the CI phase skipped such a card at every sweep without a
+      // word (e8a0ce90, 14/11: 50 minutes in the CI column, never measured).
+      const open = deps.attempts?.list(taskId).find((a) => a.state === "running" && a.topicId === t.assignedTopicId);
+      if (open) {
+        try {
+          deps.attempts!.finish(open.id, {
+            state: !turnEnd || turnEnd.end === "end_turn" ? "delivered" : "failed",
+            agentMs: Date.now() - t0,
+          });
+        } catch (err) { log(`reattach: attempt ${open.id} not closed`, err); }
+      }
     } finally {
       endRun(taskId, runId);
     }
@@ -5689,13 +5783,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The block has lifted: forget the episode, so the next full disk says it
     // again instead of staying mute forever. It looks at the block and not at
     // the single card, because the block is one per machine.
-    // The overflow's clock measures the MEMORY floor only: a disk or a bill
-    // holding the queue is not a reason to send a card elsewhere. Nor is the
-    // warm-up (`memory_warmup`): the floor has no two minutes of readings yet,
-    // so nothing says this Mac is full.
+    // The record of held cards follows the MEMORY floor only: a disk or a bill
+    // holding the queue is not a memory hold. Nor is the warm-up
+    // (`memory_warmup`): the floor has no two minutes of readings yet, so
+    // nothing says this Mac is full.
     const memoryFloorHolds = resourceFloor != null && floorNow.kind === "memory";
-    if (!memoryFloorHolds) memoryHeldSince.clear();
-    // This round's number for the overflow's clock, and how many cards it moved.
+    if (!memoryFloorHolds) memoryHeldCards.clear();
+    // This round's number, and how many cards the overflow moved in it.
     const overflowRound = { no: overflowRoundNo, moved: 0 };
     if (!floorBlock) {
       floorHeldNoted.clear();
@@ -5774,11 +5868,37 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         noteSpendHold(t, caps.perTaskCents);
         continue;
       }
+      // A card pinned to a forbidden machine (drained, or offline with no way to
+      // wake it) is moved to an allowed one, or here. Moved to another remote
+      // machine it runs this round; moved here it re-enters the local gates next tick.
+      if (remoteCard(t) && reassignFromForbidden(t, settings)) {
+        remoteIds.delete(t.id);
+        continue;
+      }
+      if (remoteCard(t) && pinnedMachineDrained(t)) continue;
       const manualMemoryStartSelected = manualMemoryStart.selectedTask(projectId) === t.id;
-      // THE OVERFLOW: a local card the memory floor has held for two minutes
-      // goes to a machine where the floor does not apply, and goes down the
-      // remote lane in this same round.
-      if (memoryFloorHolds && !remoteCard(t) && !manualMemoryStartSelected && overflowHeldCard(t, settings, overflowRound)) {
+      // COLD ORIGIN CACHE (2026-11-13): the very first tick that asks this
+      // project's origin starts an async lookup and answers "unknown" for it,
+      // which `overflowCardToFreeSeat` below reads as "no origin" and skips. Without
+      // this check that one tick fell through to the Mac even with a free node
+      // seat sitting there, because nothing distinguished "no origin" from
+      // "origin not asked yet" - and once a card starts locally this round, it
+      // runs out here. One round's wait for the lookup is cheap; starting on
+      // the wrong machine is not undone.
+      if (!remoteCard(t) && !manualMemoryStartSelected) {
+        const delegated = delegatedPolicy(t) !== undefined;
+        const localId = (() => { try { return deps.node?.localMachineId?.() ?? null; } catch { return null; } })();
+        if (overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)
+          && overflowOriginUnresolved(t.projectId) && anyOverflowSeatElsewhere(localId, t.overflowSkipMachine)) {
+          try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort: the chip still reads "to do" */ }
+          continue;
+        }
+      }
+      // THE OVERFLOW, one rule: an eligible card takes a free seat on a node or
+      // on the cloud as soon as one exists, whatever this Mac's memory floor is
+      // doing. There is no hold to wait out any more: the card does not answer
+      // to the floor over there, so a free seat always beats a wait here.
+      if (!remoteCard(t) && !manualMemoryStartSelected && overflowCardToFreeSeat(t, settings, overflowRound)) {
         remoteIds.add(t.id);
       }
       const remoteTask = remoteCard(t);
@@ -6725,8 +6845,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // must not remain attached to a dead run.
           clearNoCheckReservation(t.id);
           // Sets inFlight synchronously → the 10s poll can never double-fire.
-          if (rejection) void resume(t.id, rejection.text, { commentIds: rejection.commentIds });
-          else void resume(t.id, "", { continuation: true });
+          if (rejection) void resumeInBackground(t.id, rejection.text, { commentIds: rejection.commentIds });
+          else void resumeInBackground(t.id, "", { continuation: true });
           // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
           // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
           // already say which one it was. Counting the call wrote «riprese» for
@@ -6858,10 +6978,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    significava pagare quel cestino ogni 10 secondi.
     if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) {
       // The switch is global (a board's `autoDispatch` reads and writes it).
-      // Nothing ticks with it off, so no round breaks a hold: the
-      // overflow's clocks go here, or a card held before the switch went off
-      // moved on the first round after it came back, with no wait at all.
-      for (const id of [...memoryHeldSince.keys()]) forgetOverflowClock(id);
+      // Nothing ticks with it off, so no round can clear a stale hold record:
+      // they go here, along with the carried-branch answers they keep alive.
+      for (const id of [...memoryHeldCards.keys()]) forgetOverflowClock(id);
       return;
     }
     const acceso = (projectId: string): boolean => {
@@ -7123,6 +7242,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // holding a handle on. Hiding it there would make a drain believe the board
     // is idle while a poll is still mirroring a card.
     busyIds: () => [...inFlight.keys()],
+    nodeStatus: () => {
+      let machines: OverflowMachine[] = [];
+      try { machines = deps.overflowMachines?.() ?? []; } catch { machines = []; }
+      return machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        kind: m.kind,
+        online: m.online,
+        slots: effectiveSlots(m),
+        used: machineLoad(m.id),
+      }));
+    },
     busySessionKeys: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((key) => key !== ""),
     // The same filter as `busyCount`: a run riding on a node holds no turn on
     // this machine, so it is not what a restart here waits for.

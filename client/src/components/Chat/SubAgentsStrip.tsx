@@ -1,6 +1,6 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { AlarmClock, CircleCheck, ExternalLink, Hourglass, Server, Square, SquareTerminal, X } from 'lucide-react';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { AlarmClock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
+import { StatusIcon } from '../Board/atoms';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -9,6 +9,7 @@ import type { LiveAgentRow, LiveCommandRow, LiveWorkRow } from '../../../../shar
 import { dismissSubAgent, useDismissedSubAgents } from '../../state/endedSubAgents';
 import { useLiveWork, visibleRows } from '../../state/liveWork';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
+import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
@@ -100,10 +101,10 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <SparkLoader className="flex-shrink-0" />
+          ? <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />
           : state === 'waiting'
-            ? <Hourglass size={11} aria-hidden="true" className="text-amber-500 flex-shrink-0" />
-            : <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />}
+            ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
+            : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
       </button>
@@ -153,7 +154,7 @@ function CommandRow({ row, open, ended, onToggle, onStop }: {
       <div className="flex min-w-0 items-center" title={row.command}>
         <button type="button" aria-expanded={open} aria-controls={open ? logId : undefined} aria-label={title} aria-describedby={wakesId} onClick={(e) => { e.stopPropagation(); onToggle(e.currentTarget); }} className={ROW}>
           {first
-            ? <Server size={11} aria-hidden="true" className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+            ? <Server size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />
             : <SquareTerminal size={11} aria-hidden="true" className="text-app-text-secondary flex-shrink-0" />}
           <span className="max-w-[40%] flex-shrink-0 truncate text-app-text">{row.name}</span>
           {wakesId && (

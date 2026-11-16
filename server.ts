@@ -50,6 +50,7 @@ import {
   sweepArchivedTaskBrowserState,
   teardownArchivedTaskBrowserState,
 } from "./server/services/task-tab-teardown";
+import { runStayLocalSweep } from "./server/services/stay-local-sweep";
 import { createTopicsRouter, purgeTopicFromUiState, reopenDepsFor } from "./server/routes/topics";
 import { buildRouteTable, dispatchRouteTable } from "./server/route-table";
 import { createOrchestratorSessionsRouter } from "./server/routes/orchestrator-sessions";
@@ -57,6 +58,7 @@ import { archiveTopicFully, reopenTopicFully } from "./server/services/archive-t
 import { applyPaneCascade, clearRetirement, reconcile, recordRetirement, retiredIds, type ReconcileDeps } from "./server/services/retirement";
 import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession, isGlobalOrchestratorTopic } from "./server/services/global-orchestrator-session";
 import { startAiReviewNotices } from "./server/services/ai-review-notice";
+import { startCardOutcomeWake } from "./server/services/card-outcome-wake";
 import { logActivity } from "./server/db/activity-log";
 import { computeCascade } from "./server/services/pane-retirement-cascade";
 import { createOpenRouter } from "./server/routes/open";
@@ -65,10 +67,10 @@ import { setUploadRootsProvider } from "./server/browser-tool-dispatcher";
 import { setLocalFileServing } from "./server/browser-local-file-url";
 import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowlist";
 import { servedFileHeaders } from "./server/lib/served-file-headers";
-import { sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
+import { foregroundToolHold, sweepStaleStreams, rescueByOwner, staleTickMs, onStaleTickChange, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
+import { endReattachLeg, finalizeStaleRowWhenFree } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatGraceMs, chatsHolding, describeInFlight, dispatchDoor, sharedWait, turnComesBack as turnComesBackDecision, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice, unrecoverableHolders } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
@@ -230,6 +232,7 @@ import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } fr
 import { createProvidersRouter } from "./server/routes/providers";
 import { createAppSettingsRouter } from "./server/routes/app-settings";
 import { createCalendarRouter } from "./server/routes/calendar";
+import { createHeavySlotRouter } from "./server/routes/heavy-slot";
 import { createAgentChannelsRouter } from "./server/routes/agent-channels";
 import { createAgentConfigRouter } from "./server/routes/agent-config";
 import {
@@ -251,13 +254,15 @@ import { createViewsRouter } from "./server/routes/views";
 import { createClaudeSessionTracker } from "./server/lib/claude-session-tracker";
 import { evaluateAuth, isAllowedHost, isDesktopShellOrigin, isLoopbackAddress, isOriginGatedPath, isWebSocketPath, resolveAllowedOrigins } from "./server/lib/auth-gate";
 import { upgradeWebSocket } from "./server/lib/ws-upgrade";
+import { VOICE_BRIDGE_PATH, VoiceBridgeSession } from "./server/services/voice-call/bridge";
+import type { Complete } from "./server/services/voice-call/brain";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isViaTunnel, isLocalTransport, clientIpOf, tunnelPort, httpTunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
 import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
-import { isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { findClaudeTranscript, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
 import { keepLiveTranscripts, restoreSweptTranscript } from "./server/lib/transcript-keeper";
 import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
@@ -278,6 +283,7 @@ import {
   cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl, resolveGithubSlug,
 } from "./server/providers/claude-cloud/node";
 import { bundleBranch, ensureBranchOnOrigin } from "./server/services/branch-on-origin";
+import { repoIdentity } from "./server/lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "./server/services/dispatch-overflow";
 import { createDelegatedRevocationRetry } from "./server/services/delegated-revocation-retry";
 import { initVapid } from "./server/push-service";
@@ -672,6 +678,22 @@ try {
 } catch (err) {
   // Non-fatale come sopra: al massimo lo snapshot resta grasso un boot in più.
   console.error("[Startup] tab dei task archiviati: ripasso fallito:", err);
+}
+
+// The permanent "this Mac only" pins, decided once (`services/stay-local-sweep.ts`).
+// A pin with no expiry is never lifted by anything else, so a card whose text
+// names nothing mac-only stays stuck here for good. The sweep clears those and
+// says why on the thread; a card it already decided is left alone, so a person
+// who pins it again keeps the pin.
+try {
+  const sweep = runStayLocalSweep(db);
+  console.log(
+    `[Startup] stay-local sweep: scanned ${sweep.scanned}, cleared ${sweep.cleared}, ` +
+      `kept ${sweep.kept}, already decided ${sweep.skipped}`,
+  );
+} catch (err) {
+  // Non-fatal: a pin that outlives its reason costs a card its mobility, not the boot.
+  console.error("[Startup] stay-local sweep failed:", err);
 }
 
 // Init AI provider — pick the boot default:
@@ -1077,6 +1099,16 @@ const billingRouter = createBillingRouter(ctx);
  * Il punto e' che l'identita' si calcola UNA volta. Ricalcolarla nelle rotte
  * significherebbe due query e — peggio — due verita' possibili sullo stesso giro.
  */
+/**
+ * The brain of the phone calls: `complete()` of the provider named by
+ * TOPICS_VOICE_BRAIN_PROVIDER, or of the default one. Resolved at each call,
+ * so a provider that comes up later is used from the next call.
+ */
+const voiceBrainDoor = (): Complete | null => {
+  const p = tryGetProvider(process.env.TOPICS_VOICE_BRAIN_PROVIDER?.trim() || undefined);
+  return p ? (messages, options) => p.complete(messages, options) : null;
+};
+
 const identityByRequest = new WeakMap<Request, {
   role: 'owner' | 'guest';
   deviceId: string | null;
@@ -1373,6 +1405,14 @@ async function watchHeadlessBody(
     isWaitingForBackground: stallBackgroundHold(sessionKey),
     // A foreground spawn_agent waiting for its child: our own wait as well.
     isWaitingForSubagent: () => awaitsForegroundChild(sessionKey),
+    // A foreground command (cargo test, a mutation run) is still executing: the
+    // transcript tail is silent for all of it and the judge would misread it.
+    isToolRunning: () => {
+      const stream = activeStreams.get(sessionKey);
+      // The row is written on a throttle: flush so the running tool's line is on it.
+      if (stream) flushTurnBody(sessionKey);
+      return !!stream && foregroundToolHold(getMessageById(stream.messageId), Date.now());
+    },
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     // Once per change of reason: a hold lasting an hour rearmed every five
@@ -1389,6 +1429,8 @@ async function watchHeadlessBody(
             ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
           : reason === "subagent"
             ? `[turn] stall watch rearmed on ${sessionKey}: it waits in the foreground for a sub-agent, that wait is ours`
+          : reason === "tool"
+            ? `[turn] stall watch rearmed on ${sessionKey}: a tool call is still running, the judge is not asked`
           : reason === "checks"
             ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
             : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -1877,6 +1919,23 @@ const cloudNode = createCloudNodeClient({
   },
   statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
 });
+// ONE road to a node for everything that talks to one: the card lane below and
+// the sub-agent routes (`ctx.remoteNode`). The «Cloud Claude» machine answers on
+// the sessions API with its own token, never on a paired Topics with a token file.
+const remoteNodeRoad = {
+  readRun: (input: Parameters<typeof nodeClient.readRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+  cancelRun: (input: Parameters<typeof nodeClient.cancelRun>[0]) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
+  // A child never picks the cloud machine as a seat (`childNodeCandidates`,
+  // `routes/terminal.ts`): it has no card to mirror a cloud session onto. Both
+  // stay on the paired-node client only, same door a card's `createRun` uses.
+  createRun: (input: Parameters<typeof nodeClient.createRun>[0]) => nodeClient.createRun(input),
+  fetchBundle: (input: Parameters<typeof nodeClient.fetchBundle>[0]) => nodeClient.fetchBundle(input),
+  baseUrlOf: (machineId: string) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
+  tokenOf: (machineId: string) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
+    ? CLOUD_NODE_TOKEN
+    : readNodeToken(ctx.STATE_DIR, machineId),
+};
+ctx.remoteNode = remoteNodeRoad;
 const cloudEnabled = cloudCredentialsPresent();
 if (cloudEnabled) {
   // Un nodo accoppiato che si chiama proprio «claude-cloud» resta suo: non gli si riscrive l'indirizzo.
@@ -2287,18 +2346,24 @@ const taskDispatcher = createTaskDispatcher({
   // Claude Code sessions API (`providers/claude-cloud/node.ts`), never to a paired Topics.
   node: {
     createRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.createRun(input) : nodeClient.createRun(input),
-    readRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.readRun(input) : nodeClient.readRun(input),
+    readRun: remoteNodeRoad.readRun,
     fetchBundle: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.fetchBundle(input) : nodeClient.fetchBundle(input),
-    cancelRun: (input) => isCloudBaseUrl(input.baseUrl) ? cloudNode.cancelRun(input) : nodeClient.cancelRun(input),
-    baseUrlOf: (machineId) => ctx.machineStore.get(machineId)?.baseUrl ?? null,
-    tokenOf: (machineId) => isCloudBaseUrl(ctx.machineStore.get(machineId)?.baseUrl)
-      ? CLOUD_NODE_TOKEN
-      : readNodeToken(ctx.STATE_DIR, machineId),
+    cancelRun: remoteNodeRoad.cancelRun,
+    baseUrlOf: remoteNodeRoad.baseUrlOf,
+    tokenOf: remoteNodeRoad.tokenOf,
     delegatedTokenOf: (machineId, capabilityId) =>
       readDelegatedNodeToken(ctx.STATE_DIR, machineId, capabilityId),
     nameOf: (machineId) => ctx.machineStore.get(machineId)?.name ?? null,
     localMachineId: () => ctx.machineStore.upsertLocal().id,
     originUrlOf: (projectId) => nodeBranchPlanter.originUrlOf(projectId),
+    // The same checkout the planter reads origin from: the node must sign the
+    // run's commits with it, or the land (LAND-13) refuses them as a foreign author.
+    gitIdentityOf: (projectId) => {
+      const path = projectPathForNode(projectId);
+      return path ? repoIdentity(path) : Promise.resolve(null);
+    },
+    // The Claude cloud signs its own branch: no checkout identity to pass or to require.
+    skipsGitIdentity: (baseUrl) => isCloudBaseUrl(baseUrl),
     plantBranch: (input) => nodeBranchPlanter.plantBranch(input),
     // A card that already has a branch carries it to the node: pushed first,
     // from this machine's checkout (`branch-on-origin.ts`).
@@ -2658,7 +2723,9 @@ const taskAutoMerge = createTaskAutoMerge({
   // non-landabile. La card però il ramo lo dichiara da sé (`delivery_branch`,
   // registrato quando è entrata in review), e il checkout del suo progetto si
   // ricava dal board id come fa l'audit: invertendo l'hash del percorso.
-  ownBranches: (taskId) => taskAttemptStore.list(taskId).map((a) => a.branch).filter((b): b is string => typeof b === "string" && b.length > 0),
+  // Attempt branches plus the card's own delivery/prior pointers: an old delivery
+  // branch of the same card is its history, never "another session".
+  ownBranches: (taskId) => cardOwnBranches(taskId),
   declaredDelivery: (taskId) => {
     const task = dispatcherSvc.get(taskId)?.task;
     if (!task) return null;
@@ -2700,9 +2767,7 @@ const worktreeGc = createWorktreeGcRunner({
   broadcast: (msg) => ctx.broadcastToAll(msg as Parameters<typeof ctx.broadcastToAll>[0]),
   isInFlight: (taskId) => taskDispatcher.isInFlight(taskId),
   worktreeOfTask: (taskId) => worktreeOfTask(taskId),
-  projectIdForPath: (path) => projectIdForPath(path),
   deliveryIsOnMain: (repoPath, commit) => deliveryIsOnMain(repoPath, commit),
-  tryMerge: (taskId, text, delivery) => taskAutoMerge.tryMerge(taskId, text, delivery),
   previewList: () => previewManager?.list() ?? [],
   previewTeardown: (taskId) => previewManager?.teardown(taskId) ?? Promise.resolve(),
   // PUNTO 3 (task e3240a22): lista degli script vivi per rimandare lo slim.
@@ -2768,6 +2833,20 @@ const deliveryBranchDeps = (candidati?: ReturnType<typeof buildProjectCandidates
   branchExists: (repoPath, branch) => branchExistsInRepo(repoPath, branch),
 });
 
+/**
+ * The card's own branch history: attempt branches plus its delivery and earlier delivery
+ * pointers. An old branch of the same card is its history, never "another session", and
+ * both the land and the delivery capture must leave it out of the subtraction: the capture
+ * did not, so a re-delivery on a fresh branch whose commits were all reachable from the
+ * card's previous branch recorded "no commit of its own", got no checks and sat in review
+ * (14/11, 19d684fb and 30f7c880).
+ */
+function cardOwnBranches(taskId: string): string[] {
+  const task = dispatcherSvc.get(taskId)?.task;
+  const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
+  return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+}
+
 const taskDeliveryRef = async (taskId: string) => {
     const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
     if (!ref) return null;
@@ -2785,7 +2864,7 @@ const taskDeliveryRef = async (taskId: string) => {
     // già su main da una settimana. Registrarla avrebbe fatto leggere al
     // reviewer il diff sbagliato e all'audit un «atterrato» falso, che è
     // esattamente il guasto per cui l'audit esiste.
-    const pointer = await deliveryPointer(ref.repoPath, ref.branch).catch(() => null);
+    const pointer = await deliveryPointer(ref.repoPath, ref.branch, { ownRefs: cardOwnBranches(taskId) }).catch(() => null);
     if (!pointer) return null;
     // QUANTO lavoro c'è dentro, misurato QUI e non a ogni render della board.
     //
@@ -2949,6 +3028,8 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // The count the restart gate waits on (see `autoLandTurnCount`).
   liveTurnCount: autoLandTurnCount,
   ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
+  // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
+  integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
   // A throwaway checkout of a branch planted from another machine, so its bar
   // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
   nodeDeliveryCheckout: async (taskId) => {
@@ -3142,6 +3223,8 @@ const providersRouter = createProvidersRouter(ctx);
 const appSettingsRouter = createAppSettingsRouter(ctx);
 // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
 const calendarRouter = createCalendarRouter(ctx);
+// The machine-wide queue for heavy commands, asked by every harness on this Mac.
+const heavySlotRouter = createHeavySlotRouter(ctx);
 // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
 const agentChannelsRouter = createAgentChannelsRouter(ctx);
 // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
@@ -3235,6 +3318,10 @@ const nodesRouter = createNodesRouter(ctx, {
   deleteBoardTask: deleteDelegatedBoardTask,
   revocations: delegatedRevocations,
   onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
+  worktreeOfTask: (taskId) => {
+    const wt = worktreeOfTask(taskId);
+    return wt ? { absPath: wt.absPath, branchName: wt.branchName, mode: wt.mode } : null;
+  },
   // The browser acceptance server intentionally has no live coding account.
   // Give only that hermetic process one inert catalogue value so it can prove
   // the authorization handshake without probing or invoking an LLM.
@@ -3721,6 +3808,7 @@ const apiRouteTable = buildRouteTable({
   providersRouter,
   appSettingsRouter,
   calendarRouter,
+  heavySlotRouter,
   agentChannelsRouter,
   agentConfigRouter,
   tabsRouter,
@@ -4118,6 +4206,10 @@ const opzioniServer = {
     // terminal and browser used to omit it, so revoking their device closed
     // chat while leaving the terminal keyboard and browser controls alive.
     if (isWebSocketPath(pathname)) {
+      // A phone call is the owner's: a guest or a delegated node never opens one.
+      if (pathname === VOICE_BRIDGE_PATH && identityByRequest.get(req)?.role !== "owner") {
+        return new Response(JSON.stringify({ error: "voice bridge: owner only", code: "forbidden" }), { status: 403, headers: { "content-type": "application/json" } });
+      }
       const wsUpgrade = upgradeWebSocket(
         req, pathname, server, identityByRequest.get(req) ?? null, isRemotePeer(req, server),
       );
@@ -4363,7 +4455,21 @@ const opzioniServer = {
             },
           });
         }
-      } catch {}
+      } catch (err) {
+        // `Bun.file(...).exists()` resolves to `false` on every stat error this
+        // machine could produce (verified by hand: ENOENT, a path through a
+        // non-directory, a name long enough for ENAMETOOLONG — none of them
+        // throw), so nothing between here and the `return` above is known to
+        // reach this catch today. The real byte-for-byte read (the one that
+        // CAN throw EACCES, e.g. a 0-perm file whose `stat` still succeeds)
+        // happens lazily once Bun streams the returned `Response` body, which
+        // is after this function has already returned — outside this
+        // try/catch entirely. Kept as a backstop (logged, not swallowed) for
+        // whatever future Bun behavior or edge case does land here; not
+        // covered by an automated test for the reason above.
+        console.warn("[preview] read failed", resolved, err);
+        return new Response("Internal Server Error", { status: 500 });
+      }
       return new Response("Not Found", { status: 404 });
     }
 
@@ -4423,6 +4529,17 @@ const opzioniServer = {
      */
     open(ws) {
       ws.data.lastPong = Date.now();
+      // A voice bridge is not a device of the app: no broadcasts, no presence. It
+      // still sits in deviceSockets, the set revocation walks: a device revoked or
+      // demoted mid-call must lose the bridge too, not keep a 30-minute call.
+      if (ws.data.voiceBridge) {
+        ctx.deviceSockets.add(ws);
+        ws.data._voice = new VoiceBridgeSession(
+          { send: (d) => void ws.send(d), close: (code, reason) => ws.close(code, reason), bufferedAmount: () => ws.getBufferedAmount() },
+          { complete: voiceBrainDoor },
+        );
+        return;
+      }
       ctx.deviceSockets.add(ws);
       if (ws.data.deviceId) noteDeviceConnected(ws.data.deviceId);
 
@@ -4693,6 +4810,11 @@ const opzioniServer = {
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
+      if (ws.data._voice) {
+        if (typeof message === "string") ws.data._voice.onText(message);
+        else ws.data._voice.onBinary(new Uint8Array(message.buffer, message.byteOffset, message.byteLength));
+        return;
+      }
       refreshSocketPrincipal(ctx.db, ws.data);
 
       // Phase 30 BROWSER-CHAT-02 — browser WS branch.
@@ -4784,7 +4906,15 @@ const opzioniServer = {
             // Il `message` handler non e' async: si sequenzia in una IIFE, che
             // e' comunque l'ordine che serve (prima lo stop, poi la distruzione).
             void (async () => {
-              try { await cleanup?.(); } catch {}
+              try {
+                await cleanup?.();
+              } catch (err) {
+                // Logged, not swallowed: a failed screencast stop is worth a trace.
+                // It does not skip the destroy below, which runs regardless and is
+                // what kills the ghost context. No automated test: this needs a live
+                // native-delegate WebSocket plus a real browser context to throw in.
+                console.warn(`[WS][browser] cleanup failed for ${ctxId}:`, err);
+              }
               // La condizione NON e' «l'ho creato io» ma «lo sta guardando
               // qualcun altro?».
               //
@@ -5143,6 +5273,11 @@ const opzioniServer = {
     },
     pong(ws) { ws.data.lastPong = Date.now(); },
     close(ws, code, reason) {
+      if (ws.data._voice) {
+        ctx.deviceSockets.delete(ws);
+        ws.data._voice.onClose();
+        return;
+      }
       if (code === 1009) console.warn(`[WS] payload socket oltre il limite ${WS_TRANSPORT_OPTIONS.maxPayloadLength} B (${ws.data.id}): ${reason || "Payload Too Large"}`);
       ctx.deviceSockets.delete(ws);
       if (ws.data.deviceId) noteDeviceDisconnected(ws.data.deviceId);
@@ -5490,7 +5625,7 @@ function runStaleStreamPass(): void {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: (args) => finalizeStaleRow(db, args),
+    finalizeMessage: (args) => finalizeStaleRowWhenFree(db, args),
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),
@@ -6140,6 +6275,8 @@ function reconcileOrphanedTranscripts(): void {
         nowMs: now,
         graceMs: ORPHAN_TRANSCRIPT_GRACE_MS,
         transcriptExists: existsSync,
+        // Moved, not gone: `--resume` finds it by id from any folder.
+        findAnywhere: (id) => findClaudeTranscript(cwd ?? "/", id),
       })
     )
       continue;
@@ -6317,6 +6454,8 @@ const resumeCtx: CtxRipresa = {
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
+  // The resend carries `ripresa`, so the route's gate ignores the boot hold too.
+  turnOpen: (sk) => turnLedger.isOpen(sk, { ignore: ["boot"] }),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
@@ -6380,6 +6519,21 @@ void survivingTurnsAdopted
     broadcast: (msg) => ctx.broadcastToAll(msg),
     recordActivity: logActivity,
     log: (m) => console.log(`[ai-review] ${m}`),
+  }));
+// A card a chat sent to work wakes that chat when it reaches review or done,
+// or fails, on the same condition as the wakes above.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startCardOutcomeWake({
+    route: topicsRouter,
+    isBusy: (sk) => activeStreams.has(sk),
+    sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
+    canWake: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
+      return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
+    },
+    log: (m) => console.log(`[card-outcome] ${m}`),
   }));
 // Native children still `running` after the restart: their turn may have been
 // resumed with their chat, or lost with the process. Watched, then reported.

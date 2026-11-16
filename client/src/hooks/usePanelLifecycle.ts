@@ -648,9 +648,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     } catch { return {}; }
   });
 
-  // DraftMeta persistence
+  // DraftMeta persistence — the sole copy of a draft's project association;
+  // a failure here only costs something after a reload, but it costs it
+  // silently otherwise.
   useEffect(() => {
-    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch {}
+    try { localStorage.setItem('draft-meta', JSON.stringify(draftMeta)); } catch (e) { console.warn('[usePanelLifecycle] draft-meta could not be saved, a reload will lose each draft\'s project', e); }
   }, [draftMeta]);
 
   // DraftMeta 24h cleanup

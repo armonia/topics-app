@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { StatusIcon } from './atoms';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
 // ── The live chips of a working card ──────────────────────────────────────
@@ -120,7 +120,7 @@ export function LiveEffortChip({ usage, label, trailing }: { usage: LiveUsage; l
       className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
     >
       <span className="flex min-w-0 items-center gap-1.5 break-words">
-        <SparkLoader className="shrink-0" />
+        <StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />
         <span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">

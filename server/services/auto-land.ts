@@ -33,16 +33,15 @@
  *      again at every beat of the wait AND, inside the repo's queue, a moment
  *      before the merge itself (`recheck`, asked as `DeliverySnapshot.beforeMerge`),
  *      because the wait lasts hours and the queue and the fetch minutes.
- *   9. a list of words cannot say that a file is harmless: 242 files of
- *      `server/lib|services|utils` passed the vocabulary net, among them the one
- *      that builds the agents' environment, the one that runs the bar and the one
- *      that sets the restart gate. So only TEXT AND TESTS land alone (`docs/`,
- *      `openspec/`, test files); everything else, `server/**` included, is a
- *      person's. A reviewer AI will be able to unblock server code only with an
- *      identity the server verifies, never with a line in a comment (a comment is
- *      signed by whatever session the URL names).
+ *   9. what only a person can judge stays a person's, named by place
+ *      (`personPlace`): the interface, the public site, what reaches people,
+ *      security and money, the dependency set, and the judge itself. Until
+ *      14/11/2026 the net was the other way round (only text and tests landed
+ *      alone, after 242 server files had slipped through a list of words); the
+ *      owner's rule of 09/11 turned it: technical cards close themselves, with
+ *      the whole bar green on the commit that lands.
  */
-import { STAGE_AI_REVIEW, agentAskInThread } from "../../shared/workflow";
+import { STAGE_AI_REVIEW, agentAskInThread, type PersonPath } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { isThreadSpeech, type CheckRun } from "../../shared/board";
@@ -144,29 +143,73 @@ function personSpokeSinceReview(reviewAt: string | null, thread: ReadonlyArray<A
 }
 
 /**
- * WHAT MAY LAND WITH NO ONE LOOKING: text and tests, by PLACE.
+ * WHAT MAY LAND WITH NO ONE LOOKING: everything technical, by PLACE.
  *
- *   - `docs/**` and `openspec/**`: nothing reads them as code;
- *   - a test file: `*.test.ts` beside its module, `tests/unit/**`,
- *     `tests/integration/**`, and `tests/e2e/**` specs.
+ * Until 14/11/2026 only text and tests landed alone, and every line of
+ * server code waited for a person: 104 cards closed by hand in two weeks, a
+ * median of 4.8 hours each in review. The rule is the other way round:
+ * technical cards close themselves; a person looks only at what only a person
+ * can judge. The list below is the GENERIC part, true of any repository:
  *
- * Out even when they sit under those folders, because they are not tests but
- * part of what judges or runs them: `tests/setup/**` (the preload every run
- * loads), every `*.json`, every snapshot, `scripts/**`, `.github/**`, and any
- * file that `bunfig.toml`, `scripts/`, `package.json` or `.github/` NAME
- * (`referencedByTheJudge`, asked of git at the commit).
+ *   - what a person SEES: interface files by kind (`.tsx`, `.vue`, `.css`...),
+ *     the README and the licence;
+ *   - what REACHES a person or a third party: push, presence, notifications,
+ *     mail, channels, voice, shares and guests;
+ *   - SECURITY and MONEY: auth, tokens, secrets, the environment an agent runs
+ *     in, licences, billing and prices, and the dependency set (manifests and
+ *     lockfiles: installing a package is running its code);
+ *   - THE JUDGE: the CI configuration and snapshots. An agent that edits its
+ *     own judge would sign its own release.
+ *
+ * What is specific to ONE repository (its interface folder, its release
+ * scripts, the files of its own judge) is the board's, in its workflow rules
+ * (`shared/workflow.ts` `PersonPath`, the board settings panel): Topics is for
+ * anyone, and a list of one project's files here would bind every board to it.
+ *
+ * Migrations land alone: they are code like any other, and a database with
+ * backups undoes a bad one by a restore.
  */
-export function mayLandAloneByPlace(path: string): boolean {
-  if (/(^|\/)node_modules\//.test(path)) return false;
-  if (path.startsWith("tests/setup/") || path.startsWith("scripts/") || path.startsWith(".github/")) return false;
-  if (/\.json$/i.test(path)) return false;
-  if (/(^|\/)(__snapshots__|[^/]*-snapshots)\//.test(path) || /\.snap$/.test(path)) return false;
-  if (path.startsWith("docs/") || path.startsWith("openspec/")) return true;
-  if (path.startsWith("tests/")) {
-    if (path.startsWith("tests/unit/") || path.startsWith("tests/integration/")) return true;
-    return path.startsWith("tests/e2e/") && /\.spec\.[jt]sx?$/.test(path);
+const GENERIC_PERSON_PLACES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(^|\/)node_modules\//, "dependencies"],
+  [/\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less|html)$/i, "interface"],
+  [/^(README|LICENSE|PRIVACY|SECURITY|THIRD-PARTY-NOTICES)(\.|$)/i, "public text"],
+  [/(^|\/)\.gitattributes$/, "the judge"],
+  [/(^|\/)(Dockerfile|docker-compose[^/]*\.ya?ml)$/i, "release or infrastructure"],
+  [/(^|\/)[^/]*(push|presence|discord|notif|mail|channel|voice|whatsapp|telegram|share(?!d(\/|$))|guest)[^/]*(\/|$)/i, "reaches a person"],
+  [/(^|\/)[^/]*(auth(?!or)|token|secret|crypt|creds?(\b|_|-|\.)|credential|permission|sandbox|relay|agent-env|child-env|licen[cs]|licenza|billing|stripe|pricing)[^/]*(\/|$)/i, "security or money"],
+  [/(^|\/)(package\.json|bun\.lockb?|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bunfig\.toml|Cargo\.(toml|lock)|go\.(mod|sum)|requirements[^/]*\.txt|pyproject\.toml|poetry\.lock|uv\.lock|Gemfile(\.lock)?|composer\.(json|lock))$/, "dependencies or runner"],
+  [/^(\.github|\.gitlab|\.circleci|\.buildkite)\//, "the judge"],
+  [/(^|\/)(\.gitlab-ci\.ya?ml|Jenkinsfile|azure-pipelines\.ya?ml)$/, "the judge"],
+  [/(^|\/)(__snapshots__|[^/]*-snapshots)\/|\.snap$/, "the judge"],
+];
+
+const TEST_FILE = /\.(test|spec)\.[jt]sx?$/;
+
+/** A board's paths, compiled once per list (the same array object comes back from one read). */
+const compiled = new WeakMap<readonly PersonPath[], ReadonlyArray<readonly [InstanceType<typeof Bun.Glob>, string]>>();
+function boardGlobs(extra: readonly PersonPath[]): ReadonlyArray<readonly [InstanceType<typeof Bun.Glob>, string]> {
+  let g = compiled.get(extra);
+  if (!g) {
+    g = extra.map((p) => [new Bun.Glob(p.pattern), p.why] as const);
+    compiled.set(extra, g);
   }
-  return /\.(test|spec)\.[jt]sx?$/.test(path);
+  return g;
+}
+
+/**
+ * Why a file is a person's to look at, or `null` when it may land with no one
+ * looking. `extra` = the board's own paths (`WorkflowRules.personPaths`).
+ */
+export function personPlace(path: string, extra: readonly PersonPath[] = []): string | null {
+  // A test is a test wherever it lives, except inside the CI configuration itself.
+  if (TEST_FILE.test(path) && !/^(\.github|\.gitlab|\.circleci|\.buildkite)\//.test(path)) return null;
+  for (const [re, why] of GENERIC_PERSON_PLACES) if (re.test(path)) return why;
+  for (const [glob, why] of boardGlobs(extra)) if (glob.match(path)) return why;
+  return null;
+}
+
+export function mayLandAloneByPlace(path: string, extra: readonly PersonPath[] = []): boolean {
+  return personPlace(path, extra) === null;
 }
 
 /** Who must look at a delivery: no one (`alone`) or a person. */
@@ -179,12 +222,12 @@ export interface DeliveryReading {
 }
 
 /**
- * One file that is not text or a test makes the whole delivery a person's.
+ * One file in a person's place makes the whole delivery a person's.
  * `judged` are the files that the bar's own configuration names; they are never
  * "alone", whatever their folder.
  */
-export function classifyDelivery(files: readonly string[], judged: ReadonlySet<string> = new Set()): DeliveryReading {
-  const person = files.filter((f) => !mayLandAloneByPlace(f) || judged.has(f));
+export function classifyDelivery(files: readonly string[], judged: ReadonlySet<string> = new Set(), extra: readonly PersonPath[] = []): DeliveryReading {
+  const person = files.filter((f) => !mayLandAloneByPlace(f, extra) || judged.has(f));
   return person.length > 0 ? { tier: "person", files: person } : { tier: "alone", files: [] };
 }
 
@@ -234,6 +277,10 @@ interface AutoLanderDeps {
    * turn: a question it writes right after would be cut before anyone read it.
    */
   cardTurnLive?: (taskId: string) => boolean;
+  /** The board's own paths a person must look at (its workflow rules); absent = the generic list only. */
+  personPaths?: (projectId: string) => readonly PersonPath[];
+  /** Does a server diff of this card wait for ZERO open turns? Absent = yes. */
+  waitsForTurns?: (taskId: string) => boolean;
   pollMs?: number;
   maxWaitMs?: number;
   log?: (line: string) => void;
@@ -304,7 +351,9 @@ export function createAutoLander(deps: AutoLanderDeps) {
     // A land that cannot say what it changes does not happen: the paths are the only reading of "a person must look".
     if (files === null) return { ok: false, reason: "the files of the delivery could not be read" };
     // Which of the test and document files the bar's own configuration names: those are the judge, not tests.
-    const candidates = files.filter(mayLandAloneByPlace);
+    let extra: readonly PersonPath[] = [];
+    try { extra = deps.personPaths?.(projectId) ?? []; } catch { return { ok: false, reason: "the board's paths a person must look at could not be read" }; }
+    const candidates = files.filter((f) => mayLandAloneByPlace(f, extra));
     let judged = new Set<string>();
     if (candidates.length > 0) {
       let named: string[] | null = null;
@@ -312,7 +361,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
       if (named === null) return { ok: false, reason: "what the bar's configuration names could not be read" };
       judged = new Set(named);
     }
-    const reading = classifyDelivery(files, judged);
+    const reading = classifyDelivery(files, judged, extra);
     if (reading.tier === "person") {
       return { ok: false, reason: `the delivery touches what a person must look at (${reading.files.slice(0, 3).join(", ")})` };
     }
@@ -327,6 +376,7 @@ export function createAutoLander(deps: AutoLanderDeps) {
   async function mustWait(taskId: string, files: readonly string[], how: { insideLand?: boolean } = {}): Promise<boolean> {
     if (deps.cardTurnLive?.(taskId) ?? false) return true;
     if (!touchesServer(files) || !deps.liveTurns) return false;
+    if (deps.waitsForTurns && !deps.waitsForTurns(taskId)) return false;
     try { return (await deps.liveTurns(how.insideLand ? { insideLand: true } : undefined)) > 0; } catch { return true; }
   }
 

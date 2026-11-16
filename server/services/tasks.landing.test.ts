@@ -233,6 +233,21 @@ describe("settleLanded / verdetto testimoniato", () => {
     expect(c!.deliveryBranch).toBe("topics/solo-ramo");
   });
 
+  test("a candidate carries its column: review is not done debt", () => {
+    // The audit's summary line splits "not on main" into done (debt) and
+    // review (expected) by this field; a candidate without it reads as done.
+    const inReview = nuovo();
+    const closed = nuovo();
+    svc.recordDelivery({ taskId: inReview, branch: "topics/in-review", commit: "c".repeat(40) });
+    svc.recordDelivery({ taskId: closed, branch: "topics/closed", commit: "d".repeat(40) });
+    db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(inReview);
+    db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(closed);
+
+    const byId = new Map(svc.listLandingAuditCandidates().map((c) => [c.id, c.status]));
+    expect(byId.get(inReview)).toBe("review");
+    expect(byId.get(closed)).toBe("done");
+  });
+
   test("senza NESSUNA consegna la card resta fuori: non c'e' niente da chiedere", () => {
     const id = nuovo();
     db.prepare("UPDATE tasks SET status = 'done' WHERE id = ?").run(id);

@@ -1,7 +1,7 @@
 {
   "$schema": "identifier-language-baseline-v1",
   "files": {
-    "client/src/App.tsx": [
+    "client/src/app/BootDeepLinkResolver.tsx": [
       "BOOT_TAB_PERMALINK"
     ],
     "client/src/components/Auth/PairingApproval.tsx": [
@@ -66,11 +66,8 @@
     ],
     "client/src/components/Board/KanbanBoardPane.tsx": [
       "compRect",
-      "motivi",
-      "progetto",
       "raf",
-      "raf2",
-      "snelliti"
+      "raf2"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
       "expandable"
@@ -79,10 +76,7 @@
       "multi"
     ],
     "client/src/components/Board/TaskDetail.tsx": [
-      "descCard",
-      "editCancelled",
       "escGuardRef",
-      "mio",
       "openProjMenu",
       "prioBtnRef",
       "projChipRef",
@@ -365,7 +359,6 @@
       "obs"
     ],
     "client/src/components/Editor/FilePane.tsx": [
-      "cancelled",
       "filename",
       "handleBreadcrumbOpen",
       "obs"
@@ -465,7 +458,6 @@
       "RipresoBanner",
       "WokenBanner",
       "approxK",
-      "cancelled",
       "hljsReady",
       "resto",
       "ripreso",
@@ -475,14 +467,8 @@
       "adesso",
       "origine"
     ],
-    "client/src/components/Modals/NewTopicModal.tsx": [
-      "cancelled"
-    ],
     "client/src/components/Modals/TopicSettingsModal.test.tsx": [
       "reso"
-    ],
-    "client/src/components/Modals/TopicSettingsModal.tsx": [
-      "cancelled"
     ],
     "client/src/components/Profile/ProfilePane.tsx": [
       "chiesta"
@@ -652,7 +638,6 @@
       "togli"
     ],
     "client/src/components/Shared/CommandPalette.tsx": [
-      "cancelled",
       "descBits",
       "projLabel"
     ],
@@ -882,7 +867,6 @@
     ],
     "client/src/components/Terminal/SingleTerminalPane.tsx": [
       "buf",
-      "cancelled",
       "fitAddon",
       "obs",
       "raf",
@@ -908,6 +892,9 @@
       "mapCoordinates",
       "vid"
     ],
+    "client/src/hooks/chatHistory.ts": [
+      "riconciliato"
+    ],
     "client/src/hooks/chatRequestPayload.test.ts": [
       "bolla",
       "contenuto",
@@ -923,6 +910,15 @@
     "client/src/hooks/chatRequestPayload.ts": [
       "speso",
       "testo"
+    ],
+    "client/src/hooks/chatSend.ts": [
+      "idemKey"
+    ],
+    "client/src/hooks/chatShared.ts": [
+      "SSE_FAILSAFE_MS"
+    ],
+    "client/src/hooks/chatStreamEvents.ts": [
+      "passaAncheAlMittente"
     ],
     "client/src/hooks/liveTurn.test.ts": [
       "utente"
@@ -977,14 +973,10 @@
       "bordi"
     ],
     "client/src/hooks/useChat.ts": [
-      "SSE_FAILSAFE_MS",
       "arr",
       "buf",
       "clearSSEFailsafe",
-      "idemKey",
       "liveDeltaRafRef",
-      "passaAncheAlMittente",
-      "riconciliato",
       "scheduleSSEFailsafe",
       "sseFailsafeRef",
       "toolUpdateRafRef"
@@ -995,11 +987,7 @@
       "SRV_U2"
     ],
     "client/src/hooks/useClaudeSessionState.ts": [
-      "cancelled",
       "flushRafRef"
-    ],
-    "client/src/hooks/useCostProbe.ts": [
-      "cancelled"
     ],
     "client/src/hooks/useDetectedScripts.ts": [
       "VUOTO",
@@ -1084,9 +1072,6 @@
       "unsubscribe",
       "urlBase64ToUint8Array"
     ],
-    "client/src/hooks/useRealContext.ts": [
-      "cancelled"
-    ],
     "client/src/hooks/useRemoteBrowser.ts": [
       "MAX_DSF",
       "WEBRTC_CONNECT_TIMEOUT_MS",
@@ -1095,7 +1080,6 @@
       "WEBRTC_NO_ANSWER_TIMEOUT_MS",
       "WEBRTC_RETRY_DELAY_MS",
       "armWebrtcWatchdog",
-      "cancelled",
       "coords",
       "dsf",
       "dsfRef",
@@ -1192,7 +1176,6 @@
       "ttsAudioRef"
     ],
     "client/src/hooks/useTauriBrowser.ts": [
-      "cancelled",
       "fwd"
     ],
     "client/src/hooks/useWaitedProcess.test.ts": [
@@ -1216,9 +1199,11 @@
       "perdiIlFilo",
       "persa"
     ],
-    "client/src/lib/api.ts": [
-      "ProfiloGitHubClient",
+    "client/src/lib/apiBase.ts": [
       "obj"
+    ],
+    "client/src/lib/apiSystem.ts": [
+      "ProfiloGitHubClient"
     ],
     "client/src/lib/auth/session.test.ts": [
       "fetchVero",
@@ -1851,8 +1836,7 @@
       "dopo"
     ],
     "client/src/state/useSignalsSync.ts": [
-      "byCsid",
-      "cancelled"
+      "byCsid"
     ],
     "client/src/state/workLongevity.test.ts": [
       "ferma",
@@ -2724,7 +2708,6 @@
       "CARTELLI_RIPRENDIBILI",
       "CAUSE_NOSTRE",
       "avvisoPerTurno",
-      "cancelledNotice",
       "eCartelloDiInterruzione",
       "perche"
     ],
@@ -3683,7 +3666,6 @@
     ],
     "server/providers/stop-reason.ts": [
       "ACP_STOP_REASONS",
-      "cancelled",
       "isAcpStopReason"
     ],
     "server/providers/types.ts": [
@@ -3820,27 +3802,11 @@
       "evalResult"
     ],
     "server/routes/chat.ts": [
-      "adoptWoken",
       "adottaTurnoVivo",
-      "avviso",
-      "candidati",
-      "cevt",
       "chatIdempotency",
-      "evt",
-      "haProdotto",
       "idempotencyKey",
       "idempotencySlot",
-      "inTok",
-      "isWoken",
-      "localhostScanCarry",
-      "localhostScanWindow",
-      "outTok",
-      "riprendeDaSolo",
-      "scartata",
-      "soloCompattazione",
-      "uevt",
-      "verdetto",
-      "vuota"
+      "isWoken"
     ],
     "server/routes/claude-hooks.ts": [
       "isLocalhost"
@@ -3931,17 +3897,23 @@
       "primo",
       "secondo"
     ],
+    "server/routes/processes-detection.ts": [
+      "pcwd"
+    ],
+    "server/routes/processes-output.ts": [
+      "buf"
+    ],
+    "server/routes/processes-shells.ts": [
+      "esitoShellMorta",
+      "unregisterPreviewProcess"
+    ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"
     ],
     "server/routes/processes.ts": [
-      "buf",
       "dpid",
-      "esitoShellMorta",
-      "pcwd",
       "rilevati",
-      "rilevato",
-      "unregisterPreviewProcess"
+      "rilevato"
     ],
     "server/routes/profile.ts": [
       "servizio"
@@ -3992,6 +3964,26 @@
       "migliore",
       "prov"
     ],
+    "server/routes/tasks-checks-delivery.ts": [
+      "spente"
+    ],
+    "server/routes/tasks-intake.ts": [
+      "aggiornata",
+      "esc",
+      "fresca",
+      "migliore",
+      "prov",
+      "titoloInSottofondo"
+    ],
+    "server/routes/tasks-land.ts": [
+      "aperti",
+      "capturaConsegna",
+      "elenco"
+    ],
+    "server/routes/tasks-reap.ts": [
+      "capturaConsegna",
+      "nota"
+    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
@@ -4021,37 +4013,36 @@
       "vivo"
     ],
     "server/routes/tasks.ts": [
-      "aggiornata",
-      "aperti",
-      "capturaConsegna",
       "condivisi",
-      "elenco",
-      "esc",
-      "fresca",
       "giaScelto",
       "identita",
-      "miePath",
-      "migliore",
-      "nota",
-      "prov",
-      "spente",
-      "titoloInSottofondo"
+      "miePath"
+    ],
+    "server/routes/terminal-children.ts": [
+      "buf"
+    ],
+    "server/routes/terminal-queries.ts": [
+      "cbs"
+    ],
+    "server/routes/terminal-session-create.ts": [
+      "autoNameOpencodeSession",
+      "sweepAutoNameOpencodeSessions"
     ],
     "server/routes/terminal.ts": [
-      "autoNameOpencodeSession",
-      "buf",
-      "cbs",
       "idemKey",
-      "idempotencyCache",
-      "sweepAutoNameOpencodeSessions"
+      "idempotencyCache"
+    ],
+    "server/routes/topics-tool-response.ts": [
+      "normalised",
+      "submittedAt"
+    ],
+    "server/routes/topics-ui-state.ts": [
+      "rec"
     ],
     "server/routes/topics.ts": [
       "detectLocalhostAutoNav",
       "localhostMatch",
-      "normalised",
-      "rec",
-      "stmt",
-      "submittedAt"
+      "stmt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"
@@ -4358,7 +4349,6 @@
       "TEMI",
       "celle",
       "costo",
-      "esc",
       "riquadri"
     ],
     "server/services/profile-stats.test.ts": [
@@ -4926,6 +4916,9 @@
     "server/services/worktree-store.ts": [
       "stmt",
       "stmts"
+    ],
+    "server/silent-catch-sites.test.ts": [
+      "enc"
     ],
     "server/spa-fallback.test.ts": [
       "pathname"

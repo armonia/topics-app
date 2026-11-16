@@ -26,6 +26,9 @@ import { join } from "node:path";
 const DIR = import.meta.dir;
 const PANE = readFileSync(join(DIR, "KanbanBoardPane.tsx"), "utf8");
 const PICKER = readFileSync(join(DIR, "ProjectFilterPicker.tsx"), "utf8");
+// The header filters and the toolbar controls moved out of the pane into sibling modules.
+const FILTERS = readFileSync(join(DIR, "InlineFilters.tsx"), "utf8");
+const TOOLBAR = readFileSync(join(DIR, "BoardToolbarControls.tsx"), "utf8");
 
 /**
  * The file with its comments stripped.
@@ -225,8 +228,8 @@ describe("2. una sola porta alle impostazioni", () => {
 
 describe("3. i suggerimenti progetto stanno dentro il selettore", () => {
   test("c'e' UN componente, e la board lo usa", () => {
-    expect(PANE).toContain("import { ProjectFilterPicker } from './ProjectFilterPicker'");
-    expect(PANE).toContain("<ProjectFilterPicker");
+    expect(FILTERS).toContain("import { ProjectFilterPicker } from './ProjectFilterPicker'");
+    expect(FILTERS).toContain("<ProjectFilterPicker");
   });
 
   test("il backing e' dichiarato in tutti e due i temi", () => {
@@ -293,7 +296,7 @@ describe("5. i filtri hanno un guscio solo", () => {
     // one affordance that button has.
     const handRolled = /h-6[^"`]*(?<!hover:)bg-(black|white)\//;
     expect(handRolled.test(codeWithoutComments(FIELD)), "il campo dei token si e' rifatto il fondo da solo").toBe(false);
-    const filters = codeWithoutComments(PANE).slice(codeWithoutComments(PANE).indexOf("function InlineFilters"));
+    const filters = codeWithoutComments(FILTERS).slice(codeWithoutComments(FILTERS).indexOf("function InlineFilters"));
     expect(handRolled.test(filters), "un filtro della barra si e' rifatto il fondo da solo").toBe(false);
   });
 
@@ -331,13 +334,15 @@ describe("6. la barra ha una sola altezza, scritta una volta", () => {
     const scattered = [
       ...codeWithoutComments(CONSTANTS).matchAll(/h-6/g),
       ...codeWithoutComments(PANE).matchAll(/h-6/g),
+      ...codeWithoutComments(FILTERS).matchAll(/h-6/g),
+      ...codeWithoutComments(TOOLBAR).matchAll(/h-6/g),
       ...codeWithoutComments(PICKER).matchAll(/h-6/g),
     ];
     expect(scattered, "l'altezza della barra e' scritta in piu' di un posto").toHaveLength(1);
   });
 
   test("anche il bottone delle missioni, che l'e2e non vede mai, indossa il token", () => {
-    const missions = codeWithoutComments(PANE).slice(codeWithoutComments(PANE).indexOf("function MissionsMenu"));
+    const missions = codeWithoutComments(TOOLBAR).slice(codeWithoutComments(TOOLBAR).indexOf("function MissionsMenu"));
     const button = missions.slice(0, missions.indexOf("</button>"));
     expect(button, "il bottone delle missioni non porta l'altezza condivisa").toContain("${TOOLBAR_CONTROL_H}");
     expect(button, "un padding verticale rimette il bottone fuori misura").not.toContain("py-0.5");

@@ -155,7 +155,7 @@ function harness(o: HarnessOptions = {}) {
       nameOf: () => "Cloud Claude",
       localMachineId: () => LOCAL,
       originUrlOf: async () => "git@github.com:acme/alpha.git",
-      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", reason: null }),
+      plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
     },
     graceMs: 0,
     retryBackoffMs: 0,

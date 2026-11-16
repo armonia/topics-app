@@ -29,6 +29,7 @@ export type NodeFailureReason =
   | "branch_unreachable"
   | "payload_too_large"
   | "rejected"
+  | "model_rejected"
   | "not_found"
   | "server_error";
 
@@ -315,6 +316,7 @@ async function nodeErrorFromResponse(res: Response, what: string): Promise<NodeE
   // The node read the request and refused its content (a model outside its
   // catalog, an invalid field): the same body is refused every time, so this is
   // a verdict, not a silence.
+  if (body.code === "invalid_task_model") return new NodeError("model_rejected", msg, res.status);
   if (res.status === 400 || res.status === 422) return new NodeError("rejected", msg, res.status);
   return new NodeError("server_error", msg, res.status);
 }
@@ -515,6 +517,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         deliveryCommit: typeof out.deliveryCommit === "string" ? out.deliveryCommit : null,
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
+        reason: typeof out.reason === "string" ? out.reason : null,
       };
     },
 

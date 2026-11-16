@@ -3,7 +3,7 @@ import { memo, useState, useEffect, useCallback, useMemo, useRef, useSyncExterna
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { reviewEvidence } from '../../lib/reviewEvidence';
-import { AlarmClock, AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarClock, CircleSlash, ClipboardList, Copy, GitBranch, Hourglass, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Trash2, UserRound, X } from 'lucide-react';
+import { AlarmClock, AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarClock, CircleHelp, CircleSlash, ClipboardList, Clock, Copy, GitBranch, Link2, ListTree, Lock, MessageSquare, Plus, RotateCcw, Send, Server, ShieldCheck, Square, Timer, Trash2, UserRound, X } from 'lucide-react';
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
@@ -64,6 +64,7 @@ import { runInitiatorName } from './taskFilter';
 import { creatorChip, incompleteChip } from './createdByLabel';
 import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
+import { STATUS_CHIP, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { BoardCommandHint } from './BoardCommandHint';
 import { getProvidersSnapshotState, subscribeProvidersSnapshot } from '../../lib/providersSnapshotStore';
 import { cardRunsThroughTopics } from '../../lib/topicsRoutingGate';
@@ -1356,7 +1357,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-testid="card-waiting-on-this"
               title={waitingOnThis.title}
               className="flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
+            ><Link2 className="h-3 w-3 shrink-0" /> {waitingOnThis.label}</span>
           )}
           {task.parentTaskId && (
             <button
@@ -1378,7 +1379,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 commit: task.deliveryCommit?.slice(0, 8) ?? '?',
                 branch: task.deliveryBranch ? tr('board.card.notLandedBranch', { branch: task.deliveryBranch }) : '',
               })}
-              className="flex max-w-full items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
+              className={`flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.danger}`}
               // Il RAMO sta nel testo, non solo nel `title`: su touch l'hover non
               // esiste, e senza il nome la card dice che c'è un problema ma non
               // dove sta il lavoro. `max-w-full` più il `flex-wrap` della riga:
@@ -1407,7 +1408,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
               })}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
+            ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
           {senzaCommit && (
             <span
@@ -1467,7 +1468,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 : tr('board.card.checksRunningTitle')}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >
-              <Hourglass className="h-3 w-3 shrink-0" />
+              <Timer className="h-3 w-3 shrink-0" />
               {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
                   qualcosa in corso, ma se c'e' qualcosa in corso dovrebbe
                   esserci un progress». Il dato c'era gia' — `runReviewChecks`
@@ -1512,13 +1513,13 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
             <span
               data-testid="card-checks-unknown"
               title={tr('board.card.checksUnknownTitle')}
-              className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.wait}`}
+            ><CircleHelp className="h-3 w-3 shrink-0" /> {tr('board.card.checksUnknown')}</span>
           )}
           {checksRed && (
             <span
               title={tr('board.card.checksRedTitle', { commands: (task.checks ?? []).filter((c) => !c.ok).map((c) => c.cmd).join(', ') || tr('board.card.checksRedUnknown') })}
-              className="flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300"
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.danger}`}
             ><AlertTriangle className="h-3 w-3 shrink-0" /> {tr('board.card.checksRed')}</span>
           )}
           {task.planFirst && (
@@ -1635,7 +1636,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
               className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
-            ><Hourglass className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
+            ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
       )}
@@ -1685,7 +1686,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                   data-testid={`card-subtask-work-${s.id}`}
                   data-kind="unattended"
                   title={work.title}
-                  className="flex shrink-0 items-center gap-1 rounded bg-rose-500/20 px-1 py-0.5 text-mini text-rose-800 dark:text-rose-300"
+                  className={`flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-mini ${STATUS_CHIP.danger}`}
                 ><AlertTriangle className="h-2.5 w-2.5 shrink-0" /> {work.label}</span>
               ) : (
                 <span
@@ -1918,12 +1919,12 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           // «al lavoro», e mostrarlo come tale e' la bugia che questo chip
           // esiste per togliere.
           <span
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium bg-rose-500/15 text-rose-800 dark:text-rose-300"
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-mini font-medium ${STATUS_CHIP.wait}`}
             // Per RISPONDERE serve la sessione, non la scheda: il testo diceva
             // «il tab del task», che è l'altra superficie e non ha un campo
             // dove rispondere a un turno vivo.
             title={tr('board.task.awaitingYouTitle')}
-          >{tr('board.card.awaitingYou')}</span>
+          ><STATUS_ICON.wait className="h-3 w-3 shrink-0" aria-hidden="true" />{tr('board.card.awaitingYou')}</span>
         ) : (live && task.dispatchState === 'working') ? null : brakeHeld ? (
           <BrakeCardLine taskId={task.id} />
         ) : task.queueReason ? (
@@ -1936,7 +1937,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
           <DispatchChip state={task.dispatchState} error={task.dispatchError} deliveredBy={task.deliveredBy} hasWork={taskHasWork(task)} />
         ) : showsStoppedChip(task) ? (
           // Not on a done card: see `stoppedChip.ts`.
-          <span className="shrink-0 rounded bg-rose-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-rose-800 dark:text-rose-300" title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${STATUS_CHIP.danger}`} title={task.dispatchError ?? undefined}>{tr('board.task.stopped')}</span>
         ) : null}
         {/* Il primo tratto del turno, quello in cui la card sembra ferma:
             l'agente sta leggendo e inquadrando, e il titolo che si sta per
@@ -2211,7 +2212,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
         <div
           data-testid="card-action-error"
           onClick={(e) => e.stopPropagation()}
-          className="mt-2 flex items-start gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-compact leading-snug text-rose-800 dark:text-rose-300"
+          className={`mt-2 flex items-start gap-1.5 rounded-md border border-red-500/30 px-2 py-1.5 text-compact leading-snug ${STATUS_CHIP.danger}`}
         >
           <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
           <span className="min-w-0 flex-1 break-words">{error}</span>
@@ -2272,7 +2273,7 @@ const CardBody = memo(function CardBody({ task, onOpen, showProject, error, onEr
                 onClick={(e) => { e.stopPropagation(); setCtxMenu(null); stop(); }}
                 title={stopWord.title}
                 className={POPOVER_ITEM}
-              ><Square className="h-3.5 w-3.5 fill-current text-rose-600 dark:text-rose-400" /> {stopWord.label}</button>
+              ><Square className={`h-3.5 w-3.5 fill-current ${STATUS_INK.danger}`} /> {stopWord.label}</button>
             </>
           )}
           <div className={POPOVER_DIVIDER} />

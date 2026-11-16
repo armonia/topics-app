@@ -18,6 +18,7 @@ import { describe, test, expect } from 'bun:test';
 import { DISPATCH_CHIP } from './constants';
 import IT from '../../lib/i18n-it';
 import { PARKED_STOPPED, PARKED_WAITED_OUT } from '../../lib/board';
+import { STATUS_CHIP } from '../../lib/statusVisual';
 
 /** Ogni valore che il server può scrivere in `dispatch_state`. */
 const STATES_OF_SERVER = [
@@ -45,10 +46,10 @@ describe('DISPATCH_CHIP', () => {
     // they are: a key that resolved to the same sentence would read as one chip.
     expect(IT[atteso.textKey]).not.toBe(IT[fallito.textKey]);
     expect(IT[atteso.textKey]!.toLowerCase()).not.toContain('fallit'); // allow-italian: the Italian word IS what must not appear
-    // La tinta del fallimento è rosa/rossa: quella qui non ci deve stare, o il
-    // colore direbbe «rotto» mentre il testo dice «aspetta».
-    expect(atteso.cls).not.toContain('rose');
-    expect(fallito.cls).toContain('rose');
+    // The failure tint is the danger red of `lib/statusVisual.ts`: it must not
+    // be here, or the colour would say "broken" while the text says "waits".
+    expect(atteso.cls).not.toContain(STATUS_CHIP.danger);
+    expect(fallito.cls).toContain(STATUS_CHIP.danger);
     // Ma resta un PARK, non un chip di passaggio: l'anello lo distingue da
     // «in attesa», che è la stessa storia un capitolo prima.
     expect(atteso.cls).toContain('ring-1');

@@ -1,0 +1,225 @@
+//! The rich menu from fake service answers: order of the sections, the table, the
+//! unreachable provider line and the clickable rows. Card 1aba05b4.
+
+use super::*;
+use crate::tray_menu::{action_for, dump_text};
+
+const BOARD: &str = r#"{"machines":[
+ {"id":"local","name":"Machine A","state":"impegnato","level":1,"lines":["CPU intasata"],"metrics":[{"key":"cpu","pct":55,"level":1,"note":"x"}]},
+ {"id":"pc","name":"Machine B","state":"dorme","level":0,"lines":[],"metrics":[]}],
+ "accounts":[{"provider":"claude","email":"a@example.org","used":40,"state":{"text":"in ritmo","tone":"ok"},"windows":[{"key":"week","label":"7 g","used":40,"reset":"dom 10:00","tone":"ok"}]}]}"#;
+const OVERVIEW: &str = r#"{"providers":[{"id":"claude","name":"Claude","accounts":[]},{"id":"codex","name":"Codex","error":"timeout","accounts":[]}]}"#;
+const LIVE: &str = r#"{"projects":[
+ {"name":"idle","title":"Idle one","claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"normale","agents":{"count":0,"list":[]}},
+ {"name":"busy","title":"Busy one","claude":0.4,"codex":11.5,"muse":26.3,"total":38.2,"state":"attivo","priority":"alta","agents":{"count":1,"list":[{"kind":"x","title":"t","use":{"hourTokens":12000}}]}},
+ {"name":"gone","dead":true,"title":"Gone","claude":0,"codex":0,"muse":0,"total":0,"state":"x","agents":{"count":0,"list":[]}}]}"#;
+const BACKUP: &str = r#"{"last_ok":1799990000,"runs":[{"at":1799990000,"ok":true}]}"#;
+
+fn snap() -> Snapshot {
+    Snapshot {
+        board: Some(BOARD.into()),
+        overview: Some(OVERVIEW.into()),
+        live: Some(LIVE.into()),
+        automations: Some(r#"{"needsYou":5,"broken":2,"calendar":{"count":3}}"#.into()),
+        backup: Some(BACKUP.into()),
+        backup_set: true,
+        ..Default::default()
+    }
+}
+
+fn menu() -> Vec<Node> {
+    let sn = snap();
+    let machines = machines_for(&[], &sn);
+    build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines, true)
+}
+
+#[test]
+fn sections_come_in_the_order_of_the_original_menu() {
+    let t = dump_text(&menu());
+    let at = |w: &str| t.find(w).unwrap_or_else(|| panic!("missing «{w}» in:\n{t}"));
+    let order = ["[card machine:local]", "[card machine:pc]", "[card quota]", "Codex non raggiungibile", "PROGETTI", "Altri abbonamenti e opzioni", "Automazioni", "In calendario", "[card backup]"];
+    let pos: Vec<usize> = order.iter().map(|w| at(w)).collect();
+    assert!(pos.windows(2).all(|w| w[0] < w[1]), "wrong order: {pos:?}");
+}
+
+#[test]
+fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
+    let t = dump_text(&project_table(&Some(LIVE.into()), &None, 1_800_000_000, 3600));
+    assert!(t.starts_with("PROGETTI | Claude | Codex | Muse | ritmo/h | stato"));
+    let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
+    assert!(busy < idle && !t.contains("Gone"));
+    assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | ▸ 1"), "{t}");
+    assert!(t.contains("Idle one | – | – | – | – | –"));
+}
+
+#[test]
+fn a_remote_machine_submenu_opens_with_its_state_lines_not_a_picture() {
+    let machines = r#"[{"id":"pc","lines":["Si sta addormentando"],"metrics":[{"key":"cpu","pct":40,"history":[{"t":1,"v":10}]}],"timeline":{"window":100,"segments":[{"t0":0,"t1":100,"state":"lavora"}]}}]"#;
+    let sn = Snapshot { machines: Some(machines.into()), ..snap() };
+    let t = dump_text(&build_menu_rich(&sn, Prefs::default(), 1_800_000_000, &machines_for(&[], &sn), true));
+    assert!(!t.contains("machine-detail") && t.contains("[card machine:pc]"), "{t}");
+}
+
+#[test]
+fn the_project_submenu_has_week_today_last_job_and_budget_and_priority() {
+    let live = r#"{"projects":[{"name":"p","title":"P","claude":44.9,"codex":0.4,"muse":0,"total":45.3,"state":"attivo","priority":"alta","budgetPct":10,
+      "lastJob":{"task":"fix it","status":"done","endedAt":1799999400000},"agents":{"count":0,"list":[]}}]}"#;
+    let heavy = r#"{"sessions":[{"project":"p","sessions":14,"tokens":451644590}]}"#;
+    let t = dump_text(&project_table(&Some(live.into()), &Some(heavy.into()), 1_800_000_000, 3600));
+    assert!(t.contains("Questa settimana | Claude 44,9% | Codex 0,4% | Muse –"), "{t}");
+    assert!(t.contains("Oggi · 14 sessioni Claude · 451,6 M token"), "{t}");
+    assert!(t.contains("Ultimo lavoro in coda · fix it · 10 min fa"), "{t}");
+    assert!(t.contains("Budget e priorità · budget 10% Claude · priorità alta"), "{t}");
+    assert!(t.contains("Apri in Topics") && t.contains("20%") && t.contains("alta ✓"), "the new rows stay");
+    assert_eq!(t.matches("Ultimo lavoro").count(), 1, "no second copy: {t}");
+}
+
+#[test]
+fn the_options_open_with_the_subscription_limits_and_the_menu_ends_with_the_dashboard() {
+    let t = dump_text(&menu());
+    let (opts, limits) = (t.find("Altri abbonamenti e opzioni").unwrap(), t.find("Limiti degli abbonamenti · nessun limite raggiunto").unwrap());
+    assert!(limits > opts && limits < t.find("Nuova chat").unwrap(), "{t}");
+    assert!(t.trim_end().ends_with("Apri dashboard"), "{t}");
+    assert!(matches!(action_for("dashboard-open", &None), Some(crate::tray_menu::Action::OpenUrl(u)) if u.starts_with("http")));
+}
+
+#[test]
+fn a_section_without_data_is_not_drawn() {
+    let bare = Snapshot { live: Some(LIVE.into()), ..Default::default() };
+    let t = dump_text(&build_menu_rich(&bare, Prefs::default(), 0, &[], true));
+    assert!(!t.contains("[card"), "no cards without machines, quotas or backup:\n{t}");
+    assert!(!t.contains("non raggiungibile"));
+}
+
+#[test]
+fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
+    let sn = Snapshot { procs: Some(r#"{"units":[]}"#.into()), ..snap() };
+    let machines = machines_for(&[], &sn);
+    let nodes = machine_nodes(&machines, &sn, Palette::new(false));
+    let t = dump_text(&nodes);
+    assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
+}
+
+#[test]
+fn every_clickable_row_has_an_action_or_is_a_tray_row() {
+    fn ids(nodes: &[Node], out: &mut Vec<String>) {
+        for n in nodes {
+            match n {
+                Node::Item { id, enabled: true, .. } if !id.is_empty() => out.push(id.clone()),
+                Node::Sub { children, .. } | Node::Card { children, .. } | Node::Row { children, .. } => ids(children, out),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    ids(&menu(), &mut found);
+    assert!(found.iter().any(|i| i.starts_with("proj-open:")));
+    let tray_rows = ["tray-new-chat", "tray-check-updates"];
+    let dead: Vec<&String> = found.iter().filter(|i| !tray_rows.contains(&i.as_str()) && !i.starts_with("machine-open:") && action_for(i, &None).is_none()).collect();
+    assert!(dead.is_empty(), "rows that do nothing: {dead:?}");
+}
+
+#[test]
+fn the_client_machines_join_the_service_ones_without_doubles() {
+    let card = |id: &str, name: &str, local: bool| MachineCard { id: id.into(), name: name.into(), local, badge: "Acceso".into(), ..Default::default() };
+    let service: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.id.clone()).collect();
+    assert_eq!(service[0], "local");
+    // this computer and a machine the service already names stay the service's; a node it does not know is added after
+    let names: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.name.clone()).collect();
+    let client = vec![card("me", "anything", true), card("twin", &names[names.len() - 1].to_uppercase(), false), card("n1", "Node", false)];
+    let ids: Vec<String> = machines_for(&client, &snap()).iter().map(|m| m.id.clone()).collect();
+    let mut want = service.clone();
+    want.push("n1".into());
+    assert_eq!(ids, want);
+    // with no service there is nothing to merge: the client list is the menu
+    let none = Snapshot { board: None, ..snap() };
+    assert_eq!(machines_for(&client, &none).len(), 3);
+}
+
+#[test]
+fn tray_limits_list_every_account_with_state_sentence_and_link_date() {
+    let board = r#"{"accounts":[
+      {"label":"Claude · hi","gauge":{"zone":"frenato","short":"esaurito, torna domani 10:00","cardSay":"Finita, torna domani alle 10:00.","say":"x"},"access":{"say":"Collegato dal 23 ott 2026."}},
+      {"label":"Muse · Muse","gauge":{"zone":"ok","short":"sotto ritmo","say":"Nella settimana 0,56 volte il sostenibile."},"access":{"say":"Collegato, data non nota."}}]}"#;
+    let gates = r#"{"providers":{"claude":{"state":"frenato"},"muse":{"state":"libero"}},"overrides":[]}"#;
+    let sn = Snapshot { board: Some(board.into()), gates: Some(gates.into()), ..Default::default() };
+    let t = dump_text(&[limits_node(&sn)]);
+    assert!(t.contains("Limiti degli abbonamenti · 1 abbonamento al limite"), "{t}");
+    assert!(t.contains("Claude · hi · esaurito, torna domani 10:00\n  Finita, torna domani alle 10:00.\n  Collegato dal 23 ott 2026."), "{t}");
+    assert!(t.contains("Muse · Muse · sotto ritmo\n  Nella settimana 0,56 volte il sostenibile.\n  Collegato, data non nota."), "{t}");
+    // the accounts already say each state: no «libero» line that contradicts the title, unlock only where braked
+    assert!(!t.contains("libero\n") && t.contains("Sblocca claude per 2 ore") && !t.contains("Sblocca muse"), "{t}");
+    assert!(t.contains("Le sessioni aperte non si fermano mai: il freno vale per i lavori nuovi"), "{t}");
+}
+
+/// TRAY_MENU_DUMP=/tmp/menu.txt cargo test --lib tray_menu_dump -- --nocapture
+/// writes the text of the whole menu from the live service (`TRAY_MENU_HUB`, default the hub on this machine).
+#[test]
+fn tray_menu_dump() {
+    let Ok(out) = std::env::var("TRAY_MENU_DUMP") else { return };
+    let base = std::env::var("TRAY_MENU_HUB").unwrap_or_else(|_| crate::tray_quota::hub_base());
+    let sn = Snapshot::fetch(&base, None);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let machines = machines_for(&[], &sn);
+    std::fs::write(out, dump_text(&build_menu_rich(&sn, Prefs::default(), now, &machines, true))).unwrap();
+}
+
+/// The three machines of the `/api/machines` contract (brief «tray-nodi-uniformi»):
+/// every one with cpu, mem and disk, the server also its spend, every one with its procs.
+const UNIFORM_BOARD: &str = r#"{"machines":[
+ {"id":"local","name":"MacBook","state":"lavora","level":0,"lines":["Tutto tranquillo"],"metrics":[{"key":"cpu","pct":20},{"key":"mem","pct":50},{"key":"disk","pct":70}]},
+ {"id":"pc","name":"PC Windows","state":"lavora","level":0,"lines":["Collegato dal Mac"],"metrics":[{"key":"cpu","pct":5},{"key":"mem","pct":32},{"key":"disk","pct":97}]},
+ {"id":"hetzner","name":"Server Hetzner","state":"lavora","level":0,"lines":["Nodo fisso acceso"],"metrics":[{"key":"cpu","pct":3},{"key":"mem","pct":41},{"key":"disk","pct":22},{"key":"spend","name":"Spesa","pct":14,"level":2,"value":"8,44/60 €"}]}]}"#;
+const UNIFORM_MACHINES: &str = r#"[
+ {"id":"local","lines":["Tutto tranquillo"],"metrics":[{"key":"cpu","name":"CPU","pct":20,"history":[]}],"procs":[]},
+ {"id":"pc","lines":["Collegato dal Mac"],"metrics":[{"key":"cpu","name":"CPU","pct":5,"history":[{"t":1,"v":5}]}],"procs":[{"name":"node.exe","cpu_pct":40.5,"mem_mb":812,"cmd":"node vitest"},{"name":"cargo.exe","cpu_pct":12,"mem_mb":300}]},
+ {"id":"hetzner","lines":["Nodo fisso acceso"],"metrics":[{"key":"cpu","name":"CPU","pct":3,"history":[{"t":1,"v":3}]},{"key":"spend","name":"Spesa","pct":14,"value":"8,44/60 €","history":[]}],"procs":[{"name":"bun","cpu_pct":2.1,"mem_mb":420,"cmd":"bun server"}]}]"#;
+
+fn uniform_cards() -> Vec<Node> {
+    let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(UNIFORM_MACHINES.into()), procs: Some(r#"{"units":[{"id":"u1","name":"Topics","type":"app","n":3,"memMB":900,"pids":[]}]}"#.into()), ..Default::default() };
+    machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true))
+}
+
+#[test]
+fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
+    let cards = uniform_cards();
+    assert_eq!(cards.len(), 3);
+    let mut heads: Vec<Vec<String>> = Vec::new();
+    for c in &cards {
+        let Node::Card { key, children, .. } = c else { panic!("not a card: {c:?}") };
+        fn bare(n: &Node) -> &Node {
+            if let Node::Icon { node, .. } = n { bare(node) } else { n }
+        }
+        let children: Vec<Node> = children.iter().map(|n| bare(n).clone()).collect();
+        let children = &children;
+        let k = children.len();
+        assert!(k >= 5, "{key}: {}", dump_text(children));
+        // the state first, then a separator and the process table, then the finder
+        assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
+        let sep = children.iter().position(|n| matches!(n, Node::Sep)).expect("a separator");
+        let Node::Row { header: true, cells, .. } = &children[sep + 1] else { panic!("{key}: the process table follows the state:\n{}", dump_text(children)) };
+        assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
+        heads.push(cells[1..].to_vec());
+        assert!(matches!(children[sep + 2], Node::Row { header: false, .. }), "{key}: at least one process row");
+        assert!(matches!(children[k - 2], Node::Sep), "{key}");
+        assert!(matches!(&children[k - 1], Node::Item { label, .. } if label == "Cerca in una finestra…"), "{key}");
+    }
+    assert!(heads.windows(2).all(|w| w[0] == w[1]), "same columns everywhere: {heads:?}");
+    let t = dump_text(&cards);
+    // GPU and network are not read on a remote machine: the idle dash of the MacBook, the memory with its unit
+    assert!(t.contains("node.exe | 41% | – | – | 812 MB | processo · node vitest") && t.contains("bun | 2% | – | – | 420 MB"), "{t}");
+    let rows = |n: &Node| if let Node::Card { children, .. } = n { children.clone() } else { vec![] };
+    for c in &cards {
+        fn cells(n: &Node) -> Option<Vec<String>> {
+            match n {
+                Node::Icon { node, .. } => cells(node),
+                Node::Row { cells, header: false, .. } => Some(cells.clone()),
+                _ => None,
+            }
+        }
+        // the row's second line is marked as such, never a sixth column that the memory runs into
+        for r in rows(c).iter().filter_map(cells).filter(|r| r.len() == 6) {
+            assert!(r[5].starts_with('\n') && !r[4].contains('\n'), "{r:?}");
+        }
+    }
+}
