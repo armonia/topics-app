@@ -1,0 +1,83 @@
+name: Mutation (indice solido)
+
+# The "solido" index, spec-flow D9 Tier A: the mutation score of the modules in
+# spec-flow.completeness.json (mutation.tierA). Runs every night on main and on PRs that touch
+# those modules or their tests. Red when a module falls under spec-flow.mutation-baseline.json.
+# At night, when one rises, the baseline follows it onto main: the ratchet tightens by itself.
+# quality-bar reads the last finished run on main (measure `mutation-main`).
+
+on:
+  schedule:
+    - cron: "41 2 * * *" # 02:41 UTC, before the nightly e2e
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "spec-flow.completeness.json"
+      - "spec-flow.mutation-baseline.json"
+      - "stryker.config.mjs"
+      - "server/services/landing-verdict*.ts"
+      - "server/services/landing-files*.ts"
+      - "server/services/dispatch-card-price*.ts"
+      - "server/services/dispatch-card-weight*.ts"
+      - "server/services/dispatch-topic-identity*.ts"
+      - "server/providers/native/permissions*.ts"
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node (node-pty native bridge used by server tests)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Restore the +x bit on spawn-helper (postinstall was skipped)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Stryker on the critical modules
+        run: bun run mutation --concurrency 4
+
+      - name: Ratchet against the baseline
+        run: bun run check:mutation
+
+      - name: Score rose, the baseline follows (main only, not PRs)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          bun run check:mutation --update-baseline
+          if git diff --quiet spec-flow.mutation-baseline.json; then exit 0; fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add spec-flow.mutation-baseline.json
+          git commit -m "mutation: baseline follows the scores that rose tonight"
+          git push origin HEAD:main || echo "::warning::main moved, the baseline rises on the next run"
+
+      - name: Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          retention-days: 14
