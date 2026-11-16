@@ -380,7 +380,7 @@ export function createLaunch(ctx: DispatcherCtx) {
         ? await withDeadline(deps.attemptStats(worktreeId).catch(() => null), ATTEMPT_STATS_DEADLINE_MS)
         : null;
       if (!ctx.runs.ownsRun(taskId, runId)) return;
-      ctx.rest.onTurnEnd(taskId, Date.now() - t0, turnEnd);
+      ctx.turnEnd.onTurnEnd(taskId, Date.now() - t0, turnEnd);
       if (delegated) {
         const after = deps.svc.get(taskId)?.task;
         if (after?.status === "review" || after?.status === "done") {

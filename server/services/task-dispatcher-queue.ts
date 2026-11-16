@@ -127,7 +127,7 @@ export function createQueueSignals(ctx: DispatcherCtx) {
       && task.dispatchState === CHIP_QUEUED && task.dispatchError === WAITING_MEMORY,
     localMemorySeatTaken: (...args) => ctx.admission.localMemorySeatTaken(...args),
     checksRunning: () => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } },
-    dispatch: (projectId) => ctx.rest.tick(projectId),
+    dispatch: (projectId) => ctx.tick.tick(projectId),
     notifyQueue: notifyMemoryQueue,
   });
 

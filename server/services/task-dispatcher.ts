@@ -40,7 +40,11 @@ import { createUsageLedger } from "./task-dispatcher-usage";
 import { createKickoff } from "./task-dispatcher-kickoff";
 import { createLaunch } from "./task-dispatcher-launch";
 import { createFanOut } from "./task-dispatcher-fanout";
-import { createRest } from "./task-dispatcher-rest";
+import { createTurnEnd } from "./task-dispatcher-turn-end";
+import { createResume } from "./task-dispatcher-resume";
+import { createTick } from "./task-dispatcher-tick";
+import { createReconcile } from "./task-dispatcher-reconcile";
+import { createBoardEvents } from "./task-dispatcher-events";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 export type { DispatcherDeps, TaskDispatcher };
 export { GENERIC_PRODUCT_RULE, summarizeToolInput, rotateFrom, describeIntruders, longCommandsRule, parkedEdgeEvent };
@@ -57,15 +61,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   ctx.kickoff = createKickoff(ctx);
   ctx.launch = createLaunch(ctx);
   ctx.fanout = createFanOut(ctx);
-  ctx.rest = createRest(ctx);
+  ctx.turnEnd = createTurnEnd(ctx);
+  ctx.resume = createResume(ctx);
+  ctx.tick = createTick(ctx);
+  ctx.reconcile = createReconcile(ctx);
+  ctx.events = createBoardEvents(ctx);
   const { admissionCountingSince, inFlight, log, shared } = ctx.core;
 
 
   return {
     taskForSession: (...args) => ctx.runs.taskWaitingOnSession(...args),
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
-    tick: (...args) => ctx.rest.tick(...args), onEnterTodo: (...args) => ctx.rest.onEnterTodo(...args), onLeaveTodo: (...args) => ctx.rest.onLeaveTodo(...args), deferWait: (...args) => ctx.rest.deferWait(...args), onBlockerDone: (...args) => ctx.rest.onBlockerDone(...args), resume: (...args) => ctx.rest.resume(...args), reconcile: (...args) => ctx.rest.reconcile(...args), markInterrupted: (...args) => ctx.rest.markInterrupted(...args),
-    revokeDelegatedCapability: (...args) => ctx.rest.revokeDelegatedCapability(...args), shutdown: (...args) => ctx.rest.shutdown(...args), nightStatus: (...args) => ctx.rest.nightStatus(...args), admissionPreview: (...args) => ctx.admission.admissionPreview(...args), childAdmissionPreview: (...args) => ctx.admission.childAdmissionPreview(...args), memoryQueueSnapshot: ctx.queue.memoryQueueSnapshot, dispatchWork: (...args) => ctx.queue.dispatchWork(...args),
+    tick: (...args) => ctx.tick.tick(...args), onEnterTodo: (...args) => ctx.events.onEnterTodo(...args), onLeaveTodo: (...args) => ctx.events.onLeaveTodo(...args), deferWait: (...args) => ctx.events.deferWait(...args), onBlockerDone: (...args) => ctx.events.onBlockerDone(...args), resume: (...args) => ctx.resume.resume(...args), reconcile: (...args) => ctx.reconcile.reconcile(...args), markInterrupted: (...args) => ctx.events.markInterrupted(...args),
+    revokeDelegatedCapability: (...args) => ctx.events.revokeDelegatedCapability(...args), shutdown: (...args) => ctx.events.shutdown(...args), nightStatus: (...args) => ctx.events.nightStatus(...args), admissionPreview: (...args) => ctx.admission.admissionPreview(...args), childAdmissionPreview: (...args) => ctx.admission.childAdmissionPreview(...args), memoryQueueSnapshot: ctx.queue.memoryQueueSnapshot, dispatchWork: (...args) => ctx.queue.dispatchWork(...args),
     sampleCardWeight: (treeGB) => ctx.admission.cardWeights.sample(treeGB, [...inFlight].filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
       .flatMap(([taskId]) => { try { const projectId = deps.svc.get(taskId)?.task.projectId; return projectId ? [{ taskId, projectId }] : []; } catch { return []; } })),
     startAnyway: ctx.queue.manualMemoryStart.startAnyway,

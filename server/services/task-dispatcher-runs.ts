@@ -21,7 +21,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
    */
   const remote: ReturnType<typeof createRemoteNodeLane> = createRemoteNodeLane({
     client: deps.node, svc: deps.svc, broadcast: deps.broadcast, captureDelivery: deps.captureDelivery, measureDelivery: deps.measureDelivery,
-    log, emit: (...args) => ctx.queue.emit(...args), inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit: (...args) => ctx.queue.releaseAndEmit(...args), deferWait: (...args) => ctx.rest.deferWait(...args),
+    log, emit: (...args) => ctx.queue.emit(...args), inFlight, beginRun, endRun, ownsRun, bindRunSession, releaseAndEmit: (...args) => ctx.queue.releaseAndEmit(...args), deferWait: (...args) => ctx.events.deferWait(...args),
     delegatedPolicyForTask: deps.delegatedPolicyForTask,
     recordDelegatedPhase: deps.recordDelegatedPhase,
     languageOf: (...args) => ctx.kickoff.langFor(...args),
@@ -86,7 +86,7 @@ export function createRunTracking(ctx: DispatcherCtx) {
       // The wake's turn was not ours, so no turn end of ours booked its
       // tokens; when the card delivered from it, none ever would.
       ctx.usage.bookUsageFloor(taskId, w.sessionKey);
-      ctx.rest.onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
+      ctx.turnEnd.onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
     }
   }
 

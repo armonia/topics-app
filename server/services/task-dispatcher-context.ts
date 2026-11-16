@@ -17,7 +17,11 @@ import type { createUsageLedger } from "./task-dispatcher-usage";
 import type { createKickoff } from "./task-dispatcher-kickoff";
 import type { createLaunch } from "./task-dispatcher-launch";
 import type { createFanOut } from "./task-dispatcher-fanout";
-import type { createRest } from "./task-dispatcher-rest";
+import type { createTurnEnd } from "./task-dispatcher-turn-end";
+import type { createResume } from "./task-dispatcher-resume";
+import type { createTick } from "./task-dispatcher-tick";
+import type { createReconcile } from "./task-dispatcher-reconcile";
+import type { createBoardEvents } from "./task-dispatcher-events";
 
 /**
  * One in-flight run: a turn being set up, running, or winding down.
@@ -117,6 +121,14 @@ export interface DispatcherCtx {
   launch: ReturnType<typeof createLaunch>;
   /** Published by createFanOut. */
   fanout: ReturnType<typeof createFanOut>;
-  /** Published by createRest. */
-  rest: ReturnType<typeof createRest>;
+  /** Published by createTurnEnd. */
+  turnEnd: ReturnType<typeof createTurnEnd>;
+  /** Published by createResume. */
+  resume: ReturnType<typeof createResume>;
+  /** Published by createTick. */
+  tick: ReturnType<typeof createTick>;
+  /** Published by createReconcile. */
+  reconcile: ReturnType<typeof createReconcile>;
+  /** Published by createBoardEvents. */
+  events: ReturnType<typeof createBoardEvents>;
 }
