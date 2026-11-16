@@ -25,6 +25,15 @@ import {
 
 hermetic(test);
 
+// Il refresh a server giù lo regge il service worker: `client/public/sw.js`
+// ritenta la navigazione (250 ms … 3 s) finché il server non torna. Il banco lo
+// blocca per tutte le spec dal 13/11 (339b75bf7, gli stub di `page.route`), e
+// da quella notte il reload qui finiva su `chrome-error://chromewebdata/` con
+// ERR_CONNECTION_REFUSED a 24 ms: la tab non era persa, mancava la pagina
+// (misurato il 16/11, otto runner su otto). Questa spec non usa stub e parla
+// proprio di quel comportamento, quindi lo riaccende come `sw-restart-vs-offline`.
+test.use({ serviceWorkers: "allow" });
+
 const SESSIONS = 3;
 const RELOADS = 5;
 
@@ -119,6 +128,9 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
     const tab = (id: string) => page.getByTestId(`pane-tab-terminal:${id}`);
     await page.goto("/");
     for (const id of ids) await expect(tab(id)).toBeVisible({ timeout: 20_000 });
+    // Senza `clients.claim()` il worker serve le navigazioni DOPO la sua
+    // attivazione: si aspetta che lo sia, o il primo reload resta scoperto.
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 
     const report: string[] = [];
     for (let r = 1; r <= 3; r++) {
