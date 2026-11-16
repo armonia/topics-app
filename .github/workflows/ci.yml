@@ -1486,6 +1486,19 @@ jobs:
       # a riposo); come SIA fatta la brina lo dicono solo le immagini e la clip,
       # e questa change si chiude con un «effetto di congelamento figo» da
       # guardare. Tre giorni come il report: la quota artifact e' dell'org.
+      - name: Upload countdown evidence
+        # The card 791984dc surfaces: screenshots at four widths in both themes and the video of the countdown going down.
+        if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: countdown-evidence-${{ matrix.shard }}
+          path: |
+            test-results/countdown-shots/
+            test-results/artifacts/*board-work-countdown*/video.webm
+          if-no-files-found: ignore
+          retention-days: 14
+          overwrite: true
+
       - name: Upload swap-freeze evidence
         if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
         uses: actions/upload-artifact@v4

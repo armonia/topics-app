@@ -654,9 +654,9 @@ fn hub_leaf(app: &tauri::AppHandle, node: &tray_menu::Node, prefix: &str) -> Opt
         tray_menu::Node::Card { key, png, w, h, children } => {
             (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
         }
-        tray_menu::Node::Row { id, cells, header, children } => {
+        tray_menu::Node::Row { id, cells, header, table, look, children } => {
             let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            (tray_menu_native::register_row(n, cells, *header), if id.is_empty() { format!("row:{n}") } else { id.clone() }, true, children)
+            (tray_menu_native::register_row(n, cells, *header, *table, *look), if id.is_empty() { format!("row:{n}") } else { id.clone() }, true, children)
         }
         tray_menu::Node::Sep => return None,
     };
@@ -957,6 +957,22 @@ pub(crate) fn run_hub_action(app: &tauri::AppHandle, id: &str) {
                     &pids,
                     |p| tray_menu::terminate(p, force),
                 );
+            }
+            tray_menu::Action::OpenProcesses => {
+                tray_dispatch(&app, "topics:tray-open-processes", None);
+                return;
+            }
+            tray_menu::Action::ConfirmedHttp { label, machine, confirm, method, path } => {
+                // The service's own command on a machine: it asks first, and only a yes sends it.
+                let ok = app
+                    .dialog()
+                    .message(confirm)
+                    .title(format!("{label} · {machine}"))
+                    .buttons(MessageDialogButtons::OkCancelCustom(label.clone(), "Annulla".into()))
+                    .blocking_show();
+                if ok {
+                    let _ = tray_menu::http_send(&tray_quota::hub_base(), method, &path, None);
+                }
             }
             tray_menu::Action::OpenUrl(url) => {
                 let _ = std::process::Command::new("open").arg(&url).status();

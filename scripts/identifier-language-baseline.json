@@ -135,9 +135,6 @@
       "fmtAttesa",
       "fmtTok"
     ],
-    "client/src/components/Board/nightModeText.ts": [
-      "formatCountdown"
-    ],
     "client/src/components/Board/planPanel.test.ts": [
       "chiacchiera",
       "dopo",
@@ -4653,8 +4650,26 @@
     "server/services/task-diff-range.ts": [
       "introducing"
     ],
+    "server/services/task-dispatcher-admission.ts": [
+      "gcap"
+    ],
     "server/services/task-dispatcher-cap-note.test.ts": [
       "nota"
+    ],
+    "server/services/task-dispatcher-claim.ts": [
+      "atteso",
+      "chiusa",
+      "dietro",
+      "posti",
+      "tappo",
+      "vivi"
+    ],
+    "server/services/task-dispatcher-core.ts": [
+      "untilHHMM"
+    ],
+    "server/services/task-dispatcher-events.ts": [
+      "dep",
+      "marcate"
     ],
     "server/services/task-dispatcher-fanout.test.ts": [
       "righe",
@@ -4670,11 +4685,41 @@
       "righe",
       "seedOrfana"
     ],
+    "server/services/task-dispatcher-kickoff.ts": [
+      "buildFanoutKickoff",
+      "langFor"
+    ],
+    "server/services/task-dispatcher-launch.ts": [
+      "gia"
+    ],
     "server/services/task-dispatcher-nudge.test.ts": [
       "INTERO",
       "processo",
       "riga",
       "seedOrfana"
+    ],
+    "server/services/task-dispatcher-reconcile.ts": [
+      "acceso",
+      "detta",
+      "nota",
+      "perche"
+    ],
+    "server/services/task-dispatcher-runs.ts": [
+      "unsubscribeHumanHold"
+    ],
+    "server/services/task-dispatcher-tick.ts": [
+      "fermi",
+      "fila",
+      "perche"
+    ],
+    "server/services/task-dispatcher-turn-end.ts": [
+      "lavoroNonCommittato",
+      "mossa",
+      "nienteDaVedere",
+      "sporchi"
+    ],
+    "server/services/task-dispatcher-usage.ts": [
+      "stillTriaging"
     ],
     "server/services/task-dispatcher.test.ts": [
       "ALTRA",
@@ -4705,33 +4750,6 @@
       "storico",
       "testi",
       "testo"
-    ],
-    "server/services/task-dispatcher.ts": [
-      "acceso",
-      "atteso",
-      "buildFanoutKickoff",
-      "chiusa",
-      "dep",
-      "detta",
-      "dietro",
-      "fermi",
-      "fila",
-      "gcap",
-      "gia",
-      "langFor",
-      "lavoroNonCommittato",
-      "marcate",
-      "mossa",
-      "nienteDaVedere",
-      "nota",
-      "perche",
-      "posti",
-      "sporchi",
-      "stillTriaging",
-      "tappo",
-      "unsubscribeHumanHold",
-      "untilHHMM",
-      "vivi"
     ],
     "server/services/task-intake.ts": [
       "STOPWORDS",

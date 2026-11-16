@@ -26,7 +26,8 @@ export function freshDb(): Database {
     project_path TEXT,
     worktree_id TEXT,
     parent_id TEXT,
-    provider TEXT
+    provider TEXT,
+    icon TEXT NOT NULL DEFAULT 'MessageSquare'
   )`);
   // The global coordinator role is deliberately table-backed. Keeping this in
   // the shared route harness lets focused wrapper tests exercise the same
