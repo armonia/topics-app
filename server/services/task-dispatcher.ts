@@ -69,6 +69,7 @@ export type { DispatcherDeps, TaskDispatcher };
 import { DEFAULT_RETRY_CAP, WAITING_MEMORY, GENERIC_PRODUCT_RULE, summarizeToolInput, DEFAULT_AUTO_EFFORT, FREE_PROVIDER_ERRORS, ATTEMPT_STATS_DEADLINE_MS, withDeadline, HEAVY_MAX_LOAD_PER_CORE, HEAVY_MAX_OWN_LOAD_PER_CORE, HEAVY_HOLD_MAX_MS, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, CHIP_NEEDS_INPUT, CHIP_DELIVERED, CHIP_FAILED, CHIP_BLOCKED, REUSED_SESSION_ROUTE_REASON, CHIP_WAITING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES, describeIntruders, longCommandsRule, parkedEdgeEvent, rolePrompt, boardLanguage } from "./task-dispatcher-support";
 import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
 import { warnIfBusy } from "../lib/sqlite-busy";
+import { isNodeChildRun } from "./node-child-run";
 export { GENERIC_PRODUCT_RULE, summarizeToolInput, rotateFrom, describeIntruders, longCommandsRule, parkedEdgeEvent };
 
 
@@ -4562,7 +4563,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const eligibleNoCheckTaskExists = heavyBusy && todos.some((task) =>
       !inFlight.has(task.id) && !remoteCard(task) && noCheckReservationFor(task) !== null,
     );
-    if (heavyBusy && !eligibleNoCheckTaskExists) {
+    // A node's spawn_agent child is not held by the heavy turn (node-child-run.ts).
+    const childPasses = (t: Task) => remoteCard(t) || isNodeChildRun(t);
+    const eligibleChildExists = heavyBusy && todos.some((task) => !inFlight.has(task.id) && isNodeChildRun(task));
+    if (heavyBusy && !eligibleNoCheckTaskExists && !eligibleChildExists) {
       // Un pesante in volo blocca OGNI claim, non solo gli altri pesanti: è il
       // senso stesso del peso — quel task si prende la macchina da solo. Niente
       // di questa board parte finché non ha finito, e la coda riparte da sé al
@@ -4576,7 +4580,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // macchina si è liberata. Il tetto esiste per l'attesa che potrebbe non
       // finire mai, non per quella che finisce quando finisce un turno.
       for (const t of todos) {
-        if (remoteCard(t)) continue;
+        if (childPasses(t)) continue;
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +
@@ -4585,7 +4589,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       }
       // A heavy turn takes THIS machine; a card running elsewhere does not
       // compete with it, so only the remote cards go on to the claim.
-      todos = todos.filter(remoteCard);
+      todos = todos.filter(childPasses);
       if (todos.length === 0) return;
     }
     const nowMs = clock();
@@ -4606,12 +4610,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     todos = [...todos.filter(remoteCard), ...todos.filter((t) => !remoteCard(t))];
     const heavyCall = new Map<string, "go" | "hold" | "forced">();
     for (const t of todos) {
-      if (heavyBusy && !remoteCard(t)) {
+      if (heavyBusy && !childPasses(t)) {
         // The ordinary heavyBusy path returns before touching load timers.
         heavyCall.set(t.id, t.dispatchWeight === "heavy" ? "hold" : "go");
         continue;
       }
-      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || remoteCard(t)) {
+      if (t.dispatchWeight !== "heavy" || loadGate?.ok !== false || childPasses(t)) {
         // Non trattenuto: l'attesa (se c'era) è finita, e il prossimo hold
         // ricomincia a contare da capo invece di ereditare quella vecchia.
         heavyHoldSince.delete(t.id);
@@ -4871,7 +4875,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         && floorNow.kind !== "disk"
         && !exemptionDaySpend
         && candidateBudget.allowed;
-      const needsNoCheckExemption = heavyBusy
+      const needsNoCheckExemption = (heavyBusy && !isNodeChildRun(t))
         || (!!resourceFloor && floorNow.kind === "memory")
         || candidateBudget.needed;
       const useNoCheckExemption = noCheckExemption && needsNoCheckExemption;
@@ -4884,7 +4888,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         queueChip(t, WAITING_MEMORY);
         continue;
       }
-      if (heavyBusy && !useNoCheckExemption && !remoteTask) {
+      if (heavyBusy && !useNoCheckExemption && !remoteTask && !isNodeChildRun(t)) {
         noteHeavyHold(
           t,
           "In coda: c'è un task PESANTE al lavoro e si prende la macchina da solo. " +

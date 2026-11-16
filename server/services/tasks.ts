@@ -123,6 +123,7 @@ export {
 import type { MergeOutcome, ServiceOpts, TaskService } from "./tasks-service-types";
 export type { TaskService };
 import { parseChecksJson, parseChecksProgress, parseChecksCi } from "./tasks-checks";
+import { isNodeChildRun } from "./node-child-run";
 export { parseChecksJson, parseChecksProgress, parseChecksCi };
 
 /**
@@ -4620,9 +4621,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       //
       // Entrambe si applicano PRIMA del conteggio degli slot: un no del peso non
       // è «non c'è posto», è «non adesso», e il chiamante lo dice diversamente.
-      if (!remote && heavyInFlight() && !noCheckExemption) return null;
+      // A node's spawn_agent child shares the machine with a heavy turn (node-child-run.ts).
+      const child = isNodeChildRun(rowToTask(row));
+      if (!remote && heavyInFlight() && !noCheckExemption && !child) return null;
       if (noCheckExemption && readTaskWeight(row.dispatch_weight) === "heavy") return null;
-      if (!remote && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
+      if (!remote && !child && readTaskWeight(row.dispatch_weight) === "heavy" && machineIdle === false) return null;
       // Concurrency cap: count the AGENTI VIVI, not the card. Per-board by
       // default; scope 'global' counts across EVERY board so a machine-wide cap
       // holds no matter how many boards dispatch at once. The task itself is
