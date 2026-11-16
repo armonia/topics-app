@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.14 — 2026-11-16
+
+### Sotto il cofano
+- approve as superseded never enters the CI phase (#1114)
+
+## 2.4.13 — 2026-11-15
+
+### Sotto il cofano
+- Sotto-agenti 4/5: il figlio gira su un nodo, con stop, lettura e invio rifiutato (#1110)
+
 ## 2.4.12 — 2026-11-15
 
 ### Sotto il cofano

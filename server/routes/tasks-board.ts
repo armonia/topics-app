@@ -816,7 +816,10 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         const said = typeof body?.comment === "string" ? body.comment.trim() : "";
         // "Already on main" is a merge a land saw, not a deduced `landed` (c2908b93): that one enters the phase.
         if (cur && cur.status === "review" && cur.deliveryBranch && !landedOnMain(ctx.db, cur)
-          && !isPublishActionLabel(said) && body?.force !== true) {
+          && !isPublishActionLabel(said) && body?.force !== true
+          // `superseded` says "this branch will never land": the CI phase would land it (card 619e3a6d,
+          // 15/11, a branch holding a part a verifier had rejected went to the merge queue).
+          && body?.superseded !== true) {
           // The words go in BEFORE the phase starts: written after, they would read as the person speaking up
           // during the phase, which stops it. Written twice they are one row (author + content dedupe).
           if (said && !isLandActionLabel(said)) {
