@@ -546,7 +546,7 @@
       ]
     },
 
-    "server/providers/native/agent-loop.ts": 1217,
+    "server/providers/native/agent-loop.ts": 1352,
 
     "server/providers/native/provider.ts": {
       "lines": 1469,
