@@ -277,9 +277,9 @@ unsafe fn row_title(r: &TableRow) -> id {
     let out: id = msg_send![out, init];
     for (i, cell) in r.cells.iter().enumerate() {
         // a cell past the columns is the row's second line (kind, owner, since), small and grey
-        if i > TABS.len() && !r.header {
+        if !r.header && (i > TABS.len() || cell.starts_with('\n')) {
             let piece: id = msg_send![class!(NSAttributedString), alloc];
-            let piece: id = msg_send![piece, initWithString: ns(&format!("\n{cell}")), attributes: attrs(small_regular, dim, para)];
+            let piece: id = msg_send![piece, initWithString: ns(&format!("\n{}", cell.trim_start_matches('\n'))), attributes: attrs(small_regular, dim, para)];
             let _: () = msg_send![out, appendAttributedString: piece];
             let _: () = msg_send![piece, release];
             continue;

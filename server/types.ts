@@ -433,6 +433,10 @@ export interface AppContext {
   remoteNode?: {
     readRun: import("./services/node-client").NodeClient["readRun"];
     cancelRun: import("./services/node-client").NodeClient["cancelRun"];
+    /** Starts a child's run there (SUBAGENT-27/28): never routed to the cloud lane, a child has no task for it. */
+    createRun: import("./services/node-client").NodeClient["createRun"];
+    /** Fetches the child's returning branch bundle (SUBAGENT-26/28), same restriction as `createRun`. */
+    fetchBundle: import("./services/node-client").NodeClient["fetchBundle"];
     baseUrlOf: (machineId: string) => string | null;
     tokenOf: (machineId: string) => string | null;
   };

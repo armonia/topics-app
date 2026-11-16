@@ -2,7 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.14 — 2026-11-16
+## 2.4.16 — 2026-11-16
+
+### Sotto il cofano
+- same card and same submenu for Mac, PC and the cloud server (#1118)
+- every machine submenu opens with its state lines, memory with its unit (#1119)
+
+## 2.4.15 — 2026-11-16
+
+### Sotto il cofano
+- Restart and land: a closed card is not relaunched, a squash-merged branch is nothing to land (#1113)
+
+## 2.4.14 — 2026-11-15
 
 ### Sotto il cofano
 - approve as superseded never enters the CI phase (#1114)

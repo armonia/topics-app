@@ -241,12 +241,15 @@ test("read_agent on a child whose run lives on a paired node reads the node's re
     expect(response?.status).toBe(200);
     expect(readCalls).toEqual([{ baseUrl: "http://fake-node.test", token, runId }]);
     const body = await response!.json();
+    // `nextOffset` carries this process's own epoch (SUBAGENT-28): the index
+    // itself (1, one event read) is what matters, not the raw number.
     expect(body).toEqual({
       ok: true,
       events: [{ type: "assistant", text: "working on it" }],
-      nextOffset: 1,
+      nextOffset: expect.any(Number),
       source: "node",
     });
+    expect(body.nextOffset % 10_000_000).toBe(1);
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
     try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* Windows may keep the sqlite file locked a moment; the temp dir is disposable */ }
