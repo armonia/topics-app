@@ -76,4 +76,18 @@ describe('channelChip path', () => {
     expect(html).not.toContain('aria-label="thread"');
     expect(html).toContain('card-channel-channel');
   });
+  test('a card thread sits on its own row and ends in an ellipsis, the server never shrinks', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno', thread: 'Chip del canale sulla card' } } }, tr)!;
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
+    const thread = html.match(/<span data-testid="card-channel-thread" class="([^"]*)"/)![1]!;
+    expect(thread).toContain('text-ellipsis');
+    expect(thread).toContain('overflow-hidden');
+    expect(thread).toContain('whitespace-nowrap');
+    expect(html).toContain('data-testid="card-channel-thread-row"');
+    const server = html.match(/<span data-testid="card-channel-server" class="([^"]*)"/)![1]!;
+    expect(server).toContain('shrink-0');
+    expect(server).not.toContain('truncate');
+    const full = renderToStaticMarkup(<ChannelChipView chip={chip} full />);
+    expect(full).not.toContain('text-ellipsis');
+  });
 });
