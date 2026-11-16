@@ -15,7 +15,9 @@ import { spawnSync } from "node:child_process";
 
 const WEIGHT = "server/services/dispatch-card-weight.ts";
 const PRICE = "server/services/dispatch-card-price.ts";
-const DISPATCHER = "server/services/task-dispatcher.ts";
+// The dispatcher is split in sibling modules: each mutation names the one that holds its line.
+const DISPATCHER_RUNS = "server/services/task-dispatcher-runs.ts";
+const DISPATCHER_ADMISSION = "server/services/task-dispatcher-admission.ts";
 const TASKS = "server/services/tasks.ts";
 const REMOTE = "server/services/task-dispatcher-remote-node.ts";
 
@@ -35,8 +37,8 @@ const MUTATIONS: ReadonlyArray<readonly [string, string, string, string, readonl
   ["peso: ignora il picco dei check", WEIGHT, "return Math.max(c.gb, checks != null && Number.isFinite(checks) ? checks : 0);", "return c.gb;", WEIGHT_TESTS],
   ["prezzo: la card pesante legge la misura", PRICE, "if (dispatchWeight !== \"heavy\" && projectId) {", "if (projectId) {", PRICE_TESTS],
   ["prezzo: la misura non entra nel prezzo", PRICE, "if (measured != null && Number.isFinite(measured) && measured > 0) return measured;", "if (false) return measured;", PRICE_TESTS],
-  ["dispatcher: il turno finito non vota", DISPATCHER, "    inFlight.delete(taskId);\n    cardWeights.finish(taskId);\n", "    inFlight.delete(taskId);\n", PRICE_TESTS],
-  ["dispatcher: solo la board leggera richiede col suo prezzo", DISPATCHER, "if (cardPrices.priceFor(projectId, t.dispatchWeight) >= agentMemPrice()) return false;", "if (cardPrices.weightFor(projectId, t.dispatchWeight) !== \"light\") return false;", PRICE_TESTS],
+  ["dispatcher: il turno finito non vota", DISPATCHER_RUNS, "    inFlight.delete(taskId);\n    ctx.admission.cardWeights.finish(taskId);\n", "    inFlight.delete(taskId);\n", PRICE_TESTS],
+  ["dispatcher: solo la board leggera richiede col suo prezzo", DISPATCHER_ADMISSION, "if (cardPrices.priceFor(projectId, t.dispatchWeight) >= agentMemPrice()) return false;", "if (cardPrices.weightFor(projectId, t.dispatchWeight) !== \"light\") return false;", PRICE_TESTS],
   ["rimandi: l'agente torna al tetto largo", TASKS, "const ceiling = source === \"machine\" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;", "const ceiling = WAIT_STREAK_CAP;", WAIT_TESTS],
   ["rimandi: anche la macchina si ferma al secondo", TASKS, "const ceiling = source === \"machine\" ? WAIT_STREAK_CAP : AGENT_WAIT_STREAK_CAP;", "const ceiling = AGENT_WAIT_STREAK_CAP;", WAIT_TESTS],
   ["rimandi: il nodo muto rimanda come un agente", REMOTE, "host.deferWait(task.id, why, NODE_RETRY_MINUTES, \"machine\");", "host.deferWait(task.id, why, NODE_RETRY_MINUTES);", WAIT_TESTS],
