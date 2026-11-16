@@ -63,3 +63,25 @@ describe("readRemoteChild", () => {
     if (!result.ok) expect(result.reason).toContain("unreachable");
   });
 });
+
+describe("readRemoteChild keeps only the child's own voice", () => {
+  it("drops the node's bookkeeping, keeps the agent on a paired node and on the cloud", async () => {
+    const at = (s: number) => new Date(Date.UTC(2026, 10, 16, 13, 41, s)).toISOString();
+    const comments = [
+      { id: "1", author: "system", kind: "service", content: "Card specchiata da …", createdAt: at(0) },
+      { id: "2", author: "dispatcher", kind: "status", content: "todo→in_progress", createdAt: at(1) },
+      { id: "3", author: "agent:7de6", kind: "comment", content: "working on it", createdAt: at(2) },
+      { id: "4", author: "agent:7de6", kind: "delivery", content: "Added note-1.txt", createdAt: at(3) },
+      { id: "5", author: "agent:7de6", kind: "status", content: "in_progress→review", createdAt: at(4) },
+      { id: "6", author: "user", kind: "comment", content: "archived while the agent worked", createdAt: at(5) },
+      { id: "7", author: "agent", kind: "delivery", content: "cloud result", createdAt: at(6) },
+    ];
+    const r = await readRemoteChild({ ...base, log: emptyRemoteChildLog(), since: 0, readRun: async () => ({ comments }) });
+    expect(r.ok && r.events.map((e) => e.text)).toEqual(["working on it", "Added note-1.txt", "cloud result"]);
+  });
+
+  it("a node that sends no author keeps every line, as before", async () => {
+    const r = await readRemoteChild({ ...base, log: emptyRemoteChildLog(), since: 0, readRun: pairedNode([{ id: "a", content: "uno", createdAt: "2026-11-16T10:00:00.000Z" }]) });
+    expect(r.ok && r.events.map((e) => e.text)).toEqual(["uno"]);
+  });
+});
