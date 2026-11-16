@@ -15,7 +15,10 @@ import type { Task } from "./task-shapes";
 const NODE_RUN_KEY_PREFIX = "node-run:";
 const CHILD_BRANCH_PREFIX = "topics-child-";
 
-export function isNodeChildRun(task: Pick<Task, "claudeTaskId" | "baseBranch">): boolean {
+export function isNodeChildRun(task: Pick<Task, "claudeTaskId" | "baseBranch" | "dispatchWeight">): boolean {
+  // A child that turned out heavy (it runs the suite, it builds) is a heavy turn like any
+  // other: letting it start beside the one in flight is exactly what the hold prevents.
+  if (task.dispatchWeight === "heavy") return false;
   const key = task.claudeTaskId;
   if (!key || !key.startsWith(NODE_RUN_KEY_PREFIX)) return false;
   const originTaskId = key.slice(NODE_RUN_KEY_PREFIX.length);

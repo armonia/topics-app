@@ -461,6 +461,16 @@ describe("heavy hold: a node's spawn_agent child does not wait for it", () => {
     expect(h.task("mirror")!.status).toBe("todo");
   });
 
+  it("a child that is itself heavy waits like any heavy turn", async () => {
+    const h = harness();
+    heavyInFlight(h);
+    seedMirror(h, "child", "sub-1", "topics-child-sub-1");
+    h.db.run("UPDATE tasks SET dispatch_weight = 'heavy' WHERE id = 'child'");
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.task("child")!.status).toBe("todo");
+  });
+
   it("the child still counts against the seat cap", async () => {
     const h = harness();
     heavyInFlight(h);
