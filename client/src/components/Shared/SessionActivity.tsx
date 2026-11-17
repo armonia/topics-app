@@ -16,7 +16,8 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart, useTopicAction } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
+import { useTopicAction } from '../../state/agentActionHooks';
 import { loaderActivityForAction } from '../Layout/loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';

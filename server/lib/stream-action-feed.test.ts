@@ -129,4 +129,46 @@ describe("createStreamActionFeed", () => {
     see("stream:tool_call", { toolCall: { name: "pwd", args: { command: "pwd" } } });
     expect(sent.map((s) => s.action)).toEqual(["run"]);
   });
+  test("current() lists each open turn with its session and last action", () => {
+    const { feed } = setup();
+    expect(feed.current()).toEqual([]);
+    feed.observe({ type: "stream:content_chunk", topicId: "a", sessionKey: "sa" });
+    feed.observe({ type: "stream:tool_call", topicId: "b", sessionKey: "sb", toolCall: { name: "Edit" } });
+    feed.observe({ type: "stream:content_chunk", topicId: "a", sessionKey: "sa" });
+    feed.observe({ type: "stream:thinking_start", topicId: "a", sessionKey: "sa" });
+    expect(feed.current()).toEqual([
+      { topicId: "a", sessionKey: "sa", action: "think" },
+      { topicId: "b", sessionKey: "sb", action: "edit" },
+    ]);
+  });
+
+  test("current() forgets a turn that ended or failed", () => {
+    const { feed } = setup();
+    feed.observe({ type: "stream:content_chunk", topicId: "a", sessionKey: "sa" });
+    feed.observe({ type: "stream:content_chunk", topicId: "b", sessionKey: "sb" });
+    feed.observe({ type: "stream:end", topicId: "a", sessionKey: "sa" });
+    feed.observe({ type: "stream:error", topicId: "b", sessionKey: "sb" });
+    expect(feed.current()).toEqual([]);
+  });
+
+  test("an end that carries only its session (topic deleted mid-turn) still closes the entry", () => {
+    const { feed } = setup();
+    feed.observe({ type: "stream:content_chunk", topicId: "gone", sessionKey: "s-gone" });
+    feed.observe({ type: "stream:content_chunk", topicId: "kept", sessionKey: "s-kept" });
+    // The server could not resolve the topic of this end: no topicId on the frame.
+    feed.observe({ type: "stream:end", sessionKey: "s-gone" });
+    expect(feed.size()).toBe(1);
+    expect(feed.current().map((p) => p.topicId)).toEqual(["kept"]);
+    feed.observe({ type: "stream:error", sessionKey: "s-kept" });
+    expect(feed.size()).toBe(0);
+  });
+
+  test("a sessionless end, or a topicless frame that is not an end, changes nothing", () => {
+    const { feed } = setup();
+    feed.observe({ type: "stream:content_chunk", topicId: "a", sessionKey: "sa" });
+    feed.observe({ type: "stream:end" });
+    feed.observe({ type: "stream:content_chunk", sessionKey: "sa" });
+    feed.observe({ type: "stream:end", sessionKey: "other" });
+    expect(feed.size()).toBe(1);
+  });
 });

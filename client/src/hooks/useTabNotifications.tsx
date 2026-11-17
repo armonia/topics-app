@@ -15,7 +15,7 @@ import { workLine } from '../lib/workLine';
 import { useMachinesOverview } from './useMachinesOverview';
 import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
-import { useDominantAction } from '../state/signals';
+import { useDominantAction } from '../state/agentActionHooks';
 
 interface TabNotificationContextValue {
   /** The number on a pane's tab: `max(1, unread)` of a lit chat or terminal,

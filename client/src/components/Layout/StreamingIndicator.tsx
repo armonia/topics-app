@@ -34,7 +34,8 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading, useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
+import { useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/agentActionHooks';
 import { useT } from '../../hooks/useT';
 import { loaderActivityForAction, loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
 import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';

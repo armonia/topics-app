@@ -13,7 +13,9 @@
  * State is one small record per topic with a turn in flight. It is dropped when
  * the turn ends or fails, so it cannot grow past the number of live turns; a
  * turn that dies without a word is closed by the stale sweep, which broadcasts
- * a `stream:end` like any other.
+ * a `stream:end` like any other. An end whose topic no longer resolves carries
+ * only its session, and closes the entry by that. `current()` hands the open
+ * turns to a socket that connects mid-turn, since the feed says only changes.
  */
 import { streamFrameAction, type AgentAction, type StreamFrameLite } from "../../shared/agent-action";
 
@@ -30,6 +32,8 @@ export interface StreamActionPayload {
 }
 
 interface TopicActionState {
+  /** The session the turn runs on, so a late joiner can be told and an end without a topic can find it. */
+  sessionKey: string;
   /** The last action said for this topic. */
   last?: AgentAction;
   /** The action of the last tool call: a granted permission resumes that tool. */
@@ -44,9 +48,20 @@ export function createStreamActionFeed(emit: (payload: StreamActionPayload) => v
     observe(frame: ObservedFrame): void {
       if (!frame.type.startsWith("stream:") || frame.type === "stream:action") return;
       const { topicId, sessionKey } = frame;
-      if (!topicId || !sessionKey) return;
+      if (!sessionKey) return;
+      if (!topicId) {
+        // The end of a turn carries only its session. When its topic no longer
+        // resolves (deleted mid-turn) the entry would stay for good, and a late
+        // joiner would be told about a turn that is over: close it by session.
+        const closing = streamFrameAction(frame);
+        if (closing === "clear" || closing === "error") {
+          for (const [id, entry] of topics) if (entry.sessionKey === sessionKey) topics.delete(id);
+        }
+        return;
+      }
 
-      const state = topics.get(topicId) ?? {};
+      const state = topics.get(topicId) ?? { sessionKey };
+      state.sessionKey = sessionKey;
       const action = streamFrameAction(frame, state.lastTool);
       if (action === null) return;
       if (action === "clear") {
@@ -63,6 +78,19 @@ export function createStreamActionFeed(emit: (payload: StreamActionPayload) => v
         topics.set(topicId, state);
       }
       if (changed) emit({ topicId, sessionKey, action });
+    },
+
+    /**
+     * What every open turn is doing right now, one payload per topic. A window
+     * that connects mid-turn would otherwise stay on `think` until the action
+     * changed, because the feed only says changes.
+     */
+    current(): StreamActionPayload[] {
+      const now: StreamActionPayload[] = [];
+      for (const [topicId, state] of topics) {
+        if (state.last) now.push({ topicId, sessionKey: state.sessionKey, action: state.last });
+      }
+      return now;
     },
 
     /** Topics with a turn in flight, for tests and diagnostics. */

@@ -3230,7 +3230,7 @@ export function createAppContext(baseDir: string): AppContext {
     PORT,
     TOPICS_FILE, UNREAD_FILE, PUBLIC_DIR, UPLOADS_DIR, CONTEXT_DIR,
     APP_DATA_DIR, SESSIONS_DIR, MESSAGES_DIR, BASE_DIR: baseDir, STATE_DIR,
-    activeStreams, turnLedger, wsClients, deviceSockets,
+    activeStreams, turnLedger, currentStreamActions: () => streamActionFeed.current(), wsClients, deviceSockets,
     broadcast, broadcastToAll, broadcastProject, broadcastToProjectViewers, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,

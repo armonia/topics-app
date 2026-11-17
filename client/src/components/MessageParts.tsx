@@ -5,7 +5,7 @@ import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { SparkLoader } from './Layout/StreamingIndicator';
 import { loaderActivityForAction } from './Layout/loaderState';
-import { useTopicAction } from '../state/signals';
+import { useTopicAction } from '../state/agentActionHooks';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';

@@ -16,7 +16,7 @@
  * chats, terminal session id for terminals (two disjoint id spaces). Fed from
  * `useSignalsSync` (the server's global `stream:action` frame for chats,
  * Claude Code terminal phases); read
- * through the facade hooks in `signals.ts` (`useTopicAction` and friends), which
+ * through the facade hooks in `agentActionHooks.ts` (`useTopicAction` and friends), which
  * decide WHETHER a subject works. This module only says WHAT it is doing.
  */
 import { create } from 'zustand';

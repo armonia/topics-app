@@ -464,6 +464,8 @@ export interface AppContext {
   activeStreams: Map<string, ActiveStream>;
   /** Whether a turn is open on a session, from every source (`lib/turn-ledger.ts`). Optional for test contexts. */
   turnLedger?: import("./lib/turn-ledger").TurnLedger;
+  /** What each open turn is doing right now (`lib/stream-action-feed.ts`), for a socket that connects mid-turn. Optional for test contexts. */
+  currentStreamActions?: () => import("./lib/stream-action-feed").StreamActionPayload[];
   wsClients: Set<ServerWebSocket<WSData>>;
   /** Every open transport, exclusively for device revocation; never broadcast. */
   deviceSockets: Set<ServerWebSocket<WSData>>;

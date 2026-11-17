@@ -16,7 +16,7 @@ import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForAction } from '../Layout/loaderState';
-import { useTerminalAction, useTopicAction } from '../../state/signals';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):

@@ -18,7 +18,7 @@ import { AgentProfiles } from './AgentProfiles';
 import { useAgentRegistry } from '../../state/agentRegistry';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForAction } from '../Layout/loaderState';
-import { useTerminalAction, useTopicAction } from '../../state/signals';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
 import type { AgentAction } from '../../../../shared/agent-action';
 
 type Tr = ReturnType<typeof useT>;
