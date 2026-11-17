@@ -12,6 +12,11 @@ describe('quick filters', () => {
     expect(taskMatchesQuick(t, 'agents')).toBe(true);
     expect(taskMatchesQuick(task({ createdBy: 'human' }), 'agents')).toBe(false);
   });
+  test('a card with a Jarvis channel counts as Jarvis and agent without createdBy', () => {
+    const t = task({ createdBy: null, channel: { topicId: 't1', name: 'x', kind: 'discord' } });
+    expect(taskMatchesQuick(t, 'jarvis')).toBe(true);
+    expect(taskMatchesQuick(t, 'agents')).toBe(true);
+  });
   test('scheduled covers cron cards and cards with a scheduled run', () => {
     expect(taskMatchesQuick(task({ createdBy: 'cron:nightly' }), 'scheduled')).toBe(true);
     expect(taskMatchesQuick(task({ scheduled: { by: 'Jarvis', at: null } }), 'scheduled')).toBe(true);
