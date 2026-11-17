@@ -10,10 +10,13 @@ const JARVIS_NAME = 'jarvis';
 
 export function taskMatchesQuick(task: BoardTask, quick: QuickFilter): boolean {
   const by = splitCreatedBy(task.createdBy);
+  // Same rule as the creator chip: a card with a Jarvis channel behind it is Jarvis's work,
+  // even when `createdBy` is empty (cards born before the field).
+  const fromChannel = !!task.channel?.topicId;
   switch (quick) {
     case 'me': return taskWaitsOnPerson(task);
-    case 'jarvis': return by?.kind === 'agent' && by.name?.toLowerCase() === JARVIS_NAME;
-    case 'agents': return by?.kind === 'agent';
+    case 'jarvis': return fromChannel || (by?.kind === 'agent' && by.name?.toLowerCase() === JARVIS_NAME);
+    case 'agents': return fromChannel || by?.kind === 'agent';
     case 'scheduled': return by?.kind === 'cron' || !!task.scheduled;
   }
 }
