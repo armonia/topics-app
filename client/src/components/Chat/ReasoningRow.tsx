@@ -24,6 +24,9 @@ interface Props {
  * "Over" is the moment `partial` drops for this row: in the blocks timeline
  * that is when the next block (an answer, a tool) starts, so the body folds
  * while what follows is just being drawn and nothing already read moves.
+ * It folds in one frame, with that block: the answer and the end of the turn
+ * can arrive in the same read, and a fold still animating when the turn ends
+ * would move the transcript after the end (chat-turn-end-still).
  * A press by the person wins over both automatic states.
  */
 export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId }: Props) {
@@ -67,7 +70,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
           <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
       </button>
-      <DisclosureBody open={!collapsed} className="ml-1.5 pb-1.5">
+      <DisclosureBody open={!collapsed} instantClose={pressed === null} className="ml-1.5 pb-1.5">
         {/* Prose, not code: the thinking is sentences, in the reading font,
             muted and set off by a rule on the left. */}
         <div
