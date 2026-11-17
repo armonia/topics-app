@@ -331,10 +331,7 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
   })) {
     emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, { model: tally.model, durationMs: tallyTurnDurationMs(tally, turn) }), null);
   }
-  if (rt.phase !== before) {
-    deps().broadcast();
-    noteSubagentWaitChanged(row.parentSessionKey);
-  }
+  if (rt.phase !== before) { deps().broadcast(); noteSubagentWaitChanged(row.parentSessionKey); }
 }
 
 /**
@@ -655,11 +652,7 @@ export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): v
   if (opts.working) setChildPhase(id, 'working');
 }
 
-/**
- * A child's phase, and the parent chat told: its turn opened or closed, which
- * is what the chat's tab says it waits on (BGVIS-10). Every writer of a phase
- * goes through here.
- */
+/** A child's phase, and the parent chat told (BGVIS-10): every writer of a phase goes through here. */
 export function setChildPhase(id: string, phase: SubAgentPhase): void {
   const rt = runtimeOf(id);
   if (rt.phase === phase) return;

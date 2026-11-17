@@ -73,7 +73,7 @@ const MAC_SU = `{
   ]
 }`;
 
-const MAC_SU_CLEAN = MAC_SU.replace(/    0 => \{[\s\S]*?\n    \}\n/, "");
+const MAC_SU_CLEAN = MAC_SU.replace(/ {4}0 => \{[\s\S]*?\n {4}\}\n/, "");
 
 const NETSTAT = `Active Internet connections (including servers)
 Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
