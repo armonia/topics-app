@@ -39,6 +39,8 @@ pub struct PoolNode {
     /// Epoch seconds the drain gives up at.
     pub drain_until: Option<i64>,
     pub align_failed: bool,
+    /// Epoch seconds since the server runs older code than main; none while it is aligned.
+    pub behind_since: Option<i64>,
     /// Cards on the machine (todo and in progress), when the pool counted them.
     pub cards: Option<u32>,
 }
@@ -62,6 +64,7 @@ pub fn parse_pool(body: &str) -> Vec<PoolNode> {
             draining: s.get("draining").and_then(Value::as_bool).unwrap_or(false),
             drain_until: s.get("drain_until").and_then(Value::as_f64).map(|t| t as i64).or(drain_since.map(|t| t + DRAIN_DEFAULT_S)),
             align_failed: !text(s, "align_failed").is_empty(),
+            behind_since: s.get("behind_since").and_then(Value::as_f64).map(|t| t as i64),
             cards: s.get("cards").and_then(Value::as_u64).map(|c| c as u32),
         }
     }).collect()).unwrap_or_default();
@@ -84,7 +87,7 @@ fn clock(at: i64, offset: i64) -> String {
 
 /// The pool seat a card stands for: the client's card by its machine id, the service's
 /// card (which has no machine id) by the server name its caption carries.
-fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[MachineDetail]) -> Option<&'a PoolNode> {
+pub(crate) fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[MachineDetail]) -> Option<&'a PoolNode> {
     if card.id.is_empty() || card.local {
         return None;
     }
