@@ -262,6 +262,8 @@ fn an_odd_proof_takes_the_footer_beside_it_when_it_fits_and_no_row_of_its_own() 
     assert!(draw_backup_card(&long, Palette::new(true)).cv.h > without, "a footer too wide for the half row keeps its own line, whole");
 }
 
+// the widths come from CoreText: the estimate used where there is none is wider and says nothing about the menu
+#[cfg(target_os = "macos")]
 #[test]
 fn a_meter_names_what_its_share_is_of_and_keeps_the_time_of_its_reset() {
     let q = quota_cards(BOARD);
@@ -282,4 +284,11 @@ fn a_remote_machines_description_is_not_coloured_like_trouble() {
     let (w, scale) = (pic.cv.w as usize, crate::tray_quota::SCALE);
     let band = ((26.0 * scale) as usize * w * 4)..((42.0 * scale) as usize * w * 4);
     assert!(!pic.cv.px[band].chunks(4).any(red), "the second line of a remote card has no red ink");
+}
+
+#[test]
+fn the_meters_of_an_account_are_named_by_what_they_cover_on_every_platform() {
+    let q = quota_cards(BOARD);
+    assert_eq!(q[0].five_hour.as_ref().map(|m| m.label.as_str()), Some("5 ore"));
+    assert_eq!(q[0].week.as_ref().map(|m| m.label.as_str()), Some("7 giorni"));
 }
