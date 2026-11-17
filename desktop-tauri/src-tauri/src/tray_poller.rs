@@ -25,6 +25,58 @@ pub fn set_agents(states: AgentStates) {
     }
 }
 
+/// What the agents at work are doing, as the client names it (`shared/agent-action.ts`).
+/// Stored for the frames that will draw one shape per action; nothing draws it yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentAction {
+    Think,
+    Write,
+    Read,
+    Edit,
+    Run,
+    Web,
+    Browse,
+    Delegate,
+    Tool,
+    Wait,
+    Error,
+}
+
+impl AgentAction {
+    /// The wire word, or None for one this shell does not know (a newer client).
+    pub fn from_wire(s: &str) -> Option<AgentAction> {
+        Some(match s {
+            "think" => AgentAction::Think,
+            "write" => AgentAction::Write,
+            "read" => AgentAction::Read,
+            "edit" => AgentAction::Edit,
+            "run" => AgentAction::Run,
+            "web" => AgentAction::Web,
+            "browse" => AgentAction::Browse,
+            "delegate" => AgentAction::Delegate,
+            "tool" => AgentAction::Tool,
+            "wait" => AgentAction::Wait,
+            "error" => AgentAction::Error,
+            _ => return None,
+        })
+    }
+}
+
+static ACTION: std::sync::Mutex<Option<AgentAction>> = std::sync::Mutex::new(None);
+
+/// The client's latest dominant action; None when nothing works.
+pub fn set_action(action: Option<AgentAction>) {
+    if let Ok(mut g) = ACTION.lock() {
+        *g = action;
+    }
+}
+
+/// The dominant action the next frame may draw.
+#[allow(dead_code)] // read by the per-action frames, which land separately
+pub fn current_action() -> Option<AgentAction> {
+    ACTION.lock().map(|g| *g).unwrap_or(None)
+}
+
 /// Test door: seeds the shared state the animation thread reads.
 #[cfg(test)]
 pub(crate) fn seed_for_test(cols: Vec<Column>, states: AgentStates) {
@@ -116,4 +168,31 @@ where
             anim.step(|s| apply(s), &overlay);
         }
     });
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::*;
+
+    #[test]
+    fn every_wire_word_parses_and_an_unknown_one_does_not() {
+        for (w, a) in [
+            ("think", AgentAction::Think), ("write", AgentAction::Write), ("read", AgentAction::Read),
+            ("edit", AgentAction::Edit), ("run", AgentAction::Run), ("web", AgentAction::Web),
+            ("browse", AgentAction::Browse), ("delegate", AgentAction::Delegate), ("tool", AgentAction::Tool),
+            ("wait", AgentAction::Wait), ("error", AgentAction::Error),
+        ] {
+            assert_eq!(AgentAction::from_wire(w), Some(a));
+        }
+        assert_eq!(AgentAction::from_wire("dance"), None);
+        assert_eq!(AgentAction::from_wire(""), None);
+    }
+
+    #[test]
+    fn the_latest_action_is_kept_and_cleared() {
+        set_action(Some(AgentAction::Edit));
+        assert_eq!(current_action(), Some(AgentAction::Edit));
+        set_action(None);
+        assert_eq!(current_action(), None);
+    }
 }

@@ -147,3 +147,26 @@ Each glyph carries `data-testid="status-glyph"` and `data-status`.
 - **GIVEN** one of the card surfaces
 - **WHEN** it imports `SparkLoader`
 - **THEN** the unit test fails
+
+### Requirement: STATUS-VISUAL-01k — The working loader plays what the agent is doing
+
+Every surface that says an agent is working (chat tab and sidebar row, project
+folder, terminal tab, the tray payload) SHALL know WHICH action the agent is
+doing, as one `AgentAction` of `shared/agent-action.ts` (think, write, read,
+edit, run, web, browse, delegate, tool, wait, error), and pass it to the
+loader. Tool names SHALL be classified by the one pure `classifyToolAction`,
+MCP prefixes and provider spellings included. A shown action SHALL stay at
+least 700 ms, the latest input winning when that time is up, and the store
+SHALL change only when the shown action changes. A project folder SHALL show
+`wait` when a child waits for the person, else the child that changed action
+most recently.
+
+#### Scenario: a turn runs three tools in a few milliseconds
+- **GIVEN** a chat showing `read`
+- **WHEN** an `edit` and a `run` arrive within 700 ms
+- **THEN** the loader keeps `read` until 700 ms have passed, then shows `run`
+
+#### Scenario: a reply streams text
+- **GIVEN** a chat streaming its answer
+- **WHEN** fifty content chunks arrive
+- **THEN** the action store is written once

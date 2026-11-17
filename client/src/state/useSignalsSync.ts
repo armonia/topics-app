@@ -3,7 +3,7 @@
  * input. Mounted once at App level. Keeping all population here means there's
  * one wiring diagram to reason about, and consumers only ever read the facade.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '../types';
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, type TerminalPhaseLite } from './signals';
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
@@ -12,6 +12,8 @@ import type { TopicServices } from '../../../shared/background-work';
 import { attentionActions } from './attention';
 import { subscribeAllSessionFlags } from './sessionFlags';
 import { apiFetch } from '../lib/shell/net';
+import { agentActionActions, chatFrameAction } from './agentActions';
+import type { AgentAction } from '../../../shared/agent-action';
 
 interface Args {
   topics: Record<string, Topic>;
@@ -40,9 +42,52 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
 
   // "What is each session doing" → the activity map (keyed by topicId/terminalId).
   // Drives the SessionActivity label on sidebar rows + the mobile activity view.
+  // The same derivation feeds the ACTION of each Claude Code terminal (the
+  // loader's movement), through the dwell rule of `agentActions`. Chats are fed
+  // by their stream frames below, which are finer than the hook phase.
+  const fedTerminals = useRef(new Set<string>());
   useEffect(() => {
-    signalsActions.setSessionActivity(deriveSessionActivity(topics, terminalSessions, claudeSessions));
+    const activity = deriveSessionActivity(topics, terminalSessions, claudeSessions);
+    signalsActions.setSessionActivity(activity);
+    const fed = new Set<string>();
+    for (const ts of terminalSessions) {
+      const a = activity.get(ts.id);
+      if (!a?.action) continue;
+      agentActionActions.note(ts.id, a.action);
+      fed.add(ts.id);
+    }
+    for (const id of fedTerminals.current) if (!fed.has(id)) agentActionActions.clear(id);
+    fedTerminals.current = fed;
   }, [topics, terminalSessions, claudeSessions]);
+
+  // Chat stream frames → the action of each chat, by topic (the key of
+  // `useTopicLoading`). Subscribed to the raw socket, not to the chat's own
+  // handler: that one skips the frames of a turn this window streams over its
+  // own SSE, and every window must draw the same movement.
+  const topicBySession = useRef(new Map<string, string>());
+  useEffect(() => {
+    const m = new Map<string, string>();
+    for (const t of Object.values(topics)) if (t.sessionKey) m.set(t.sessionKey, t.id);
+    topicBySession.current = m;
+  }, [topics]);
+  useEffect(() => {
+    const lastTool = new Map<string, AgentAction>();
+    return onWSMessage((msg) => {
+      if (!msg.type?.startsWith('stream:')) return;
+      const frame = msg as WSMessage & { sessionKey?: string; topicId?: string; late?: boolean; toolCall?: { name?: string } };
+      const topicId = frame.topicId || (frame.sessionKey ? topicBySession.current.get(frame.sessionKey) : undefined);
+      if (!topicId) return;
+      const action = chatFrameAction(frame, lastTool.get(topicId));
+      if (action === null) return;
+      if (action === 'clear') {
+        lastTool.delete(topicId);
+        agentActionActions.clear(topicId);
+        return;
+      }
+      if (frame.type === 'stream:tool_call') lastTool.set(topicId, action);
+      agentActionActions.note(topicId, action);
+    });
+  }, [onWSMessage]);
 
   // "When did each session last actually do something" → unfiltered twin of
   // the activity map above (includes idle/finished sessions). Drives sidebar
