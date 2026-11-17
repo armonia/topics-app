@@ -263,10 +263,11 @@ export function TurnActivityIndicator({
           language for what the other two surfaces already said their own way,
           and from outside the chat they looked like different states. The glyph
           lives in ONE place (`StreamingIndicator`), so they can no longer
-          drift. The "slow" state keeps the amber dot: it is the only one that
-          is NOT "working", and it deserves to look different. */}
+          drift. A slow turn or a retry is the same loader in amber playing
+          `sync`: it is NOT "working", so it looks different, but in the same
+          12px box, so the line does not move when the state changes. */}
       {state === 'slow' || state === 'retry' ? (
-        <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
+        <SparkLoader className="shrink-0" state="waiting" activity="sync" />
       ) : (
         <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
       )}

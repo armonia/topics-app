@@ -135,15 +135,16 @@ at work, so the amber chip and the sky blue are on screen.
 - **WHEN** the Board, the plan view or the Agents pane is captured in light or dark
 - **THEN** the capture matches its reference screenshot
 
-### Requirement: STATUS-VISUAL-01j — A card state is one glyph family, animated when live
+### Requirement: STATUS-VISUAL-01j — A card at work draws the square loader; a card state is a still glyph
 
-The card surfaces (live effort chip, plan tile activity, session live row, background work
-line, sub-agent card and strip) SHALL draw their state with `StatusIcon`, whose `live`
-variant spins the in_progress half pie under `motion-safe` at one turn per 1.44 s in 12
-steps, and which adds `failed` (red ring with a cross). They SHALL NOT use `SparkLoader`.
-Each glyph carries `data-testid="status-glyph"` and `data-status`.
+The card surfaces (live effort chip, plan tile activity and plan card, session live row,
+background work line, sub-agent card and strip, chat task card, agent rows of the sidebar
+and of the Agents pane) SHALL draw an agent at work with `SparkLoader`, the one status
+icon of Topics, in the box of the glyph it replaces. `StatusIcon` stays for the still
+categories (backlog, todo, review, done, failed: red ring with a cross) and SHALL NOT
+spin. Each `StatusIcon` carries `data-testid="status-glyph"` and `data-status`.
 
-#### Scenario: the four-dot spinner comes back on a card
+#### Scenario: a spinning half pie comes back on a card
 - **GIVEN** one of the card surfaces
-- **WHEN** it imports `SparkLoader`
+- **WHEN** it draws work in progress with a `live` or spinning `StatusIcon`
 - **THEN** the unit test fails

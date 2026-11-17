@@ -1,6 +1,5 @@
 import { memo, useState, type MouseEvent } from 'react';
 import { AlarmClock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
-import { StatusIcon } from '../Board/atoms';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -15,6 +14,7 @@ import { WorkMeter } from '../Board/WorkMeter';
 import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -102,7 +102,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />
+          ? <SparkLoader size={12} activity="tool" className="flex-shrink-0" />
           : state === 'waiting'
             ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}

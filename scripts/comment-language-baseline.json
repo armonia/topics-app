@@ -257,7 +257,6 @@
     "client/src/components/Shared/SidebarUpdateBanner.tsx": 36,
     "client/src/components/Shared/Skeleton.test.ts": 24,
     "client/src/components/Shared/Skeleton.tsx": 70,
-    "client/src/components/Shared/Spinner.tsx": 24,
     "client/src/components/Shared/SplitMiniMap.tsx": 1,
     "client/src/components/Shared/Switch.tsx": 24,
     "client/src/components/Shared/Toast.test.ts": 36,

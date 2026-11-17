@@ -13,6 +13,7 @@ import { useSystemHealth } from '../../hooks/useSystemHealth';
 import { usePaneStore } from '../../state/pane/store';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useLocale, useT } from '../../hooks/useT';
+import { Spinner } from '../Shared/Spinner';
 
 interface SystemStatusPanelProps {
   enabled?: boolean;
@@ -140,7 +141,7 @@ export function SystemStatusPanel({ enabled = true }: SystemStatusPanelProps) {
           disabled={refreshing || loading}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-mini text-app-text-muted hover:text-app-text-secondary hover:bg-app-hover rounded transition-colors"
         >
-          <RefreshCw size={12} className={refreshing || loading ? 'animate-spin' : ''} />
+          {refreshing || loading ? <Spinner size="sm" tone="current" /> : <RefreshCw size={12} />}
           {refreshing
             ? 'Aggiorno…'
             : lastRefreshedAt !== null
