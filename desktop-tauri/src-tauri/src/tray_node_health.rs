@@ -209,14 +209,20 @@ fn level_of(status: &str) -> u32 {
 
 // ------------------------------------------------------------------ rows
 
+/// How the sync writer opens the error of a node it could not reach (the sentence is Italian: it is shown as it is).
+const UNREACHABLE: &str = "nodo non raggiungibile";
+
 /// «Memorie e regole» of a remote machine, from what the sync last copied there.
 pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<StatusRow> {
     let t = sync.targets.get(machine_id)?;
     let lag = (sync.source_at - t.at).max(0);
     let mut parts: Vec<String> = Vec::new();
     let mut level = 0;
+    // An unreachable node: the headline only. What follows it is the transport's own message (a timeout
+    // while the Mac is busy), too long for the line and of no use to the reader.
+    let unreachable = t.error.as_deref().map_or(false, |e| e.starts_with(UNREACHABLE));
     if let Some(e) = &t.error {
-        parts.push(e.clone());
+        parts.push(if unreachable { UNREACHABLE.to_string() } else { e.clone() });
         level = 2;
     } else if t.rev != sync.source_rev {
         parts.push(format!("indietro di {}", span(lag)));
@@ -225,6 +231,8 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
         parts.push(format!("allineate alle {}", hhmm(t.at, offset)));
     }
     match t.private.as_str() {
+        // a closed private part behind an unreachable node is the same news again
+        "closed" if unreachable => {}
         "closed" => {
             parts.push("privato chiuso".into());
             level = level.max(1);
