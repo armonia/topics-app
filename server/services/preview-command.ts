@@ -8,6 +8,7 @@
  * the heuristic for any frontend.
  */
 import { existsSync, readFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { installArgv, missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import type { PreviewCommand } from "./preview-manager";
@@ -52,11 +53,14 @@ export function resolvePreviewCommand(
     if (declaresDeps && !existsSync(join(worktreePath, "node_modules")) && !missingPackageManager(worktreePath)) {
       prepare.push(installArgv(worktreePath));
     }
+    const contract = script === "preview:worktree";
     return {
       cmd: runScriptArgv(worktreePath, [script]),
       deepLinkPath,
       prepare,
-      readyTimeoutMs: script === "preview:worktree" ? PREVIEW_CONTRACT_READY_MS : undefined,
+      readyTimeoutMs: contract ? PREVIEW_CONTRACT_READY_MS : undefined,
+      // The contract script may write the page to show (see PreviewCommand.deepLinkFile).
+      deepLinkFile: contract ? join(tmpdir(), "topics-preview-{port}.deeplink") : undefined,
     };
   } catch { return null; }
 }

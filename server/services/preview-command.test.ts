@@ -34,6 +34,13 @@ describe("resolvePreviewCommand", () => {
     expect(resolvePreviewCommand(dir, {})?.readyTimeoutMs).toBeUndefined();
   });
 
+  it("announces a deep-link file only for the contract script", () => {
+    pkg({ scripts: { "preview:worktree": "p" } });
+    expect(resolvePreviewCommand(dir, {})?.deepLinkFile).toContain("{port}");
+    pkg({ scripts: { dev: "d" } });
+    expect(resolvePreviewCommand(dir, {})?.deepLinkFile).toBeUndefined();
+  });
+
   it("installs dependencies only when the package declares some and node_modules is missing", () => {
     pkg({ scripts: { dev: "d" } });
     expect(resolvePreviewCommand(dir, {})?.prepare).toEqual([]);
