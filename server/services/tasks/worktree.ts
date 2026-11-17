@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { markSystemChat } from "../../lib/wake-adoption";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { type Task } from "../task-shapes";
@@ -195,6 +196,7 @@ bindTopic(this: TaskService, { taskId, topicId, freshSession }): Task {
           (freshSession ? ", dispatch_attempts = 1" : "") +
           ", updated_at = ? WHERE id = ?",
       ).run(topicId, topicId, now(), taskId);
+      markSystemChat(db, topicId, "task");
       return rowToTask(getTaskRow(taskId));
     },
 
