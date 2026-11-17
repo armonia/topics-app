@@ -3,6 +3,8 @@
  */
 import { applyPaneCascade, retiredIds } from "../services/retirement";
 import { computeCascade } from "../services/pane-retirement-cascade";
+import type { RouteHandler } from "../types";
+import { getPrimaryRole } from "../lib/primary-role";
 import { createOpenRouter } from "../routes/open";
 import { projectIdForPath } from "../services/tasks";
 import { buildBranchInventory, scanBranchesOutsideBase, summarizeInventory } from "../services/branch-inventory";
@@ -181,7 +183,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   const machinesRouter = createMachinesRouter(ctx, { revocations: delegatedRevocations });
 
-  const nodesRouter = createNodesRouter(ctx, {
+  const nodesRouterInner = createNodesRouter(ctx, {
     deleteBoardTask: deleteDelegatedBoardTask,
     revocations: delegatedRevocations,
     onEnterTodo: (projectId, taskId) => taskDispatcher.onEnterTodo(projectId, taskId),
@@ -194,6 +196,10 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     // the authorization handshake without probing or invoking an LLM.
     taskModels: process.env.TOPICS_E2E === "1" ? () => ["e2e-coding-model"] : undefined,
   });
+
+  // A call from a primary that was replaced (lower epoch) is refused before it touches a card.
+  const nodesRouter: RouteHandler = (req, url, pathname, method) =>
+    (pathname.startsWith("/api/nodes/") ? getPrimaryRole()?.rejectStale(req) : null) ?? nodesRouterInner(req, url, pathname, method);
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 

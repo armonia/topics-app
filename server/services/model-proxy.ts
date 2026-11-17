@@ -116,6 +116,8 @@ export interface ModelProxyDeps {
   fetch?: typeof fetch;
   log?: (line: string) => void;
   maxBodyBytes?: number;
+  /** A 409 for a caller that carries a lower primary epoch than ours; null lets the request through. */
+  rejectStale?: (req: Request) => Response | null;
 }
 
 type ErrorType =
@@ -200,6 +202,9 @@ export function createModelProxyHandler(deps: ModelProxyDeps): (req: Request) =>
     const url = new URL(req.url);
     const target = req.method === "POST" ? upstreamUrlFor(url.pathname, url.search) : null;
     if (!target) return apiError(404, "not_found_error", "Not found");
+
+    const stale = deps.rejectStale?.(req);
+    if (stale) return stale;
 
     const token = presentedToken(req);
     const machineId = token ? machineForModelToken(deps.stateDir, token) : null;

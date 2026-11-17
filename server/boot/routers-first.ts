@@ -24,6 +24,7 @@ import { createContextRouter } from "../routes/context";
 import { createUsageRouter } from "../routes/usage";
 import { createHubRouter, upstreamBase, HUB_DEFAULT_URL } from "../routes/hub";
 import { createHubLive } from "../lib/hub-live";
+import { isThisServerPrimary } from "../lib/primary-role";
 import { createTerminalRouter, setTerminalBrowserCloser, retireTerminalSession } from "../routes/terminal";
 import { createStatusRouter } from "../routes/status";
 import { createMemoryRouter } from "../routes/memory";
@@ -173,7 +174,8 @@ export function bootRoutersFirst(scope: AfterTracker) {
     hasClients: () => wsClients.size > 0,
   });
 
-  hubLive.start();
+  // Only the primary reads the usage hub; the role is fixed for the life of the process (a switch restarts the server).
+  if (isThisServerPrimary()) hubLive.start();
 
   const hubRouter = createHubRouter(ctx, { live: hubLive });
 
