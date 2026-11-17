@@ -126,7 +126,9 @@ test.describe.serial("La card del sotto-agente", () => {
     const card = call.getByTestId("spawn-agent-card");
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute("data-agent-id", LOST_PROMPT_ID);
-    await expect(card.getByTestId("spawn-agent-name")).toHaveText("dnd-audit");
+    // The name is said once, by the row; the card under it does not repeat it.
+    await expect(call).toContainText("dnd-audit");
+    await expect(card.getByTestId("spawn-agent-name")).toHaveCount(0);
     await expect(card.getByTestId("subagent-result-card")).toHaveAttribute("data-status", "undelivered");
     // Not the generic MCP card.
     await expect(page.getByText("topics · spawn_agent")).toHaveCount(0);

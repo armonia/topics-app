@@ -1,7 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
-import { goToApp, openTopic } from "./helpers";
+import { expect, test } from "@playwright/test";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { hermetic } from "./fixtures/hermetic";
@@ -18,18 +17,20 @@ hermetic(test);
  *    nothing else, and stayed so after the call settled;
  *  - the running tool is not wrapped in a tinted box with its own radius: it is
  *    flat like the rows around it;
- *  - the last row of a message does not touch the strips under the transcript;
+ *  - one line per thing: a row says its label once and the card under it only
+ *    the detail (no «Card» over «Card», no «Sub-agent» over «Sotto-agente»);
+ *  - a finished sub-agent call with nothing to show is not drawn; a failed one
+ *    is, with that state;
+ *  (the distance to the sub-agents bar is `chat-rows-strip.spec.ts`)
  *  - a SUB-AGENT (another chat that works and comes back with a result) and a
  *    BACKGROUND job (a process that runs and wakes the chat when it ends) do
  *    not look alike: other icon, other label.
  *
- * With `ROWS_SHOT_DIR` set, the page is also photographed at 375, 768 and
- * 1440 px (`ROWS_SHOT_TAG` names the files), for the before/after pictures.
+ * With `ROWS_SHOT_DIR` set, the page is also photographed at 1440, 768 and
+ * 375 px (`ROWS_SHOT_TAG` names the files), for the before/after pictures.
  *
  * @covers CHAT-TOOL-14
  */
-
-const WIDTHS = [375, 768, 1440] as const;
 
 test.describe("Chat rows: one grid, no row without words", () => {
   let topicId: string;
@@ -59,10 +60,14 @@ test.describe("Chat rows: one grid, no row without words", () => {
           id: "rw-sub-ok", name: "Task", args: { description: "Controlla il modulo di pagamento", subagent_type: "Explore" }, status: "success", result: "ok", endedAt: now - 5000,
           detail: { type: "sub_agent", subAgentType: "Explore", description: "Controlla il modulo di pagamento", actions: [], result: "ok" },
         }),
-        // The three calls below carry nothing to say what they are for, and
-        // they are settled with no clock (the history of an older turn): the
-        // row has no timer to fill it, and used to stay a bare icon.
-        tool({ id: "rw-sub-empty", name: "Task", args: {}, status: "success", result: "ok", startedAt: undefined, detail: { type: "sub_agent", actions: [] } }),
+        // The calls below carry nothing to say what they are for, and they are
+        // settled with no clock (the history of an older turn): there is no
+        // timer to fill the row, and each used to be a bare icon.
+        // 1. Finished with nothing at all: no row to draw.
+        tool({ id: "rw-sub-empty", name: "Task", args: {}, status: "success", startedAt: undefined, detail: { type: "sub_agent", actions: [] } }),
+        // 2. Failed with nothing else: a row with that state and nothing more.
+        tool({ id: "rw-sub-failed", name: "Task", args: {}, status: "error", error: "boom", startedAt: undefined, detail: { type: "sub_agent", actions: [] } }),
+        // 3. A spawn with only an answer, and a card call with no title.
         tool({ id: "rw-spawn-empty", name: "spawn_agent", args: {}, status: "success", result: "ok", startedAt: undefined, detail: { type: "sub_agent", via: "spawn_agent", actions: [] } }),
         tool({ id: "rw-card-empty", name: "create_task", args: {}, status: "success", startedAt: undefined, detail: { type: "task_card", tool: "create_task", action: "created", args: {} } }),
         tool({ id: "rw-bg-cmd", name: "run_command", args: { command: "bun run dev" }, status: "success", result: "started · processId=proc-1", endedAt: now - 4000 }),
@@ -84,80 +89,70 @@ test.describe("Chat rows: one grid, no row without words", () => {
     await resetPaneStore(request, [topicId]);
   });
 
-  async function open(page: Page, width: number) {
-    await page.setViewportSize({ width, height: 900 });
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
-    await expect(page.locator('[data-testid="tool-call-row-rw-run"]')).toBeVisible({ timeout: 15_000 });
-    await page.locator('[data-testid="tool-call-row-rw-run"]').scrollIntoViewIfNeeded();
-  }
+  /**
+   * One page, one open: the rows are read at 1440, then the same page is
+   * narrowed to 768 and 375 for the photos. (Seven separate opens of the same
+   * topic on a loaded runner lost the sidebar entry now and then, which is the
+   * helper's race and not what is measured here.) Soft assertions, so a failing
+   * build reports every row that is wrong, not only the first.
+   */
+  test("rows on one grid, no row without words, kinds told apart", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // Opened from the sidebar, as a person does (the `openTopic` helper re-seeds the pane store and races).
+    await page.goto("/");
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
+    await page.getByRole("treeitem", { name: new RegExp(topicName) }).first().click();
+    const row = (id: string) => page.locator(`[data-testid="tool-call-row-${id}"]`);
+    await expect(row("rw-run")).toBeVisible({ timeout: 15_000 });
+    await row("rw-run").scrollIntoViewIfNeeded();
 
-  for (const width of WIDTHS) {
-    test(`${width} px: photo of the rows, and no row without words`, async ({ page }) => {
-      await open(page, width);
+    const shoot = async (width: number) => {
       const dir = process.env.ROWS_SHOT_DIR;
-      if (dir) {
-        mkdirSync(dir, { recursive: true });
-        await page.screenshot({ path: join(dir, `${process.env.ROWS_SHOT_TAG ?? "shot"}-${width}.png`) });
-      }
-      for (const id of ["rw-sub-empty", "rw-spawn-empty", "rw-card-empty"]) {
-        const head = page.locator(`[data-testid="tool-call-row-${id}"] > :first-child`);
-        await expect(head, `${id} says what it is`).toHaveText(/\S/);
-      }
-    });
-  }
+      if (!dir) return;
+      mkdirSync(dir, { recursive: true });
+      await page.screenshot({ path: join(dir, `${process.env.ROWS_SHOT_TAG ?? "shot"}-${width}.png`) });
+    };
+    await shoot(1440);
+    // The photos at the two narrower widths, on the same page, then back to 1440 for the measures.
+    for (const width of [768, 375, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await row("rw-run").scrollIntoViewIfNeeded();
+      if (width !== 1440) await shoot(width);
+    }
 
-  test("the running tool is flat: no tint, no ring, on the column of its neighbours", async ({ page }) => {
-    await open(page, 1440);
-    const style = await page.locator('[data-testid="tool-call-row-rw-run"]').evaluate((el) => {
+    // No row is a bare icon; a finished sub-agent with nothing to show is not drawn.
+    for (const id of ["rw-sub-failed", "rw-spawn-empty", "rw-card-empty"]) {
+      await expect.soft(row(id).locator(":scope > :first-child"), `${id} says what it is`).toHaveText(/\S/);
+    }
+    await expect.soft(row("rw-sub-empty"), "a finished sub-agent with nothing at all has no row").toHaveCount(0);
+    await expect.soft(row("rw-sub-failed"), "a failed call says its error, not «no activity» too").not.toContainText(/Nessuna attività|No activity/i);
+
+    // One line per thing: the label once, under it only the detail.
+    await expect.soft(row("rw-spawn-empty").getByTestId("spawn-agent-phase")).toBeVisible();
+    await expect.soft(row("rw-spawn-empty").getByTestId("spawn-agent-name"), "«Sub-agent» over «Sotto-agente»").toHaveCount(0);
+    await expect.soft(row("rw-card-empty").getByTestId("task-card-phase")).toBeVisible();
+    await expect.soft(row("rw-card-empty").getByTestId("task-card-title"), "«Card» over a second «Card»").toHaveCount(0);
+
+    // The running tool is flat and on the column of its neighbours.
+    const run = await row("rw-run").evaluate((el) => {
       const s = getComputedStyle(el);
-      return {
-        bg: s.backgroundColor,
-        shadow: s.boxShadow,
-        left: el.getBoundingClientRect().left,
-        siblingLeft: document.querySelector('[data-testid="tool-call-row-rw-read"]')!.getBoundingClientRect().left,
-      };
+      return { bg: s.backgroundColor, shadow: s.boxShadow, left: el.getBoundingClientRect().left, siblingLeft: document.querySelector('[data-testid="tool-call-row-rw-read"]')!.getBoundingClientRect().left };
     });
-    expect(style.bg).toBe("rgba(0, 0, 0, 0)");
-    expect(style.shadow).toBe("none");
-    expect(style.left).toBe(style.siblingLeft);
-  });
+    expect.soft(run.bg, "no tint").toBe("rgba(0, 0, 0, 0)");
+    expect.soft(run.shadow, "no ring").toBe("none");
+    expect.soft(run.left, "same column as the rows around it").toBe(run.siblingLeft);
 
-  test("the last row of the message does not touch the strips under it", async ({ page }) => {
-    await open(page, 1440);
-    // This chat has no goal, todo or live work, so the strips' slot is empty:
-    // a probe stands in for the first strip (the slot gives it its distance).
-    const gap = await page.evaluate(() => {
-      const slot = document.querySelector('[data-testid="chat-end-strips"]')!;
-      const probe = document.createElement("div");
-      probe.style.height = "20px";
-      slot.appendChild(probe);
-      const rows = [...document.querySelectorAll('[data-testid="reasoning-row"]')];
-      const last = rows[rows.length - 1].getBoundingClientRect();
-      return probe.getBoundingClientRect().top - last.bottom;
-    });
-    expect(gap, "gap between the last row and the first strip, px").toBeGreaterThanOrEqual(10);
-  });
-
-  test("a sub-agent and a background job do not look alike", async ({ page }) => {
-    await open(page, 1440);
-    const read = async (id: string) => page.locator(`[data-testid="tool-call-row-${id}"]`).evaluate((el) => ({
+    // A sub-agent and a background job do not look alike.
+    const read = (id: string) => row(id).evaluate((el) => ({
       kind: el.getAttribute("data-work-kind"),
       icon: el.querySelector("svg")?.getAttribute("class") ?? "",
       label: el.querySelector('[data-testid="tool-call-name"]')?.textContent ?? "",
     }));
-    const sub = await read("rw-sub-ok");
-    const spawn = await read("rw-spawn-empty");
-    const cmd = await read("rw-bg-cmd");
-    const bash = await read("rw-bg-bash");
-    expect(sub.kind).toBe("subagent");
-    expect(spawn.kind).toBe("subagent");
-    expect(cmd.kind).toBe("background");
-    expect(bash.kind).toBe("background");
-    expect(sub.label).toBe("Sub-agent");
-    expect(cmd.label).toBe("Background");
-    expect(bash.label).toBe("Background");
-    expect(sub.icon).not.toBe(cmd.icon);
+    const [sub, spawn, cmd, bash] = await Promise.all(["rw-sub-ok", "rw-spawn-empty", "rw-bg-cmd", "rw-bg-bash"].map(read));
+    expect.soft([sub.kind, spawn.kind, cmd.kind, bash.kind]).toEqual(["subagent", "subagent", "background", "background"]);
+    expect.soft([sub.label, cmd.label, bash.label]).toEqual(["Sub-agent", "Background", "Background"]);
+    expect.soft(sub.icon, "another icon").not.toBe(cmd.icon);
+
   });
 });

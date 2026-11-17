@@ -12,7 +12,7 @@
  * The row says which one it is with its icon and its label, nothing else.
  * Pure, so the rule has a test with no DOM.
  */
-import type { ToolCallDetail } from '../../types';
+import type { ToolCall, ToolCallDetail } from '../../types';
 
 export type WorkKind = 'subagent' | 'background';
 
@@ -29,4 +29,18 @@ export function workKindOf(name: string, detail: ToolCallDetail): WorkKind | und
   if (detail.type === 'shell' && detail.background) return 'background';
   if (BACKGROUND_TOOLS.has(bareName(name))) return 'background';
   return undefined;
+}
+
+/**
+ * A sub-agent call that finished and left NOTHING to show: no name, no
+ * description, no type, no activity, no answer, no error. Its row would be the
+ * word «Sub-agent» over «no activity recorded», a row with no content of its
+ * own, so it is not drawn. A call still running, failed, or waiting on a person
+ * has a state to tell and is always drawn.
+ */
+export function isEmptySubAgent(toolCall: ToolCall, detail: ToolCallDetail): boolean {
+  if (detail.type !== 'sub_agent' || toolCall.status !== 'success') return false;
+  return !detail.name && !detail.description && !detail.subAgentType && !detail.agentId
+    && detail.actions.length === 0 && !detail.result && !toolCall.result && !toolCall.error
+    && !toolCall.permissionRequest && !toolCall.userResponse;
 }
