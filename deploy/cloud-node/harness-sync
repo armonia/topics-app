@@ -307,7 +307,7 @@ def keychain_password(create=True):
 # (misurato a coppie il 17/11), mentre nc e curl restano veloci. Il ssh del nodo è corto e
 # interattivo; i trasferimenti grandi (scp) restano senza marcatura.
 def ssh_opts(t):
-    o = ["-o", "IdentitiesOnly=yes", "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
+    o = ["-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new",
          "-o", "LogLevel=ERROR"]
     if t.get("key"):
         o = ["-i", t["key"], *o]
