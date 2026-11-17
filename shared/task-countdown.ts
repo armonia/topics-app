@@ -23,7 +23,7 @@ export const HISTORY_CAP = 50;
  * twenty took more than 4.5 times as long. At 0.7 the estimate at departure
  * holds for 68% of them.
  */
-export const DEPARTURE_QUANTILE = 0.7;
+export const DEPARTURE_SHARE = 0.7;
 
 /**
  * At a checkpoint the new figure is this quantile of the closed cards that
@@ -33,7 +33,7 @@ export const DEPARTURE_QUANTILE = 0.7;
  * 0.8 keeps 70% of the revisions true (0.5 kept 47%) with one revision per
  * card at the median.
  */
-export const REVISION_QUANTILE = 0.8;
+export const REVISION_SHARE = 0.8;
 
 /** Where in the estimate the card is checked: half way, three quarters, the end. */
 export const CHECKPOINTS = [0.5, 0.75, 1] as const;
@@ -57,7 +57,7 @@ export interface EstimateBasis {
 }
 
 /** Linear-interpolated quantile of a sorted list. */
-function quantile(sorted: readonly number[], p: number): number {
+function valueAt(sorted: readonly number[], p: number): number {
   const i = p * (sorted.length - 1);
   const lo = Math.floor(i);
   const hi = Math.min(lo + 1, sorted.length - 1);
@@ -68,7 +68,7 @@ function quantile(sorted: readonly number[], p: number): number {
 export function estimateBasis(done: readonly EstimateSample[]): EstimateBasis | null {
   const xs = done.slice(0, HISTORY_CAP).map((d) => d.agentMs).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
   if (xs.length < MIN_ESTIMATE_SAMPLES) return null;
-  return { departureMs: quantile(xs, DEPARTURE_QUANTILE), historyMs: xs };
+  return { departureMs: valueAt(xs, DEPARTURE_SHARE), historyMs: xs };
 }
 
 /** The figure at departure alone, or `null` below the sample floor. */
@@ -91,25 +91,25 @@ export interface RevisedEstimate {
  * same figure on every surface and every render, with no state to keep.
  */
 export function revisedEstimate(basis: EstimateBasis, elapsedMs: number): RevisedEstimate {
-  let est = basis.departureMs;
+  let figure = basis.departureMs;
   let revisedAt: Checkpoint | null = null;
   let at = 0;
   // Each pass moves `at` forward and the end checkpoint grows the figure by at
   // least END_MARGIN, so the loop ends; the bound is a backstop only.
   for (let guard = 0; guard < 256; guard++) {
-    const next = CHECKPOINTS.find((f) => f * est > at);
-    if (next === undefined || next * est > elapsedMs) break;
-    at = next * est;
+    const next = CHECKPOINTS.find((f) => f * figure > at);
+    if (next === undefined || next * figure > elapsedMs) break;
+    at = next * figure;
     const lasted = basis.historyMs.filter((x) => x > at);
-    const projected = lasted.length >= MIN_ESTIMATE_SAMPLES ? quantile(lasted, REVISION_QUANTILE) : 2 * at;
-    const floor = next === 1 ? Math.round(at * END_MARGIN) : est;
+    const projected = lasted.length >= MIN_ESTIMATE_SAMPLES ? valueAt(lasted, REVISION_SHARE) : 2 * at;
+    const floor = next === 1 ? Math.round(at * END_MARGIN) : figure;
     const raised = Math.max(projected, floor);
-    if (raised > est) {
-      est = raised;
+    if (raised > figure) {
+      figure = raised;
       revisedAt = next;
     }
   }
-  return { totalMs: est, revisedAt };
+  return { totalMs: figure, revisedAt };
 }
 
 export interface CountdownInput {
