@@ -83,7 +83,9 @@ fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, now: i64, p: Palette
             let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
             let extras = data.extras(m, &details, now, offset);
             // what the node files say first (security, charts), then the readings and the processes
-            let mut kids: Vec<Node> = submenu_nodes(&extras, &m.id, p, offset);
+            let mut kids: Vec<Node> = m.agents.as_ref().map(|a| crate::tray_node_agents::submenu_nodes(a, now)).unwrap_or_default();
+            kids.push(Node::Sep);
+            kids.extend(submenu_nodes(&extras, &m.id, p, offset));
             kids.push(Node::Sep);
             if !m.local {
                 kids.extend(remote_reading_nodes(found));
@@ -188,7 +190,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.extend(extras_nodes(&snap.overview, prefs));
     more.push(item("pref:five-hour", tick("Fascia 5 ore", prefs.five_hour)));
     more.push(item("pref:api-credit", tick("Credito API", prefs.api_credit)));
-    more.push(item("pref:cloud-bonus", tick("Bonus cloud", prefs.cloud_bonus)));
+    more.push(item("pref:cloud-bonus", tick("Quote per modello", prefs.cloud_bonus)));
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
@@ -204,14 +206,31 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     m
 }
 
+/// The board has no history of its readings; `/api/machines` has, and it says how far back it really goes, which a
+/// «peak of 24 h» must not claim beyond.
+pub(crate) fn attach_histories(cards: &mut [MachineCard], machines: Option<&str>) {
+    let rows: Value = machines.and_then(|b| serde_json::from_str(b).ok()).unwrap_or(Value::Null);
+    let Some(rows) = rows.as_array() else { return };
+    for c in cards.iter_mut() {
+        let Some(row) = rows.iter().find(|r| s(r, "id") == c.id) else { continue };
+        for m in &mut c.metrics {
+            if let Some(x) = row.get("metrics").and_then(Value::as_array).and_then(|a| a.iter().find(|x| s(x, "key") == m.key)) {
+                (m.hist_n, m.hist_span_s, m.hist_peak) = crate::tray_menu_views::hist_of(x);
+            }
+        }
+    }
+}
+
 /// The machines to draw: the service's cards (it reads this computer and its own
 /// machines in more depth), then every machine of the client's list the service
 /// does not describe, so a cloud node gets the same card as the Mac. A client card
 /// is the service's own when both are this computer or both carry the same name.
 pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard> {
-    let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
+    let mut service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
+    attach_histories(&mut service, snap.machines.as_deref());
     let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
-    let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
+    // a node of the client's list that answers nothing and has no reading to show is not a node worth a card
+    let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c) && !(c.level >= 2 && c.metrics.iter().all(|m| m.pct.is_none()))).cloned().collect();
     // the service's own card may carry another id than the Topics machine of the same name: remember it for the node files
     let all: Vec<MachineCard> = service.into_iter().map(|mut c| {
         c.machine_id = client.iter().find(|x| !c.local && x.name.trim().eq_ignore_ascii_case(c.name.trim())).map(|x| x.id.clone()).unwrap_or_default();

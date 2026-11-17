@@ -101,6 +101,7 @@ impl NodeData {
         }).unwrap_or_default();
         let sync_id = sync_id.as_str();
         let mut rows: Vec<StatusRow> = Vec::new();
+        rows.extend(card.agents.as_ref().and_then(crate::tray_node_agents::summary_row));
         if card.local {
             rows.extend(self.memory_row.clone());
         } else {
