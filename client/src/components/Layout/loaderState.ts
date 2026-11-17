@@ -62,11 +62,17 @@ export function loaderInkClass(state: LoaderState, onFill = false, activity?: st
 }
 
 /**
- * TEMPORARY ADAPTER: the agent's action as one of the movements `squareLoader`
- * draws today. Remove it, and pass the AgentAction straight through, once
- * squareLoader exports one shape per action (a shape redesign is in flight in
- * parallel). It is the ONLY place that folds the eleven actions onto the old
- * movements, so the swap is one edit.
+ * THE MAP FROM WHAT AN AGENT DOES TO THE SHAPE THE LOADER PLAYS. The loader's
+ * shapes are approved and final (`squareLoader`), and eleven actions fold onto
+ * six of them: reading and the web are a search, writing and editing write,
+ * running a command, driving a browser, delegating and any other tool are a
+ * tool, and think, wait and error keep their own shape.
+ *
+ * This is the ONLY place that knows the fold. Every surface goes through
+ * `loaderActivityForAction` or `loaderActivityForTool`, and the menu-bar tray
+ * reads the same table at build time (`scripts/gen-tray-loader-frames.ts`
+ * writes it into `tray_loader_frames.rs`), so changing a line here and
+ * regenerating moves the app and the tray together.
  */
 const LOADER_FOR_ACTION: Record<AgentAction, LoaderActivity> = {
   think: 'think',

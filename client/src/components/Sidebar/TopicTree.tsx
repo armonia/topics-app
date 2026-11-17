@@ -35,7 +35,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { useBoardTasks } from '@/lib/boardTasksStore';
 import { openTaskInApp } from '@/lib/openTaskLink';
 import { openCardsOf, taskCardPhase } from '@/lib/taskCardState';
-import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, SparkLoader } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, SparkLoader, TaskActionLoader } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
@@ -1192,7 +1192,7 @@ export function TopicTree({
             style={{ paddingLeft: ROW_INSET + (depth + 1) * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
           >
             {taskCardPhase(c) === 'working'
-              ? <SparkLoader size={12} activity="tool" className="flex-shrink-0" />
+              ? <TaskActionLoader taskId={c.id} size={12} className="flex-shrink-0" />
               : <STATUS_ICON.wait size={ROW_CHEVRON} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />}
             <span className="truncate">{c.text}</span>
           </button>

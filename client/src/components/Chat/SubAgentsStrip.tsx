@@ -15,6 +15,8 @@ import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForAction } from '../Layout/loaderState';
+import { useTerminalAction, useTopicAction } from '../../state/signals';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -85,6 +87,9 @@ const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5
 function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
   const { id, name, state } = row;
+  // A native child's id is its chat, a CLI child's its terminal: the loader plays what it is doing.
+  const chatAction = useTopicAction(row.runtime === 'topics' ? id : undefined);
+  const terminalAction = useTerminalAction(row.runtime === 'cli' ? id : undefined);
   const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
     : tr('subagent.ended', { name });
@@ -102,7 +107,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <SparkLoader size={12} activity="tool" className="flex-shrink-0" />
+          ? <SparkLoader size={12} activity={loaderActivityForAction(chatAction ?? terminalAction) ?? 'think'} className="flex-shrink-0" />
           : state === 'waiting'
             ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}

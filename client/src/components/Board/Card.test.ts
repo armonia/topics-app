@@ -197,11 +197,11 @@ describe('the progress word', () => {
 describe('la misura del turno sulla card', () => {
   test('in lavorazione la riga viva c\'e\': niente chip, solo testo e il caricamento di main', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
-    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} />');
+    expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} taskId={task.id} />');
     expect(live).toContain('data-testid="card-measure"');
     // The live mark is the square loader, the one status icon; its movement comes from the caller.
-    expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
-    expect(live).toContain('<SparkLoader size={12} activity={activity} className="shrink-0" />');
+    expect(live).toContain("import { TaskActionLoader } from '../Layout/StreamingIndicator';");
+    expect(live).toContain('<TaskActionLoader taskId={taskId} activity={activity} size={12} className="shrink-0" />');
     expect(live).not.toContain('StatusIcon');
     expect(live).not.toContain('animate-pulse rounded-full bg-sky-400');
     expect(live).not.toContain('bg-sky-500/15');

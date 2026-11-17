@@ -16,7 +16,8 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart, useTopicAction } from '../../state/signals';
+import { loaderActivityForAction } from '../Layout/loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
@@ -287,6 +288,8 @@ function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
  */
 export function SessionActivityBar({ subjectId, className = '' }: { subjectId: string | undefined; className?: string }) {
   const activity = useSessionActivity(subjectId);
+  // The bar sits in a chat (subjectId is its topic): the loader plays what its agent is doing.
+  const action = useTopicAction(subjectId);
   if (!activity) return null;
   // Il blu qui era `bg-sky-500`, cioè una tinta DIVERSA da quella dei fill di
   // tab e riga: due superfici che dicono la stessa cosa con due blu. Ora vengono
@@ -299,7 +302,7 @@ export function SessionActivityBar({ subjectId, className = '' }: { subjectId: s
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
       {activity.working || activity.tier === 'input'
-        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} />
+        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} activity={activity.working ? loaderActivityForAction(action) : undefined} />
         : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />}
       <SessionActivity subjectId={subjectId} className="!text-compact" />
     </div>

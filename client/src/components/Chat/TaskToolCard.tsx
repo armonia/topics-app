@@ -20,7 +20,7 @@ import { taskCardPhase, PHASE_GLYPH } from '../../lib/taskCardState';
 import { useMachines, machineLabel } from '../../state/machinesStore';
 import type { BoardTask } from '../../lib/board';
 import type { ToolCallDetail } from '../../types';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { TaskActionLoader } from '../Layout/StreamingIndicator';
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg)$/i;
 
@@ -83,7 +83,7 @@ export function TaskToolCard({ detail, isRunning, isError, error }: {
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {refused
           ? <Ban size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} />
-          : phase ? (PHASE_GLYPH[phase] === 'in_progress' ? <SparkLoader size={12} activity="tool" className="flex-shrink-0" /> : <StatusIcon status={PHASE_GLYPH[phase]} className="h-3 w-3" />) : <ListTodo size={12} className="flex-shrink-0 text-app-text-muted" />}
+          : phase ? (PHASE_GLYPH[phase] === 'in_progress' ? <TaskActionLoader taskId={detail.taskId} size={12} className="flex-shrink-0" /> : <StatusIcon status={PHASE_GLYPH[phase]} className="h-3 w-3" />) : <ListTodo size={12} className="flex-shrink-0 text-app-text-muted" />}
         <span className="min-w-0 max-w-full grow basis-24 truncate font-medium text-app-text" data-testid="task-card-title">{title}</span>
         <span className="flex-shrink-0 text-app-text-secondary" data-testid="task-card-phase">
           {refused ? tr('chat.taskCard.refused') : phase ? tr(`chat.taskCard.phase.${phase}`) : isRunning ? tr('chat.taskCard.loading') : tr('chat.taskCard.unknown')}

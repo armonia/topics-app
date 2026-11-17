@@ -4,6 +4,8 @@ import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { SparkLoader } from './Layout/StreamingIndicator';
+import { loaderActivityForAction } from './Layout/loaderState';
+import { useTopicAction } from '../state/signals';
 import { MessageMetaFooter } from './Chat/MessageMetaFooter';
 import { turnClock, formatTurnElapsed } from '../state/turnClock';
 import { phraseAt } from '../lib/thinkingPhrases';
@@ -60,6 +62,7 @@ function liveUsageTitle(u: {
 export function TurnActivityIndicator({
   since,
   sessionKey,
+  topicId,
   onMessage,
   awaitingInput,
   promptTokens,
@@ -76,6 +79,8 @@ export function TurnActivityIndicator({
   runningTool?: string | null;
   /** Serve solo per lo stato "lento": senza, l'indicatore resta quello normale. */
   sessionKey?: string;
+  /** The chat of the turn: while it works, the loader plays what its agent is doing. */
+  topicId?: string;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   /**
    * I numeri del turno in corso, presi dal MESSAGGIO e non da un'iscrizione
@@ -107,6 +112,7 @@ export function TurnActivityIndicator({
   awaitingInput?: boolean;
 }) {
   const tr = useT();
+  const action = useTopicAction(topicId);
   const [now, setNow] = useState(() => Date.now());
   // `awaitingInput` è fra le dipendenze perché l'apertura e la chiusura di
   // un'attesa si misurano su `now`: rileggere l'orologio subito al cambio fa
@@ -269,7 +275,7 @@ export function TurnActivityIndicator({
       {state === 'slow' || state === 'retry' ? (
         <SparkLoader className="shrink-0" state="waiting" activity="sync" />
       ) : (
-        <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
+        <SparkLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} activity={state === 'waiting' ? undefined : loaderActivityForAction(action)} />
       )}
         </>
       }

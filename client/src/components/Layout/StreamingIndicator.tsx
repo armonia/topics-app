@@ -34,7 +34,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading, useTopicAction, useProjectAction, useTerminalAction } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading, useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/signals';
 import { useT } from '../../hooks/useT';
 import { loaderActivityForAction, loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
 import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';
@@ -222,6 +222,21 @@ interface TopicSpinnerProps {
   quiet?: boolean;
   /** The row or tab carries an attention fill: the arc takes its ink. */
   onFill?: boolean;
+}
+
+/**
+ * The loader of a board card whose agent is at work: it plays what that agent
+ * is doing (`useTaskAction`, the chat the card's agent works in), `think` while
+ * the card has no chat yet. `activity` overrides it (previews and galleries).
+ */
+export function TaskActionLoader({ taskId, activity, size = GLYPH, className = '' }: {
+  taskId: string | undefined;
+  activity?: LoaderActivity;
+  size?: number;
+  className?: string;
+}) {
+  const action = useTaskAction(taskId);
+  return <SparkLoader size={size} activity={activity ?? loaderActivityForAction(action) ?? 'think'} className={className} />;
 }
 
 export function TopicStreamingSpinner({

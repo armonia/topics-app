@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
 import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
 import type { LiveTool, LiveUsage, RetryWait } from './constants';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { TaskActionLoader } from '../Layout/StreamingIndicator';
 import type { LoaderActivity } from '../Layout/squareLoader';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
@@ -94,8 +94,8 @@ export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?
  * anchors turnStartedAt at the actual turn start). Falls back to the static
  * agent_ms/agent_tokens chip the instant the turn ends.
  */
-/** `activity`: what the agent of the card is doing now; wired to useTaskAction(taskId) by the caller. */
-export function LiveEffortChip({ usage, label, trailing, activity = 'think' }: { usage: LiveUsage; label?: string; trailing?: ReactNode; activity?: LoaderActivity }) {
+/** `taskId`: the card whose agent is at work, so the loader plays what it is doing; `activity` overrides it (previews). */
+export function LiveEffortChip({ usage, label, trailing, taskId, activity }: { usage: LiveUsage; label?: string; trailing?: ReactNode; taskId?: string; activity?: LoaderActivity }) {
   const tr = useT();
   const locale = useLocale();
   const [, force] = useState(0);
@@ -122,7 +122,7 @@ export function LiveEffortChip({ usage, label, trailing, activity = 'think' }: {
       className="flex w-full min-w-0 max-w-full items-center justify-between gap-2 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
     >
       <span className="flex min-w-0 items-center gap-1.5 break-words">
-        <SparkLoader size={12} activity={activity} className="shrink-0" />
+        <TaskActionLoader taskId={taskId} activity={activity} size={12} className="shrink-0" />
         <span className="min-w-0 break-words">{label ?? fmtModel(usage.model)}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">

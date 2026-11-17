@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { SparkLoader } from '../Layout/StreamingIndicator';
+import { TaskActionLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';
@@ -136,7 +136,7 @@ export function PlanView({ onOpenTask, onOpenTopic, renderTaskCard, isVisible }:
           {/* A failed dispatch is its own glyph (red ring with the cross), as on the Board and in chat. */}
           {/* A card whose agent is at work draws the square loader in the same 12px box. */}
           {c.status === 'in_progress' && c.dispatchState === 'working' ? (
-            <SparkLoader size={12} activity="tool" className={`shrink-0 ${boardCard ? 'mt-2.5' : ''}`} />
+            <TaskActionLoader taskId={c.id} size={12} className={`shrink-0 ${boardCard ? 'mt-2.5' : ''}`} />
           ) : (
             <StatusIcon
               status={c.status !== 'done' && c.dispatchState === 'failed' ? 'failed' : c.status}
