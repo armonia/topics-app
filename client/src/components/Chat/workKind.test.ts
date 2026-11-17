@@ -6,7 +6,8 @@
 import { describe, expect, test } from 'bun:test';
 import { deriveToolDetail } from '../../../../shared/tool-detail';
 import { iconForCall, iconForDetail } from './toolIcons';
-import { workKindOf } from './workKind';
+import type { ToolCall } from '../../types';
+import { isEmptySubAgent, workKindOf } from './workKind';
 
 const kind = (name: string, args: Record<string, unknown> = {}) => workKindOf(name, deriveToolDetail(name, args));
 
@@ -36,5 +37,28 @@ describe('workKindOf: a sub-agent is not a background job', () => {
     // A plain shell keeps the terminal of its detail.
     const sh = deriveToolDetail('Bash', { command: 'ls' });
     expect(iconForCall('Bash', sh)).toBe(iconForDetail(sh));
+  });
+});
+
+describe('isEmptySubAgent: a settled sub-agent with nothing to say has no row', () => {
+  const call = (over: Partial<ToolCall>): ToolCall => ({ id: 'x', name: 'Task', args: {}, status: 'success', ...over } as ToolCall);
+  const empty = (c: ToolCall) => isEmptySubAgent(c, deriveToolDetail(c.name, c.args, c.result, { failed: c.status === 'error' }));
+
+  test('finished with no name, description, type, activity or answer', () => {
+    expect(empty(call({}))).toBe(true);
+    expect(empty(call({ name: 'spawn_agent' }))).toBe(true);
+  });
+
+  test('anything to read keeps the row', () => {
+    expect(empty(call({ args: { description: 'cerca' } }))).toBe(false);
+    expect(empty(call({ args: { subagent_type: 'Explore' } }))).toBe(false);
+    expect(empty(call({ result: 'ok' }))).toBe(false);
+    expect(empty(call({ error: 'boom' }))).toBe(false);
+  });
+
+  test('a call still running, failed or not a sub-agent is never hidden', () => {
+    expect(empty(call({ status: 'running' }))).toBe(false);
+    expect(empty(call({ status: 'error' }))).toBe(false);
+    expect(empty(call({ name: 'Read', args: { file_path: '/x' } }))).toBe(false);
   });
 });
