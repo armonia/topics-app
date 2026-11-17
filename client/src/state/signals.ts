@@ -33,6 +33,9 @@ import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork'
 import { SEEN_DWELL_MS as SHARED_SEEN_DWELL_MS, type AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
 import { projectAttention, projectWorkingCount } from './attentionRollups';
+import { classifyToolAction, type AgentAction } from '../../../shared/agent-action';
+import { rollupAction, subjectActionFrom, useAgentActionStore, type ActionEntry } from './agentActions';
+import { useTaskTopicId } from './taskSessions';
 
 /** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
  *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
@@ -249,6 +252,8 @@ export interface SessionActivitySignal {
   working: boolean;
   /** The tool Claude is currently running (from lastTool), when working. */
   tool?: string;
+  /** What the session is doing, for the loader's movement (`actionForPhase`). Always set by `deriveSessionActivity`. */
+  action?: AgentAction;
   /** The pending approval kind (plan/edit/bash/other), when tier === 'input'. */
   approvalKind?: string;
   /** Timestamp the current phase/tool started — for the elapsed counter. */
@@ -433,7 +438,7 @@ function sessionActivityEqual(a: Map<string, SessionActivitySignal>, b: Map<stri
     const vb = b.get(k);
     if (!vb) return false;
     if (va.phase !== vb.phase || va.tier !== vb.tier || va.working !== vb.working
-      || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
+      || va.action !== vb.action || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
   }
   return true;
 }
@@ -561,6 +566,21 @@ export function derivePhaseTerminals(
 }
 
 /**
+ * The action of a Claude Code session from its hook phase: a session parked on
+ * the person waits, an errored one is an error, a tool running is what that
+ * tool does, an armed Monitor is a command running, and anything else
+ * (`running` between tools, `starting`) is `think`. Only `tool-running` reads
+ * the tool: in `running` the last tool has already returned.
+ */
+export function actionForPhase(phase: ClaudeSessionPhase, toolName: string | undefined): AgentAction {
+  if (phase === 'error') return 'error';
+  if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'wait';
+  if (phase === 'tool-running') return toolName ? classifyToolAction(toolName) : 'tool';
+  if (phase === 'watching') return toolName ? classifyToolAction(toolName) : 'run';
+  return 'think';
+}
+
+/**
  * Build the "what is each session doing" map, keyed by SUBJECT id (topicId for
  * chats, terminalSessionId for claude-code terminals). Only sessions that are
  * WORKING or AWAITING produce an entry — an idle/dormant session shows nothing,
@@ -583,6 +603,7 @@ export function deriveSessionActivity(
       tier,
       working,
       tool: working ? st.lastTool?.name : undefined,
+      action: actionForPhase(st.phase, working ? st.lastTool?.name : undefined),
       approvalKind: tier === 'input' ? st.pendingApproval?.kind : undefined,
       // Prefer the running tool's start (freshest) when working, else the phase
       // change — so the elapsed counter tracks the current action.
@@ -891,6 +912,108 @@ export function useTerminalReloading(sessionId: string | undefined): boolean {
 /** A browser pane is loading (page load or an agent driving it). */
 export function useBrowserLoading(paneId: string | undefined): boolean {
   return useSignalsStore((s) => !!paneId && s.browserBusyPaneIds.has(paneId));
+}
+
+// ---- Action facade: WHAT a working subject is doing -------------------------
+//
+// The loading hooks above say WHETHER a subject works; these say which action
+// it is doing, so the loader plays the right movement. Each returns undefined
+// exactly when its loading twin says the subject does not work, so a caller
+// can read either and never see a glyph with no action or an action with no
+// glyph. The live action comes from `agentActions` (dwell-steadied); the
+// precedence (wait, live, phase, background job) is `subjectActionFrom`.
+
+/** The action of a chat, or undefined when it does not work. */
+export function useTopicAction(topicId: string | undefined): AgentAction | undefined {
+  const inProgress = useTopicInProgress(topicId);
+  const turnOpen = useTopicLoading(topicId);
+  const waiting = useTopicAwaitingInput(topicId);
+  const tasks = useTopicBackgroundTasks(topicId);
+  const live = useAgentActionStore((s) => (topicId ? s.actions.get(topicId)?.action : undefined));
+  const fromPhase = useSignalsStore((s) => (topicId ? s.sessionActivity.get(topicId)?.action : undefined));
+  return subjectActionFrom({ inProgress, turnOpen, waiting, live, fromPhase, tasks });
+}
+
+/**
+ * The action of a terminal, or undefined when it does not work. A terminal
+ * busy on pty output alone (a plain shell, or a Claude Code session whose
+ * phase is not known yet) is running a command.
+ */
+export function useTerminalAction(sessionId: string | undefined): AgentAction | undefined {
+  const inProgress = useTerminalLoading(sessionId);
+  const tasks = useTerminalBackgroundTasks(sessionId);
+  const live = useAgentActionStore((s) => (sessionId ? s.actions.get(sessionId)?.action : undefined));
+  const { phaseActive, ptyOnly } = useSignalsStore(useShallow((s) => ({
+    phaseActive: !!sessionId && s.claudePhaseActiveTermIds.has(sessionId),
+    ptyOnly: !!sessionId && s.terminalBusyIds.has(sessionId)
+      && !s.claudePhaseActiveTermIds.has(sessionId) && !s.claudePhaseRestingTermIds.has(sessionId),
+  })));
+  if (ptyOnly && !live) return 'run';
+  return subjectActionFrom({ inProgress, turnOpen: phaseActive, waiting: false, live, tasks });
+}
+
+/**
+ * The action of a project folder: the rollup of its working children (the
+ * same child walk as `useProjectLoading`). A child waiting for the person makes
+ * it `wait`; otherwise the child that changed action most recently speaks.
+ */
+export function useProjectAction(projectPath: string | undefined): AgentAction | undefined {
+  const loading = useProjectLoading(projectPath);
+  const waiting = useProjectAwaitingInput(projectPath);
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const actions = useAgentActionStore((s) => s.actions);
+  const { live, hydrated, phaseActive } = useSignalsStore(useShallow((s) => ({
+    live: s.liveStreamTopics,
+    hydrated: s.hydratedStreamTopics,
+    phaseActive: s.claudePhaseActiveTermIds,
+  })));
+  return useMemo(() => {
+    if (!projectPath || !loading) return undefined;
+    if (waiting) return 'wait';
+    const children: ActionEntry[] = [];
+    for (const t of Object.values(topics)) {
+      if (t.projectPath !== projectPath || !(live.has(t.id) || hydrated.has(t.id))) continue;
+      const e = actions.get(t.id);
+      if (e) children.push(e);
+    }
+    for (const ts of terminalSessions) {
+      if (ts.type === 'shell' || !ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
+      const e = phaseActive.has(ts.id) ? actions.get(ts.id) : undefined;
+      if (e) children.push(e);
+    }
+    return rollupAction(children) ?? 'think';
+  }, [projectPath, loading, waiting, topics, terminalSessions, actions, live, hydrated, phaseActive]);
+}
+
+/**
+ * The action of a board card: the one of the chat its agent works in
+ * (`assignedTopicId`, read through the task index). undefined for a card no
+ * agent works on right now.
+ */
+export function useTaskAction(taskId: string | undefined): AgentAction | undefined {
+  return useTopicAction(useTaskTopicId(taskId));
+}
+
+/**
+ * The action the tray shows: the most recent among every subject at work
+ * (an open chat turn, a Claude Code terminal in an active phase). undefined
+ * when nothing works.
+ */
+export function useDominantAction(): AgentAction | undefined {
+  const actions = useAgentActionStore((s) => s.actions);
+  const { live, hydrated, phaseActive } = useSignalsStore(useShallow((s) => ({
+    live: s.liveStreamTopics,
+    hydrated: s.hydratedStreamTopics,
+    phaseActive: s.claudePhaseActiveTermIds,
+  })));
+  return useMemo(() => {
+    const working: ActionEntry[] = [];
+    for (const [key, e] of actions) {
+      if (live.has(key) || hydrated.has(key) || phaseActive.has(key)) working.push(e);
+    }
+    return rollupAction(working, { waitWins: false });
+  }, [actions, live, hydrated, phaseActive]);
 }
 
 /** Pure: how many of `ids` belong to a topic that is actually ON SCREEN.
