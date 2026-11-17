@@ -520,22 +520,20 @@ pub(crate) fn extras_nodes(overview: &Option<String>, prefs: Prefs) -> Vec<Node>
     if prefs.cloud_bonus {
         if let Some(credits) = v.get("credits").and_then(Value::as_object) {
             let mut kids = Vec::new();
-            for (who, c) in credits {
-                if c.get("nobonus").and_then(Value::as_bool) == Some(true) {
-                    continue;
-                }
-                if let (Some(left), Some(lim)) = (c.get("remaining").and_then(Value::as_f64), c.get("limit").and_then(Value::as_f64)) {
+            // a reading the service marks as old is not a figure to show
+            for (who, c) in credits.iter().filter(|(_, c)| c.get("stale").and_then(Value::as_bool) != Some(true)) {
+                if let (Some(left), Some(lim), false) = (c.get("remaining").and_then(Value::as_f64), c.get("limit").and_then(Value::as_f64), c.get("nobonus").and_then(Value::as_bool) == Some(true)) {
                     if lim > 0.0 {
                         let renews = Some(s(c, "renewsAt")).filter(|t| !t.is_empty()).map(|t| format!(" · scade {t}")).unwrap_or_default();
                         kids.push(note(format!("Bonus {who} · {:.0} su {:.0} rimasti{renews}", left, lim)));
                     }
                 }
                 for m in c.get("models").and_then(Value::as_array).into_iter().flatten() {
-                    kids.push(note(format!("{who} · {} {}%", s(m, "name"), n(m, "pct") as i64)));
+                    kids.push(note(format!("{who} · {} {}% della sua quota", s(m, "name"), n(m, "pct") as i64)));
                 }
             }
             if !kids.is_empty() {
-                out.push(sub("Credito AI e bonus cloud", kids));
+                out.push(sub("Quote per modello", kids));
             }
         }
     }

@@ -32,6 +32,9 @@ pub struct StatusMachine {
     pub local: bool,
     #[serde(default)]
     pub metrics: Vec<StatusMetric>,
+    /// The agents this machine has, as the service counts them; absent on a service that does not.
+    #[serde(default)]
+    pub agents: Option<crate::tray_node_agents::NodeAgents>,
 }
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -63,6 +66,7 @@ impl StatusMachine {
             metrics: self.metrics.iter().map(|m| crate::tray_menu_views::Metric { key: m.key.clone(), pct: m.pct, level: m.level, note: m.note.clone(), ..Default::default() }).collect(),
             order: 0,
             machine_id: String::new(),
+            agents: self.agents.clone(),
         })
     }
 }

@@ -456,3 +456,13 @@ fn tray_a_failed_icon_download_keeps_the_folder_and_is_asked_again() {
     assert!(project_icon_png("gamma").is_none());
     assert_eq!(crate::tray_menu_projects::project_icon_spec(&serde_json::json!({"name": "gamma"})), "sf:folder");
 }
+
+#[test]
+fn the_models_quotas_hide_a_stale_reading_and_say_what_they_are() {
+    let show = |stale: bool| {
+        let body = format!(r#"{{"credits":{{"a@x":{{"nobonus":true,"stale":{stale},"models":[{{"name":"Fable","pct":26}}]}}}}}}"#);
+        dump_text(&extras_nodes(&Some(body), Prefs::default()))
+    };
+    assert!(show(false).contains("Quote per modello") && show(false).contains("a@x · Fable 26% della sua quota"), "{}", show(false));
+    assert!(!show(true).contains("Fable") && !show(true).contains("bonus"), "an old reading is not shown: {}", show(true));
+}
