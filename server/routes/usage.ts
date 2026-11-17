@@ -177,6 +177,7 @@ export function parseUsageRecord(b: Record<string, unknown> | null): UsageRecord
     cacheReadTokens: num(b.cacheReadTokens) ?? 0, cacheCreationTokens: num(b.cacheCreationTokens) ?? 0,
     costUsd: typeof b.costUsd === "number" && Number.isFinite(b.costUsd) ? b.costUsd : null,
     sender,
+    projectPath: typeof b.projectPath === "string" && b.projectPath.trim() ? b.projectPath.trim().slice(0, 500) : null,
   };
 }
 
@@ -184,6 +185,8 @@ export interface UsageRecordInput {
   id: string | null; ts: number; model: string; purpose: string; label: string | null; sessionKey: string | null;
   inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number | null;
   sender: Sender;
+  /** Where a delegated job ran; it has no topic, so the project comes from here. */
+  projectPath: string | null;
 }
 
 /**
@@ -195,12 +198,12 @@ export function insertUsageRecord(db: Database, r: UsageRecordInput): { id: stri
   const id = r.id ?? crypto.randomUUID();
   const res = db.query(
     `INSERT OR IGNORE INTO usage_records (id, timestamp, session_key, topic_id, model, input_tokens, output_tokens, total_tokens, cost_usd,
-       purpose, provider, cache_read_tokens, cache_creation_tokens, measured, label, author_person_id)
-     VALUES (?, ?, ?, (SELECT id FROM topics WHERE session_key = ?), ?, ?, ?, ?, ?, ?, 'external', ?, ?, 1, ?, ?)`,
+       purpose, provider, cache_read_tokens, cache_creation_tokens, measured, label, author_person_id, project_path)
+     VALUES (?, ?, ?, (SELECT id FROM topics WHERE session_key = ?), ?, ?, ?, ?, ?, ?, 'external', ?, ?, 1, ?, ?, ?)`,
   ).run(
     id, r.ts, r.sessionKey ?? "external", r.sessionKey, r.model, r.inputTokens, r.outputTokens,
     r.inputTokens + r.outputTokens, r.costUsd, r.purpose, r.cacheReadTokens, r.cacheCreationTokens,
-    r.label, authorPersonId,
+    r.label, authorPersonId, r.projectPath,
   );
   return { id, duplicate: res.changes === 0 };
 }
