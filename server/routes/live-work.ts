@@ -16,7 +16,8 @@ import { getDatabase } from "../db";
 import { endedSubagents, runningSubagents } from "../lib/subagent-store";
 import { childPhase } from "../lib/subagent-runtime";
 import { liveWorkRows, endedTtlMs } from "../lib/live-work";
-import { childEstimateMs, cliChildWeight, nativeChildWeight } from "../lib/child-weight";
+import type { EstimateBasis } from "../../shared/task-countdown";
+import { childEstimate, cliChildWeight, nativeChildWeight } from "../lib/child-weight";
 import { getSubagent } from "../lib/subagent-store";
 import { summarizeToolInput } from "../services/task-dispatcher";
 import { liveCommandsOf } from "./processes";
@@ -80,9 +81,9 @@ export function liveWorkOf(ctx: AppContext, topic: Pick<Topic, "id" | "sessionKe
  * row with nothing measured keeps no field: the strip then draws neither.
  */
 function withWeight(db: ReturnType<typeof getDatabase>, rows: LiveWorkRow[]): LiveWorkRow[] {
-  const estimate = new Map<string, number | undefined>();
+  const estimate = new Map<string, EstimateBasis | undefined>();
   const estimateOf = (runtime: "topics" | "claude-code") => {
-    if (!estimate.has(runtime)) estimate.set(runtime, childEstimateMs(db, runtime));
+    if (!estimate.has(runtime)) estimate.set(runtime, childEstimate(db, runtime));
     return estimate.get(runtime);
   };
   return rows.map((r) => {
@@ -91,7 +92,7 @@ function withWeight(db: ReturnType<typeof getDatabase>, rows: LiveWorkRow[]): Li
     if (!child) return r;
     const weight = (child.runtime === "topics" ? nativeChildWeight(db, child) : cliChildWeight(child)) ?? undefined;
     const estimate = r.state === "ended" ? undefined : estimateOf(child.runtime);
-    return { ...r, ...(weight ? { weight } : {}), ...(estimate ? { estimateMs: estimate } : {}) };
+    return { ...r, ...(weight ? { weight } : {}), ...(estimate ? { estimateMs: estimate.departureMs, estimateHistoryMs: [...estimate.historyMs] } : {}) };
   });
 }
 
