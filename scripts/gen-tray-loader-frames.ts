@@ -30,7 +30,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LoaderBody, type LoaderActivity, type LoaderContext } from '../client/src/components/Layout/squareLoader';
+import { LoaderBody, SETTLE_S, type LoaderActivity, type LoaderContext } from '../client/src/components/Layout/squareLoader';
 import { loaderActivityForAction } from '../client/src/components/Layout/loaderState';
 import { AGENT_ACTIONS } from '../shared/agent-action';
 
@@ -44,6 +44,10 @@ const MAX_FRAMES = 24;
 const SIM_DT = 1 / 30;
 /** Long past the engine's one-second settle, so the loop sampled is the steady one. */
 const SETTLE_SECONDS = 12;
+/** A change starts on every this-many-th loop frame: at 120 ms a frame, it waits 0.6 s at most. */
+const TRANSITION_STRIDE = 5;
+/** A change that has not landed on the new loop by then is a bug of the engine or of this script. */
+const MAX_TRANSITION_S = 2.5;
 
 /**
  * One natural cycle of each tiny shape, in seconds, read off `SMALL_SHAPES`:
@@ -64,6 +68,17 @@ const CYCLE_S: Partial<Record<LoaderActivity, number>> = {
 /** A rounded square as the engine drew it: x, y, side, alpha, in device pixels of the glyph box. */
 export type Square = [number, number, number, number];
 
+/** The change from one shape to another, starting from frame `fromFrame` of `from`'s loop. */
+export interface TrayLoaderTransition {
+  from: LoaderActivity;
+  fromFrame: number;
+  to: LoaderActivity;
+  /** The images after the change, one every `transitionMs`. */
+  frames: Square[][];
+  /** The frame of `to`'s loop the body reaches next: the tray goes on from there. */
+  land: number;
+}
+
 export interface TrayLoaderShape {
   activity: LoaderActivity;
   cycleS: number;
@@ -80,10 +95,15 @@ function readRustNumber(src: string, name: string): number {
   return Number.isFinite(v) ? v : readRustNumber(src, m[1]);
 }
 
-export function trayGeometry(): { glyphPt: number; scale: number; frameMs: number } {
+export function trayGeometry(): { glyphPt: number; scale: number; frameMs: number; transitionMs: number } {
   const agents = readFileSync(join(TAURI_SRC, 'tray_agents.rs'), 'utf8');
   const quota = readFileSync(join(TAURI_SRC, 'tray_quota.rs'), 'utf8');
-  return { glyphPt: readRustNumber(agents, 'OVERLAY_PT'), scale: readRustNumber(quota, 'SCALE'), frameMs: readRustNumber(agents, 'FRAME_MS') };
+  return {
+    glyphPt: readRustNumber(agents, 'OVERLAY_PT'),
+    scale: readRustNumber(quota, 'SCALE'),
+    frameMs: readRustNumber(agents, 'FRAME_MS'),
+    transitionMs: readRustNumber(agents, 'TRANSITION_FRAME_MS'),
+  };
 }
 
 /** The shapes the tray can reach: the image of the action map, in the map's order. */
@@ -120,36 +140,45 @@ function sameImage(a: Square[], b: Square[]): boolean {
   return sa.every((q, i) => q[0] === sb[i][0] && q[1] === sb[i][1] && q[2] === sb[i][2] && Math.abs(q[3] - sb[i][3]) < 0.01);
 }
 
-function sample(activity: LoaderActivity, glyphPt: number, scale: number, frameMs: number): TrayLoaderShape {
+/** A body warmed into the steady loop of `activity`, stepping on the loop's sampling grid. */
+function loopRun(activity: LoaderActivity, glyphPt: number, scale: number, frameMs: number) {
   const cycleS = CYCLE_S[activity];
   if (!cycleS) throw new Error(`no cycle declared for '${activity}'`);
   const ctx = new RecordingContext();
   const body = new LoaderBody(glyphPt, ctx, { scale });
-  let t = 0;
-  const advance = (to: number) => {
-    const n = Math.max(1, Math.ceil((to - t) / SIM_DT - 1e-9));
-    const dt = (to - t) / n;
-    for (let i = 0; i < n; i++) { t += dt; body.step(activity, t, dt); }
+  const run = { t: 0, body, cycleS, count: 0, phase: 0, start: 0 };
+  /** Steps `shape` up to time `to`, never more than `maxDt` a step (the app's pace for that phase). */
+  const advance = (to: number, shape: LoaderActivity = activity, maxDt = SIM_DT) => {
+    const n = Math.max(1, Math.ceil((to - run.t) / maxDt - 1e-9));
+    const dt = (to - run.t) / n;
+    for (let i = 0; i < n; i++) { run.t += dt; body.step(shape, run.t, dt); }
   };
-  body.step(activity, 0, 0);
-  const count = Math.min(MAX_FRAMES, Math.max(1, Math.round(cycleS / (frameMs / 1000))));
-  const phase = cycleS / count;
-  // Warm up on the sampling grid itself, so the steady loop is reached with the very steps it is sampled at.
-  const start = Math.ceil(SETTLE_SECONDS / phase) * phase;
-  for (let k = 1; k * phase <= start + 1e-9; k++) advance(k * phase);
   const grab = (): Square[] => {
     body.draw('#000');
     return ctx.squares.map(([x, y, s, a]) => [round(x), round(y), round(s), round(a)] as Square);
   };
+  body.step(activity, 0, 0);
+  run.count = Math.min(MAX_FRAMES, Math.max(1, Math.round(cycleS / (frameMs / 1000))));
+  run.phase = cycleS / run.count;
+  // Warm up on the sampling grid itself, so the steady loop is reached with the very steps it is sampled at.
+  run.start = Math.ceil(SETTLE_SECONDS / run.phase) * run.phase;
+  for (let k = 1; k * run.phase <= run.start + 1e-9; k++) advance(k * run.phase);
+  /** Moves the loop on to its frame `k` (counted from the start of the sampled cycle). */
+  const toFrame = (k: number) => advance(run.start + k * run.phase);
+  return { run, advance, grab, toFrame };
+}
+
+function sample(activity: LoaderActivity, glyphPt: number, scale: number, frameMs: number): TrayLoaderShape {
+  const { run, grab, toFrame } = loopRun(activity, glyphPt, scale, frameMs);
   const frames: Square[][] = [grab()];
-  for (let k = 1; k <= count; k++) {
-    advance(start + k * phase);
+  for (let k = 1; k <= run.count; k++) {
+    toFrame(k);
     frames.push(grab());
   }
   // The frame one cycle on must be the first one again, or the loop would jump.
   const close = frames.pop()!;
   if (!sameImage(close, frames[0])) {
-    throw new Error(`'${activity}' does not close after ${round(cycleS)} s: its cycle in CYCLE_S is wrong`);
+    throw new Error(`'${activity}' does not close after ${round(run.cycleS)} s: its cycle in CYCLE_S is wrong`);
   }
   // A shape that does not move at this size (the shake of `error` is under a pixel) is one frame, not a loop of copies.
   const loop = frames.every((f) => sameImage(f, frames[0])) ? [frames[0]] : frames;
@@ -158,19 +187,65 @@ function sample(activity: LoaderActivity, glyphPt: number, scale: number, frameM
   stillBody.snap(activity, 2);
   stillBody.draw('#000');
   const still = stillCtx.squares.map(([x, y, s, a]) => [round(x), round(y), round(s), round(a)] as Square);
-  return { activity, cycleS, frames: loop, still };
+  return { activity, cycleS: run.cycleS, frames: loop, still };
 }
 
-export function sampleTrayLoader(): { geometry: ReturnType<typeof trayGeometry>; shapes: TrayLoaderShape[] } {
+/**
+ * THE CHANGE FROM ONE SHAPE TO ANOTHER, as the app plays it: the body of `from`,
+ * caught in its steady loop at frame `fromFrame`, is handed `to` and stepped as
+ * the app steps a body that changes shape (every frame, 60 a second, until it has
+ * settled; then the 30 fps of a settled small body). One image every
+ * `transitionMs`, until the change has settled AND the image is one of the
+ * frames of `to`'s loop: the tray goes on from that frame, so the hand-over
+ * has no seam. Its first image is the one after the change: the frame before it
+ * is `fromFrame` of the loop.
+ */
+function sampleTransition(
+  from: TrayLoaderShape, fromFrame: number, to: TrayLoaderShape,
+  geo: { glyphPt: number; scale: number; frameMs: number; transitionMs: number },
+): TrayLoaderTransition {
+  const { run, advance, grab, toFrame } = loopRun(from.activity, geo.glyphPt, geo.scale, geo.frameMs);
+  toFrame(fromFrame);
+  const t0 = run.t;
+  const step = geo.transitionMs / 1000;
+  const frames: Square[][] = [];
+  for (let j = 1; ; j++) {
+    const at = t0 + j * step;
+    // During the change the app gives the body every frame; once settled, 30 a second.
+    advance(at, to.activity, at - t0 <= SETTLE_S + 1e-9 ? 1 / 60 : SIM_DT);
+    const image = grab();
+    if (at - t0 >= SETTLE_S - 1e-9) {
+      const land = to.frames.findIndex((f) => sameImage(f, image));
+      if (land >= 0) return { from: from.activity, fromFrame, to: to.activity, frames, land };
+    }
+    frames.push(image);
+    if (at - t0 > MAX_TRANSITION_S) {
+      throw new Error(`'${from.activity}' -> '${to.activity}' from frame ${fromFrame} never lands on a frame of the loop`);
+    }
+  }
+}
+
+/** The loop frames a change can start from: every TRANSITION_STRIDE-th, so a change waits a few frames at most. */
+export function transitionAnchors(count: number): number[] {
+  return Array.from({ length: Math.ceil(count / TRANSITION_STRIDE) }, (_, i) => i * TRANSITION_STRIDE);
+}
+
+export function sampleTrayLoader(): { geometry: ReturnType<typeof trayGeometry>; shapes: TrayLoaderShape[]; transitions: TrayLoaderTransition[] } {
   const geometry = trayGeometry();
   const shapes = trayActivities().map((a) => sample(a, geometry.glyphPt, geometry.scale, geometry.frameMs));
-  return { geometry, shapes };
+  const transitions: TrayLoaderTransition[] = [];
+  for (const from of shapes) {
+    for (const fromFrame of transitionAnchors(from.frames.length)) {
+      for (const to of shapes) if (to !== from) transitions.push(sampleTransition(from, fromFrame, to, geometry));
+    }
+  }
+  return { geometry, shapes, transitions };
 }
 
 const num = (v: number) => (Number.isInteger(v) ? `${v}.0` : `${v}`);
 
 export function renderTrayLoaderFrames(): string {
-  const { geometry, shapes } = sampleTrayLoader();
+  const { geometry, shapes, transitions } = sampleTrayLoader();
   const box = Math.round(geometry.glyphPt * geometry.scale);
   const lines: string[] = [
     '// @generated by scripts/gen-tray-loader-frames.ts from the square loader engine',
@@ -207,6 +282,30 @@ export function renderTrayLoaderFrames(): string {
     lines.push('        ],');
     lines.push(`        still: &[${s.still.map((q) => `[${q.map(num).join(', ')}]`).join(', ')}],`);
     lines.push('    },');
+  }
+  lines.push('];', '');
+  const square = (q: Square) => `[${q.map(num).join(', ')}]`;
+  const index = (a: LoaderActivity) => shapes.findIndex((s) => s.activity === a);
+  lines.push(
+    '/// A change of shape as the app plays it: from frame `from_frame` of the loop of',
+    '/// `SHAPES[from]`, one image every `TRANSITION_FRAME_MS`, then frame `land` of the loop',
+    '/// of `SHAPES[to]` and on. A change only starts on the frames listed here.',
+    'pub struct LoaderTransition {',
+    '    pub from: usize,',
+    '    pub from_frame: usize,',
+    '    pub to: usize,',
+    "    pub frames: &'static [&'static [[f32; 4]]],",
+    '    pub land: usize,',
+    '}',
+    '',
+    `/// Every change between two shapes, from every ${TRANSITION_STRIDE}th frame of a loop.`,
+    'pub const TRANSITIONS: &[LoaderTransition] = &[',
+  );
+  for (const tr of transitions) {
+    lines.push(`    // ${tr.from} frame ${tr.fromFrame} -> ${tr.to}: ${tr.frames.length} image(s), lands on frame ${tr.land}`);
+    lines.push(`    LoaderTransition { from: ${index(tr.from)}, from_frame: ${tr.fromFrame}, to: ${index(tr.to)}, land: ${tr.land}, frames: &[`);
+    for (const f of tr.frames) lines.push(`        &[${f.map(square).join(', ')}],`);
+    lines.push('    ] },');
   }
   lines.push('];', '');
   lines.push('/// Which shape each agent action plays: the action map of loaderState.ts, by wire word.');

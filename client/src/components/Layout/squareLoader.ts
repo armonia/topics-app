@@ -25,8 +25,8 @@ const STRIDE = 4;
 /** Under this size a body steps at most 30 times a second. */
 const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
-/** A change of shape takes this long to settle (seconds). */
-const SETTLE_S = 1;
+/** A change of shape takes this long to settle (seconds); the next change waits for it. */
+export const SETTLE_S = 1;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
 const RATE_FREE = 6.5;
 /** A small body crosses cells: step faster and a point lands on the next cell in one frame. */
@@ -337,8 +337,21 @@ export class LoaderBody {
     this.mapLen = raw.length;
   }
 
+  /** The shape the body is playing or moving towards; null before the first step. */
+  get shape(): LoaderActivity | null {
+    return this.activity;
+  }
+
   step(activity: LoaderActivity, t: number, dt: number, cache?: Map<string, Particle[]>): void {
-    if (this.activity !== activity) { this.activity = activity; this.since = t; this.mapLen = -1; }
+    // A change never cuts a change short: the next shape waits until the current one has settled.
+    // Actions can arrive every 700 ms (and a rollup of several agents faster still), the change
+    // takes SETTLE_S: cut short, each one restarted from standing and the body never reached a shape.
+    if (this.activity !== activity && (this.activity === null || t - this.since >= SETTLE_S)) {
+      this.activity = activity;
+      this.since = t;
+      this.mapLen = -1;
+    }
+    activity = this.activity ?? activity;
     const raw = this.target(activity, t, cache);
     if (this.mapLen !== raw.length) this.assign(raw);
     const age = t - this.since;
@@ -361,6 +374,8 @@ export class LoaderBody {
 
   /** Jump straight to the shape of `activity` (the reduced-motion still frame). */
   snap(activity: LoaderActivity, t: number): void {
+    // A still frame is not a change of shape: nothing to wait for.
+    if (this.activity !== activity) { this.activity = activity; this.mapLen = -1; }
     this.step(activity, t, 0);
     // Past the ramp, or a body that has just changed shape would not move at all.
     this.since = t - SETTLE_S;

@@ -6,7 +6,7 @@
  * @covers LAYOUT-33
  */
 import { describe, expect, test } from "bun:test";
-import { createLoaderClock, LoaderBody, type ClockClient, type LoaderActivity, type LoaderContext } from "./squareLoader";
+import { createLoaderClock, LoaderBody, SETTLE_S, type ClockClient, type LoaderActivity, type LoaderContext } from "./squareLoader";
 
 function fakeContext(counter: { fills: number; clears: number }): LoaderContext {
   return {
@@ -124,6 +124,53 @@ describe("a change of shape", () => {
         if (from !== to) expect(minAlphaDuringChange(size, from, to), `${size}px ${from} to ${to}`).toBeGreaterThanOrEqual(FLOOR);
       }
     }
+  });
+});
+
+describe("a change never cuts a change short", () => {
+  const blank = fakeContext({ fills: 0, clears: 0 });
+  /** Requests one shape after another every `everyS`, for `n` requests; returns the shapes really started and whether each began from a settled body. */
+  function play(everyS: number, seq: LoaderActivity[]) {
+    const body = new LoaderBody(12, blank, { scale: 2 });
+    const dt = 1 / 60;
+    let t = 5;
+    for (let i = 0; i < 120; i++) { body.step(seq[0], t, dt); t += dt; }
+    const t0 = t;
+    const started: LoaderActivity[] = [];
+    let lastChange = t0 - 2;
+    let fromSettled = true;
+    while (t - t0 < everyS * seq.length + 2) {
+      const before = body.shape;
+      body.step(seq[Math.min(seq.length - 1, Math.floor((t - t0) / everyS))], t, dt);
+      if (body.shape !== before) {
+        started.push(body.shape!);
+        if (t - lastChange < SETTLE_S - 1e-9) fromSettled = false;
+        lastChange = t;
+      }
+      t += dt;
+    }
+    return { started, fromSettled };
+  }
+  const SEQ: LoaderActivity[] = ["think", "search", "tool", "write", "think", "search", "tool", "write", "wait"];
+
+  // Before, actions 700 ms apart restarted the change before it settled: 7 of 8 changes were cut short.
+  test("actions every 700 ms: every change starts from a settled body, and the last one is reached", () => {
+    const { started, fromSettled } = play(0.7, SEQ);
+    expect(fromSettled).toBe(true);
+    expect(started.at(-1)).toBe("wait");
+    expect(started.length).toBeGreaterThanOrEqual(5);
+  });
+
+  test("actions slower than the change all play, in order", () => {
+    expect(play(SETTLE_S + 0.2, SEQ).started).toEqual(SEQ.slice(1));
+  });
+
+  test("the still frame of reduced motion changes shape at once", () => {
+    const counter = { fills: 0, clears: 0 };
+    const body = new LoaderBody(12, fakeContext(counter), { scale: 2 });
+    body.snap("think", 2);
+    body.snap("tool", 2);
+    expect(body.shape).toBe("tool");
   });
 });
 
