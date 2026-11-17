@@ -1,5 +1,39 @@
 [
   {
+    "version": "2.4.32",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an archived chat that launched work after being archived is alive (#1195)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/brassy-hour (card 2a1f2e84) (#1208)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.31",
     "date": "2026-11-17",
     "sections": {

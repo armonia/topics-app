@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.32 — 2026-11-17
+
+### Sotto il cofano
+- an archived chat that launched work after being archived is alive (#1195)
+- Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)
+- in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)
+- topics/brassy-hour (card 2a1f2e84) (#1208)
+
 ## 2.4.31 — 2026-11-17
 
 ### Sotto il cofano
