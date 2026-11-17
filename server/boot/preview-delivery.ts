@@ -2,7 +2,7 @@
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
 import { join } from "path";
-import { existsSync, readFileSync, mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
+import { mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
 import { createPreviewManager, type PreviewProcess } from "../services/preview-manager";
@@ -10,7 +10,7 @@ import { createPreviewBrowser } from "../services/preview-browser";
 import { recordServerSpawn } from "../lib/spawn-metrics";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees } from "../routes/processes";
 import { killProcessTree } from "../lib/process-tree";
-import { installArgv, missingPackageManager, runScriptArgv } from "../lib/project-scripts";
+import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
 import { deliveryPointer } from "../services/own-commits";
 import { resolveDeliveryBranch, type DeliveryBranchDeps } from "../services/delivery-branch-ref";
@@ -37,14 +37,6 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
   // spostata la cartella dati, il file veniva scritto dove nessuno può leggerlo e
   // la card mostrava un'immagine rotta.
   const PREVIEW_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "task-previews");
-
-  // `preview:worktree` is the contract of a project that knows how to show
-  // itself from a freshly born worktree (builds what it needs, uses its own
-  // data, listens on `PORT`): when present it wins over the generic scripts.
-  // The other three are the heuristic for any frontend.
-  const PREVIEW_SCRIPT_CANDIDATES = ["preview:worktree", "preview", "dev", "start"];
-  /** A `preview:worktree` script builds by itself (measured: 97 s of build alone on a loaded Mac), so the wait cap is wide. */
-  const PREVIEW_CONTRACT_READY_MS = 300_000;
 
   const previewBrowser = createPreviewBrowser();
 
@@ -84,33 +76,10 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       if (!wt) return null;
       return { id: wt.id, absPath: wt.absPath, branchName: wt.branchName, projectId: wt.projectId, mode: wt.mode };
     },
-    // Env override (TOPICS_PREVIEW_CMD / TOPICS_PREVIEW_PATH) wins; otherwise pick
-    // the first present of preview/dev/start in the worktree's package.json. The
-    // server honours PORT (injected by the manager) so the pool port sticks.
-    resolveCommand: (_taskId, wt) => {
-      const deepLinkPath = process.env.TOPICS_PREVIEW_PATH?.trim() || "/";
-      const override = process.env.TOPICS_PREVIEW_CMD?.trim();
-      if (override) return { cmd: override.split(/\s+/), deepLinkPath };
-      try {
-        const pkgPath = join(wt.absPath, "package.json");
-        if (!existsSync(pkgPath)) return null;
-        const scripts = (JSON.parse(readFileSync(pkgPath, "utf-8"))?.scripts ?? {}) as Record<string, string>;
-        const script = PREVIEW_SCRIPT_CANDIDATES.find((s) => typeof scripts[s] === "string" && scripts[s].trim());
-        if (!script) return null;
-        // A worktree is born WITHOUT `node_modules`: `bun run dev` there died in
-        // "command not found" and the wait recorded it as slowness. Install
-        // first, with the manager the project's lockfile declares.
-        const prepare: string[][] = [];
-        if (!existsSync(join(wt.absPath, "node_modules")) && !missingPackageManager(wt.absPath)) prepare.push(installArgv(wt.absPath));
-        const contract = script === "preview:worktree";
-        return {
-          cmd: runScriptArgv(wt.absPath, [script]),
-          deepLinkPath,
-          prepare,
-          readyTimeoutMs: contract ? PREVIEW_CONTRACT_READY_MS : undefined,
-        };
-      } catch { return null; }
-    },
+    // How the command is chosen (env override, preview:worktree, package.json
+    // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
+    // by the manager) so the pool port sticks.
+    resolveCommand: (_taskId, wt) => resolvePreviewCommand(wt.absPath),
     spawn: (cmd, opts): PreviewProcess => {
       const child = Bun.spawn(cmd, {
         cwd: opts.cwd,
