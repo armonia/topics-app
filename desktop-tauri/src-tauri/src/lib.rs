@@ -49,6 +49,7 @@ mod tray_menu_projects;
 mod tray_menu_rich;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_views;
+mod tray_menu_memory_sync;
 mod tray_quota;
 mod tray_poller;
 #[cfg(target_os = "macos")]
