@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.37 — 2026-11-17
+
+### Sotto il cofano
+- verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)
+
 ## 2.4.36 — 2026-11-17
 
 ### Sotto il cofano
