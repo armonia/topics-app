@@ -40,6 +40,9 @@ test.describe("la voce di supporto nel menu utente", () => {
     await goToApp(page);
     for (const width of [375, 1440] as const) {
       await page.setViewportSize({ width, height: 900 });
+      // Below the desktop breakpoint the sidebar is a drawer, closed by default.
+      const sidebar = page.locator('[aria-label="Topics sidebar"]').first();
+      if (width < 800 && (await sidebar.getAttribute("data-drawer")) === "closed") await page.keyboard.press("ControlOrMeta+b");
       await openProfileMenu(page);
       const row = page.getByTestId("menu-support");
       await expect(row).toBeVisible();
