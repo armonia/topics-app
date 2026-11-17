@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchedSinceRetired, launchingChatCanWake, type WakeLaunch } from "./wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchedSinceRetired, launchingChatCanWake, markSystemChat, type WakeLaunch } from "./wake-adoption";
 
 const noStoppedChild = () => false;
 
@@ -118,6 +118,7 @@ describe("wake adoption: an archived chat that launched work after a person arch
     db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, assigned_topic_id TEXT, created_by_topic_id TEXT, origin_topic_id TEXT, created_at TEXT)");
     db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, parent_session_key TEXT, created_at TEXT, runtime TEXT DEFAULT 'topics')");
     db.run("CREATE TABLE task_attempts (task_id TEXT, topic_id TEXT, state TEXT)");
+    db.run("CREATE TABLE system_chats (topic_id TEXT PRIMARY KEY, kind TEXT, created_at TEXT)");
     db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT, reason TEXT, PRIMARY KEY (kind, ref_id))");
     if (o.retired) db.run("INSERT INTO retirements VALUES ('topic', 't-parent', ?, ?)", [o.retired.at, o.retired.reason]);
     for (const c of o.children ?? []) db.run("INSERT INTO subagents (id, parent_session_key, created_at) VALUES (?, ?, ?)", [c.id, c.parent ?? SK, c.at]);
@@ -193,6 +194,7 @@ describe("wake adoption: an archived chat that launched work after a person arch
   test("the chat of a card's agent (archived as 'archive') stays a row even if it launched work afterwards", () => {
     const done = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }], cards: [{ id: "k-launched", at: AFTER }] });
     done.run("INSERT INTO tasks (id, status, assigned_topic_id, created_at) VALUES ('agent-card', 'done', 't-parent', ?)", [BEFORE]);
+    markSystemChat(done, "t-parent", "task");
     expect(verdictOf(done, { subagentId: "c1" })).toBe("archived");
     expect(verdictOf(done, { taskId: "k-launched" })).toBe("archived");
   });
@@ -200,10 +202,12 @@ describe("wake adoption: an archived chat that launched work after a person arch
   test("the topic of an attempt of a fan-out, and the chat of a native child, stay a row too", () => {
     const attempt = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
     attempt.run("INSERT INTO task_attempts VALUES ('k', 't-parent', 'done')");
+    markSystemChat(attempt, "t-parent", "attempt");
     expect(verdictOf(attempt, { subagentId: "c1" })).toBe("archived");
 
     const native = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
     native.run("INSERT INTO subagents (id, parent_session_key, created_at, runtime) VALUES ('t-parent', 'topic:boss', ?, 'topics')", [BEFORE]);
+    markSystemChat(native, "t-parent", "subagent");
     expect(verdictOf(native, { subagentId: "c1" })).toBe("archived");
   });
 
@@ -211,6 +215,14 @@ describe("wake adoption: an archived chat that launched work after a person arch
     const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
     db.run("INSERT INTO tasks (id, status, assigned_topic_id, created_by_topic_id, created_at) VALUES ('k', 'done', 't-agent', 't-parent', ?)", [BEFORE]);
     expect(verdictOf(db, { subagentId: "c1" })).toBe("adopt");
+  });
+
+  // 96b737de: the requeue cleared assigned_topic_id, the marker did not.
+  test("an agent chat stays a system chat after its card is requeued (link cleared)", () => {
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    db.run("INSERT INTO tasks (id, status, assigned_topic_id, created_at) VALUES ('k', 'todo', NULL, ?)", [BEFORE]);
+    markSystemChat(db, "t-parent", "task");
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
   });
 
   test("no launch named, no archive row, or an unknown child: the old verdict", () => {

@@ -65,7 +65,9 @@ test("the card in the transcript and the waiting line follow the board without a
   const card = page.locator(`[data-testid="task-tool-card"][data-task-id="${id}"]`);
   const line = page.locator('[data-testid="background-work-line"]');
   await expect(card).toBeVisible({ timeout: 20_000 });
-  await expect(card.getByTestId("task-card-title")).toHaveText(title);
+  // The title is said once, by the row; the card under it does not repeat it.
+  await expect(page.getByTestId(`tool-call-row-ct-${stamp}`)).toContainText(title);
+  await expect(card.getByTestId("task-card-title")).toHaveCount(0);
   await expect(card).toHaveAttribute("data-phase", "todo", { timeout: 20_000 });
   await expect(card).toHaveAttribute("data-action", "created");
   await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "todo");

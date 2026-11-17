@@ -12,6 +12,7 @@
  * Only `running` holds a slot in the limits (SUBAGENT-15).
  */
 import type { Database } from "bun:sqlite";
+import { markSystemChat } from "./wake-adoption";
 import type { SubAgentResult } from "./subagent-result";
 import { noteSubagentWaitChanged } from "./subagent-wait-events";
 
@@ -128,6 +129,7 @@ export function insertSubagent(
         row.runtime ?? "claude-code", row.sessionKey ?? null, row.tools ? JSON.stringify(row.tools) : null],
     );
   });
+  if ((row.runtime ?? "claude-code") === "topics") markSystemChat(db, row.id, "subagent");
   // Its own statement: a database without the column still gets the row above.
   const reason = row.runtimeReason;
   if (reason) attempt(undefined, () => { db.run("UPDATE subagents SET runtime_reason = ? WHERE id = ?", [reason, row.id]); });
