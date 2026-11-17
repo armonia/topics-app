@@ -62,10 +62,18 @@ describe('ToolCallRow chevron', () => {
       { id: 'e1', name: 'Task', args: {}, status: 'running' },
       { id: 'e2', name: 'spawn_agent', args: {}, status: 'running' },
       { id: 'e3', name: 'Task', args: {}, status: 'success', result: 'ok' },
+      { id: 'e4', name: 'Task', args: {}, status: 'error', error: 'boom' },
     ] as ToolCall[]) {
       const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall }));
       expect(html).toMatch(/data-testid="tool-call-name"[^>]*>Sub-agent</);
     }
+  });
+
+  test('a finished sub-agent call with nothing at all is not drawn; a failed one is', () => {
+    const nothing = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: { id: 'n1', name: 'Task', args: {}, status: 'success' } as ToolCall }));
+    expect(nothing).toBe('');
+    const failed = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: { id: 'n2', name: 'Task', args: {}, status: 'error', error: 'boom' } as ToolCall }));
+    expect(failed).toMatch(/data-testid="tool-call-name"[^>]*>Sub-agent</);
   });
 
   test('background work is its own kind: another name, not the sub-agent\'s', () => {
