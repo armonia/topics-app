@@ -5,7 +5,7 @@
  * (`/api/sessions/:key/tasks`, which stamps the opener), and its transcript
  * carries the tool call. The card drawn there must follow the board without a
  * reload (todo, in progress, review), and the waiting line under the last
- * message must name the card while it is going and leave when it reaches review.
+ * message must name the card while an agent has it and leave when it reaches review.
  *
  * The phase is drawn by the status glyph (`data-testid="status-glyph"` with
  * `data-status`), never by the four-dot spinner.
@@ -80,7 +80,15 @@ test("the card in the transcript and the waiting line follow the board without a
   // not the still `in_progress` glyph: exactly one sign, and it is the loader.
   await expect(card.getByTestId("status-glyph")).toHaveCount(0);
   await expect(card.locator("canvas")).toHaveCount(1);
-  await expect(line).toContainText(title);
+  // Moved by hand, with no agent on it: nothing will ever wake the chat, so the
+  // line is not up (17/11: it stayed five hours on a chat with nothing running).
+  await expect(line).toHaveCount(0);
+
+  // The dispatcher gives it to an agent: now the chat is waiting on it. The hold
+  // keeps the reconcile sweep from recovering an agent that has no live turn.
+  expect((await request.post(`${E2E_BASE}/api/test/dispatch-hold`, { data: { ms: 60_000 } })).ok()).toBe(true);
+  expect((await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "working" } })).ok()).toBe(true);
+  await expect(line).toContainText(title, { timeout: 20_000 });
 
   expect((await patch({ status: "review" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "review", { timeout: 20_000 });
