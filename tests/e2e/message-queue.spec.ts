@@ -714,4 +714,72 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
     await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
+
+  /**
+   * IL RIFIUTO ARRIVA DOPO LA FINE DEL TURNO CHE LO HA RIFIUTATO.
+   *
+   * Il 409 viaggia: il turno che lo ha dato può finire mentre la risposta è in
+   * strada. La sua chiusura (`turn:state`, `open:false`) arriva qui con la coda
+   * ancora VUOTA (il messaggio è in volo), il drain parte su niente, e un attimo
+   * dopo il messaggio rientra in coda ad aspettare una parola già detta. Restava
+   * lì, senza risposta in chat, finché la persona non riscriveva: il «Jarvis tace,
+   * scrivo “?”» di otto thread (card e73d7a2d).
+   *
+   * Qui la chiusura è mandata PRIMA del 409 e il 409 nomina il turno già chiuso:
+   * il messaggio deve ripartire da solo, una volta sola. È il caso che il test
+   * sopra non copre (lì il 409 arriva prima della fine).
+   */
+  test("409 che arriva dopo la fine del turno che lo ha dato: il messaggio riparte da solo", async ({ page, chatPage }) => {
+    let inject: ((data: string) => void) | null = null;
+    await page.routeWebSocket(/\/ws/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => ws.send(m));
+      inject = (data: string) => ws.send(data);
+    });
+
+    const BOOT = "boot-prova-409-tardivo";
+    const sent: string[] = [];
+    let occupata = true;
+    await page.route("**/api/chat", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = route.request().postDataJSON() as { messages?: { content?: string }[] };
+      sent.push(body?.messages?.[body.messages.length - 1]?.content ?? "");
+      if (occupata) {
+        occupata = false;
+        // Il turno 7 dell'altro finisce MENTRE il rifiuto è in strada: la chiusura
+        // (asOf 2) arriva prima della risposta, che porta la fotografia di prima (asOf 1, aperto).
+        inject!(JSON.stringify({ type: "turn:state", sessionKey, boot: BOOT, asOf: 2, turnId: 7, open: false }));
+        await new Promise((r) => setTimeout(r, 400));
+        return route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "a response is already streaming for this session",
+            code: "stream_in_flight",
+            messageId: "msg-di-qualcun-altro",
+            turn: { boot: BOOT, asOf: 1, turnId: 7, open: true },
+          }),
+        });
+      }
+      await route.fulfill({
+        status: 200,
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        body: "data: [DONE]\n\n",
+      });
+    });
+
+    await openChat(page, chatPage);
+    expect(inject, "la rotta WS deve aver catturato la presa").not.toBeNull();
+    await clearQueue(page);
+    await expect(queuedBubbles(page)).toHaveCount(0);
+
+    const TESTO = "scrivo mentre l'altro turno sta finendo";
+    await chatPage.messageInput.fill(TESTO);
+    await chatPage.messageInput.press("Enter");
+
+    // IL PUNTO: nessuna fine di turno arriverà più, eppure riparte da solo, una volta sola.
+    await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+  });
 });
