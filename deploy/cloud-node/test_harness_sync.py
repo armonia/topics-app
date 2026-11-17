@@ -48,7 +48,7 @@ class Fake:
     """Replaces hs._run: records every call (argv and stdin) and answers like a node would."""
     def __init__(self, mounted=True, ssh_ok=True, rsync_rc=0, bitlocker="C: Off FullyDecrypted", pc_state="acceso"):
         self.calls, self.mounted, self.ssh_ok, self.rsync_rc, self.bitlocker, self.pc_state = [], mounted, ssh_ok, rsync_rc, bitlocker, pc_state
-        self.missing = []
+        self.missing, self.missing_once = [], []
 
     def __call__(self, argv, input=None, timeout=300, cwd=None):
         self.calls.append((list(argv), input))
@@ -69,7 +69,8 @@ class Fake:
             if "powershell" in cmd:
                 return cp(0, self.bitlocker + "\n")
             if "has-gocryptfs" in cmd:
-                missing = "".join(f"missing:{i}\n" for i in self.missing)
+                missing = "".join(f"missing:{i}\n" for i in self.missing + self.missing_once)
+                self.missing_once = []
                 return cp(0, ("open" if self.mounted else "closed") + "\nhas-gocryptfs\nhas-rsync\n" + missing)
             if "gocryptfs -q" in cmd:
                 self.mounted = True
@@ -143,7 +144,7 @@ class Exclusions(Base):
 
     def test_rsync_command_carries_every_exclusion(self):
         u = [x for x in hs.compute_units(self.cfg).values() if x["kind"] == "pub"]
-        a = hs.rsync_argv(T1, u, False, ["vendor"])
+        a = hs.rsync_files_argv(T1, u, False, ["vendor"])
         for pat in ("settings.json", ".credentials*", "node_modules", "history.jsonl", "backups", "vendor"):
             self.assertIn(f"--exclude={pat}", a)
 
@@ -162,12 +163,13 @@ class PrivateStaysEncrypted(Base):
     def test_private_goes_only_through_the_guarded_rsync_into_the_vault(self):
         self.go()
         rs = self.fake.argvs("rsync")
-        self.assertEqual(len(rs), 2)
-        pub, prv = rs
-        self.assertTrue(all("jarvis/private" not in a for a in pub), "il privato non parte nel giro in chiaro")
-        self.assertTrue(pub[-1].endswith(":/home/topics/"))
-        self.assertTrue(prv[-1].endswith(f":{hs.REMOTE_MNT}/"), "il privato arriva solo nel punto di mount")
-        self.assertIn(f"--rsync-path={hs.GUARD_PATH}", prv)
+        prvs = [a for a in rs if f":{hs.REMOTE_MNT}/" in a[-1]]
+        pubs = [a for a in rs if a not in prvs]
+        self.assertTrue(prvs and pubs)
+        self.assertTrue(all(not any("jarvis/private" in x for x in a) for a in pubs), "il privato non parte nel giro in chiaro")
+        self.assertTrue(all(a[-1].startswith("root@10.0.0.1:/home/topics/") for a in pubs))
+        prv = prvs[0]
+        self.assertTrue(all(f"--rsync-path={hs.GUARD_PATH}" in a for a in prvs), "ogni trasferimento del privato passa dalla guardia")
         g = hs.guard_script()
         self.assertIn("/proc/mounts", g)
         self.assertIn("exit 99", g, "senza mount il trasferimento si rifiuta di partire")
@@ -226,8 +228,8 @@ class PrivateStaysEncrypted(Base):
         out = self.go()
         self.assertEqual(out["targets"]["m-linux"]["private"], "closed")
         self.assertIn("Portachiavi", out["targets"]["m-linux"]["private_reason"])
-        self.assertEqual(self.fake.argvs("rsync")[0][-1].endswith("/home/topics/"), True)
-        self.assertEqual(len(self.fake.argvs("rsync")), 1)
+        self.assertTrue(self.fake.argvs("rsync"))
+        self.assertTrue(all(f":{hs.REMOTE_MNT}/" not in a[-1] for a in self.fake.argvs("rsync")), "senza volume aperto il privato non parte")
 
     def test_vault_scripts_use_the_user_and_a_private_mode(self):
         s = hs.mount_script()
@@ -333,7 +335,7 @@ class StatusContract(Base):
         self.cfg = hs.load_config()
         out = self.go()
         self.assertEqual(out["targets"]["m-linux"]["private"], "off")
-        self.assertEqual(len(self.fake.argvs("rsync")), 1)
+        self.assertTrue(all(":/home/topics/" in a[-1] and hs.REMOTE_MNT not in a[-1] for a in self.fake.argvs("rsync")))
 
 
 def git(*a, cwd):
@@ -380,6 +382,8 @@ class ProjectMemoryAliases(Base):
         al = [a for a in cmds if a[-1].endswith(f"{self.node_enc}/memory/")]
         self.assertEqual(len(al), 1)
         self.assertEqual(al[0][-2], f"{FAKE_HOME}/.claude/projects/{self.enc_repo}/memory/")
+        self.assertIn("--delete", al[0])
+        self.assertNotIn("-R", al[0])
         mk = [a[-1] for a in self.fake.argvs("ssh") if "mkdir -p" in a[-1]]
         self.assertTrue(any(self.node_enc in c and "runuser -u topics -- mkdir -p" in c for c in mk),
                         "la cartella padre si crea prima, come utente topics")
@@ -398,6 +402,75 @@ class ProjectMemoryAliases(Base):
             self.assertEqual(f.read(), "MAIN-MEMORY")
 
 
+class DeliveryNeverDeletesOutsideItsUnits(Base):
+    """Il guasto del 17/11: `rsync -R --delete` ripulisce anche le cartelle padre (.claude, .claude/projects) di ciò
+    che manda, e ogni giro cancellava ciò che il giro prima aveva portato (più sessioni e transcript del nodo)."""
+    def local(self, argv, dest_root):
+        # lo stesso comando, ma verso una cartella locale: rsync vero, senza ssh
+        a = list(argv)
+        i = a.index("-e")
+        del a[i:i + 2]
+        a = [x for x in a if not x.startswith("--rsync-path=")]
+        a[-1] = a[-1].split(":", 1)[1].replace("/home/topics", dest_root, 1)
+        return subprocess.run(a, cwd=FAKE_HOME, capture_output=True, text=True)
+
+    def test_files_command_has_no_delete_and_dir_command_has_no_relative(self):
+        u = hs.compute_units(self.cfg)
+        self.assertNotIn("--delete", hs.rsync_files_argv(T1, [u["pub:.claude/CLAUDE.md"]], False, []))
+        d = hs.rsync_dir_argv(T1, ".agents", ".agents", False, [])
+        self.assertIn("--delete", d)
+        self.assertNotIn("-R", d)
+        self.assertTrue(d[-1].endswith(":/home/topics/.agents/"))
+
+    def test_real_rsync_leaves_the_rest_of_the_node_home_alone(self):
+        dest = os.path.join(TMP, "node-home")
+        shutil.rmtree(dest, ignore_errors=True)
+        for rel in (".claude/projects/-old/session.jsonl", ".claude/sessions/s", ".claude/file-history/h", ".bashrc"):
+            p = os.path.join(dest, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write("node's own")
+        put(".claude/commands/c.md", "cmd")
+        put(".claude/agents/a.md", "ag")
+        write_cfg(paths=[".claude/CLAUDE.md", ".claude/commands", ".claude/agents", ".claude/projects/*/memory"], private_paths=[])
+        cfg = hs.load_config()
+        units = hs.compute_units(cfg)
+        os.makedirs(os.path.join(dest, ".claude"), exist_ok=True)
+        # un giro con UNA sola unità stale (la situazione che ogni 15 minuti cancellava il resto)
+        dirs = [units["pub:.claude/commands"]]
+        files = [units["pub:.claude/CLAUDE.md"], units["pub:.claude/projects/*/memory"]]
+        r = self.local(hs.rsync_files_argv(T1, files, False, []), dest)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.local(hs.rsync_dir_argv(T1, ".claude/commands", ".claude/commands", False, []), dest)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.local(hs.rsync_dir_argv(T1, ".claude/commands", ".claude/commands", False, []), dest)
+        for rel in (".claude/projects/-old/session.jsonl", ".claude/sessions/s", ".claude/file-history/h", ".bashrc",
+                    ".claude/CLAUDE.md", ".claude/commands/c.md", ".claude/projects/-a/memory/m.md"):
+            self.assertTrue(os.path.exists(os.path.join(dest, rel)), f"sparito: {rel}")
+        # dentro la propria cartella invece ripulisce ciò che sul Mac non c'è più
+        with open(os.path.join(dest, ".claude/commands/stale.md"), "w") as fh:
+            fh.write("old")
+        self.local(hs.rsync_dir_argv(T1, ".claude/commands", ".claude/commands", False, []), dest)
+        self.assertFalse(os.path.exists(os.path.join(dest, ".claude/commands/stale.md")))
+
+    def test_rsync_error_is_an_error_and_never_a_delivery(self):
+        self.fake.rsync_rc = 23
+        out = self.go()
+        t = out["targets"]["m-linux"]
+        self.assertIn("rsync", t["error"])
+        self.assertIn("exit 23", t["error"])
+        self.assertNotEqual(t["rev"], out["source"]["rev"])
+        d = hs.read_json(os.environ["HARNESS_SYNC_INTERNAL"], {})["delivered"]["m-linux"]
+        self.assertFalse([k for k in d if k.startswith(("pub:", "prv:"))], "niente segnato come consegnato")
+
+    def test_delivery_is_measured_on_the_node_not_from_the_exit_code(self):
+        self.fake.missing = [0]
+        out = self.go()
+        t = out["targets"]["m-linux"]
+        self.assertIn("consegna non verificata", t["error"])
+        self.assertNotEqual(t["rev"], out["source"]["rev"])
+
+
 class NodeWasCleaned(Base):
     def test_something_delivered_but_gone_from_the_node_is_sent_again(self):
         self.go()
@@ -406,10 +479,10 @@ class NodeWasCleaned(Base):
         self.assertEqual(len(self.fake.argvs("rsync")), n, "tutto presente: niente da rifare")
         units = hs.read_json(os.environ["HARNESS_SYNC_INTERNAL"], {})["units"]
         checks = hs.probe_checks(units)
-        self.fake.missing = [i for i, (k, _) in enumerate(checks) if k == "pub:.claude/CLAUDE.md"]
-        self.assertTrue(self.fake.missing)
+        self.fake.missing_once = [i for i, (k, _) in enumerate(checks) if k == "pub:.claude/CLAUDE.md"]
+        self.assertTrue(self.fake.missing_once)
         out = self.go(force=True)
-        again = [a for a in self.fake.argvs("rsync")[n:] if ".claude/CLAUDE.md" in a]
+        again = [a for a in self.fake.argvs("rsync")[n:] if ".claude/CLAUDE.md" in a and "-R" in a]
         self.assertEqual(len(again), 1, "ciò che il nodo ha perso torna al giro dopo")
         self.assertEqual(out["targets"]["m-linux"]["rev"], out["source"]["rev"])
 

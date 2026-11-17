@@ -380,28 +380,62 @@ def links_script(rels):
     return "set -e\n" + "\n".join(body) + "\n"
 
 
-def rsync_argv(t, units, private, extra):
-    """rsync dal Mac al nodo. Eseguito sul nodo come utente topics. Per il privato il comando remoto rifiuta di
-    partire se il volume non è montato: scriverebbe in chiaro nella cartella vuota che sta sotto il mount."""
-    # sorgenti relative alla home (il giro parte con cwd=HOME): il marcatore `/./` di rsync non lo capisce
-    # openrsync, quello di macOS, e col -R scriverebbe /Users/<nome>/... sul nodo
-    srcs = [r for u in units for r in u["rels"]]
+def _rsync_base(t, private, extra, delete):
+    """Opzioni comuni. Eseguito sul nodo come utente topics. Per il privato il comando remoto è la guardia: rifiuta di
+    partire se il volume non è montato (scriverebbe in chiaro nella cartella vuota che sta sotto il mount)."""
     chmod = "--chmod=u+rwX,go-rwx" if private else "--chmod=u+rwX,go+rX,go-w"
-    dest = f"{REMOTE_MNT}/" if private else f"{REMOTE_HOME}/"
-    if private:
-        rsh = GUARD_PATH   # lo script di guardia: niente virgolette qui, openrsync le rimaneggia
-    else:
-        rsh = f"runuser -u {REMOTE_USER} -- rsync"
-    e = shlex.join(["ssh", *ssh_opts(t)])
-    return ["rsync", "-rLtpz", "-R", "--no-owner", "--no-group", chmod, "--delete", "--timeout=120",
-            *[f"--exclude={p}" for p in (*EXCLUDE, *extra)], "-e", e, f"--rsync-path={rsh}", *srcs, f"root@{t['ip']}:{dest}"]
+    rsh = GUARD_PATH if private else f"runuser -u {REMOTE_USER} -- rsync"   # niente virgolette: openrsync le rimaneggia
+    return ["rsync", "-rLtpz", "--no-owner", "--no-group", chmod, *(["--delete"] if delete else []), "--timeout=120",
+            *[f"--exclude={p}" for p in (*EXCLUDE, *extra)], "-e", shlex.join(["ssh", *ssh_opts(t)]), f"--rsync-path={rsh}"]
 
 
-def alias_rsync_argv(t, u, extra):
-    """Una memoria del Mac nella cartella che il nodo cerca per quel repo (nome diverso, stesso contenuto)."""
-    return ["rsync", "-rLtpz", "--no-owner", "--no-group", "--chmod=u+rwX,go+rX,go-w", "--delete", "--timeout=120",
-            *[f"--exclude={p}" for p in (*EXCLUDE, *extra)], "-e", shlex.join(["ssh", *ssh_opts(t)]),
-            f"--rsync-path=runuser -u {REMOTE_USER} -- rsync", f"{HOME}/{u['rels'][0]}/", f"root@{t['ip']}:{REMOTE_HOME}/{u['dest']}/"]
+def rsync_dir_argv(t, src_rel, dest_rel, private, extra):
+    """Una cartella intera: cancella SOLO dentro di sé. Sorgente assoluta senza -R, così nessuna cartella padre finisce
+    nella lista dei file e nessuna viene ripulita."""
+    base = REMOTE_MNT if private else REMOTE_HOME
+    return [*_rsync_base(t, private, extra, True), f"{HOME}/{src_rel}/", f"root@{t['ip']}:{base}/{dest_rel}/"]
+
+
+def rsync_files_argv(t, units, private, extra):
+    """File singoli e glob, col percorso relativo alla home (cwd=HOME). MAI --delete: con -R rsync mette nella lista anche
+    le cartelle padre (.claude, .claude/projects…) e `--delete` ci cancellerebbe tutto ciò che non sta nel giro
+    (12:01 UTC del 17/11: sessioni e transcript del nodo spariti così). Sorgenti relative: openrsync, quello di
+    macOS, non capisce il marcatore `/./`."""
+    base = REMOTE_MNT if private else REMOTE_HOME
+    return [*_rsync_base(t, private, extra, False), "-R", *[r for u in units for r in u["rels"]], f"root@{t['ip']}:{base}/"]
+
+
+def is_dir_unit(u):
+    return (len(u["rels"]) == 1 and bool(u.get("dest") or u["rels"][0] == u["entry"])
+            and os.path.isdir(os.path.join(HOME, u["rels"][0])))
+
+
+def transfer(t, units, private, extra):
+    """Porta le unità sul nodo. (unità arrivate, errore o None): un rsync fallito non è mai «arrivato»."""
+    done, err = [u for u in units if not u["rels"]], None   # voce assente sul Mac: niente da portare
+    have = [u for u in units if u["rels"]]
+    dirs = [u for u in have if is_dir_unit(u)]
+    files = [u for u in have if not is_dir_unit(u)]
+    base = REMOTE_MNT if private else REMOTE_HOME
+    if dirs:
+        parents = sorted({os.path.dirname(f"{base}/{u.get('dest') or u['rels'][0]}") for u in dirs})
+        guard = f"{is_mounted_sh()} && " if private else ""   # privato: mai creare cartelle sotto un mount chiuso
+        m = _run(ssh_argv(t, f"{guard}runuser -u {REMOTE_USER} -- mkdir -p " + " ".join(shlex.quote(x) for x in parents)), timeout=60)
+        if m.returncode != 0:
+            return done, "cartelle di destinazione non create sul nodo: " + tail(m.stderr)
+        for u in dirs:
+            x = _run(rsync_dir_argv(t, u["rels"][0], u.get("dest") or u["rels"][0], private, extra), timeout=1800, cwd=HOME)
+            if x.returncode in (0, 24):   # 24: un file è sparito durante la lettura, non un errore
+                done.append(u)
+            else:
+                err = err or f"rsync di {u['entry']} fallito (exit {x.returncode}): {tail(x.stderr)}"
+    if files:
+        x = _run(rsync_files_argv(t, files, private, extra), timeout=3600, cwd=HOME)
+        if x.returncode in (0, 24):
+            done += files
+        else:
+            err = err or f"rsync fallito (exit {x.returncode}): {tail(x.stderr)}"
+    return done, err
 
 
 def sync_linux(t, units, cfg, store, now, force, mount=True, pw_fn=keychain_password):
@@ -458,35 +492,31 @@ def sync_linux(t, units, cfg, store, now, force, mount=True, pw_fn=keychain_pass
                     res["error"] = "link del privato non creati: " + tail(lk.stderr)
     last = store["attempt"].get(tid, 0)
     due = force or not delivered or now - last >= RETRY_S
-    todo = []
+    batches = []
     if due:
-        todo.append((False, [u for u in pub if delivered.get(f"pub:{u['entry']}") != u["fp"] and not u.get("dest")]))
+        batches.append((False, [u for u in pub if delivered.get(f"pub:{u['entry']}") != u["fp"]]))
     if res["private"] == "open" and (due or just_mounted):
-        todo.append((True, [u for u in prv if delivered.get(f"prv:{u['entry']}") != u["fp"]]))
-    for private, stale in todo:
+        batches.append((True, [u for u in prv if delivered.get(f"prv:{u['entry']}") != u["fp"]]))
+    arrived = []
+    for private, stale in batches:
         if not stale:
             continue
         store["attempt"][tid] = now
-        have = [u for u in stale if u["rels"]]
-        if have:
-            x = _run(rsync_argv(t, have, private, cfg["exclude"]), timeout=3600, cwd=HOME)
-            if x.returncode not in (0, 24):
-                res["error"] = res["error"] or f"rsync{' del privato' if private else ''} fallito (exit {x.returncode}): {tail(x.stderr)}"
-                continue
-        for u in stale:
+        done, err = transfer(t, stale, private, cfg["exclude"])
+        for u in done:
             delivered[f"{u['kind']}:{u['entry']}"] = u["fp"]
-    aliases = [u for u in pub if u.get("dest") and delivered.get(f"pub:{u['entry']}") != u["fp"]] if due else []
-    if aliases:
-        store["attempt"][tid] = now
-        m = _run(ssh_argv(t, f"runuser -u {REMOTE_USER} -- mkdir -p " + " ".join(shlex.quote(f"{REMOTE_HOME}/{u['dest']}") for u in aliases)), timeout=60)
-        for u in aliases if m.returncode == 0 else []:
-            x = _run(alias_rsync_argv(t, u, cfg["exclude"]), timeout=600, cwd=HOME)
-            if x.returncode in (0, 24):
-                delivered[f"pub:{u['entry']}"] = u["fp"]
-            else:
-                res["error"] = res["error"] or f"rsync della memoria {u['dest'].split('/')[2]} fallito (exit {x.returncode}): {tail(x.stderr)}"
-        if m.returncode != 0:
-            res["error"] = res["error"] or "cartelle delle memorie non create sul nodo: " + tail(m.stderr)
+        arrived += [u for u in done if u["rels"]]
+        if err:
+            res["error"] = res["error"] or (("privato: " if private else "") + err)
+    if arrived:
+        # la consegna si misura dal nodo, non dal codice di uscita di rsync: ciò che «è arrivato» deve esserci
+        v = _run(ssh_argv(t, probe_cmd(checks)), timeout=40)
+        gone = {checks[int(w[8:])][0] for w in v.stdout.split() if w.startswith("missing:") and w[8:].isdigit() and int(w[8:]) < len(checks)}
+        for u in arrived:
+            k = f"{u['kind']}:{u['entry']}"
+            if v.returncode != 0 or k in gone:
+                delivered.pop(k, None)
+                res["error"] = res["error"] or f"consegna non verificata sul nodo: {u['entry']}"
     return res
 
 
