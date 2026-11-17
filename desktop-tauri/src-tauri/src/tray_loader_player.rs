@@ -10,7 +10,10 @@
 //! Two rules keep it seamless, as in the app: a change starts only from a loop
 //! frame it was sampled from (it waits a few frames for the next one), and a
 //! change never cuts a change short (an action that arrives during a slide waits
-//! for it to land). Every image is pre-built: a tick only says which one.
+//! for it to land). The squares are all in the binary, but an image is built the
+//! first time it is shown (`tray_overlay::image`) and kept for the life of the
+//! process: a tick only says which one, and the memory grows only with the
+//! changes really played (3,872 bytes an image, about 9 MB if every one were).
 
 use crate::tray_agents::{FRAME_MS, TRANSITION_FRAME_MS};
 use crate::tray_loader_frames::{SHAPES, TRANSITIONS};
