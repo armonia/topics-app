@@ -25,7 +25,6 @@ export function createTasksGuards(core: TasksCore, late: TasksLate) {
   const runChecksGate: TasksLate["runChecksGate"] = (...args) => late.runChecksGate(...args);
   const tellChatAboutChecksWait: TasksLate["tellChatAboutChecksWait"] = (...args) => late.tellChatAboutChecksWait(...args);
   const rememberDelivery: TasksLate["rememberDelivery"] = (...args) => late.rememberDelivery(...args);
-  const enqueueLandOnDone: TasksLate["enqueueLandOnDone"] = (...args) => late.enqueueLandOnDone(...args);
   const forgetDeliveryMemo: TasksLate["forgetDeliveryMemo"] = (...args) => late.forgetDeliveryMemo(...args);
   const captureDelivery: TasksLate["captureDelivery"] = (...args) => late.captureDelivery(...args);
 

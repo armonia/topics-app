@@ -8,9 +8,7 @@ import { holdUntilLabel, onProviderHold, configureProviderHoldStore, onPlanUsage
 import { wireHoldToResume } from "../lib/provider-hold-broadcast";
 import { resolveStateDir } from "../lib/data-dir";
 import { existsSync } from "fs";
-import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { startCardOutcomeWake } from "../services/card-outcome-wake";
-import { logActivity } from "../db/activity-log";
 import { endReattachLeg } from "../lib/closed-outside";
 import { getDefaultProviderName, tryGetProvider, sessionHasPendingSend } from "../providers";
 import { sessionHasBackgroundWork, sessionsWithBackgroundWork } from "../providers/background-probes";
