@@ -722,6 +722,24 @@ def run(cfg, targets, force=False, mount=True, now=None, pw_fn=keychain_password
     return out
 
 
+def raise_fd_limit(want=8192):
+    """openrsync apre un file per ogni cartella sorgente: sotto launchd il limite è 256 e le oltre 600 memorie dei
+    progetti non ci stanno («Too many open files», exit 23, 17/11 14:03). I figli ereditano il nuovo limite."""
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    for target in (want, 4096):
+        if hard != resource.RLIM_INFINITY:
+            target = min(target, hard)
+        if soft >= target:
+            return soft
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+            return target
+        except (ValueError, OSError):
+            continue
+    return soft
+
+
 def main(argv):
     cmd = argv[0] if argv else "run"
     if cmd == "status":
@@ -741,6 +759,7 @@ def main(argv):
             targets = json.load(sys.stdin if src == "-" else open(src))
         except (OSError, ValueError):
             targets = []
+    raise_fd_limit()
     os.makedirs(TOPICS, exist_ok=True)
     lk = open(LOCK, "w")
     try:

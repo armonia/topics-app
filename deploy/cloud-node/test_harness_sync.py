@@ -1,6 +1,6 @@
 """Bench for harness-sync (rules and memories of the Mac -> nodes) and the node-pool additions that go with it.
 Fake home, fake ssh/rsync/security: nothing leaves the machine. Run: python3 deploy/cloud-node/test_harness_sync.py"""
-import importlib.machinery, importlib.util, json, os, shutil, subprocess, tempfile, time, unittest
+import importlib.machinery, importlib.util, json, os, shutil, subprocess, sys, tempfile, time, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TMP = tempfile.mkdtemp(prefix="harness-sync-test-")
@@ -469,6 +469,16 @@ class DeliveryNeverDeletesOutsideItsUnits(Base):
         t = out["targets"]["m-linux"]
         self.assertIn("consegna non verificata", t["error"])
         self.assertNotEqual(t["rev"], out["source"]["rev"])
+
+
+class FileLimit(unittest.TestCase):
+    def test_launchd_style_low_limit_is_raised_for_the_many_memory_folders(self):
+        code = ("import importlib.machinery as m, importlib.util as u, resource, sys; "
+                "l = m.SourceFileLoader('hs', sys.argv[1]); s = u.spec_from_loader('hs', l); mod = u.module_from_spec(s); l.exec_module(mod); "
+                "mod.raise_fd_limit(); print(resource.getrlimit(resource.RLIMIT_NOFILE)[0])")
+        r = subprocess.run(["bash", "-c", f"ulimit -S -n 256; {sys.executable} -c \"$0\" \"$1\"", code, os.path.join(HERE, "harness-sync")],
+                           capture_output=True, text=True)
+        self.assertGreaterEqual(int(r.stdout.strip()), 4096, r.stderr)
 
 
 class NodeWasCleaned(Base):
