@@ -73,7 +73,7 @@ const MAC_SU = `{
   ]
 }`;
 
-const MAC_SU_CLEAN = MAC_SU.replace(/    0 => \{[\s\S]*?\n    \}\n/, "");
+const MAC_SU_CLEAN = MAC_SU.replace(/ {4}0 => \{[\s\S]*?\n {4}\}\n/, "");
 
 const NETSTAT = `Active Internet connections (including servers)
 Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
@@ -234,8 +234,8 @@ describe("stato peggiore e frasi", () => {
     expect(c.detail.startsWith("SSH accetta la password")).toBe(true);
     expect(composeAccess({ ssh: { kind: "on", password: false }, ports: [5432], firewall: true, linuxServer: false }).status).toBe("warn");
     // a server with no open ports has nothing to filter
-    const srv = composeAccess({ ssh: { kind: "on", password: false }, ports: [], firewall: false, linuxServer: true });
-    expect(srv.status).toBe("ok");
+    const quietServer = composeAccess({ ssh: { kind: "on", password: false }, ports: [], firewall: false, linuxServer: true });
+    expect(quietServer.status).toBe("ok");
     expect(composeAccess({ ssh: { kind: "off" }, ports: [8100], firewall: false, linuxServer: false }).status).toBe("warn");
   });
 });
