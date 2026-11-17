@@ -1,3 +1,8 @@
+/**
+ * @covers TERM-14
+ *
+ * Long text sent to a TUI session goes as one bracketed paste, CRLF included.
+ */
 import { describe, expect, test } from "bun:test";
 import { resolveTerminalSend } from "./terminal-bridge-send";
 
