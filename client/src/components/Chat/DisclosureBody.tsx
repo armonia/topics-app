@@ -16,12 +16,16 @@
  *
  * `onMotion` hears the length of the animation in the layout phase of the
  * change (a live tool row tells the transcript, `transcriptRowResize.ts`).
+ *
+ * `instant` skips the close animation outright, same as reduced motion: for
+ * a close that lands in the same read as the turn's last frame (CHAT-TURN-END),
+ * animating it would still be moving content after the loader has gone.
  */
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { animateEl, EASE, MOTION } from '../../lib/motion';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 
-export function DisclosureBody({ open, children, className, id, testId, onMotion }: {
+export function DisclosureBody({ open, children, className, id, testId, onMotion, instant }: {
   open: boolean;
   children: ReactNode;
   /** Applied to the box that holds the children (indent, padding, border). */
@@ -29,20 +33,22 @@ export function DisclosureBody({ open, children, className, id, testId, onMotion
   id?: string;
   testId?: string;
   onMotion?: (durationMs: number) => void;
+  /** Close without animating, as under reduced motion. */
+  instant?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [shownOpen, setShownOpen] = useState(open);
   const [closing, setClosing] = useState(false);
   if (shownOpen !== open) {
     setShownOpen(open);
-    setClosing(!open && !prefersReducedMotion());
+    setClosing(!open && !prefersReducedMotion() && !instant);
   }
   const animatedOpenRef = useRef(open);
   useLayoutEffect(() => {
     if (animatedOpenRef.current === open) return;
     animatedOpenRef.current = open;
     const track = trackRef.current;
-    if (!track) {
+    if (!track || (!open && instant)) {
       onMotion?.(0);
       return;
     }
@@ -77,7 +83,7 @@ export function DisclosureBody({ open, children, className, id, testId, onMotion
       animation?.addEventListener('finish', () => { clip.style.overflow = ''; });
     }
     if (!open && animation) animation.addEventListener('finish', () => setClosing(false));
-  }, [open, onMotion]);
+  }, [open, onMotion, instant]);
 
   if (!open && !closing) return null;
   return (
