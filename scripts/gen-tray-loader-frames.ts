@@ -43,7 +43,7 @@ const MAX_FRAMES = 24;
 /** The app steps a small settled body at 30 fps (`SMALL_FRAME_MS` in squareLoader). */
 const SIM_DT = 1 / 30;
 /** Long past the engine's one-second settle, so the loop sampled is the steady one. */
-const WARMUP_S = 12;
+const SETTLE_SECONDS = 12;
 
 /**
  * One natural cycle of each tiny shape, in seconds, read off `SMALL_SHAPES`:
@@ -73,17 +73,17 @@ export interface TrayLoaderShape {
 }
 
 /** Reads `const NAME: f32 = 11.0;` (or `= OTHER;`) from a Rust source, following one alias. */
-function rustConst(src: string, name: string): number {
+function readRustNumber(src: string, name: string): number {
   const m = src.match(new RegExp(`const ${name}: (?:f32|u64|u32) = ([A-Za-z0-9_.]+);`));
   if (!m) throw new Error(`const ${name} not found`);
   const v = Number(m[1]);
-  return Number.isFinite(v) ? v : rustConst(src, m[1]);
+  return Number.isFinite(v) ? v : readRustNumber(src, m[1]);
 }
 
 export function trayGeometry(): { glyphPt: number; scale: number; frameMs: number } {
   const agents = readFileSync(join(TAURI_SRC, 'tray_agents.rs'), 'utf8');
   const quota = readFileSync(join(TAURI_SRC, 'tray_quota.rs'), 'utf8');
-  return { glyphPt: rustConst(agents, 'OVERLAY_PT'), scale: rustConst(quota, 'SCALE'), frameMs: rustConst(agents, 'FRAME_MS') };
+  return { glyphPt: readRustNumber(agents, 'OVERLAY_PT'), scale: readRustNumber(quota, 'SCALE'), frameMs: readRustNumber(agents, 'FRAME_MS') };
 }
 
 /** The shapes the tray can reach: the image of the action map, in the map's order. */
@@ -135,7 +135,7 @@ function sample(activity: LoaderActivity, glyphPt: number, scale: number, frameM
   const count = Math.min(MAX_FRAMES, Math.max(1, Math.round(cycleS / (frameMs / 1000))));
   const phase = cycleS / count;
   // Warm up on the sampling grid itself, so the steady loop is reached with the very steps it is sampled at.
-  const start = Math.ceil(WARMUP_S / phase) * phase;
+  const start = Math.ceil(SETTLE_SECONDS / phase) * phase;
   for (let k = 1; k * phase <= start + 1e-9; k++) advance(k * phase);
   const grab = (): Square[] => {
     body.draw('#000');
