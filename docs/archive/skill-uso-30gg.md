@@ -17,7 +17,7 @@
 | humanizer | 0 | 0 | mai | 0 | candidata a togliere (0 usi in 30 giorni) |
 | knip-deadcode | 0 | 0 | mai | 0 | candidata a togliere (0 usi in 30 giorni) |
 | master | 5 | 0 | 2026-11-12 | 3 | tenere (5 usi) |
-| modalita-task | 1 | 0 | 2026-10-26 | 0 | togliere (serve OpenClaw; 1 uso il 26/10) |
+| modalita-task | 1 | 0 | 2026-10-26 | 0 | togliere (serve al vecchio gateway; 1 uso il 26/10) |
 | orchestrator | 0 | 0 | mai | 0 | tenere (del coordinatore Topics, fuori scope) |
 | pdf | 0 | 0 | mai | 0 | candidata a togliere (0 usi in 30 giorni) |
 | pptx | 0 | 0 | mai | 0 | candidata a togliere (0 usi in 30 giorni) |
@@ -46,4 +46,4 @@
 | zoom-out | 0 | 0 | mai | 0 | candidata a togliere (0 usi in 30 giorni) |
 
 Prova: scansione di 10034 jsonl (mtime <30gg) in ~/.claude/projects con /tmp/su/scan.py (Skill tool_use + <command-name>/x), exit 0, 35 s; Topics: sqlite read-only su data/topics.db, messages.tool_calls name=skill, 30gg.
-Limiti: ls dà 44 cartelle, non 43; non scansionati transcript Codex/jcode/OpenClaw; la scansione è girata sul Mac (27 GB, già in cache, 35 s) e non sul PC: spostarli costava più dello scan.
+Limiti: ls dà 44 cartelle, non 43; non scansionati transcript Codex/jcode/gateway vecchio; la scansione è girata sul Mac (27 GB, già in cache, 35 s) e non sul PC: spostarli costava più dello scan.
