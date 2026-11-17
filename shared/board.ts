@@ -1776,6 +1776,14 @@ export interface CheckRun {
    */
   notMeasured?: boolean;
   /**
+   * A CI evidence row with nothing of its own to measure: the delivery's
+   * commit beyond `main` is zero, so there is no push and no pull request CI
+   * to read. `ok: true` (it does not block a delivery), but distinct from a
+   * real pass so the card never claims a verdict GitHub never gave — see
+   * `ciSkipped` in `ci-evidence.ts`.
+   */
+  skipped?: boolean;
+  /**
    * Time the command spent queueing for a gate slot before it started (read
    * from the line `slot.ts` prints, see shared/slot-acquired.ts). Not counted
    * against the check's cap; shown so a slow verdict names the queue, not the
