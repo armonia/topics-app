@@ -69,7 +69,7 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
         data-creator={filters.creator ?? 'all'}
         title={tr('board.filter.creatorTitle')}
         onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
+        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-black/5 dark:bg-white/10 text-app-text'} hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text`}
       >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
 
       {/* Reset - only when something is active */}
@@ -82,7 +82,7 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
           // 16px target, the smallest on the row. Same inset ring as the
           // shells: being the smallest target, it is also the one the global
           // offset outline overflows worst.
-          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
+          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text`}
         >
           <X className="h-3 w-3" />
         </button>
