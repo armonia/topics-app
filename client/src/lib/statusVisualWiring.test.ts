@@ -149,7 +149,7 @@ describe('statusVisual wiring', () => {
     expect(working, 'AgentsPane TEXT.working').toContain('STATUS_INK.working');
     expect(working).not.toMatch(GREEN);
     // An agent at work wears the square loader, the one status icon of Topics.
-    expect(pane).toContain(`if (state === 'working') return <SparkLoader size={10} activity="tool"`);
+    expect(pane).toContain(`if (state === 'working') return <SparkLoader size={10} activity={loaderActivityForAction(action) ?? 'think'}`);
     const groupCount = elementAround(pane, "tr('agents.working', { n: g.working })");
     expect(groupCount).toContain('STATUS_INK.working');
     expect(groupCount).toContain('<AgentStateGlyph state="working" />');

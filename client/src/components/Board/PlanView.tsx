@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ExternalLink, Plus, RefreshCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { TaskActionLoader } from '../Layout/StreamingIndicator';
+import { SparkLoader, TaskActionLoader } from '../Layout/StreamingIndicator';
 import { Select } from '../Shared/Select';
 import { SEGNALE_ATTESA } from '../Sidebar/chromeSignals';
 import { StatusIcon } from './atoms';

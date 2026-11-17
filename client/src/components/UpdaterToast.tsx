@@ -31,7 +31,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useT } from '../hooks/useT';
-import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
+import { Check, AlertCircle, Download } from 'lucide-react';
 import {
   getUpdaterApi,
   readDismissedUpdateVersion,

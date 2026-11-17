@@ -25,7 +25,8 @@ describe('phase to glyph on the card surfaces', () => {
   for (const rel of CARD_SURFACES) {
     test(`${rel} draws work in progress with the square loader`, () => {
       const src = read(rel);
-      expect(src).toMatch(/<SparkLoader size=\{12\}/);
+      // The bare loader, or the one that plays the card's action (TaskActionLoader wraps SparkLoader).
+      expect(src).toMatch(/<SparkLoader size=\{12\}|<TaskActionLoader taskId=\{\w+\} activity=\{activity\} size=\{12\}/);
       expect(src).not.toMatch(/<StatusIcon status="in_progress" live/);
     });
   }
@@ -42,7 +43,7 @@ describe('phase to glyph on the card surfaces', () => {
     const src = read('Board/PlanView.tsx');
     expect(src).toContain("c.dispatchState === 'failed' ? 'failed' : c.status");
     expect(src).toContain("c.status === 'in_progress' && c.dispatchState === 'working' ? (");
-    expect(src).toContain('<SparkLoader size={12} activity="tool"');
+    expect(src).toContain('<TaskActionLoader taskId={c.id} size={12}');
   });
 
   test('a space waiting for you shows the amber alert, not the waiting spinner', () => {
@@ -72,7 +73,7 @@ describe('the chat task card', () => {
     const src = read('Chat/TaskToolCard.tsx');
     expect(src).not.toContain('Hourglass');
     expect(src).not.toContain('CircleCheck,');
-    expect(src).toContain("PHASE_GLYPH[phase] === 'in_progress' ? <SparkLoader size={12} activity=\"tool\"");
+    expect(src).toContain("PHASE_GLYPH[phase] === 'in_progress' ? <TaskActionLoader taskId={detail.taskId} size={12}");
     expect(src).toContain('<StatusIcon status={PHASE_GLYPH[phase]} className="h-3 w-3" />');
   });
 

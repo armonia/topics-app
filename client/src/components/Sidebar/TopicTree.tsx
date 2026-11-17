@@ -35,7 +35,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { useBoardTasks } from '@/lib/boardTasksStore';
 import { openTaskInApp } from '@/lib/openTaskLink';
 import { openCardsOf, taskCardPhase } from '@/lib/taskCardState';
-import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, SparkLoader, TaskActionLoader } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, TaskActionLoader } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
