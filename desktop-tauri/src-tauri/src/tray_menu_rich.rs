@@ -26,7 +26,18 @@ fn span_text(secs: f64) -> String {
     }
 }
 
-/// Where the machine's state spent the window the service logged, longest first: «lavora 21 h · dorme 2 h».
+/// The words for a state of the machine in the day's account: «acceso» alone reads as the time it was on, which allow-italian: quoted menu wording
+/// «al lavoro» is part of, so it says what it is: on, with nothing to do. allow-italian: quoted menu wording
+fn state_say(state: &str) -> &str {
+    match state {
+        "lavora" => "al lavoro",
+        "acceso" => "acceso senza lavoro",
+        other => other,
+    }
+}
+
+/// Where the machine's state spent the window the service logged, longest first: «al lavoro 21 h · dorme 2 h». allow-italian: quoted menu wording
+/// The states split the window between them, so the line says «nelle ultime 24 h» and no state is a total. allow-italian: quoted menu wording
 /// `None` when it logged nothing. Times in milliseconds are read as such.
 fn timeline_say(segments: &[Segment]) -> Option<String> {
     let secs = |t: f64| if t > 1e11 { t / 1000.0 } else { t };
@@ -40,22 +51,14 @@ fn timeline_say(segments: &[Segment]) -> Option<String> {
     }
     spent.retain(|(_, l)| *l >= 30.0);
     spent.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    (!spent.is_empty()).then(|| format!("Ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{s} {}", span_text(*l))).collect::<Vec<_>>().join(" · ")))
+    (!spent.is_empty()).then(|| format!("Nelle ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{} {}", state_say(s), span_text(*l))).collect::<Vec<_>>().join(" · ")))
 }
 
-/// The readings of a machine read from afar and how its state went through the day, as the original tray's
-/// remote submenu opens: a line per reading in the service's words, then the timeline. Text, not the
-/// bars and charts picture the submenus dropped on purpose.
+/// How a machine read from afar went through the day, as the original tray's remote submenu opens. The readings
+/// themselves (CPU, memory, disk, spend) are the card's: said again here they were two figures for one thing.
 pub(crate) fn remote_reading_nodes(detail: Option<&MachineDetail>) -> Vec<Node> {
     let Some(d) = detail else { return Vec::new() };
-    let mut out: Vec<Node> = d.metrics.iter().map(|x| {
-        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |p| format!("{}%", p.round() as i64)) };
-        let line = if x.note.is_empty() { format!("{} {value}", x.name) } else { format!("{} {value} · {}", x.name, x.note) };
-        let tone = match x.level { 0 => "ok", 1 => "warn", _ => "bad" };
-        with_icon(format!("sf:circle.fill|{tone}"), note(line))
-    }).collect();
-    out.extend(timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))));
-    out
+    timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))).into_iter().collect()
 }
 
 /// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power allow-italian: quoted menu wording
@@ -81,32 +84,42 @@ fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, now: i64, p: Palette
             let extras = data.extras(m, &details, now, offset);
             // what the node files say first (security, charts), then the readings and the processes
             let mut kids: Vec<Node> = submenu_nodes(&extras, &m.id, p, offset);
-            if !kids.is_empty() {
-                kids.push(Node::Sep);
-            }
+            kids.push(Node::Sep);
             if !m.local {
                 kids.extend(remote_reading_nodes(found));
             }
-            if !kids.is_empty() && !m.lines.is_empty() {
-                kids.push(Node::Sep);
-            }
-            kids.extend(m.lines.iter().map(note));
-            if !kids.is_empty() {
-                kids.push(Node::Sep);
-            }
-            if m.local {
-                kids.extend(procs_table(snap));
-            } else {
-                kids.extend(remote_procs_table(found));
-            }
+            // the service's lines, minus the one the card already says under the name
+            kids.extend(m.lines.iter().filter(|l| **l != m.reason).map(note));
+            // a separator between groups, never two in a row and none at the ends
             kids.push(Node::Sep);
+            let procs = if m.local { procs_table(snap) } else { remote_procs_table(found) };
+            if !procs.is_empty() {
+                kids.extend(procs);
+                kids.push(Node::Sep);
+            }
             if !m.local {
                 kids.extend(machine_action_nodes(m, found));
             }
             kids.push(with_icon("sf:magnifyingglass", item(&format!("machine-open:{}", m.id), "Cerca in una finestra…")));
+            let kids = tidy_separators(kids);
             card(&format!("machine:{}", m.id), draw_machine_card_with(m, &extras, p), kids)
         })
         .collect()
+}
+
+/// Separators only between two rows: none at the start or the end, one where a run of them was.
+fn tidy_separators(nodes: Vec<Node>) -> Vec<Node> {
+    let mut out: Vec<Node> = Vec::new();
+    for n in nodes {
+        if matches!(n, Node::Sep) && matches!(out.last(), None | Some(Node::Sep)) {
+            continue;
+        }
+        out.push(n);
+    }
+    if matches!(out.last(), Some(Node::Sep)) {
+        out.pop();
+    }
+    out
 }
 
 /// The subscription limits entry of the original tray, first of the options.

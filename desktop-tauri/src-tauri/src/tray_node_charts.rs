@@ -26,6 +26,10 @@ pub struct NodeExtras {
     pub rows: Vec<StatusRow>,
     pub cpu: Vec<Option<f64>>,
     pub mem: Vec<Option<f64>>,
+    /// Seconds between two readings of `cpu` and `mem` (0 = not known: a day of 5 minute readings).
+    pub step_s: i64,
+    /// The month's spend as the card says it («8,44/60 €»): the one figure, so the chart cannot say another.
+    pub spend_say: Option<String>,
     /// Cards started today on this machine, hour by hour.
     pub cards_hours: Vec<u32>,
     /// The four security checks with the time they ran, for the submenu.
@@ -47,8 +51,13 @@ impl NodeExtras {
         (!self.cards_hours.is_empty()).then(|| self.cards_hours.iter().sum())
     }
 
+    /// The day's card count is a panel only when something was started: a zero says nothing a badge does not.
+    fn cards_panel(&self) -> Option<u32> {
+        self.cards_total().filter(|t| *t > 0)
+    }
+
     fn panels(&self) -> usize {
-        [drawable(&self.cpu), drawable(&self.mem), self.cards_total().is_some()].iter().filter(|x| **x).count()
+        [drawable(&self.cpu), drawable(&self.mem), self.cards_panel().is_some()].iter().filter(|x| **x).count()
     }
 
     /// Height the card grows by to hold the rows and the small charts.
@@ -106,6 +115,8 @@ impl NodeData {
             rows,
             cpu: machine.map(|(_, m)| m.cpu.clone()).unwrap_or_default(),
             mem: machine.map(|(_, m)| m.mem.clone()).unwrap_or_default(),
+            step_s: machine.map_or(0, |(_, m)| m.step_s),
+            spend_say: card.metrics.iter().find(|x| x.key == "spend").map(|x| x.value.clone()).filter(|v| !v.is_empty()),
             cards_hours: machine.map(|(_, m)| m.cards_today.clone()).unwrap_or_default(),
             checks: machine.map(|(_, m)| health::check_lines(m)).unwrap_or_default(),
             checked_at: machine.and_then(|(_, m)| m.checked_at),
@@ -121,6 +132,19 @@ impl NodeData {
 /// The two small lines and the day's card count, as one row of panels under the status rows.
 fn level_of_pct(v: f64) -> u32 {
     if v >= 90.0 { 2 } else if v >= 70.0 { 1 } else { 0 }
+}
+
+/// The part of a series that holds readings: from the first one on (a history that is hours old would otherwise
+/// leave its line in a few pixels at the right edge of a day), and how long that part reaches, in seconds.
+fn covered(v: &[Option<f64>], step_s: i64) -> (&[Option<f64>], i64) {
+    let first = v.iter().position(Option::is_some).unwrap_or(0);
+    let part = &v[first..];
+    (part, part.len() as i64 * if step_s > 0 { step_s } else { 300 })
+}
+
+/// «CPU · 24 h», or «CPU · 5 ore» while the history is younger than a day.
+fn window_title(name: &str, secs: i64) -> String {
+    if secs >= 23 * 3600 { format!("{name} · 24 h") } else { format!("{name} · {}", health::span(secs)) }
 }
 
 fn last_value(v: &[Option<f64>]) -> Option<f64> {
@@ -177,8 +201,14 @@ pub fn draw_block(pic: &mut Pic, e: &NodeExtras, y0: f32, p: Palette) {
         pic.dot(X0 + 3.5, y + 8.5, 3.0, c, 1.0);
         pic.text(Face::SansRegular, &r.label, X0 + 14.0, y + 12.0, 10.5, p.fg, p.dim);
         let tx = X0 + 14.0 + LABEL_W;
-        let (col, a) = if r.level > 0 { (c, 1.0) } else { (p.fg, 1.0) };
-        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &r.text, 10.5, RIGHT - tx), tx, y + 12.0, 10.5, col, a);
+        // the state before the first « · » takes the colour, the words after it stay in the ink of the row
+        let (lead, rest) = match (r.level > 0, r.text.split_once(" · ")) {
+            (true, Some((l, rest))) => (l.to_string(), format!(" · {rest}")),
+            (true, None) => (r.text.clone(), String::new()),
+            (false, _) => (String::new(), r.text.clone()),
+        };
+        let lw = if lead.is_empty() { 0.0 } else { pic.text(Face::SansRegular, &lead, tx, y + 12.0, 10.5, c, 1.0) };
+        pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &rest, 10.5, RIGHT - tx - lw), tx + lw, y + 12.0, 10.5, p.fg, 1.0);
         y += ROW_H;
     }
     let n = e.panels();
@@ -188,20 +218,21 @@ pub fn draw_block(pic: &mut Pic, e: &NodeExtras, y0: f32, p: Palette) {
     let gap = 14.0;
     let w = (RIGHT - X0 - gap * (n as f32 - 1.0)) / n as f32;
     let mut x = X0;
-    for (title, v) in [("CPU · 24 h", &e.cpu), ("Memoria · 24 h", &e.mem)] {
+    for (name, v) in [("CPU", &e.cpu), ("Memoria", &e.mem)] {
         if !drawable(v) {
             continue;
         }
+        let (v, secs) = covered(v, e.step_s);
         let now = last_value(v).unwrap_or(0.0);
-        panel_title(pic, x, w, y + 4.0, title, &format!("{}%", now.round() as i64), if level_of_pct(now) > 0 { tone(level_of_pct(now)) } else { p.fg }, p);
+        panel_title(pic, x, w, y + 4.0, &window_title(name, secs), &format!("{}%", now.round() as i64), if level_of_pct(now) > 0 { tone(level_of_pct(now)) } else { p.fg }, p);
         pct_line(pic, (x, y + 4.0 + 18.0, w, PLOT_H - 4.0), v, p);
         x += w + gap;
     }
-    if let Some(total) = e.cards_total() {
+    if let Some(total) = e.cards_panel() {
         panel_title(pic, x, w, y + 4.0, "Card oggi", "", p.fg, p);
         let num = total.to_string();
         let nw = pic.text(Face::MonoBold, &num, x, y + 4.0 + 42.0, 22.0, p.fg, 1.0);
-        let say = match total { 0 => "nessuna avviata", 1 => "avviata oggi", _ => "avviate oggi" };
+        let say = if total == 1 { "avviata oggi" } else { "avviate oggi" };
         pic.text(Face::SansRegular, say, x + nw + 8.0, y + 4.0 + 42.0, 10.5, p.fg, p.dim);
     }
 }
@@ -265,8 +296,10 @@ pub fn lag_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     let (lx, ly) = at(pts[pts.len() - 1].0, last);
     pic.dot(lx, ly, 2.6, tone(level), 1.0);
     // the scale sits on the top guide, the time axis under the line
-    pic.text(Face::SansRegular, &format!("{} di ritardo", health::span(max as i64)), x + 2.0, y + 11.0, 9.5, p.fg, p.dim);
     pic.text(Face::SansRegular, &format!("{} fa", health::span(window)), x, y + h + 13.0, 9.5, p.fg, p.dim);
+    // the scale rides on the axis row, between its two ends: the top guide is where the line peaks
+    let scale = format!("in alto: {} di ritardo", health::span(max as i64));
+    pic.text(Face::SansRegular, &scale, x + (w - Pic::text_w(Face::SansRegular, &scale, 9.5)) / 2.0, y + h + 13.0, 9.5, p.fg, p.dim);
     pic.text(Face::SansRegular, "ora", x + w - Pic::text_w(Face::SansRegular, "ora", 9.5), y + h + 13.0, 9.5, p.fg, p.dim);
     Some(pic)
 }
@@ -293,7 +326,8 @@ pub fn spend_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     let days: Vec<(i64, f64)> = spend.days.iter().filter(|(d, _)| d.starts_with(&month)).filter_map(|(d, v)| Some((d.get(8..10)?.parse().ok()?, *v))).collect();
     let total: f64 = days.iter().map(|d| d.1).sum();
     let share = spend.cap.map(|c| c / dim as f64);
-    let value = spend.cap.map_or(euro(total), |c| format!("{} su {}", euro(total), euro(c).replace(",00", "")));
+    // the card's own figure when it has one (the service's, the one the ceiling is judged on); the bars are the log's days
+    let value = e.spend_say.clone().unwrap_or_else(|| spend.cap.map_or(euro(total), |c| format!("{} su {}", euro(total), euro(c).replace(",00", ""))));
     let over = spend.cap.map_or(false, |c| total > c);
     let mut pic = framed(112.0, "Spesa cloud del mese", &value, if over { tone(2) } else { p.fg }, p);
     let (x, y, w, h) = (CARD_X + 14.0, 38.0, CARD_W - 28.0, 36.0);

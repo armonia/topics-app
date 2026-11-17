@@ -89,7 +89,8 @@ fn backup_card_has_the_private_archive_the_foot_and_the_next_run() {
     let running = backup_card(r#"{"last_ok":1799990000,"pending_since":1799999000,"run_phase":"sta controllando i dati"}"#, NOW).unwrap();
     assert_eq!(running.foot, "Sul Mac: sta controllando i dati");
     let (with, without) = (draw_backup_card(&b, Palette::new(true)), draw_backup_card(&BackupCard { foot: String::new(), ..b.clone() }, Palette::new(true)));
-    assert!(with.cv.h > without.cv.h, "the foot takes a line");
+    // a line of its own, or the free half of an odd last row (the layout test below says which)
+    assert!(with.cv.h >= without.cv.h, "the foot never takes space away");
 }
 
 #[test]
@@ -177,4 +178,80 @@ fn snapshot() {
 fn tray_machine_logos_have_the_sizes_of_the_original_tray() {
     // machineSym in ClaudeUsage.swift: the Apple logo at 14, a cloud at 13, the Windows logo at 12
     assert_eq!([machine_glyph_side("apple.logo"), machine_glyph_side("cloud"), machine_glyph_side("windows")], [14.0, 13.0, 12.0]);
+}
+
+// ---- layout rules of the card and the panel (card tray-impaginazione-compatta)
+
+/// The rightmost painted column, in points, between two heights (points) of a card.
+fn ink_right(pic: &Pic, y0: f32, y1: f32) -> f32 {
+    let (w, scale) = (pic.cv.w as usize, crate::tray_quota::SCALE);
+    let mut right = 0usize;
+    for y in (y0 * scale) as usize..((y1 * scale) as usize).min(pic.cv.h as usize) {
+        for x in (0..w).rev() {
+            if pic.cv.px[(y * w + x) * 4 + 3] > 90 {
+                right = right.max(x);
+                break;
+            }
+        }
+    }
+    right as f32 / scale
+}
+
+#[test]
+fn the_legend_of_a_card_reaches_the_right_margin_and_not_only_sixty_per_cent_of_it() {
+    // short notes («lavori in coda») used to end the rows at the middle of the card, leaving the right side empty
+    let hw = |k: &str, v: u32, note: &str| Metric { key: k.into(), pct: Some(v), note: note.into(), ..Default::default() };
+    let m = MachineCard { id: "local".into(), local: true, name: "Mac".into(), badge: "impegnato".into(),
+        metrics: vec![hw("cpu", 74, "lavori in coda"), hw("gpu", 57, "picco"), hw("mem", 58, "swap"), hw("disk", 95, "51 GB liberi")], ..Default::default() };
+    for dark in [false, true] {
+        let pic = draw_machine_card(&m, Palette::new(dark));
+        let edge = ink_right(&pic, 30.0, 100.0);
+        assert!(edge >= MENU_W - 16.0 - 2.0, "the legend stops at {edge} pt of {MENU_W}: its notes end on the right margin");
+        assert!(edge <= MENU_W - 16.0 + 1.0, "and not past it ({edge})");
+    }
+}
+
+#[test]
+fn a_sentence_that_ends_in_its_figure_keeps_the_figure_when_it_is_shortened() {
+    let long = "Barra completa della rubrica Contatti (tipi, lint, test, build, anteprima), da 7 minuti";
+    let room = 330.0;
+    assert!(Pic::text_w(Face::Sans, long, 10.5) > room, "the sample really is too long");
+    let fit = fit_keeping_tail(Face::Sans, long, 10.5, room);
+    assert!(Pic::text_w(Face::Sans, &fit, 10.5) <= room + 0.5, "{fit}");
+    assert!(fit.ends_with(", da 7 minuti"), "the minutes are the part that matters: {fit}");
+    assert_eq!(fit_keeping_tail(Face::Sans, "Collegato dal Mac", 10.5, room), "Collegato dal Mac", "a short one is left alone");
+}
+
+#[test]
+fn a_remote_card_sets_a_long_reason_on_its_own_line_and_a_short_one_beside_the_name() {
+    let base = MachineCard { id: "pc".into(), name: "PC Windows".into(), badge: "lavora".into(), ..Default::default() };
+    let short = draw_machine_card(&MachineCard { reason: "da 7 minuti".into(), ..base.clone() }, Palette::new(true));
+    let long = draw_machine_card(&MachineCard { reason: "Barra completa della rubrica Contatti (tipi, lint, test, build, anteprima), da 7 minuti".into(), ..base.clone() }, Palette::new(true));
+    assert!(long.cv.h > short.cv.h, "a long one takes its own line instead of being cut after the name");
+}
+
+#[test]
+fn the_state_of_an_account_is_never_cut_when_it_has_a_time_to_split_off() {
+    // the width left in a card of three to a row, beside the state's symbol
+    let room = (MENU_W - 2.0 * PAD - 8.0 * 2.0) / 3.0 - 18.0 - 19.0;
+    for state in ["solo riserva → dom 10:00", "esaurito → mer 05:00", "sopra ritmo", "solo riserva → dom 09:00"] {
+        assert_ne!(state_plan(state, room), StatePlan::Cut, "«{state}» fits in {room} pt");
+    }
+    assert_eq!(state_plan("un testo molto più lungo del posto che resta alla riga dello stato", room), StatePlan::Cut);
+}
+
+#[test]
+fn an_odd_proof_takes_the_footer_beside_it_when_it_fits_and_no_row_of_its_own() {
+    let mut b = backup_card(BACKUP, NOW).unwrap();
+    b.foot = "3,3 GB sul disco".into();
+    let even = b.proofs.len() % 2 == 0;
+    let beside = draw_backup_card(&b, Palette::new(true)).cv.h;
+    let without = draw_backup_card(&BackupCard { foot: String::new(), ..b.clone() }, Palette::new(true)).cv.h;
+    if even {
+        assert!(beside > without);
+    } else {
+        assert_eq!(beside, without, "the right half of the last row holds the footer");
+    }
+    let long = BackupCard { foot: "Sul Mac: una frase troppo lunga per mezza riga della scheda, che resta intera".into(), ..b };
+    assert!(draw_backup_card(&long, Palette::new(true)).cv.h > without, "a footer too wide for the half row keeps its own line, whole");
 }

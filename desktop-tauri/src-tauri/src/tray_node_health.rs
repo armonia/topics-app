@@ -50,6 +50,8 @@ pub struct HealthMachine {
     pub checks: Vec<Check>,
     pub cpu: Vec<Option<f64>>,
     pub mem: Vec<Option<f64>>,
+    /// Seconds between two readings of `cpu` and `mem`.
+    pub step_s: i64,
     pub cards_today: Vec<u32>,
 }
 
@@ -90,6 +92,7 @@ pub fn parse_health(body: &str) -> Option<Health> {
                     .map(|c| Check { key: text(c, "key"), status: text(c, "status"), detail: text(c, "detail") }).collect(),
                 cpu: series(hist.get("cpu")),
                 mem: series(hist.get("mem")),
+                step_s: int(&hist, "step_s").filter(|t| *t > 0).unwrap_or(300),
                 cards_today: m.get("cards_today").and_then(Value::as_array).map(|a| a.iter().map(|x| x.as_u64().unwrap_or(0) as u32).collect()).unwrap_or_default(),
             }
         }).collect(),
@@ -212,6 +215,18 @@ fn level_of(status: &str) -> u32 {
 /// How the sync writer opens the error of a node it could not reach (the sentence is Italian: it is shown as it is).
 const UNREACHABLE: &str = "nodo non raggiungibile";
 
+/// «salvate alle 03:01»: the one way every node says when its memories and rules were last written, from `day_clock`. allow-italian: quoted menu wording
+pub(crate) fn saved_text(clock: &str) -> String {
+    match clock.strip_prefix("ieri ") {
+        Some(t) => format!("salvate ieri alle {t}"),
+        None if clock.contains(':') => format!("salvate alle {clock}"),
+        None => format!("salvate {clock}"),
+    }
+}
+
+/// The label of that row, the same on every node.
+pub(crate) const MEMORY_LABEL: &str = "Memorie e regole";
+
 /// «Memorie e regole» of a remote machine, from what the sync last copied there.
 pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<StatusRow> {
     let t = sync.targets.get(machine_id)?;
@@ -228,7 +243,7 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
         parts.push(format!("indietro di {}", span(lag)));
         level = if lag > SYNC_PROBLEM_S { 2 } else if lag > 3600 { 1 } else { 0 };
     } else {
-        parts.push(format!("allineate alle {}", hhmm(t.at, offset)));
+        parts.push(saved_text(&day_clock(sync.source_at, t.at, offset)));
     }
     match t.private.as_str() {
         // a closed private part behind an unreachable node is the same news again
@@ -246,7 +261,7 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
         }),
         _ => {}
     }
-    Some(row("Memorie e regole", parts.join(" · "), level))
+    Some(row(MEMORY_LABEL, parts.join(" · "), level))
 }
 
 /// The code row of a pool server: aligned to main, or since when it is behind. The badge already says
@@ -300,14 +315,22 @@ pub fn security_row(health: &Health, m: &HealthMachine, now: i64) -> StatusRow {
     let w = worst(&m.checks);
     let level = level_of(&m.status).max(w.map_or(0, |c| level_of(&c.status)));
     if m.status == "unknown" && w.is_none() {
-        return row("Sicurezza", "da guardare: non ancora controllata", 1);
+        return row("Sicurezza", "non ancora controllata", 1);
     }
-    let detail = w.map(|c| cut(&c.detail, 80)).filter(|d| !d.is_empty());
+    // the state first and short (it takes the colour), then the worst check's words cut at their first clause so
+    // the row fits its line whole; the full sentence is in the submenu
+    let detail = w.map(|c| first_clause(&c.detail)).filter(|d| !d.is_empty());
     match (level, detail) {
         (0, _) => row("Sicurezza", "a posto", 0),
-        (2, d) => row("Sicurezza", format!("problema: {}", d.unwrap_or_else(|| "controlla i dettagli".into())), 2),
-        (_, d) => row("Sicurezza", format!("da guardare: {}", d.unwrap_or_else(|| "controllo non concluso".into())), 1),
+        (2, d) => row("Sicurezza", format!("problema · {}", d.unwrap_or_else(|| "controlla i dettagli".into())), 2),
+        (_, d) => row("Sicurezza", format!("da guardare · {}", d.unwrap_or_else(|| "controllo non concluso".into())), 1),
     }
+}
+
+/// The words of a check up to their first comma or semicolon, at most 56 characters.
+fn first_clause(detail: &str) -> String {
+    let head = detail.split(|c| c == ',' || c == ';').next().unwrap_or(detail).trim();
+    cut(head, 56)
 }
 
 /// The four checks of a machine for its submenu: label, level and the check's own words.
@@ -320,7 +343,13 @@ pub fn check_lines(m: &HealthMachine) -> Vec<(String, u32, String)> {
             "info" => "",
             _ => "non controllato",
         };
-        let say = [state, cut(&c.detail, 70).as_str()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" · ");
+        // a detail that opens with the check's own name («Disco cifrato (FileVault acceso)») does not say it twice allow-italian: quoted menu wording
+        let label = check_label(&c.key);
+        let detail = match c.detail.get(..label.len()).filter(|h| h.eq_ignore_ascii_case(label)) {
+            Some(_) => c.detail[label.len()..].trim().trim_start_matches('(').trim_end_matches(')').trim().to_string(),
+            None => c.detail.clone(),
+        };
+        let say = [state, cut(&detail, 70).as_str()].iter().filter(|t| !t.is_empty()).cloned().collect::<Vec<_>>().join(" · ");
         (check_label(&c.key).to_string(), level_of(&c.status), say)
     }).collect()
 }
