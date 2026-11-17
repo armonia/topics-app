@@ -62,4 +62,16 @@ describe('ReasoningRow across partial and final', () => {
     expect([...live].sort((a, b) => a - b)).toEqual(live);
     expect([...final].sort((a, b) => a - b)).toEqual(final);
   });
+
+  test('open while the model is thinking, closed once the thinking is over', () => {
+    const only = (partial: boolean) =>
+      renderToStaticMarkup(
+        <MessageContent role="assistant" content="" partial={partial} blocks={[{ kind: 'thinking', text: 'pondering' }]} messageId="m3" />,
+      );
+    expect(only(true)).toContain('data-testid="reasoning-body"');
+    expect(only(true)).toContain('pondering');
+    // The answer has started: the reasoning is no longer the live block.
+    expect(render(true, 'abc')).not.toContain('reasoning-body');
+    expect(render(false, 'abc')).not.toContain('reasoning-body');
+  });
 });

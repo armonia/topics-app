@@ -43,6 +43,7 @@
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
+import { makeFocusPaneFlow } from "./browser-bridge-focus";
 import { makeOpenPaneFlow, type OpenPaneFlowOptions } from "./browser-open-pane-flow";
 import { maybeOpenPaneForPageOp } from "./browser-auto-open";
 import { isAgentOwnedTopic } from "../../shared/agent-owned";
@@ -224,6 +225,11 @@ export function createBrowserBridgeRouter(
 
   const openPaneFlow = makeOpenPaneFlow({
     json, broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS, portOwnershipWarning,
+  });
+
+  const focusPaneFlow = makeFocusPaneFlow({
+    broadcastToAll, waitForAttachedPane, paneWaitMs: PANE_WAIT_MS,
+    currentUrl: (contextId) => browserService?.getUrl(contextId)?.url,
   });
 
   /**
@@ -749,6 +755,15 @@ export function createBrowserBridgeRouter(
     // client-originated because tab-activation is device-local UI state. An
     // explicit body.contextId wins (VALIDATED against the live inventory —
     // focusing a dead pane is meaningless); else own via topic/term-<id>.
+    //
+    // A context with no pane ANYWHERE answered "ok" here while nothing ever
+    // mounted (card 6e893f97): the broadcast alone only wakes a window that
+    // already shows the pane, and the client never reopens one on its own
+    // (BROWSER-CHAT-05, deliberately — a focus must not surprise-open on every
+    // device). So the SAME fallback open-pane already has for the identical
+    // problem (`browser:force-open`, card 05105d29) applies here too: wait for
+    // a pane to attach, and if none does, force one open on the primary window
+    // with the context's current URL.
     {
       const byTopic = matchRoute(pathname, "/api/topics/:id/browser/focus-pane");
       const bySession = matchRoute(pathname, "/api/sessions/:sessionKey/browser/focus-pane");
@@ -771,8 +786,8 @@ export function createBrowserBridgeRouter(
           if (!target) return json({ error: "No browser pane bound to this session (pass contextId from browser_list_tabs)" }, 404);
           ctxId = target.contextId;
         }
-        broadcastToAll({ type: "browser:focus-pane", contextId: ctxId });
-        return json({ ok: true, contextId: ctxId });
+        const mounted = await focusPaneFlow(ctxId);
+        return json({ ok: true, contextId: ctxId, mounted });
       }
     }
 

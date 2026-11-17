@@ -152,7 +152,7 @@ describe("la forma della richiesta", () => {
   // 07/10, topic:d740f8ae: Italian in the system prompt, five rounds of English
   // tool output, an English answer. The reminder is what the model reads last.
   describe("il promemoria in fondo", () => {
-    const R = "<system-reminder>Rispondi in italiano.</system-reminder>";
+    const R = "<system-reminder>Rispondi e ragiona in italiano.</system-reminder>";
     const lastBlock = (req: Record<string, unknown>) => {
       const msgs = req.messages as AgentMessage[];
       return (msgs[msgs.length - 1]!.content as Block[]).at(-1)!;
