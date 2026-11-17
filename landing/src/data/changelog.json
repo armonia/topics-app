@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.40",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.29",
     "date": "2026-11-16",
     "sections": {

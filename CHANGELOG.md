@@ -2,19 +2,42 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.40 — 2026-11-17
+
+### Correzioni
+- **chat** · una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)
+
+### Sotto il cofano
+- node cards hide technical names and link the PC by name
+- rewrite the Italian code comments in English so the comment-language gate passes
+- a provider firewall in front of a node wins over its own ufw reading
+- Add an e2e spec measuring every board button at 44px under a coarse pointer (375 and 768)
+- Fix the touch target spec: an empty audit list is the pass, count the board buttons separately
+- Widen the sidebar 'action' toggle touch area to 44px
+- Make the card preview commands a 44px always-visible target under a coarse pointer
+- name the OS tools the security probes read, and spell out a regex the linter counts as hard
+- write the health file where the tray reads it, not in the server's data folder
+
 ## 2.4.39 — 2026-11-17
 
 ### Sotto il cofano
+- node cards say memories, code and security, with small charts
+- per-machine security probes and 24h history in machines-health.json for the tray
+- harness-sync: put each project's memory where Claude Code on the node looks for it
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- harness-sync: stop rsync --delete from wiping the node's own folders
 - nodo principale scelto a mano (analisi, proposta, tracce)
 - nodo principale per tutto il sistema agentico (strada completa, mappa, account)
 - sul principale i modelli Claude solo da abbonamento, con barra in T2
+- harness-sync: raise the open-files limit under launchd
+- harness-sync: resend at once what the node lost, without waiting for the 15 minute retry gate
 - Drop the empty left column from the Thinking row (#1223)
 
 ## 2.4.38 — 2026-11-17
 
 ### Sotto il cofano
 - Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+- cloud-node: carry the Mac's agent rules and memories to the nodes, with the private part encrypted at rest
 
 ## 2.4.37 — 2026-11-17
 

@@ -150,7 +150,7 @@ L'adattatore Hetzner SHALL leggere la location di un server da `location` (API a
 
 ### Requirement: MACHINE-05 — Ogni macchina ha uno stato di sicurezza e una storia delle ultime 24 ore, in un file che la tray legge
 
-Topics SHALL scrivere in modo atomico `<APP_DATA_DIR>/machines-health.json` con, per
+Topics SHALL scrivere in modo atomico `~/.topics/machines-health.json` (la cartella degli strumenti accanto alla tray, mai quella dei dati del server) con, per
 ogni macchina della tabella `machines` che è questo computer o un nodo accoppiato:
 l'esito di quattro sonde in SOLA LETTURA (`updates`, `disk`, `access`, `antivirus`,
 ciascuna col suo stato e una frase di al massimo 60 caratteri), 288 campioni di CPU e
