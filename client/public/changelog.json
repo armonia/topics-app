@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.37",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.36",
     "date": "2026-11-17",
     "sections": {
