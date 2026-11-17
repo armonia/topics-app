@@ -126,7 +126,7 @@ fn node_state(n: &PoolNode, card: &MachineCard, offset: i64) -> Option<(String, 
     if n.align_failed {
         return Some(("riallineamento fallito".into(), "resta indietro su main".into(), 1));
     }
-    // a node that does not answer, or sleeps, says so by itself: «acceso» would lie
+    // a node that does not answer, or sleeps, says so by itself: a plain "on" would lie
     if is_silent(card) {
         return None;
     }

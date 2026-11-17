@@ -16,7 +16,7 @@ use crate::tray_nodes::PoolNode;
 use serde_json::Value;
 use std::collections::HashMap;
 
-/// The security file is trusted for this long; an older one says «non controllata da N ore».
+/// The security file is trusted for this long; an older one says, on screen, how many hours ago it was last checked.
 const HEALTH_FRESH_S: i64 = 3600;
 /// Past this, a memory or rules copy that lags is a problem, not only worth a look.
 const SYNC_PROBLEM_S: i64 = 24 * 3600;
@@ -177,7 +177,7 @@ pub(crate) fn hhmm(at: i64, offset: i64) -> String {
     format!("{:02}:{:02}", c.hour, c.minute)
 }
 
-/// «03:01» today, «ieri 03:01», «3 giorni fa».
+/// Today the bare time, yesterday the time with "yesterday", older "N days ago" (all in Italian on screen).
 pub(crate) fn day_clock(now: i64, at: i64, offset: i64) -> String {
     match civil(now * 1000, offset).day - civil(at * 1000, offset).day {
         i64::MIN..=0 => hhmm(at, offset),
@@ -186,7 +186,7 @@ pub(crate) fn day_clock(now: i64, at: i64, offset: i64) -> String {
     }
 }
 
-/// A span in words: «20 minuti», «1 ora», «5 ore», «3 giorni».
+/// A span in words (minutes, hours or days, in Italian on screen).
 pub(crate) fn span(secs: i64) -> String {
     let mins = (secs.max(0) / 60).max(1);
     let plural = |n: i64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
@@ -229,8 +229,8 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
             parts.push("privato chiuso".into());
             level = level.max(1);
         }
-        // the writer's own reason often already opens with the words «privato non copiato»
-        // the technical aside in brackets («(BitLocker spento su C:)») does not fit the line and is the writer's detail
+        // the writer's own reason often already opens with the "private part" wording, so it is not repeated
+        // the technical aside in brackets (e.g. a disk-encryption note) does not fit the line and is the writer's detail
         "skipped" => parts.push(match t.reason.as_deref().map(|r| r.split(" (").next().unwrap_or(r).trim()) {
             Some(r) if r.to_lowercase().starts_with("privato") => r.to_string(),
             Some(r) => format!("privato non copiato: {r}"),
@@ -241,8 +241,8 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
     Some(row("Memorie e regole", parts.join(" · "), level))
 }
 
-/// «Codice» of a pool server: aligned to main, or since when it is behind. The badge already says
-/// «in svuotamento» or «riallineamento fallito»; this row says how long, so it never repeats the badge.
+/// The code row of a pool server: aligned to main, or since when it is behind. The badge already says
+/// draining or realignment failed; this row says how long, so it never repeats the badge.
 pub fn code_row(n: &PoolNode, now: i64, offset: i64) -> StatusRow {
     let behind = n.behind_since.map(|t| (now - t).max(0));
     let since = |b: i64| format!("indietro da {}", span(b));
