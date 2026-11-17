@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.38 — 2026-11-17
+
+### Sotto il cofano
+- Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+
 ## 2.4.37 — 2026-11-17
 
 ### Sotto il cofano
