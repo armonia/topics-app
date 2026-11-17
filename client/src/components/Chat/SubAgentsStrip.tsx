@@ -113,7 +113,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
-        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} weight={row.weight} className="ml-auto" />}
+        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} estimateHistoryMs={row.estimateHistoryMs} weight={row.weight} className="ml-auto" />}
       </button>
       {state === 'ended' && (
         <button

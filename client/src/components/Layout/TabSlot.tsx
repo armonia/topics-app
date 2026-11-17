@@ -27,7 +27,7 @@ import type { PaneType } from '../../types';
 import { tabSlotCommand, tabSlotSignal } from '../../lib/tabSlot';
 import { useT } from '../../hooks/useT';
 import { useChildRow } from '../../state/childWork';
-import { runningLine, workLine } from '../../lib/workLine';
+import { childBasis, runningLine, workLine } from '../../lib/workLine';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
 import { PendingActionRing } from '../Shared/PendingActionRing';
 import { NotificationBadge } from '../Shared/NotificationBadge';
@@ -341,7 +341,7 @@ export function TabLabel({
     }
   }
   if (child && hoveredAt > 0) {
-    const line = workLine(tr, { estimateMs: child.estimateMs, elapsedMs: hoveredAt - Date.parse(child.startedAt), weight: child.weight });
+    const line = workLine(tr, { basis: childBasis(child.estimateMs, child.estimateHistoryMs), elapsedMs: hoveredAt - Date.parse(child.startedAt), weight: child.weight });
     if (line) elapsed = elapsed ? `${elapsed}\n${line}` : line;
   }
   return (
