@@ -16,12 +16,13 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart, useTopicWaitingOn } from '../../state/signals';
 import { useTopicAction } from '../../state/agentActionHooks';
 import { loaderActivityForAction } from '../Layout/loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
+import type { WaitingOn } from '../../state/backgroundWork';
 import { timeToneClass, timeVoice } from './timeTone';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
@@ -183,8 +184,21 @@ export function TopicSubline({ topicId, onFill, className = '' }: {
   className?: string;
 }) {
   const activity = useSessionActivity(topicId);
+  // A closed turn that waits on work says WHAT, in words, where the last message would sit (BGVIS-10).
+  const waitingOn = useTopicWaitingOn(topicId);
   if (activity) return <SessionActivityText subjectId={topicId} onFill={onFill} className={className} />;
+  if (waitingOn) return <WaitingLine on={waitingOn} onFill={onFill} className={className} />;
   return <TopicPreviewLine topicId={topicId} onFill={onFill} className={className} />;
+}
+
+function WaitingLine({ on, onFill, className = '' }: { on: WaitingOn; onFill?: boolean; className?: string }) {
+  const tr = useT();
+  const text = tr(`topic.waitLine.${on}`);
+  return (
+    <span className={`truncate-tight text-mini ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-secondary'} ${className}`} title={text} data-testid="topic-waiting-on" data-waiting-on={on}>
+      {text}
+    </span>
+  );
 }
 
 function TopicPreviewLine({ topicId, onFill, className = '' }: {
