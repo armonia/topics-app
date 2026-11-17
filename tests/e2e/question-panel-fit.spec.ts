@@ -34,7 +34,7 @@ const SHOT_TAG = process.env.QPF_TAG ?? "dopo";
 const LONG_TOKEN = "/home/dev/work/topics-app/client/src/components/Chat/ToolInputForm.tsx";
 // One word with no break points: a hash, a URL with its query, an id.
 const UNBROKEN = "https%3A%2F%2Fexample.com%2Fapi%2Fv2%2Fsessions%3Ffilter%3Dstatus%3Aactive%26sort%3Dcreated_at%3Adesc%26cursor%3DaGVsbG8gd29ybGQgdGhpcyBpcyBhIGxvbmcgY3Vyc29y";
-const LONG_DESC =
+const LONG_DESCRIPTION =
   "Questa opzione cambia il comportamento del pannello in modo che le descrizioni molto lunghe vadano a capo "
   + "invece di allargare la riga oltre il bordo della pane, e include anche un percorso lungo: "
   + LONG_TOKEN + " " + UNBROKEN;
@@ -48,7 +48,7 @@ function bigQuestions() {
     multiSelect: n % 2 === 0,
     options: [1, 2, 3, 4].map((o) => ({
       label: `Opzione ${n}.${o} con un'etichetta abbastanza lunga da occupare più righe ${o === 2 ? UNBROKEN : ""}`,
-      description: LONG_DESC,
+      description: LONG_DESCRIPTION,
     })),
   }));
 }
