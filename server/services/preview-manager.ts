@@ -373,7 +373,7 @@ function defaultPortFree(port: number): Promise<boolean> {
   });
 }
 
-const ANSI_ESCAPE = new RegExp("\\u001b\\[[0-9;]*[A-Za-z]", "g");
+const ANSI_ESCAPE = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*[A-Za-z]", "g");
 
 /** Output of a child process reduced to what fits in a note: last lines, never more than ~400 characters. */
 function tailOf(raw: string): string {
