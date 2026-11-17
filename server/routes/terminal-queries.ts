@@ -8,7 +8,7 @@ import { promptAsPaste } from "../lib/subagent-seed";
 import { type TerminalSession, sessionSockets, sessions, terminalActivity } from "./terminal-state";
 import { noteTerminalInput } from "./terminal-activity";
 import { bridgeReady, pendingBufferRequests } from "./terminal-bridge-socket";
-import { PASTE_MIN_BYTES, isPlainText, sendToBridge } from "./terminal-bridge-send";
+import { PASTE_MIN_BYTES, isPasteTui, isPlainText, normalizeLineBreaks, sendToBridge } from "./terminal-bridge-send";
 
 /**
  * Look up a live terminal session by its id. Used by the browser open-pane
@@ -218,11 +218,11 @@ export function writeTopicsTerminal(id: string, data: string): boolean {
   // Enter off so a long text for a Claude TUI can go as a paste (the Enter stays
   // a keystroke, a little later so the TUI has taken the paste first).
   const type = sessions.get(id)?.type;
-  const claudeTui = type === "claude-code" || type === "claude-code-team";
-  const m = /^([^\r]*)(\r?)$/.exec(data);
-  if (claudeTui && m && Buffer.byteLength(m[1], "utf8") > PASTE_MIN_BYTES && isPlainText(m[1])) {
-    sendToBridge({ type: "write", id, data: promptAsPaste(m[1]) });
-    if (m[2]) {
+  const enter = data.endsWith("\r");
+  const body = normalizeLineBreaks(enter ? data.slice(0, -1) : data);
+  if (isPasteTui(type) && Buffer.byteLength(body, "utf8") > PASTE_MIN_BYTES && isPlainText(body)) {
+    sendToBridge({ type: "write", id, data: promptAsPaste(body) });
+    if (enter) {
       setTimeout(() => {
         try { if (sessions.has(id)) sendToBridge({ type: "write", id, data: "\r" }); } catch { /* bridge went away */ }
       }, PASTE_ENTER_DELAY_MS);
