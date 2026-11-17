@@ -2,10 +2,32 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.29 — 2026-11-17
+## 2.4.30 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)
+- topics/patient-badger (card 3c348ab4) (#1191)
+- node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac
+- toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
+- Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
+- un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
+- toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
+- il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
+- note on ghost queued CI runs that the API cannot cancel (#1179)
+
+## 2.4.29 — 2026-11-16
 
 ### Correzioni
 - **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
+### Sotto il cofano
+- Align the reworded-wait test with agent waits staying in todo
+
+## 2.4.28 — 2026-11-16
+
+### Sotto il cofano
+- Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog
 
 ## 2.4.27 — 2026-11-16
 

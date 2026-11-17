@@ -164,8 +164,8 @@ export function useBoardDrag({
     endDrag();
     const task = tasks.find((t) => t.id === e.active.id);
     if (!task) { flushDeferredRead(); return; }
-    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (Triage, AI
-    // review...) or a card inside one. `planDrop` speaks statuses, so it gets
+    // WHICH WORKFLOW COLUMN the hand let go on: a column's own id (CI is
+    // never a drop target, the server refuses it) or a card inside one. `planDrop` speaks statuses, so it gets
     // the column's base; the column itself travels as `stage`.
     // A card keeps its project: a drop in another project's lane is refused with
     // a word, not carried out as a status change in a project nobody aimed at.
@@ -196,8 +196,7 @@ export function useBoardDrag({
     // reads as a bug. `onDragStart` already cleared the previous one, so this
     // only ever adds.
     if (plan?.redirectedFrom === 'in_progress') setDropNotice(tr('board.drop.inProgressRedirected'));
-    // The column changes, the status may not (AI review → Human review): the
-    // stage says it. Only when the card really lands in that column: a
+    // The column changes, the status may not: the stage says it. Only when the card really lands in that column: a
     // redirected drop goes where the redirect sends it, with no stage.
     if (plan && targetColumn && !plan.redirectedFrom) {
       const landsIn = plan.patch.status ?? task.status;

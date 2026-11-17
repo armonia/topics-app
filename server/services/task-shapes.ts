@@ -272,12 +272,12 @@ export interface Task {
   channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
   /**
    * The workflow column the card sits in when it is not the default one of its
-   * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
+   * status (today only `ci`; `shared/workflow.ts`).
    * Absent = the default column: every card on a board with the default
    * workflow, so those rows read exactly as before.
    */
   stage?: string;
-  /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
+  /** The question for the person a delivery carried. Absent = none. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'); kept across a bounce. Absent = nobody yet. */
   landIntent?: "human" | "auto";
@@ -531,14 +531,11 @@ export interface CreateTaskInput {
   /** The executable acceptance bar. */
   bar?: string | null;
   /**
-   * The workflow column to be born in. Omitted = the server decides
-   * (`stageAtBirth`: triage for a card from a person on a board that has it).
+   * The workflow column to be born in. Omitted = the default column of the status.
    */
   stage?: string | null;
   /**
-   * The question for the person a card born in review carries. On a board
-   * with AI review it is what lets a card opened by an agent or a schedule be
-   * born in Human review, as on a delivery (`stageForDelivery`).
+   * The question for the person a card born in review carries.
    */
   humanAsk?: string | null;
 }
@@ -622,10 +619,8 @@ export interface UpdateTaskPatch {
    */
   stage?: string | null;
   /**
-   * THE QUESTION FOR THE PERSON, sent with a delivery. On a board with AI
-   * review it is what sends a card opened by an agent to Human review instead
-   * of back to whoever opened it (rule of 28/10: in review only what the
-   * person has to see). Empty/null clears.
+   * THE QUESTION FOR THE PERSON, sent with a delivery: what they have to look
+   * at or decide. Empty/null clears.
    */
   humanAsk?: string | null;
 }

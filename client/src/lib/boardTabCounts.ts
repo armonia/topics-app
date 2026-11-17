@@ -60,7 +60,7 @@ export function boardTabCounts(
 
 /**
  * What one feed card adds to «review»: itself when it waits on a person
- * (`awaitsHuman`, AI review left out), plus its steps that do
+ * (`awaitsHuman`, the CI column left out), plus its steps that do
  * (`subtaskReviewCount`, from the server). The feed holds roots only, and a
  * step in review under a parent in backlog was in the Plan's count and in no
  * column's: the Kanban said 3 where the Plan said 8.

@@ -93,7 +93,7 @@ export function Column(props: ColumnProps) {
 
 type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[];
-  /** The workflow column this is, when it is not the plain one of `status` (Triage, AI review, Human review). */
+  /** The workflow column this is, when it is not the plain one of `status` (today only CI). */
   columnId?: string;
   /** Its header; absent = the status label. */
   label?: string; onOpen: OpenTask; onCreate: (text: string) => void;

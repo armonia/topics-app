@@ -3,7 +3,6 @@ import type { Actor, UpdateBoardSettingsPatch } from "./tasks";
 import type { RepoProbe } from "./deliveryReportChecks";
 import { type CheckRun } from "./review-checks";
 import { type LandingAuditCandidate } from "./landing-candidates";
-import { type WorkflowPresetId } from "../../shared/workflow";
 import type { ParkedChildrenDecision } from "../../shared/board";
 import { type LabelSource, type TaskFile } from "../../shared/task-labels";
 import { type Neighbour } from "../../shared/task-similarity";
@@ -99,8 +98,8 @@ export interface TaskService {
    */
   /**
    * `asCoordinator`: the caller is the global coordinator (registry-gated by
-   * the route). It may close a card in AI review in its opener's place: most
-   * machine cards come from the board API or a schedule, with no chat to do it.
+   * the route). It may write the question for the person on a card it did not
+   * open (the card of a schedule or the board API has no chat to do it).
    */
   update(args: { taskId: string; actor: Actor; by: string; patch: UpdateTaskPatch; projectId?: string; agentTopicId?: string | null; statusReason?: string | null; messageId?: string | null; origin?: TaskActionOrigin; asCoordinator?: boolean }): Task;
   /**
@@ -379,23 +378,6 @@ export interface TaskService {
    * board's dispatch switch says.
    */
   sweepUnownedBacklog(): Task[];
-  /**
-   * Cards left in AI review past `AI_REVIEW_REMIND_MS` since their last touch:
-   * the coordinator is reminded of each (`services/ai-review-notice.ts`), once
-   * per touch, with the same dedupe as `sweepUnownedBacklog`
-   * (`ai_review_reminded_at`, `updated_at` left alone); one that reached
-   * nobody is sent again (`stampStaleAiReview`). Returns the cards reminded.
-   */
-  sweepStaleAiReview(): Task[];
-  /**
-   * Write a board's workflow preset (`'*'` = the global default; `null`
-   * removes the row) and put back in the default column of their status the
-   * cards whose stage the board's NEW workflow does not have. Without that a
-   * card left in AI review by the old preset stayed in Review on `default`
-   * while the tray and «Ti aspetta» kept leaving it out (`awaitsHuman`).
-   * Returns the cards it moved.
-   */
-  applyBoardWorkflow(args: { scope: string; preset: WorkflowPresetId | null }): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
