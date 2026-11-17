@@ -92,7 +92,7 @@ export function shortTitle(raw: string | null | undefined, fallback: string): st
   if (t.length > TITLE_MAX) {
     const cut = t.slice(0, TITLE_MAX);
     const space = cut.lastIndexOf(" ");
-    t = `${(space > TITLE_MAX * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.\-–—]+$/, "")}…`;
+    t = `${(space > TITLE_MAX * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.\-–—]+$/, "")}…`; // allow-emdash: the dash is the character being trimmed
   }
   t = t.replace(/[\s:;,]+$/, "");
   const looksLikeId = /^[0-9a-f-]{8,}$/i.test(t) || /^[\w.-]+\/[\w./-]+$/.test(t) || /^topic:/.test(t);
