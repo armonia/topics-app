@@ -131,9 +131,9 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
         if (pathname === "/api/usage/people") return json({ cachedAt, ...peopleUsage(peopleCache.data, db) });
         const raw = decodeURIComponent(pathname.slice("/api/usage/people/".length));
         return json({ cachedAt, ...personDetail(peopleCache.data, db, raw === "none" ? null : raw) });
-      } catch (err: any) {
+      } catch (err) {
         console.error("[Usage] people aggregate failed:", err);
-        return ctx.errorResponse(500, err?.message || "Failed to compute people usage");
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to compute people usage");
       }
     }
 
@@ -148,9 +148,9 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
         const r = insertUsageRecord(db, parsed);
         peopleCache = null;
         return json(r, r.duplicate ? 200 : 201);
-      } catch (err: any) {
+      } catch (err) {
         console.error("[Usage] record insert failed:", err);
-        return ctx.errorResponse(500, err?.message || "Failed to store usage record");
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to store usage record");
       }
     }
 

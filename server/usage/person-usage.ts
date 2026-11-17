@@ -26,6 +26,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { findClaudeTranscript } from "../lib/claude-transcript-path";
+import type { PeopleUsage, PeopleUsageMeta, PersonRequestRow, PersonUsageDetail, PersonUsageRow } from "../../shared/person-usage";
+
+export type { PeopleUsage } from "../../shared/person-usage";
 
 export const HOUR_MS = 3_600_000;
 const MAX_DEPTH = 8;
@@ -36,10 +39,11 @@ export function weighTokens(u: TokenUsage): number {
   return u.input + 5 * u.output + 1.25 * u.cacheWrite + 0.1 * u.cacheRead;
 }
 
-export interface HistoryLine { t: number; s?: Record<string, number> }
+/** Una riga dello storico della quota (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
+export interface QuotaHistorySample { t: number; s?: Record<string, number> }
 
 /** Punti per ora (chiave = ora intera da epoca): aumenti della % 7d di ogni account Claude. */
-export function pointsPerHour(lines: HistoryLine[], sinceMs: number, untilMs: number): Map<number, number> {
+export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, untilMs: number): Map<number, number> {
   const out = new Map<number, number>();
   const prev = new Map<string, number>();
   for (const l of [...lines].sort((a, b) => a.t - b.t)) {
@@ -122,14 +126,14 @@ export const readTranscriptCalls: TranscriptReader = (cwd, sid) => {
   const out: Array<{ ts: number; usage: TokenUsage }> = [];
   for (const line of txt.split("\n")) {
     if (!line.includes('"usage"')) continue;
-    let o: any;
+    let o: { type?: string; uuid?: string; timestamp?: string; message?: { id?: string; usage?: Record<string, number | undefined> } };
     try { o = JSON.parse(line); } catch { continue; }
     const u = o?.message?.usage;
     if (o?.type !== "assistant" || !u) continue;
-    const id = o.message.id ?? o.uuid;
+    const id = o.message?.id ?? o.uuid;
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);
-    const ts = Date.parse(o.timestamp);
+    const ts = Date.parse(o.timestamp ?? "");
     if (!Number.isFinite(ts)) continue;
     out.push({ ts, usage: {
       input: u.input_tokens ?? 0, output: u.output_tokens ?? 0,
@@ -243,11 +247,11 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   return calls;
 }
 
-export function readHistory(file: string): HistoryLine[] | null {
+export function readHistory(file: string): QuotaHistorySample[] | null {
   if (!existsSync(file)) return null;
   try {
     return readFileSync(file, "utf8").split("\n").filter(Boolean).flatMap((l) => {
-      try { return [JSON.parse(l) as HistoryLine]; } catch { return []; }
+      try { return [JSON.parse(l) as QuotaHistorySample]; } catch { return []; }
     });
   } catch { return null; }
 }
@@ -257,22 +261,7 @@ export function usageHistoryFile(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.TOPICS_USAGE_HISTORY_DIR || join(homedir(), ".topics", "usage-history"), "history.jsonl");
 }
 
-export interface PersonRow { personId: string | null; name: string; weighted: number; accountPct: number | null; sharePct: number }
-
-export interface PeopleUsage {
-  days: number;
-  since: string;
-  until: string;
-  /** false = storico della quota assente: ci sono solo i token pesati. */
-  quotaHistory: boolean;
-  /** Punti spesi da tutti gli account nell'intervallo (100 = un account settimanale). */
-  totalPoints: number | null;
-  /** Punti assegnati a una chiamata vista da Topics (il resto non ha chiamate nell'ora). */
-  attributedPoints: number | null;
-  people: PersonRow[];
-}
-
-export interface Computed { calls: Call[]; meta: Omit<PeopleUsage, "people"> }
+export interface Computed { calls: Call[]; meta: PeopleUsageMeta }
 
 export function computeCalls(db: Database, o: { days: number; now?: number; historyFile?: string; readTranscript?: TranscriptReader }): Computed {
   const untilMs = o.now ?? Date.now();
@@ -313,20 +302,17 @@ export function peopleUsage(c: Computed, db: Database): PeopleUsage {
       weighted: Math.round(e.w),
       accountPct: c.meta.quotaHistory ? round1(e.p) : null,
       sharePct: round1(c.meta.quotaHistory && totP > 0 ? (100 * e.p) / totP : totW > 0 ? (100 * e.w) / totW : 0),
-    } as PersonRow,
+    } as PersonUsageRow,
     // l'ordine sui valori pieni: arrotondati a una cifra, le righe sotto lo 0,05% risultavano pari e in disordine
     key: c.meta.quotaHistory ? e.p : e.w,
   })).sort((a, b) => b.key - a.key || b.row.weighted - a.row.weighted).map((x) => x.row);
   return { ...c.meta, people };
 }
 
-export interface RequestRow { chatKey: string; chatName: string; requestId: string | null; request: string; at: string; calls: number; weighted: number; accountPct: number | null }
-
-/** Il dettaglio di una persona: una riga per richiesta (messaggio che ha avviato il lavoro). */
-export function personDetail(c: Computed, db: Database, personId: string | null): Omit<PeopleUsage, "people"> & { personId: string | null; name: string; requests: RequestRow[] } {
+export function personDetail(c: Computed, db: Database, personId: string | null): PersonUsageDetail {
   const names = namesOf(db);
   const chats = new Map((db.query("SELECT session_key, name FROM topics").all() as Array<{ session_key: string; name: string }>).map((t) => [t.session_key, t.name]));
-  const g = new Map<string, RequestRow & { first: number }>();
+  const g = new Map<string, PersonRequestRow & { first: number }>();
   for (const call of c.calls) {
     if (call.personId !== personId) continue;
     const key = `${call.chatKey}\u0000${call.requestId ?? call.requestText}`;

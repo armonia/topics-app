@@ -12,29 +12,31 @@ import { useT } from '../../hooks/useT';
 import { readJson } from '../../lib/readJson';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { Bar, Box, LINE } from './hubUsageUi';
+import type { PeopleUsage, PersonUsageDetail, PersonUsageRow } from '../../../../shared/person-usage';
 
 const POLL_MS = 60_000;
 const DAYS = 7;
 /** Le richieste più care bastano a capire dove è andata la quota; il resto si conta. */
 const MAX_REQUESTS = 20;
 
-interface PersonRow { personId: string | null; name: string; weighted: number; accountPct: number | null; sharePct: number }
-interface PeopleResp { days: number; quotaHistory: boolean; totalPoints: number | null; people: PersonRow[] }
-interface RequestRow { chatName: string; requestId: string | null; request: string; at: string; calls: number; weighted: number; accountPct: number | null }
-interface DetailResp { name: string; requests: RequestRow[] }
+type PersonRow = PersonUsageRow;
 
 const fmt = (x: number) => (Math.round(x * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
 
 export function PeopleUsageBox() {
   const tr = useT();
-  const [data, setData] = useState<PeopleResp | null>(null);
+  const [data, setData] = useState<PeopleUsage | null>(null);
   const [open, setOpen] = useState<PersonRow | null>(null);
-  const [detail, setDetail] = useState<DetailResp | null>(null);
+  // il dettaglio porta la chiave di chi è aperto: cambiata la persona, quello vecchio non si mostra
+  // (si legge qui, senza azzerarlo dentro l'effect)
+  const [loaded, setLoaded] = useState<{ key: string; data: PersonUsageDetail } | null>(null);
+  const openKey = open ? open.personId ?? 'none' : null;
+  const detail = loaded && loaded.key === openKey ? loaded.data : null;
 
   useEffect(() => {
     let alive = true;
     const read = async () => {
-      const r = (await readJson(`/api/usage/people?days=${DAYS}`)) as PeopleResp | null;
+      const r = (await readJson(`/api/usage/people?days=${DAYS}`)) as PeopleUsage | null;
       if (alive && r && Array.isArray(r.people)) setData(r);
     };
     void read();
@@ -43,13 +45,13 @@ export function PeopleUsageBox() {
   }, []);
 
   useEffect(() => {
-    if (!open) { setDetail(null); return; }
+    if (!openKey) return;
     let alive = true;
-    void readJson(`/api/usage/people/${encodeURIComponent(open.personId ?? 'none')}?days=${DAYS}`).then((r) => {
-      if (alive && r) setDetail(r as DetailResp);
+    void readJson(`/api/usage/people/${encodeURIComponent(openKey)}?days=${DAYS}`).then((r) => {
+      if (alive && r) setLoaded({ key: openKey, data: r as PersonUsageDetail });
     });
     return () => { alive = false; };
-  }, [open]);
+  }, [openKey]);
 
   const nameOf = (p: { personId: string | null; name: string }) => (p.personId ? p.name : tr('usage.people.noAuthor'));
   const meta = !data ? '' : data.quotaHistory && data.totalPoints != null
