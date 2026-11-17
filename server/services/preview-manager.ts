@@ -103,6 +103,15 @@ export interface PreviewCommand {
    * in the reason.
    */
   prepare?: string[][];
+  /**
+   * A file the preview command writes its real deep-link path into (`/` + query),
+   * once it has something specific to show. `{port}` in it becomes the chosen
+   * port. The manager exports it as `PREVIEW_DEEP_LINK_FILE`, waits for it after
+   * the server answers, and falls back to `deepLinkPath` when it never appears.
+   * It exists because the page worth photographing can depend on data the command
+   * creates at boot (an example topic with a fresh id), so no fixed path fits.
+   */
+  deepLinkFile?: string;
   /** Cap for each `prepare` step, ms. Default 300000. */
   prepareTimeoutMs?: number;
   /** How long to wait for the server to answer, ms. Default: the manager's. */
@@ -130,6 +139,8 @@ export interface PreviewManagerDeps {
    * anyway, as before).
    */
   runStep?(cmd: string[], opts: { cwd: string; env: Record<string, string>; timeoutMs: number }): Promise<{ ok: boolean; tail: string }>;
+  /** Reads the deep-link file of `PreviewCommand.deepLinkFile`: its trimmed text, or null when absent. */
+  readDeepLink?(file: string): string | null;
   /**
    * HTTP GET a url; resolve true if the server answered (any status).
    * NON è una prova d'identità: dice solo che la porta parla. Vedi
@@ -302,6 +313,9 @@ export interface PreviewManager {
 }
 
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
+
+/** How long to wait for a command's deep-link file once its server answers, ms. */
+const DEEP_LINK_WAIT_MS = 15_000;
 
 /**
  * The pool from TOPICS_PREVIEW_PORTS ("low-high"), else the default. A Topics node that
@@ -511,7 +525,12 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
     try {
       let proc: PreviewProcess;
       const withPort = (argv: string[]) => argv.map((a) => a.split("{port}").join(String(port)));
-      const childEnv = { PORT: String(port), HOST: "127.0.0.1", BROWSER: "none", ...(command.env ?? {}) };
+      const deepLinkFile = command.deepLinkFile ? command.deepLinkFile.split("{port}").join(String(port)) : null;
+      const childEnv = {
+        PORT: String(port), HOST: "127.0.0.1", BROWSER: "none",
+        ...(deepLinkFile ? { PREVIEW_DEEP_LINK_FILE: deepLinkFile } : {}),
+        ...(command.env ?? {}),
+      };
       const argv = withPort(command.cmd);
       try {
         deps.ensureMediaDir();
@@ -558,7 +577,20 @@ export function createPreviewManager(deps: PreviewManagerDeps): PreviewManager {
       }
       if (owns === "unknown") log(`[preview] owner of :${port} unverified for ${taskId} (child alive — accepting)`);
 
-      const deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      let deepLink = command.deepLinkPath && command.deepLinkPath.startsWith("/") ? command.deepLinkPath : "/";
+      if (deepLinkFile && deps.readDeepLink) {
+        // The command writes the file once its data is seeded, so waiting for it
+        // is the real "ready to be photographed": the server answering only says
+        // the port is open.
+        const until = now() + DEEP_LINK_WAIT_MS;
+        for (;;) {
+          let found: string | null = null;
+          try { found = deps.readDeepLink(deepLinkFile); } catch { found = null; }
+          if (found && found.startsWith("/")) { deepLink = found; break; }
+          if (!proc.alive() || now() >= until) break;
+          await sleep(readyPollMs);
+        }
+      }
       const url = `http://localhost:${port}${deepLink}`;
       live.set(taskId, { taskId, port, url, proc, worktreePath: wt.absPath, startedAt: now() });
       try {

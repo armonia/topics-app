@@ -97,3 +97,40 @@ describe("preview boot failures", () => {
     expect(h.reviewNotes.length).toBe(0);
   });
 });
+
+describe("preview deep-link file", () => {
+  it("exports the file to the child, waits for the path it writes and uses it", async () => {
+    let t = 0;
+    let reads = 0;
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => (++reads < 3 ? null : "/?topic=abc"),
+    });
+    const pm = createPreviewManager(h.deps);
+    const res = await pm.ensurePreview("t1");
+    expect(h.spawned[0].env.PREVIEW_DEEP_LINK_FILE).toBe("/tmp/dl-3400");
+    expect(res?.url).toBe("http://localhost:3400/?topic=abc");
+  });
+
+  it("falls back to deepLinkPath when the file never appears", async () => {
+    let t = 0;
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/home", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => null,
+    });
+    const pm = createPreviewManager(h.deps);
+    expect((await pm.ensurePreview("t1"))?.url).toBe("http://localhost:3400/home");
+  });
+
+  it("ignores a file content that is not a path", async () => {
+    const h = harness({
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => "garbage",
+      now: (() => { let t = 0; return () => (t += 20_000); })(),
+    });
+    const pm = createPreviewManager(h.deps);
+    expect((await pm.ensurePreview("t1"))?.url).toBe("http://localhost:3400/");
+  });
+});

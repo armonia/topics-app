@@ -248,6 +248,15 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
+   **Anteprima viva automatica: come si aggiunge a un progetto.** Alla consegna il
+   gestore (`server/services/preview-manager.ts`) avvia il progetto dalla worktree
+   della card su una porta 3400-3450 e allega lo scatto. Il comando lo sceglie
+   `server/services/preview-command.ts`: lo script `preview:worktree` del
+   `package.json` se c'è (costruisce ciò che serve, usa dati propri, ascolta su
+   `$PORT`; può scrivere in `$PREVIEW_DEEP_LINK_FILE` la pagina da fotografare),
+   altrimenti il primo tra `preview`, `dev`, `start`. Nessuno script = nessuna
+   anteprima, in silenzio; un avvio tentato e fallito lascia una nota col motivo.
+
    **Niente browser aperto a mano per filmare o fotografare.** Una tab del task che nessuna finestra mostra gira in un browser
    headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
    `screencapture -R` filmerebbe lo schermo di chi lavora, non quella pagina.
