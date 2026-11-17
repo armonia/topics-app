@@ -97,24 +97,29 @@ export const CI_BASE_BRANCH = "main";
 /** What unblocks a row whose run ended without a verdict, in the words of the card. */
 const NEEDS_A_NEW_COMMIT = "this same commit cannot be measured again, only a new commit can";
 /**
- * A DELIVERY WITH NOTHING OF ITS OWN STAYS NOT MEASURED, and the sentence names
- * BOTH ways out because only one of them belongs to an agent.
+ * A DELIVERY WITH NOTHING OF ITS OWN IS SKIPPED, NOT NOT MEASURED.
  *
- * The verdict was weighed again on 17/09/2026: three real cards of that night
- * had exactly this shape (their work was already in `main`, nothing left to
- * land), and NOT MEASURED sends the delivery back to its agent instead of into
- * review. Kept anyway. This shape is indistinguishable, from here, from the ones
- * that are real damage: a commit made on the wrong branch, a worktree reset onto
- * `main`, a branch whose commits a rebase dropped. Two green rows would be the
- * exact lie these rows exist not to tell, on the one input where NOTHING was
- * measured. What was wrong was the advice: "only a new commit can" told an agent
- * whose work is already merged to invent a commit that does not exist, so the
- * reason now says the other exit first, the one a person takes.
+ * Until 17/11/2026 this returned `notMeasured`, which `runChecksGate` reads as
+ * a row that FAILED to measure and refuses `update_task(status="review")` for
+ * it. The reasoning behind that (kept here, not followed anymore): this shape
+ * is indistinguishable, from here, from one that is real damage — a commit on
+ * the wrong branch, a worktree reset onto `main`, a rebase that dropped
+ * commits — and a plain green row would be the exact lie `review-checks.ts`
+ * warns against for local rails.
+ *
+ * In practice it blocked every card whose work genuinely lives outside the
+ * repo (a question, an analysis, headless work): `gh pr create` was never
+ * even reached, there was nothing to push, and the card bounced to review
+ * twice in a row on nothing but "no commit of its own" (card 9f9663cc,
+ * 17/11/2026). Nothing to measure is a legitimate outcome, not a defect, so
+ * it is reported as `ciSkipped`: `ok: true` so the gate lets the delivery
+ * through, `skipped: true` so the card never claims a CI verdict nobody ran.
+ * A branch that truly lost its commits still looks the same from here; that
+ * mistake shows up in the delivery's own diff, which this row does not read.
  */
 const NO_OWN_COMMIT =
-  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing was pushed and no CI run reads this delivery. ` +
-  `Either the work of this card is already in ${CI_BASE_BRANCH}, and then there is nothing to land and a person closes it, ` +
-  `or this branch lost the commits it had, and then ${NEEDS_A_NEW_COMMIT}`;
+  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing to push, nothing for a CI run to measure. ` +
+  `Either the work of this card is already in ${CI_BASE_BRANCH}, or it never touched the repo at all.`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
 /** The jobs whose red stops the e2e shards of a pull request (scripts/e2e-stop-on-red.sh). */
@@ -384,6 +389,11 @@ export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunCont
     timedOut: false, notMeasured: true,
     tail: [`NOT MEASURED: ${reason}`, ...contextLines(extra.run ?? null, extra)].join("\n"),
   };
+}
+
+/** A SKIPPED row: nothing of this card's own to measure. `ok: true`, so the review gate lets the delivery through; `skipped: true`, so the card never reads it as a verdict GitHub never gave. */
+export function ciSkipped(check: ReviewCheck, reason: string): CheckRun {
+  return { name: check.name, cmd: check.cmd, ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: `SKIPPED: ${reason}` };
 }
 
 /** The CheckRun of a settled outcome (a pending one is not a row). */
@@ -685,6 +695,7 @@ export async function awaitCiEvidence(
   // Every row still open gets the same reason; the rows already settled keep theirs.
   const notMeasured = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
     checks.map((c) => settled.get(c) ?? ciNotMeasured(c, reason, { ...ctx, ms: elapsed() }));
+  const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
 
   halt();
   const own = await port.ownCommits(cwd, sha, CI_BASE_BRANCH);
@@ -694,7 +705,7 @@ export async function awaitCiEvidence(
   // a branch with nothing of its own beyond main came back as TWO greens with a
   // note in the tail — the shortest path there is to deliver a branch that
   // measures nothing at all.
-  if (own.value === 0) return notMeasured(NO_OWN_COMMIT);
+  if (own.value === 0) return skipped(NO_OWN_COMMIT);
   const branch = await port.branch(cwd);
   if (!branch.ok || !branch.value) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
   const repo = await port.repo(cwd);
