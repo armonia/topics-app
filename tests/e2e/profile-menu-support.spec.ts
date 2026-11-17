@@ -11,26 +11,21 @@
 import { test, expect, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
+import { openProfileMenu } from "./helpers/open-perf-panel";
 import { DISCORD_SUPPORT_INVITE_URL } from "../../client/src/lib/externalLinks";
 
 hermetic(test);
-
-async function openProfileMenu(page: Page) {
-  const card = page.getByTestId("identity-me-profile");
-  await expect(card).toBeVisible({ timeout: 20_000 });
-  await card.click();
-  const menu = page.getByTestId("profile-menu");
-  await expect(menu).toBeVisible({ timeout: 10_000 });
-  return menu;
-}
 
 test.describe("la voce di supporto nel menu utente", () => {
   test("apre l'invito Discord configurato in una finestra esterna", async ({ page }, testInfo) => {
     testInfo.annotations.push({ type: "spec", description: "USERMENU-11" });
     await goToApp(page);
-    const menu = await openProfileMenu(page);
+    // The invite host redirects to another domain; stub it so the popup keeps
+    // the URL the row opened instead of the redirect target.
+    await page.context().route("https://discord.gg/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<html></html>" }));
+    await openProfileMenu(page);
 
-    const row = menu.getByTestId("menu-support");
+    const row = page.getByTestId("menu-support");
     await expect(row).toBeVisible();
     await expect(row).toHaveText(/./);
 
@@ -45,10 +40,10 @@ test.describe("la voce di supporto nel menu utente", () => {
     await goToApp(page);
     for (const width of [375, 1440] as const) {
       await page.setViewportSize({ width, height: 900 });
-      const menu = await openProfileMenu(page);
-      const row = menu.getByTestId("menu-support");
+      await openProfileMenu(page);
+      const row = page.getByTestId("menu-support");
       await expect(row).toBeVisible();
-      await page.screenshot({ path: `test-results/profile-menu-support/menu-${width}.png`, clip: await menu.boundingBox() ?? undefined });
+      await page.screenshot({ path: `test-results/profile-menu-support/menu-${width}.png` });
       await page.keyboard.press("Escape");
     }
   });
