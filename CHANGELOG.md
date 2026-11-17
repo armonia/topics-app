@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.31 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)
+- la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)
+
 ## 2.4.30 — 2026-11-17
 
 ### Sotto il cofano
