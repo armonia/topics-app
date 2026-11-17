@@ -911,7 +911,7 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
 #[cfg(target_os = "macos")]
 pub(crate) fn refresh_hub_menu(app: &tauri::AppHandle) {
     let base = tray_quota::hub_base();
-    let snap = tray_menu::Snapshot::fetch(&base, tray_menu::backup_cache_path().as_deref());
+    let snap = tray_menu::Snapshot::fetch_with(&base, tray_menu::backup_cache_path().as_deref(), tray_menu::memory_sync_cache_path().as_deref());
     let prefs = tray_menu::prefs_path().map(|p| tray_menu::load_prefs(&p)).unwrap_or_default();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

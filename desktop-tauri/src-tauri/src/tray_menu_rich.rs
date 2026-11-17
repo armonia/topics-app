@@ -8,7 +8,7 @@ use crate::tray_menu_projects::project_table;
 use crate::tray_menu_detail::{machine_details, MachineDetail, Segment};
 use crate::tray_menu_pic::Palette;
 use crate::tray_menu_procs::{procs_table, remote_procs_table};
-use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
+use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, memory_sync_card, quota_cards, MachineCard};
 use serde_json::Value;
 
 fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Option<Node> {
@@ -175,6 +175,10 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
         m.push(Node::Sep);
         m.extend(card("backup", draw_backup_card(&b, p), Vec::new()));
     }
+    if let Some(b) = snap.memory_sync.as_deref().filter(|_| snap.memory_sync_set).and_then(|b| memory_sync_card(b, now)) {
+        m.push(Node::Sep);
+        m.extend(card("memory-sync", draw_backup_card(&b, p), Vec::new()));
+    }
     // this menu is only drawn while the service answers, so its dashboard is always one click away
     m.push(Node::Sep);
     m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
@@ -189,7 +193,10 @@ pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard>
     let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
     let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
     let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
-    service.into_iter().chain(extra).collect()
+    let all: Vec<MachineCard> = service.into_iter().chain(extra).collect();
+    let pool = snap.pool.as_deref().map(crate::tray_nodes::parse_pool).unwrap_or_default();
+    let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    crate::tray_nodes::arrange(all, client, &pool, &details, local_offset_secs())
 }
 
 #[cfg(test)]

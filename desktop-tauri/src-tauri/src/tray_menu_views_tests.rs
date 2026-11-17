@@ -178,3 +178,55 @@ fn tray_machine_logos_have_the_sizes_of_the_original_tray() {
     // machineSym in ClaudeUsage.swift: the Apple logo at 14, a cloud at 13, the Windows logo at 12
     assert_eq!([machine_glyph_side("apple.logo"), machine_glyph_side("cloud"), machine_glyph_side("windows")], [14.0, 13.0, 12.0]);
 }
+
+
+// ------------------------------------------------------------------ memory sync
+
+
+fn contract(last_ok: &str, last_error: &str, last_rc: &str) -> String {
+    format!(r#"{{"last_run":{NOW},"last_ok":{last_ok},"last_rc":{last_rc},"last_error":{last_error},
+      "runs":[{{"at":{},"ok":true}},{{"at":{NOW},"ok":true}}],
+      "parts":[{{"name":"Memoria di Jarvis","ok":true,"last_ok":{NOW},"detail":null}},{{"name":"Memoria di Claude Code","ok":false,"last_ok":null,"detail":"cartella non trovata"}}]}}"#, NOW - 86_400)
+}
+
+#[test]
+fn memory_sync_is_ok_when_the_last_good_run_is_within_26_hours() {
+    let b = memory_sync_card(&contract(&(NOW - 20 * 3600).to_string(), "null", "0"), NOW).unwrap();
+    assert_eq!((b.title.as_str(), b.badge.as_str(), b.level), ("Sincronizzazione memorie", "a posto", 0));
+    assert!(b.caption.starts_with("Ultimo giro riuscito"), "{}", b.caption);
+    assert_eq!(b.days_say, "2 giorni su 2 riusciti");
+    // a part that is not ok shows with its own words, one that has no detail shows when it last went well
+    assert!(b.proofs.contains(&("Memoria di Claude Code".into(), "cartella non trovata".into(), false)));
+    assert!(b.proofs.iter().any(|(n, v, ok)| n == "Memoria di Jarvis" && *ok && v.starts_with("oggi")), "{:?}", b.proofs);
+}
+
+#[test]
+fn memory_sync_wants_a_look_after_26_hours_and_is_a_problem_when_the_last_run_failed() {
+    let old = memory_sync_card(&contract(&(NOW - 27 * 3600).to_string(), "null", "0"), NOW).unwrap();
+    assert_eq!((old.badge.as_str(), old.level), ("da guardare", 1));
+    let never = memory_sync_card(&contract("null", "null", "null"), NOW).unwrap();
+    assert_eq!(never.badge, "da guardare");
+    let failed = memory_sync_card(&contract(&(NOW - 3600).to_string(), "\"git push rifiutato\"", "1"), NOW).unwrap();
+    assert_eq!((failed.badge.as_str(), failed.level), ("problema", 2));
+    assert!(failed.caption.contains("git push rifiutato"), "{}", failed.caption);
+    // a bare exit code is enough, and so is a newest run on record that failed
+    assert_eq!(memory_sync_card(&contract(&NOW.to_string(), "null", "2"), NOW).unwrap().badge, "problema");
+    let last_bad = format!(r#"{{"last_ok":{NOW},"runs":[{{"at":{},"ok":true}},{{"at":{NOW},"ok":false}}],"parts":[]}}"#, NOW - 1000);
+    assert_eq!(memory_sync_card(&last_bad, NOW).unwrap().badge, "problema");
+}
+
+#[test]
+fn memory_sync_is_no_card_without_a_valid_answer() {
+    for body in ["", "not json", "{}", r#"{"error":"not found"}"#, r#"{"runs":[]}"#, "[]"] {
+        assert!(memory_sync_card(body, NOW).is_none(), "{body}");
+        assert!(!memory_sync_valid(body), "{body}");
+    }
+    assert!(memory_sync_valid(r#"{"runs":[],"parts":[]}"#));
+}
+
+#[test]
+fn the_memory_sync_card_draws_like_the_backup_one() {
+    let b = memory_sync_card(&contract(&NOW.to_string(), "null", "0"), NOW).unwrap();
+    let pic = draw_backup_card(&b, Palette::new(true));
+    assert!(pic.h > 100.0);
+}

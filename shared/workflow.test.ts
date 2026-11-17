@@ -1,7 +1,6 @@
 /**
- * The board workflow as pure rules: the one preset, the column of a card, who
- * waits on a person, and the rows a database may still hold from the removed
- * `armonia` preset.
+ * The board workflow as pure rules: the one set of columns, the column of a
+ * card, who waits on a person.
  *
  * @covers KANBAN-102
  */
@@ -9,22 +8,19 @@ import { describe, expect, test } from "bun:test";
 import {
   MAX_PERSON_PATHS,
   STAGE_CI,
-  WORKFLOW_PRESETS,
+  WORKFLOW_COLUMNS,
   awaitsHuman,
   awaitsHumanSql,
   columnOfTask,
   parsePersonPaths,
   personPathsFromText,
   personPathsToText,
-  resolveWorkflow,
   resolveWorkflowRules,
 } from "./workflow";
 
-describe("resolveWorkflow", () => {
-  test("with no row the columns are the five of before, plus the CI phase that only named cards enter", () => {
-    const wf = resolveWorkflow({});
-    expect(wf.preset).toBe("default");
-    expect(wf.source).toBe("default");
+describe("the columns", () => {
+  test("the five of before, plus the CI phase that only named cards enter", () => {
+    const wf = { columns: WORKFLOW_COLUMNS };
     expect(wf.columns.map((c) => c.id)).toEqual(["backlog", "todo", "in_progress", "review", "ci", "done"]);
     expect(wf.columns.filter((c) => c.id !== STAGE_CI).every((c) => c.id === c.base)).toBe(true);
     // A card with no stage never lands in CI: its review stays the review of before.
@@ -38,35 +34,18 @@ describe("resolveWorkflow", () => {
     expect(awaitsHuman({ status: "in_progress" })).toBe(false);
     expect(awaitsHumanSql(true)).toContain(`'${STAGE_CI}'`);
   });
-
-  test("the default is the only preset", () => {
-    expect(Object.keys(WORKFLOW_PRESETS)).toEqual(["default"]);
-  });
-
-  // A production database may still hold an `armonia` row (the preset was
-  // removed): it must read as no row, without errors.
-  test("a row that still says armonia, in the project or global scope, reads as the default", () => {
-    expect(resolveWorkflow({ project: "armonia" })).toMatchObject({ preset: "default", source: "default" });
-    expect(resolveWorkflow({ global: "armonia" })).toMatchObject({ preset: "default", source: "default" });
-    expect(resolveWorkflow({ project: "armonia", global: "armonia" }).columns).toBe(WORKFLOW_PRESETS.default);
-  });
-
-  test("an unknown preset id falls through, it does not break the board", () => {
-    expect(resolveWorkflow({ project: "nope", global: "default" })).toMatchObject({ preset: "default", source: "global" });
-    expect(resolveWorkflow({ project: "nope", global: "nope" }).preset).toBe("default");
-  });
 });
 
 describe("columnOfTask", () => {
   test("a card with no stage sits in the default column of its status", () => {
-    const cols = WORKFLOW_PRESETS.default;
+    const cols = WORKFLOW_COLUMNS;
     expect(columnOfTask(cols, { status: "review" })?.id).toBe("review");
     expect(columnOfTask(cols, { status: "backlog" })?.id).toBe("backlog");
     expect(columnOfTask(cols, { status: "todo", stage: null })?.id).toBe("todo");
   });
 
   test("a stage the status contradicts, or the workflow does not have, is ignored", () => {
-    const cols = WORKFLOW_PRESETS.default;
+    const cols = WORKFLOW_COLUMNS;
     expect(columnOfTask(cols, { status: "todo", stage: STAGE_CI })?.id).toBe("todo");
     // A stage of a removed workflow: the card stays in the column of its status.
     for (const stage of ["ai_review", "human_review", "triage"]) {

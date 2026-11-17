@@ -26,7 +26,7 @@ import type { TaskService } from "../services/tasks";
 const CARD_MOVING_METHODS: ReadonlyArray<keyof TaskService> = [
   "create", "update", "reviewDecision", "merge", "archive", "restore", "moveToProject", "claim", "release",
   "deferForWait", "deliverToReviewBySystem", "askParkedChildren", "sweepParkedChildren", "waitedOutIfCapped",
-  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic", "applyBoardWorkflow",
+  "sweepWaitedOut", "resolveParkedChildren", "setDispatchState", "settleLanded", "bindTopic",
 ];
 
 /** The dispatch states of a card parked in backlog that the person must look at (they announce `task:parked`). */

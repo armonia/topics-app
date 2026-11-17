@@ -66,6 +66,10 @@ LPORT, RPORT, PROXY = 3400, 3410, 3391
 PERMANENT_RPORT = 3301
 
 
+# Chi ospita i server di questo pool: finisce nello stato per i nomi della tray
+PROVIDER_LABEL = "Hetzner"
+
+
 def rport(sl):
     return PERMANENT_RPORT if sl.get("fixed") else RPORT + sl["n"]
 PERMANENT_NAME = os.environ.get("NODE_POOL_PERMANENT", "topics-permanent-node")
@@ -494,7 +498,7 @@ def bring_up(state, n, reason):
         save_state(state)
         log(f"posto {n}: nessun server ({eur})")
         return None
-    sl.update({"server_id": server["id"], "name": server["name"], "created": t0, "eur_h": eur, "idle_since": None})
+    sl.update({"server_id": server["id"], "name": server["name"], "provider": PROVIDER_LABEL, "created": t0, "eur_h": eur, "idle_since": None})
     state["lives"].append({"server_id": server["id"], "slot": n, "created": t0, "eur_h": eur, "reason": reason})
     save_state(state)
     ip = wait_ready(server)
@@ -537,6 +541,20 @@ def finish(state, sl, t0=None):
     return sl
 
 
+def forget_machine(machine_id):
+    """Toglie dal Mac la riga della macchina di un server a ore appena cancellato: senza, resta per
+    sempre come «Nodo cloud N» spento, un fantasma che la tray e la lista dei nodi continuano a
+    mostrare. Con una card ancora legata alla riga il Mac risponde 409: la riga resta, il prossimo
+    appaiamento sullo stesso posto la riprende. Non solleva mai: la cancellazione del server è già fatta."""
+    if not machine_id:
+        return
+    try:
+        mac("DELETE", f"/api/machines/{machine_id}")
+        log(f"macchina {machine_id} tolta dal Mac")
+    except Exception as e:
+        log(f"macchina {machine_id} non tolta dal Mac: {e}")
+
+
 def delete(state, n, reason):
     sl = state["slots"].get(str(n)) or {}
     close_tunnel(sl)
@@ -557,7 +575,8 @@ def delete(state, n, reason):
                 l["ended"] = time.time()
                 log(f"cancellato {sl.get('name')} id={sid} dopo {int((l['ended'] - l['created']) / 60)} min "
                     f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
-    state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
+    forget_machine(sl.get("machine_id"))
+    state["slots"][str(n)] = {"n": n}
     save_state(state)
     # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
     if sid:
@@ -582,7 +601,7 @@ def ensure_permanent(state, fx):
             delete(state, PERMANENT_SLOT, "il posto passa al nodo permanente")
         sl = {"n": PERMANENT_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
         state["slots"][key] = sl
-    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "ip": ip, "eur_h": 0.0,
+    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "provider": PROVIDER_LABEL, "ip": ip, "eur_h": 0.0,
                "created": sl.get("created") or time.time(), "idle_since": None})
     if not sl.get("ready"):
         if fx.get("status") != "running":
@@ -630,6 +649,10 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
+        # (la tray lo leggeva per sempre come «riallineamento fallito»)
+        if sl.get("aligned") == c:
+            sl.pop("align_failed", None)
         return
     # The clock starts when the node first falls behind and only stops once it is aligned again:
     # a Mac commit that moves every few minutes must not restart it
@@ -638,7 +661,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if busy:
         if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
             if set_slots(sl, key, 0):
-                sl["draining"], sl["drain_since"] = True, now
+                # drain_until: la tray dice «card ferme fino alle HH:MM» leggendo questo, non ricalcolandolo
+                sl["draining"], sl["drain_since"], sl["drain_until"] = True, now, now + DRAIN_MAX_S
                 log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
         elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
             sl["draining"], sl["behind_since"] = False, now
@@ -654,6 +678,7 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
         sl["align_failed"] = c
     else:
         sl["aligned"] = c
+        sl.pop("align_failed", None)
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
     if sl.get("draining"):
         sl["draining"] = False
@@ -756,6 +781,13 @@ def giro():
                 continue
             if sl.get("ip") and not tunnel_alive(sl):
                 log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
+        # carico di ogni posto per la tray: «acceso, N card». Solo lettura del DB del Mac.
+        for sl in state["slots"].values():
+            if sl.get("machine_id") and (sl.get("server_id") or sl.get("fixed")):
+                try:
+                    sl["cards"] = slot_busy(sl["machine_id"])
+                except Exception:
+                    pass
         save_state(state)
         # 3. domanda: col nodo permanente non si accendono nodi a richiesta
         if fx:
