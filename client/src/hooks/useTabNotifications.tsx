@@ -76,7 +76,7 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
     return trayBoardGroups(boardTasks, {
       lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
       runningSuffix: (t) => workLine(tr, {
-        estimateMs: estimates.get(t.projectId), elapsedMs: t.agentMs ?? 0, stepsDone: t.subtaskDoneCount, stepsTotal: t.subtaskCount,
+        basis: estimates.get(t.projectId), elapsedMs: t.agentMs ?? 0, stepsDone: t.subtaskDoneCount, stepsTotal: t.subtaskCount,
       }),
     });
   }, [boardTasks, attention, tr]);
