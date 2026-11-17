@@ -13,6 +13,15 @@
  */
 import type { Database } from "bun:sqlite";
 import type { SubAgentResult } from "./subagent-result";
+import { noteSubagentWaitChanged } from "./subagent-wait-events";
+
+/** The parent chat of a child, to tell its attention state the children changed (BGVIS-10). */
+function announceChildChange(db: Db, id: string): void {
+  try {
+    const row = db.query("SELECT parent_session_key AS p FROM subagents WHERE id = ?").get(id) as { p: string } | null;
+    noteSubagentWaitChanged(row?.p);
+  } catch { /* a database that cannot answer announces nothing */ }
+}
 
 export type SubagentState = "running" | "retired" | "stopped" | "lost";
 /**
@@ -122,6 +131,7 @@ export function insertSubagent(
   // Its own statement: a database without the column still gets the row above.
   const reason = row.runtimeReason;
   if (reason) attempt(undefined, () => { db.run("UPDATE subagents SET runtime_reason = ? WHERE id = ?", [reason, row.id]); });
+  noteSubagentWaitChanged(row.parentSessionKey);
 }
 
 /** Why the child was born where it was; null for a row older than the column. */
@@ -230,6 +240,7 @@ export function setSubagentState(db: Db, id: string, state: SubagentState, at = 
   attempt(undefined, () => {
     db.run("UPDATE subagents SET state = ?, ended_at = CASE WHEN ? = 'running' THEN NULL ELSE ? END WHERE id = ?", [state, state, at, id]);
   });
+  announceChildChange(db, id);
 }
 
 export function setSubagentSessionId(db: Db, id: string, claudeSessionId: string): void {
@@ -322,6 +333,7 @@ export function addPendingResult(db: Db, id: string, result: SubAgentResult): vo
     const prev = pendingResultsOf(db, id).filter((r) => !(r.turn === result.turn && r.status === result.status));
     db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [JSON.stringify([...prev, result]), id]);
   });
+  announceChildChange(db, id);
 }
 
 export function clearPendingResult(db: Db, id: string, turn: number, status: string): void {
@@ -329,6 +341,7 @@ export function clearPendingResult(db: Db, id: string, turn: number, status: str
     const rest = pendingResultsOf(db, id).filter((r) => !(r.turn === turn && r.status === status));
     db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [rest.length ? JSON.stringify(rest) : null, id]);
   });
+  announceChildChange(db, id);
 }
 
 export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {

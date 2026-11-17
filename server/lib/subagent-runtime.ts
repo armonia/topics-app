@@ -16,6 +16,7 @@
 import fs from "fs";
 import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
+import { noteSubagentWaitChanged } from "./subagent-wait-events";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
   childModel, emptyTally, endingChildTurn, tallyAwaitsBackground, forgetTurns, pendingTallyTurns, resultKey, tallyLines, tallyTurnDurationMs, turnDurationMs,
@@ -211,6 +212,7 @@ export function emitChildResult(parentSessionKey: string, result: SubAgentResult
   const rt = childRuntime.get(result.agentId);
   if (rt && result.status !== 'undelivered') {
     rt.phase = 'finished';
+    noteSubagentWaitChanged(parentSessionKey);
     // A look already in flight may have read the row before this report and
     // set the phase back: the next tick reads the file again and settles it.
     rt.lastSize = -1;
@@ -329,7 +331,10 @@ async function checkChildTurns(child: ChildRef): Promise<void> {
   })) {
     emitChildResult(row.parentSessionKey, resultOf(child, row, turn, outcome, { model: tally.model, durationMs: tallyTurnDurationMs(tally, turn) }), null);
   }
-  if (rt.phase !== before) deps().broadcast();
+  if (rt.phase !== before) {
+    deps().broadcast();
+    noteSubagentWaitChanged(row.parentSessionKey);
+  }
 }
 
 /**
@@ -647,7 +652,19 @@ export function cliChildPhaseNow(child: { id: string; cwd: string; claudeSession
 export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): void {
   const rt = runtimeOf(id);
   rt.seededAt = Date.now();
-  if (opts.working) rt.phase = 'working';
+  if (opts.working) setChildPhase(id, 'working');
+}
+
+/**
+ * A child's phase, and the parent chat told: its turn opened or closed, which
+ * is what the chat's tab says it waits on (BGVIS-10). Every writer of a phase
+ * goes through here.
+ */
+export function setChildPhase(id: string, phase: SubAgentPhase): void {
+  const rt = runtimeOf(id);
+  if (rt.phase === phase) return;
+  rt.phase = phase;
+  try { noteSubagentWaitChanged(getSubagent(getDatabase(), id)?.parentSessionKey); } catch { /* the roster is not the writer's business */ }
 }
 
 /**
@@ -659,7 +676,7 @@ export function noteChildSeeded(id: string, opts: { working?: boolean } = {}): v
 export function noteChildSteered(id: string): void {
   const rt = childRuntime.get(id);
   if (!rt) return;
-  rt.phase = 'working';
+  setChildPhase(id, 'working');
   deps().broadcast();
 }
 
