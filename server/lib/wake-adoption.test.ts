@@ -116,10 +116,11 @@ describe("wake adoption: an archived chat that launched work after a person arch
   function launchDb(o: Rows): Database {
     const db = new Database(":memory:");
     db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, assigned_topic_id TEXT, created_by_topic_id TEXT, origin_topic_id TEXT, created_at TEXT)");
-    db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, parent_session_key TEXT, created_at TEXT)");
+    db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, parent_session_key TEXT, created_at TEXT, runtime TEXT DEFAULT 'topics')");
+    db.run("CREATE TABLE task_attempts (task_id TEXT, topic_id TEXT, state TEXT)");
     db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT, reason TEXT, PRIMARY KEY (kind, ref_id))");
     if (o.retired) db.run("INSERT INTO retirements VALUES ('topic', 't-parent', ?, ?)", [o.retired.at, o.retired.reason]);
-    for (const c of o.children ?? []) db.run("INSERT INTO subagents VALUES (?, ?, ?)", [c.id, c.parent ?? SK, c.at]);
+    for (const c of o.children ?? []) db.run("INSERT INTO subagents (id, parent_session_key, created_at) VALUES (?, ?, ?)", [c.id, c.parent ?? SK, c.at]);
     for (const k of o.cards ?? []) db.run("INSERT INTO tasks (id, status, created_by_topic_id, origin_topic_id, created_at) VALUES (?, 'done', ?, ?, ?)", [k.id, k.createdBy === undefined ? "t-parent" : k.createdBy, k.origin ?? null, k.at]);
     return db;
   }
@@ -183,6 +184,33 @@ describe("wake adoption: an archived chat that launched work after a person arch
   test("a child of another chat proves nothing", () => {
     const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER, parent: "topic:other" }] });
     expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
+  });
+
+  // The measured defect of the second version: until the dispatcher and the native
+  // children got their own reasons they archived as "archive" too, 93 card agents
+  // on the live database. `3003e355` (agent of a card in done, with a launched card
+  // `805eb761`) and `731e8870` (card `4f4954e1`, with `d9cc483c`) went from row to wake.
+  test("the chat of a card's agent (archived as 'archive') stays a row even if it launched work afterwards", () => {
+    const done = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }], cards: [{ id: "k-launched", at: AFTER }] });
+    done.run("INSERT INTO tasks (id, status, assigned_topic_id, created_at) VALUES ('agent-card', 'done', 't-parent', ?)", [BEFORE]);
+    expect(verdictOf(done, { subagentId: "c1" })).toBe("archived");
+    expect(verdictOf(done, { taskId: "k-launched" })).toBe("archived");
+  });
+
+  test("the topic of an attempt of a fan-out, and the chat of a native child, stay a row too", () => {
+    const attempt = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    attempt.run("INSERT INTO task_attempts VALUES ('k', 't-parent', 'done')");
+    expect(verdictOf(attempt, { subagentId: "c1" })).toBe("archived");
+
+    const native = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    native.run("INSERT INTO subagents (id, parent_session_key, created_at, runtime) VALUES ('t-parent', 'topic:boss', ?, 'topics')", [BEFORE]);
+    expect(verdictOf(native, { subagentId: "c1" })).toBe("archived");
+  });
+
+  test("a person's chat that merely appears in another table's other column is not a system chat", () => {
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    db.run("INSERT INTO tasks (id, status, assigned_topic_id, created_by_topic_id, created_at) VALUES ('k', 'done', 't-agent', 't-parent', ?)", [BEFORE]);
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("adopt");
   });
 
   test("no launch named, no archive row, or an unknown child: the old verdict", () => {

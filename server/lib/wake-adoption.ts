@@ -109,12 +109,14 @@ export type WakeLaunch = { subagentId: string } | { taskId: string } | { started
 
 /**
  * The `retirements.reason` values that a PERSON (or the interface acting for
- * one) writes: the archive, the bulk archive, the closed tab. The others are
- * not a person's choice: `reconcile:registry` stamps, at the first restart
- * and with the restart's date, the chats of board agents that are BORN
- * archived (`session-control-core.ts:215`, `retirement.ts:313`);
- * `attempt-reap` is the server reaping an attempt; `backfill:archived` dates
- * what was archived before the table existed, whoever did it.
+ * one) writes: the archive (`routes/topics-update.ts`), the bulk archive, the
+ * closed tab. Whoever archives on the system's behalf writes a reason of its
+ * own: `task-release` (the dispatcher letting a card go), `subagent-end` (a
+ * native child at the end of its turn), `reconcile:archived`, `attempt-reap`,
+ * and `reconcile:registry`, which stamps at the first restart, with the
+ * restart's date, the chats of board agents that are BORN archived
+ * (`session-control-core.ts:215`, `retirement.ts:313`). `backfill:archived`
+ * dates what was archived before the table existed, whoever did it.
  */
 export const PERSON_ARCHIVE_REASONS = ["archive", "bulk-archive", "tab-close"] as const;
 
@@ -133,6 +135,21 @@ function launchTime(db: QueryDb, topicId: string, sessionKey: string, launch: Wa
 }
 
 /**
+ * Is `topicId` a chat the system created for work, never one a person opened:
+ * the topic of a card's agent (`assigned_topic_id`, or an attempt of a fan-out,
+ * whatever the card's status: `runningTaskOwnsTopic` is the in-progress half of
+ * this), or the chat of a native sub-agent (its topic id is the child's id)?
+ */
+export function isSystemChat(db: QueryDb, topicId: string): boolean {
+  const has = (sql: string): boolean => {
+    try { return db.query(sql).get(topicId) != null; } catch { return false; }
+  };
+  return has("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
+    || has("SELECT 1 FROM task_attempts WHERE topic_id = ? LIMIT 1")
+    || has("SELECT 1 FROM subagents WHERE id = ? AND runtime = 'topics' LIMIT 1");
+}
+
+/**
  * Is an archived chat alive for THIS wake? Yes when the work the wake answers
  * was launched by the chat after a person archived it. Anything else is the
  * old verdict (false): no launch given, no row proving the chat launched it,
@@ -141,6 +158,10 @@ function launchTime(db: QueryDb, topicId: string, sessionKey: string, launch: Wa
  */
 export function launchedSinceRetired(db: QueryDb, topicId: string, sessionKey: string, launch?: WakeLaunch): boolean {
   if (!launch) return false;
+  // Before the reason existed the dispatcher and the native children archived
+  // as "archive" too (93 card agents on the live database on 17/11): a chat the
+  // system itself made is never one a person archived and went on using.
+  if (isSystemChat(db, topicId)) return false;
   const launchedAt = launchTime(db, topicId, sessionKey, launch);
   if (!launchedAt) return false;
   try {
