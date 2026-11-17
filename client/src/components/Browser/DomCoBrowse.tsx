@@ -48,7 +48,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { useDomCoBrowseTouch } from '../../hooks/useDomCoBrowseTouch';
-import { ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/rrweb.min.css';
 import { BrowserPaneChip } from './BrowserPaneChip';
@@ -65,6 +65,7 @@ import { aimTap, anchorOf, forOwnLayout, mirrorDocument, anchorPlacer, type Scro
 import { createEchoHold, scrollKeepingFractions, scrollTargetAt } from '../../lib/mirrorScroll';
 import { serverHttpBase } from '../../lib/shell/net';
 import { CrossOriginFrameOverlay } from './CrossOriginFrameOverlay';
+import { Spinner } from '../Shared/Spinner';
 
 /** Minimal shape of an rrweb event we rely on (Meta carries the recorded size). */
 type RrwebEvent = { type: number; timestamp: number; data?: { width?: number; height?: number; source?: number; id?: number; x?: number; y?: number; href?: string } };
@@ -765,7 +766,7 @@ export default function DomCoBrowse({ registerDomSink, registerFocusSink, sendIn
           className="absolute inset-0 z-[4] flex items-center justify-center pointer-events-none select-none"
         >
           <div className="text-center">
-            <Loader2 size={28} className="mx-auto mb-2 text-app-spinner animate-spin" />
+            <Spinner size={24} box={28} className="mx-auto mb-2" />
             <p className="text-compact text-app-text-muted">{tr('browser.shared.starting')}</p>
           </div>
         </div>

@@ -6,8 +6,8 @@
  * which reads as "the command printed nothing". This line keeps the two apart:
  * loading says it is coming, error says it is not and why.
  */
-import { Loader2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { Spinner } from '../Shared/Spinner';
 
 export type ToolDetailFetchState = 'idle' | 'loading' | 'done' | 'error';
 
@@ -16,7 +16,7 @@ export function ToolDetailFetchStatus({ state, error }: { state: ToolDetailFetch
   if (state === 'loading') {
     return (
       <div data-testid="tool-detail-loading" className="mt-1 flex items-center gap-1.5 text-mini text-app-text-muted">
-        <Loader2 size={11} className="animate-spin" />
+        <Spinner size={11} tone="current" />
         <span>{tr('chat.tool.detailLoading')}</span>
       </div>
     );

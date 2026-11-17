@@ -35,8 +35,9 @@
 
 import { useEffect, useRef } from 'react';
 import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
+import { useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/agentActionHooks';
 import { useT } from '../../hooks/useT';
-import { loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
+import { loaderActivityForAction, loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
 import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
@@ -136,7 +137,10 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <canvas ref={canvasRef} className="absolute inset-0" style={{ width: size, height: size }} />
+      {/* In flow, not `absolute`: the glyph is a sign, never a layer. A positioned
+          canvas read as something laid over whatever surface hosts the loader
+          (the browser pane's "starting" wait counted as an overlay on the page). */}
+      <canvas ref={canvasRef} className="block" style={{ width: size, height: size }} />
     </span>
   );
 }
@@ -151,6 +155,8 @@ interface LoaderSlotProps {
   state?: LoaderState;
   /** The slot sits on an attention fill (see `loaderArcClass`). */
   onFill?: boolean;
+  /** The movement, when the caller knows what the agent is doing (`loaderActivityForAction`). */
+  activity?: LoaderActivity;
 }
 
 /**
@@ -167,7 +173,7 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false }: LoaderSlotProps) {
+export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false, activity }: LoaderSlotProps) {
   const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
@@ -177,7 +183,7 @@ export function LoaderSlot({ title, className = '', size = 16, state = 'working'
       aria-label={tip}
       data-loader-state={state}
     >
-      <SparkLoader state={state} onFill={onFill} />
+      <SparkLoader state={state} onFill={onFill} activity={activity} />
     </span>
   );
 }
@@ -222,6 +228,21 @@ interface TopicSpinnerProps {
   onFill?: boolean;
 }
 
+/**
+ * The loader of a board card whose agent is at work: it plays what that agent
+ * is doing (`useTaskAction`, the chat the card's agent works in), `think` while
+ * the card has no chat yet. `activity` overrides it (previews and galleries).
+ */
+export function TaskActionLoader({ taskId, activity, size = GLYPH, className = '' }: {
+  taskId: string | undefined;
+  activity?: LoaderActivity;
+  size?: number;
+  className?: string;
+}) {
+  const action = useTaskAction(taskId);
+  return <SparkLoader size={size} activity={activity ?? loaderActivityForAction(action) ?? 'think'} className={className} />;
+}
+
 export function TopicStreamingSpinner({
   topicId,
   title,
@@ -241,13 +262,14 @@ export function TopicStreamingSpinner({
   // `working`, the frame the fill reads too, so the ring and a fill agree).
   const inProgress = useTopicInProgress(topicId);
   const tasks = useTopicBackgroundTasks(topicId);
+  const activity = loaderActivityForAction(useTopicAction(topicId));
   const tr = useT();
   const state = loaderStateFor({ inProgress, waiting });
   if (!state) return null;
   // No turn open: the ring of the job left running, never the labeled clock,
   // which times a turn. The tooltip says what runs, and that the chat is free.
   if (!streaming) {
-    return <LoaderSlot title={title ?? backgroundTip(tr, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} />;
+    return <LoaderSlot title={title ?? backgroundTip(tr, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} activity={activity} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
@@ -261,11 +283,12 @@ export function TopicStreamingSpinner({
         size={size}
         quiet={quiet}
         waiting={waiting}
+        activity={activity}
       />
     );
   }
   const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : 'Streaming');
-  return <LoaderSlot title={tip} className={className} size={size} state={waiting ? 'waiting' : 'working'} />;
+  return <LoaderSlot title={tip} className={className} size={size} state={waiting ? 'waiting' : 'working'} activity={activity} />;
 }
 
 /** The tasks that are work: a queued wake is the CLI about to answer, said as «resuming». */
@@ -298,6 +321,7 @@ function LabeledLoader({
   size,
   quiet,
   waiting = false,
+  activity,
 }: {
   lastUpdate: number | undefined;
   title?: string;
@@ -305,6 +329,7 @@ function LabeledLoader({
   size?: number;
   quiet?: boolean;
   waiting?: boolean;
+  activity?: LoaderActivity;
 }) {
   const now = useSharedNow();
   const { showElapsed, isStale, elapsedMs } = deriveWorkLongevity(lastUpdate, now);
@@ -329,7 +354,7 @@ function LabeledLoader({
   const showNumber = quiet ? isStale : showElapsed;
   // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
   if (!showNumber) {
-    return <LoaderSlot title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} state={waiting ? 'waiting' : 'working'} />;
+    return <LoaderSlot title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} state={waiting ? 'waiting' : 'working'} activity={activity} />;
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
@@ -341,7 +366,7 @@ function LabeledLoader({
       >
         {formatElapsedCompact(elapsedMs)}
       </span>
-      <LoaderSlot title={tip} size={size} className={isStale ? 'opacity-70' : ''} state={waiting ? 'waiting' : 'working'} />
+      <LoaderSlot title={tip} size={size} className={isStale ? 'opacity-70' : ''} state={waiting ? 'waiting' : 'working'} activity={activity} />
     </span>
   );
 }
@@ -371,11 +396,12 @@ export function ProjectStreamingSpinner({
   // quello di una chat: sulla stessa riga il fill era già ambra e l'onda blu lo
   // contraddiceva — un segno diceva «tocca a te», l'altro «lascialo lavorare».
   const waiting = useProjectAwaitingInput(projectPath);
+  const activity = loaderActivityForAction(useProjectAction(projectPath));
   // `loading` counts the children waiting on the job they launched too.
   const state = loaderStateFor({ inProgress: loading, waiting });
   if (!state) return null;
   const tip = state === 'waiting' ? tr('project.chatWaits') : tr('project.chatAnswers');
-  return <LoaderSlot title={title ?? tip} className={className} state={state} onFill={onFill} />;
+  return <LoaderSlot title={title ?? tip} className={className} state={state} onFill={onFill} activity={activity} />;
 }
 
 interface TerminalSpinnerProps {
@@ -398,11 +424,12 @@ export function TerminalStreamingSpinner({
   // A closed turn that left work running is at work too, as for a chat
   // (ATTN-12): one ring, and the tooltip names the tasks.
   const tasks = useTerminalBackgroundTasks(sessionId);
+  const activity = loaderActivityForAction(useTerminalAction(sessionId));
   const tr = useT();
   const state = loaderStateFor({ inProgress: active, waiting: false });
   if (!state) return null;
   const tip = tasks.length > 0 ? backgroundTip(tr, workCount(tasks)) : 'Terminal is producing output';
-  return <LoaderSlot title={title ?? tip} className={className} state={state} />;
+  return <LoaderSlot title={title ?? tip} className={className} state={state} activity={activity} />;
 }
 
 interface BrowserSpinnerProps {

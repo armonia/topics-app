@@ -146,7 +146,7 @@ interface FrameReport {
 async function armFirstFrameMeter(page: Page, paneKey: string, needle: string, tailFrames = TAIL_FRAMES): Promise<void> {
   await page.addInitScript(
     ({ key, text, tail }) => {
-      const SPIN = '[data-testid="chat-skeleton"], .animate-spin';
+      const SPIN = '[data-testid="chat-skeleton"], [data-spinner]';
       const shown = (el: Element): boolean => {
         for (let n: Element | null = el; n; n = n.parentElement) {
           if (n.getAttribute("data-pane-visible") === "0") return false;

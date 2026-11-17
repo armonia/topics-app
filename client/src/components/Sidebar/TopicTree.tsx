@@ -8,7 +8,6 @@ import { useExitGhost } from '../../lib/exitGhost';
 import { useModalDialog } from '../../hooks/useModalDialog';
 import type { TerminalAgentType } from '../../../../shared/terminal-session-types';
 import { STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { StatusIcon } from '../Board/atoms';
 import { ChevronRight, Archive, ArchiveRestore, TerminalSquare, Globe, FolderOpen, MoreHorizontal, Plus, X, CheckCheck, Pin, PinOff, LayoutGrid, Activity, BookOpen, Cpu, BarChart3, Workflow, Kanban, UserRound, BellOff, BellRing, type LucideIcon, Share2, Gauge, KanbanSquare } from 'lucide-react';
 import {
   usePendingActionStatus,
@@ -36,7 +35,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { useBoardTasks } from '@/lib/boardTasksStore';
 import { openTaskInApp } from '@/lib/openTaskLink';
 import { openCardsOf, taskCardPhase } from '@/lib/taskCardState';
-import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, TaskActionLoader } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
@@ -1193,7 +1192,7 @@ export function TopicTree({
             style={{ paddingLeft: ROW_INSET + (depth + 1) * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
           >
             {taskCardPhase(c) === 'working'
-              ? <StatusIcon status="in_progress" live className="h-3 w-3" />
+              ? <TaskActionLoader taskId={c.id} size={12} className="flex-shrink-0" />
               : <STATUS_ICON.wait size={ROW_CHEVRON} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />}
             <span className="truncate">{c.text}</span>
           </button>

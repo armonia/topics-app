@@ -540,6 +540,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
             phase={task.dispatchState === 'queued' ? tr('board.task.dispatch.queued') : task.dispatchState === 'starting' ? tr('board.task.dispatch.starting') : tr('board.task.dispatch.working')}
             since={task.dispatchState === 'working' ? sessionRuns.since : null}
             tool={liveTool?.source === 'session' ? runningToolLabel(liveTool.msg) : null}
+            taskId={task.id}
           />
         )}
         </div>

@@ -31,6 +31,7 @@ import { pickSwapFreeze, useSwapFreezeViews } from '../../state/swapFreeze';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
+import { SquareTabMark, TopicInitial, type SquareLoaderSource } from './SquareTabMark';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, TIER_DONE_BG, TIER_ERROR_BG, TIER_INPUT_BG, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -48,7 +49,6 @@ import { browserTabLabel, browserTabSubtitle, NEW_TAB_LABEL } from '../../lib/br
 import { releaseNativeFocus } from '../../lib/shell/tauri';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useActiveTabInView } from '../../hooks/useActiveTabInView';
-import { contrastRatio, fromHex } from '../../lib/iconTint';
 import { tabDensity, type TabDensityMode } from './tabDensity';
 
 /** The width of a tab, in px. Fixed on purpose: tabs that resize with their
@@ -138,27 +138,6 @@ function availableTabWidth(bar: HTMLElement, strip: HTMLElement): number {
   // NEVER clamped to the strip's own width: the strip shrinks to its tabs, so a
   // bar that went square once could never grow back (11/10: 4 squares on 800px).
   return Math.max(0, width - (wrapper ? px(wrapper.paddingLeft) + px(wrapper.paddingRight) : 0));
-}
-
-function topicInitialForeground(color: string | undefined): string {
-  const background = fromHex(color ?? '#6366f1');
-  const black = fromHex('#000000')!;
-  const white = fromHex('#ffffff')!;
-  return background && contrastRatio(background, black) > contrastRatio(background, white) ? '#000000' : '#ffffff';
-}
-
-function TopicInitial({ color, label }: { color: string | undefined; label: string }) {
-  const background = color ?? '#6366f1';
-  return (
-    <span
-      data-topic-initial
-      aria-hidden="true"
-      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-mini font-semibold leading-none ring-1 ring-white/70"
-      style={{ backgroundColor: background, color: topicInitialForeground(background) }}
-    >
-      {label.trim().slice(0, 1).toUpperCase() || 'N'}
-    </span>
-  );
 }
 
 // Tab status lives in ONE slot at the end of the tab (`TabSlot`, TABSLOT-02):
@@ -1281,6 +1260,14 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const isSquareInactive = panes.length > 1
           && !isSelected
           && (densityMode === 'square' || densityMode === 'scroll');
+        // A squeezed tab has no slot: the lead face is swapped for the loader
+        // while its subject works (SquareTabMark, TABSLOT-02).
+        const squareLoaderSource: SquareLoaderSource | null = !isSquareInactive ? null
+          : pane.type === 'chat' && pane.topicId ? { kind: 'topic', topicId: pane.topicId }
+          : pane.type === 'terminal' && termSid ? { kind: 'terminal', sessionId: termSid }
+          : pane.type === 'browser' ? { kind: 'browser', paneId: pane.id }
+          : pane.type === 'project' && pane.projectPath ? { kind: 'project', path: pane.projectPath }
+          : null;
         const compactInnerLayout = densityMode !== 'full';
         const denseBrowserExtras = densityMode !== 'full'
           && frozenTabWidth >= DENSE_TAB_MENU_MIN_WIDTH;
@@ -1491,6 +1478,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 tabs, and so a mark that appears on its corner costs no width.
                 Claude Code uses the authoritative `isClaudeCodeTab` so its tab
                 never falls through to the generic Terminal glyph. */}
+            <SquareTabMark source={squareLoaderSource} onFill={onFill}>
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : pane.type === 'browser' ? (
@@ -1533,6 +1521,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
+            </SquareTabMark>
             {/* ZONE 2, THE LABEL: the only zone that flexes, never under 56px.
                 Usage and elapsed time ride in its tooltip (see TabLabel): the
                 container uses `aria-label` and not `title` on purpose. */}
