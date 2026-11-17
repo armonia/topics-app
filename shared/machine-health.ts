@@ -47,9 +47,28 @@ export interface MachinesHealthFile {
   machines: MachineHealthEntry[];
 }
 
+/**
+ * What the "access" check was built from. A Linux node sends it along with the
+ * report so the computer that collects the data can rebuild the sentence once
+ * it has measured the ports from outside (the node's own `ufw` does not see a
+ * firewall the cloud provider puts in front of it).
+ */
+export interface AccessFacts {
+  ssh: { kind: "on"; password: boolean | null } | { kind: "off" } | { kind: "unknown"; why: string };
+  /** Ports the machine listens on besides 22, loopback excluded; `null` if they could not be read. */
+  ports: number[] | null;
+  firewall: boolean | "unknown" | null;
+  /** A Linux server with no open ports has nothing to filter: a firewall that is off is not a warning. */
+  linuxServer: boolean;
+  /** Ports measured from OUTSIDE (a TCP connection from another computer); set only by the collector. */
+  providerFirewall?: { open: number[] };
+}
+
 /** What a machine's server answers to `GET /api/system/machine-security`. */
 export interface MachineSecurityReport {
   checked_at: number;
   status: SecurityStatus;
   checks: SecurityCheck[];
+  /** Present on Linux nodes; not written to `machines-health.json`. */
+  access_facts?: AccessFacts;
 }

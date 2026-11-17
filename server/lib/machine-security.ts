@@ -11,7 +11,7 @@
  * not answer in time gives `unknown` with the sentence saying why, never an
  * error that breaks the round.
  */
-import type { CheckKey, CheckStatus, MachineSecurityReport, SecurityCheck, SecurityStatus } from "../../shared/machine-health";
+import type { AccessFacts, CheckKey, CheckStatus, MachineSecurityReport, SecurityCheck, SecurityStatus } from "../../shared/machine-health";
 
 /** Deadline of a probe. */
 export const PROBE_TIMEOUT_MS = 5_000;
@@ -438,7 +438,7 @@ async function linuxUpdates(env: ProbeEnv): Promise<SecurityCheck> {
 async function linuxDisk(env: ProbeEnv): Promise<SecurityCheck> {
   const raw = await env.readFile(`${env.appDataDir}/harness-sync.json`);
   let declared: string | true | null = null;
-  if (raw) { try { declared = findDeclaredPrivate(JSON.parse(raw)); } catch { /* file illeggibile: come se non dichiarasse nulla */ } }
+  if (raw) { try { declared = findDeclaredPrivate(JSON.parse(raw)); } catch { /* unreadable file: same as declaring nothing */ } }
   if (declared === null) return { key: "disk", status: "info", detail: "Disco di sistema non cifrato" };
   const mounts = await env.readFile("/proc/mounts");
   const crypt = mounts ? parseGocryptfsMounts(mounts) : [];
@@ -455,19 +455,23 @@ async function linuxFirewall(env: ProbeEnv): Promise<boolean | "unknown"> {
   return "unknown";
 }
 
-async function linuxAccess(env: ProbeEnv): Promise<SecurityCheck> {
+/** The access check plus the facts it was built from, so the collector can rebuild it with an outside measurement. */
+type AccessCheck = SecurityCheck & { facts?: AccessFacts };
+
+async function linuxAccess(env: ProbeEnv): Promise<AccessCheck> {
   const [sshd, ss, fw] = await Promise.all([env.run(["sshd", "-T"]), env.run(["ss", "-ltnH"]), linuxFirewall(env)]);
   const ports = ok(ss) ? parseSsListening(ss.stdout) : null;
   let password: boolean | null = ok(sshd) ? parseSshdT(sshd.stdout) : null;
   if (password === null) password = await passwordFromConfigFiles(env);
   const sshListens = ports === null ? null : ports.includes(22);
-  return composeAccess({
+  const facts: AccessFacts = {
     ssh: sshListens === null && password === null ? { kind: "unknown", why: whyNoAnswer(ss) }
       : sshListens === false ? { kind: "off" } : { kind: "on", password },
     ports: ports === null ? null : ports.filter((p) => p !== 22),
     firewall: fw,
     linuxServer: true,
-  });
+  };
+  return { ...composeAccess(facts), facts };
 }
 
 async function linuxAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
@@ -587,15 +591,6 @@ async function winAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
 
 // ───────────────────────────── access: the single sentence ─────────────────────────────
 
-interface AccessFacts {
-  ssh: { kind: "on"; password: boolean | null } | { kind: "off" } | { kind: "unknown"; why: string };
-  /** Ports open to the outside besides 22; `null` if they could not be read. */
-  ports: number[] | null;
-  firewall: boolean | "unknown" | null;
-  /** A Linux server with no open ports has nothing to filter: a firewall that is off is not a warning. */
-  linuxServer: boolean;
-}
-
 /** Puts SSH key, open ports and firewall into one check, the worst part first. */
 export function composeAccess(f: AccessFacts): SecurityCheck {
   const parts: Array<{ status: CheckStatus; text: string }> = [];
@@ -606,14 +601,20 @@ export function composeAccess(f: AccessFacts): SecurityCheck {
   } else if (f.ssh.kind === "off") parts.push({ status: "ok", text: "accesso SSH spento" });
   else parts.push({ status: "unknown", text: "SSH non verificabile" });
 
-  if (f.ports !== null) {
-    const risky = f.ports.filter((p) => RISKY_PORTS.has(p));
+  // Measured from outside, the ports that really answer win over what the machine says it listens on.
+  const measured = f.providerFirewall;
+  const ports = measured ? measured.open : f.ports;
+  if (measured && measured.open.length === 0) {
+    parts.push({ status: "ok", text: "firewall del provider: aperta solo la 22" });
+  } else if (ports !== null) {
+    const risky = ports.filter((p) => RISKY_PORTS.has(p));
     if (risky.length > 0) parts.push({ status: "warn", text: `porta ${risky[0]} aperta alla rete` });
-    else parts.push({ status: "ok", text: f.ports.length === 0 ? "nessuna porta aperta" : `${plural(f.ports.length, "porta aperta", "porte aperte")}` });
+    else parts.push({ status: "ok", text: ports.length === 0 ? "nessuna porta aperta" : `${plural(ports.length, "porta aperta", "porte aperte")}` });
   }
 
-  const noPorts = f.ports !== null && f.ports.length === 0;
-  if (f.firewall === true) parts.push({ status: "ok", text: "firewall acceso" });
+  const noPorts = ports !== null && ports.length === 0;
+  if (measured && noPorts) { /* the provider's firewall already answered: the machine's own one is not the question */ }
+  else if (f.firewall === true) parts.push({ status: "ok", text: "firewall acceso" });
   else if (f.firewall === false) parts.push(f.linuxServer && noPorts ? { status: "ok", text: "firewall spento" } : { status: "warn", text: "firewall spento" });
   else if (f.firewall === "unknown" && !(f.linuxServer && noPorts)) parts.push({ status: "unknown", text: "firewall non leggibile" });
 
@@ -626,7 +627,7 @@ export function composeAccess(f: AccessFacts): SecurityCheck {
 
 // ───────────────────────────── the round ─────────────────────────────
 
-type Probe = (env: ProbeEnv) => Promise<SecurityCheck>;
+type Probe = (env: ProbeEnv) => Promise<SecurityCheck | AccessCheck>;
 
 const PROBES: Record<string, Record<CheckKey, Probe> | undefined> = {
   darwin: { updates: macUpdates, disk: macDisk, access: macAccess, antivirus: macAntivirus },
@@ -651,9 +652,14 @@ function memoRunner(run: Runner): Runner {
 export async function probeMachineSecurity(env: ProbeEnv): Promise<MachineSecurityReport> {
   const probes = PROBES[env.platform];
   const shared: ProbeEnv = { ...env, run: memoRunner(env.run) };
+  let accessFacts: AccessFacts | undefined;
   const checks = await Promise.all(KEYS.map(async (key): Promise<SecurityCheck> => {
     if (!probes) return unknown(key, "Controllo", "sistema non supportato");
-    try { return await probes[key](shared); } catch { return unknown(key, "Controllo", "lettura non riuscita"); }
+    try {
+      const { facts, ...check } = (await probes[key](shared)) as AccessCheck;
+      if (facts) accessFacts = facts;
+      return check;
+    } catch { return unknown(key, "Controllo", "lettura non riuscita"); }
   }));
-  return { checked_at: Math.floor(env.now() / 1000), status: worstStatus(checks), checks };
+  return { checked_at: Math.floor(env.now() / 1000), status: worstStatus(checks), checks, ...(accessFacts ? { access_facts: accessFacts } : {}) };
 }

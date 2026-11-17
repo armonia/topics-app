@@ -9,11 +9,13 @@
  * node (same Topics code); if the node does not answer, or is a version that
  * does not know the probe, its last result stays, with its own time.
  */
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import type { MachineMetrics } from "../../shared/machine-overview";
 import type { MachineSecurityReport } from "../../shared/machine-health";
 import { createMachineHealth, STEP_S, type HealthTarget } from "../lib/machine-health";
+import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { readLocalMetrics } from "../lib/machine-metrics";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
@@ -39,6 +41,11 @@ async function fetchNodeJson<T>(ctx: AppContext, id: string, baseUrl: string, pa
   } catch {
     return null;
   }
+}
+
+/** The public IP of a cloud node from `node-pool/state.json`; `null` for a machine with no public address (the PC, this computer). */
+async function publicHostOf(ctx: AppContext, machineId: string): Promise<string | null> {
+  try { return poolIpOf(await readFile(join(ctx.APP_DATA_DIR, "node-pool", "state.json"), "utf8"), machineId); } catch { return null; }
 }
 
 export function startMachineHealth(ctx: AppContext): void {
@@ -67,9 +74,12 @@ export function startMachineHealth(ctx: AppContext): void {
         : (await fetchNodeJson<{ metrics?: MachineMetrics }>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-metrics", REMOTE_METRICS_TIMEOUT_MS))?.metrics ?? null;
       return metrics ? { cpu: metrics.cpuPct, mem: metrics.memPct } : null;
     },
-    probe: async (t): Promise<MachineSecurityReport | null> => t.kind === "local"
-      ? probeLocal()
-      : fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS),
+    probe: async (t): Promise<MachineSecurityReport | null> => {
+      if (t.kind === "local") return probeLocal();
+      const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
+      // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
+      return report ? applyExposure(report, await publicHostOf(ctx, t.id)).catch(() => report) : null;
+    },
     attemptsToday: (sinceMs) => (ctx.db.query(
       `SELECT t.machine_id AS machineId, a.created_at AS createdAt
          FROM task_attempts a JOIN tasks t ON t.id = a.task_id
