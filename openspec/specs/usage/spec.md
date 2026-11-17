@@ -984,3 +984,12 @@ The senders already written in the text of past messages (`<messaggio da="…">`
 - **WHEN** the same id is posted again
 - **THEN** one row SHALL exist, with its author
 
+
+### Requirement: USAGE-28 — An account's quota percentage is read from the quota history, the same file the hub's pacing reads
+
+`GET /api/quota-readings` SHALL answer, per provider and account, the last 7-day and 5-hour percentage found in the quota history file (newest sample wins, whatever the line order), and the Dashboard SHALL draw those numbers for the accounts it lists, so the figure shown equals the one the hub's pace report prints. Without a history file the route SHALL answer 404 and the Dashboard SHALL keep the proxy's number.
+
+#### Scenario: The newest sample wins
+- **GIVEN** a history with several samples of the same account and window, out of order
+- **WHEN** the readings are read
+- **THEN** each account and window SHALL carry the sample with the greatest timestamp
