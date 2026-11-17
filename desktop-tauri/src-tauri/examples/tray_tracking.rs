@@ -6,6 +6,8 @@
 //! and was still open after TRAY_TRACKING_HOLD_MS (default 2500); exit 1 otherwise.
 //! `TRAY_TRACKING_NO_DEFER=1` swaps the image and the menu raw, like the old code did
 //! while a menu was open: the check must then fail.
+//! It also fails when the working loader stands still while the menu is open: the
+//! overlay must keep swapping frames during tracking.
 #[cfg(target_os = "macos")]
 mod mac {
     pub use objc2::{class, msg_send};
@@ -69,6 +71,7 @@ fn main() {
     use tauri::tray::TrayIconBuilder;
     use tauri::Manager;
 
+    static SWAPS_OPEN: AtomicUsize = AtomicUsize::new(0);
     let hold_ms: u64 = std::env::var("TRAY_TRACKING_HOLD_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(2500);
     let raw = std::env::var("TRAY_TRACKING_NO_DEFER").is_ok();
     let began = Arc::new(AtomicBool::new(false));
@@ -99,7 +102,10 @@ fn main() {
                 loop {
                     let tick = player.next(think);
                     if let Some(t) = h_anim.tray_by_id("main") {
-                        tray_strip_apply::apply_overlay(&t, Some(tick.frame));
+                        let open = tray_tracking::is_open();
+                        if tray_strip_apply::apply_overlay(&t, Some(tick.frame)) && open && tray_tracking::is_open() {
+                            SWAPS_OPEN.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
                     std::thread::sleep(Duration::from_millis(tick.hold_ms));
                 }
@@ -153,7 +159,11 @@ fn main() {
                         let ev: id = msg_send![class!(NSEvent), mouseEventWithType: 1usize, location: NSPoint::new(5.0, 5.0), modifierFlags: 0usize, timestamp: 0.0f64, windowNumber: win_no, context: nil, eventNumber: 0isize, clickCount: 1isize, pressure: 1.0f32];
                         // The library keeps its own menu in an ivar, not on the item.
                         m3.store(menu as usize, Ordering::SeqCst);
-                        let _: () = msg_send![target, mouseDown: ev]; // blocks while the menu is open
+                        // Delivered from a run-loop timer, as AppKit delivers a real click, not
+                        // from inside this event-loop callback: tracking nested in the callback
+                        // would hold back every other main-thread task, overlay swaps included.
+                        let sel = objc2::sel!(mouseDown:);
+                        let _: () = msg_send![target, performSelector: sel, withObject: ev, afterDelay: 0.0f64];
                     });
                 });
             });
@@ -178,7 +188,13 @@ fn main() {
                     }
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                println!("PASS: menu stayed open {hold_ms} ms with animation, strip and menu updates running");
+                let swaps = SWAPS_OPEN.load(Ordering::SeqCst);
+                let want = if quiet { 0 } else { (hold_ms / tray_agents::FRAME_MS / 2) as usize };
+                if swaps < want {
+                    eprintln!("FAIL: the loader stood still with the menu open ({swaps} frame swaps in {hold_ms} ms, want {want})");
+                    std::process::exit(1);
+                }
+                println!("PASS: menu stayed open {hold_ms} ms with animation ({swaps} swaps), strip and menu updates running");
                 std::process::exit(0);
             });
             app.manage(tray);
