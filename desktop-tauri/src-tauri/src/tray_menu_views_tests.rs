@@ -230,6 +230,8 @@ fn a_remote_card_sets_a_long_reason_on_its_own_line_and_a_short_one_beside_the_n
     assert!(long.cv.h > short.cv.h, "a long one takes its own line instead of being cut after the name");
 }
 
+// the widths come from CoreText: the estimate used where there is none is wider and says nothing about the menu
+#[cfg(target_os = "macos")]
 #[test]
 fn the_state_of_an_account_is_never_cut_when_it_has_a_time_to_split_off() {
     // the width left in a card of three to a row, beside the state's symbol
