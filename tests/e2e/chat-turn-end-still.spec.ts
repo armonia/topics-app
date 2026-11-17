@@ -29,9 +29,9 @@
  *
  * @covers USAGE-20
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
@@ -49,6 +49,11 @@ const REASONING = "Let me look at the question first.";
 const ANSWER = "ANSWER-STILL the answer, streamed live after the reasoning.";
 const ANSWER_REDACTED = "ANSWER-REDACTED the answer after a redacted reasoning block.";
 const ANSWER_TOOLS = "ANSWER-TOOLS the answer after a round of tools.";
+const ANSWER_TRANSLATED = "ANSWER-TRANSLATED the answer after a reasoning in English.";
+// Three sentences, English, in a chat that is in Italian: the dictionary of
+// `tests/helpers/fake-reasoning-helper.mjs` knows all three.
+const REASONING_EN =
+  "First I need to read the failing test and see what it expects. Then I will check the migration file for the new column. After that the answer can be written.";
 const ANSWER_QUICK = "ANSWER-QUICK the answer, and the turn ends right behind its last word.";
 const echo = (word: string) => ({ name: "bash", input: { command: `echo ${word}` } });
 
@@ -80,6 +85,8 @@ const SCRIPTS: Record<string, FakeRound[]> = {
   // The answer's text and the end of the turn back to back, no pause: on
   // the wire they reach the client in the same read. The check of 31/10 saw
   // the text drawn only in the frame the loader went, the row 27 px higher.
+  // The reasoning in English for a while, long enough to read and toggle it, then the answer.
+  translated: [{ thinking: REASONING_EN, afterThinkingMs: 4_000, text: ANSWER_TRANSLATED, holdMs: LIVE_HOLD_MS }],
   quick: [{ thinking: REASONING, afterThinkingMs: 2_000, text: ANSWER_QUICK }],
   manytool: [
     { thinking: REASONING, afterThinkingMs: 500, tools: [echo("one"), echo("two"), echo("three")] },
@@ -285,6 +292,70 @@ test.describe("the end of a turn moves nothing, in the window that sent it and i
     judge("second window", second, { row: true });
     await viewer.close();
     await deleteTopic(request, topic.id).catch(() => {});
+  });
+
+  test.describe("the reasoning shows in the language of the chat", () => {
+    // The video is the proof that the text comes up in Italian and that nothing moves at the end.
+    test.use({ video: "on" });
+    const FAKE_HELPER = resolve(__dirname, "../helpers/fake-reasoning-helper.mjs");
+
+    test.beforeEach(async ({ request }) => {
+      // The chat is in Italian; the translator is the fake helper, at the process boundary: segmentation,
+      // cache, frames and the row are the real ones.
+      await request.put(`${E2E_BASE}/api/app-settings`, { data: { outputLanguage: "it" } });
+      await request.post(`${E2E_BASE}/api/test/reasoning-helper`, { data: { path: FAKE_HELPER } });
+    });
+    test.afterEach(async ({ request }) => {
+      await request.post(`${E2E_BASE}/api/test/reasoning-helper`, { data: { path: null } });
+      await request.put(`${E2E_BASE}/api/app-settings`, { data: { outputLanguage: null } });
+    });
+
+    test("an English reasoning appears in Italian, the control gives the original back, and the end of the turn moves 0 px", async ({ page, request, chatPage }, testInfo) => {
+      const topic = await nativeTopic(request, "reasoning-translated");
+      await openChat(page, topic.name);
+      await startSampler(page, "ANSWER-TRANSLATED");
+      await chatPage.sendMessage("SCEN:translated go");
+
+      const row = page.getByTestId("reasoning-row").last();
+      const body = row.getByTestId("reasoning-body");
+      const toggle = row.getByTestId("reasoning-original-toggle");
+      await expect(body).toContainText("Prima devo leggere il test che fallisce", { timeout: 15_000 });
+      await expect(body).toContainText("Poi controllerò il file di migrazione per la nuova colonna.");
+      await expect(body).toContainText("Dopo di che si può scrivere la risposta.");
+      await expect(body).not.toContainText("First I need");
+      await expect(toggle).toBeVisible();
+
+      // The control lies over the empty end of the header: it adds no height to the row.
+      const proofDir = process.env.THINKING_PROOF_DIR;
+      if (proofDir) mkdirSync(proofDir, { recursive: true });
+      const shot = async (name: string) => {
+        const path = testInfo.outputPath(`${name}.png`);
+        await row.screenshot({ path });
+        await testInfo.attach(name, { path, contentType: "image/png" });
+        if (proofDir) copyFileSync(path, join(proofDir, `${name}.png`));
+      };
+      await shot("riga-tradotta");
+      await toggle.click();
+      await expect(body).toContainText("First I need to read the failing test");
+      await expect(body).not.toContainText("Prima devo leggere");
+      await shot("riga-originale");
+      await toggle.click();
+      await expect(body).toContainText("Prima devo leggere il test che fallisce");
+
+      const frames = await framesOf(page);
+      judge("translated", frames, { row: true });
+      await expect(page.getByTestId("chat-streaming-indicator")).toHaveCount(0);
+
+      // Back to the chat later: the row opens in Italian again, from what was saved, with no new translation.
+      await openChat(page, topic.name);
+      await page.getByTestId("reasoning-row").last().getByRole("button", { name: /Thinking/ }).first().click();
+      await expect(page.getByTestId("reasoning-body").last()).toContainText("Prima devo leggere il test che fallisce", { timeout: 15_000 });
+
+      await deleteTopic(request, topic.id).catch(() => {});
+      await page.close();
+      const video = await page.video()?.path();
+      if (video && proofDir) copyFileSync(video, join(proofDir, "thinking-tradotto.webm"));
+    });
   });
 
   test("a reasoning block that never carries text reserves no row, so none vanishes", async ({ page, request, chatPage, context }) => {

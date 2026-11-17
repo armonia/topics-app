@@ -257,6 +257,7 @@ describe('outbound registry contract', () => {
       'stream:context',
       'stream:end',
       'stream:error',
+      'stream:reasoning_translation',
       'stream:resumed',
       'stream:retry',
       'stream:slow',

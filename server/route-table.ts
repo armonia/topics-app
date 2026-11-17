@@ -57,6 +57,7 @@ export const API_ROUTER_ORDER = [
   "uiStateRouter",
   "providersRouter",
   "appSettingsRouter",
+  "reasoningTranslationRouter",
   "calendarRouter",
   "heavySlotRouter",
   "agentChannelsRouter",

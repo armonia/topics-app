@@ -1,9 +1,11 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useFindFocusThinking } from '../../state/chatFindFocus';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
 import { SparkLoader } from '../Layout/StreamingIndicator';
+import { useT } from '../../hooks/useT';
+import { applyReasoningTranslations, requestReasoningTranslation, useReasoningTranslationsVersion } from '../../state/reasoningTranslations';
 
 interface Props {
   /** Raw thinking text. */
@@ -28,6 +30,12 @@ interface Props {
  * can arrive in the same read, and a fold still animating when the turn ends
  * would move the transcript after the end (chat-turn-end-still).
  * A press by the person wins over both automatic states.
+ *
+ * When the model reasons in another language than the chat, the server sends
+ * the sentences translated and they replace the original ones in the same
+ * window, sentence by sentence. A small «Original» control, laid over the empty
+ * end of the header row, switches back; it adds no height and takes no space
+ * from the row, so the end of the turn still moves nothing.
  */
 export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId }: Props) {
   const live = !!partial && content.length > 0;
@@ -42,12 +50,22 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
     setPressed(true);
   }
   const collapsed = pressed === null ? (live ? false : defaultCollapsed) : !pressed;
+  const tr = useT();
+  const translationsVersion = useReasoningTranslationsVersion();
+  const [showOriginal, setShowOriginal] = useState(false);
+  const translated = useMemo(() => applyReasoningTranslations(content), [content, translationsVersion]);
+  const hasTranslation = translated.count > 0;
+  // A settled block that a person opens is translated on demand; the live one
+  // gets its sentences from the stream as they close.
+  useEffect(() => {
+    if (!collapsed && !live && content) void requestReasoningTranslation(content);
+  }, [collapsed, live, content]);
   const bodyRef = useRef<HTMLDivElement>(null);
   // While live the body is a short window that follows the newest line.
   useLayoutEffect(() => {
     const el = bodyRef.current;
     if (live && pressed === null && el) el.scrollTop = el.scrollHeight;
-  }, [content, live, pressed]);
+  }, [content, live, pressed, translationsVersion]);
   const disclose = useDisclosureToggle();
   // A partial turn that has entered reasoning keeps its row (count 0) from the
   // start, so the row is already in its final place when the text arrives.
@@ -55,7 +73,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
   const length = content.length;
 
   return (
-    <div data-testid="reasoning-row" className="text-compact">
+    <div data-testid="reasoning-row" className="relative text-compact">
       <button
         type="button"
         onClick={(e) => { disclose(e.currentTarget); setPressed(collapsed); }}
@@ -72,15 +90,31 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
           <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
       </button>
+      {hasTranslation && (
+        // Laid over the end of the header row, which is empty there (the spinner
+        // sits at the very end, so the control stops short of it): no space is
+        // taken from the row and its height never changes.
+        <button
+          type="button"
+          data-testid="reasoning-original-toggle"
+          aria-pressed={showOriginal}
+          title={showOriginal ? tr('reasoning.showTranslatedTitle') : tr('reasoning.showOriginalTitle')}
+          onClick={() => setShowOriginal((v) => !v)}
+          className="absolute right-7 top-1 text-mini text-app-text-muted hover:text-app-text underline-offset-2 hover:underline transition-colors"
+        >
+          {showOriginal ? tr('reasoning.showTranslated') : tr('reasoning.showOriginal')}
+        </button>
+      )}
       <DisclosureBody open={!collapsed} instantClose={pressed === null} className="ml-1.5 pb-1.5">
         {/* Prose, not code: the thinking is sentences, in the reading font,
             muted and set off by a rule on the left. */}
         <div
           ref={bodyRef}
           data-testid="reasoning-body"
+          data-translated={hasTranslation && !showOriginal ? 'true' : undefined}
           className={`text-compact text-app-text-muted whitespace-pre-wrap break-words leading-relaxed border-l-2 border-app-border pl-3 overflow-auto ${live && pressed === null ? 'max-h-32' : 'max-h-96'}`}
         >
-          {content}
+          {hasTranslation && !showOriginal ? translated.text : content}
         </div>
       </DisclosureBody>
     </div>
