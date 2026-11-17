@@ -199,10 +199,10 @@ describe('la misura del turno sulla card', () => {
     expect(src).not.toContain("task.status === 'in_progress' ? null");
     expect(src).toContain('<LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo(\'\')} />');
     expect(live).toContain('data-testid="card-measure"');
-    // The live mark is the card status glyph (spinning half pie), not the four-dot spinner.
-    expect(live).toContain("import { StatusIcon } from './atoms';");
-    expect(live).toContain('<StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />');
-    expect(live).not.toContain('SparkLoader');
+    // The live mark is the square loader, the one status icon; its movement comes from the caller.
+    expect(live).toContain("import { SparkLoader } from '../Layout/StreamingIndicator';");
+    expect(live).toContain('<SparkLoader size={12} activity={activity} className="shrink-0" />');
+    expect(live).not.toContain('StatusIcon');
     expect(live).not.toContain('animate-pulse rounded-full bg-sky-400');
     expect(live).not.toContain('bg-sky-500/15');
   });

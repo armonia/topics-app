@@ -16,11 +16,12 @@
  * gesto muore a metà) e la scomparsa totale quando non c'è un motore di
  * trascrizione, perché un tasto che non può funzionare è peggio di uno assente.
  */
-import { Loader2, Mic } from 'lucide-react';
+import { Mic } from 'lucide-react';
 import { useCallback } from 'react';
 import { useDictation } from '../../hooks/useDictation';
 import { useTalkGesture } from '../../hooks/useTalkGesture';
 import { useT } from '../../hooks/useT';
+import { Spinner } from './Spinner';
 
 export function DictationButton({
   onText,
@@ -74,7 +75,7 @@ export function DictationButton({
             : 'text-app-text-tertiary hover:bg-app-hover hover:text-app-text'
       } ${className}`}
     >
-      {dictation.isTranscribing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+      {dictation.isTranscribing ? <Spinner size="sm" box={16} tone="current" activity="tool" /> : <Mic className="h-4 w-4" />}
     </button>
   );
 }

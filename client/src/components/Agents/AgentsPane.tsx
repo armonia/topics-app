@@ -14,9 +14,9 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { StatusIcon } from '../Board/atoms';
 import { AgentProfiles } from './AgentProfiles';
 import { useAgentRegistry } from '../../state/agentRegistry';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 type Tr = ReturnType<typeof useT>;
 
@@ -24,7 +24,7 @@ type Tr = ReturnType<typeof useT>;
 // at work is not done (`lib/statusVisual.ts`).
 /** The state glyph of an agent: the same family as the cards (spinning half pie at work, amber alert when it waits on you). */
 function AgentStateGlyph({ state }: { state: AgentSessionState }) {
-  if (state === 'working') return <StatusIcon status="in_progress" live className="h-2.5 w-2.5 flex-shrink-0" />;
+  if (state === 'working') return <SparkLoader size={10} activity="tool" className="flex-shrink-0" />;
   if (state === 'waiting') return <STATUS_ICON.wait size={10} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />;
   return <span className="h-2 w-2 flex-shrink-0 rounded-full bg-app-border-light" aria-hidden="true" />;
 }

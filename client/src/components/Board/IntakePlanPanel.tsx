@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { blockingReason, followParents, type IntakeProject, type IntakeRow } from '../../../../shared/intake-plan';
 import { useLocale } from '../../hooks/useT';
+import { Spinner } from '../Shared/Spinner';
 
 // The panel's strings travel with its lazy chunk instead of the eager catalogue:
 // most requests are one card and never open it (bundle budget, card a5906c31).
@@ -149,7 +149,7 @@ export function IntakePlanPanel({ rows: input, projects, busy, failures, onChang
           data-testid="intake-plan-confirm"
           className="inline-flex items-center gap-1 rounded-md bg-emerald-500/25 px-2 py-1 text-emerald-200 disabled:opacity-40"
         >
-          {busy && <Loader2 className="h-3 w-3 animate-spin" />}
+          {busy && <Spinner size="sm" tone="current" />}
           {tx.create.replace('{n}', String(ticked))}
         </button>
         <button onClick={onSingle} disabled={busy} data-testid="intake-plan-single" className={SECONDARY}>{tx.single}</button>
