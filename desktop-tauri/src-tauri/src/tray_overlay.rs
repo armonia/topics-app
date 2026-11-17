@@ -1,4 +1,4 @@
-//! Native layer that turns the working glyph of the tray strip (card 792e3636).
+//! Native layer that plays the working glyph (the square loader) of the tray strip (card 792e3636).
 //!
 //! The strip image holds everything except that glyph. The glyph lives in a CALayer
 //! on top of the status button; each animation tick only swaps the layer's contents

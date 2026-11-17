@@ -26,6 +26,7 @@ mod shortcuts_generated;
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 mod chords;
 mod tray_agents;
+mod tray_loader_frames;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

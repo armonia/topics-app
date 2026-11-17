@@ -1,5 +1,5 @@
 //! The tray strip's two worker threads: the poller that asks the usage service every
-//! `POLL_SECS`, and the animation that turns the working glyph. Both draw from the
+//! `POLL_SECS`, and the animation that plays the working glyph's loader. Both draw from the
 //! same latest answer, so a frame never waits on the network.
 
 use crate::tray_agents::{self, AgentStates};
@@ -26,7 +26,7 @@ pub fn set_agents(states: AgentStates) {
 }
 
 /// What the agents at work are doing, as the client names it (`shared/agent-action.ts`).
-/// Stored for the frames that will draw one shape per action; nothing draws it yet.
+/// The working glyph plays the loader shape of the dominant one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentAction {
     Think,
@@ -42,23 +42,30 @@ pub enum AgentAction {
     Error,
 }
 
+/// The wire words, one per action: the same eleven as `AGENT_ACTIONS` in the client.
+const WIRE: [(&str, AgentAction); 11] = [
+    ("think", AgentAction::Think),
+    ("write", AgentAction::Write),
+    ("read", AgentAction::Read),
+    ("edit", AgentAction::Edit),
+    ("run", AgentAction::Run),
+    ("web", AgentAction::Web),
+    ("browse", AgentAction::Browse),
+    ("delegate", AgentAction::Delegate),
+    ("tool", AgentAction::Tool),
+    ("wait", AgentAction::Wait),
+    ("error", AgentAction::Error),
+];
+
 impl AgentAction {
     /// The wire word, or None for one this shell does not know (a newer client).
     pub fn from_wire(s: &str) -> Option<AgentAction> {
-        Some(match s {
-            "think" => AgentAction::Think,
-            "write" => AgentAction::Write,
-            "read" => AgentAction::Read,
-            "edit" => AgentAction::Edit,
-            "run" => AgentAction::Run,
-            "web" => AgentAction::Web,
-            "browse" => AgentAction::Browse,
-            "delegate" => AgentAction::Delegate,
-            "tool" => AgentAction::Tool,
-            "wait" => AgentAction::Wait,
-            "error" => AgentAction::Error,
-            _ => return None,
-        })
+        WIRE.iter().find(|(w, _)| *w == s).map(|(_, a)| *a)
+    }
+
+    /// The wire word of this action, the key of the generated action map.
+    pub fn wire(self) -> &'static str {
+        WIRE.iter().find(|(_, a)| *a == self).map(|(w, _)| *w).unwrap_or("think")
     }
 }
 
@@ -71,8 +78,7 @@ pub fn set_action(action: Option<AgentAction>) {
     }
 }
 
-/// The dominant action the next frame may draw.
-#[allow(dead_code)] // read by the per-action frames, which land separately
+/// The dominant action the next frame draws.
 pub fn current_action() -> Option<AgentAction> {
     ACTION.lock().map(|g| *g).unwrap_or(None)
 }
@@ -98,23 +104,29 @@ fn render_latest(frame: u32) -> Option<Strip> {
 
 /// What the animation thread does on one tick.
 pub struct Animation {
-    frame: u32,
+    tick: u32,
     last: AgentStates,
+}
+
+/// The overlay frame the working glyph shows on `tick` while the agents do `action`.
+pub fn overlay_frame_for(action: Option<AgentAction>, tick: u32) -> u32 {
+    tray_agents::overlay_frame(tray_agents::shape_for_action(action.map(AgentAction::wire)), tick)
 }
 
 impl Animation {
     pub fn new() -> Self {
-        Animation { frame: 0, last: AgentStates::default() }
+        Animation { tick: 0, last: AgentStates::default() }
     }
 
-    /// One tick: the strip is redrawn only when the counts changed; a plain turn of the
-    /// working glyph only moves the overlay to its next pre-rendered frame.
+    /// One tick: the strip is redrawn only when the counts changed; a plain step of the
+    /// working loader only moves the overlay to its next pre-rendered frame, in the
+    /// shape of the action the client named last.
     /// `overlay(Some(i))` shows frame `i`, `overlay(None)` hides the layer.
     pub fn step(&mut self, mut strip: impl FnMut(Strip), mut overlay: impl FnMut(Option<u32>)) {
         let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
         let changed = now != self.last;
         if now.is_animated() {
-            self.frame = (self.frame + 1) % tray_agents::TURN_FRAMES;
+            self.tick = self.tick.wrapping_add(1);
         } else if !changed {
             return;
         }
@@ -124,7 +136,7 @@ impl Animation {
                 strip(s);
             }
         }
-        overlay(now.is_animated().then_some(self.frame));
+        overlay(now.is_animated().then(|| overlay_frame_for(current_action(), self.tick)));
     }
 }
 
@@ -135,7 +147,7 @@ impl Default for Animation {
 }
 
 /// Worker: polls every `POLL_SECS`, hands each rendered strip to `apply`; a second
-/// thread turns the working glyph while an agent is at work (and redraws when the
+/// thread plays the working loader while an agent is at work (and redraws when the
 /// counts change). Both run on their own threads, so a hidden window or a restarted
 /// client changes nothing.
 pub fn spawn_poller<F, G>(apply: F, overlay: G)
@@ -186,6 +198,47 @@ mod action_tests {
         }
         assert_eq!(AgentAction::from_wire("dance"), None);
         assert_eq!(AgentAction::from_wire(""), None);
+        for (w, a) in WIRE {
+            assert_eq!(a.wire(), w);
+        }
+    }
+
+    /// Goes red when the Rust actions and the generated action map stop naming the same
+    /// eleven words, or an action lands on a shape the frames do not have.
+    #[test]
+    fn every_action_plays_its_shape_from_the_generated_map() {
+        use crate::tray_loader_frames::{SHAPES, SHAPE_FOR_ACTION};
+        let words: Vec<&str> = WIRE.iter().map(|(w, _)| *w).collect();
+        let mapped: Vec<&str> = SHAPE_FOR_ACTION.iter().map(|(w, _)| *w).collect();
+        assert_eq!(words, mapped);
+        for (w, shape) in SHAPE_FOR_ACTION {
+            let i = tray_agents::shape_for_action(Some(w));
+            assert_eq!(SHAPES[i].activity, *shape, "{w}");
+        }
+        // No action, or an unknown one, plays think, as the app's loader does.
+        let think = SHAPES.iter().position(|s| s.activity == "think").unwrap();
+        assert_eq!(tray_agents::shape_for_action(None), think);
+        assert_eq!(tray_agents::shape_for_action(Some("dance")), think);
+    }
+
+    /// Goes red when the overlay ignores the action: an edit must step through the
+    /// frames of `write`, a read through those of `search`, and loop.
+    #[test]
+    fn the_overlay_steps_through_the_frames_of_the_action_shape() {
+        let g = tray_agents::glyph_frames();
+        let span = |name: &str| {
+            let i = crate::tray_loader_frames::SHAPES.iter().position(|s| s.activity == name).unwrap();
+            g.spans[i]
+        };
+        let (start, len) = span("write");
+        let edit: Vec<u32> = (0..len * 2).map(|t| overlay_frame_for(Some(AgentAction::Edit), t)).collect();
+        assert!(edit.iter().all(|f| (start..start + len).contains(f)));
+        assert_eq!(edit[0], edit[len as usize], "one cycle later the loop starts again");
+        assert_ne!(edit[0], edit[1], "write moves frame to frame");
+        let (s2, l2) = span("search");
+        assert!((0..l2).all(|t| (s2..s2 + l2).contains(&overlay_frame_for(Some(AgentAction::Read), t))));
+        let (s3, l3) = span("think");
+        assert!((0..l3).all(|t| (s3..s3 + l3).contains(&overlay_frame_for(None, t))));
     }
 
     #[test]
