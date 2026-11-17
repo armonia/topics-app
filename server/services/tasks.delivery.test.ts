@@ -1054,3 +1054,35 @@ describe("scheda di consegna (anteprima disegnata dal server)", () => {
     expect(s.sweepReviewPreviews()).toBe(0); // gia' coperta: non e' piu' in lista
   });
 });
+
+/**
+ * A card that runs on a node delivers a new branch every round, each born from
+ * the round before. The land tells the card's commits from another session's
+ * by the card's branch history, so a branch overwritten without a trace made
+ * the card's own fix look foreign: on 17/11 (card 76d3e2ff) the land brought
+ * the e2e spec to main without the code it measured.
+ */
+describe("recordDelivery keeps the branch it replaces", () => {
+  let db: Database; let s: TaskService;
+  beforeEach(() => { db = freshDb(); s = svc(db); });
+
+  test("each replaced branch joins the card's history once, the live one stays out", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a1" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a2" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-b", commit: "b1" });
+    s.setDeliveryBranch(t.id, "topics/round-c");
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a3" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-b", commit: "b2" });
+    const task = s.get(t.id)!.task;
+    expect(task.deliveryBranch).toBe("topics/round-b");
+    expect(task.pastDeliveryBranches).toEqual(["topics/round-a", "topics/round-b", "topics/round-c"]);
+  });
+
+  test("a delivery with no branch does not erase the history", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    s.recordDelivery({ taskId: t.id, branch: "topics/round-a", commit: "a1" });
+    s.recordDelivery({ taskId: t.id, branch: null, commit: "zz" });
+    expect(s.get(t.id)!.task.pastDeliveryBranches).toEqual(["topics/round-a"]);
+  });
+});
