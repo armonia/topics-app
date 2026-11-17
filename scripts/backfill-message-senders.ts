@@ -5,8 +5,9 @@
  * Fino all'introduzione di `sender` su `POST /api/chat` i turni dei canali
  * risultavano tutti del proprietario; il mittente stava solo nel testo, come
  * `<messaggio da="Nome (id)">` o `<messaggio da="Nome (id)" proprietario="sì">`.
- * Qui l'ultimo tag di ogni messaggio diventa l'autore: proprietario → persona
- * predefinita, altrimenti la persona legata a (canale, id), creata se manca.
+ * Qui il mittente del messaggio diventa l'autore (vedi `lastSenderTag`): proprietario → persona
+ * predefinita, altrimenti la persona legata a (canale, id), creata se manca. Tocca solo i messaggi
+ * senza autore o con quello del proprietario.
  *
  * Il canale si ricava dalla forma dell'id (numero lungo = discord, telefono o
  * jid WhatsApp = whatsapp), altrimenti `legacy`. Un tag senza id fra parentesi
@@ -31,18 +32,28 @@ export function channelOf(id: string): { channel: string; id: string } {
   return { channel: "legacy", id };
 }
 
-/** L'ultimo tag `<messaggio da=…>` di un testo, o null. */
+/**
+ * Il mittente di un testo dai suoi tag `<messaggio da=…>`. Un messaggio unito può portarne più d'uno: vale
+ * l'ultimo tag di una persona esterna, se c'è, perché è il lavoro chiesto da fuori che il proprietario
+ * sta solo inoltrando o commentando; altrimenti l'ultimo del proprietario. Un tag senza id (`-`, vuoto)
+ * è il sistema (cron, giri) e non è nessuno: null.
+ */
 export function lastSenderTag(content: string): ParsedTag | null {
-  let last: RegExpExecArray | null = null, m: RegExpExecArray | null;
+  const tags: ParsedTag[] = [];
+  let m: RegExpExecArray | null;
   TAG.lastIndex = 0;
-  while ((m = TAG.exec(content))) last = m;
-  if (!last) return null;
-  const raw = last[1]!.trim();
-  const owner = /proprietario="s[iì]"/.test(last[2] ?? "");
-  const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-  const name = paren ? paren[1]!.split(",")[0]!.trim() : "";
-  const { channel, id } = channelOf((paren ? paren[2]! : raw).trim());
-  return { name: name || id, externalId: id, channel, owner };
+  while ((m = TAG.exec(content))) {
+    const raw = m[1]!.trim();
+    const owner = /proprietario="s[iì]"/.test(m[2] ?? "");
+    const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+    const rawId = (paren ? paren[2]! : raw).trim();
+    if (!owner && (!rawId || rawId === "-")) continue;
+    const name = paren ? paren[1]!.split(",")[0]!.trim() : "";
+    const { channel, id } = channelOf(rawId);
+    tags.push({ name: name || id, externalId: id, channel, owner });
+  }
+  if (!tags.length) return null;
+  return [...tags].reverse().find((t) => !t.owner) ?? tags[tags.length - 1]!;
 }
 
 export interface BackfillResult { scanned: number; changed: number; ownerRows: number; created: number; byPerson: Map<string, number> }
@@ -65,7 +76,9 @@ export function backfillMessageSenders(db: Database, opts: { apply: boolean }): 
       if (!pid) continue;
       names.set(pid, tag.owner ? "(proprietario)" : tag.name);
       res.byPerson.set(pid, (res.byPerson.get(pid) ?? 0) + 1);
-      if (pid !== r.pid) { update.run(pid, r.id); res.changed++; }
+      // Si scrive solo dove l'autore manca o è il proprietario messo dal loopback: un autore già giusto,
+      // o corretto a mano, resta com'è anche a un secondo giro.
+      if (pid !== r.pid && (r.pid === null || r.pid === owner)) { update.run(pid, r.id); res.changed++; }
     }
     res.created = (db.query("SELECT COUNT(*) n FROM person_identities").get() as { n: number }).n - before;
     // Il dry run gira nella stessa transazione e la annulla: stessi numeri, niente scritto.

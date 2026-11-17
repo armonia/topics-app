@@ -85,6 +85,17 @@ describe("(b) backfill", () => {
     expect(lastSenderTag('<messaggio da="391234567@s.whatsapp.net">x')).toMatchObject({ channel: "whatsapp", externalId: "391234567", name: "391234567" });
     expect(lastSenderTag('<messaggio da="cli">x')).toMatchObject({ channel: "legacy", externalId: "cli" });
     expect(lastSenderTag("niente tag")).toBeNull();
+    // un tag di sistema non è nessuno; con un esterno e il proprietario nello stesso messaggio vale l'esterno
+    expect(lastSenderTag('<messaggio da="-">giro')).toBeNull();
+    expect(lastSenderTag('<messaggio da="Ann (+391234567)">a</messaggio><messaggio da="Io (921)" proprietario="sì">b')).toMatchObject({ externalId: "391234567", owner: false });
+  });
+  test("non sovrascrive un autore che non è il proprietario", () => {
+    const db = makeDb();
+    db.query("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('manuale', 'Scelto a mano', 1, 'local', 1, 1)").run();
+    db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES ('m1', 's', 'user', ?, '2026-11-01T00:00:00Z', 'manuale')")
+      .run('<messaggio da="Ann (10000000000000000001)">a');
+    expect(backfillMessageSenders(db, { apply: true }).changed).toBe(0);
+    expect((db.query("SELECT author_person_id p FROM messages WHERE id = 'm1'").get() as { p: string }).p).toBe("manuale");
   });
   test("scrive gli autori, dry run non tocca nulla, rieseguibile", () => {
     const db = makeDb();
