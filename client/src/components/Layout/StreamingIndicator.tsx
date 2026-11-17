@@ -137,7 +137,10 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
-      <canvas ref={canvasRef} className="absolute inset-0" style={{ width: size, height: size }} />
+      {/* In flow, not `absolute`: the glyph is a sign, never a layer. A positioned
+          canvas read as something laid over whatever surface hosts the loader
+          (the browser pane's "starting" wait counted as an overlay on the page). */}
+      <canvas ref={canvasRef} className="block" style={{ width: size, height: size }} />
     </span>
   );
 }
