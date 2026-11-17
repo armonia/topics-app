@@ -3,6 +3,7 @@
 //! same latest answer, so a frame never waits on the network.
 
 use crate::tray_agents::{self, AgentStates};
+use crate::tray_loader_player::LoaderPlayer;
 use crate::tray_dials::Extras;
 use crate::tray_quota::{fetch_columns, fetch_extras, hub_base, render_strip_agents, screen_width_pt, strip_due, Column, Strip, POLL_SECS};
 use std::time::Duration;
@@ -104,31 +105,26 @@ fn render_latest(frame: u32) -> Option<Strip> {
 
 /// What the animation thread does on one tick.
 pub struct Animation {
-    tick: u32,
+    player: LoaderPlayer,
     last: AgentStates,
-}
-
-/// The overlay frame the working glyph shows on `tick` while the agents do `action`.
-pub fn overlay_frame_for(action: Option<AgentAction>, tick: u32) -> u32 {
-    tray_agents::overlay_frame(tray_agents::shape_for_action(action.map(AgentAction::wire)), tick)
 }
 
 impl Animation {
     pub fn new() -> Self {
-        Animation { tick: 0, last: AgentStates::default() }
+        Animation { player: LoaderPlayer::new(), last: AgentStates::default() }
     }
 
     /// One tick: the strip is redrawn only when the counts changed; a plain step of the
-    /// working loader only moves the overlay to its next pre-rendered frame, in the
-    /// shape of the action the client named last.
-    /// `overlay(Some(i))` shows frame `i`, `overlay(None)` hides the layer.
-    pub fn step(&mut self, mut strip: impl FnMut(Strip), mut overlay: impl FnMut(Option<u32>)) {
+    /// working loader only moves the overlay to its next pre-rendered image, in the
+    /// shape of the action the client named last, sliding to it when that changed
+    /// (`LoaderPlayer`). `overlay(Some(i))` shows image `i`, `overlay(None)` hides the
+    /// layer. Returns how long to wait before the next tick: a change of shape steps
+    /// faster than the loop.
+    pub fn step(&mut self, mut strip: impl FnMut(Strip), mut overlay: impl FnMut(Option<u32>)) -> u64 {
         let now = AGENTS.lock().map(|g| *g).unwrap_or_default();
         let changed = now != self.last;
-        if now.is_animated() {
-            self.tick = self.tick.wrapping_add(1);
-        } else if !changed {
-            return;
+        if !now.is_animated() && !changed {
+            return tray_agents::FRAME_MS;
         }
         self.last = now;
         if changed {
@@ -136,7 +132,15 @@ impl Animation {
                 strip(s);
             }
         }
-        overlay(now.is_animated().then(|| overlay_frame_for(current_action(), self.tick)));
+        if !now.is_animated() {
+            self.player.reset();
+            overlay(None);
+            return tray_agents::FRAME_MS;
+        }
+        let want = tray_agents::shape_for_action(current_action().map(AgentAction::wire));
+        let tick = self.player.next(want);
+        overlay(Some(tick.frame));
+        tick.hold_ms
     }
 }
 
@@ -175,9 +179,10 @@ where
     });
     let _ = std::thread::Builder::new().name("tray-agents".into()).spawn(move || {
         let mut anim = Animation::new();
+        let mut hold = tray_agents::FRAME_MS;
         loop {
-            std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
-            anim.step(|s| apply(s), &overlay);
+            std::thread::sleep(Duration::from_millis(hold));
+            hold = anim.step(|s| apply(s), &overlay);
         }
     });
 }
@@ -221,6 +226,13 @@ mod action_tests {
         assert_eq!(tray_agents::shape_for_action(Some("dance")), think);
     }
 
+    /// The frames an action plays from the start: `len` ticks of the player.
+    fn frames_for(action: Option<AgentAction>, len: u32) -> Vec<u32> {
+        let mut p = LoaderPlayer::new();
+        let want = tray_agents::shape_for_action(action.map(AgentAction::wire));
+        (0..len).map(|_| p.next(want).frame).collect()
+    }
+
     /// Goes red when the overlay ignores the action: an edit must step through the
     /// frames of `write`, a read through those of `search`, and loop.
     #[test]
@@ -231,14 +243,14 @@ mod action_tests {
             g.spans[i]
         };
         let (start, len) = span("write");
-        let edit: Vec<u32> = (0..len * 2).map(|t| overlay_frame_for(Some(AgentAction::Edit), t)).collect();
+        let edit = frames_for(Some(AgentAction::Edit), len * 2);
         assert!(edit.iter().all(|f| (start..start + len).contains(f)));
         assert_eq!(edit[0], edit[len as usize], "one cycle later the loop starts again");
         assert_ne!(edit[0], edit[1], "write moves frame to frame");
         let (s2, l2) = span("search");
-        assert!((0..l2).all(|t| (s2..s2 + l2).contains(&overlay_frame_for(Some(AgentAction::Read), t))));
+        assert!(frames_for(Some(AgentAction::Read), l2).iter().all(|f| (s2..s2 + l2).contains(f)));
         let (s3, l3) = span("think");
-        assert!((0..l3).all(|t| (s3..s3 + l3).contains(&overlay_frame_for(None, t))));
+        assert!(frames_for(None, l3).iter().all(|f| (s3..s3 + l3).contains(f)));
     }
 
     #[test]
