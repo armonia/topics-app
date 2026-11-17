@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { guestMeets, type GuestLevel } from './guestLevel';
-import { Bot, LoaderCircle, MessageSquarePlus, Pencil } from 'lucide-react';
+import { Bot, MessageSquarePlus, Pencil } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { STATUS_LABEL, isProjectlessId } from '../../lib/board';
 import type { TaskStatus } from '../../../../shared/board';
 import { canGuestStart, guestStartRequest } from './guestStart';
 import { apiFetch } from '../../lib/shell/net';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * ONE SHARED CARD, AT THE LEVEL IT WAS SHARED AT.
@@ -236,7 +237,7 @@ export function GuestCard({ task, onChanged }: {
           )}
           {(startState === 'requesting' || (!effectiveStartState && startState === 'queued') || effectiveStartState === 'queued' || effectiveStartState === 'starting' || effectiveStartState === 'working') && (
             <p role="status" className="inline-flex items-center gap-1.5 text-mini text-app-text-secondary">
-              <LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />
+              <Spinner size="sm" tone="current" decorative activity={effectiveStartState === 'working' ? 'tool' : 'sync'} />
               {effectiveStartState === 'working' ? tr('guest.start.working') : tr('guest.start.queued')}
             </p>
           )}

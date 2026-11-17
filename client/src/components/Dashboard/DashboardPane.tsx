@@ -9,8 +9,9 @@ import type { UsageRange } from '../../hooks/useProjectUsage';
 import { KPICardGrid } from './KPICardGrid';
 import { TimeSeriesChart } from './TimeSeriesChart';
 import { RangeSelector } from './RangeSelector';
-import { RefreshCw, BarChart3, Coins } from 'lucide-react';
+import { BarChart3, Coins } from 'lucide-react';
 import type { WSMessage } from '../../types';
+import { Spinner } from '../Shared/Spinner';
 
 // The hub's half of «Consumi» and the usage per project: chunks of their own,
 // fetched only where they are drawn (HUBBR-12).
@@ -123,11 +124,9 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
               it only while loading pushed the label sideways every 60 seconds,
               and again on every WS update: a shift the size of an icon,
               repeated for as long as the pane stays open. */}
-          <RefreshCw
-            size={12}
-            aria-hidden={!loading}
-            className={`text-app-text-muted ${loading ? 'animate-spin' : 'opacity-0'}`}
-          />
+          {loading
+            ? <Spinner size="sm" tone="current" className="text-app-text-muted" />
+            : <span className="inline-block h-3 w-3 flex-shrink-0" aria-hidden="true" />}
           <span className="text-mini text-app-text-muted">{tr('dashboard.autoRefresh')}</span>
         </div>
       </div>

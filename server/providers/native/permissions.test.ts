@@ -157,6 +157,21 @@ describe("RT-07: la cartella del turno e i file che ha creato", () => {
     expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply").allow).toBe(false);
   });
 
+  // A turn working from its own temp folder cleans up with relative names,
+  // not the absolute path: the block observed on 17/11 was exactly this.
+  test("rm con target relativo, risolto sul cwd della chiamata bash", () => {
+    const scope = { tempDir: "/tmp/topics-turn-xyz", cwd: "/tmp/topics-turn-xyz" };
+    expect(decide("bash", { command: "rm -rf scratch", cwd: "/tmp/topics-turn-xyz" }, "auto-apply", scope).allow).toBe(true);
+    expect(decide("bash", { command: "rm -f output.log", cwd: "/tmp/topics-turn-xyz" }, "auto-apply", scope).allow).toBe(true);
+    // Same relative name, but a cwd outside the turn's perimeter: still blocked.
+    expect(decide("bash", { command: "rm -rf scratch" }, "auto-apply", { tempDir: "/tmp/topics-turn-xyz", cwd: "/home/x/project" }).allow).toBe(false);
+  });
+
+  test("senza cwd nello scope, il target relativo resta bloccato come prima", () => {
+    const scope = { tempDir: "/tmp/topics-turn-xyz" };
+    expect(decide("bash", { command: "rm -rf scratch" }, "auto-apply", scope).allow).toBe(false);
+  });
+
   test("`pathsCreatedBy` legge mkdir e git worktree add, risolti sul cwd", () => {
     expect(pathsCreatedBy("mkdir -p sub/dir", "/work")).toEqual(["/work/sub/dir"]);
     expect(pathsCreatedBy("mkdir /abs/one /abs/two", "/work")).toEqual(["/abs/one", "/abs/two"]);

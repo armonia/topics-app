@@ -168,6 +168,16 @@ describe("reconcile — la direzione non e' simmetrica", () => {
     expect(res).toMatchObject({ topicsArchived: 1, terminalsRetired: 1, examined: 2 });
   });
 
+  // The reason of the stamp tells the wakes whose archive it is (lib/wake-adoption.ts):
+  // the reconcile is not a person, so it never writes "archive".
+  test("il riconcilio archivia con una reason sua, mai quella di una persona", () => {
+    addTopic("t");
+    recordRetirement(db, "topic", "t");
+    const calls: Array<[string, string | undefined]> = [];
+    reconcile(db, { archiveTopic: (id, reason) => calls.push([id, reason]), retireTerminal: () => {} });
+    expect(calls).toEqual([["t", "reconcile:archived"]]);
+  });
+
   test("registro chiuso + fatto muto → si timbra il fatto, NON si riapre la chat", () => {
     addTopic("archiviato", { archived: true });
     const archived: string[] = [];

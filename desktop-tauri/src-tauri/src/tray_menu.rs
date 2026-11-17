@@ -148,6 +148,16 @@ pub struct Snapshot {
     pub backup: Option<String>,
     /// The service has answered with a backup state at least once on this machine: only then the backup row exists.
     pub backup_set: bool,
+    /// Memory sync state (`/api/memory-sync`): same scheme as the backup, the last good answer kept on disk.
+    pub memory_sync: Option<String>,
+    /// The service has answered a valid memory-sync state at least once on this machine: only then the card exists.
+    pub memory_sync_set: bool,
+    /// The node pool's own state file (`node-pool/state.json`): which servers really exist, which is draining.
+    pub pool: Option<String>,
+    /// `machines-health.json`: the security checks, 24 hour history and cards today of every machine.
+    pub health: Option<String>,
+    /// `harness-sync.json`: the memories and rules copied to each machine, and how late.
+    pub harness_sync: Option<String>,
     /// `/api/machines`: the history, timeline and spend the machine submenus draw.
     pub machines: Option<String>,
     /// `/api/mac/trust`: which running things are suspect.
@@ -158,6 +168,19 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn fetch(base: &str, backup_cache: Option<&std::path::Path>) -> Self {
+        Self::fetch_with(base, backup_cache, None)
+    }
+
+    /// `fetch` plus the cache of the memory-sync state, so its card survives the service going down.
+    pub fn fetch_with(base: &str, backup_cache: Option<&std::path::Path>, memory_cache: Option<&std::path::Path>) -> Self {
+        let live_memory = http_get(base, "/api/memory-sync").filter(|b| crate::tray_menu_views::memory_sync_valid(b));
+        if let (Some(b), Some(p)) = (&live_memory, memory_cache) {
+            if let Some(dir) = p.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(p, b);
+        }
+        let memory_sync = live_memory.or_else(|| memory_cache.and_then(|p| std::fs::read_to_string(p).ok()).filter(|b| crate::tray_menu_views::memory_sync_valid(b)));
         let live_backup = http_get(base, "/api/backup-mac").filter(|b| serde_json::from_str::<Value>(b).map_or(false, |v| v.is_object()));
         if let (Some(b), Some(p)) = (&live_backup, backup_cache) {
             if let Some(dir) = p.parent() {
@@ -182,6 +205,11 @@ impl Snapshot {
             cpu: cpu_by_pid(),
             backup_set: backup.is_some(),
             backup,
+            memory_sync_set: memory_sync.is_some(),
+            memory_sync,
+            pool: crate::tray_nodes::pool_state_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            health: crate::tray_node_health::health_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            harness_sync: crate::tray_node_health::sync_path().and_then(|p| std::fs::read_to_string(p).ok()),
         }
     }
     pub fn service_up(&self) -> bool {
@@ -253,6 +281,14 @@ pub fn backup_cache_path() -> Option<std::path::PathBuf> {
         return Some(p.into());
     }
     Some(std::path::Path::new(&std::env::var_os("HOME")?).join(".topics/tray-backup-cache.json"))
+}
+
+/// Where the last memory-sync state the service gave is kept; overridable for tests.
+pub fn memory_sync_cache_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("TOPICS_MEMORY_SYNC_CACHE") {
+        return Some(p.into());
+    }
+    Some(std::path::Path::new(&std::env::var_os("HOME")?).join(".topics/tray-memory-sync-cache.json"))
 }
 
 fn day_word(now: i64, at: i64) -> String {

@@ -19,6 +19,7 @@ import { insertChatFork, readForkOrigin } from "../lib/chat-fork-store";
 import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
 import { aggregateTouchedFiles } from "../lib/topic-changes";
 import type { ToolCall } from "../../shared/types";
+import { classifyToolAction, isCommandCall } from "../../shared/agent-action";
 import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
 
 interface RecordedHandler extends StreamHandler {
@@ -265,6 +266,20 @@ describe("routeCodexEvent — text + tool wiring", () => {
     }, h);
 
     expect(h.tools.at(-1)).toEqual({ type: "result", id: "cmd-final", payload: "12 pass\\n" });
+  });
+
+  test("a command_execution is named after its command AND carries it as args.command, so both sides of the wire see a run", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", {
+      type: "item.started",
+      item: { type: "command_execution", id: "cmd-pwd", command: "pwd" },
+    }, h);
+
+    expect(h.toolNames).toEqual([{ id: "cmd-pwd", name: "pwd" }]);
+    expect(h.tools[0]).toEqual({ type: "start", id: "cmd-pwd", payload: { command: "pwd" } });
+    expect(isCommandCall("pwd", (h.tools[0] as { payload: unknown }).payload)).toBe(true);
+    expect(classifyToolAction("pwd", { command: true })).toBe("run");
   });
 
   test("a context_compaction item draws the compaction divider, like compact_boundary on Claude", () => {

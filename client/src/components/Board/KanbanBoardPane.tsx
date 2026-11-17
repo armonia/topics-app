@@ -33,7 +33,7 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, showsLandingDebt, TASK_STATUSES,
-  STAGE_CI, STATUS_LABEL, taskDetailBump, WORKFLOW_PRESETS, columnOfTask,
+  STAGE_CI, STATUS_LABEL, taskDetailBump, WORKFLOW_COLUMNS, columnOfTask,
   type BoardTask, type TaskStatus, type BoardSettings, type BoardWorkflowView,
 } from '../../lib/board';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, type OrderScope } from '../../lib/boardOrder';
@@ -356,7 +356,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       .catch(() => { /* the default columns stay */ });
     return () => { alive = false; };
   }, [hasProject, projectId]);
-  const boardColumns = workflow?.columns ?? WORKFLOW_PRESETS.default;
+  const boardColumns = workflow?.columns ?? WORKFLOW_COLUMNS;
 
   // L'ARCHIVIO È UNA VISTA, non una colonna: stessa board, stesse colonne, ma
   // popolate da `?archived=1`. Sta nello stato della pane e non nei `filters`

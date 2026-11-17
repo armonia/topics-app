@@ -93,7 +93,7 @@ export function Column(props: ColumnProps) {
 
 type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[];
-  /** The workflow column this is, when it is not the plain one of `status` (Triage, AI review, Human review). */
+  /** The workflow column this is, when it is not the plain one of `status` (today only CI). */
   columnId?: string;
   /** Its header; absent = the status label. */
   label?: string; onOpen: OpenTask; onCreate: (text: string) => void;
@@ -1991,7 +1991,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} taskId={task.id} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we

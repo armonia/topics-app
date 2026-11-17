@@ -23,6 +23,8 @@ pub struct MachineDetail {
     pub metrics: Vec<DetailMetric>,
     /// Where the machine's state spent the window (awake, asleep, off), as the service logged it.
     pub timeline: Vec<Segment>,
+    /// What the service says the machine is, in one line («topics-permanent-node · 16 core · sempre acceso»). allow-italian: quoted menu wording
+    pub caption: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -75,6 +77,7 @@ pub fn machine_details(body: &str) -> Vec<MachineDetail> {
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     v.as_array().cloned().unwrap_or_default().iter().map(|m| MachineDetail {
         id: text(m, "id"),
+        caption: text(m, "caption"),
         os: text(m, "os"),
         procs_total: m.get("procsTotal").filter(|x| x.is_object()).map(|x| ProcsTotal {
             n: x.get("n").and_then(Value::as_u64).unwrap_or(0),

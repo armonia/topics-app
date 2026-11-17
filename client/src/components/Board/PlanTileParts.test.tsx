@@ -29,7 +29,9 @@ describe('Plan tile parts', () => {
   test('the header shows the working loader only when at work', () => {
     const working = renderToStaticMarkup(createElement(ActivityBadge, { activity: { state: 'working', count: 2 } }));
     expect(working).toContain('data-state="working"');
-    expect(working).toContain('data-status="in_progress"');
+    // At work it is the square loader (a canvas), not the still in_progress glyph.
+    expect(working).toContain('<canvas');
+    expect(working).not.toContain('data-status="in_progress"');
     const review = renderToStaticMarkup(createElement(ActivityBadge, { activity: { state: 'review', count: 1 } }));
     expect(review).not.toContain('<canvas');
     expect(review).toContain('<svg');

@@ -22,13 +22,12 @@ import { readElsewhere } from "../task-elsewhere";
 import { currentDispatchBlock, currentMemoryWait, heldResumeBlock } from "../dispatch-block-signal";
 import { type Task } from "../task-shapes";
 import { INCOMPLETE_CARD_NOTICE_PREFIX, agentCardGaps } from "../../../shared/agent-card-contract";
-import { awaitsHumanSql, type WorkflowColumn, agentAskInThread, STAGE_AI_REVIEW, stageForDelivery } from "../../../shared/workflow";
+import { awaitsHumanSql, type WorkflowColumn, agentAskInThread } from "../../../shared/workflow";
 import { CHILD_AGENT_COMING } from "../../lib/task-timer-reads";
 import { type RepoProbe, checkReport as checkDeliveryReport, gitQuestions } from "../deliveryReportChecks";
 import { agentAuthorSql } from "../../../shared/comment-author";
 import { probeForRoot, repoProbe } from "../deliveryReportProbe";
-import { checkStage, clearAiReviewReminderStamp, readBoardWorkflow } from "../board-workflow";
-import { requestAiReviewNotice } from "../ai-review-notice";
+import { checkStage } from "../board-workflow";
 import { waitsLineAsk } from "../../../shared/waits-on-person";
 import { EFFORT_TIERS } from "../../../shared/effort";
 import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../../shared/channel-origin";
@@ -206,9 +205,9 @@ export async function deliveryNotesInFlight(): Promise<void> {
 }
 
 export function createTasksShared(db: Database, opts: ServiceOpts) {
-  // `announceAiReview`/`agentAskOnThread` need to call back into the fully
+  // `agentAskOnThread` needs to call back into the fully
   // assembled TaskService (same as `svc: TaskService` params elsewhere), but
-  // they are called bare, with no caller to pass `this`/`svc` through. The
+  // it is called bare, with no caller to pass `this`/`svc` through. The
   // core wires this once, right after building `service`, via `bindService`.
   let serviceRef: TaskService | undefined;
   function bindService(s: TaskService): void { serviceRef = s; }
@@ -2483,35 +2482,6 @@ function getTaskRow(taskId: string): any {
     return r.stage;
   }
 
-/** A reminder that reached nobody: card → when (ms); a later sweep sends it again. */
-  const failedAiReviewReminders = new Map<string, number>();
-
-/**
-   * A card just entered AI review: whoever has to close it is told
-   * (`services/ai-review-notice.ts`), and the thread keeps a line of who that
-   * is. `service`, not `comment`: the card's last word stays the delivery.
-   */
-  function announceAiReview(taskId: string, reminder = false, stampIso?: string): void {
-    const row = getTaskRow(taskId);
-    if (!row) return;
-    if (!reminder) {
-      try {
-        serviceRef!.addComment({
-          taskId, author: "system", kind: "service",
-          content: `AI review: the card goes back to whoever opened it (${row.created_by ?? "unknown"}), who closes it with the proof or sends it to Human review with a question.`,
-        });
-      } catch { /* best-effort: the notice below is what matters */ }
-    }
-    requestAiReviewNotice({
-      taskId, projectId: row.project_id, title: row.text ?? "",
-      createdBy: row.created_by ?? null, openerTopicId: row.created_by_topic_id ?? null, reminder,
-      ...(reminder && stampIso ? { onUndelivered: () => {
-        clearAiReviewReminderStamp(db, taskId, stampIso);
-        failedAiReviewReminders.set(taskId, Date.parse(now()));
-      } } : {}),
-    });
-  }
-
 /**
    * The question a card carries into review when nobody wrote one: the
    * «aspetta: attilio — …» line of its description, else the move the
@@ -2534,20 +2504,19 @@ function getTaskRow(taskId: string): any {
   }
 
 /**
-   * Where a delivery the SYSTEM makes lands (the turn ended without one, the
-   * parked-children question): the same routing as an agent's delivery, with
-   * `humanAsk` the question the thread or the system asks the person. Written
-   * only when it changes something, like `update()`.
+   * The question a delivery the SYSTEM makes carries (the turn ended without
+   * one, the parked-children question): `humanAsk` is what the thread or the
+   * system asks the person, else the fallback above. Written only when it
+   * changes something, like `update()`; the stage goes back to the plain
+   * Review column.
    */
-  function routeSystemDelivery(taskId: string, humanAsk: string | null, fallback?: string | null): void {
+  function writeSystemDeliveryAsk(taskId: string, humanAsk: string | null, fallback?: string | null): void {
     const row = getTaskRow(taskId);
     if (!row || row.parent_task_id) return;
-    const stage = stageForDelivery(readBoardWorkflow(db, row.project_id).columns, { createdBy: row.created_by, humanAsk });
     // A card that reaches the person says what it asks (10/11, `solido`: three cards in review with no question)
-    if (!humanAsk && stage !== STAGE_AI_REVIEW) humanAsk = reviewAskFallback(row, fallback);
-    if (stage === null && row.stage == null && row.human_ask == null && !humanAsk) return;
-    db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ?").run(stage, humanAsk, taskId);
-    if (stage === STAGE_AI_REVIEW) announceAiReview(taskId);
+    if (!humanAsk) humanAsk = reviewAskFallback(row, fallback);
+    if (row.stage == null && row.human_ask == null && !humanAsk) return;
+    db.prepare("UPDATE tasks SET stage = NULL, human_ask = ? WHERE id = ?").run(humanAsk, taskId);
   }
   return {
     bindService,
@@ -2568,7 +2537,6 @@ function getTaskRow(taskId: string): any {
     VIDEO_MEDIA,
     agentAskOnThread,
     annotateDeliveryClaims,
-    announceAiReview,
     anteprimaUtile,
     archiveSubtree,
     assertBlockerValid,
@@ -2586,7 +2554,6 @@ function getTaskRow(taskId: string): any {
     drawsCardComments,
     duplicatePreviewOf,
     ensureDeliverySheet,
-    failedAiReviewReminders,
     fileDigest,
     fileExists,
     getTaskRow,
@@ -2622,7 +2589,7 @@ function getTaskRow(taskId: string): any {
     resolveSubtaskWork,
     reviewAskFallback,
     reviewNote,
-    routeSystemDelivery,
+    writeSystemDeliveryAsk,
     rowToComment,
     rowToTask,
     rowsToTasks,

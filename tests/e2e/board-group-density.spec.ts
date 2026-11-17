@@ -219,7 +219,7 @@ test.describe("Board per progetto e card compatte", () => {
     // Every root card in the Plan carries its status sign: no column says it there.
     const planRows = tileA.locator('[data-testid="plan-card"][data-board-card]');
     await expect(planRows).toHaveCount(2);
-    for (const row of await planRows.all()) await expect(row.locator(":scope > svg")).toHaveCount(1);
+    for (const row of await planRows.all()) await expect(row.locator(":scope > svg, :scope > canvas")).toHaveCount(1);
     // Same order as the lanes, for the two projects of this test.
     const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const pick = (ids: (string | null)[]) => ids.filter((id) => id === ID_A || id === ID_B);

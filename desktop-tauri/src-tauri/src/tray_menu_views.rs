@@ -7,10 +7,12 @@
 use crate::tray_menu_pic::{tone, Palette, Pic, MENU_W};
 use crate::tray_quota::Face;
 use serde_json::Value;
+// The memory sync card lives in its own file: this one went over the check:bloat line ceiling.
+pub use crate::tray_menu_memory_sync::memory_sync_valid;
 
 const PAD: f32 = 14.0;
 
-fn s<'a>(v: &'a Value, k: &str) -> &'a str {
+pub(crate) fn s<'a>(v: &'a Value, k: &str) -> &'a str {
     v.get(k).and_then(Value::as_str).unwrap_or("")
 }
 fn num(v: &Value, k: &str) -> Option<f64> {
@@ -61,6 +63,25 @@ pub struct MachineCard {
     /// Why, in one line.
     pub reason: String,
     pub metrics: Vec<Metric>,
+    /// Where this machine stands in the order work is sent to machines (1 = first); 0 = not numbered.
+    pub order: u32,
+    /// The id this machine has in Topics' machine list, when the card is the service's own and its id is another one.
+    pub machine_id: String,
+}
+
+impl MachineCard {
+    /// The card's lines with the segments `is_id` flags taken out («srv-1 · 16 core» keeps «16 core»); a line left empty goes.
+    pub fn card_lines_without_ids(&self, is_id: impl Fn(&str) -> bool) -> Vec<String> {
+        self.lines.iter().filter_map(|l| {
+            let rest: Vec<&str> = l.split(" · ").filter(|seg| !is_id(seg)).collect();
+            (!rest.is_empty()).then(|| rest.join(" · "))
+        }).collect()
+    }
+
+    /// The name as the card draws it: numbered when the machines are in dispatch order.
+    pub fn display_name(&self) -> String {
+        if self.order == 0 { self.name.clone() } else { format!("{} · {}", self.order, self.name) }
+    }
 }
 
 /// Machines of the usage service's board (`/api/board`, `machines`).
@@ -85,6 +106,8 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
                 name: s(x, "name").into(),
                 value: s(x, "value").into(),
             }).collect()).unwrap_or_default(),
+            order: 0,
+            machine_id: String::new(),
         })
         .collect()
 }
@@ -204,7 +227,13 @@ fn mini_dial(pic: &mut Pic, cx: f32, cy: f32, lit: &str, color: [u8; 3], p: Pale
 /// in a pill, the one line of why, then the half-circle dial (disk, memory, CPU and
 /// GPU) with its legend of one tiny dial per row. A reading the dial has no band for
 /// (the spend of a server) is one more legend row, with its own sign, under the four.
+#[cfg(test)]
 pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
+    draw_machine_card_with(m, &Default::default(), p)
+}
+
+/// The card with what the node files say about it: status rows and small charts under the dial.
+pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::NodeExtras, p: Palette) -> Pic {
     let (disc, band, gap) = (20.0_f32, 10.0_f32, 5.0_f32);
     let r1 = disc + gap + band / 2.0;
     let r2 = r1 + band + gap;
@@ -217,12 +246,12 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
     let top = if brake { 44.0 } else { 27.0 };
     let rows = 4 + extras.len();
     let body_h = (edge + 6.0 + 18.0).max(rows as f32 * 18.0 + 2.0);
-    let mut pic = Pic::new(MENU_W, top + body_h + 8.0);
+    let mut pic = Pic::new(MENU_W, top + body_h + 8.0 + node.block_h());
     let head = tone(m.level);
     draw_machine_glyph(&mut pic, m, 13.0, 4.0, p);
     let badge_w = Pic::text_w(Face::Sans, &m.badge, 10.5) + 14.0;
     let name_w = MENU_W - 38.0 - 16.0 - badge_w - 12.0;
-    let name = Pic::fit(Face::Sans, &m.name, 12.5, name_w);
+    let name = Pic::fit(Face::Sans, &m.display_name(), 12.5, name_w);
     pic.text(Face::Sans, &name, 38.0, 17.0, 12.5, p.fg, 1.0);
     if !m.local && !line.is_empty() {
         let x = 38.0 + Pic::text_w(Face::Sans, &name, 12.5) + 8.0;
@@ -309,6 +338,7 @@ pub fn draw_machine_card(m: &MachineCard, p: Palette) -> Pic {
         let nx = (vx + vw + 8.0).max(lx + 108.0);
         pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &x.note, 10.0, (MENU_W - 18.0 - nx).max(0.0)), nx, y + 12.0, 10.0, p.fg, p.dim);
     }
+    crate::tray_node_charts::draw_block(&mut pic, node, top + body_h - 4.0, p);
     pic
 }
 
@@ -567,6 +597,8 @@ pub fn draw_quota_panel(cards: &[QuotaCard], p: Palette) -> Option<Pic> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BackupCard {
+    /// The card's heading: the backup and the memory sync share the drawing.
+    pub title: String,
     pub badge: String,
     pub level: u32,
     pub caption: String,
@@ -597,7 +629,7 @@ pub fn clock_text(t: i64) -> String {
     format!("{:02}:{:02}", l.rem_euclid(86_400) / 3600, l.rem_euclid(3600) / 60)
 }
 
-fn when(now: i64, at: i64) -> String {
+pub(crate) fn when(now: i64, at: i64) -> String {
     let d = (now - at).max(0) / 86_400;
     let clock = clock_text;
     match d {
@@ -679,7 +711,7 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     }
     foot_parts.retain(|p| !p.is_empty());
     let foot = if foot_parts.is_empty() { String::new() } else { format!("Sul Mac: {}", foot_parts.join(" · ")) };
-    Some(BackupCard { badge: badge.into(), level, caption, days, days_say, proofs, foot })
+    Some(BackupCard { title: "Backup del Mac".into(), badge: badge.into(), level, caption, days, days_say, proofs, foot })
 }
 
 pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
@@ -692,7 +724,7 @@ pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
     let c = tone(b.level);
     pic.dot(m + 7.0, 21.0, 6.0, c, 0.2);
     pic.dot(m + 7.0, 21.0, 2.5, c, 1.0);
-    pic.text(Face::Sans, "Backup del Mac", m + 24.0, 26.0, 13.0, p.fg, 1.0);
+    pic.text(Face::Sans, &b.title, m + 24.0, 26.0, 13.0, p.fg, 1.0);
     pic.pill(CARD_X + CARD_W - 14.0, 21.0, &b.badge, c);
     pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &b.caption, 10.5, CARD_W - 52.0), m + 24.0, 43.0, 10.5, if b.level == 2 { c } else { p.fg }, if b.level == 2 { 1.0 } else { p.dim });
     let inner = CARD_W - 28.0;

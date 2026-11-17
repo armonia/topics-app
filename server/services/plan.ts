@@ -10,7 +10,7 @@ import { isAgentWorking, type TaskStatus } from "../../shared/board";
 import { buildProjectNames, loadRegisteredProjects } from "./project-display-name";
 import { unregisteredProjectName } from "../../shared/project-name";
 import { sortProjectGroups } from "../../shared/project-order";
-import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
+import { awaitsHuman } from "../../shared/workflow";
 import { isGroupingParent } from "../../shared/grouping-parent";
 import { waitOnPerson } from "../../shared/waits-on-person";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -57,8 +57,8 @@ export function needOf(
 
 /**
  * The header state of a group of cards, with the Kanban's rules. «At work»
- * means an agent is on the card now (`isAgentWorking`), or the reviewer agent
- * in AI review: status in_progress alone is not work. Then what waits for a
+ * means an agent is on the card now (`isAgentWorking`): status in_progress
+ * alone is not work. Then what waits for a
  * person's approval (`awaitsHuman`), then what is left to do, and «stale»
  * only when every open card has been idle past STALE_DAYS. Grouping parents
  * are not work and stay out.
@@ -68,7 +68,7 @@ export function activityOf(
 ): PlanActivity {
   const cards = all.filter((c) => !c.grouping);
   const open = cards.filter((c) => c.status !== "done");
-  const working = open.filter((c) => isAgentWorking(c.dispatchState) || (c.status === "review" && c.stage === STAGE_AI_REVIEW)).length;
+  const working = open.filter((c) => isAgentWorking(c.dispatchState)).length;
   const review = open.filter((c) => awaitsHuman(c)).length;
   if (working > 0) return { state: "working", count: working };
   if (review > 0) return { state: "review", count: review };

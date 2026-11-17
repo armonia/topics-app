@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import {
-  Search, Moon, Sun, Monitor, File,
-  Loader2, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText,
-} from 'lucide-react';
+  Search, Moon, Sun, Monitor, File, TerminalSquare, RotateCcw, Grid2x2, Link2, ArrowLeft, MonitorCog, Gauge, Workflow, BarChart3, Blocks, Bot, Layers, ScrollText} from 'lucide-react';
 import { useHubEverRead } from '../../state/hubLive';
 import { openUserMenu } from '../../lib/openUserMenu';
 import { openProcessesLog } from '../../state/processesLog';
@@ -41,6 +39,7 @@ import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
 import { shortcut } from '../../lib/shortcutLabel';
 import { homeCommands } from './paletteHomeCommands';
+import { Spinner } from './Spinner';
 
 export interface CommandAction {
   id: string;
@@ -899,7 +898,7 @@ export function CommandPalette({
                       </>
                     )}
                     {(searchResults.length > 0 || searchLoading) && (
-                      <SectionHeader label={t('palette.section.messages')} rightSlot={searchLoading ? <Loader2 size={10} className="animate-spin" /> : null} />
+                      <SectionHeader label={t('palette.section.messages')} rightSlot={searchLoading ? <Spinner size="xs" tone="current" /> : null} />
                     )}
                     {searchResults.map(item => renderRow(item, { highlight: true }))}
                   </>

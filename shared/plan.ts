@@ -25,7 +25,7 @@ export interface PlanCard {
   id: string;
   text: string;
   status: TaskStatus;
-  /** Workflow stage: `ai_review` is the reviewer agent's turn, not the person's. */
+  /** Workflow stage: `ci` is the integration queue's turn, not the person's. */
   stage: string | null;
   /** The dispatch chip: «at work» means an agent is here now (`isAgentWorking`), not status in_progress. */
   dispatchState: string | null;

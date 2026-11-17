@@ -28,6 +28,10 @@ mod tray_poller;
 #[allow(dead_code)]
 mod tray_agents;
 #[cfg(target_os = "macos")]
+#[path = "../src/tray_loader_frames.rs"]
+#[allow(dead_code)]
+mod tray_loader_frames;
+#[cfg(target_os = "macos")]
 #[path = "../src/tray_dials.rs"]
 #[allow(dead_code)]
 mod tray_dials;
@@ -86,12 +90,12 @@ fn main() {
                 if quiet {
                     return;
                 }
-                let mut frame = 0u32;
+                let mut tick = 0u32;
                 loop {
                     std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
-                    frame = (frame + 1) % tray_agents::TURN_FRAMES;
+                    tick = tick.wrapping_add(1);
                     if let Some(t) = h_anim.tray_by_id("main") {
-                        tray_strip_apply::apply_overlay(&t, Some(frame));
+                        tray_strip_apply::apply_overlay(&t, Some(tray_poller::overlay_frame_for(None, tick)));
                     }
                 }
             });

@@ -17,6 +17,7 @@ import { useTerminalSessions } from '../../contexts/TopicsContext';
 import type { SubagentResultCard, ToolCallDetail } from '../../types';
 import type { SubagentResultBlock } from './machineRow';
 import { foregroundSpawnResult, reasonText, spawnCardState, spawnRefusal, useSubagentResult, type SpawnCardState } from './subagentResult';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 const STATUS_ICON: Record<SubagentResultCard['status'], { icon: ComponentType<{ size?: number; className?: string }>; tone: string }> = {
   completed: { icon: CircleCheck, tone: STATUS_INK.ok },
@@ -88,7 +89,7 @@ export function SubAgentResultRow({ messageId, block }: { messageId?: string; bl
 }
 
 /** The live phase wears the card status glyph: the half pie, spinning. */
-const SparkIcon = () => <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />;
+const SparkIcon = () => <SparkLoader size={12} activity="tool" className="flex-shrink-0" />;
 
 const DoneIcon = () => <StatusIcon status="done" className="h-3 w-3 flex-shrink-0" />;
 

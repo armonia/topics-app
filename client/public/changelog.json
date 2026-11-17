@@ -1,7 +1,299 @@
 [
   {
-    "version": "2.4.29",
+    "version": "2.4.39",
     "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-17 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "nodo principale scelto a mano (analisi, proposta, tracce)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nodo principale per tutto il sistema agentico (strada completa, mappa, account)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "sul principale i modelli Claude solo da abbonamento, con barra in T2",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Drop the empty left column from the Thinking row (#1223)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.38",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.37",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.36",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "baseline follows the scores that rose tonight",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.35",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "force a fresh generation between the disabled and native rounds (#1216)",
+          "en": "",
+          "scope": "git-status-native",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.34",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/sleepy-phantom (card 3d431e73) (#1210)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "2 s deadline cap so a slow shell start still prints before it",
+          "en": "",
+          "scope": "deploy-outcome",
+          "breaking": false
+        },
+        {
+          "it": "Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.33",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.32",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an archived chat that launched work after being archived is alive (#1195)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/brassy-hour (card 2a1f2e84) (#1208)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.31",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.30",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/patient-badger (card 3c348ab4) (#1191)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un nodo per server vero, in ordine di dispatch, e la scheda delle memorie",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "note on ghost queued CI runs that the API cannot cancel (#1179)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.29",
+    "date": "2026-11-16",
     "sections": {
       "new": [],
       "fixes": [
@@ -13,7 +305,29 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Align the reworded-wait test with agent waits staying in todo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.28",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {

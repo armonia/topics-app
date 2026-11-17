@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { readRecommendation } from './questionAnswers';
-import { HelpCircle, Send, Loader2, ChevronRight, ArrowRight } from 'lucide-react';
+import { HelpCircle, Send, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema, PLAN_EDIT_KEY } from '../../../../shared/plan-decision';
 import { Select } from '../Shared/Select';
+import { Spinner } from '../Shared/Spinner';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
  *  rejects with `{ status, message }` on HTTP errors, but a thrown Error or
@@ -454,7 +455,7 @@ function QuestionsForm({
           data-testid={isLast ? 'ask-submit' : 'ask-step-next'}
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:text-app-text-muted disabled:cursor-not-allowed transition-colors"
         >
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : isLast ? <Send size={13} /> : <ChevronRight size={13} />}
           {submitting ? tr('ask.sending') : isLast ? tr('ask.send') : tr('ask.next')}
         </button>
       </div>
@@ -508,7 +509,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
         {error && <div className="text-compact text-red-500">{error}</div>}
         <div className="flex justify-end">
           <button type="submit" disabled={submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-            {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
             {submitting ? tr('ask.sending') : tr('ask.send')}
           </button>
         </div>
@@ -588,7 +589,7 @@ function ElicitationForm({ requestedSchema, message, toolCallId, submitting, err
       {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
         <button type="submit" disabled={!allRequiredFilled || submitting} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>
@@ -673,7 +674,7 @@ function RawForm({
       {error && <div className="text-compact text-red-500">{error}</div>}
       <div className="flex justify-end">
         <button type="submit" disabled={submitting || !text.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 text-prose font-medium rounded-md bg-primary text-white hover:bg-primary-hover disabled:bg-app-text-muted/30 disabled:cursor-not-allowed">
-          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          {submitting ? <Spinner size={11} box={13} tone="current" /> : <Send size={13} />}
           {submitting ? tr('ask.sending') : tr('ask.send')}
         </button>
       </div>
