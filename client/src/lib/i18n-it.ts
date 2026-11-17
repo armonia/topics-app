@@ -269,6 +269,10 @@ const IT: Dict = {
   // The grey glyph: no turn open, work a closed turn left running. The chat is free.
   'topic.backgroundOne': 'Un lavoro in background. La chat è libera, puoi scrivere',
   'topic.backgroundMany': '{n} lavori in background. La chat è libera, puoi scrivere',
+  'topic.waitLine.subagent': 'Aspetta un sottoagente',
+  'topic.waitLine.process': 'Aspetta un processo',
+  'topic.waitLine.job': 'Aspetta un lavoro in background',
+  'topic.waitLine.resuming': 'Sta per riprendere',
   'topic.waitingOnSubagent': 'Il turno è finito: aspetta un sottoagente. Si rimette a scrivere quando risponde. La chat è libera, puoi scrivere',
   'topic.waitingOnProcess': 'Il turno è finito: aspetta un processo in background. Si rimette a scrivere quando finisce. La chat è libera, puoi scrivere',
   'topic.backgroundResuming': 'Il lavoro in background ha risposto e la chat sta per riprendere. Intanto è libera, puoi scrivere',

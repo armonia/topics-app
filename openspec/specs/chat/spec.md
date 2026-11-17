@@ -5914,6 +5914,15 @@ striscia sotto la chat, e lo Stop del compositore non gli si applica.
   rosso «il processo è finito con N compiti in volo».
 - La cartella di progetto continua a contare la chat come «con lavoro dentro»
   (ATTN-12): questa clausola riguarda tab e riga.
+- La riga della sidebar SHALL dirlo anche a parole, al posto dell'ultimo
+  messaggio: «Aspetta un sottoagente», «Aspetta un processo», «Aspetta un
+  lavoro in background», «Sta per riprendere» (`topic-waiting-on`, con lo stesso
+  `data-waiting-on` del glifo). Con un turno aperto non c'è.
+- Un figlio finito SHALL essere detto UNA volta: quando la sua card di esito è
+  già nella trascrizione (`subagent-result-card`, che dice come è finito:
+  «fermato prima di finire», «completato»), la striscia sotto la chat NON SHALL
+  avere la sua riga «finito» (`useSubagentResultIds`). Finché la card non c'è la
+  riga resta; un figlio vivo la tiene sempre.
 
 #### Scenario: la tab dice cosa aspetta e si ferma quando tutto è finito
 - **GIVEN** una chat il cui turno ha lasciato un Bash in background, e un figlio

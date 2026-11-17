@@ -17,6 +17,7 @@ import { useDisclosureToggle } from './transcriptDisclosure';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForAction } from '../Layout/loaderState';
 import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import { useSubagentResultIds } from './subagentResult';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -215,9 +216,11 @@ function withEnded(rows: readonly LiveWorkRow[], gone: LiveCommandRow): readonly
   return at < 0 ? [...rows, gone] : [...rows.slice(0, at), gone, ...rows.slice(at)];
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey?: string }) {
   const dismissed = useDismissedSubAgents();
-  const live = visibleRows(useLiveWork(topicId), dismissed);
+  // An ended child whose result card is already in the chat is told there, once, with how it really ended.
+  const told = useSubagentResultIds(sessionKey);
+  const live = visibleRows(useLiveWork(topicId), dismissed).filter((r) => !(r.kind === 'agent' && r.state === 'ended' && told.has(r.id)));
   const disclose = useDisclosureToggle();
   // The command whose log is open: ended with its log open, it keeps its row until the log closes.
   const [open, setOpen] = useState<LiveCommandRow | null>(null);
