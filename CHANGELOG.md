@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.39 — 2026-11-17
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- nodo principale scelto a mano (analisi, proposta, tracce)
+- nodo principale per tutto il sistema agentico (strada completa, mappa, account)
+- sul principale i modelli Claude solo da abbonamento, con barra in T2
+- Drop the empty left column from the Thinking row (#1223)
+
 ## 2.4.38 — 2026-11-17
 
 ### Sotto il cofano

@@ -5457,6 +5457,15 @@ mostrata come lavoro in corso. Un cron di sessione armato entro lo stesso tetto
 una chat che aspetta solo il suo cron mostrerebbe «sta per riprendere» per due
 ore. Nessuna scrittura: DB, processo e orologi non cambiano.
 
+Una card della board che la chat ha aperto SHALL contare fra i lavori attesi
+(riga e sidebar leggono `isAwaitedCard`, `client/src/lib/taskCardState.ts`) solo
+se qualcuno la sta davvero lavorando: in `todo`, perché il dispatcher la
+prenderà; in `in_progress`, solo con un `dispatchState` scritto. Una card spostata
+in `in_progress` a mano o da un `update_task` di un sottoagente non ha nessun
+agente sopra e nessuna sveglia arriverà (`card-outcome-wake`): contata, la riga
+restava su per ore su una chat che non aveva niente in corso (17/11, chat
+bdace50c, 5 h 03 m).
+
 La chat SHALL mostrare, come ULTIMA RIGA DEL TRASCRITTO, sotto l'ultimo
 messaggio (il `Footer` di Virtuoso in
 `client/src/components/Chat/MessageList.tsx`, prima delle bolle in coda), una

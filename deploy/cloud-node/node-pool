@@ -14,6 +14,10 @@ guardiano fa sì che quel nodo esista quando serve e non costi quando non serve.
   node-pool permanent-ci    installa o riallinea i runner della CI sul nodo permanente (deploy/permanent-node/ci-runners.sh)
   node-pool --selftest  le decisioni pure, senza rete
 
+Memorie e regole degli agenti (harness-sync, accanto a questo file): a ogni giro lancia, staccato, `harness-sync run`
+con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta in ~/.topics/harness-sync.config.json
+(fuori dal repo), lo stato in ~/.topics/harness-sync.json. Senza quel file non fa niente.
+
 NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
 fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
 nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
@@ -33,7 +37,7 @@ gli effimeri). Un nodo muore quando è senza card da 10 minuti e alla sua ora pa
 10 minuti; il label expires (+2 h, spostato in avanti mentre lavora) lo cancella anche se questo
 registro lo ha perso.
 """
-import base64, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
+import base64, datetime, json, math, os, signal, ssl, subprocess, sys, time, urllib.request
 
 HOME = os.path.expanduser("~")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +51,10 @@ LOG = os.environ.get("NODE_POOL_LOG", os.path.join(HOME, ".claude/jarvis/logs/no
 KEY = os.path.join(HOME, ".ssh/offload_hetzner")
 TETTO_BIN = os.path.join(HOME, "bin/hetzner-tetto")
 STRUMENTI = os.environ.get("WINFLEET_STRUMENTI", os.path.join(HOME, "Projects/winfleet/nodo/strumenti.txt"))
+
+HARNESS_SYNC = os.path.join(HERE, "harness-sync")
+# Tetto mensile di tutti i server Hetzner (lo stesso di hetzner-tetto, quello che la tray mostra come «x / 60 €»)
+SPEND_CAP_EUR = float(os.environ.get("NODE_POOL_SPEND_CAP_EUR", "60"))
 
 MAX_NODES = int(os.environ.get("NODE_POOL_MAX", "3"))
 CAP_EUR = float(os.environ.get("NODE_POOL_CAP_EUR", "10"))
@@ -105,6 +113,41 @@ def month_spend(lives, now):
                      for l in lives if time.strftime("%Y-%m", time.localtime(l["created"])) == month), 4)
 
 
+def _day(ts):
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+def spend_daily(lives, fixed, now):
+    """Spesa del mese corrente giorno per giorno: [{day, eur}] dal primo a oggi. Ogni ora pagata va al giorno in cui
+    comincia (Hetzner fattura a ore intere per eccesso). Il nodo permanente costa le sue ore del mese al prezzo orario
+    fino al prezzo mensile, come in hetzner-tetto; senza il suo dato conta solo il pool."""
+    lt = time.localtime(now)
+    month = time.strftime("%Y-%m", lt)
+    first = time.mktime((lt.tm_year, lt.tm_mon, 1, 0, 0, 0, 0, 0, -1))
+    days = {}
+    for dd in range(1, 32):
+        ts = time.mktime((lt.tm_year, lt.tm_mon, dd, 0, 0, 0, 0, 0, -1))
+        if _day(ts).startswith(month) and ts <= now:
+            days[_day(ts)] = 0.0
+
+    def charge(start, hours, eur_h, cap=None):
+        spent = 0.0
+        for k in range(hours):
+            day = _day(start + k * 3600)
+            if day not in days:
+                continue
+            cost = eur_h if cap is None else min(eur_h, max(0.0, cap - spent))
+            days[day] += cost
+            spent += cost
+    for l in lives:
+        if time.strftime("%Y-%m", time.localtime(l["created"])) == month:
+            charge(l["created"], billed_hours(l["created"], l.get("ended") or now), l["eur_h"])
+    if fixed and fixed.get("eur_h"):
+        start = max(first, fixed["created"])
+        charge(start, billed_hours(start, now), fixed["eur_h"], cap=fixed.get("eur_month"))
+    return [{"day": k, "eur": round(v, 4)} for k, v in sorted(days.items())]
+
+
 def should_delete(created, idle_since, now):
     """Fermo da 10 minuti E all'ora pagata mancano meno di 10 minuti: prima si buttano minuti pagati."""
     if idle_since is None or now - idle_since < IDLE_S:
@@ -158,6 +201,12 @@ def selftest():
     assert month_spend([{"created": now - 70 * 60, "ended": now, "eur_h": 0.5}], now) == 1.0
     assert free_slot({"1": {"server_id": 5}}) == 2 and free_slot({}) == 1
     assert permanent_slots(0) == 4 and permanent_slots(3) == 2, "card del nodo permanente: 2 con la CI, 4 senza"
+    t0 = time.mktime((2026, 11, 3, 10, 0, 0, 0, 0, -1))
+    sd = spend_daily([{"created": t0, "ended": t0 + 90 * 60, "eur_h": 0.5}], None, t0 + 5 * 86400)
+    assert sd[0]["day"].endswith("-01") and sd[0]["eur"] == 0 and len(sd) == 8, "dal primo del mese a oggi"
+    assert next(x for x in sd if x["day"].endswith("-03"))["eur"] == 1.0, "90 minuti = 2 ore pagate"
+    fx = spend_daily([], {"created": t0 - 86400, "eur_h": 1.0, "eur_month": 30.0}, t0 + 3 * 86400)
+    assert round(sum(x["eur"] for x in fx), 2) == 30.0, "il nodo fisso si ferma al prezzo mensile"
     print("selftest ok")
 
 
@@ -601,6 +650,9 @@ def ensure_permanent(state, fx):
             delete(state, PERMANENT_SLOT, "il posto passa al nodo permanente")
         sl = {"n": PERMANENT_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
         state["slots"][key] = sl
+    fc = fixed_cost(fx)
+    if fc:
+        state["fixed_cost"] = fc
     sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "provider": PROVIDER_LABEL, "ip": ip, "eur_h": 0.0,
                "created": sl.get("created") or time.time(), "idle_since": None})
     if not sl.get("ready"):
@@ -679,6 +731,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     else:
         sl["aligned"] = c
         sl.pop("align_failed", None)
+    global _REALIGNED
+    _REALIGNED = _REALIGNED or a.returncode == 0
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
     if sl.get("draining"):
         sl["draining"] = False
@@ -710,6 +764,52 @@ def permanent_ci():
             timeout=1800, inp=f"{tok}\n{rm_tok}\n")
     print(r.stdout.strip()[-500:], r.stderr.strip()[-1500:], sep="\n")
     return r.returncode
+
+
+# ── memorie e regole degli agenti ─────────────────────────────────────────────────
+
+_REALIGNED = False   # vero se in questo giro il nodo permanente è stato riallineato al codice del Mac
+
+
+def fixed_cost(fx):
+    """Prezzi del nodo permanente come li fattura Hetzner: €/h e tetto mensile, per spend_daily."""
+    try:
+        loc = ((fx.get("datacenter") or {}).get("location") or fx.get("location") or {}).get("name")
+        prices = fx["server_type"]["prices"]
+        p = next((p for p in prices if p["location"] == loc), prices[0])
+        # «Z» finale: fromisoformat lo capisce solo da Python 3.11, e il giro può girare col python di sistema
+        created = datetime.datetime.fromisoformat(fx["created"].replace("Z", "+00:00")).timestamp()
+        return {"name": fx["name"], "created": created, "eur_h": float(p["price_hourly"]["gross"]),
+                "eur_month": float(p["price_monthly"]["gross"])}
+    except Exception:
+        return None
+
+
+def harness_targets(state):
+    """I nodi pronti da servire: quelli con server, indirizzo e riga `machines`."""
+    out = []
+    for key, sl in sorted(state["slots"].items()):
+        if sl.get("ready") and sl.get("ip") and sl.get("machine_id") and sl.get("server_id"):
+            _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+            out.append({"machine_id": sl["machine_id"], "name": sl.get("name") or f"Nodo cloud {key}", "kind": "linux",
+                        "ip": sl["ip"], "key": KEY, "known_hosts": known_file(sl["ip"])})
+    return out
+
+
+def run_harness_sync(targets, force=False):
+    """Lancia harness-sync staccato: un primo trasferimento di centinaia di MB non deve fermare il giro.
+    Il tetto «al più ogni 15 minuti» e il lucchetto stanno dentro harness-sync. Non solleva mai."""
+    if not os.path.exists(HARNESS_SYNC):
+        return False
+    try:
+        p = subprocess.Popen([sys.executable, HARNESS_SYNC, "run", "--targets", "-"] + (["--force"] if force else []),
+                             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        p.stdin.write(json.dumps(targets).encode())
+        p.stdin.close()
+        return True
+    except Exception as e:
+        log(f"harness-sync non partito: {e}")
+        return False
 
 
 # ── comandi ─────────────────────────────────────────────────────────────────────
@@ -788,7 +888,10 @@ def giro():
                     sl["cards"] = slot_busy(sl["machine_id"])
                 except Exception:
                     pass
+        state["spend_daily"] = spend_daily(state["lives"], state.get("fixed_cost"), now)
+        state["spend_cap_eur"] = SPEND_CAP_EUR
         save_state(state)
+        run_harness_sync(harness_targets(state), force=_REALIGNED)
         # 3. domanda: col nodo permanente non si accendono nodi a richiesta
         if fx:
             return 0

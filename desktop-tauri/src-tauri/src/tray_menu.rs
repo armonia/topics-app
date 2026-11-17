@@ -154,6 +154,10 @@ pub struct Snapshot {
     pub memory_sync_set: bool,
     /// The node pool's own state file (`node-pool/state.json`): which servers really exist, which is draining.
     pub pool: Option<String>,
+    /// `machines-health.json`: the security checks, 24 hour history and cards today of every machine.
+    pub health: Option<String>,
+    /// `harness-sync.json`: the memories and rules copied to each machine, and how late.
+    pub harness_sync: Option<String>,
     /// `/api/machines`: the history, timeline and spend the machine submenus draw.
     pub machines: Option<String>,
     /// `/api/mac/trust`: which running things are suspect.
@@ -204,6 +208,8 @@ impl Snapshot {
             memory_sync_set: memory_sync.is_some(),
             memory_sync,
             pool: crate::tray_nodes::pool_state_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            health: crate::tray_node_health::health_path().and_then(|p| std::fs::read_to_string(p).ok()),
+            harness_sync: crate::tray_node_health::sync_path().and_then(|p| std::fs::read_to_string(p).ok()),
         }
     }
     pub fn service_up(&self) -> bool {
