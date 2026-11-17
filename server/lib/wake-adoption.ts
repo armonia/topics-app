@@ -135,18 +135,21 @@ function launchTime(db: QueryDb, topicId: string, sessionKey: string, launch: Wa
 }
 
 /**
- * Is `topicId` a chat the system created for work, never one a person opened:
- * the topic of a card's agent (`assigned_topic_id`, or an attempt of a fan-out,
- * whatever the card's status: `runningTaskOwnsTopic` is the in-progress half of
- * this), or the chat of a native sub-agent (its topic id is the child's id)?
+ * Marks `topicId` as a chat the system created for work (a card's agent, an
+ * attempt of a fan-out, a native child). Written once, at birth, by whoever
+ * creates the chat; no later requeue, park or relaunch removes it.
  */
+export function markSystemChat(db: { run(sql: string, params?: unknown[]): unknown }, topicId: string, kind: "task" | "attempt" | "subagent"): void {
+  try {
+    db.run("INSERT OR IGNORE INTO system_chats (topic_id, kind, created_at) VALUES (?, ?, ?)", [topicId, kind, new Date().toISOString()]);
+  } catch {
+    // A database without the table (an older test schema): nothing to mark.
+  }
+}
+
+/** Is `topicId` a chat the system created for work, never one a person opened? */
 export function isSystemChat(db: QueryDb, topicId: string): boolean {
-  const has = (sql: string): boolean => {
-    try { return db.query(sql).get(topicId) != null; } catch { return false; }
-  };
-  return has("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
-    || has("SELECT 1 FROM task_attempts WHERE topic_id = ? LIMIT 1")
-    || has("SELECT 1 FROM subagents WHERE id = ? AND runtime = 'topics' LIMIT 1");
+  try { return db.query("SELECT 1 FROM system_chats WHERE topic_id = ? LIMIT 1").get(topicId) != null; } catch { return false; }
 }
 
 /**
