@@ -1369,7 +1369,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           // reject calls, so the two paths read the same in the thread. ROOT
           // ONLY: see the `else` below for why a STEP never takes this
           // branch.
-          if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task)
+          if (dispatcher && !isStep && task && task.status === "review" && !isLandedWork(task) && !task.archived
               && (isNodeCard(task) || (!task.assignedTopicId && hasPendingDelivery(task.id)))) {
             const rejected = svc.reviewDecision({
               taskId: task.id, by: HUMAN, decision: "reject", projectId: bComments.projectId, origin: actionOrigin,
