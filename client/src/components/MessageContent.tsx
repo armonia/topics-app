@@ -1078,6 +1078,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
                 key={`g-th-${g.idx}`} messageId={messageId}
                 content={g.text}
                 partial={partial && (g.idx === blocks.length - 1 || !g.text)}
+                turnLive={partial}
               />
             );
           }
@@ -1210,7 +1211,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
                 {/* Live only while nothing came after it: once prose or a tool shows
                     up the thinking is over and the row folds. */}
-                {thinking && <ReasoningRow content={thinking} partial={partial && !cleanText && legacyTools.length === 0} messageId={messageId} />}
+                {thinking && <ReasoningRow content={thinking} partial={partial && !cleanText && legacyTools.length === 0} messageId={messageId} turnLive={partial} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}

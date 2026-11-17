@@ -14,6 +14,13 @@ interface Props {
   defaultCollapsed?: boolean;
   /** The message the reasoning belongs to, for the chat find bar. */
   messageId?: string;
+  /**
+   * Whether the message this row belongs to is still live. When it already
+   * isn't, by the time `partial` drops for this row the turn itself has
+   * already ended — closing then must not animate (CHAT-TURN-END): nothing
+   * may move after the loader is gone.
+   */
+  turnLive?: boolean;
 }
 
 /**
@@ -26,7 +33,7 @@ interface Props {
  * while what follows is just being drawn and nothing already read moves.
  * A press by the person wins over both automatic states.
  */
-export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId }: Props) {
+export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId, turnLive = true }: Props) {
   const live = !!partial && content.length > 0;
   // null = nobody pressed: the row follows the thinking (open live, closed after).
   const [pressed, setPressed] = useState<boolean | null>(null);
@@ -39,6 +46,9 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
     setPressed(true);
   }
   const collapsed = pressed === null ? (live ? false : defaultCollapsed) : !pressed;
+  // Only the automatic close that lands with the turn already over skips the
+  // animation; a press by the person always gets the normal slide.
+  const instantClose = pressed === null && !turnLive;
   const bodyRef = useRef<HTMLDivElement>(null);
   // While live the body is a short window that follows the newest line.
   useLayoutEffect(() => {
@@ -67,7 +77,7 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
           <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
       </button>
-      <DisclosureBody open={!collapsed} className="ml-1.5 pb-1.5">
+      <DisclosureBody open={!collapsed} className="ml-1.5 pb-1.5" instant={instantClose}>
         {/* Prose, not code: the thinking is sentences, in the reading font,
             muted and set off by a rule on the left. */}
         <div
