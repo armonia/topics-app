@@ -27,6 +27,8 @@ const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
 /** A change of shape takes this long to settle (seconds); the next change waits for it. */
 export const SETTLE_S = 1;
+/** Below this two distances (or a pixel edge) count as equal, so every platform's maths draws the same image. */
+const TIE = 1e-9;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
 const RATE_FREE = 6.5;
 /** A small body crosses cells: step faster and a point lands on the next cell in one frame. */
@@ -318,7 +320,9 @@ export class LoaderBody {
       free.forEach((j) => {
         const b = j * STRIDE;
         const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2 + (this.pos[b + 3] < 0.05 ? 0.5 : 0);
-        if (d < bd) { bd = d; best = j; }
+        // A tie (a symmetric shape) goes to the first square: a last-bit difference in the
+        // platform's sin/cos must not pick another one, or the tray's frames differ by machine.
+        if (d < bd - TIE) { bd = d; best = j; }
       });
       free.delete(best);
       this.mapping[best] = i;
@@ -330,7 +334,7 @@ export class LoaderBody {
       let nd = 1e9;
       raw.forEach((g, i) => {
         const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2;
-        if (d < nd) { nd = d; near = i; }
+        if (d < nd - TIE) { nd = d; near = i; }
       });
       this.mapping[j] = -1 - near;
     });
@@ -402,7 +406,7 @@ export class LoaderBody {
       const x = W / 2 + pos[b] * R - q / 2;
       const y = W / 2 + pos[b + 1] * R - q / 2;
       c.beginPath();
-      c.roundRect(tiny ? Math.round(x) : x, tiny ? Math.round(y) : y, q, q, q * 0.28);
+      c.roundRect(tiny ? Math.round(x + TIE) : x, tiny ? Math.round(y + TIE) : y, q, q, q * 0.28);
       c.fill();
     }
     c.globalAlpha = 1;
