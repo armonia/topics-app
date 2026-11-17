@@ -191,6 +191,11 @@ pub fn arrange(cards: Vec<MachineCard>, client: &[MachineCard], pool: &[PoolNode
                 c.level = level;
             }
         }
+        // one source for the numbers: the twin in the Topics list (this computer's, the pool seat's, or by name); a card
+        // that is itself the client's takes its own
+        let own = is_client(&c).then(|| c.clone());
+        let twin_any = if c.local { client.iter().find(|x| x.local) } else { twin.or(own.as_ref()).or_else(|| client.iter().find(|x| x.name.trim().eq_ignore_ascii_case(c.name.trim()))) };
+        crate::tray_numbers::one_source(&mut c, twin_any);
         let pos = client.iter()
             .position(|x| x.id == c.id || node.map_or(false, |n| !n.machine_id.is_empty() && x.id == n.machine_id) || x.name.trim().eq_ignore_ascii_case(c.name.trim()))
             .unwrap_or(usize::MAX / 2 + i);

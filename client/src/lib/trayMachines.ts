@@ -27,6 +27,8 @@ export interface TrayMachine {
   reason: string;
   local: boolean;
   metrics: TrayMetric[];
+  /** The agents this machine has, as the machine overview counts them; absent on a server that does not count them. */
+  agents?: unknown;
 }
 
 type Tr = (key: string, vars?: Record<string, string | number>) => string;
@@ -88,6 +90,8 @@ export function trayMachines(rows: readonly MachineOverviewRow[], tr: Tr): TrayM
       reason,
       local: m.local,
       metrics,
+      // passed on as the overview sends it: the shell reads the counts and the list by itself
+      ...((m as { agents?: unknown }).agents ? { agents: (m as { agents?: unknown }).agents } : {}),
     };
   });
 }
