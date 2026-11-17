@@ -1376,6 +1376,7 @@ const EN = {
   'board.task.checks.timedOut': 'past the time limit',
   'board.task.checks.unknown': 'Checks NOT MEASURED',
   'board.task.checks.notMeasured': 'not measured',
+  'board.task.checks.skipped': 'skipped, no commit of its own',
   'board.task.checks.ciPr': 'pull request',
   'board.task.checks.ciRun': 'CI run',
   'board.task.checks.hintLead': 'The normal path is',
