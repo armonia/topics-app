@@ -148,7 +148,7 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
       if (base) {
         await Promise.all(hubIds.map((id) => fetchImpl(`${base}/api/attesa`, {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ kind: "chiudi", ref: id, by: "topics", ...(b.until != null ? { until: b.until } : {}) }), // allow-italian: the hub's wire verb
+          body: JSON.stringify({ kind: "chiudi", ref: id, ...(b.until != null ? { until: b.until } : {}) }), // allow-italian: the hub's wire verb
           signal: AbortSignal.timeout(headersTimeoutMs),
         }).catch(() => {})));
       }
