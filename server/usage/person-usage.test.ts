@@ -18,6 +18,7 @@ import { computeCalls, peopleUsage, personDetail, pointsPerHour, splitPoints, HO
 import { createUsageRouter, parseUsageRecord, insertUsageRecord } from "../routes/usage";
 
 const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261117150000-person-identities.sql")).text();
+const PROJECT_MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261118100000-usage-project-path.sql")).text();
 const OWNER = "owner-1";
 
 function makeDb(): Database {
@@ -36,6 +37,7 @@ function makeDb(): Database {
     topic_id TEXT, model TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, purpose TEXT, provider TEXT,
     cache_read_tokens INTEGER, cache_creation_tokens INTEGER, cache_creation_1h_tokens INTEGER, duration_ms INTEGER, measured INTEGER NOT NULL DEFAULT 1, error TEXT)`);
   db.exec(MIGRATION);
+  db.exec(PROJECT_MIGRATION);
   db.run("INSERT INTO people (id, display_name, created_at, updated_at) VALUES (?, 'Owner', 0, 0)", [OWNER]);
   db.run("INSERT INTO installation_owners (person_id, added_at, is_default) VALUES (?, 0, 1)", [OWNER]);
   return db;
