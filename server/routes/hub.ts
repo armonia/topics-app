@@ -55,7 +55,7 @@ export interface HubBridgeDeps {
    *  "waiting for you" item closed) reaches every window without waiting
    *  for the next tick. */
   live?: { snapshot(): Promise<unknown>; refresh?(): Promise<void> };
-  /** The «waiting for you» inbox Topics owns: `POST /api/hub/attesa` lands here instead of on the hub (card 10508340). */
+  /** The inbox of items waiting for the person, owned by Topics: the hub's attention write path lands here instead of on the hub (card 10508340). */
   waiting?: WaitingStore;
 }
 
