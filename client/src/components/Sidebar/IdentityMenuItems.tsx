@@ -20,7 +20,7 @@
  * open. This module is the menu's body, loaded with the menu.
  */
 import { Suspense, useCallback, useState } from 'react';
-import { Building2, Users } from 'lucide-react';
+import { Building2, LifeBuoy, Users } from 'lucide-react';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './accountPanelLazy';
@@ -38,6 +38,8 @@ import type { UserMenuLevel } from '@/lib/openUserMenu';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
 import { openFirstRun } from '@/lib/openFirstRun';
+import { openExternalOnce } from '@/lib/openExternal';
+import { DISCORD_SUPPORT_INVITE_URL } from '@/lib/externalLinks';
 import { POPOVER_ITEM } from '@/lib/popoverStyles';
 
 export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
@@ -83,6 +85,17 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
         machinesOpen={openLevel === 'nodes'}
       />
       <AgentToolsLevel defaultOpen={openLevel === 'tools'} />
+
+      <div className="border-t border-app-border" />
+      <button
+        type="button"
+        data-testid="menu-support"
+        onClick={() => { onClose(); openExternalOnce(DISCORD_SUPPORT_INVITE_URL); }}
+        className={POPOVER_ITEM}
+      >
+        <LifeBuoy size={14} />
+        <span className="min-w-0 flex-1 truncate">{tr('profile.support')}</span>
+      </button>
     </>
   );
 }
