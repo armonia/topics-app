@@ -1,31 +1,34 @@
 ## Da decidere
 
-1. **Strada: «il nodo regge senza il Mac» (consigliata), non lo spostamento completo.** Dà il risultato che hai chiesto (card che continuano e finiscono a Mac spento, la consegna ti aspetta al ritorno) in circa 24 h di lavoro, senza toccare DB, board, tunnel né hub degli account. Lo spostamento completo costa circa 100 h, resta comunque a metà (il 45% dei lavori ha bisogno del filesystem del Mac, vedi `sottoagenti-nodo`) e porta un rischio di doppio principale. Alternativa: completo, solo se ti serve assegnare card nuove o guardare la board dal telefono a Mac spento.
-2. **Un login Claude sul nodo (token di un anno, solo per il nodo, revocabile) come ripiego quando il proxy del Mac non c'è.** Senza, a Mac spento ogni turno sul nodo fallisce e il nodo non può lavorare. Cambia la regola «i nodi non hanno login», e la quota dell'abbonamento verrebbe usata da un IP di datacenter: che Anthropic lo tolleri non l'ho verificato (prima traccia M2 lo prova con un turno vero). Alternativa: nessun login, e allora «lavoro che continua col Mac spento» non si può avere.
-3. **Il menù «Nodo principale» nella tray arriva solo con la strada completa.** Con la minima il principale resta sempre il Mac e non c'è nulla da scegliere; la tray mostra solo, per ogni card, «il Mac era spento, ha continuato il nodo». Se il menù lo vuoi comunque, la scelta 1 diventa «completa».
+1. **Segreti sul server: sì, ma solo l'elenco minimo del sistema agentico, cifrato a riposo, mai password personali o bancarie.** Il server Hetzner diventa la macchina che tiene i token dei bot Discord, il token dell'agente Topics, la chiave dei file cifrati del repo, i token Hetzner e Cloudflare, quello di fatturazione e la chiave di decifratura della replica del DB (elenco esatto in T4). Se il server viene compromesso, si compromettono quelli. Alternativa: il server riceve solo token a scadenza breve e il resto resta sul Mac, ma allora a Mac spento canali e cron non funzionano.
+2. **Account Claude: convertire i due che ruotano il refresh (`auto-4`, `auto-5`) in token da un anno, con un login ciascuno nel tuo browser (2 minuti l'uno, `switchboard-token`).** Così Mac e server li usano insieme senza invalidarsi, e non c'è nulla da trasferire a ogni passaggio. Alternativa: restano com'erano, un titolare solo per volta, trasferiti a ogni passaggio: funziona, ma un ordine sbagliato li scollega e serve un login. Gli altri due sono già token da un anno.
+3. **Dove vive il principale: sul nodo permanente già pagato (0 € in più), con la CI e le card accanto.** Occupazione da misurare a fine lavoro (T12); se la CI ne soffre, un server dedicato (costo mensile da quotare con `hetzner-tetto`, non stimato qui). Alternativa: server dedicato subito.
 
 «ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
 
-# Il nodo continua a lavorare quando il Mac è spento
+# Nodo principale scelto a mano, per tutto il sistema agentico
 
-**Perché.** Oggi una card su un nodo vive finché vive il Mac: il modello passa dal proxy del Mac (tunnel `-R`, `deploy/cloud-node/node-pool:27-28`) e, se il Mac riparte, la corsa viene cancellata e rifatta da zero (`task-dispatcher-remote-node.ts:525`, `routes/nodes.ts:617-622`). Un lavoro finito sul nodo mentre il Mac dormiva viene archiviato come «copia vecchia» e perso per la card. Risposte con file:riga in `analisi.md`.
+**Perché.** Quando spegni o porti via il Mac, board, canali di Jarvis, cron e account Claude si fermano: oggi tutto il sistema agentico vive su una sola macchina. Attilio ha scelto: il principale si sceglie a mano dalla tray e il server Hetzner lo diventa per intero (decisione sua, 17/11).
 
-**Cosa cambia (strada minima, 4 tracce, `tasks.md`).**
-- Riattacco: al riavvio del Mac una card con corsa aperta sul nodo rilegge quella corsa invece di cancellarla; se è finita, consegna il ramo; se il nodo non risponde, aspetta (non la rimette in coda).
-- Modello senza Mac: il Topics del nodo apre un proxy suo (stesso codice `model-proxy.ts`), che prova prima il Mac via tunnel e, se non c'è, usa il login del nodo.
-- Il Mac che torna: tunnel riaperti da `node-pool giro` (già lo fa), commenti scritti sul nodo nel frattempo riportati sulla card.
-- Prova vera: nodo permanente, Mac fermo 10 minuti e 8 ore simulate, consegna riportata.
+**Cosa cambia.**
+- **Un principale per volta, con epoca.** Chi ha l'epoca più alta comanda; chi ne ha una più bassa viene respinto (nodi, tunnel, hub). Niente doppio principale per costruzione.
+- **Passaggio pulito con drain** (`analisi.md` sez. 4): fermi i dispatch, `.backup` del DB, copia con cartella di stato, jarvis-channels e account, avvio sul nuovo con epoca+1. Mac morto: `claim` dal replicato Litestream (~1 s di scritture a rischio, dichiarato dal prodotto).
+- **Segue il principale** (`analisi.md` sez. 2): Topics (DB, board, dispatcher, turni), hub-service (account), jarvis-channels (canali, voce, 38 cron agent e i cron command del sistema), node-pool, gateway MCP e memoria. **Resta sul Mac** quello che è del Mac come computer: backup, salute, Promemoria, Beeper, iPhone, hobby; e le card su cartelle non git, che aspettano il Mac.
+- **Account** (`analisi.md` sez. 3): un solo titolare dei refresh per volta; i due token da un anno funzionano ovunque; i due che ruotano vengono convertiti (scelta 2).
+- **Il Mac che torna** è un nodo, non il principale: la app si collega al principale, le card che gli servono arrivano a lui, il riporto del principale è un comando a mano dal menù (deciso da me: un ritorno automatico farebbe decidere al caso chi comanda). Il suo DB di prima resta da parte come `topics.db.prima-<epoca>`.
+- **Tray**: menù «Nodo principale» con la lista dei computer, chi lo è adesso, da quando; se il principale scelto non risponde per N minuti la tray lo dice e offre «prendi tu» a mano (mai automatico).
 
-**Barra.** Test della corsia con nodo finto (riattacco, nodo muto, corsa sparita) · test del proxy a due monti · scenario reale con video: server del Mac fermo a metà turno, la card finisce sul nodo, al riavvio la consegna arriva senza `createRun`. `openspec validate nodo-principale-a-mano` esce 0.
+**Prima traccia, un giorno (T0).** Riattacco: al riavvio il Mac rilegge la corsa aperta sul nodo invece di cancellarla. Da sola evita di buttare una consegna finita a Mac spento (`analisi.md` sez. 1, punto 4) e non dipende da nient'altro.
 
-**Fuori.** Spostare board, DB (`data/topics.db`, Litestream) e hub degli account sul nodo; assegnare card nuove a Mac spento; PC Windows come principale (dorme, ha la sua gestione in winfleet); qualunque nome o IP nel codice (tutto da `machines` e impostazioni).
+**Barra.** Per traccia in `tasks.md`; d'insieme: un passaggio vero Mac → server → Mac con video, con una card in volo, un messaggio WhatsApp ricevuto sul server, un turno su un account Claude fatto dal server e il DB confrontato prima e dopo; `openspec validate nodo-principale-a-mano` esce 0.
 
-**Spostamento completo (confronto, 7 tracce F1-F7 in `tasks.md`).** Principale = chi ha il DB e il dispatcher; un numero di epoca respinge chi ha un principale vecchio; passaggio pulito: drain, `.backup` del DB, copia con token dei nodi e cartella di stato, avvio sul nodo, epoca+1; il Mac torna come nodo (tunnel `-R` aperto da lui, perché non è raggiungibile da fuori). Se il principale scelto tace, la tray lo dice e offre «prendi tu» a mano: mai automatico. Stato dell'arte: Litestream replica in modo asincrono con finestra di perdita piccola e non fa failover da solo, LiteFS lo fa con un lease, rqlite con Raft ([litestream.io/alternatives](https://litestream.io/alternatives/)): per un solo utente con un solo scrittore il failover a mano con epoca è la scelta proporzionata.
+**Fuori.** Sposta solo ciò che segue il principale; i servizi RESTA della mappa non si toccano. Nomi, IP e account nel codice: mai (tutto da `machines`, impostazioni, deposito segreti). Il PC Windows non è candidato a principale (dorme). Fusione di due DB: non si fa.
 
-**Costi.** Minima ≈ 24 h, spesa nuova 0 € (il nodo permanente c'è già; il modello usa la stessa quota). Completa ≈ 100 h, spesa 0 € ma l'hub degli account (fuori da questo repo) va portato o duplicato.
+**Costo.** ≈ 175 h di lavoro (tracce in `tasks.md`, ±30%; non misurato). Spesa nuova: 0 € se resta sul nodo permanente (scelta 3).
 
 ## Non ancora specificato
 
-- Se Anthropic tollera lo stesso abbonamento da un IP di datacenter (da provare con un turno vero, poi decide la decisione 2).
-- Dove vive la scelta del principale quando il Mac e il nodo non si parlano (solo strada completa).
-- Come la app sul Mac si collega a un server remoto invece del suo (solo strada completa).
+- Se Anthropic tollera i token di quegli abbonamenti da un IP di datacenter (si prova in T2 con un turno vero, prima di costruire il resto).
+- Se un `claim` dopo Mac morto richiede di ricollegare il dispositivo WhatsApp (dipende dall'età dello stato copiato).
+- Come i terminali e le sessioni vive della app sul Mac (PTY, pannelli browser) si comportano quando il principale è remoto: oggi la card le legano al server che le ha create.
+- Quali figli del gateway MCP hanno segreti o app solo-Mac (3 file con `security`/`osascript`, non letti uno per uno).
