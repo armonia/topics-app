@@ -553,8 +553,6 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
           ))}
         </div>
       )}
-      {/* A finger has no hover, so under a coarse pointer the two commands are
-          always visible and a real 44px box (they were 22px and hover-only). */}
       <div className="absolute right-1.5 top-1.5 flex gap-1">
         {onOpenTab && (
           <button
@@ -562,14 +560,14 @@ export function PreviewMedia({ path, paths, variant, onOpenTab }: {
             title={tr('board.preview.openAsTab')}
             aria-label={tr('board.preview.openAsTab')}
             data-testid="preview-open-tab"
-            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center coarse:opacity-100"
+            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
           ><PanelTop className="h-3.5 w-3.5" /></button>
         )}
         {expandable && (
           <button
             onClick={(e) => { e.stopPropagation(); openLightbox(); }}
             title={tr('board.preview.openFullSize')}
-            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center coarse:opacity-100"
+            className="rounded bg-black/50 p-1 text-white opacity-0 transition-opacity hover:bg-black/70 group-hover/preview:opacity-100"
           ><Maximize2 className="h-3.5 w-3.5" /></button>
         )}
       </div>

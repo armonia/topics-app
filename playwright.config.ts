@@ -442,7 +442,6 @@ export default defineConfig({
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
         "**/board-mobile-phone.spec.ts",
-        "**/board-touch-targets-44.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
         // The phone chrome feedback loop (05/10): its own viewport
         // (390x844 with a finger), the engine that ships, runs only in `webkit`.
@@ -672,7 +671,6 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
-        "**/board-touch-targets-44.spec.ts",
         // A card that runs on «Cloud Claude»: the board as the desktop shell shows it, and the one
         // card scenario that can be filmed on this Mac (no agent runs here, the cloud is a fake).
         "**/board-cloud-card.spec.ts",

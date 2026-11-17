@@ -2347,6 +2347,7 @@
       "commBatch",
       "compressa",
       "libc",
+      "lsofTcpOut",
       "mio"
     ],
     "scripts/new-migration.ts": [

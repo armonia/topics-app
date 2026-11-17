@@ -22,6 +22,9 @@ import { getSessionConsumption } from "../services/session-consumption-wiring";
 // annotation is what makes a field renamed in `shared/` a compile error here
 // instead of a number that quietly stops arriving.
 import type { SessionUsageResponse } from "../../shared/usage-shapes";
+import type { Database } from "bun:sqlite";
+import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
+import { authorForSender, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
 
 /**
  * The per-project aggregate is a GROUP BY over the whole `messages` table, and
@@ -42,6 +45,7 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
   const { db, json } = ctx;
 
   let cached: { at: number; days: number | null; data: ProjectUsageResult } | null = null;
+  let peopleCache: { at: number; days: number; data: Computed } | null = null;
 
   return async function usageRouter(
     _req: Request,
@@ -114,6 +118,90 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // GET /api/usage/people?days=7 — chi ha consumato la quota; /api/usage/people/:personId — per richiesta.
+    // `:personId` = `none` per le chiamate senza autore.
+    if (method === "GET" && (pathname === "/api/usage/people" || pathname.startsWith("/api/usage/people/"))) {
+      const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
+      try {
+        const now = Date.now();
+        if (!peopleCache || peopleCache.days !== days || now - peopleCache.at >= PROJECT_TTL_MS) {
+          peopleCache = { at: now, days, data: computeCalls(db, { days, now }) };
+        }
+        const cachedAt = new Date(peopleCache.at).toISOString();
+        if (pathname === "/api/usage/people") return json({ cachedAt, ...peopleUsage(peopleCache.data, db) });
+        const raw = decodeURIComponent(pathname.slice("/api/usage/people/".length));
+        return json({ cachedAt, ...personDetail(peopleCache.data, db, raw === "none" ? null : raw) });
+      } catch (err: any) {
+        console.error("[Usage] people aggregate failed:", err);
+        return ctx.errorResponse(500, err?.message || "Failed to compute people usage");
+      }
+    }
+
+    // POST /api/usage/records — una chiamata fatta fuori dal motore (canali in sandbox), con il suo autore.
+    if (method === "POST" && pathname === "/api/usage/records") {
+      if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
+      let body: Record<string, unknown> | null = null;
+      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformato */ }
+      const parsed = parseUsageRecord(body);
+      if (typeof parsed === "string") return json({ error: parsed }, 400);
+      try {
+        const r = insertUsageRecord(db, parsed);
+        peopleCache = null;
+        return json(r, r.duplicate ? 200 : 201);
+      } catch (err: any) {
+        console.error("[Usage] record insert failed:", err);
+        return ctx.errorResponse(500, err?.message || "Failed to store usage record");
+      }
+    }
+
     return null;
   };
+}
+
+/** Il corpo di `POST /api/usage/records`, validato; una stringa = il motivo del rifiuto. */
+export function parseUsageRecord(b: Record<string, unknown> | null): UsageRecordInput | string {
+  if (!b) return "body required";
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
+  const ts = typeof b.ts === "number" ? b.ts : typeof b.ts === "string" ? Date.parse(b.ts) : NaN;
+  if (!Number.isFinite(ts)) return "ts required (epoch ms or ISO)";
+  if (typeof b.model !== "string" || !b.model.trim()) return "model required";
+  if (typeof b.purpose !== "string" || !b.purpose.trim()) return "purpose required";
+  const sender = parseSender(b.sender);
+  if (!sender) return "sender required";
+  const id = typeof b.id === "string" && b.id.trim() ? b.id.trim().slice(0, 200) : null;
+  return {
+    id, ts, model: b.model.trim().slice(0, 200), purpose: b.purpose.trim().slice(0, 64),
+    label: typeof b.label === "string" ? b.label.slice(0, 200) : null,
+    sessionKey: typeof b.sessionKey === "string" && b.sessionKey.trim() ? b.sessionKey.trim() : null,
+    inputTokens: num(b.inputTokens) ?? 0, outputTokens: num(b.outputTokens) ?? 0,
+    cacheReadTokens: num(b.cacheReadTokens) ?? 0, cacheCreationTokens: num(b.cacheCreationTokens) ?? 0,
+    costUsd: typeof b.costUsd === "number" && Number.isFinite(b.costUsd) ? b.costUsd : null,
+    sender,
+  };
+}
+
+export interface UsageRecordInput {
+  id: string | null; ts: number; model: string; purpose: string; label: string | null; sessionKey: string | null;
+  inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; costUsd: number | null;
+  sender: Sender;
+}
+
+/**
+ * Scrive una chiamata fatta fuori dal motore, con il suo autore. Idempotente
+ * sull'`id` del chiamante: la stessa chiamata rimandata dopo un errore di rete
+ * resta una riga sola.
+ */
+export function insertUsageRecord(db: Database, r: UsageRecordInput): { id: string; duplicate: boolean } {
+  const { authorPersonId } = authorForSender(db, r.sender);
+  const id = r.id ?? crypto.randomUUID();
+  const res = db.query(
+    `INSERT OR IGNORE INTO usage_records (id, timestamp, session_key, topic_id, model, input_tokens, output_tokens, total_tokens, cost_usd,
+       purpose, provider, cache_read_tokens, cache_creation_tokens, measured, label, author_person_id)
+     VALUES (?, ?, ?, (SELECT id FROM topics WHERE session_key = ?), ?, ?, ?, ?, ?, ?, 'external', ?, ?, 1, ?, ?)`,
+  ).run(
+    id, r.ts, r.sessionKey ?? "external", r.sessionKey, r.model, r.inputTokens, r.outputTokens,
+    r.inputTokens + r.outputTokens, r.costUsd, r.purpose, r.cacheReadTokens, r.cacheCreationTokens,
+    r.label, authorPersonId,
+  );
+  return { id, duplicate: res.changes === 0 };
 }
