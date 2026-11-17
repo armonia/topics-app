@@ -12,18 +12,18 @@ import { hermetic } from "./fixtures/hermetic";
 hermetic(test);
 
 /**
- * "Il pannello delle domande a scelte resta DENTRO la pane."
+ * "The choice-question panel stays INSIDE the pane."
  *
- * Quando l'agente chiama `ask_user_question` la chat mostra un pannello con le
- * opzioni e il campo «Altro». Con domande lunghe, descrizioni lunghe, un
- * percorso o un URL senza spazi e una pane stretta (split a due o tre) il
- * pannello usciva dal bordo della pane e veniva tagliato: opzioni e pulsante
- * Invia non si raggiungevano.
+ * When the agent calls `ask_user_question` the chat shows a panel with the
+ * options and the free-text field. With long questions, long descriptions, an
+ * unbroken path or URL and a narrow pane (two or three-way split) the panel
+ * grew past the pane and got cut: options and the send button were out of reach.
  *
- * La prova MISURA, non guarda: il rettangolo del pannello e quello di ogni
- * suo figlio devono stare dentro il rettangolo della pane, a ogni larghezza e
- * con la pane divisa. Con `QPF_SHOT_DIR` e `QPF_TAG` salva anche le immagini
- * (prima/dopo) per il confronto affiancato.
+ * The proof MEASURES instead of looking: the panel and every child must sit
+ * inside the pane's rectangle, and the panel must fit the room between the pane
+ * top and the composer, at every width and with the pane split. With
+ * `QPF_SHOT_DIR` and `QPF_TAG` it also saves the images (before/after) for the
+ * side-by-side comparison.
  *
  * @covers ASK-10
  */
@@ -32,7 +32,7 @@ const SHOT_DIR = process.env.QPF_SHOT_DIR;
 const SHOT_TAG = process.env.QPF_TAG ?? "dopo";
 
 const LONG_TOKEN = "/home/dev/work/topics-app/client/src/components/Chat/ToolInputForm.tsx";
-// Una sola parola senza punti di rottura: un hash, un URL con la query, un id.
+// One word with no break points: a hash, a URL with its query, an id.
 const UNBROKEN = "https%3A%2F%2Fexample.com%2Fapi%2Fv2%2Fsessions%3Ffilter%3Dstatus%3Aactive%26sort%3Dcreated_at%3Adesc%26cursor%3DaGVsbG8gd29ybGQgdGhpcyBpcyBhIGxvbmcgY3Vyc29y";
 const LONG_DESC =
   "Questa opzione cambia il comportamento del pannello in modo che le descrizioni molto lunghe vadano a capo "
@@ -55,7 +55,7 @@ function bigQuestions() {
 
 interface Overflow { what: string; left: number; right: number; paneLeft: number; paneRight: number }
 
-/** Ogni elemento del pannello che sborda orizzontalmente dalla pane che lo contiene. */
+/** Every panel element that overflows horizontally out of the pane containing it. */
 async function overflowsOf(form: Locator): Promise<Overflow[]> {
   return form.evaluate((el) => {
     const pane = el.closest<HTMLElement>("[data-chat-topic-id]");
@@ -81,9 +81,9 @@ async function overflowsOf(form: Locator): Promise<Overflow[]> {
 interface Room { formHeight: number; room: number; actionsInside: boolean }
 
 /**
- * Lo spazio verticale che la pane lascia al pannello: dal bordo alto della pane
- * all'alto del composer. Il pannello più alto di così deve scorrere DENTRO di sé;
- * i suoi pulsanti restano comunque nello spazio visibile.
+ * The vertical room the pane leaves to the panel: from the pane's top edge to the
+ * top of the composer. A taller panel must scroll INSIDE itself; its buttons stay
+ * within the visible room anyway.
  */
 async function verticalRoom(form: Locator): Promise<Room> {
   return form.evaluate((el) => {
@@ -172,7 +172,7 @@ test.describe("Pannello delle domande dentro la pane", () => {
         const forms = page.locator(`[data-testid="tool-input-form-${toolCallId}"]`);
         await expect(forms.first()).toBeVisible({ timeout: 15_000 });
 
-        // Composer APERTO: ci scriviamo dentro prima di misurare.
+        // Composer OPEN: type into it before measuring.
         const composer = forms.first().locator("xpath=ancestor::*[@data-chat-topic-id][1]").getByTestId("chat-message-input");
         await composer.click();
         await composer.fill("una bozza che tiene il composer aperto e alto\ncon due righe");
@@ -186,9 +186,9 @@ test.describe("Pannello delle domande dentro la pane", () => {
           await form.scrollIntoViewIfNeeded();
           const bad = await overflowsOf(form);
           expect(bad, `larghezza ${c.w}, pane ${i + 1}/${count}: elementi fuori dalla pane`).toEqual([]);
-          // Verticale: il pannello sta nello spazio tra il bordo alto della pane
-          // e il composer (se il contenuto è di più, scorre dentro di sé) e i
-          // suoi pulsanti sono raggiungibili senza scorrere la chat.
+          // Vertical: the panel fits between the pane top and the composer (more
+          // content scrolls inside it) and its buttons are reachable without
+          // scrolling the chat.
           await form.scrollIntoViewIfNeeded();
           const v = await verticalRoom(form);
           expect(v.formHeight, `larghezza ${c.w}, pane ${i + 1}/${count}: pannello alto ${v.formHeight}px in ${v.room}px di pane`).toBeLessThanOrEqual(v.room);

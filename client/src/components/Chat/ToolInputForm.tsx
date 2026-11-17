@@ -273,9 +273,9 @@ function QuestionsForm({
           submittedAt: '',
         });
       }}
-      // Colonna con un tetto: intestazione e pulsanti restano fermi, le
-      // domande scorrono nel mezzo. Il tetto è lo spazio della pane
-      // (`usePaneRoom`); fuori da una pane, quello di ripiego.
+      // A column with a cap: header and buttons stay put, the questions scroll
+      // in the middle. The cap is the pane's room (`usePaneRoom`); outside a
+      // pane, the fallback one.
       className="flex flex-col gap-3 max-h-[min(32rem,80dvh)] min-w-0 max-w-full bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
