@@ -58,7 +58,7 @@
 import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../types";
 import { decodeCol } from "../../shared/message-blob";
-import { stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
+import { launchedSinceRetired, stoppedSubagentChat, wakeVerdict } from "./wake-adoption";
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
@@ -71,6 +71,8 @@ export interface ProcessExitFacts {
   label: string;
   /** Null: the process ended without recording a code. */
   exitCode: number | null;
+  /** ISO time the command started: an archived chat that started it after being archived is alive. */
+  startedAt?: string;
   durationMs: number;
   /** The last lines of its output, oldest first. */
   lines: string[];
@@ -268,7 +270,11 @@ export async function deliverProcessExit(
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
     const topic = deps.getTopicById(f.topicId);
-    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id)) !== "adopt") return "no-topic";
+    // A command a chat started after it was archived is that chat at work.
+    if (!topic || wakeVerdict(
+      { id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id),
+      (id) => launchedSinceRetired(deps.db, id, topic.sessionKey, f.startedAt),
+    ) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }

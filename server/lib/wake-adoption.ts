@@ -15,6 +15,15 @@
  * `reconcileArchivedTopicSessions` already applies to its session phase. Any
  * other archived topic is still refused, for the original reason (c8a6b0ac9):
  * adopting would write a row into a chat the user no longer has.
+ *
+ * A second proof of life, for the wakes that answer something the chat itself
+ * launched (a sub-agent's result, a command's exit, a card's outcome): the
+ * chat launched it AFTER it was archived. Channel chats (a person's WhatsApp
+ * or Discord thread driven by a bridge) are archived to stay out of the
+ * sidebar and keep working for weeks; on 17/11 such a parent spawned a child,
+ * the child finished, and the archived verdict wrote the result as a plain row:
+ * the parent never read it. A chat a person archived AFTER the launch is still
+ * refused, because the person closed it with the work in flight.
  */
 
 export type WakeVerdict = "adopt" | "no-topic" | "archived" | "stopped";
@@ -29,13 +38,15 @@ export function wakeVerdict(
   topic: { id: string; archived?: boolean } | null,
   ownedByRunningTask: (topicId: string) => boolean,
   stoppedChild: (topicId: string) => boolean,
+  launchedSinceRetired?: (topicId: string) => boolean,
 ): WakeVerdict {
   if (!topic) return "no-topic";
   if (stoppedChild(topic.id)) return "stopped";
   if (!topic.archived) return "adopt";
   // Asked only for archived topics: an open one needs no query, and the wake
   // runs on the stream hot path.
-  return ownedByRunningTask(topic.id) ? "adopt" : "archived";
+  if (ownedByRunningTask(topic.id)) return "adopt";
+  return launchedSinceRetired?.(topic.id) ? "adopt" : "archived";
 }
 
 /** The smallest slice of `bun:sqlite` this needs, so tests pass an in-memory db. */
@@ -82,4 +93,46 @@ export function runningTaskOwnsTopic(db: QueryDb, topicId: string): boolean {
     // No `task_attempts` table (an older database): there are no attempts to own it.
     return false;
   }
+}
+
+/**
+ * When did this chat last launch work whose outcome comes back to it: a
+ * sub-agent it spawned, or a card it opened? ISO time, or null when it
+ * launched nothing. (A command's start is passed by its own wake: commands
+ * are not rows.)
+ */
+export function lastLaunchFrom(db: QueryDb, topicId: string, sessionKey: string): string | null {
+  const latest = (sql: string, ...params: string[]): string | null => {
+    try {
+      const row = db.query(sql).get(...params) as { at: string | null } | null;
+      return row?.at ?? null;
+    } catch {
+      // A table an older database lacks: nothing launched through it.
+      return null;
+    }
+  };
+  const agents = latest("SELECT MAX(created_at) AS at FROM subagents WHERE parent_session_key = ?", sessionKey);
+  const opened = latest("SELECT MAX(created_at) AS at FROM tasks WHERE created_by_topic_id = ?", topicId);
+  const origin = latest("SELECT MAX(created_at) AS at FROM tasks WHERE origin_topic_id = ?", topicId);
+  return [agents, opened, origin].reduce<string | null>((a, b) => (b && (!a || b > a) ? b : a), null);
+}
+
+/**
+ * Is an archived chat alive because it launched work after it was archived?
+ * `launchedAt` is the launch the wake answers when the caller knows it (a
+ * command's start); otherwise the chat's latest launch. Archive time comes
+ * from `retirements` (the person's archive writes it with the date). With no
+ * date there is nothing to say the archive came later, so the launch wins.
+ */
+export function launchedSinceRetired(db: QueryDb, topicId: string, sessionKey: string, launchedAt?: string | null): boolean {
+  const launch = launchedAt ?? lastLaunchFrom(db, topicId, sessionKey);
+  if (!launch) return false;
+  let retiredAt: string | null = null;
+  try {
+    const row = db.query("SELECT retired_at AS at FROM retirements WHERE kind = 'topic' AND ref_id = ? LIMIT 1").get(topicId) as { at: string } | null;
+    retiredAt = row?.at ?? null;
+  } catch {
+    // No `retirements` table (an older database): no archive date to compare.
+  }
+  return !retiredAt || launch > retiredAt;
 }
