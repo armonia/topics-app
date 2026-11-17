@@ -33,6 +33,7 @@ import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-inp
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY, recordTurnCreatedPaths, turnTempDir, type TurnScope } from "./permissions";
 import { randomUUID } from "crypto";
+import { resolve } from "path";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -1224,7 +1225,15 @@ export async function runAgentTurn(
       // once the wait is already over.
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY, turnScope);
+      // `bash`'s own cwd, resolved the same way `recordTurnCreatedPaths` does,
+      // so a relative `rm` (`rm -rf scratch`, run from the turn's temp folder)
+      // is judged on where it actually lands, not rejected for having no
+      // leading `/`.
+      const bashInput = (t.input ?? {}) as Record<string, unknown>;
+      const bashCwd = t.name === "bash"
+        ? resolve(opts.toolContext.workspace, String(bashInput.cwd ?? opts.toolContext.workspace))
+        : undefined;
+      const verdict = decide(t.name!, bashInput, opts.autonomy ?? DEFAULT_AUTONOMY, bashCwd ? { ...turnScope, cwd: bashCwd } : turnScope);
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own
