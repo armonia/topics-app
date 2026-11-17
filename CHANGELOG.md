@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.41 — 2026-11-17
+
+### Correzioni
+- **board** · un turno di chat non promuove card che la chat ha aperto per sé (#1230)
+
+### Sotto il cofano
+- Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)
+- Pannello delle domande a scelte: resta dentro la pane e scorre dentro di sé (#1229)
+- righe di tool, sottoagenti e card sulla stessa griglia (#1227)
+- Tab e riga di una chat col turno chiuso dicono cosa aspettano (sottoagente, processo, lavoro) (#1225)
+- il loader non si ferma più quando apri il menu (#1232)
+- an unreachable node says so in three words, not with the transport's timeout message
+
 ## 2.4.40 — 2026-11-17
 
 ### Correzioni

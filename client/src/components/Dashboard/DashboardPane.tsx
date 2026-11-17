@@ -23,6 +23,10 @@ const ProjectUsagePanel = lazy(async () => {
   const { ProjectUsagePanel: Panel } = await import('../Sidebar/ProjectUsagePanel');
   return { default: Panel };
 });
+const PeopleUsageBox = lazy(async () => {
+  const { PeopleUsageBox: Box } = await import('./PeopleUsageBox');
+  return { default: Box };
+});
 
 // The pane's strings travel with its chunk, before its first render.
 addCatalogue('it', DASHBOARD_IT);
@@ -87,6 +91,13 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
     </section>
   );
 
+  // WHO SPENT the weekly quota, person by person (channel senders included).
+  const peopleUsage = (
+    <Suspense fallback={null}>
+      <PeopleUsageBox />
+    </Suspense>
+  );
+
   // WITH THE HUB the Dashboard is «Consumi»: the hub's sections first, the
   // board's numbers in one compact box, then the two cards above.
   if (hubPresent) {
@@ -95,6 +106,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
         <Suspense fallback={null}>
           <HubUsageSection kpis={kpis}>
             {chartCard}
+            {peopleUsage}
             {projectUsage}
           </HubUsageSection>
         </Suspense>
@@ -143,6 +155,7 @@ export function DashboardPane({ onMessage }: DashboardPaneProps) {
         <KPICardGrid kpis={kpis} />
 
         {chartCard}
+        {peopleUsage}
         {projectUsage}
       </div>
     </div>

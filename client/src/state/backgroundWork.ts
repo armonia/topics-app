@@ -61,7 +61,27 @@ export function composerStopsWork(tasks: ReadonlyArray<BackgroundTaskSummary>): 
  * here means nothing is running.
  */
 export function composerStopsTasks(tasks: ReadonlyArray<{ kind: string }>): boolean {
-  return tasks.some((t) => t.kind !== 'command');
+  return tasks.some((t) => t.kind !== 'command' && t.kind !== 'subagent');
+}
+
+/**
+ * What a chat with no turn open is waiting on, for its tab and its sidebar row
+ * (BGVIS-10). The glyph of a closed turn must not read as «writing»: it says
+ * WHAT is awaited, in this order of what the person would act on first.
+ *
+ *   subagent  a `spawn_agent` child works for the chat (its answer wakes it)
+ *   process   a `run_command` process will wake the chat at its end
+ *   job       the CLI's own task (an Agent, a Bash, a Monitor, a Workflow)
+ *   resuming  nothing is named: a report is waking the chat right now
+ */
+export type WaitingOn = 'subagent' | 'process' | 'job' | 'resuming';
+
+export function waitingOnOf(tasks: ReadonlyArray<{ kind: string; recurring?: boolean }>): WaitingOn {
+  const counting = tasks.filter((t) => !t.recurring);
+  if (counting.some((t) => t.kind === 'subagent')) return 'subagent';
+  if (counting.some((t) => t.kind === 'command')) return 'process';
+  if (counting.some((t) => t.kind !== 'wake')) return 'job';
+  return 'resuming';
 }
 
 export interface StreamingSnapshot {

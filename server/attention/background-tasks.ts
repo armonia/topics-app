@@ -249,3 +249,27 @@ export function withCommandTask(
   const counting = Object.values(out).filter((t) => !t.recurring);
   return { tasks: out, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
 }
+
+/** What `subagentWakeState` (`lib/subagent-runtime.ts`) says of a chat's `spawn_agent` children. */
+type SubagentOwed = "running" | "wake-queued" | "none";
+
+/**
+ * A chat's task map with its sub-agents folded in as ONE task (BGVIS-10): the
+ * children are chats of their own, rows of `subagents`, that neither the CLI's
+ * snapshot nor the process registry know. `running` while a child's turn is
+ * open, a `wake` (the chat about to answer) when every child is done and only a
+ * result is still on its way. Same contract as `withCommandTask`: a map in, the
+ * map out, so the writers can chain them.
+ */
+export function withSubagentTask(
+  tasks: Readonly<Record<string, TaskInfo>>,
+  owed: SubagentOwed,
+  startedAt: string,
+): { tasks: Record<string, TaskInfo>; count: number; kinds: string[] } {
+  const out: Record<string, TaskInfo> = {};
+  for (const [id, t] of Object.entries(tasks)) if (id !== "subagent") out[id] = t;
+  if (owed === "running") out.subagent = { kind: "subagent", label: "spawn_agent", startedAt: tasks.subagent?.startedAt ?? startedAt };
+  else if (owed === "wake-queued") out.subagent = { kind: "wake", label: "spawn_agent", startedAt: tasks.subagent?.startedAt ?? startedAt };
+  const counting = Object.values(out).filter((t) => !t.recurring);
+  return { tasks: out, count: counting.length, kinds: [...new Set(counting.map((t) => t.kind))] };
+}
