@@ -27,6 +27,8 @@ const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
 /** A change of shape takes this long to settle (seconds); the next change waits for it. */
 export const SETTLE_S = 1;
+/** How late after its slot a frame may still count as being on it (a capped body skips frames). */
+const GRID_LAG_S = 0.05;
 /** Below this two distances (or a pixel edge) count as equal, so every platform's maths draws the same image. */
 const TIE = 1e-9;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
@@ -254,6 +256,10 @@ export class LoaderBody {
   private mapLen = -1;
   private activity: LoaderActivity | null = null;
   private since = 0;
+  /** On the shared grid: the earliest time (shared clock, seconds) the next change of shape may start. */
+  private gate = 0;
+  /** Changes start on whole seconds of the shared clock, so loaders of one chat change in the same frame. */
+  private readonly onGrid: boolean;
   /** 0 right after a change of shape, 1 once settled. */
   private settled = 0;
   /** Last time this body stepped (seconds), for dt and the 30 fps cap. */
@@ -268,9 +274,10 @@ export class LoaderBody {
   constructor(
     readonly size: number,
     private readonly ctx: LoaderContext,
-    opts: { scale?: number; hollow?: boolean } = {},
+    opts: { scale?: number; hollow?: boolean; onGrid?: boolean } = {},
   ) {
     this.scale = opts.scale ?? 1;
+    this.onGrid = !!opts.onGrid;
     this.pixel = size <= 20;
     this.grid = this.pixel ? 7 : 9;
     this.tiny = size <= 16;
@@ -350,9 +357,18 @@ export class LoaderBody {
     // A change never cuts a change short: the next shape waits until the current one has settled.
     // Actions can arrive every 700 ms (and a rollup of several agents faster still), the change
     // takes SETTLE_S: cut short, each one restarted from standing and the body never reached a shape.
-    if (this.activity !== activity && (this.activity === null || t - this.since >= SETTLE_S)) {
+    // On the grid the wait ends on a whole second of the shared clock instead of `SETTLE_S` after this
+    // body's own start: bodies born at different moments (the tab, the sidebar row, the project row)
+    // would otherwise each count from their own birth and change up to a second apart.
+    const due = this.onGrid ? t >= this.gate : t - this.since >= SETTLE_S;
+    if (this.activity !== activity && (this.activity === null || due)) {
+      // A change released by the grid (a frame or two after its slot) counts from the slot, so the next
+      // one opens on the next whole second; a change on a free body counts from now. Either way the
+      // body has a full SETTLE_S to settle before the next one, and the gate is a whole second.
+      const slot = this.activity !== null && t - this.gate < GRID_LAG_S ? this.gate : t;
+      this.gate = Math.ceil((slot + SETTLE_S) / SETTLE_S) * SETTLE_S;
       this.activity = activity;
-      this.since = t;
+      this.since = this.onGrid ? slot : t;
       this.mapLen = -1;
     }
     activity = this.activity ?? activity;
@@ -383,6 +399,7 @@ export class LoaderBody {
     this.step(activity, t, 0);
     // Past the ramp, or a body that has just changed shape would not move at all.
     this.since = t - SETTLE_S;
+    this.gate = -Infinity;
     this.step(activity, t, 10);
     this.settled = 1;
   }

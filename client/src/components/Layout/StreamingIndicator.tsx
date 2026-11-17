@@ -37,7 +37,7 @@ import { useEffect, useRef } from 'react';
 import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/agentActionHooks';
 import { useT } from '../../hooks/useT';
-import { loaderActivityForAction, loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
+import { loaderActivityForAction, loaderArcClass, loaderOutcomeInkClass, loaderStateFor, type LoaderState } from './loaderState';
 import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
@@ -62,6 +62,9 @@ const GLYPH = 12;
 
 /** The ink fades from one state to the next (CSS, `motion-safe`); the canvas re-reads it for this long. */
 const INK_FADE_MS = 400;
+
+/** The canvas carries the colour transition (and, set by hand, the outcome ink); the span only the arc. */
+const CANVAS_CLASS = 'block motion-safe:transition-colors motion-safe:duration-base';
 
 /** The movement a loader plays when the caller does not say. */
 function defaultActivity(state: LoaderState): LoaderActivity {
@@ -89,29 +92,43 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
+    canvas.className = CANVAS_CLASS;
     const scale = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = canvas.height = Math.round(size * scale);
-    const body = new LoaderBody(size, ctx, { scale, hollow });
+    const body = new LoaderBody(size, ctx, { scale, hollow, onGrid: true });
     let color = getComputedStyle(canvas).color;
+    // The outcome ink sits on the canvas and follows the shape on screen, not the one asked for.
+    let outcome = '';
+    const syncOutcomeInk = (): boolean => {
+      const next = loaderOutcomeInkClass(body.shape);
+      if (next === outcome) return false;
+      outcome = next;
+      canvas.className = `${CANVAS_CLASS} ${next}`.trim();
+      return true;
+    };
     let draws = 0;
     let fadingUntil = 0;
     const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     refreshRef.current = () => {
+      if (still) { body.snap(activityRef.current, 2); syncOutcomeInk(); }
       color = getComputedStyle(canvas).color;
       fadingUntil = performance.now() + INK_FADE_MS;
-      if (still) { body.snap(activityRef.current, 2); body.draw(color); }
+      if (still) body.draw(color);
     };
     const client: ClockClient = {
       body,
       activity: () => activityRef.current,
       // The ink can change with the theme: re-read it now and then, not on every frame.
       color: () => {
+        if (syncOutcomeInk()) fadingUntil = performance.now() + INK_FADE_MS;
         if (++draws % 45 === 0 || performance.now() < fadingUntil) color = getComputedStyle(canvas).color;
         return color;
       },
     };
     if (still) {
       body.snap(activityRef.current, 2);
+      syncOutcomeInk();
+      color = getComputedStyle(canvas).color;
       body.draw(color);
       return;
     }
@@ -133,14 +150,14 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
 
   return (
     <span
-      className={`relative inline-flex items-center justify-center motion-safe:transition-colors motion-safe:duration-base ${loaderInkClass(state, onFill, activity)} ${className}`}
+      className={`relative inline-flex items-center justify-center ${loaderArcClass(state, onFill)} ${className}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
       {/* In flow, not `absolute`: the glyph is a sign, never a layer. A positioned
           canvas read as something laid over whatever surface hosts the loader
           (the browser pane's "starting" wait counted as an overlay on the page). */}
-      <canvas ref={canvasRef} className="block" style={{ width: size, height: size }} />
+      <canvas ref={canvasRef} className={CANVAS_CLASS} style={{ width: size, height: size }} />
     </span>
   );
 }
