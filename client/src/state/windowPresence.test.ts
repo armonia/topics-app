@@ -11,7 +11,6 @@
 import { describe, test, it, expect } from 'bun:test';
 import {
   computeDetachedTopicMap,
-  computeDetachedWindows,
   computeSpaceWindows,
   useWindowPresenceStore,
   windowTabs,
@@ -61,23 +60,6 @@ describe('computeDetachedTopicMap', () => {
     const map = computeDetachedTopicMap(windows, 'self');
     expect(map.has('y')).toBe(true);
     expect(map.get('y')?.windowLabel).toBeUndefined();
-  });
-});
-
-describe('computeDetachedWindows', () => {
-  test('returns only detached windows, excluding self', () => {
-    const windows = byId(
-      win({ windowId: 'self', detached: true, topicIds: ['a'] }),
-      win({ windowId: 'w2', detached: true, topicIds: ['b'] }),
-      win({ windowId: 'w3', detached: false, topicIds: ['c'] }),
-    );
-    const list = computeDetachedWindows(windows, 'self');
-    expect(list.map((w) => w.windowId)).toEqual(['w2']);
-  });
-
-  test('empty when no other detached window exists', () => {
-    const windows = byId(win({ windowId: 'w2', detached: false, topicIds: ['b'] }));
-    expect(computeDetachedWindows(windows, 'self')).toEqual([]);
   });
 });
 

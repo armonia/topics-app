@@ -143,15 +143,6 @@ export function computeDetachedTopicMap(
   return map;
 }
 
-/** All DETACHED windows other than `selfWindowId` (drives DetachedWindowMarker,
- *  the in-grid "this lives in another window" card). */
-export function computeDetachedWindows(
-  windows: Record<string, PresenceWindow>,
-  selfWindowId: string,
-): PresenceWindow[] {
-  return Object.values(windows).filter((w) => w.detached && w.windowId !== selfWindowId);
-}
-
 /**
  * I GRUPPI che vivono in una finestra loro: `spaceId → windowLabel`.
  *
@@ -190,12 +181,6 @@ export function computeSpaceWindows(
 export function useDetachedTopicMap(): Map<string, { windowId: string; windowLabel?: string }> {
   const windows = useWindowPresenceStore((s) => s.windows);
   return useMemo(() => computeDetachedTopicMap(windows, ownWindowId()), [windows]);
-}
-
-/** See computeDetachedWindows — excludes THIS window's id. */
-export function useDetachedWindows(): PresenceWindow[] {
-  const windows = useWindowPresenceStore((s) => s.windows);
-  return useMemo(() => computeDetachedWindows(windows, ownWindowId()), [windows]);
 }
 
 /**
