@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.31",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.30",
     "date": "2026-11-17",
     "sections": {
