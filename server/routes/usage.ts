@@ -24,7 +24,7 @@ import { getSessionConsumption } from "../services/session-consumption-wiring";
 import type { SessionUsageResponse } from "../../shared/usage-shapes";
 import type { Database } from "bun:sqlite";
 import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
-import { authorForSender, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
+import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
 
 /**
  * The per-project aggregate is a GROUP BY over the whole `messages` table, and
@@ -115,6 +115,25 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       } catch (err: any) {
         console.error("[Usage] project aggregate failed:", err);
         return ctx.errorResponse(500, err?.message || "Failed to compute project usage");
+      }
+    }
+
+    // POST /api/usage/people/merge {from, into}: the same human seen on two channels becomes one person.
+    // Owner only, like the senders: it rewrites who did the work.
+    if (method === "POST" && pathname === "/api/usage/people/merge") {
+      if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
+      let body: Record<string, unknown> | null = null;
+      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformed */ }
+      const from = typeof body?.from === "string" ? body.from : "";
+      const into = typeof body?.into === "string" ? body.into : "";
+      try {
+        const r = mergeChannelPerson(db, from, into);
+        if (!r.ok) return json({ error: r.error }, r.status);
+        peopleCache = null;
+        return json({ into, moved: r.moved });
+      } catch (err) {
+        console.error("[Usage] people merge failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to merge people");
       }
     }
 
