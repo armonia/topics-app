@@ -1,5 +1,45 @@
 [
   {
+    "version": "2.4.39",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-17 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "nodo principale scelto a mano (analisi, proposta, tracce)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nodo principale per tutto il sistema agentico (strada completa, mappa, account)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "sul principale i modelli Claude solo da abbonamento, con barra in T2",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Drop the empty left column from the Thinking row (#1223)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.38",
     "date": "2026-11-17",
     "sections": {
