@@ -30,8 +30,8 @@ import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
-import { readBoardWorkflow, readOwnWorkflowPreset, readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
-import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_PRESET_IDS, isWorkflowPresetId, parsePersonPaths, type WorkflowPresetId } from "../../shared/workflow";
+import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
+import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parsePersonPaths } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -293,19 +293,18 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       catch (e) { return fail(e); }
     }
 
-    // THE BOARD'S WORKFLOW (`shared/workflow.ts`): GET resolves it (project row,
-    // else the global '*' row, else `default`); PUT { preset } writes this
-    // scope's row, `preset: null` removes it. `/api/boards/*/workflow` is the
-    // global default. `own` is the row of exactly this scope, so the picker can
-    // tell «inherited» from «chosen here».
+    // THE BOARD'S WORKFLOW (`shared/workflow.ts`): GET gives the columns (the same
+    // for every board) and the rules beside them. `/api/boards/*/workflow` is the
+    // global default of the rules.
     const bWorkflow = matchRoute(pathname, "/api/boards/:projectId/workflow");
     if (bWorkflow) {
       const scope = bWorkflow.projectId;
       // `rules` = the CI switch and the board's paths a person must look at,
-      // resolved; `ownRules` = this scope's row. PUT takes any of `preset`,
+      // resolved; `ownRules` = this scope's row. PUT takes any of
       // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
-      // keys present are written, `null` = inherit.
-      const view = () => ({ ...readBoardWorkflow(ctx.db, scope), own: readOwnWorkflowPreset(ctx.db, scope), rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
+      // keys present are written, `null` = inherit. A `preset` key from an old
+      // caller is accepted and ignored: there is one set of columns now.
+      const view = () => ({ columns: WORKFLOW_COLUMNS, rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
       if (method === "GET") {
         try { return json(view()); }
         catch (e) { return fail(e); }
@@ -314,11 +313,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         const body = ((await readJSON(req)) ?? {}) as { preset?: unknown; ciPhase?: unknown; personPaths?: unknown };
         const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k);
         if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
-          return json({ error: "nothing to write: send preset, ciPhase or personPaths", code: "invalid_input" }, 400);
-        }
-        const preset = body.preset;
-        if (has("preset") && preset !== null && !isWorkflowPresetId(preset)) {
-          return json({ error: `preset must be one of ${WORKFLOW_PRESET_IDS.join(", ")}, or null`, code: "invalid_input" }, 400);
+          return json({ error: "nothing to write: send ciPhase or personPaths", code: "invalid_input" }, 400);
         }
         if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
           return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
@@ -333,14 +328,6 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
               ...(has("personPaths") ? { personPaths } : {}),
             }, new Date().toISOString());
-          }
-          // Through the service: the cards whose column the new workflow does
-          // not have go back to the default one, and the attention state reads
-          // them again (a card in review there waits on the person).
-          if (has("preset")) {
-            for (const task of svc.applyBoardWorkflow({ scope, preset: preset as WorkflowPresetId | null })) {
-              broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
-            }
           }
           return json(view());
         } catch (e) { return fail(e); }
