@@ -313,7 +313,7 @@ _SERVER_OF_IP = {}
 def ssh(ip, cmd, timeout=120, inp=None):
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
                            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
                            f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
 
@@ -456,7 +456,7 @@ def open_tunnel(sl):
     if tunnel_alive(sl):
         return True
     known = known_file(sl['ip'])
-    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
                           "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
                           "-o", f"UserKnownHostsFile={known}", "-L", f"127.0.0.1:{LPORT + sl['n']}:127.0.0.1:3341",
                           "-R", f"127.0.0.1:{rport(sl)}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],

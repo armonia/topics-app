@@ -119,7 +119,7 @@ class SshMarking(Base):
     def test_ssh_never_sets_a_dscp_mark(self):
         # il DSCP di default di ssh rallenta l'handshake su alcune reti (17/11: 13-72 s contro 1-4 s)
         argv = hs.ssh_argv(T1, "true")
-        self.assertIn("IPQoS=none", argv)
+        self.assertIn("IPQoS=af41", argv)
 
 
 class Exclusions(Base):
