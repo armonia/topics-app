@@ -85,22 +85,39 @@ export interface PersonPath { pattern: string; why: string }
 /** The rules of a workflow beside its columns. */
 export interface WorkflowRules {
   /**
-   * Accepted work is measured together with main in the CI column before it
-   * lands. Takes effect only on a board with CI rows and auto-merge on.
+   * When accepted work meets the CI (`CiPhaseMode`). Takes effect only on a
+   * board with CI rows and auto-merge on.
    */
-  ciPhase: boolean;
+  ciPhase: CiPhaseMode;
   /** This board's paths on top of the generic list: the global row's first, then the project's. */
   personPaths: PersonPath[];
 }
 
-/** One scope's row: `null`/absent = inherit (the global row, then the default). */
-export interface WorkflowRulesRow { ciPhase?: boolean | null; personPaths?: PersonPath[] | null }
+/**
+ * When accepted work is measured by the CI:
+ *  - `before`: measured together with main in the CI column, then it lands;
+ *  - `after`: it lands at once, the CI measures main afterwards and a red goes back to the agent;
+ *  - `off`: no CI phase, the land is the only step.
+ */
+export type CiPhaseMode = 'before' | 'after' | 'off';
+export const CI_PHASE_MODES: readonly CiPhaseMode[] = ['before', 'after', 'off'];
+export const DEFAULT_CI_PHASE: CiPhaseMode = 'after';
+
+/** A mode, or the boolean the switch used to be (`true` = before, `false` = off); `null` when it is neither. */
+export function parseCiPhase(v: unknown): CiPhaseMode | null {
+  if (v === true) return 'before';
+  if (v === false) return 'off';
+  return typeof v === 'string' && (CI_PHASE_MODES as readonly string[]).includes(v) ? (v as CiPhaseMode) : null;
+}
+
+/** One scope's row: `null`/absent = inherit (the global row, then the default). A boolean is the old form of the switch. */
+export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null }
 
 export const MAX_PERSON_PATHS = 200;
 
-/** The project's CI switch wins over the global one (on by default); the paths add up. */
+/** The project's CI mode wins over the global one (`after` by default); the paths add up. */
 export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
-  const ciPhase = rows.project?.ciPhase ?? rows.global?.ciPhase ?? true;
+  const ciPhase = parseCiPhase(rows.project?.ciPhase) ?? parseCiPhase(rows.global?.ciPhase) ?? DEFAULT_CI_PHASE;
   return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])] };
 }
 

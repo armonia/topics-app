@@ -12,6 +12,7 @@ import {
   awaitsHuman,
   awaitsHumanSql,
   columnOfTask,
+  parseCiPhase,
   parsePersonPaths,
   personPathsFromText,
   personPathsToText,
@@ -56,13 +57,23 @@ describe("columnOfTask", () => {
 });
 
 describe("resolveWorkflowRules: the CI switch inherits, the paths add up", () => {
-  test("no rows: CI phase on, no board paths", () => {
-    expect(resolveWorkflowRules({})).toEqual({ ciPhase: true, personPaths: [] });
+  test("no rows: the CI measures after the land, no board paths", () => {
+    expect(resolveWorkflowRules({})).toEqual({ ciPhase: "after", personPaths: [] });
   });
-  test("the project's switch wins over the global one; null inherits", () => {
-    expect(resolveWorkflowRules({ global: { ciPhase: false } }).ciPhase).toBe(false);
-    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: true } }).ciPhase).toBe(true);
-    expect(resolveWorkflowRules({ global: { ciPhase: false }, project: { ciPhase: null } }).ciPhase).toBe(false);
+  test("the project's mode wins over the global one; null inherits", () => {
+    expect(resolveWorkflowRules({ global: { ciPhase: "off" } }).ciPhase).toBe("off");
+    expect(resolveWorkflowRules({ global: { ciPhase: "off" }, project: { ciPhase: "before" } }).ciPhase).toBe("before");
+    expect(resolveWorkflowRules({ global: { ciPhase: "before" }, project: { ciPhase: null } }).ciPhase).toBe("before");
+  });
+  test("the three modes read as themselves, the old booleans as before and off", () => {
+    expect(resolveWorkflowRules({ project: { ciPhase: "before" } }).ciPhase).toBe("before");
+    expect(resolveWorkflowRules({ project: { ciPhase: "after" } }).ciPhase).toBe("after");
+    expect(resolveWorkflowRules({ project: { ciPhase: "off" } }).ciPhase).toBe("off");
+    expect(resolveWorkflowRules({ project: { ciPhase: true } }).ciPhase).toBe("before");
+    expect(resolveWorkflowRules({ project: { ciPhase: false } }).ciPhase).toBe("off");
+    // A value nobody knows inherits instead of switching the CI off by accident.
+    expect(resolveWorkflowRules({ global: { ciPhase: "before" }, project: { ciPhase: "later" as never } }).ciPhase).toBe("before");
+    expect(parseCiPhase("later")).toBeNull();
   });
   test("the global paths come first, then the project's", () => {
     const g = { pattern: "a/**", why: "g" }; const p = { pattern: "b/**", why: "p" };

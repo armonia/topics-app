@@ -2,9 +2,11 @@ import type { Database } from "bun:sqlite";
 import {
   GLOBAL_WORKFLOW_SCOPE,
   STAGE_CI,
+  parseCiPhase,
   parsePersonPaths,
   resolveWorkflowRules,
   type BoardWorkflow,
+  type CiPhaseMode,
   type PersonPath,
   type WorkflowRules,
   type WorkflowRulesRow,
@@ -17,6 +19,20 @@ import {
  * only). The columns are not stored: they are the same for every board
  * (`WORKFLOW_COLUMNS`); the old `board_workflows` table is no longer read.
  */
+/**
+ * `ci_phase` kept its INTEGER column when the switch grew from two values to
+ * three: 1 = before (what `true` always meant), 0 = off (`false`), 2 = after.
+ * Rows written before the third value read the same, no migration.
+ */
+const CI_PHASE_COLUMN: Record<CiPhaseMode, number> = { before: 1, off: 0, after: 2 };
+function ciPhaseFromColumn(v: number | null): CiPhaseMode | null {
+  return (Object.keys(CI_PHASE_COLUMN) as CiPhaseMode[]).find((m) => CI_PHASE_COLUMN[m] === v) ?? null;
+}
+function ciPhaseToColumn(v: WorkflowRulesRow["ciPhase"]): number | null {
+  const mode = parseCiPhase(v);
+  return mode ? CI_PHASE_COLUMN[mode] : null;
+}
+
 export function readOwnWorkflowRules(db: Database, scope: string): WorkflowRulesRow | null {
   try {
     const r = db.prepare("SELECT ci_phase, person_paths FROM board_workflow_rules WHERE scope = ?").get(scope) as { ci_phase: number | null; person_paths: string | null } | null;
@@ -28,7 +44,7 @@ export function readOwnWorkflowRules(db: Database, scope: string): WorkflowRules
       // interface land alone. It fails the read, and the land asks a person.
       if (personPaths === null) throw new Error(`board_workflow_rules: unreadable person_paths for ${scope}`);
     }
-    return { ciPhase: r.ci_phase === null ? null : r.ci_phase === 1, personPaths };
+    return { ciPhase: ciPhaseFromColumn(r.ci_phase), personPaths };
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("board_workflow_rules:")) throw e;
     return null;
@@ -47,7 +63,7 @@ export function writeWorkflowRules(db: Database, scope: string, patch: WorkflowR
   if (patch.personPaths != null && parsePersonPaths(patch.personPaths) === null) throw new Error("invalid personPaths");
   const cur = readOwnWorkflowRules(db, scope) ?? {};
   const next: WorkflowRulesRow = {
-    ciPhase: patch.ciPhase !== undefined ? patch.ciPhase : cur.ciPhase ?? null,
+    ciPhase: patch.ciPhase !== undefined ? parseCiPhase(patch.ciPhase) : cur.ciPhase ?? null,
     personPaths: patch.personPaths !== undefined ? patch.personPaths : cur.personPaths ?? null,
   };
   if (next.ciPhase == null && (next.personPaths == null || next.personPaths.length === 0)) {
@@ -57,7 +73,7 @@ export function writeWorkflowRules(db: Database, scope: string, patch: WorkflowR
   db.prepare(
     `INSERT INTO board_workflow_rules (scope, ci_phase, person_paths, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT(scope) DO UPDATE SET ci_phase = excluded.ci_phase, person_paths = excluded.person_paths, updated_at = excluded.updated_at`,
-  ).run(scope, next.ciPhase == null ? null : next.ciPhase ? 1 : 0, next.personPaths?.length ? JSON.stringify(parsePersonPaths(next.personPaths)) : null, nowIso);
+  ).run(scope, ciPhaseToColumn(next.ciPhase), next.personPaths?.length ? JSON.stringify(parsePersonPaths(next.personPaths)) : null, nowIso);
 }
 
 /**

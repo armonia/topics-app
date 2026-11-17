@@ -11,6 +11,7 @@ import { worktreeDirtProbe, worktreeRealDirt } from "../services/task-automerge"
 import { killAgentProcessTree } from "../lib/kill-agent-tree";
 import { branchStatusFromRepo, commitIsAncestor, resolveCommit } from "../services/branch-status";
 import { resolveDeliveryBranch } from "../services/delivery-branch-ref";
+import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
 import { tryGetProvider } from "../providers";
 import { startProcessDetection, stopCardCommandProcesses, stopTopicCommandProcesses } from "../routes/processes";
@@ -133,6 +134,11 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     ownBranchFiles: (repoPath, branch) => ownBranchFiles(repoPath, branch),
     // The CI phase (`services/integration-queue.ts`): the repository a card's branch lives in.
     integrationRepo: async (taskId) => (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null,
+    // The CI of main, for the red no card owns (`services/main-ci-watch.ts`).
+    mainCiPort: async (projectId) => {
+      const repo = deliveryBranchDeps().boardRepoPath(projectId);
+      return repo ? realMainCiPort(repo) : null;
+    },
     // A throwaway checkout of a branch planted from another machine, so its bar
     // can be measured on the commit that will land (`services/node-delivery-meter.ts`).
     nodeDeliveryCheckout: async (taskId) => {

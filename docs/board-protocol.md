@@ -514,7 +514,12 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
         `desktop-tauri/**` e le migration comprese (il DB vivo è copiato ogni 10 s
         da Litestream): con la barra verde sul commit consegnato entra nella
         **fase CI** (sotto) e atterra quando la CI del commit di integrazione è verde.
-     **Fase CI** (si spegne dalle regole del workflow: `ciPhase: false`)
+     **Quando la CI incontra il lavoro** è una regola della board a tre valori
+     (`ciPhase` nelle regole del workflow, pannello impostazioni → Workflow → «Fase CI»;
+     default `after`; i vecchi `true`/`false` valgono `before`/`off`):
+     `before` = la fase CI qui sotto (misura, poi atterra); `after` = atterra subito e la
+     CI legge main dopo (sotto, «CI dopo il land»); `off` = nessuna fase, il land è l'unico passo.
+     **Fase CI** (`ciPhase: before`)
      (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
      «Ti aspetta»). Ogni land chiesto (Approva o «Landa» di una persona su una card
      col ramo non ancora su main, l'atterraggio automatico) mette la card in una
@@ -538,6 +543,34 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      entra nella fase. La riconsegna dopo un ok di una persona si confronta con il commit
      approvato sui SOLI cambiamenti propri della card (`ownChangesBetween`, ciascuno
      contro la sua base): ciò che main ha ricevuto nel frattempo non la rimanda alla persona.
+     **CI dopo il land** (`ciPhase: after`, il default). In locale si unisce subito: il land
+     è quello di sempre, senza coda e senza aspettare i turni aperti, e la modifica è su main
+     (e nell'app) appena è approvata. Quando main ha CONFERMATO il merge la card porta un segno
+     (`tasks.ci_after`, che sopravvive a un riavvio: la spazzata rimette in coda chi lo ha ancora)
+     e una seconda coda per progetto (`services/integration-queue.ts` con `landed`) la misura con
+     la stessa macchina della fase CI: commit di integrazione su `origin/main`, ramo
+     `topics/integrazione-<sha8>`, PR in bozza, righe `github-ci:*` della board. Se la card è già
+     dentro `origin/main` (il land ha spinto) il commit di integrazione è un commit vuoto sopra
+     main: si misura main com'è. Verde → nota sulla card e fine. Rosso → la card esce da `done`,
+     torna in `todo` con il log e l'avviso «il tuo lavoro è già su main, correggi in avanti con
+     un commit nuovo» (`red-bounce.ts`, stesso tetto di 3 giri senza una parola umana; la decisione
+     di landare resta, e la consegna corretta atterra da sola), poi `human_ask` che offre anche il
+     `git revert -m 1`. Un rosso su più card atterrate insieme va a tutte, ciascuna con l'elenco delle
+     altre: sono già dentro lo stesso commit, il lotto non si dimezza. Main non si ripristina mai da solo:
+     si ripara in avanti. Un land chiesto con «Landa e pubblica» o trascinando in Done non passa dalla
+     misura: il push fa girare la CI di main, e a guardarla è il controllo di main (sotto).
+     **Nessuno aspetta la CI dopo il land**: l'agente consegna e chiude il turno, e una sessione
+     che ha verificato e unito si chiude subito. Il rosso lo raccoglie il flusso: torna alla
+     card che ha atterrato quel commit (`bounceAfterLand`), oppure, se il commit è su main senza una
+     card (spinto da una chat o a mano, «Landa e pubblica», trascinamento in Done), diventa una card.
+     **Controllo di main** (`services/main-ci-watch.ts`, agganciato alla spazzata di `sweepAutoLand`, nessun
+     poller): per ogni progetto con righe `github-ci:*` e la CI non spenta guarda il commit più recente di
+     `origin/main` che ha un esito della CI del PUSH. Verde → niente. In corso → richiede alla spazzata dopo.
+     Rosso → se una card della regola `after` (segno `tasks.ci_after`, non chiuso come verde) ha quel
+     commit tra i suoi, non si fa niente: lo dice la sua misura. Altrimenti UNA card in `todo`
+     «CI rossa su main dopo <sha8>: riparare», con sha, job rossi e link al run, idempotente per sha
+     (`tasks.claude_task_id` = `main-ci-red:<progetto>:<sha>`, anche se la card è poi archiviata), che il
+     dispatcher prende come le altre; si ripara in avanti.
      **Il rosso torna all'agente da solo** anche fuori dalla fase CI: una card in
      review con la barra rossa sul commit consegnato (tipicamente una consegna
      dal nodo, misurata dopo l'ingresso in review) viene rimandata dalla spazzata
