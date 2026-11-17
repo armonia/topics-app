@@ -17,7 +17,6 @@
  * Both go through the service's projectId guard, so a caller can only touch
  * tasks on the project it named/owns (no cross-project IDOR).
  */
-import { STAGE_AI_REVIEW } from "../../shared/workflow";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { homedir } from "node:os";
@@ -1101,7 +1100,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const target = resolveGlobalTask(globalCommentsRoute.taskId);
       if (!target) return json({ error: "task not found", code: "not_found" }, 404);
       try {
-        const prevStage = target.got.task.stage ?? null;
         const comment = svc.addComment({
           taskId: globalCommentsRoute.taskId,
           author: globalSession.actor,
@@ -1114,9 +1112,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(globalCommentsRoute.taskId, { projectId: target.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: target.projectId, task });
-        // A question on a card in AI review sends it to the person.
-        emitReviewReadyEdge(broadcastToAll, target.projectId, task, "review", undefined,
-          () => svc.get(globalCommentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -1299,7 +1294,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         }, 400);
       }
       try {
-        const prevStage = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task.stage ?? null;
         const comment = svc.addComment({
           taskId: commentsRoute.taskId,
           // The same identity the status row carries. What a person reads on
@@ -1323,9 +1317,6 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         });
         const task = svc.get(commentsRoute.taskId, { projectId: sess.projectId })?.task;
         broadcastToAll({ type: "task:updated", projectId: sess.projectId, task });
-        // A question on a card in AI review sends it to the person.
-        emitReviewReadyEdge(broadcastToAll, sess.projectId, task, "review", undefined,
-          () => svc.get(commentsRoute.taskId)?.comments, prevStage);
         return json(comment, 201);
       } catch (e) { return fail(e); }
     }
@@ -1486,15 +1477,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // update_task). Al momento del fronte la domanda è l'ultima riga del
           // thread — esattamente ciò che la card mostra come quick-reply.
           emitReviewReadyEdge(broadcastToAll, sess.projectId, task, prevStatus, undefined,
-            () => svc.get(task.id)?.comments, prev?.stage ?? null);
+            () => svc.get(task.id)?.comments);
           triggerUrlProbe(item.taskId, task.outputUrl ?? null, sess.projectId);
-          // AN AI REVIEW CLOSED BY WHOEVER OPENED THE CARD is the same «done»
-          // a person's approval is: what was waiting on it starts, and the
-          // delivery lands if the board lands on done.
-          if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done") {
-            dispatcher?.onBlockerDone(item.taskId);
-            if (task.deliveryBranch) enqueueLandOnDone(sess.projectId, item.taskId, task.deliveryBranch);
-          }
           return json(task);
         } catch (e) { return fail(e); }
       }

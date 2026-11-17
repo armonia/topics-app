@@ -195,8 +195,8 @@ describe("review parity: Kanban, tab, tray, attention and Plan count the same ca
     card("parentD", "p2", "backlog");
     card("d1", "p2", "in_progress", { parent: "parentD" });
     card("d1a", "p2", "review", { parent: "d1" });
-    // Not a person's: AI review, and an archived step.
-    card("rootE", "p2", "review", { stage: "ai_review" });
+    // Not a person's: the CI column, and an archived step.
+    card("rootE", "p2", "review", { stage: "ci" });
     card("b4", "p1", "review", { parent: "parentB", archived: true });
     return db;
   }

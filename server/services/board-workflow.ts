@@ -1,17 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { commentAuthorLabel } from "../../shared/comment-author";
-import { parseQuestionBlock, questionAsksHuman } from "../../shared/board";
 import {
-  AI_REVIEW_REMIND_MS,
-  AI_REVIEW_RETRY_MS,
   GLOBAL_WORKFLOW_SCOPE,
-  STAGE_AI_REVIEW,
   STAGE_CI,
   isWorkflowPresetId,
   parsePersonPaths,
   resolveWorkflow,
   resolveWorkflowRules,
-  stageForDelivery,
   type BoardWorkflow,
   type PersonPath,
   type WorkflowPresetId,
@@ -141,78 +135,18 @@ export function clearStagesOutsideWorkflow(db: Database, scope: string, nowIso: 
 }
 
 /**
- * The cards left in AI review, untouched for `AI_REVIEW_REMIND_MS`, that the
- * coordinator was not reminded of since their last touch: each is stamped
- * (`ai_review_reminded_at`, `updated_at` left alone) in the statement that
- * re-checks it, so two passes cannot both return it. Returns their ids.
- *
- * `failed`: cards whose last reminder reached nobody (id → when, ms). Their
- * stamp was taken back (`clearAiReviewReminderStamp`), so they come back here; a
- * card is held back until `AI_REVIEW_RETRY_MS` after its failure, so a board
- * with nobody to wake does not log the same failure at every reconcile.
- */
-export function stampStaleAiReview(db: Database, nowIso: string, failed?: Map<string, number>): string[] {
-  const nowMs = Date.parse(nowIso);
-  for (const [id, at] of failed ?? []) if (nowMs - at >= AI_REVIEW_RETRY_MS) failed!.delete(id);
-  const cutoffIso = new Date(nowMs - AI_REVIEW_REMIND_MS).toISOString();
-  const fresh = "(ai_review_reminded_at IS NULL OR ai_review_reminded_at < updated_at)";
-  let ids: Array<{ id: string }> = [];
-  try {
-    ids = db.prepare(
-      `SELECT id FROM tasks WHERE archived = 0 AND status = 'review' AND stage = ? AND updated_at < ? AND ${fresh} ORDER BY updated_at`,
-    ).all(STAGE_AI_REVIEW, cutoffIso) as Array<{ id: string }>;
-  } catch { return []; }
-  return ids.filter(({ id }) => !failed?.has(id) && db.prepare(
-    `UPDATE tasks SET ai_review_reminded_at = ? WHERE id = ? AND status = 'review' AND stage = ? AND ${fresh}`,
-  ).run(nowIso, id, STAGE_AI_REVIEW).changes > 0).map(({ id }) => id);
-}
-
-/**
- * A QUESTION FOR THE PERSON ON A CARD IN AI REVIEW, written by an agent after
- * the delivery: the card stops waiting on its opener and waits on the person,
- * the same routing a delivery carrying the question gets (`stageForDelivery`),
- * with the question as its `human_ask`. Without this the question sat in a
- * column no person looks at. `true` when the card moved.
- */
-export function routeAskOutOfAiReview(
-  db: Database,
-  card: { id: string; project_id: string; created_by?: string | null },
-  author: string,
-  body: string,
-): boolean {
-  if (commentAuthorLabel(author).kind !== "agent") return false;
-  const q = parseQuestionBlock(body);
-  if (!q || !questionAsksHuman(q)) return false;
-  const stage = stageForDelivery(readBoardWorkflow(db, card.project_id).columns, { createdBy: card.created_by, humanAsk: q.question });
-  if (stage === STAGE_AI_REVIEW) return false;
-  return db.prepare("UPDATE tasks SET stage = ?, human_ask = ? WHERE id = ? AND status = 'review' AND stage = ?")
-    .run(stage, q.question, card.id, STAGE_AI_REVIEW).changes > 0;
-}
-
-/**
  * A card moved to another board: its stage belongs to the source board's
  * workflow. One the target does not have (or that disagrees with the status
  * there) goes back to the default column of the status, as
- * `clearStagesOutsideWorkflow` does when a board changes preset: an
- * `ai_review` carried onto a `default` board drew the card in Review while
- * the tray and the waiting-on-you list, which read the stage, left it out.
+ * `clearStagesOutsideWorkflow` does when a board changes preset, so a stage
+ * left by an older workflow never hides a card from the tray and the
+ * waiting-on-you list, which read the stage.
  */
 export function dropStageOutsideTarget(db: Database, taskId: string, targetProjectId: string): void {
   const r = db.prepare("SELECT stage, status FROM tasks WHERE id = ?").get(taskId) as { stage: string | null; status: string } | null;
   if (!r?.stage) return;
   if (readBoardWorkflow(db, targetProjectId).columns.some((c) => c.id === r.stage && c.base === r.status)) return;
   db.prepare("UPDATE tasks SET stage = NULL WHERE id = ?").run(taskId);
-}
-
-/**
- * A reminder that reached nobody takes back the stamp `stampStaleAiReview`
- * wrote (only that one: a newer stamp is another reminder's), so a later
- * sweep sends it again. A schema without the column has nothing to retry.
- */
-export function clearAiReviewReminderStamp(db: Database, taskId: string, stampIso: string): void {
-  try {
-    db.prepare("UPDATE tasks SET ai_review_reminded_at = NULL WHERE id = ? AND ai_review_reminded_at = ?").run(taskId, stampIso);
-  } catch { /* no column, no reminder */ }
 }
 
 /**

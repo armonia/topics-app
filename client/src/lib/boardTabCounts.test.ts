@@ -63,7 +63,7 @@ describe('boardTabCounts', () => {
   test('review counts what waits on a PERSON, steps included: a parent in backlog says its steps', () => {
     const tasks = [
       { projectId: 'p', status: 'review' } as BoardTask,
-      { projectId: 'p', status: 'review', stage: 'ai_review' } as BoardTask,
+      { projectId: 'p', status: 'review', stage: 'ci' } as BoardTask,
       { projectId: 'p', status: 'backlog', subtaskReviewCount: 3 } as BoardTask,
     ];
     expect(boardTabCounts(tasks)).toEqual([{ status: 'review', n: 4 }]);
