@@ -48,10 +48,14 @@ class Fake:
     """Replaces hs._run: records every call (argv and stdin) and answers like a node would."""
     def __init__(self, mounted=True, ssh_ok=True, rsync_rc=0, bitlocker="C: Off FullyDecrypted", pc_state="acceso"):
         self.calls, self.mounted, self.ssh_ok, self.rsync_rc, self.bitlocker, self.pc_state = [], mounted, ssh_ok, rsync_rc, bitlocker, pc_state
+        self.missing = []
 
     def __call__(self, argv, input=None, timeout=300, cwd=None):
         self.calls.append((list(argv), input))
         cp = lambda rc=0, out="", err="": subprocess.CompletedProcess(argv, rc, out, err)
+        if argv[0] == "git":   # git è vero: la corrispondenza progetto -> repo si deriva da repo veri
+            return subprocess.run(argv, capture_output=True, text=True, cwd=cwd)
+        self.last_probe_extra = None
         if argv[0] == "security":
             return cp(0, PASSWORD + "\n") if "find-generic-password" in argv else cp(0)
         if argv[0] == "rsync":
@@ -65,7 +69,8 @@ class Fake:
             if "powershell" in cmd:
                 return cp(0, self.bitlocker + "\n")
             if "has-gocryptfs" in cmd:
-                return cp(0, ("open" if self.mounted else "closed") + "\nhas-gocryptfs\nhas-rsync\n")
+                missing = "".join(f"missing:{i}\n" for i in self.missing)
+                return cp(0, ("open" if self.mounted else "closed") + "\nhas-gocryptfs\nhas-rsync\n" + missing)
             if "gocryptfs -q" in cmd:
                 self.mounted = True
         return cp(0)
@@ -329,6 +334,89 @@ class StatusContract(Base):
         out = self.go()
         self.assertEqual(out["targets"]["m-linux"]["private"], "off")
         self.assertEqual(len(self.fake.argvs("rsync")), 1)
+
+
+def git(*a, cwd):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", *a], cwd=cwd, check=True, capture_output=True)
+
+
+class ProjectMemoryAliases(Base):
+    """La memoria di un progetto deve stare dove Claude Code, sul nodo, la cerca: sotto il nome codificato del
+    percorso del repo del nodo. La corrispondenza si deriva dal repo (origin), mai dal nome scritto a mano."""
+    def setUp(self):
+        super().setUp()
+        self.repo = os.path.join(FAKE_HOME, "Projects", "some-checkout-name")
+        os.makedirs(self.repo)
+        git("init", "-q", cwd=self.repo)
+        git("remote", "add", "origin", "git@github.com:acme/myrepo.git", cwd=self.repo)
+        git("commit", "-q", "--allow-empty", "-m", "i", cwd=self.repo)
+        self.wt = os.path.join(FAKE_HOME, ".topics", "worktrees", "myrepo", "wt1")
+        git("worktree", "add", "-q", "-b", "card", self.wt, cwd=self.repo)
+        for path, text in ((self.repo, "MAIN-MEMORY"), (self.wt, "WORKTREE-MEMORY")):
+            enc = hs.encode_project_path(path)
+            put(f".claude/projects/{enc}/memory/MEMORY.md", text)
+            put(f".claude/projects/{enc}/s1.jsonl", json.dumps({"type": "user", "cwd": path}) + "\n")
+        self.enc_repo = hs.encode_project_path(self.repo)
+        self.node_enc = "-home-topics-repos-myrepo"
+        self.cfg = hs.load_config()
+
+    def test_encoding_matches_claude_code(self):
+        self.assertEqual(hs.encode_project_path("/home/topics/.topics/worktrees/x_y"), "-home-topics--topics-worktrees-x-y")
+
+    def test_alias_from_origin_name_and_worktrees_are_not_aliased(self):
+        al = hs.project_aliases(self.cfg, {}, time.time())
+        self.assertEqual([a["enc"] for a in al], [self.node_enc], "un solo alias: il worktree risolve al repo principale")
+        self.assertEqual(al[0]["rel"], f".claude/projects/{self.enc_repo}/memory")
+        self.assertEqual(al[0]["dest"], f".claude/projects/{self.node_enc}/memory")
+
+    def test_memory_without_a_git_origin_gets_no_alias(self):
+        shutil.rmtree(os.path.join(self.repo, ".git/worktrees"), ignore_errors=True)
+        git("remote", "remove", "origin", cwd=self.repo)
+        self.assertEqual(hs.project_aliases(self.cfg, {}, time.time()), [])
+
+    def test_alias_is_synced_to_the_node_name_and_not_to_windows(self):
+        out = self.go()
+        cmds = self.fake.argvs("rsync")
+        al = [a for a in cmds if a[-1].endswith(f"{self.node_enc}/memory/")]
+        self.assertEqual(len(al), 1)
+        self.assertEqual(al[0][-2], f"{FAKE_HOME}/.claude/projects/{self.enc_repo}/memory/")
+        mk = [a[-1] for a in self.fake.argvs("ssh") if "mkdir -p" in a[-1]]
+        self.assertTrue(any(self.node_enc in c and "runuser -u topics -- mkdir -p" in c for c in mk),
+                        "la cartella padre si crea prima, come utente topics")
+        self.assertEqual(out["targets"]["m-linux"]["rev"], out["source"]["rev"])
+        sent = []
+        hs.tar_to_pc = lambda t, units, extra=(): (sent.append([u["entry"] for u in units]), (0, ""))[1]
+        out = self.go([PC])
+        self.assertFalse(any(e.startswith("alias:") for s in sent for e in s), "gli alias sono per i nodi Linux")
+        self.assertEqual(out["targets"]["m-pc"]["rev"], out["source"]["rev"])
+
+    def test_contents_are_the_same_as_the_mac(self):
+        self.go()
+        # il contenuto trasferito è la cartella memory del repo principale, non quella del worktree
+        src = [a[-2] for a in self.fake.argvs("rsync") if a[-1].endswith(f"{self.node_enc}/memory/")][0]
+        with open(os.path.join(src, "MEMORY.md")) as f:
+            self.assertEqual(f.read(), "MAIN-MEMORY")
+
+
+class NodeWasCleaned(Base):
+    def test_something_delivered_but_gone_from_the_node_is_sent_again(self):
+        self.go()
+        n = len(self.fake.argvs("rsync"))
+        self.go(force=True)
+        self.assertEqual(len(self.fake.argvs("rsync")), n, "tutto presente: niente da rifare")
+        units = hs.read_json(os.environ["HARNESS_SYNC_INTERNAL"], {})["units"]
+        checks = hs.probe_checks(units)
+        self.fake.missing = [i for i, (k, _) in enumerate(checks) if k == "pub:.claude/CLAUDE.md"]
+        self.assertTrue(self.fake.missing)
+        out = self.go(force=True)
+        again = [a for a in self.fake.argvs("rsync")[n:] if ".claude/CLAUDE.md" in a]
+        self.assertEqual(len(again), 1, "ciò che il nodo ha perso torna al giro dopo")
+        self.assertEqual(out["targets"]["m-linux"]["rev"], out["source"]["rev"])
+
+    def test_probe_tests_links_for_private_and_paths_for_public(self):
+        cs = dict(hs.probe_checks(hs.compute_units(self.cfg)))
+        self.assertIn("[ -L /home/topics/.claude/jarvis/private ]", cs["prv:.claude/jarvis/private"])
+        self.assertIn("[ -e /home/topics/.agents ]", cs["pub:.agents"])
 
 
 class NodePoolSide(unittest.TestCase):
