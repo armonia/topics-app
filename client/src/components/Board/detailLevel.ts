@@ -1,6 +1,7 @@
 /**
- * The board's DETAIL LEVELS, from the least detailed (projects with counts)
- * to the most detailed (the kanban), then the Plan: the same cards laid out by milestone. Pure helpers, shared by the slider and
+ * The board's LAYOUTS (stored under the historical "detail" names), picked from a
+ * switch and independent of the card density: projects with counts, the
+ * vertical list, the kanban, then the Plan: the same cards laid out by milestone. Pure helpers, shared by the slider and
  * the pane so the stored preference and the arrow keys agree on the order.
  */
 export const DETAIL_LEVELS = ['summary', 'list', 'grid', 'plan'] as const;
@@ -19,13 +20,13 @@ export function readDetailLevel(): DetailLevel {
 }
 
 /** A step along the scale, clamped at both ends. */
-export function stepDetail(level: DetailLevel, delta: number, levels: readonly DetailLevel[] = DETAIL_LEVELS): DetailLevel {
+export function stepDetail<L extends string>(level: L, delta: number, levels: readonly L[]): L {
   const i = levels.indexOf(level) + delta;
   return levels[Math.min(levels.length - 1, Math.max(0, i))];
 }
 
 /** The level nearest to a pointer position, as a 0..1 fraction of the track. */
-export function detailAtFraction(fraction: number, levels: readonly DetailLevel[] = DETAIL_LEVELS): DetailLevel {
+export function detailAtFraction<L extends string>(fraction: number, levels: readonly L[]): L {
   const i = Math.round(Math.min(1, Math.max(0, fraction)) * (levels.length - 1));
   return levels[i];
 }

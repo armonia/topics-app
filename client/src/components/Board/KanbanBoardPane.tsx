@@ -44,8 +44,8 @@ import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import {
-  BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
-  readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardGroupBy, type BoardLayout,
+  BOARD_DENSITIES, BOARD_DENSITY_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY, BOARD_SHOW_DONE_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST,
+  readBoardDensity, readBoardGroupBy, readBoardShowDone, writeBoardPreference, type BoardDensity, type BoardGroupBy, type BoardLayout,
 } from './boardGeometry';
 import { laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
@@ -54,6 +54,7 @@ import { useCollapsedProjects } from './useCollapsedProjects';
 import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
 import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
 import { DetailSlider } from './DetailSlider';
+import { LayoutSwitch } from './LayoutSwitch';
 import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
@@ -372,6 +373,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
   const [storedDetail, setDetail] = useState(readDetailLevel);
+  // How much of each card is drawn: its own preference, independent of the layout above.
+  const [density, setDensity] = useState<BoardDensity>(readBoardDensity);
+  useEffect(() => { try { localStorage.setItem(BOARD_DENSITY_STORAGE_KEY, density); } catch { /* best effort */ } }, [density]);
   // The Plan is a view of the GLOBAL board only; a project board falls back to the kanban.
   const detail: DetailLevel = mode !== 'all' && storedDetail === 'plan' ? 'grid' : storedDetail;
   const planVisible = detail === 'plan';
@@ -915,6 +919,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // In a lane the header already names the project: the eyebrow would repeat it on every card.
       showProject={mode === 'all' && !lane}
       layout={boardLayout}
+      density={density}
       viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.projectId}` : ''}`}
       cardError={cardError}
       onCardError={onCardError}
@@ -1178,7 +1183,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />
+        <LayoutSwitch value={detail} onChange={setDetail} layouts={detailLevels} />
+        <DetailSlider value={density} onChange={setDensity} levels={BOARD_DENSITIES} />
         <BoardViewToggles
           canGroup={mode === 'all'}
           groupBy={groupByPref} onGroupBy={setGroupByPref}

@@ -1,19 +1,18 @@
 import { useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { DETAIL_LEVELS, detailAtFraction, stepDetail, type DetailLevel } from './detailLevel';
+import { detailAtFraction, stepDetail } from './detailLevel';
 
 /**
- * A custom range input for the board's level of detail: a stop per level on a
+ * A custom range input for how much of each card is drawn (the card density, never the layout): a stop per level on a
  * track, a thumb that snaps to the nearest one while dragged, arrow keys,
- * and a click on a stop. Left is the least detail (projects and counts),
- * right is the most (the kanban).
+ * and a click on a stop. Left is the least detail, right is the most.
  */
-export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { value: DetailLevel; onChange: (next: DetailLevel) => void; levels?: readonly DetailLevel[] }) {
+export function DetailSlider<L extends string>({ value, onChange, levels }: { value: L; onChange: (next: L) => void; levels: readonly L[] }) {
   const tr = useT();
   const trackRef = useRef<HTMLDivElement>(null);
   const index = levels.indexOf(value);
   const last = levels.length - 1;
-  const levelText = tr(`board.toolbar.detail.${value}`);
+  const levelText = tr(`board.toolbar.density.${value}`);
 
   const fromPointer = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -27,7 +26,7 @@ export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { valu
       role="slider"
       tabIndex={0}
       data-testid="board-detail-slider"
-      aria-label={tr('board.toolbar.detail.label')}
+      aria-label={tr('board.toolbar.density.label')}
       aria-valuemin={0}
       aria-valuemax={last}
       aria-valuenow={index}

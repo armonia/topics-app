@@ -4,7 +4,7 @@
  * @covers KANBAN-108
  */
 import { describe, expect, test } from 'bun:test';
-import { countByProject, detailAtFraction, parseDetailLevel, stepDetail } from './detailLevel';
+import { DETAIL_LEVELS, countByProject, detailAtFraction, parseDetailLevel, stepDetail } from './detailLevel';
 
 describe('detail levels', () => {
   test('stored values from before the summary level still read back', () => {
@@ -14,18 +14,18 @@ describe('detail levels', () => {
   });
 
   test('steps clamp at both ends', () => {
-    expect(stepDetail('summary', -1)).toBe('summary');
-    expect(stepDetail('summary', 1)).toBe('list');
-    expect(stepDetail('grid', 1)).toBe('plan');
-    expect(stepDetail('plan', 1)).toBe('plan');
+    expect(stepDetail('summary', -1, DETAIL_LEVELS)).toBe('summary');
+    expect(stepDetail('summary', 1, DETAIL_LEVELS)).toBe('list');
+    expect(stepDetail('grid', 1, DETAIL_LEVELS)).toBe('plan');
+    expect(stepDetail('plan', 1, DETAIL_LEVELS)).toBe('plan');
     expect(stepDetail('grid', 1, ['summary', 'list', 'grid'])).toBe('grid');
   });
 
   test('the pointer snaps to the nearest stop', () => {
-    expect(detailAtFraction(-1)).toBe('summary');
-    expect(detailAtFraction(0.4)).toBe('list');
-    expect(detailAtFraction(0.7)).toBe('grid');
-    expect(detailAtFraction(0.9)).toBe('plan');
+    expect(detailAtFraction(-1, DETAIL_LEVELS)).toBe('summary');
+    expect(detailAtFraction(0.4, DETAIL_LEVELS)).toBe('list');
+    expect(detailAtFraction(0.7, DETAIL_LEVELS)).toBe('grid');
+    expect(detailAtFraction(0.9, DETAIL_LEVELS)).toBe('plan');
   });
 
   test('counts per project and column, busiest first', () => {

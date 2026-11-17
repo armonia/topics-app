@@ -61,6 +61,15 @@ export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProje
 
 export type BoardGroupBy = 'none' | 'project';
 export type BoardDensity = 'full' | 'compact';
+export const BOARD_DENSITIES = ['compact', 'full'] as const satisfies readonly BoardDensity[];
+/** Where the card density is kept, apart from the layout. */
+export const BOARD_DENSITY_STORAGE_KEY = 'topics.board.density';
+
+/** The stored card density, defaulting to the full card. */
+export function readBoardDensity(): BoardDensity {
+  try { return localStorage.getItem(BOARD_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'full'; }
+  catch { return 'full'; }
+}
 
 /** The stored grouping, defaulting to the flat board. */
 export function readBoardGroupBy(): BoardGroupBy {
