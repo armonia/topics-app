@@ -132,6 +132,13 @@ fn native_rows() {
     if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_POOL") {
         snap.pool = Some(std::fs::read_to_string(f).unwrap());
     }
+    // TRAY_MENU_NATIVE_HEALTH / _SYNC=<file>: the security and memory-sync files in place of the real ones
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_HEALTH") {
+        snap.health = Some(std::fs::read_to_string(f).unwrap());
+    }
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_SYNC") {
+        snap.harness_sync = Some(std::fs::read_to_string(f).unwrap());
+    }
     // TRAY_MENU_NATIVE_CLIENT=<file>: the Topics machine list as the client ships it (`set_app_status`), the nodes' source
     let client: Vec<crate::tray_menu_views::MachineCard> = std::env::var("TRAY_MENU_NATIVE_CLIENT").ok()
         .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())

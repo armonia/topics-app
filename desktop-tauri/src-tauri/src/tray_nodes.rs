@@ -39,6 +39,8 @@ pub struct PoolNode {
     /// Epoch seconds the drain gives up at.
     pub drain_until: Option<i64>,
     pub align_failed: bool,
+    /// Epoch seconds since the server runs older code than main; none while it is aligned.
+    pub behind_since: Option<i64>,
     /// Cards on the machine (todo and in progress), when the pool counted them.
     pub cards: Option<u32>,
 }
@@ -62,6 +64,7 @@ pub fn parse_pool(body: &str) -> Vec<PoolNode> {
             draining: s.get("draining").and_then(Value::as_bool).unwrap_or(false),
             drain_until: s.get("drain_until").and_then(Value::as_f64).map(|t| t as i64).or(drain_since.map(|t| t + DRAIN_DEFAULT_S)),
             align_failed: !text(s, "align_failed").is_empty(),
+            behind_since: s.get("behind_since").and_then(Value::as_f64).map(|t| t as i64),
             cards: s.get("cards").and_then(Value::as_u64).map(|c| c as u32),
         }
     }).collect()).unwrap_or_default();
@@ -84,7 +87,7 @@ fn clock(at: i64, offset: i64) -> String {
 
 /// The pool seat a card stands for: the client's card by its machine id, the service's
 /// card (which has no machine id) by the server name its caption carries.
-fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[MachineDetail]) -> Option<&'a PoolNode> {
+pub(crate) fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[MachineDetail]) -> Option<&'a PoolNode> {
     if card.id.is_empty() || card.local {
         return None;
     }
@@ -93,6 +96,15 @@ fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[MachineDetai
         (!n.machine_id.is_empty() && n.machine_id == card.id)
             || (!n.server_name.is_empty() && caption.contains(&n.server_name.to_lowercase()))
     })
+}
+
+/// A line that is only an id or a technical name: the server's own name at the provider, a machine id,
+/// anything shaped like a uuid. The cards never show those (they say the work, not the plumbing).
+fn is_technical(line: &str, card: &MachineCard, node: Option<&PoolNode>) -> bool {
+    let l = line.trim().to_lowercase();
+    let uuid = l.len() == 36 && l.chars().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() });
+    let named = |t: &str| !t.is_empty() && l == t.to_lowercase();
+    uuid || named(&card.id) || named(&card.machine_id) || node.map_or(false, |n| named(&n.server_name) || named(&n.machine_id))
 }
 
 /// What a node is called, from what it is: a fixed server, or the hourly one of that seat.
@@ -158,6 +170,10 @@ pub fn arrange(cards: Vec<MachineCard>, client: &[MachineCard], pool: &[PoolNode
     }).cloned().collect();
     let mut rows: Vec<(u8, usize, MachineCard)> = kept.into_iter().enumerate().map(|(i, mut c)| {
         let node = pool_of(&c, pool, details);
+        // a technical name (the provider's server name, an id) is dropped from the lines and from the reason
+        let kept = c.card_lines_without_ids(|t| is_technical(t, &c, node));
+        c.reason = if is_technical(&c.reason, &c, node) { kept.first().map(|l| l.split(" · ").next().unwrap_or(l).to_string()).unwrap_or_default() } else { c.reason.clone() };
+        c.lines = kept;
         let twin = node.and_then(|n| client.iter().find(|x| !n.machine_id.is_empty() && x.id == n.machine_id));
         if let Some(n) = node {
             // «Hetzner · cx53 · 25 €» opens with the provider's own word when the pool did not write one

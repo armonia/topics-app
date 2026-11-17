@@ -105,3 +105,27 @@ fn the_order_is_this_computer_then_nodes_with_seats_then_sleepers_then_drained()
     let names: Vec<_> = out.iter().map(|c| c.display_name()).collect();
     assert_eq!(names, ["1 · Mac", "2 · PC Windows", "3 · Altro PC", "4 · Server fisso"], "{names:?}");
 }
+
+#[test]
+fn a_provider_server_name_or_an_id_never_reaches_the_card() {
+    let pool = parse_pool(POOL);
+    let mut hub = card("hetzner", "Server Hetzner", "lavora");
+    // the service's first line is only the server's own name, then comes a line the card may keep
+    hub.lines = vec!["srv-fixed".into(), "srv-fixed · 16 core".into(), "104bba89-24e4-4e75-8167-806230b2f3fd".into(), "sempre acceso".into()];
+    hub.reason = "srv-fixed".into();
+    let client = vec![card("m-fixed", "Nodo cloud 1", "acceso")];
+    let out = arrange(vec![hub], &client, &pool, &[detail("hetzner", "srv-fixed · 16 core · sempre acceso")], 3600);
+    let said: Vec<&String> = out[0].lines.iter().chain(std::iter::once(&out[0].reason)).collect();
+    assert!(said.iter().all(|t| !t.to_lowercase().contains("srv-fixed") && !t.contains("104bba89")), "{said:?}");
+    assert!(out[0].lines.contains(&"16 core".to_string()) && out[0].lines.contains(&"sempre acceso".to_string()), "{:?}", out[0].lines);
+}
+
+#[test]
+fn a_reason_that_is_only_an_id_gives_way_to_the_next_line() {
+    let pool = parse_pool(POOL);
+    let mut pc = card("pc", "PC Windows", "lavora");
+    pc.lines = vec!["pc".into(), "Collegato dal Mac".into()];
+    pc.reason = "pc".into();
+    let out = arrange(vec![pc], &[], &pool, &[], 0);
+    assert_eq!((out[0].reason.as_str(), out[0].lines.len()), ("Collegato dal Mac", 1));
+}

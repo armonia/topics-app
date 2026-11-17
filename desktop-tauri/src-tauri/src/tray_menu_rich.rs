@@ -8,7 +8,8 @@ use crate::tray_menu_projects::project_table;
 use crate::tray_menu_detail::{machine_details, MachineDetail, Segment};
 use crate::tray_menu_pic::Palette;
 use crate::tray_menu_procs::{procs_table, remote_procs_table};
-use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, memory_sync_card, quota_cards, MachineCard};
+use crate::tray_node_charts::{submenu_nodes, NodeData};
+use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card_with, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
 use serde_json::Value;
 
 fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Option<Node> {
@@ -70,13 +71,22 @@ pub(crate) fn machine_action_nodes(machine: &MachineCard, detail: Option<&Machin
 /// MacBook's: its state lines, the processes that weigh in the same table, the
 /// commands of the machine, the finder. This computer takes its own census (`/api/mac/procs`);
 /// the others the service's `procs`.
-fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
+fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, now: i64, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    let (offset, data) = (local_offset_secs(), NodeData::from_snapshot(snap, now, local_offset_secs()));
     machines
         .iter()
         .filter_map(|m| {
             let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
-            let mut kids: Vec<Node> = if m.local { Vec::new() } else { remote_reading_nodes(found) };
+            let extras = data.extras(m, &details, now, offset);
+            // what the node files say first (security, charts), then the readings and the processes
+            let mut kids: Vec<Node> = submenu_nodes(&extras, &m.id, p, offset);
+            if !kids.is_empty() {
+                kids.push(Node::Sep);
+            }
+            if !m.local {
+                kids.extend(remote_reading_nodes(found));
+            }
             if !kids.is_empty() && !m.lines.is_empty() {
                 kids.push(Node::Sep);
             }
@@ -94,7 +104,7 @@ fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<N
                 kids.extend(machine_action_nodes(m, found));
             }
             kids.push(with_icon("sf:magnifyingglass", item(&format!("machine-open:{}", m.id), "Cerca in una finestra…")));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
+            card(&format!("machine:{}", m.id), draw_machine_card_with(m, &extras, p), kids)
         })
         .collect()
 }
@@ -149,7 +159,7 @@ fn unreachable_nodes(overview: &Option<String>) -> Vec<Node> {
 /// the service's own when there is none); `dark` picks the ink for the menu surface.
 pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[MachineCard], dark: bool) -> Vec<Node> {
     let p = Palette::new(dark);
-    let mut m = machine_nodes(machines, snap, p);
+    let mut m = machine_nodes(machines, snap, now, p);
     if !m.is_empty() {
         m.push(Node::Sep);
     }
@@ -175,10 +185,6 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
         m.push(Node::Sep);
         m.extend(card("backup", draw_backup_card(&b, p), Vec::new()));
     }
-    if let Some(b) = snap.memory_sync.as_deref().filter(|_| snap.memory_sync_set).and_then(|b| memory_sync_card(b, now)) {
-        m.push(Node::Sep);
-        m.extend(card("memory-sync", draw_backup_card(&b, p), Vec::new()));
-    }
     // this menu is only drawn while the service answers, so its dashboard is always one click away
     m.push(Node::Sep);
     m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
@@ -193,7 +199,11 @@ pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard>
     let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
     let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
     let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
-    let all: Vec<MachineCard> = service.into_iter().chain(extra).collect();
+    // the service's own card may carry another id than the Topics machine of the same name: remember it for the node files
+    let all: Vec<MachineCard> = service.into_iter().map(|mut c| {
+        c.machine_id = client.iter().find(|x| !c.local && x.name.trim().eq_ignore_ascii_case(c.name.trim())).map(|x| x.id.clone()).unwrap_or_default();
+        c
+    }).chain(extra).collect();
     let pool = snap.pool.as_deref().map(crate::tray_nodes::parse_pool).unwrap_or_default();
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
     crate::tray_nodes::arrange(all, client, &pool, &details, local_offset_secs())

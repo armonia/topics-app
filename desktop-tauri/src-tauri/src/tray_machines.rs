@@ -62,6 +62,7 @@ impl StatusMachine {
             reason: self.reason.clone(),
             metrics: self.metrics.iter().map(|m| crate::tray_menu_views::Metric { key: m.key.clone(), pct: m.pct, level: m.level, note: m.note.clone(), ..Default::default() }).collect(),
             order: 0,
+            machine_id: String::new(),
         })
     }
 }
