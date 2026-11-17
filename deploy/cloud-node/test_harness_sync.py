@@ -491,7 +491,7 @@ class NodeWasCleaned(Base):
         checks = hs.probe_checks(units)
         self.fake.missing_once = [i for i, (k, _) in enumerate(checks) if k == "pub:.claude/CLAUDE.md"]
         self.assertTrue(self.fake.missing_once)
-        out = self.go(force=True)
+        out = self.go()   # senza force: il nodo ha perso qualcosa, non si aspettano i 15 minuti
         again = [a for a in self.fake.argvs("rsync")[n:] if ".claude/CLAUDE.md" in a and "-R" in a]
         self.assertEqual(len(again), 1, "ciò che il nodo ha perso torna al giro dopo")
         self.assertEqual(out["targets"]["m-linux"]["rev"], out["source"]["rev"])

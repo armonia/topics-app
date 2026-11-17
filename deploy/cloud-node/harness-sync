@@ -453,9 +453,11 @@ def sync_linux(t, units, cfg, store, now, force, mount=True, pw_fn=keychain_pass
         return res
     res["reached"] = True
     seen = r.stdout.split()
+    repaired = False   # il nodo ha perso qualcosa: si rimanda subito, senza aspettare i 15 minuti del giro normale
     for w in seen:
         if w.startswith("missing:") and w[8:].isdigit() and int(w[8:]) < len(checks):
             name = checks[int(w[8:])][0]
+            repaired = True
             if delivered.pop(name, None) is not None:
                 log(f"{t['name']}: {name} sparito dal nodo, lo riporto")
             if name.startswith("prv:"):
@@ -491,7 +493,7 @@ def sync_linux(t, units, cfg, store, now, force, mount=True, pw_fn=keychain_pass
                 else:
                     res["error"] = "link del privato non creati: " + tail(lk.stderr)
     last = store["attempt"].get(tid, 0)
-    due = force or not delivered or now - last >= RETRY_S
+    due = force or repaired or not delivered or now - last >= RETRY_S
     batches = []
     if due:
         batches.append((False, [u for u in pub if delivered.get(f"pub:{u['entry']}") != u["fp"]]))
