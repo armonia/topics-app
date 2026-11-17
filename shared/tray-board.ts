@@ -8,7 +8,7 @@ export interface TrayTaskInput {
   text: string;
   status: string;
   projectId: string;
-  /** The workflow column (`shared/workflow.ts`): AI review is not a person's. */
+  /** The workflow column (`shared/workflow.ts`): the CI column is not a person's. */
   stage?: string | null;
   /** Agent time so far, subtask progress: what a card in progress says about its countdown. */
   agentMs?: number;
@@ -113,8 +113,8 @@ export function trayBoardGroups(
   const out: TrayGroup[] = opts.lit ? trayLitGroups(opts.lit, { rowsPerGroup: perGroup }) : [];
   for (const status of TRAY_GROUP_ORDER) {
     if (opts.lit && status === "review") continue;
-    // The review group is what waits on a PERSON: a card in AI review goes back
-    // to whoever opened it, so it is not in the menu (`awaitsHuman`).
+    // The review group is what waits on a PERSON: a card in the CI column waits
+    // on the integration queue, so it is not in the menu (`awaitsHuman`).
     const miei = tasks.filter((t) => (status === "review" ? awaitsHuman(t) : t.status === status));
     if (miei.length === 0) continue;
     out.push({

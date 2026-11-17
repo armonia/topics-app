@@ -1,4 +1,4 @@
-//! Puts a rendered strip, and the turning glyph, on the status item (card 066276b6).
+//! Puts a rendered strip, and the playing working loader, on the status item (card 066276b6).
 //! Shared by the app and by the `tray_tracking` example, so the example exercises the
 //! very code the app runs.
 

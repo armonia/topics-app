@@ -123,8 +123,28 @@ fn native_rows() {
     if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_BOARD") {
         snap.board = Some(std::fs::read_to_string(f).unwrap());
     }
+    // TRAY_MENU_NATIVE_MEMORY=<file>: a memory-sync answer (the contract) while the service has no such endpoint
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_MEMORY") {
+        snap.memory_sync = Some(std::fs::read_to_string(f).unwrap());
+        snap.memory_sync_set = true;
+    }
+    // TRAY_MENU_NATIVE_POOL=<file>: a node-pool state in place of the live one
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_POOL") {
+        snap.pool = Some(std::fs::read_to_string(f).unwrap());
+    }
+    // TRAY_MENU_NATIVE_HEALTH / _SYNC=<file>: the security and memory-sync files in place of the real ones
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_HEALTH") {
+        snap.health = Some(std::fs::read_to_string(f).unwrap());
+    }
+    if let Ok(f) = std::env::var("TRAY_MENU_NATIVE_SYNC") {
+        snap.harness_sync = Some(std::fs::read_to_string(f).unwrap());
+    }
+    // TRAY_MENU_NATIVE_CLIENT=<file>: the Topics machine list as the client ships it (`set_app_status`), the nodes' source
+    let client: Vec<crate::tray_menu_views::MachineCard> = std::env::var("TRAY_MENU_NATIVE_CLIENT").ok()
+        .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())
+        .unwrap_or_default().iter().filter_map(|m| m.card()).collect();
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-    let machines = crate::tray_menu_rich::machines_for(&[], &snap);
+    let machines = crate::tray_menu_rich::machines_for(&client, &snap);
     for (name, dark) in [("dark", true), ("light", false)] {
         let menu = crate::tray_menu_rich::build_menu_rich(&snap, crate::tray_menu::Prefs::default(), now, &machines, dark);
         // the top level, and the submenu of this computer (its first card)

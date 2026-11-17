@@ -302,6 +302,11 @@ export function createWsOpen(scope: Pick<AfterHttp, "browserService" | "browserW
       // learns here which turns ended while it was away, and its queue drains
       // on this, not on a streaming flag the reconnect reset.
       inviaIniziale({ type: "turn:snapshot", ...turnLedger.snapshot() });
+      // The feed only says CHANGES, so a window that connects mid-turn would stay
+      // on `think` until the next one: tell it what each open turn is doing now.
+      // To this socket alone. `inviaIniziale` asks a guest for the grant on the
+      // frame's topic, the same permission the catch-up above checks.
+      for (const payload of ctx.currentStreamActions?.() ?? []) inviaIniziale({ type: "stream:action", ...payload });
     },
   };
 }

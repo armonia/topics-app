@@ -20,6 +20,7 @@ import { lazyWarm, warm } from '../../lib/lazyWarm';
 import { GitSectionSkeleton } from './GitSectionSkeleton';
 import { KeptSection } from './KeptSection';
 import { loadGitChanges } from '../../state/pane/panePreload';
+import { Spinner } from '../Shared/Spinner';
 
 // Git is heavy (diff rendering) — keep lazy, and `lazyWarm` so that a window
 // that DOES open on the git section (or one that already warmed the chunk for
@@ -400,9 +401,7 @@ function GitSectionRow({
             </span>
           )}
           <span className="w-4 h-4 inline-flex items-center justify-center text-app-text-tertiary">
-            <span className={`inline-flex items-center justify-center w-[10px] h-[10px] ${loading ? 'animate-spin' : ''}`}>
-              <RefreshCw size={10} />
-            </span>
+            {loading ? <Spinner size="xs" tone="current" /> : <RefreshCw size={10} />}
           </span>
         </div>
       </div>

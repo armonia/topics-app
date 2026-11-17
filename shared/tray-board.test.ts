@@ -23,10 +23,10 @@ describe("trayBoardGroups", () => {
     expect(g.map((x) => x.status)).toEqual(["review", "in_progress", "todo"]);
   });
 
-  test("review counts only what waits on a person: AI review is not in the menu", () => {
+  test("review counts only what waits on a person: the CI column is not in the menu", () => {
     const g = trayBoardGroups([
-      { id: "ai", status: "review", stage: "ai_review", text: "ai", projectId: "p" },
-      { id: "hr", status: "review", stage: "human_review", text: "hr", projectId: "p" },
+      { id: "ci", status: "review", stage: "ci", text: "ci", projectId: "p" },
+      { id: "hr", status: "review", text: "hr", projectId: "p" },
       { id: "rv", status: "review", text: "plain", projectId: "p" },
     ]);
     expect(g).toHaveLength(1);

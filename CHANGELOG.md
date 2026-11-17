@@ -2,6 +2,91 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.39 — 2026-11-17
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- nodo principale scelto a mano (analisi, proposta, tracce)
+- nodo principale per tutto il sistema agentico (strada completa, mappa, account)
+- sul principale i modelli Claude solo da abbonamento, con barra in T2
+- Drop the empty left column from the Thinking row (#1223)
+
+## 2.4.38 — 2026-11-17
+
+### Sotto il cofano
+- Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+
+## 2.4.37 — 2026-11-17
+
+### Sotto il cofano
+- verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)
+
+## 2.4.36 — 2026-11-17
+
+### Sotto il cofano
+- baseline follows the scores that rose tonight
+- F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)
+
+## 2.4.35 — 2026-11-17
+
+### Sotto il cofano
+- **git-status-native** · force a fresh generation between the disabled and native rounds (#1216)
+
+## 2.4.34 — 2026-11-17
+
+### Sotto il cofano
+- la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma
+- topics/sleepy-phantom (card 3d431e73) (#1210)
+- sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader
+- **deploy-outcome** · 2 s deadline cap so a slow shell start still prints before it
+- Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)
+
+## 2.4.33 — 2026-11-17
+
+### Sotto il cofano
+- Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)
+
+## 2.4.32 — 2026-11-17
+
+### Sotto il cofano
+- an archived chat that launched work after being archived is alive (#1195)
+- Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)
+- in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)
+- topics/brassy-hour (card 2a1f2e84) (#1208)
+
+## 2.4.31 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)
+- la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)
+
+## 2.4.30 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)
+- topics/patient-badger (card 3c348ab4) (#1191)
+- node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac
+- toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
+- Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
+- un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
+- toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
+- il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
+- note on ghost queued CI runs that the API cannot cancel (#1179)
+
+## 2.4.29 — 2026-11-16
+
+### Correzioni
+- **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
+### Sotto il cofano
+- Align the reworded-wait test with agent waits staying in todo
+
+## 2.4.28 — 2026-11-16
+
+### Sotto il cofano
+- Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog
+
 ## 2.4.27 — 2026-11-16
 
 ### Correzioni

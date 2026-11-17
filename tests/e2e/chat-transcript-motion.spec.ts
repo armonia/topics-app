@@ -306,7 +306,7 @@ test.describe("transcript motion", () => {
       const f = (window as unknown as { __tm: Probe }).__tm.frames;
       const hs = f.map((x) => x.boxes.row?.h ?? 0).filter((h) => h > 0);
       return hs.length > 0 && Math.max(...hs) - hs[hs.length - 1]! >= 20;
-    }, null, { timeout: 15_000 });
+    }, null, { timeout: 30_000 }); // a loaded shared runner stretches the dwell timers, a rerun went green
     await moreFrames(page, 30);
     const frames = await stopProbe(page, testInfo, "toolturn");
 

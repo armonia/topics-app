@@ -95,7 +95,7 @@ fn a_section_without_data_is_not_drawn() {
 fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
     let sn = Snapshot { procs: Some(r#"{"units":[]}"#.into()), ..snap() };
     let machines = machines_for(&[], &sn);
-    let nodes = machine_nodes(&machines, &sn, Palette::new(false));
+    let nodes = machine_nodes(&machines, &sn, 1_800_000_000, Palette::new(false));
     let t = dump_text(&nodes);
     assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
 }
@@ -142,8 +142,9 @@ fn the_client_machines_join_the_service_ones_without_doubles() {
     let names: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.name.clone()).collect();
     let client = vec![card("me", "anything", true), card("twin", &names[names.len() - 1].to_uppercase(), false), card("n1", "Node", false)];
     let ids: Vec<String> = machines_for(&client, &snap()).iter().map(|m| m.id.clone()).collect();
+    // dispatch order: this computer, then the node that answers, then the one asleep (the service lists «pc» as «dorme»)
     let mut want = service.clone();
-    want.push("n1".into());
+    want.insert(1, "n1".into());
     assert_eq!(ids, want);
     // with no service there is nothing to merge: the client list is the menu
     let none = Snapshot { board: None, ..snap() };
@@ -191,7 +192,7 @@ const UNIFORM_MACHINES: &str = r#"[
 
 fn uniform_cards() -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(UNIFORM_MACHINES.into()), procs: Some(r#"{"units":[{"id":"u1","name":"Topics","type":"app","n":3,"memMB":900,"pids":[]}]}"#.into()), ..Default::default() };
-    machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true))
+    machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true))
 }
 
 #[test]
@@ -247,7 +248,7 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
 
 fn remote_sub(machines: &str) -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(machines.into()), ..Default::default() };
-    let cards = machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true));
+    let cards = machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true));
     let Node::Card { children, .. } = &cards[2] else { panic!("the server card") };
     children.clone()
 }
@@ -392,6 +393,11 @@ fn tray_dump_of_the_real_menu() {
         trust: read("trust"),
         backup: read("backup"),
         backup_set: read("backup").is_some(),
+        memory_sync: read("memory-sync"),
+        memory_sync_set: read("memory-sync").is_some(),
+        pool: read("pool"),
+        health: read("machines-health"),
+        harness_sync: read("harness-sync"),
         cpu,
     };
     // the poller reads the pictures from the service; the dump only needs to know there is one

@@ -14,17 +14,20 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { StatusIcon } from '../Board/atoms';
 import { AgentProfiles } from './AgentProfiles';
 import { useAgentRegistry } from '../../state/agentRegistry';
+import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForAction } from '../Layout/loaderState';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import type { AgentAction } from '../../../../shared/agent-action';
 
 type Tr = ReturnType<typeof useT>;
 
 // Working is the sky of in_progress, not green: green is "done", and an agent
 // at work is not done (`lib/statusVisual.ts`).
 /** The state glyph of an agent: the same family as the cards (spinning half pie at work, amber alert when it waits on you). */
-function AgentStateGlyph({ state }: { state: AgentSessionState }) {
-  if (state === 'working') return <StatusIcon status="in_progress" live className="h-2.5 w-2.5 flex-shrink-0" />;
+function AgentStateGlyph({ state, action }: { state: AgentSessionState; action?: AgentAction }) {
+  if (state === 'working') return <SparkLoader size={10} activity={loaderActivityForAction(action) ?? 'think'} className="flex-shrink-0" />;
   if (state === 'waiting') return <STATUS_ICON.wait size={10} aria-hidden="true" className={`flex-shrink-0 ${STATUS_INK.wait}`} />;
   return <span className="h-2 w-2 flex-shrink-0 rounded-full bg-app-border-light" aria-hidden="true" />;
 }
@@ -54,6 +57,7 @@ function useAgo() {
 }
 
 function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string, key?: string | null) => string }) {
+  const action = useTopicAction(s.topic.id);
   return (
     <>
       <li>
@@ -66,7 +70,7 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
         >
           {s.error
             ? <TriangleAlert size={12} className={`flex-shrink-0 ${DANGER_TEXT}`} aria-hidden="true" />
-            : <AgentStateGlyph state={s.state} />}
+            : <AgentStateGlyph state={s.state} action={action} />}
           <span className="min-w-0 flex-1 truncate text-prose text-app-text">{name(s.topic.name, s.topic.sessionKey)}</span>
           {s.error && <span data-testid="agents-session-error" className={`flex-shrink-0 text-mini ${DANGER_TEXT}`}>{tr('agents.error')}</span>}
           {s.state !== 'idle' && <span className={`flex-shrink-0 text-mini ${TEXT[s.state]}`}>{tr(`agents.state.${s.state}`)}</span>}
@@ -83,6 +87,7 @@ function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: numbe
 /** A sub-agent running in a terminal (the CLI): it opens as a terminal pane. */
 function TerminalRow({ t, depth, tr, ago }: { t: AgentTerminal; depth: number; tr: Tr; ago: (at: number) => string }) {
   const { id, name, type } = t.terminal;
+  const action = useTerminalAction(id);
   return (
     <>
       <li>
@@ -93,7 +98,7 @@ function TerminalRow({ t, depth, tr, ago }: { t: AgentTerminal; depth: number; t
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-app-hover"
           style={{ paddingLeft: 8 + depth * 18 }}
         >
-          <AgentStateGlyph state={t.state} />
+          <AgentStateGlyph state={t.state} action={action} />
           {type === 'claude-code'
             ? <ClaudeIcon size={12} className="flex-shrink-0 text-app-text-secondary" />
             : <SquareTerminal size={12} className="flex-shrink-0 text-app-text-secondary" aria-hidden="true" />}

@@ -208,14 +208,16 @@ describe("multiplayer stream query cost", () => {
       const frame = { type: "stream:content_chunk" as const, topicId, sessionKey: "runtime-cost", content: "delta" };
       for (let i = 0; i < 10; i++) ctx.broadcastToTopicSubscribers(topicId, frame);
       console.log("RUNTIME-COST guest-filter", { guests: 104, frames: 10, authorizationReads: reads });
-      expect([opened.sent, denied.sent, legacy.sent, focused.sent, owner.sent]).toEqual([10, 0, 10, 10, 0]);
+      // The owner is not subscribed, so it gets no chunk: only the one global stream:action that
+      // ten identical chunks collapse into (the feed emits on a change of action, not per frame).
+      expect([opened.sent, denied.sent, legacy.sent, focused.sent, owner.sent]).toEqual([10, 0, 10, 10, 1]);
       expect(sockets.slice(0, 100).every(ws => ws.sent === 0)).toBe(true);
       const readsBeforeRevoke = reads;
       dropGrant(ctx.db, subject, "topic", topicId);
       ctx.broadcastToTopicSubscribers(topicId, frame);
       expect([opened.sent, denied.sent, legacy.sent, focused.sent]).toEqual([10, 0, 10, 10]);
       ctx.broadcastToAll({ type: "presence:windows", windows: [] });
-      expect(owner.sent).toBe(1); // Control broadcasts remain independent of topic subscriptions.
+      expect(owner.sent).toBe(2); // Control broadcasts remain independent of topic subscriptions.
       expect(readsBeforeRevoke).toBe(80); // Four interested guests, two indexed reads, ten chunks.
     } finally {
       for (const ws of sockets) ctx.wsClients.delete(ws as unknown as ServerWebSocket<WSData>);

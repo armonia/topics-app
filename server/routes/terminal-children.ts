@@ -389,9 +389,13 @@ export async function seedAgentPrompt(childId: string, prompt: string, acceptSni
  *  there, so trusting it gives the child nothing the parent lacks. */
 async function acceptTrustDialog(childId: string): Promise<boolean> {
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-  for (let step = 0; step < 14; step++) { // ~7s: the CLI drops keys until its handler is installed
+  // ~30s: the CLI drops keys until its handler is installed, and under a loaded
+  // machine the dialog itself can take that long to finish painting.
+  let lastStep = "wait";
+  for (let step = 0; step < 60; step++) {
     if (!sessions.has(childId)) return false;
     const next = trustDialogStep(await getTerminalBuffer(childId));
+    lastStep = next;
     if (next === "accept") {
       console.warn(`[Terminal] seedAgentPrompt: ${childId} hit the folder-trust dialog in its cwd, accepting it`);
       noteTerminalInput(childId);
@@ -405,7 +409,7 @@ async function acceptTrustDialog(childId: string): Promise<boolean> {
     }
     await sleep(500);
   }
-  console.warn(`[Terminal] seedAgentPrompt: ${childId} is stuck on the folder-trust dialog, cursor never reached «Yes»; not pressing Enter`);
+  console.warn(`[Terminal] seedAgentPrompt: ${childId} is stuck on the folder-trust dialog (last step: ${lastStep}), cursor never reached «Yes»; not pressing Enter`);
   return false;
 }
 

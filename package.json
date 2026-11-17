@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.4.28",
+  "version": "2.4.39",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -24,6 +24,7 @@
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "build:client": "bun run scripts/build-client.ts",
+  "preview:worktree": "bun run scripts/preview-worktree.ts",
     "build:client:watch": "cd client && bun run build:watch",
     "build:cli": "bun build cli/topics.ts --compile --outfile dist/topics",
     "bump": "bash scripts/bump-version.sh",

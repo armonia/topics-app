@@ -112,6 +112,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
+    const direct = ciPhase.landThenMeasure(projectId, taskId, landOpts); // `after`: land at once, the CI reads main later
+    if (direct) return direct as LandingTicket;
     if (enterCiPhase(projectId, taskId, landOpts)) {
       const at = ciPhase.pending(projectId).indexOf(taskId);
       return { taskId, phase: "queued", ahead: at > 0 ? at : 0, queuedAt: new Date().toISOString(), settledAt: null, error: null, outcome: null, reason: null };
@@ -169,15 +171,11 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     files: opts?.deliveryFiles,
     referenced: opts?.deliveryReferenced,
     personPaths: (projectId) => readWorkflowRules(db, projectId).personPaths,
-    // On a board with the CI phase the land waits for the CI, not for every open turn on the server: a
-    // person's "Landa" never waited for them either, and the reload that follows resumes the turns it cuts
-    // (lossless restart). Waiting for zero turns on a working board meant waiting forever: the timer gave
-    // up after three hours and the card stayed in review. Boards without the phase keep the wait.
+    // A board with a CI phase (before or after the land) does not wait for every open turn on the server: a
+    // person's "Landa" never did, the reload resumes the turns it cuts, and waiting for zero turns on a
+    // working board meant waiting forever (3 hours, then the card stayed in review). Others keep the wait.
     liveTurns: opts?.liveTurnCount,
-    waitsForTurns: (taskId) => {
-      const projectId = svc.get(taskId)?.task.projectId;
-      return !projectId || !ciPhase.boardHasCiPhase(projectId);
-    },
+    waitsForTurns: (taskId) => { const projectId = svc.get(taskId)?.task.projectId; return !projectId || ciPhase.boardCiMode(projectId) === "off"; },
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
       return !!t && cardTurnIsLive(t);
@@ -208,11 +206,11 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     svc, db, dispatcher,
     broadcast: (msg) => broadcastToAll(msg),
     cardTurnIsLive: (t) => cardTurnIsLive(t),
-    landDirect: (projectId, taskId) => landDirect(projectId, taskId),
+    landDirect: (projectId, taskId, landOpts) => landDirect(projectId, taskId, landOpts as LandRunOpts | undefined),
     markLandPending: opts?.markLandPending,
     whenLanded: (taskId) => landings.whenSettled(taskId),
     tryAutoLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
-    integrationRepo: opts?.integrationRepo,
+    integrationRepo: opts?.integrationRepo, mainCiPort: opts?.mainCiPort,
     integrationMeasure: opts?.integrationMeasure,
     integrationCollectMs: opts?.integrationCollectMs,
     filesBetween: opts?.integrationFilesBetween ?? (opts?.integrationRepo
@@ -227,6 +225,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
+    await ciPhase.sweepAfterLand(); // the `after` queue lives in memory (marks back in) and main's own CI is looked at
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
