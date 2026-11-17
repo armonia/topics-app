@@ -59,7 +59,7 @@ import { crashedTurnNotice, shortErrorDetail } from "./crashedTurnNotice";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { planModeFor } from "../lib/autonomy-mode";
 import { turnEnded, turnStarted } from "../attention/store";
-import { withCommandTask } from "../attention/background-tasks";
+import { withCommandTask, withSubagentTask } from "../attention/background-tasks";
 import { classifyTurnEnd } from "../push-triggers";
 import { runningTaskOwnsTopic } from "../lib/wake-adoption";
 import { sessionAttentionBackground } from "../providers/background-probes";
@@ -323,8 +323,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     let b: { tasks: AttentionTaskMap; count: number; kinds: string[] } | null = null;
     try { b = own ? own.call(provider, sessionKey) : sessionAttentionBackground(sessionKey); } catch { b = null; }
     const command = commandWakeState(sessionKey, ownWake);
-    if (command === "none") return b;
-    return withCommandTask(b?.tasks ?? {}, command, new Date().toISOString());
+    const subagent = subagentWakeState(sessionKey);
+    if (command === "none" && subagent === "none") return b;
+    const at = new Date().toISOString();
+    return withSubagentTask(withCommandTask(b?.tasks ?? {}, command, at).tasks, subagent, at);
   };
 
   // Deps for the SDK-passthrough control tools (open/create-project, switch/new-
