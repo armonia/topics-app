@@ -537,6 +537,20 @@ def finish(state, sl, t0=None):
     return sl
 
 
+def forget_machine(machine_id):
+    """Toglie dal Mac la riga della macchina di un server a ore appena cancellato: senza, resta per
+    sempre come «Nodo cloud N» spento, un fantasma che la tray e la lista dei nodi continuano a
+    mostrare. Con una card ancora legata alla riga il Mac risponde 409: la riga resta, il prossimo
+    appaiamento sullo stesso posto la riprende. Non solleva mai: la cancellazione del server è già fatta."""
+    if not machine_id:
+        return
+    try:
+        mac("DELETE", f"/api/machines/{machine_id}")
+        log(f"macchina {machine_id} tolta dal Mac")
+    except Exception as e:
+        log(f"macchina {machine_id} non tolta dal Mac: {e}")
+
+
 def delete(state, n, reason):
     sl = state["slots"].get(str(n)) or {}
     close_tunnel(sl)
@@ -557,7 +571,8 @@ def delete(state, n, reason):
                 l["ended"] = time.time()
                 log(f"cancellato {sl.get('name')} id={sid} dopo {int((l['ended'] - l['created']) / 60)} min "
                     f"({billed_hours(l['created'], l['ended'])} h pagate × {l['eur_h']} €): {reason}")
-    state["slots"][str(n)] = {"n": n, "machine_id": sl.get("machine_id")}
+    forget_machine(sl.get("machine_id"))
+    state["slots"][str(n)] = {"n": n}
     save_state(state)
     # tray e `hetzner-tetto json` leggono il registro del tetto: va riscritto subito, non al giro dopo
     if sid:
@@ -638,7 +653,8 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if busy:
         if not sl.get("draining") and now - sl["behind_since"] >= BEHIND_S and sl.get("machine_id"):
             if set_slots(sl, key, 0):
-                sl["draining"], sl["drain_since"] = True, now
+                # drain_until: la tray dice «card ferme fino alle HH:MM» leggendo questo, non ricalcolandolo
+                sl["draining"], sl["drain_since"], sl["drain_until"] = True, now, now + DRAIN_MAX_S
                 log(f"posto {key}: nodo indietro da {int((now - sl['behind_since']) / 60)} min, lo svuoto ({busy} card in corso)")
         elif sl.get("draining") and now - sl.get("drain_since", now) >= DRAIN_MAX_S:
             sl["draining"], sl["behind_since"] = False, now

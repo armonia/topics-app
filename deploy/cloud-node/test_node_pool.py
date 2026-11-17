@@ -52,6 +52,10 @@ class Drain(unittest.TestCase):
         self.run_at(1000 + np.BEHIND_S + 120)
         self.assertEqual(len(self.cmds), n, "no retry on the same commit")
 
+    def test_draining_says_until_when(self):
+        self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
+        self.assertEqual(self.sl["drain_until"], 1000 + np.BEHIND_S + np.DRAIN_MAX_S)
+
     def test_d_under_threshold_no_drain(self):
         self.run_at(1000); self.run_at(1000 + np.BEHIND_S - 1)
         self.assertEqual(self.patches, [])
@@ -77,6 +81,44 @@ class Drain(unittest.TestCase):
         self.run_at(t + np.DRAIN_MAX_S)
         self.assertEqual(self.patches, [0, 4])
         self.assertEqual(self.restarts(), [])
+
+
+class DeleteForgetsMachine(unittest.TestCase):
+    """A deleted hourly server leaves no «Nodo cloud N» row behind; the permanent node keeps its own."""
+    def setUp(self):
+        self.calls = []
+        np.mac = lambda method, path, body=None, timeout=30: self.calls.append((method, path)) or {}
+        np.hz = lambda *a, **k: {}
+        np.ssh = lambda *a, **k: R(0)
+        np.close_tunnel = lambda sl: None
+        np.save_state = lambda s: None
+        self._run = np.subprocess.run
+        np.subprocess.run = lambda *a, **k: R(0)
+
+    def tearDown(self):
+        np.subprocess.run = self._run
+
+    def state(self, **slot):
+        return {"slots": {"2": {"n": 2, **slot}}, "lives": []}
+
+    def test_hourly_server_row_is_deleted(self):
+        s = self.state(server_id=7, machine_id="m2", ip="1.2.3.4", name="x")
+        np.delete(s, 2, "fine dell'ora")
+        self.assertIn(("DELETE", "/api/machines/m2"), self.calls)
+        self.assertEqual(s["slots"]["2"], {"n": 2})
+
+    def test_permanent_node_row_is_kept(self):
+        s = self.state(server_id=7, machine_id="m2", fixed=True)
+        np.delete(s, 2, "staccato")
+        self.assertEqual(self.calls, [])
+        self.assertEqual(s["slots"]["2"]["machine_id"], "m2")
+
+    def test_a_refused_delete_does_not_break_the_close(self):
+        def refuse(*a, **k): raise OSError("409")
+        np.mac = refuse
+        s = self.state(server_id=7, machine_id="m2")
+        np.delete(s, 2, "fine dell'ora")
+        self.assertEqual(s["slots"]["2"], {"n": 2})
 
 
 class SyncRepoIdentity(unittest.TestCase):
