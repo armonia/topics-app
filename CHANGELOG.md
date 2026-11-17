@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.34 — 2026-11-17
+
+### Sotto il cofano
+- la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma
+- topics/sleepy-phantom (card 3d431e73) (#1210)
+- sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader
+- **deploy-outcome** · 2 s deadline cap so a slow shell start still prints before it
+- Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)
+
 ## 2.4.33 — 2026-11-17
 
 ### Sotto il cofano
