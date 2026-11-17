@@ -18,7 +18,8 @@ hermetic(test);
  *  - the running tool is not wrapped in a tinted box with its own radius: it is
  *    flat like the rows around it;
  *  - one line per thing: a row says its label once and the card under it only
- *    the detail (no «Card» over «Card», no «Sub-agent» over «Sotto-agente»);
+ *    the detail (no «Card» over «Card», no «Sub-agent» over the card's own
+ *    sub-agent name);
  *  - a finished sub-agent call with nothing to show is not drawn; a failed one
  *    is, with that state;
  *  (the distance to the sub-agents bar is `chat-rows-strip.spec.ts`)
@@ -130,7 +131,7 @@ test.describe("Chat rows: one grid, no row without words", () => {
 
     // One line per thing: the label once, under it only the detail.
     await expect.soft(row("rw-spawn-empty").getByTestId("spawn-agent-phase")).toBeVisible();
-    await expect.soft(row("rw-spawn-empty").getByTestId("spawn-agent-name"), "«Sub-agent» over «Sotto-agente»").toHaveCount(0);
+    await expect.soft(row("rw-spawn-empty").getByTestId("spawn-agent-name"), "the sub-agent label over its own name").toHaveCount(0);
     await expect.soft(row("rw-card-empty").getByTestId("task-card-phase")).toBeVisible();
     await expect.soft(row("rw-card-empty").getByTestId("task-card-title"), "«Card» over a second «Card»").toHaveCount(0);
 
