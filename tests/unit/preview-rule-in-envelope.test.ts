@@ -21,6 +21,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { readDispatcherSource } from "../helpers/dispatcher-source";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 
@@ -30,7 +31,7 @@ function src(rel: string): string {
 
 describe("PREVIEW_RULE nell'envelope dell'agente", () => {
   test("buildKickoff in task-dispatcher.ts referenzia PREVIEW_RULE", () => {
-    const dispatcher = src("server/services/task-dispatcher.ts");
+    const dispatcher = readDispatcherSource();
     // La costante deve essere USATA dentro buildKickoff, non solo importata.
     // Il modo piu' diretto e' cercare il letterale subito dopo l'import check.
     expect(dispatcher).toContain("import { CODE_GATES_RULE");
@@ -44,7 +45,7 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
   });
 
   test("buildResume in task-dispatcher.ts referenzia PREVIEW_RULE", () => {
-    const dispatcher = src("server/services/task-dispatcher.ts");
+    const dispatcher = readDispatcherSource();
     const resumeStart = dispatcher.indexOf("function buildResume(");
     const resumeEnd = dispatcher.indexOf("\n  function ", resumeStart + 1);
     const resumeBody = dispatcher.slice(resumeStart, resumeEnd > resumeStart ? resumeEnd : undefined);
@@ -58,7 +59,7 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
     // it CALLS the tool, not while it decides whether the answer needs options
     // at all. Rule 5-bis of docs/board-protocol.md: one string for the envelopes
     // and for the two `options` descriptions.
-    const dispatcher = src("server/services/task-dispatcher.ts");
+    const dispatcher = readDispatcherSource();
     const resumeStart = dispatcher.indexOf("function buildResume(");
     const resumeEnd = dispatcher.indexOf("\n  function ", resumeStart + 1);
     const resumeBody = dispatcher.slice(resumeStart, resumeEnd > resumeStart ? resumeEnd : undefined);
@@ -66,7 +67,7 @@ describe("PREVIEW_RULE nell'envelope dell'agente", () => {
   });
 
   test("promoteReviewPreview non scrive piu' il paragrafo operativo nel thread", () => {
-    const tasks = src("server/services/tasks.ts");
+    const tasks = src("server/services/tasks/shared.ts");
     // Cerca il corpo di promoteReviewPreview tra la sua firma e la funzione
     // successiva.
     const fnStart = tasks.indexOf("function promoteReviewPreview(");

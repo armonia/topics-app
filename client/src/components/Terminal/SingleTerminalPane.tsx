@@ -40,11 +40,15 @@ import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../s
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TerminalCover } from './TerminalCover';
 import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from '../../lib/terminalFont';
+import { Spinner } from '../Shared/Spinner';
 
 // The toolbar keys live in ./touchKeys so the set can vary by session type:
 // Ctrl+Z freezes a Claude Code pane, so Claude sessions get Ctrl+_ instead.
 
 const isTouchDevice = typeof window !== 'undefined' && 'ontouchstart' in window && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/.test(navigator.userAgent);
+
+// Overlays that keep the keyboard over the late focus of a new terminal.
+const OVERLAY_ROLES = ['dialog', 'menu', 'listbox'] as const;
 
 const DARK_THEME = {
   // Near-neutral dark gray matched to the project sidebar's dark chrome. The
@@ -614,12 +618,15 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
     // opened from a button or a menu item that still holds the focus. It yields
     // only to a text field outside the terminal (this pane's find bar, the chat
     // composer): taking the cursor from there mid-word sent the rest of the word
-    // to the shell.
+    // to the shell. It also yields to an overlay opened in those 600 ms (the
+    // inbox, a menu): the inbox reopened right after Enter lost its focused
+    // row to this timer, and ↓/E went to the shell (attention-inbox e2e).
     setTimeout(() => {
       doFit();
       const held = document.activeElement;
       const typingElsewhere = held instanceof HTMLElement && !el.contains(held)
-        && (held.isContentEditable || held.matches('input, textarea, select'));
+        && (held.isContentEditable || held.matches('input, textarea, select')
+          || OVERLAY_ROLES.some((r) => held.closest(`[role=${r}]`) !== null));
       if (!typingElsewhere) term.focus();
     }, 600);
 
@@ -1461,7 +1468,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.reloadTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              {reloading ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reloading ? t('terminal.restarting') : t('terminal.reload')}</span>
             </button>
           </div>
@@ -1481,7 +1488,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reviving ? 'animate-spin' : ''} />
+              {reviving ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reviving ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
           </div>
@@ -1545,7 +1552,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              {reloading ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reloading ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
           </div>
@@ -1602,7 +1609,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         {reloading && !stale && (
           <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
             <div className="flex items-center gap-2 text-app-text-muted text-compact">
-              <RotateCw size={14} className="animate-spin" />
+              <Spinner size="sm" box={14} tone="current" />
               <span>{t('terminal.restartingSession')}</span>
             </div>
           </div>

@@ -1150,9 +1150,10 @@ describe("board router (human, project-scoped)", () => {
     const parent = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "madre" }))!.json();
     const child = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "figlia", parentTaskId: parent.id }))!.json();
     const grandchild = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "nipote", parentTaskId: child.id }))!.json();
-    const ai = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "ai", parentTaskId: parent.id }))!.json();
-    db.run("UPDATE tasks SET status = 'review' WHERE id IN (?, ?, ?)", [child.id, grandchild.id, ai.id]);
-    db.run("UPDATE tasks SET stage = 'ai_review' WHERE id = ?", [ai.id]);
+    const inCi = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "in ci", parentTaskId: parent.id }))!.json();
+    db.run("UPDATE tasks SET status = 'review' WHERE id IN (?, ?, ?)", [child.id, grandchild.id, inCi.id]);
+    // The CI column waits on the integration queue, not on a person.
+    db.run("UPDATE tasks SET stage = 'ci' WHERE id = ?", [inCi.id]);
 
     const feed = await (await call(router, "GET", "/api/all-boards/tasks"))!.json();
     expect(feed.tasks.map((t: any) => [t.id, t.subtaskReviewCount ?? 0])).toEqual([[parent.id, 2]]);

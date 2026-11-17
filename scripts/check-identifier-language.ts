@@ -86,8 +86,17 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
+  // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
+  "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
+  // requeue: putting a task back in `todo` for the dispatcher to claim fresh
+  // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
+  // the project's own word for it, already used as a parameter name project-wide.
+  "requeue",
   // cancelled: the exact value of GitHub's run `conclusion` field, so it cannot be renamed to the American spelling (`server/services/ci-supersede.ts`).
   "cancelled",
+  // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
+  "countdown",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.
@@ -96,6 +105,8 @@ export const PROJECT_WORDS = new Set([
   "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // callee: the person a call on behalf rings, a field of the voice bridge protocol (`server/services/voice-call/prompts.ts`).
+  "callee",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
   "tps",
   // readout: what one machine reports about itself (its processes, its sleep

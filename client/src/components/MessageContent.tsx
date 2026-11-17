@@ -405,14 +405,14 @@ export const markdownComponents: Components = {
   },
   table: ({ children }) => (
     <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-app-border-light text-body-lg leading-5">{children}</table>
+      <table className="min-w-full border-collapse border border-app-border-light text-prose sm:text-body-lg leading-5">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-app-border-light bg-app-hover dark:bg-elevated px-3 py-1.5 text-left font-semibold">{children}</th>
+    <th className="md-cell border border-app-border-light bg-app-hover dark:bg-elevated px-1.5 sm:px-3 py-1.5 text-left font-semibold">{children}</th>
   ),
   td: ({ children }) => (
-    <td className="border border-app-border-light px-3 py-1.5">{children}</td>
+    <td className="md-cell border border-app-border-light px-1.5 sm:px-3 py-1.5">{children}</td>
   ),
 };
 
@@ -1208,7 +1208,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               // è la forma di gran lunga più comune — quei 6px sono vuoto
               // aggiunto sotto ogni riga di azione, e basta.
               <div className={`space-y-0 ${cleanText ? 'mb-1.5' : ''}`}>
-                {thinking && <ReasoningRow content={thinking} partial={partial} messageId={messageId} />}
+                {/* Live only while nothing came after it: once prose or a tool shows
+                    up the thinking is over and the row folds. */}
+                {thinking && <ReasoningRow content={thinking} partial={partial && !cleanText && legacyTools.length === 0} messageId={messageId} />}
                 <GroupedToolRows tools={legacyTools} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
               </div>
             )}

@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTasksRouter } from "./tasks";
 import { createTaskService, type TaskService } from "../services/tasks";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, setCiPhaseMode } from "./tasks-test-support";
 import type { IntegrationMeasure } from "../services/integration-queue";
 
 const MERGED = {
@@ -44,7 +44,7 @@ describe("landing_state across the CI phase", () => {
   const commit = "abc1234";
 
   beforeEach(() => {
-    db = freshDb(); svc = createTaskService(db); merge = MERGED; deduction = null;
+    db = setCiPhaseMode(freshDb(), "before"); svc = createTaskService(db); merge = MERGED; deduction = null;
     measureGate = new Promise<void>((r) => { release = r; });
   });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });

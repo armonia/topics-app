@@ -33,6 +33,7 @@ import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork'
 import { SEEN_DWELL_MS as SHARED_SEEN_DWELL_MS, type AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
 import { projectAttention, projectWorkingCount } from './attentionRollups';
+import { classifyToolAction, type AgentAction } from '../../../shared/agent-action';
 
 /** Phases that mean "Claude STOPPED and is waiting for YOU" — the subset of
  *  NOTABLE that warrants a blue "awaiting feedback" tab/row highlight.
@@ -249,6 +250,8 @@ export interface SessionActivitySignal {
   working: boolean;
   /** The tool Claude is currently running (from lastTool), when working. */
   tool?: string;
+  /** What the session is doing, for the loader's movement (`actionForPhase`). Always set by `deriveSessionActivity`. */
+  action?: AgentAction;
   /** The pending approval kind (plan/edit/bash/other), when tier === 'input'. */
   approvalKind?: string;
   /** Timestamp the current phase/tool started — for the elapsed counter. */
@@ -433,7 +436,7 @@ function sessionActivityEqual(a: Map<string, SessionActivitySignal>, b: Map<stri
     const vb = b.get(k);
     if (!vb) return false;
     if (va.phase !== vb.phase || va.tier !== vb.tier || va.working !== vb.working
-      || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
+      || va.action !== vb.action || va.tool !== vb.tool || va.approvalKind !== vb.approvalKind || va.since !== vb.since) return false;
   }
   return true;
 }
@@ -561,6 +564,21 @@ export function derivePhaseTerminals(
 }
 
 /**
+ * The action of a Claude Code session from its hook phase: a session parked on
+ * the person waits, an errored one is an error, a tool running is what that
+ * tool does, an armed Monitor is a command running, and anything else
+ * (`running` between tools, `starting`) is `think`. Only `tool-running` reads
+ * the tool: in `running` the last tool has already returned.
+ */
+export function actionForPhase(phase: ClaudeSessionPhase, toolName: string | undefined): AgentAction {
+  if (phase === 'error') return 'error';
+  if (AWAITING_FEEDBACK_PHASES.has(phase)) return 'wait';
+  if (phase === 'tool-running') return toolName ? classifyToolAction(toolName) : 'tool';
+  if (phase === 'watching') return toolName ? classifyToolAction(toolName) : 'run';
+  return 'think';
+}
+
+/**
  * Build the "what is each session doing" map, keyed by SUBJECT id (topicId for
  * chats, terminalSessionId for claude-code terminals). Only sessions that are
  * WORKING or AWAITING produce an entry — an idle/dormant session shows nothing,
@@ -583,6 +601,7 @@ export function deriveSessionActivity(
       tier,
       working,
       tool: working ? st.lastTool?.name : undefined,
+      action: actionForPhase(st.phase, working ? st.lastTool?.name : undefined),
       approvalKind: tier === 'input' ? st.pendingApproval?.kind : undefined,
       // Prefer the running tool's start (freshest) when working, else the phase
       // change — so the elapsed counter tracks the current action.
@@ -649,7 +668,7 @@ export function deriveSessionLastActivity(
   return out;
 }
 
-function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
+export function terminalBelongsToProject(cwd: string, projectPath: string): boolean {
   return cwd === projectPath || cwd.startsWith(projectPath + '/');
 }
 

@@ -61,16 +61,51 @@ fn backup_card_judges_days_and_proofs() {
 }
 
 #[test]
-fn the_reason_line_sits_below_the_legend_inside_the_card() {
-    // the dial geometry of draw_machine_card: edge 38, centre 46 + edge
-    let (edge, cy) = (38.0, 84.0);
-    let with = card_layout(cy, edge, true);
-    // 11 pt text: its top must clear the GPU row's baseline, and its baseline stay inside the frame
-    assert!(with.reason_y - 11.0 > with.last_row + 2.0, "{with:?}");
-    assert!(with.reason_y + 4.0 <= with.h + 3.0, "{with:?}");
-    let without = card_layout(cy, edge, false);
-    assert!(without.last_row + 4.0 <= without.h + 3.0, "{without:?}");
-    assert!(with.h > without.h);
+fn a_reading_the_dial_cannot_show_is_a_legend_row_not_the_line() {
+    let spend = Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() };
+    let cpu = Metric { key: "cpu".into(), pct: Some(30), ..Default::default() };
+    let m = MachineCard { name: "Server".into(), badge: "spento".into(), reason: "Oltre il tetto".into(), metrics: vec![spend, cpu.clone()], ..Default::default() };
+    assert_eq!(card_line(&m), "Oltre il tetto");
+    assert_eq!(extra_rows(&m).iter().map(|x| x.key.as_str()).collect::<Vec<_>>(), ["spend"]);
+    // the swap is the note of the memory row, never a row of its own
+    let swap = Metric { key: "swap".into(), value: "5/6 GB".into(), ..Default::default() };
+    assert!(extra_rows(&MachineCard { metrics: vec![swap, cpu], ..Default::default() }).is_empty());
+    assert_eq!(card_line(&MachineCard::default()), "");
+}
+
+#[test]
+fn backup_card_has_the_private_archive_the_foot_and_the_next_run() {
+    let fresh = r#"{"last_ok":1799990000,"private_at":1799980000,"last_seconds":239,"icloud":{"local_bytes":1288490188,"files":1,"uploaded":1,"bytes":1}}"#;
+    let b = backup_card(fresh, NOW).unwrap();
+    assert!(b.caption.ends_with("prossima alle 5:00"), "{}", b.caption);
+    assert!(b.proofs.iter().any(|p| p.0 == "Archivio privato" && p.2));
+    assert_eq!(b.foot, "Sul Mac: Adesso niente · ultimo giro 4 min · 1,2 GB sul disco");
+    let stale = fresh.replace("1799980000", "1799800000");
+    let bad = backup_card(&stale, NOW).unwrap();
+    assert_eq!((bad.level, bad.proofs.iter().any(|p| p.0 == "Archivio privato" && !p.2)), (2, true));
+    assert!(bad.caption.starts_with("Archivio privato fermo"));
+    // an older service has no such field: no false alarm
+    assert!(!backup_card(BACKUP, NOW).unwrap().proofs.iter().any(|p| p.0 == "Archivio privato"));
+    let running = backup_card(r#"{"last_ok":1799990000,"pending_since":1799999000,"run_phase":"sta controllando i dati"}"#, NOW).unwrap();
+    assert_eq!(running.foot, "Sul Mac: sta controllando i dati");
+    let (with, without) = (draw_backup_card(&b, Palette::new(true)), draw_backup_card(&BackupCard { foot: String::new(), ..b.clone() }, Palette::new(true)));
+    assert!(with.cv.h > without.cv.h, "the foot takes a line");
+}
+
+#[test]
+fn the_server_card_is_the_pc_card_with_one_more_row_for_its_spend() {
+    let p = Palette::new(true);
+    let hw = |k: &str, v: u32| Metric { key: k.into(), pct: Some(v), ..Default::default() };
+    let pc = MachineCard { id: "pc".into(), name: "PC".into(), badge: "lavora".into(), metrics: vec![hw("cpu", 5), hw("mem", 32), hw("disk", 97)], ..Default::default() };
+    let mut server = MachineCard { id: "hetzner".into(), name: "Server".into(), ..pc.clone() };
+    let plain = draw_machine_card(&server, p);
+    server.metrics.push(Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() });
+    let with_spend = draw_machine_card(&server, p);
+    assert_eq!(plain.cv.h, draw_machine_card(&pc, p).cv.h, "same card as the PC");
+    assert_eq!(with_spend.cv.h, plain.cv.h + 36, "the spend takes one legend row (18 pt at 2x)");
+    // a server that measures only its spend still gets the dial, not a different card
+    let only_spend = MachineCard { metrics: vec![server.metrics[3].clone()], ..server.clone() };
+    assert_eq!(draw_machine_card(&only_spend, p).cv.h, with_spend.cv.h);
 }
 
 #[test]
@@ -97,6 +132,12 @@ fn snapshot() {
     let read = |k: &str, d: &str| std::env::var(k).ok().map(|f| std::fs::read_to_string(f).unwrap()).unwrap_or(d.to_string());
     let (board, backup) = (read("TRAY_MENU_SNAPSHOT_BOARD", BOARD), read("TRAY_MENU_SNAPSHOT_BACKUP", BACKUP));
     let now = if std::env::var("TRAY_MENU_SNAPSHOT_BOARD").is_ok() { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 } else { NOW };
+    // the process table is native rows, not a picture: its text goes next to the pictures
+    if let (Ok(procs), Ok(trust)) = (std::env::var("TRAY_MENU_SNAPSHOT_PROCS"), std::env::var("TRAY_MENU_SNAPSHOT_TRUST")) {
+        let cpu = std::env::var("TRAY_MENU_SNAPSHOT_PS").ok().map(|f| crate::tray_menu::parse_ps(&std::fs::read_to_string(f).unwrap())).unwrap_or_default();
+        let snap = crate::tray_menu::Snapshot { procs: Some(std::fs::read_to_string(procs).unwrap()), trust: Some(std::fs::read_to_string(trust).unwrap()), cpu, ..Default::default() };
+        std::fs::write(format!("{dir}/procs.txt"), crate::tray_menu::dump_text(&crate::tray_menu_procs::procs_table(&snap))).unwrap();
+    }
     for (name, dark) in [("dark", true), ("light", false)] {
         let p = Palette::new(dark);
         // a stack of the views, on the menu's own background, as the menu shows them
@@ -130,4 +171,10 @@ fn snapshot() {
         enc.set_depth(png::BitDepth::Eight);
         enc.write_header().unwrap().write_image_data(&px).unwrap();
     }
+}
+
+#[test]
+fn tray_machine_logos_have_the_sizes_of_the_original_tray() {
+    // machineSym in ClaudeUsage.swift: the Apple logo at 14, a cloud at 13, the Windows logo at 12
+    assert_eq!([machine_glyph_side("apple.logo"), machine_glyph_side("cloud"), machine_glyph_side("windows")], [14.0, 13.0, 12.0]);
 }

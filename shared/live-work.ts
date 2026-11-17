@@ -19,6 +19,20 @@ export const LIVE_WORK_ENDED_TTL_MS = 60_000;
  */
 export type LiveAgentState = "working" | "waiting" | "ended";
 
+/**
+ * What a sub-agent weighs, as the provider reported it. `usedTokens` and
+ * `windowTokens` are `null` until the provider has reported a call: the UI then
+ * draws no percent. The rest is what the session spent so far.
+ */
+export interface WorkWeight {
+  usedTokens: number | null;
+  windowTokens: number | null;
+  estimated: boolean;
+  billableTokens: number;
+  cacheReadTokens: number;
+  costCents: number;
+}
+
 export interface LiveAgentRow {
   kind: "agent";
   /** The `agentId`: a CLI child's terminal session, a native child's row. */
@@ -34,6 +48,14 @@ export interface LiveAgentRow {
   /** An ended row: when it ended, and how long it still stays (ms, from the answer). */
   endedAt?: string;
   goneInMs?: number;
+  /** Absent when nothing is measured on this child yet. */
+  weight?: WorkWeight;
+  /**
+   * How long a child like this takes, from the children of the same kind that
+   * already finished (their median); absent below the sample floor, and then
+   * no countdown is drawn.
+   */
+  estimateMs?: number;
 }
 
 export interface LiveCommandRow {
@@ -56,4 +78,18 @@ export type LiveWorkRow = LiveAgentRow | LiveCommandRow;
 
 export interface LiveWork {
   rows: LiveWorkRow[];
+}
+
+/** A live agent row with the chat that launched it. */
+export interface ChildAgentRow extends LiveAgentRow {
+  parentTopicId: string;
+}
+
+/**
+ * Every sub-agent at work now, over all chats (`GET /api/live-work`): what
+ * the surfaces that are not under one chat (a child's own tab, the agents
+ * list, the sidebar, the tray) read, from the same rows the strips show.
+ */
+export interface LiveChildren {
+  agents: ChildAgentRow[];
 }

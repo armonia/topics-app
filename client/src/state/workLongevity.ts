@@ -160,15 +160,17 @@ export function formatElapsedShort(ms: number): string {
  * ha sostituito leggevano `Date.now()` dentro il render, che non e' una
  * sottoscrizione: il numero si congelava al primo disegno.
  */
-export function formatRelative(at: number, now: number): string {
+export function formatRelative(at: number, now: number, locale: 'it' | 'en' = 'en'): string {
+  const it = locale === 'it';
   const diffS = Math.floor((now - at) / 1000);
   if (!Number.isFinite(diffS)) return '';
-  if (diffS < 60) return 'now';
+  if (diffS < 60) return it ? 'ora' : 'now';
   const diffM = Math.floor(diffS / 60);
   if (diffM < 60) return `${diffM}m`;
   const diffH = Math.floor(diffM / 60);
   if (diffH < 24) return `${diffH}h`;
   const diffD = Math.floor(diffH / 24);
-  if (diffD < 30) return `${diffD}d`;
-  return `${Math.floor(diffD / 30)}mo`;
+  if (diffD < 30) return it ? `${diffD}g` : `${diffD}d`;
+  const months = Math.floor(diffD / 30);
+  return it ? `${months} mes${months === 1 ? 'e' : 'i'}` : `${months}mo`;
 }

@@ -1,0 +1,93 @@
+/**
+ * The channel chip: which Jarvis channel a card's work came from, one click from its chat.
+ * @covers KANBAN-01
+ */
+import { describe, expect, test } from 'bun:test';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { isValidElement, type ReactElement, type ReactNode } from 'react';
+import { channelChip } from './channelChip';
+import { ChannelChipView } from './ChannelChipView';
+
+const tr = (key: string, params?: Record<string, string | number>) => `${key}${params ? JSON.stringify(params) : ''}`;
+
+type Props = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+function find(node: ReactNode, test: (el: ReactElement<Props>) => boolean): ReactElement<Props> | null {
+  if (!isValidElement(node)) return null;
+  const el = node as ReactElement<Props>;
+  if (test(el)) return el;
+  const kids = el.props.children;
+  for (const kid of Array.isArray(kids) ? kids : [kids]) {
+    const hit = find(kid, test);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+describe('channelChip', () => {
+  test('a card whose chat is a Discord channel names the channel and its chat', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 'chan-1', name: '#Video Zeno: musica e voce da rifare' } }, tr);
+    expect(chip).toMatchObject({ kind: 'discord', topicId: 'chan-1', name: '#Video Zeno: musica e voce da rifare' });
+    expect(chip!.title).toContain('Discord');
+    expect(chip!.title).toContain('#Video Zeno');
+  });
+  test('no channel, or no chat to open, is no chip', () => {
+    expect(channelChip({}, tr)).toBeNull();
+    expect(channelChip({ channel: { kind: 'whatsapp', topicId: '', name: 'x' } }, tr)).toBeNull();
+  });
+  test('a chat with no name still says the channel word', () => {
+    expect(channelChip({ channel: { kind: 'whatsapp', topicId: 'w', name: '  ' } }, tr)!.name).toBe('WhatsApp');
+  });
+});
+
+describe('ChannelChipView', () => {
+  const chip = channelChip({ channel: { kind: 'whatsapp', topicId: 'chan-w', name: 'Gruppo Studio' } }, tr)!;
+  test('draws the official brand mark and the channel name, and no Jarvis word (he is the agent chip)', () => {
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
+    expect(html).toContain('data-testid="card-channel"');
+    expect(html).toContain('data-channel-kind="whatsapp"');
+    expect(html).toContain('aria-label="WhatsApp"');
+    expect(html).not.toContain('Jarvis');
+    expect(html).toContain('>Gruppo Studio<');
+  });
+  test('the click opens the channel chat through the in-app door and stops the card from opening', () => {
+    const routed: unknown[] = [];
+    const notified: string[] = [];
+    const door = ((target: unknown, opts?: { notify?: (m: string) => void }) => { routed.push(target); opts?.notify?.('gone'); }) as never;
+    const view = ChannelChipView({ chip, notify: (m) => notified.push(m), open: door });
+    const button = find(view, (el) => el.type === 'button')!;
+    let stopped = false;
+    button.props.onClick({ stopPropagation: () => { stopped = true; } });
+    expect(routed).toEqual([{ kind: 'chat', key: 'chan-w' }]);
+    expect(notified).toEqual(['gone']);
+    expect(stopped).toBe(true);
+  });
+});
+
+describe('channelChip path', () => {
+  test('a Discord thread reads server, channel, thread', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno', thread: 'Video' } } }, tr)!;
+    expect(chip.segments.map((s) => s.level)).toEqual(['server', 'channel', 'thread']);
+    expect(chip.title).toContain('Armonia › zeno › Video');
+  });
+  test('a plain channel has two levels and the chip renders the thread icon only for a thread', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno' } } }, tr)!;
+    expect(chip.segments).toHaveLength(2);
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
+    expect(html).not.toContain('aria-label="thread"');
+    expect(html).toContain('card-channel-channel');
+  });
+  test('a card thread sits on its own row and ends in an ellipsis, the server never shrinks', () => {
+    const chip = channelChip({ channel: { kind: 'discord', topicId: 't', name: 'x', place: { server: 'Armonia', channel: 'zeno', thread: 'Chip del canale sulla card' } } }, tr)!;
+    const html = renderToStaticMarkup(<ChannelChipView chip={chip} />);
+    const thread = html.match(/<span data-testid="card-channel-thread" class="([^"]*)"/)![1]!;
+    expect(thread).toContain('text-ellipsis');
+    expect(thread).toContain('overflow-hidden');
+    expect(thread).toContain('whitespace-nowrap');
+    expect(html).toContain('data-testid="card-channel-thread-row"');
+    const server = html.match(/<span data-testid="card-channel-server" class="([^"]*)"/)![1]!;
+    expect(server).toContain('shrink-0');
+    expect(server).not.toContain('truncate');
+    const full = renderToStaticMarkup(<ChannelChipView chip={chip} full />);
+    expect(full).not.toContain('text-ellipsis');
+  });
+});

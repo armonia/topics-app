@@ -14,6 +14,7 @@
  *
  * `tasks.ts` re-exports all four, so every existing import keeps working.
  */
+import type { ChannelKind, ChannelPlace } from "../../shared/channel-origin";
 import type { CheckRun } from "./review-checks";
 import type { TaskLabelRow } from "../../shared/task-labels";
 import type {
@@ -264,13 +265,19 @@ export interface Task {
   /** That chat's name. */
   openerName?: string;
   /**
+   * The Jarvis channel the work came from, only while that chat exists: the linked
+   * channel chat (`channel_topic_id`), else the opener chat when it is a channel chat.
+   * Display only: it grants nothing and wakes nothing.
+   */
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
+  /**
    * The workflow column the card sits in when it is not the default one of its
-   * status (`triage`, `ai_review`, `human_review`; `shared/workflow.ts`).
+   * status (today only `ci`; `shared/workflow.ts`).
    * Absent = the default column: every card on a board with the default
    * workflow, so those rows read exactly as before.
    */
   stage?: string;
-  /** The question for the person a delivery carried (what sends it to Human review). Absent = none. */
+  /** The question for the person a delivery carried. Absent = none. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'); kept across a bounce. Absent = nobody yet. */
   landIntent?: "human" | "auto";
@@ -495,6 +502,8 @@ export interface CreateTaskInput {
   machineId?: string | null;
   /** The "this Mac only" mark, set at birth: the overflow dispatch never moves the card. */
   stayLocal?: boolean;
+  /** Why `stayLocal` holds with no expiry, for the audit trail — see `stayLocalReason` on the update patch below. */
+  stayLocalReason?: string | null;
   /** A node's mirror card: the branch its worktree starts from (default main). */
   baseBranch?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
@@ -522,17 +531,16 @@ export interface CreateTaskInput {
    * `createdByTopicId` it carries no power, so a caller may name it.
    */
   originTopicId?: string | null;
+  /** The Jarvis channel chat the work is followed in (`channel_topic_id`): DISPLAY only, wakes and moves nothing. */
+  channelTopicId?: string | null;
   /** The executable acceptance bar. */
   bar?: string | null;
   /**
-   * The workflow column to be born in. Omitted = the server decides
-   * (`stageAtBirth`: triage for a card from a person on a board that has it).
+   * The workflow column to be born in. Omitted = the default column of the status.
    */
   stage?: string | null;
   /**
-   * The question for the person a card born in review carries. On a board
-   * with AI review it is what lets a card opened by an agent or a schedule be
-   * born in Human review, as on a delivery (`stageForDelivery`).
+   * The question for the person a card born in review carries.
    */
   humanAsk?: string | null;
 }
@@ -579,12 +587,21 @@ export interface UpdateTaskPatch {
   stayLocal?: boolean;
   /** When `stayLocal` stops holding (ISO); null = for good. Set only by the dispatcher. */
   stayLocalUntil?: string | null;
+  /**
+   * Why a permanent `stayLocal` (no `stayLocalUntil`) holds, written to the
+   * thread as a system comment so a pin can be told apart from one nobody
+   * ever explained. Omit it and a permanent pin still gets a generic comment
+   * (see `tasks.ts`'s update path) rather than none at all.
+   */
+  stayLocalReason?: string | null;
   /** The node the overflow skips for this card, and until when (ISO). Set only by the dispatcher. */
   overflowSkip?: { machineId: string; until: string } | null;
   /** The executable acceptance bar; null clears. */
   bar?: string | null;
   /** Where the card comes from (session or channel), added after birth to clear the incomplete flag. */
   createdSource?: string | null;
+  /** The Jarvis channel chat the work is followed in, linked after birth; null clears. Display only. */
+  channelTopicId?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */
   blockedByTaskId?: string | null;
   reuseBlockerContext?: boolean;
@@ -607,10 +624,8 @@ export interface UpdateTaskPatch {
    */
   stage?: string | null;
   /**
-   * THE QUESTION FOR THE PERSON, sent with a delivery. On a board with AI
-   * review it is what sends a card opened by an agent to Human review instead
-   * of back to whoever opened it (rule of 28/10: in review only what the
-   * person has to see). Empty/null clears.
+   * THE QUESTION FOR THE PERSON, sent with a delivery: what they have to look
+   * at or decide. Empty/null clears.
    */
   humanAsk?: string | null;
 }

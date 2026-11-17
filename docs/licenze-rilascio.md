@@ -147,6 +147,35 @@ o con `PUT /api/license`.
 Per rispondere a «cosa ho mandato a quel cliente?» senza avere la chiave
 sottomano: `bun scripts/licenza.ts ispeziona <gettone>` (legge, non convalida).
 
+## Un gettone per nodo cloud
+
+Un nodo che si collega al relay con la sua copia di Topics ha bisogno di
+`accesso_remoto`, come ogni installazione. Il gettone è **uno per nodo**, legato
+all'installazione del Mac che lo possiede: il nodo ne dichiara l'identità
+(il suo file `installation-id` contiene quello del Mac) e con quella il gettone
+verifica. Il nome pubblico sul relay (`relayId`) resta quello suo, quindi Mac e
+nodo non si sovrappongono.
+
+```
+TOPICS_LICENSE_PRIVKEY="$(cat "$CHIAVE_LICENZE")" \
+  bun scripts/licenza.ts conia-nodo <installationId-del-Mac> <etichetta-nodo> [giorni]
+```
+
+Un posto, 30 giorni di default, l'etichetta (`node`, forma di un nome host)
+dentro il carico. Cosa concede non cambia: serve a sapere a chi è andato.
+
+- **Si consegna per ssh, mai in `user_data`**: Hetzner serve `user_data` alla VM
+  per tutta la sua vita. Il gettone va in un file `0600` letto da systemd
+  (`EnvironmentFile=`) con `TOPICS_RELAY_URL`, `TOPICS_LICENSE_PUBKEYS` (la
+  pubblica, la stessa del Mac) e `TOPICS_LICENSE_TOKEN`.
+- Nei log e nei commit non entra: lo script lo stampa una volta sola, a chi lo
+  esegue. Chi lo cattura lo manda dritto al nodo.
+- Scade da solo. Non c'è revoca: per un nodo spento basta lasciarlo scadere.
+- Prova del 15/11: istanza a parte sul nodo permanente, `[relay] collegato`,
+  `GET /api/license` → `team`, 1 posto, `valid`, e dal Mac
+  `GET https://app.topics.armonia.io/i/<relayId-nodo>/api/system/presence` → 200
+  dopo l'appaiamento.
+
 ## Ruotare la chiave
 
 Serve se la privata è uscita, o quando si passa a un servizio che firma da solo.

@@ -18,6 +18,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
+import { readServerSource } from "../../tests/helpers/server-source";
 
 function git(cwd: string, ...args: string[]): string {
   const r = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
@@ -120,6 +121,32 @@ describe("own-commits — su git vero", () => {
     const all = await otherLocalBranches(repo, "topics/seconda");
     expect(all).toContain("refs/heads/topics/prima");
     expect(await countOwnCommits(repo, "topics/seconda", { others: all! })).toBe(1);
+  });
+
+  test("the board's integration branch holds the card's commits but is never foreign work", async () => {
+    // 14/11: a measure cut by a restart left `topics/integrazione-*` in refs/heads, with
+    // the card merged in; the land subtracted it and found zero own commits.
+    git(repo, "checkout", "-q", "-b", "topics/card-lotto", "main");
+    commit(repo, "lotto.txt", "x\n", "commit della card");
+    git(repo, "checkout", "-q", "-b", "topics/integrazione-0123abcd", "topics/card-lotto");
+    git(repo, "checkout", "-q", "main");
+    const others = await otherLocalBranches(repo, "topics/card-lotto");
+    expect(others).not.toContain("refs/heads/topics/integrazione-0123abcd");
+    expect(await countOwnCommits(repo, "topics/card-lotto", { others: others! })).toBe(1);
+  });
+
+  test("a re-delivery on a fresh branch with no new commit still points at the card's own commit", async () => {
+    // 14/11, 19d684fb and 30f7c880: the node planted the same commit on a new branch; the
+    // capture subtracted the card's previous branch and recorded «no commit of its own».
+    git(repo, "checkout", "-q", "-b", "topics/consegna-vecchia", "main");
+    commit(repo, "rc.txt", "r\n", "lavoro della card");
+    const sha = git(repo, "rev-parse", "HEAD").trim();
+    git(repo, "branch", "topics/consegna-nuova", "topics/consegna-vecchia");
+    git(repo, "checkout", "-q", "main");
+    const own = await deliveryPointer(repo, "topics/consegna-nuova", { ownRefs: ["topics/consegna-vecchia"] });
+    expect(own?.commit).toBe(sha);
+    // Without the card's own branches the pointer is empty: the defect.
+    expect((await deliveryPointer(repo, "topics/consegna-nuova"))?.commit).toBeNull();
   });
 
   test("an older delivery branch of the same card (ancestor) does not hide its commits", async () => {
@@ -330,7 +357,7 @@ describe("own-commits — il runner iniettato", () => {
  * regressione da cui nasce questo file.
  */
 describe("own-commits — il cablaggio della consegna in server.ts", () => {
-  const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
+  const src = readServerSource();
   // IL BACKFILL HA TRASLOCATO il 18/08 (`services/delivery-backfill.ts`), quando
   // il cancello di dimensione ha protestato su `server.ts`. Il cancello segue il
   // codice: la domanda che sorveglia — «si chiede il commit PROPRIO, mai la

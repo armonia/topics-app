@@ -114,6 +114,7 @@ research/
 competitor-screenshots/
 backups/
 tasks/
+!server/services/tasks/
 docs/*
 # ENV.md is the public env-var reference (env audit 2026-07) — committable.
 !docs/ENV.md
@@ -188,6 +189,8 @@ docs/*
 # controllo sui parametri documentati. Stessa malattia di board-vs-chat/. Gli
 # agenti dispatchati continuano a riceverlo dall'envelope, non da qui.
 !docs/board-protocol.md
+# Le regole del workflow della board di QUESTO repo (percorsi da far guardare a una persona).
+!docs/board-workflow-rules.json
 # perf-map.md dice quali superfici hanno un cancello sulle prestazioni e quali
 # no, con i numeri e la data in cui sono stati presi. Serve a chi sta per
 # ottimizzare qualcosa, cioè a decidere DOVE guardare invece di andare a naso —
@@ -485,3 +488,7 @@ output/
 relay-identity.json
 !docs/archive/devreap-astro-noclient-2026-10-26.md
 !docs/archive/tray-fetchlive-lag-root-cause.md
+
+# mutation testing
+.stryker-tmp/
+reports/mutation/

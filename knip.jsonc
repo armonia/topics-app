@@ -77,6 +77,7 @@
         // the result into public/ only once whole. Nobody imports it - it is a
         // command - but its publishing rules live next to it in
         // `build-client-publish.ts`, which its test does import.
+        "scripts/backfill-card-channel.ts!", // lancio a mano: bun run scripts/backfill-card-channel.ts [--apply] (collega le card aperte al canale di Jarvis)
         "scripts/build-client.ts!",
         "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
         "scripts/assert-sig.ts!", // invoked by .github/workflows/tauri-release.yml (publish job)
@@ -245,6 +246,10 @@
         // Misura a mano quanti doppioni ha una board, in sola lettura:
         // `bun scripts/board-duplicates.ts [--db <file>] [--json]`.
         "scripts/board-duplicates.ts!",
+        // Audit read-only of permanent `stay_local` pins against the reason
+        // that put them there: `bun scripts/stay-local-audit.ts [--db <file>]`.
+        // Writes nothing, run by hand, imported only by its own test.
+        "scripts/stay-local-audit.ts!",
         // La fusione dei progetti sdoppiati da un symlink, a mano e in due
         // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
         // fa davvero. Nessuno la importa, e non deve partire da sola.
@@ -384,7 +389,10 @@
         // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
         // questa riga risulta «file morto» e tiene rosso il cancello per
         // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
-        "server/routes/files.git-commit-harness.ts!"
+        "server/routes/files.git-commit-harness.ts!",
+        // `bun run review:open-prs` - prepares review prompts for every open PR
+        // on a read-only mirror clone. Run by hand (or from a cron), not imported.
+        "scripts/review-open-prs.ts!"
       ],
       "project": [
         "server/**/*.{ts,mjs}",
@@ -417,7 +425,11 @@
       // quindi nessun analizzatore di import puo' vederlo. Toglierlo dal
       // package.json romperebbe l'audit a11y, che e' l'unica misura di contrasto
       // che il repo ha.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7"], // typescript7: alias del TS nativo, gli script lo usano per percorso
+      // `@hughescr/stryker-bun-runner` is loaded by Stryker by NAME (`appendPlugins` in
+      // stryker.config.mjs), never imported; knip reads `testRunner: "bun"` and looks for an
+      // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
+      // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec

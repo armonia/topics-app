@@ -32,7 +32,7 @@ import { hubBadgeCounts } from '../../lib/bellGroups';
 import { useProxyActivity } from '../../state/proxyActivity';
 import { accountEvents } from '../../lib/hubSystem';
 import { inboxModel } from '../../lib/inboxModel';
-import { OPEN_INBOX_EVENT } from '../../lib/inboxEvents';
+import { OPEN_INBOX_EVENT, type OpenInboxDetail } from '../../lib/inboxEvents';
 import { RAISED_CONTROL } from '../../lib/selectionStyles';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 
@@ -92,10 +92,19 @@ export function Inbox({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { model, badge, decideCount, label } = useInboxBadge();
+  // The tab an opener asked for (History for a hub's `#journal`): a new object per request, so two
+  // equal requests in a row both land. Dropped on close, so a later click opens on «now» again.
+  const [tabRequest, setTabRequest] = useState<{ tab: 'now' | 'history' } | null>(null);
+  const close = () => { setOpen(false); setTabRequest(null); };
 
   // ⇧⌘I: the chord announces, the button answers.
   useEffect(() => {
-    const onOpen = () => { void loadPanel(); setOpen(true); };
+    const onOpen = (e: Event) => {
+      const tab = (e as CustomEvent<OpenInboxDetail | undefined>).detail?.tab;
+      if (tab) setTabRequest({ tab });
+      void loadPanel();
+      setOpen(true);
+    };
     window.addEventListener(OPEN_INBOX_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_INBOX_EVENT, onOpen);
   }, []);
@@ -107,7 +116,7 @@ export function Inbox({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close() : setOpen(true))}
         onPointerEnter={preload}
         onFocus={preload}
         // The same box as its neighbours on the row (Search and «+»): 44 with
@@ -137,7 +146,7 @@ export function Inbox({
       <Menu
         open={open}
         anchorRef={triggerRef}
-        onClose={() => setOpen(false)}
+        onClose={close}
         role="dialog"
         ariaLabel={tr('inbox.title')}
         minWidth={PANEL_W}
@@ -147,7 +156,7 @@ export function Inbox({
         className="flex flex-col overflow-hidden"
       >
         <Suspense fallback={<div className="h-24" aria-busy="true" />}>
-          <InboxPanel model={model} onWSMessage={onWSMessage} onClose={() => setOpen(false)} />
+          <InboxPanel model={model} onWSMessage={onWSMessage} onClose={close} tabRequest={tabRequest} />
         </Suspense>
       </Menu>
     </>

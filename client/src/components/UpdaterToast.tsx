@@ -31,7 +31,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useT } from '../hooks/useT';
-import { RefreshCw, Check, AlertCircle, Download } from 'lucide-react';
+import { Check, AlertCircle, Download } from 'lucide-react';
 import {
   getUpdaterApi,
   readDismissedUpdateVersion,
@@ -45,6 +45,7 @@ import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 import { startUpdateChecks } from '@/lib/shell/updateCheckSchedule';
 import { whenDevInstallKnown } from '@/hooks/useDevInstall';
 import { getVersion } from '@/lib/shell/app';
+import { Spinner } from './Shared/Spinner';
 
 export function UpdaterToast() {
   const tr = useT();
@@ -170,7 +171,7 @@ export function UpdaterToast() {
       testId="updater-toast"
       tone={isReady ? 'ready' : isError ? 'error' : 'neutral'}
       icon={
-        status.state === 'checking' ? <RefreshCw size={14} className="animate-spin" />
+        status.state === 'checking' ? <Spinner size="sm" box={14} tone="current" />
         : (status.state === 'update-available' || status.state === 'downloading') ? <Download size={14} />
         : (isReady || status.state === 'up-to-date') ? <Check size={14} />
         : isError ? <AlertCircle size={14} /> : null

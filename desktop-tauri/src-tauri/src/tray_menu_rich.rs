@@ -3,35 +3,147 @@
 //! table, the options, automations, calendar and the backup card. Pure: service
 //! answers in, `Node`s out (the cards already drawn). Card 1aba05b4.
 
-use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, n, note, parse, s, sub, tick, Node, Prefs, Snapshot};
+use crate::tray_menu::{automation_nodes, brake_nodes, extras_nodes, item, local_offset_secs, machine_action_id, note, parse, s, sub, tick, with_icon, Node, Prefs, Snapshot};
+use crate::tray_menu_projects::project_table;
+use crate::tray_menu_detail::{machine_details, MachineDetail, Segment};
 use crate::tray_menu_pic::Palette;
-use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
+use crate::tray_menu_procs::{procs_table, remote_procs_table};
+use crate::tray_node_charts::{submenu_nodes, NodeData};
+use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card_with, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
 use serde_json::Value;
 
 fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Option<Node> {
     Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
 }
 
-/// Every machine card, the same graphic for all of them. The submenu of a machine
-/// holds its lines; the local one also the processes that weigh and the finder.
-fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
+/// How long a state lasted, in words: «21 h 40 min», «5 min».
+fn span_text(secs: f64) -> String {
+    let mins = (secs / 60.0).round() as u64;
+    match (mins / 60, mins % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    }
+}
+
+/// Where the machine's state spent the window the service logged, longest first: «lavora 21 h · dorme 2 h».
+/// `None` when it logged nothing. Times in milliseconds are read as such.
+fn timeline_say(segments: &[Segment]) -> Option<String> {
+    let secs = |t: f64| if t > 1e11 { t / 1000.0 } else { t };
+    let mut spent: Vec<(String, f64)> = Vec::new();
+    for g in segments {
+        let len = (secs(g.t1) - secs(g.t0)).max(0.0);
+        match spent.iter_mut().find(|(s, _)| *s == g.state) {
+            Some(e) => e.1 += len,
+            None => spent.push((g.state.clone(), len)),
+        }
+    }
+    spent.retain(|(_, l)| *l >= 30.0);
+    spent.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    (!spent.is_empty()).then(|| format!("Ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{s} {}", span_text(*l))).collect::<Vec<_>>().join(" · ")))
+}
+
+/// The readings of a machine read from afar and how its state went through the day, as the original tray's
+/// remote submenu opens: a line per reading in the service's words, then the timeline. Text, not the
+/// bars and charts picture the submenus dropped on purpose.
+pub(crate) fn remote_reading_nodes(detail: Option<&MachineDetail>) -> Vec<Node> {
+    let Some(d) = detail else { return Vec::new() };
+    let mut out: Vec<Node> = d.metrics.iter().map(|x| {
+        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |p| format!("{}%", p.round() as i64)) };
+        let line = if x.note.is_empty() { format!("{} {value}", x.name) } else { format!("{} {value} · {}", x.name, x.note) };
+        let tone = match x.level { 0 => "ok", 1 => "warn", _ => "bad" };
+        with_icon(format!("sf:circle.fill|{tone}"), note(line))
+    }).collect();
+    out.extend(timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))));
+    out
+}
+
+/// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power allow-italian: quoted menu wording
+/// symbol, that asks before it calls. The id carries everything the dialog and the call need.
+pub(crate) fn machine_action_nodes(machine: &MachineCard, detail: Option<&MachineDetail>) -> Vec<Node> {
+    detail.map_or(&[][..], |d| &d.actions[..]).iter().map(|a| {
+        let id = machine_action_id(&machine.name, &a.method, &a.url, &a.label, &a.confirm);
+        with_icon("sf:power", item(&id, format!("{}…", a.label)))
+    }).collect()
+}
+
+/// Every machine card, the same graphic for all of them, and the same submenu as the
+/// MacBook's: its state lines, the processes that weigh in the same table, the
+/// commands of the machine, the finder. This computer takes its own census (`/api/mac/procs`);
+/// the others the service's `procs`.
+fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, now: i64, p: Palette) -> Vec<Node> {
+    let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    let (offset, data) = (local_offset_secs(), NodeData::from_snapshot(snap, now, local_offset_secs()));
     machines
         .iter()
         .filter_map(|m| {
-            let mut kids: Vec<Node> = m.lines.iter().map(note).collect();
-            if m.local {
-                if !kids.is_empty() {
-                    kids.push(Node::Sep);
-                }
-                kids.extend(crate::tray_menu::procs_nodes(&snap.procs));
-            }
+            let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
+            let extras = data.extras(m, &details, now, offset);
+            // what the node files say first (security, charts), then the readings and the processes
+            let mut kids: Vec<Node> = submenu_nodes(&extras, &m.id, p, offset);
             if !kids.is_empty() {
                 kids.push(Node::Sep);
             }
-            kids.push(item(&format!("machine-open:{}", m.id), "Cerca in una finestra…"));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
+            if !m.local {
+                kids.extend(remote_reading_nodes(found));
+            }
+            if !kids.is_empty() && !m.lines.is_empty() {
+                kids.push(Node::Sep);
+            }
+            kids.extend(m.lines.iter().map(note));
+            if !kids.is_empty() {
+                kids.push(Node::Sep);
+            }
+            if m.local {
+                kids.extend(procs_table(snap));
+            } else {
+                kids.extend(remote_procs_table(found));
+            }
+            kids.push(Node::Sep);
+            if !m.local {
+                kids.extend(machine_action_nodes(m, found));
+            }
+            kids.push(with_icon("sf:magnifyingglass", item(&format!("machine-open:{}", m.id), "Cerca in una finestra…")));
+            card(&format!("machine:{}", m.id), draw_machine_card_with(m, &extras, p), kids)
         })
         .collect()
+}
+
+/// The subscription limits entry of the original tray, first of the options.
+/// Its detail line says how many subscriptions are at their limit; inside, every
+/// account with its state, the sentence that explains it and since when it is linked.
+fn limits_node(snap: &Snapshot) -> Node {
+    let board = parse(&snap.board);
+    let accounts: Vec<&Value> = board.get("accounts").and_then(Value::as_array).map(|a| a.iter().collect()).unwrap_or_default();
+    let at_limit = accounts.iter().filter(|x| x.get("gauge").map_or(false, |g| s(g, "zone") == "frenato")).count();
+    let held = parse(&snap.gates).get("overrides").and_then(Value::as_array).map_or(false, |o| o.iter().any(|x| x.get("hold").and_then(Value::as_bool) == Some(true)));
+    let say = match (at_limit, held) {
+        (0, true) => "lavori nuovi fermi".to_string(),
+        (0, false) => "nessun limite raggiunto".to_string(),
+        (1, _) => "1 abbonamento al limite".to_string(),
+        (k, _) => format!("{k} abbonamenti al limite"),
+    };
+    let mut kids: Vec<Node> = Vec::new();
+    for a in &accounts {
+        let g = a.get("gauge").cloned().unwrap_or(Value::Null);
+        let line = note(format!("{} · {}", s(a, "label"), s(&g, "short")));
+        kids.push(match s(a, "provider") {
+            p @ ("claude" | "codex" | "muse") => crate::tray_menu::with_icon(&format!("provider:{p}"), line),
+            _ => line,
+        });
+        let sentence = Some(s(&g, "cardSay")).filter(|t| !t.is_empty()).unwrap_or(s(&g, "say"));
+        if !sentence.is_empty() {
+            kids.push(note(sentence));
+        }
+        if let Some(t) = a.get("access").map(|x| s(x, "say")).filter(|t| !t.is_empty()) {
+            kids.push(note(t));
+        }
+    }
+    if !kids.is_empty() {
+        kids.push(Node::Sep);
+    }
+    kids.extend(brake_nodes(&snap.gates, !accounts.is_empty()));
+    sub(format!("Limiti degli abbonamenti · {say}"), kids)
 }
 
 /// A line per provider whose quota could not be read.
@@ -43,66 +155,11 @@ fn unreachable_nodes(overview: &Option<String>) -> Vec<Node> {
         .collect()
 }
 
-fn comma(v: f64, digits: usize) -> String {
-    format!("{v:.digits$}").replace('.', ",")
-}
-
-/// Tokens in the last hour of a project's live agents, short: 12k, 1,4M.
-fn tokens_short(t: f64) -> String {
-    if t >= 1e6 { format!("{}M", comma(t / 1e6, 1)) } else if t >= 1e3 { format!("{}k", (t / 1e3).round() as i64) } else { format!("{}", t as i64) }
-}
-
-fn working(p: &Value) -> bool {
-    p.get("agents").and_then(|a| a.get("count")).and_then(Value::as_i64).unwrap_or(0) > 0
-}
-
-/// The projects table: a header row, then one row per project, who works first.
-fn project_table(live: &Option<String>) -> Vec<Node> {
-    let v = parse(live);
-    let Some(ps) = v.get("projects").and_then(Value::as_array) else { return vec![note("Progetti: il servizio non risponde")] };
-    let mut rows: Vec<&Value> = ps.iter().filter(|p| !p.get("dead").and_then(Value::as_bool).unwrap_or(false)).collect();
-    rows.sort_by_key(|p| !working(p));
-    let busy = rows.iter().filter(|p| working(p)).count();
-    let mut out = vec![Node::Row {
-        id: String::new(),
-        cells: ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec(),
-        header: true,
-        children: Vec::new(),
-    }];
-    out.push(note(if busy == 0 { "nessun lavoro in corso · consumo in % della settimana".to_string() } else { format!("{busy} progetti al lavoro su {} · consumo in % della settimana", rows.len()) }));
-    for p in rows {
-        let name = s(p, "name");
-        let hour: f64 = p.get("agents").and_then(|a| a.get("list")).and_then(Value::as_array).into_iter().flatten()
-            .map(|a| a.get("use").map_or(0.0, |u| n(u, "hourTokens"))).sum();
-        let pct = |k: &str| if n(p, k) > 0.0 { comma(n(p, k), 1) } else { "–".into() };
-        let shown = Some(s(p, "title")).filter(|d| !d.is_empty()).or(Some(s(p, "display")).filter(|d| !d.is_empty())).unwrap_or(name);
-        let mut kids = vec![note(format!("{} · consumi {}%", s(p, "state"), comma(n(p, "total"), 1))), note(match p.get("budgetPct").and_then(Value::as_i64) { Some(b) => format!("Budget {b}%"), None => "Budget: nessuno".into() }), Node::Sep];
-        for b in [0, 10, 25, 50] {
-            kids.push(item(&format!("proj-budget:{name}:{b}"), if b == 0 { "Togli il budget".to_string() } else { format!("Budget {b}%") }));
-        }
-        kids.push(Node::Sep);
-        let cur = s(p, "priority");
-        for pr in ["alta", "normale", "bassa"] {
-            kids.push(item(&format!("proj-priority:{name}:{pr}"), format!("Priorità {pr}{}", if pr == cur { " ✓" } else { "" })));
-        }
-        kids.push(Node::Sep);
-        kids.extend(crate::tray_menu::project_work_nodes(p));
-        kids.push(item(&format!("proj-open:{name}"), "Apri in Topics"));
-        out.push(Node::Row {
-            id: String::new(),
-            cells: vec![shown.to_string(), pct("claude"), pct("codex"), pct("muse"), if hour > 0.0 { tokens_short(hour) } else { "–".into() }, s(p, "state").to_string()],
-            header: false,
-            children: kids,
-        });
-    }
-    out
-}
-
 /// The rich menu. `machines` are the cards to draw (the Topics machine list, or
 /// the service's own when there is none); `dark` picks the ink for the menu surface.
 pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[MachineCard], dark: bool) -> Vec<Node> {
     let p = Palette::new(dark);
-    let mut m = machine_nodes(machines, snap, p);
+    let mut m = machine_nodes(machines, snap, now, p);
     if !m.is_empty() {
         m.push(Node::Sep);
     }
@@ -111,9 +168,9 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     }
     m.extend(unreachable_nodes(&snap.overview));
     m.push(Node::Sep);
-    m.extend(project_table(&snap.live));
+    m.extend(project_table(&snap.live, &snap.heavy, now, local_offset_secs()));
     m.push(Node::Sep);
-    let mut more = brake_nodes(&snap.gates);
+    let mut more = vec![limits_node(snap)];
     more.push(Node::Sep);
     more.extend(extras_nodes(&snap.overview, prefs));
     more.push(item("pref:five-hour", tick("Fascia 5 ore", prefs.five_hour)));
@@ -122,12 +179,15 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
-    m.push(sub("Altri abbonamenti e opzioni", more));
-    m.extend(automation_nodes(&snap.automations));
+    m.push(crate::tray_menu::with_icon("sf:slider.horizontal.3", sub("Altri abbonamenti e opzioni", more)));
+    m.extend(automation_nodes(&snap.automations, now, local_offset_secs()));
     if let Some(b) = snap.backup.as_deref().and_then(|b| backup_card(b, now)) {
         m.push(Node::Sep);
         m.extend(card("backup", draw_backup_card(&b, p), Vec::new()));
     }
+    // this menu is only drawn while the service answers, so its dashboard is always one click away
+    m.push(Node::Sep);
+    m.push(crate::tray_menu::with_icon("sf:macwindow", item("dashboard-open", "Apri dashboard")));
     m
 }
 
@@ -139,7 +199,14 @@ pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard>
     let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
     let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
     let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
-    service.into_iter().chain(extra).collect()
+    // the service's own card may carry another id than the Topics machine of the same name: remember it for the node files
+    let all: Vec<MachineCard> = service.into_iter().map(|mut c| {
+        c.machine_id = client.iter().find(|x| !c.local && x.name.trim().eq_ignore_ascii_case(c.name.trim())).map(|x| x.id.clone()).unwrap_or_default();
+        c
+    }).chain(extra).collect();
+    let pool = snap.pool.as_deref().map(crate::tray_nodes::parse_pool).unwrap_or_default();
+    let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    crate::tray_nodes::arrange(all, client, &pool, &details, local_offset_secs())
 }
 
 #[cfg(test)]

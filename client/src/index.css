@@ -1218,6 +1218,18 @@ html {
   word-break: break-all;
 }
 
+/* Table cells break only BETWEEN words. `.message-content` asks for
+   `overflow-wrap: anywhere` (plus the legacy `word-break: break-word`), and both
+   drop a column's min-content width to ONE letter: on a phone the table layout
+   squeezed every column down to «col/onna», «sec/on/do». Here the minimum is the
+   longest word again; a table that still does not fit scrolls inside its own
+   `overflow-x-auto` wrapper instead of breaking words. */
+.message-content .md-cell {
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: manual;
+}
+
 /* Ensure form inputs never overflow their container */
 textarea, input[type="text"] {
   max-width: 100%;
@@ -1485,28 +1497,6 @@ html, body {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
-
-@keyframes status-glyph-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* Typing indicator animation */
-@keyframes bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-  }
-  30% {
-    transform: translateY(-4px);
-  }
-}
-
-.typing-dot {
-  animation: bounce 1.4s infinite;
-}
-
-.typing-dot:nth-child(1) { animation-delay: 0s; }
-.typing-dot:nth-child(2) { animation-delay: 0.2s; }
-.typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
 /* THE ROOM FOR THE NATIVE LIGHTS, eased on the sidebar's own clock.
    `--content-chrome-inset` is set by App.tsx on #main-content and on the
@@ -3245,54 +3235,10 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-/* Streaming indicator dot */
-@keyframes streamDot {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-
-.stream-dot {
-  animation: streamDot 1.4s ease-in-out infinite;
-}
-
 /* Turn activity indicator — the playful "thinking" line + live timer that
    replaces the old three bouncing dots and the generic "Streaming..." row.
-   The dot breathes with a soft glow; the phrase gets a slow highlight sweep
+   The glyph is the square loader; the phrase gets a slow highlight sweep
    (reuses @keyframes shimmer). Honors prefers-reduced-motion. */
-/* Il bagliore anima SOLO `opacity`, mai `box-shadow`.
- *
- * Animare `box-shadow` obbliga il motore a ridisegnare l'ombra a ogni frame:
- * ricalcola il blur e ripittura la regione, sul main thread, 60 volte al secondo
- * e per tutta la durata di un turno. È lo stesso anti-pattern già tolto da qui
- * per `filter: brightness` e già risolto bene per `awaiting-pulse`: un
- * pseudo-elemento con l'ombra STATICA, di cui si anima la sola opacità, che il
- * compositore muove senza toccare il main thread.
- *
- * Il punto luminoso resta identico: `::after` porta l'ombra al suo massimo e
- * respira da 0 a 1, mentre il pallino sotto respira di opacità come prima. */
-@keyframes turnDotGlow {
-  0%, 100% { opacity: 0.5; }
-  50%      { opacity: 1; }
-}
-@keyframes turnDotHalo {
-  0%, 100% { opacity: 0; }
-  50%      { opacity: 1; }
-}
-.turn-activity-dot {
-  position: relative;
-  animation: turnDotGlow 1.6s ease-in-out infinite;
-}
-.turn-activity-dot::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: 0 0 7px 1px var(--primary-medium);
-  opacity: 0;
-  pointer-events: none;
-  animation: turnDotHalo 1.6s ease-in-out infinite;
-  will-change: opacity;
-}
 .turn-activity-phrase {
   background-image: linear-gradient(
     100deg,
@@ -3313,7 +3259,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   padding-bottom: 1px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .turn-activity-dot { animation: none; opacity: 0.9; }
   .turn-activity-phrase {
     animation: none;
     -webkit-text-fill-color: var(--text-muted);

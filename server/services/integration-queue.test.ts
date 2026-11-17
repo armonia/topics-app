@@ -3,14 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { createIntegrationQueue, type IntegrationMeasure } from "./integration-queue";
 
 /** A fake world: `bad` breaks the CI of any batch it is in, `conflicting` cannot be merged. */
-function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number } = {}) {
+function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number; solo?: string[]; landed?: boolean } = {}) {
   const batches: string[][] = [];
   const landed: string[] = [];
   const bounced: Array<{ id: string; why: string }> = [];
   const gone = new Set<string>();
   let gate: Promise<void> = Promise.resolve();
   let openGate: () => void = () => undefined;
+  const notes: Array<{ id: string; text: string }> = [];
   const q = createIntegrationQueue({
+    landed: opts.landed,
+    note: (id, text) => { notes.push({ id, text }); },
     maxBatch: opts.maxBatch,
     collectMs: 0,
     measure: async (_p, ids): Promise<IntegrationMeasure> => {
@@ -26,13 +29,38 @@ function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: bool
     land: async (_p, id) => { landed.push(id); },
     bounce: async (_p, id, why) => { bounced.push({ id, why }); },
     stillWanted: (_p, id) => !gone.has(id) && !landed.includes(id),
+    solo: opts.solo ? (_p, id) => opts.solo!.includes(id) : undefined,
   });
   return {
-    q, batches, landed, bounced, gone,
+    q, batches, landed, bounced, gone, notes,
     hold() { gate = new Promise((r) => { openGate = r; }); },
     release() { openGate(); },
   };
 }
+
+describe("integration queue, cards already on main", () => {
+  test("a red is not bisected (every card is inside the same commit): each card goes back and reads who landed with it", async () => {
+    const w = world({ landed: true, bad: ["c"] });
+    w.hold();
+    for (const id of ["a", "b", "c"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["a", "b", "c"]]);
+    expect(w.landed).toEqual([]);
+    expect(w.bounced.map((b) => b.id)).toEqual(["a", "b", "c"]);
+    expect(w.bounced[0]!.why).toContain("unit-ci rosso");
+    expect(w.bounced[0]!.why).toContain("insieme a altre 2 card (b, c)");
+  });
+
+  test("a green says the CI measured main after the land, never «atterra adesso»", async () => {
+    const w = world({ landed: true });
+    w.q.request("p", "a");
+    await w.q.idle("p");
+    expect(w.landed).toEqual(["a"]);
+    expect(w.notes[0]!.text).toContain("dopo l'atterraggio");
+    expect(w.notes[0]!.text).not.toContain("Atterra adesso");
+  });
+});
 
 describe("integration queue", () => {
   test("cards asked while a batch is measured are measured together in ONE next batch", async () => {
@@ -57,6 +85,27 @@ describe("integration queue", () => {
     expect(w.landed).toEqual(["a", "b", "d"]);
     expect(w.bounced.map((b) => b.id)).toEqual(["c"]);
     expect(w.bounced[0]!.why).toContain("unit-ci");
+  });
+
+  test("a card without its own green bar is measured alone: its red costs one round and only itself", async () => {
+    const w = world({ bad: ["c"], solo: ["c"] });
+    w.hold();
+    for (const id of ["a", "c", "b", "d"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["a", "b", "d"], ["c"]]);
+    expect(w.landed).toEqual(["a", "b", "d"]);
+    expect(w.bounced.map((b) => b.id)).toEqual(["c"]);
+  });
+
+  test("an unproven card at the front is measured alone, the proven ones after it as one batch", async () => {
+    const w = world({ solo: ["a"] });
+    w.hold();
+    for (const id of ["a", "b", "c"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["a"], ["b", "c"]]);
+    expect(w.landed).toEqual(["a", "b", "c"]);
   });
 
   test("a conflicting card goes back to its agent and the batch goes on without it", async () => {

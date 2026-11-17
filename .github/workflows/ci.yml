@@ -60,7 +60,7 @@ jobs:
   # on main is not green (see the header of the script for why that last one).
   changes:
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -114,7 +114,7 @@ jobs:
   # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -239,7 +239,7 @@ jobs:
   # keeps the job and step names the board reads.
   gates:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -803,7 +803,7 @@ jobs:
   # verdetto.
   gates-2:
     timeout-minutes: 25
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -897,7 +897,7 @@ jobs:
     timeout-minutes: 30
     needs: [unit, gates, gates-2]
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Unit + integration tests
         env:
@@ -960,7 +960,7 @@ jobs:
     timeout-minutes: 10
     needs: [changes, hcloud]
     if: ${{ !cancelled() && needs.changes.result == 'success' }}
-    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}').prep || 'ubuntu-latest' }}
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}').prep || 'ubuntu-24.04' }}
     # Read-only token: this job may run on the permanent node's persistent runner, which
     # pull requests of this repository use too.
     permissions:
@@ -1101,7 +1101,7 @@ jobs:
     # good for the attempt that made it: "Re-run failed jobs" keeps the outputs of
     # the green `hcloud` job, and a shard sent back to that run's label would wait
     # forever for runners already given back. A re-run shard goes to ubuntu-latest.
-    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-latest' }}
+    runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-24.04' }}
     needs: [changes, prepare-e2e, hcloud]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
@@ -1380,6 +1380,8 @@ jobs:
         # every 30 s says whether a red came with a saturated runner.
         run: |
           PROCS=2
+          # Tells global-setup the load of two processes is by design (time slack).
+          export E2E_PROCS_PER_RUNNER=$PROCS
           SHARD=${{ matrix.shard }}
           # Several runners share the permanent node: each takes its own band of
           # 10 ports, from its HOME (/srv/rh-<i>, set per runner by
@@ -1484,6 +1486,19 @@ jobs:
       # a riposo); come SIA fatta la brina lo dicono solo le immagini e la clip,
       # e questa change si chiude con un «effetto di congelamento figo» da
       # guardare. Tre giorni come il report: la quota artifact e' dell'org.
+      - name: Upload countdown evidence
+        # The card 791984dc surfaces: screenshots at four widths in both themes and the video of the countdown going down.
+        if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: countdown-evidence-${{ matrix.shard }}
+          path: |
+            test-results/countdown-shots/
+            test-results/artifacts/*board-work-countdown*/video.webm
+          if-no-files-found: ignore
+          retention-days: 14
+          overwrite: true
+
       - name: Upload swap-freeze evidence
         if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
         uses: actions/upload-artifact@v4
@@ -1534,7 +1549,7 @@ jobs:
   living-doc:
     needs: [changes, unit, e2e]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.changes.outputs.e2e != 'false' && (needs.e2e.result == 'success' || needs.e2e.result == 'failure') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The job can be red (its own row says so) without turning the run red:
     # auto-bump ships only a green run, and a living-doc that could not be

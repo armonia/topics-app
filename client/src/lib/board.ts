@@ -13,10 +13,15 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
-import type { BoardWorkflow, WorkflowPresetId } from '../../../shared/workflow';
-export { STAGE_CI, WORKFLOW_PRESETS, WORKFLOW_PRESET_IDS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
-/** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
-export interface BoardWorkflowView extends BoardWorkflow { own: WorkflowPresetId | null }
+import type { BoardWorkflow, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
+export { STAGE_CI, WORKFLOW_COLUMNS, columnOfTask } from '../../../shared/workflow';
+/** `GET /boards/:id/workflow`: the columns (the same for every board) plus the rules. */
+export interface BoardWorkflowView extends BoardWorkflow {
+  /** The CI switch and the board's paths a person must look at, resolved; `ownRules` = this board's row. */
+  rules?: WorkflowRules;
+  ownRules?: WorkflowRulesRow | null;
+}
+export { personPathsFromText, personPathsToText } from '../../../shared/workflow';
 // Il tetto globale di concorrenza: estremi, arrotondamento e formula del numero
 // EFFETTIVO. Stessa cartella condivisa e stesso motivo del resto: il dispatcher
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
@@ -63,6 +68,7 @@ export type {
 // filtra niente, sullo stesso modello di `BoardSettings`.
 export { CLOSER_LABELS, KIND_LABELS, whoCloses } from '../../../shared/task-labels';
 export type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
+import type { ChannelKind, ChannelPlace } from '../../../shared/channel-origin';
 import type { TaskLabel, TaskLabelRow } from '../../../shared/task-labels';
 import type {
   TaskStatus, TaskComment, CardComment, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, BlockerRef, LandingTicket, SubtaskWork,
@@ -672,9 +678,11 @@ export interface BoardTask {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
+  /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists. */
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
-  /** The question for the person the delivery carried (Human review). */
+  /** The question for the person the delivery carried. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
@@ -868,7 +876,7 @@ export function __resetFeedRevalidation(): void {
 
 export interface CreateTaskBody {
   text: string;
-  /** The workflow column to be born in; absent = the server decides (Triage for a person's card). */
+  /** The workflow column to be born in; absent = the default column of its status. */
   stage?: string;
   description?: string | null;
   priority?: number;
@@ -1363,9 +1371,9 @@ export const boardApi = {
   /** The board's workflow: its columns, which preset, and whether it is chosen HERE (`own`) or inherited. */
   getWorkflow: (projectId: string) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`),
-  /** Choose this board's preset; `null` goes back to inheriting the global one. */
-  setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
-    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
+  /** Write the workflow's rules; only the keys present change, `null` = inherit. */
+  setWorkflowRules: (projectId: string, patch: WorkflowRulesRow) =>
+    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify(patch) }),
   updateSettings: (projectId: string, patch: BoardSettingsPatch) =>
     req<BoardSettings>(`/boards/${enc(projectId)}/settings`, { method: 'PATCH', body: JSON.stringify(patch) }),
   /**

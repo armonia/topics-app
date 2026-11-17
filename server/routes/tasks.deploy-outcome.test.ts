@@ -21,10 +21,8 @@ import { call, freshDb, makeCtx } from "./tasks-test-support";
 let root = "";
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "deploy-outcome-"));
-  process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS = "300";
 });
 afterAll(() => {
-  delete process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -61,8 +59,16 @@ describe("runDeploy: the outcome on the card", () => {
   });
 
   test("deadline: failed, exit 124, what arrived before it", async () => {
-    const cmd = "printf partial; exec sleep 30";
-    expect(await deploy(cmd, root)).toEqual({ state: "failed", comment: `Deploy fallito.\n\n\`${cmd}\` (exit 124)${fence("partial")}` });
+    // The 2 s ceiling (long enough for a slow shell start to print first) belongs to this test only: applied file-wide, a login
+    // shell that starts slowly under CI load hits it before the other commands
+    // finish, and their outcome reads as exit 124.
+    process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS = "2000";
+    try {
+      const cmd = "printf partial; exec sleep 30";
+      expect(await deploy(cmd, root)).toEqual({ state: "failed", comment: `Deploy fallito.\n\n\`${cmd}\` (exit 124)${fence("partial")}` });
+    } finally {
+      delete process.env.TOPICS_SPAWN_TIMEOUT_CAP_MS;
+    }
   });
 
   test("did not start (the checkout is gone): failed, the error instead of an exit code", async () => {

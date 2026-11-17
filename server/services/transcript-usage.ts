@@ -48,6 +48,13 @@ export interface SessionUsage {
    * no model with a price: the caller then prices the totals.
    */
   costUsd?: number;
+  /**
+   * The last model call the transcript holds: how many tokens its prompt was
+   * (`input + cache read + cache written`) and which model served it. The
+   * context of the session, as the provider reported it; absent before the
+   * first call that consumed anything.
+   */
+  lastCall?: { contextTokens: number; model: string | null };
 }
 
 export const ZERO_USAGE: SessionUsage = Object.freeze({
@@ -70,6 +77,7 @@ interface PathState {
   totals: { input: number; output: number; cacheWrite: number; cacheWrite1h: number; cacheRead: number };
   /** Sum of each call's price; null once a call could not be priced. */
   costUsd: number | null;
+  lastCall: { contextTokens: number; model: string | null } | null;
 }
 
 const MAX_SEEN_IDS = 8192;
@@ -77,7 +85,7 @@ const MAX_TRACKED_PATHS = 128;
 const READ_CHUNK = 1 << 20; // 1MB
 
 function freshState(): PathState {
-  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }, costUsd: 0 };
+  return { byteOffset: 0, partial: Buffer.alloc(0), seenIds: new Set(), totals: { input: 0, output: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 }, costUsd: 0, lastCall: null };
 }
 
 export function createTranscriptUsageReader(): { read(path: string): SessionUsage } {
@@ -113,6 +121,9 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
     state.totals.cacheWrite += call.cacheWrite;
     state.totals.cacheWrite1h += call.cacheWrite1h;
     state.totals.cacheRead += call.cacheRead;
+    const prompt = call.input + call.cacheRead + call.cacheWrite;
+    // A call that consumed nothing (the CLI's `<synthetic>` lines) says nothing of the context.
+    if (prompt > 0) state.lastCall = { contextTokens: prompt, model: typeof msg.model === "string" ? msg.model : null };
     // A call that consumed nothing (the CLI's `<synthetic>` lines) has no price
     // to miss.
     if (state.costUsd === null || call.input + call.output + call.cacheWrite + call.cacheRead <= 0) return;
@@ -131,6 +142,7 @@ export function createTranscriptUsageReader(): { read(path: string): SessionUsag
       cacheReadTokens: cacheRead,
       billableTokens: input + output + cacheWrite,
       ...(state.costUsd !== null ? { costUsd: state.costUsd } : {}),
+      ...(state.lastCall ? { lastCall: state.lastCall } : {}),
     };
   }
 

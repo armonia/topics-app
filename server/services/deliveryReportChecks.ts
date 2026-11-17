@@ -43,6 +43,7 @@ export type Finding = {
   code:
     | "sha-missing"
     | "sha-unverifiable"
+    | "sha-off-main"
     | "migration-missing"
     | "migration-belongs-elsewhere"
     | "file-missing"
@@ -68,6 +69,12 @@ export interface RepoProbe {
   shaSearchLocations?(sha: string): readonly string[];
   /** Required repositories that could not be searched for this SHA. */
   shaSearchUnverifiableLocations?(sha: string): readonly string[];
+  /**
+   * A cited commit that lives ONLY in another repository, off that repository's
+   * default branch: which repo and which branches hold it. `null` = on main, in
+   * the card's own repo, or unknown (no accusation).
+   */
+  shaOffMain?(sha: string): { repo: string; branches: readonly string[] } | null;
   /** File names under `server/db/migrations`. */
   migrations(): readonly string[];
   /**
@@ -285,7 +292,20 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
         });
         continue;
       }
-      if (probe.shaExists(c.value)) continue;
+      if (probe.shaExists(c.value)) {
+        // It exists, but in ANOTHER repo and only on a branch: the card's land
+        // merges the card's repo alone, so closing the card never brings it to
+        // main (card ccf715f6, branch `topics/r3-letture` of ~/.claude/jarvis).
+        const off = probe.shaOffMain?.(c.value);
+        if (off) {
+          const where = off.branches.length > 0 ? `sul ramo ${off.branches.join(", ")}` : "fuori da ogni ramo";
+          findings.push({
+            code: "sha-off-main",
+            detail: `il commit ${c.value} sta solo ${where} di ${off.repo}: chiudere la card non lo porta su main`,
+          });
+        }
+        continue;
+      }
       const locations = probe.shaSearchLocations?.(c.value) ?? [];
       const where = locations.length > 0 ? ` nei repo cercati: ${locations.join(", ")}` : " in nessun ref";
       findings.push({ code: "sha-missing", detail: `il commit ${c.value} non esiste${where}` });
@@ -308,9 +328,9 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
       // said "renumbered to 102" describes a file that was then renamed. The
       // check cannot tell that from an invention, so it says nothing — the
       // direction this module errs in, everywhere.
-      // Solo i nomi SEQUENZIALI: un file a timestamp comincia con tre cifre
-      // come chiunque altro (`20260821…` darebbe 202 come punta), e prendendolo
-      // per un numero d'ordine la guardia si disarmava da sé.
+      // SEQUENTIAL names only: a timestamped file starts with three digits
+      // like any other (`20260821…` would give 202 as the top), and reading it
+      // as an ordinal disarmed the guard by itself.
       const lastSequential = migrations
         .filter((f) => /^\d{3}-/.test(f))
         .map((f) => Number(f.slice(0, 3)))

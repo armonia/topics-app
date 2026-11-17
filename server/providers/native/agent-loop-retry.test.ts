@@ -280,6 +280,25 @@ describe("the native loop tries again when the API's failure is transient", () =
     expect(calls()).toBe(2);
   });
 
+  test("a token already past its margin, whose own refresh fails too: a clear sentence, no round attempted", async () => {
+    const reg = fresh();
+    // Expired per the clock (not via a live 401), and the refresh the loop
+    // tries on its own dies with the refresh token itself gone: no message
+    // round ever starts, so a scripted answer that would fail the test if
+    // reached is enough to prove it.
+    writeFileSync(
+      credentialsPath,
+      JSON.stringify({ claudeAiOauth: { accessToken: "token-A", refreshToken: "r", expiresAt: Date.now() - 60_000 } }),
+    );
+    const calls = scriptFetch([() => new Response('{"error":"invalid_grant"}', { status: 400 })], reg);
+    const out = await turn(reg);
+    expect(out.turnEnd.end).toBe("error");
+    expect(calls()).toBe(1);
+    expect(reg.errors.length).toBe(1);
+    expect(reg.errors[0]).toContain("sessione Claude scaduta");
+    expect(reg.errors[0]).toContain("/login");
+  });
+
   test("Stop during the backoff: the turn ends as cancelled, not as an error, and no further call is made", async () => {
     const reg = fresh();
     const ac = new AbortController();

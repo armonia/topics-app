@@ -33,6 +33,7 @@ import { childPhase, cliChildPhaseNow, noteChildSeeded, reportNativeChildTurn, r
 import { onTurnEnd, onTurnStart, type TurnStartMeta } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
 import { profileInstructions, type AgentProfile } from "./agent-profiles";
+import { isSqliteBusy, writeWhenFree } from "./sqlite-busy";
 import { engineToolsOfProfile } from "./subagent-tool-policy";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -189,50 +190,60 @@ function readGitCommonDir(dir: string): string | null {
  * works in the chat's project, not in any folder, and a `projectPath` widens
  * the file routes to that folder: so a `cwd` that is not a known project, a
  * folder inside one or a worktree of one (`knownProject`, built on
- * `placeableUnderKnownProject`) never becomes a native child's home.
- * `ok: false` = the child stays on the CLI, or is refused if the caller asked
- * for the engine.
+ * `placeableUnderKnownProject`) never becomes a native child's project.
+ *
+ * Such a child still runs on the engine (15/11: 58 children in two weeks went
+ * to a Claude CLI nobody asked for, ~300 MB each, only because the parent
+ * named a folder like `~/Projects` or a docs subfolder): it stands where its
+ * parent stands, or in no project, and `outsideCwd` tells it which folder the
+ * parent meant, to be reached with absolute paths.
  */
 export function nativeChildPlace(input: {
   explicitCwd: string | null;
   parentTopic: Pick<Topic, "projectPath" | "worktreeId"> | null;
   parentCwd: string | null;
   knownProject: (path: string) => boolean;
-}): { ok: true; projectPath: string | null; worktreeId: string | null } | { ok: false; reason: string } {
+}): { ok: true; projectPath: string | null; worktreeId: string | null; outsideCwd?: string } {
   const { explicitCwd, parentTopic, parentCwd, knownProject } = input;
+  const parentPlace = parentTopic
+    ? { projectPath: parentTopic.projectPath ?? null, worktreeId: parentTopic.worktreeId ?? null }
+    : parentCwd && knownProject(parentCwd) ? { projectPath: parentCwd, worktreeId: null } : { projectPath: null, worktreeId: null };
   if (explicitCwd) {
     if (explicitCwd === parentTopic?.projectPath || knownProject(explicitCwd)) return { ok: true, projectPath: explicitCwd, worktreeId: null };
-    return { ok: false, reason: `cwd ${explicitCwd} is not a project Topics knows` };
+    return { ok: true, ...parentPlace, outsideCwd: explicitCwd };
   }
-  if (parentTopic) return { ok: true, projectPath: parentTopic.projectPath ?? null, worktreeId: parentTopic.worktreeId ?? null };
-  if (parentCwd && knownProject(parentCwd)) return { ok: true, projectPath: parentCwd, worktreeId: null };
-  return { ok: false, reason: `the parent's directory${parentCwd ? ` ${parentCwd}` : ""} is not a project Topics knows` };
+  if (!parentTopic && parentCwd && !knownProject(parentCwd)) return { ok: true, ...parentPlace, outsideCwd: parentCwd };
+  return { ok: true, ...parentPlace };
+}
+
+/** The line a child placed outside its folder reads before its task. */
+export function outsideCwdPreamble(cwd: string): string {
+  return `Your parent asked you to work in ${cwd}. That folder is not a Topics project, so it is not your workspace: reach it with absolute paths, and \`cd ${cwd}\` at the start of each bash command.\n\n`;
 }
 
 export type ChildRuntime =
-  | { ok: true; runtime: "topics"; place: { projectPath: string | null; worktreeId: string | null } }
+  | { ok: true; runtime: "topics"; place: { projectPath: string | null; worktreeId: string | null; outsideCwd?: string } }
   | { ok: true; runtime: "claude-code"; note: string | null }
   | { ok: false; status: number; error: string };
 
 /**
- * The runtime of a `spawn_agent` call: the engine, unless the call asks for
- * the CLI or the engine cannot take it. Falling back to the CLI is said in the
- * answer (`note`), never silently; a call that asked for the engine is refused
- * instead.
+ * The runtime of a `spawn_agent` call: the engine, and the CLI ONLY when the
+ * call asks for it. An engine that is down refuses the child (503) instead of
+ * opening a CLI nobody asked for.
  */
 export function childRuntimeFor(asked: unknown, place: () => ReturnType<typeof nativeChildPlace>): ChildRuntime {
   if (asked !== undefined && asked !== "topics" && asked !== "claude-code") {
     return { ok: false, status: 400, error: `unknown runtime "${String(asked)}": use "topics" or "claude-code"` };
   }
   if (asked === "claude-code") return { ok: true, runtime: "claude-code", note: null };
-  const available = nativeSubagentsAvailable();
-  const where = available ? place() : null;
-  if (!where?.ok) {
-    const why = where ? where.reason : "the Topics engine is not available";
-    if (asked === "topics") return { ok: false, status: available ? 400 : 503, error: `cannot start a sub-agent on the Topics engine: ${why}` };
-    return { ok: true, runtime: "claude-code", note: `claude-code (${why})` };
+  if (!nativeSubagentsAvailable()) {
+    return { ok: false, status: 503, error: "cannot start a sub-agent: the Topics engine is not available right now (pass runtime:\"claude-code\" to start a CLI instead)" };
   }
-  return { ok: true, runtime: "topics", place: { projectPath: where.projectPath, worktreeId: where.worktreeId } };
+  const where = place();
+  if (where.outsideCwd && !where.projectPath) {
+    return { ok: false, status: 400, error: `cwd ${where.outsideCwd} is not a project Topics knows, and the parent has no project to stand in: pass the cwd of a known project, or runtime:"claude-code" to start a CLI there` };
+  }
+  return { ok: true, runtime: "topics", place: { projectPath: where.projectPath, worktreeId: where.worktreeId, ...(where.outsideCwd ? { outsideCwd: where.outsideCwd } : {}) } };
 }
 
 // ── This process's state ─────────────────────────────────────────────────────
@@ -363,11 +374,15 @@ export async function moveCliChildToEngine(row: SubagentRow, input: string, from
 }): Promise<{ sessionKey: string } | null> {
   if (!nativeSubagentsAvailable() || subagentRuntimeReason(getDatabase(), row.id) === "asked") return null;
   const place = nativeChildPlace({ explicitCwd: row.cwd || null, parentTopic: from.parentTopic, parentCwd: from.parentCwd, knownProject: from.knownProject });
-  if (!place.ok) return null;
+  // A CLI child born in a folder that is not a project comes back on the engine
+  // in its parent's project, told where its folder is; with no parent project
+  // to stand in, it resumes where it was.
+  if (place.outsideCwd && !place.projectPath) return null;
   try {
+    const migrated = await migratedChildPromptFor(row, input);
     const child = spawnNativeChild({
       id: row.id, parentSessionKey: row.parentSessionKey, name: row.name,
-      prompt: await migratedChildPromptFor(row, input),
+      prompt: place.outsideCwd ? outsideCwdPreamble(place.outsideCwd) + migrated : migrated,
       cwd: row.cwd, parentTopic: from.parentTopic, projectPath: place.projectPath, worktreeId: place.worktreeId, branch: row.branch,
       ...engineLaunchOf(row.agentType ? from.profileOf(row.cwd, row.agentType) : null, row.model),
       effort: row.effort, agentType: row.agentType,
@@ -726,8 +741,19 @@ function closeTurn(id: string, completed: boolean): void {
   runtimeOf(id).phase = "finished";
   const topic = retiredNow && completed ? deps?.getTopicBySessionKey(row.sessionKey) : null;
   if (deps && topic && !topic.archived && !isSubagentEngaged(db, id)) {
-    if (deps.archive) deps.archive(topic);
-    else deps.saveTopic({ ...topic, archived: true, updatedAt: new Date().toISOString() }, false);
+    // The state above is already `retired`, so no later tick would come back
+    // for the archive: a busy refusal is retried on its own.
+    // A retry reads the topic again, so a late one never writes back a stale copy.
+    const d = deps;
+    const sessionKey = row.sessionKey;
+    let first = true;
+    writeWhenFree(`archive of child ${id}`, () => {
+      const now = first ? topic : d.getTopicBySessionKey(sessionKey);
+      first = false;
+      if (!now || now.archived || isSubagentEngaged(getDatabase(), id)) return;
+      if (d.archive) d.archive(now);
+      else d.saveTopic({ ...now, archived: true, updatedAt: new Date().toISOString() }, false);
+    });
   }
 }
 
@@ -763,9 +789,26 @@ function watchWaitingChild(id: string, completed: boolean): void {
     // A turn of its own is open or being reported: that path closes it.
     if (driving.has(id) || adopting.has(id) || openTurn.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) return;
     if (stillWorkingFor(row.sessionKey)) return;
-    stopWatchingChild(id);
     // Its last turn was reported already: nothing new to say, only the slot to free.
-    closeTurn(id, completed);
+    // CLOSE FIRST, STOP WATCHING AFTER. A busy database refuses the close: the
+    // child is still `running`, so this interval is what tries again on its
+    // next tick. Stopping first left it `running` for good, and the throw went
+    // out of the interval to the net that takes the server down.
+    try {
+      closeTurn(id, completed);
+    } catch (err) {
+      if (!isSqliteBusy(err)) throw err;
+      d.log?.(`close of waiting child ${id}: database busy, tried again on the next tick`);
+      return;
+    }
+    // The store swallows its own write errors, so a busy `setSubagentState`
+    // does not throw: it leaves the row `running`. Read it back, and keep
+    // watching until the close is really on the row.
+    if (getSubagent(getDatabase(), id)?.state === "running") {
+      d.log?.(`close of waiting child ${id}: the row is still running, tried again on the next tick`);
+      return;
+    }
+    stopWatchingChild(id);
   }, deps.waitPollMs ?? 5_000);
   (timer as { unref?: () => void }).unref?.();
   waitWatches.set(id, timer);

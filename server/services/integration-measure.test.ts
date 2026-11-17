@@ -77,6 +77,26 @@ describe("measureIntegration", () => {
     expect(sh(r.work, "branch", "--list", "topics/integrazione-*")).toBe("");
   });
 
+  test("cards already inside origin/main (landed, main pushed) are measured on an empty commit over main, which a pull request can carry", async () => {
+    const r = repo();
+    // The card landed: its commit is on origin/main already.
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/main`);
+    const base = sh(r.work, "rev-parse", "origin/main");
+    const seen: string[] = [];
+    const out = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, deps(() => [ok("unit")], seen));
+    expect(out.verdict).toBe("pass");
+    expect(out.measured).toEqual(["landed"]);
+    // Not main itself (no head for a pull request): one empty commit on top, with main's own tree.
+    expect(out.commit).not.toBe(base);
+    expect(sh(r.work, "rev-parse", `${out.commit}^`)).toBe(base);
+    expect(sh(r.work, "diff", "--stat", base, out.commit!)).toBe("");
+    expect(seen).toEqual([out.commit!]);
+    // The same main gives the same sha: a second measure finds the same CI run.
+    await Bun.sleep(1100);
+    const again = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    expect(again.commit).toBe(out.commit!);
+  });
+
   test("the same base and branches give the same sha: a restart finds the same CI run", async () => {
     const r = repo();
     const a = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }, { taskId: "y", commit: r.two }], CHECKS, deps(() => [ok("unit")]));
@@ -122,6 +142,21 @@ describe("measureIntegration", () => {
     const out = await measureIntegration(r.work, [{ taskId: "x", commit: r.two }], CHECKS, deps(() => [ok("unit")]));
     expect(closed).toContain("topics/integrazione-deadbeef");
     expect(closed).toContain(`topics/integrazione-${out.commit!.slice(0, 8)}`);
+  });
+
+  test("a checkout left behind by a cut-short measure, holding the same branch, does not block the next one", async () => {
+    const r = repo();
+    const first = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    const branch = `topics/integrazione-${first.commit!.slice(0, 8)}`;
+    // What the restart left: the checkout of the measure, on its branch, never removed.
+    const left = mkdtempSync(join(tmpdir(), "topics-integrazione-"));
+    roots.push(left);
+    rmSync(left, { recursive: true, force: true });
+    sh(r.work, "worktree", "add", "--quiet", "-b", branch, left, first.commit!);
+    const again = await measureIntegration(r.work, [{ taskId: "x", commit: r.one }], CHECKS, deps(() => [ok("unit")]));
+    expect(again.verdict).toBe("pass");
+    expect(again.commit).toBe(first.commit!);
+    expect(sh(r.work, "worktree", "list").split("\n")).toHaveLength(1);
   });
 
   test("a red is confirmed by one rerun of the failed jobs: a flake that passes the second time is green", async () => {

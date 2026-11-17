@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CheckRun, ReviewCheck } from "../../shared/board";
 import type { IntegrationMeasure } from "./integration-queue";
+import { INTEGRATION_BRANCH_PREFIX } from "./own-commits";
 
 export interface GitResult { code: number; out: string; err: string }
 
@@ -57,6 +58,20 @@ export async function measureIntegration(
   if (!base) return unmeasured("origin/main non si risolve in questo repo");
   const baseDate = (await deps.git(repoPath, ["show", "-s", "--format=%ct", base])).out.trim();
 
+  // A measure cut short by a restart leaves its checkout behind, still holding its branch. The next
+  // measure of the same cards gets the same sha, so the same branch name, and `switch -C` refuses it
+  // while that checkout lives: the card stays "unmeasured" for every sweep (14/11, 3 hours). The queue
+  // is serial per repo, so any integration checkout found here is a leftover.
+  const listed = (await deps.git(repoPath, ["worktree", "list", "--porcelain"])).out;
+  for (const line of listed.split("\n")) {
+    const path = line.startsWith("worktree ") ? line.slice("worktree ".length).trim() : "";
+    if (path && /(^|\/)topics-integrazione-[^/]+$/.test(path)) {
+      await deps.git(repoPath, ["worktree", "remove", "--force", path]);
+      rmSync(path, { recursive: true, force: true });
+    }
+  }
+  await deps.git(repoPath, ["worktree", "prune"]);
+
   const dir = mkdtempSync(join(deps.tmpRoot ?? tmpdir(), "topics-integrazione-"));
   const added = await deps.git(repoPath, ["worktree", "add", "--detach", "--quiet", dir, base]);
   if (added.code !== 0) {
@@ -83,18 +98,31 @@ export async function measureIntegration(
       });
     }
     if (!measured.length) return { measured, conflicts, verdict: "empty" };
+    // Cards already inside origin/main (the `after` rule: they landed, and main was pushed) merge into
+    // nothing, so HEAD is the base itself and no pull request can carry it. An empty commit on top gives
+    // the CI a head of its own whose merge with main is main: what is measured is main as it stands.
+    const head = (await deps.git(dir, ["rev-parse", "HEAD"])).out.trim();
+    if (head === base) {
+      const when = `${Number(baseDate || 0) + cards.length + 1} +0000`;
+      const empty = await deps.git(dir, ["commit", "--allow-empty", "--quiet", "-m", "integrazione: misura di main"], { GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when });
+      if (empty.code !== 0) return unmeasured(`il commit di misura non si crea: ${empty.err.trim().slice(0, 200)}`, base);
+    }
     const sha = (await deps.git(dir, ["rev-parse", "HEAD"])).out.trim();
-    branch = `topics/integrazione-${sha.slice(0, 8)}`;
+    branch = `${INTEGRATION_BRANCH_PREFIX}${sha.slice(0, 8)}`;
     const switched = await deps.git(dir, ["switch", "--quiet", "-C", branch]);
     if (switched.code !== 0) return unmeasured(`il ramo di integrazione non si crea: ${switched.err.trim().slice(0, 200)}`, sha);
     // The queue is serial per repo: any other integration branch on origin is a measure a restart cut
     // short, with its draft still open and its CI still running. It ends here.
-    const stale = (await deps.git(repoPath, ["ls-remote", "--heads", "origin", "refs/heads/topics/integrazione-*"])).out
+    const stale = (await deps.git(repoPath, ["ls-remote", "--heads", "origin", `refs/heads/${INTEGRATION_BRANCH_PREFIX}*`])).out
       .split("\n").map((l) => l.split("refs/heads/")[1]?.trim() ?? "").filter((b) => b && b !== branch);
     for (const old of stale) {
       await deps.closeDraft({ cwd: repoPath, branch: old, reason: "Misura di integrazione interrotta (riavvio del server): sostituita da una misura nuova." })
         .catch(() => undefined);
     }
+    // Same for the local copy the cut measure never deleted (its `finally` died with the process).
+    const localStale = (await deps.git(repoPath, ["for-each-ref", "--format=%(refname:short)", `refs/heads/${INTEGRATION_BRANCH_PREFIX}*`])).out
+      .split("\n").map((l) => l.trim()).filter((b) => b && b !== branch);
+    for (const old of localStale) await deps.git(repoPath, ["branch", "-D", old]);
     const ask = { cwd: dir, sha, taskId: `${sha.slice(0, 8)}-integrazione`, checks };
     let runs = await deps.awaitCi(ask);
     let red = runs.filter((r) => !r.ok && !r.notMeasured && !r.timedOut);

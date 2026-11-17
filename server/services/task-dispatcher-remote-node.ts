@@ -29,7 +29,7 @@ import type { PlantBranchInput, PlantBranchResult } from "./node-branch-plant";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { CLOUD_HOLD_KEY, parseCloudWeeklyLimit, type CloudWeeklyLimit } from "../lib/cloud-weekly-limit";
 import { setProviderHold } from "../lib/provider-hold";
-import { carriedBranch } from "./branch-on-origin";
+import { carriedBranch, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { defaultLifecycleHooks, type HookOutcome, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { nodeRunDescription, withNodeRunLanguage } from "./node-run-brief";
 import type { OutputLanguage } from "../../shared/types";
@@ -77,6 +77,19 @@ export interface NodeDeps {
   localMachineId?: () => string | null;
   /** The git remote the node resolves its own project by (never a path: the ids differ). */
   originUrlOf: (projectId: string) => Promise<string | null>;
+  /**
+   * The identity this checkout signs commits with (`git-identity.ts`'s
+   * `repoIdentity`), `null` when none is configured. The node must sign the
+   * run's commits with THIS identity, never one of its own: the land (LAND-13)
+   * refuses a foreign author. Absent = no gate, the historical behaviour.
+   */
+  gitIdentityOf?: (projectId: string) => Promise<{ name: string; email: string } | null>;
+  /**
+   * A lane whose commits are not signed by this identity (the Claude cloud
+   * signs its own branch): the gate above does not apply to it. Absent = every
+   * lane needs the identity.
+   */
+  skipsGitIdentity?: (baseUrl: string) => boolean;
   plantBranch: (input: PlantBranchInput) => Promise<PlantBranchResult>;
   /**
    * Makes sure a card's own branch is on origin, pushing it when this checkout
@@ -184,6 +197,14 @@ export const NODE_BRANCH_GRACE_POLLS = 3;
 
 /** How long a card waits before trying a silent node again. */
 const NODE_RETRY_MINUTES = 5;
+/** Longest wait for a node to archive one retired mirror: past it, the next round tries again. */
+export const MIRROR_CANCEL_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`no answer in ${ms} ms`)), ms); });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
 
 // The three chips this lane writes. Plain literals in the dispatcher too: they
 // are the same three strings the board renders, not a shared enum.
@@ -410,6 +431,20 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       );
       return;
     }
+    // The commits the node is about to make must carry THIS checkout's
+    // identity, not one the node invents: LAND-13 refuses any other author.
+    // Missing identity is not a silent node (retrying changes nothing), so it
+    // parks the card with the fix in words instead of deferring.
+    const gitIdentity = await Promise.resolve(node.gitIdentityOf?.(task.projectId) ?? null).catch(() => null);
+    if (node.gitIdentityOf && !gitIdentity && !node.skipsGitIdentity?.(baseUrl)) {
+      parkNodeCard(
+        task,
+        `Questa card è assegnata al nodo «${name}», ma questo checkout non ha un'identità git (\`git config user.name\`/` +
+          "`user.email`): senza di essa il land rifiuterebbe i commit della corsa come di un autore estraneo. " +
+          "Configura l'identità git di questo progetto, oppure togli la macchina dalla card.",
+      );
+      return;
+    }
     // A CARD THAT ALREADY HAS A BRANCH STARTS FROM IT over there (a rerun after
     // a review). Started from main, the delivery lacked that branch's commits and
     // conflicted with them at the land (df5fd8c5, 30/10/2026: 5 files). The node
@@ -464,6 +499,8 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         machine_name: name,
         node_base_url: baseUrl,
         origin_url: originUrl,
+        git_author_name: gitIdentity?.name ?? "",
+        git_author_email: gitIdentity?.email ?? "",
       })).catch((err): HookOutcome => {
         // A runner that throws said nothing: same rule as a hook that never answered.
         log(`nodo: l'hook node-run per ${task.id} non si è avviato`, err);
@@ -886,6 +923,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The slot goes first: the run is over on the node, and what follows is
     // bookkeeping this board owes the card, not a run to keep polling.
     inFlight.delete(taskId);
+    svc.closeNodeRun(taskId);
     const task = svc.get(taskId)?.task;
     if (!task) return;
     const branch = report.deliveryBranch;
@@ -912,6 +950,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
             log(`nodo: impianto del ramo ${branch} fallito`, err);
             return { planted: false, commit: null, commitCount: 0, reason: "l'impianto del ramo è fallito su questa macchina" };
           });
+      // The bundle download and the plant are awaits: a card closed meanwhile
+      // keeps the delivery it was closed with, and the run is cancelled.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        return;
+      }
       if (planted.planted) {
         try {
           // `recordDelivery` and not `setDeliveryBranch` alone: the commit and
@@ -930,6 +974,18 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         if (host.captureDelivery) {
           try { await host.captureDelivery(taskId); } catch { /* never block the delivery on git */ }
         }
+      } else {
+        // The node's commit, with the branch columns left alone: the land then
+        // finds a delivered commit this checkout lacks and refuses, instead of
+        // landing `priorBranch`, the round a person sent back. Recording the
+        // node's branch would also break the next run, which starts from a
+        // branch it must find here or on origin.
+        try {
+          svc.recordDelivery({
+            taskId, branch: svc.get(taskId)?.task?.deliveryBranch ?? null,
+            commit: report.deliveryCommit || UNPLANTED_DELIVERY_COMMIT,
+          });
+        } catch (err) { log(`node: unplanted delivery not recorded on ${taskId}`, err); }
       }
     }
     const fresh = svc.get(taskId)?.task;
@@ -968,8 +1024,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       // Same edge the local system delivery emits: without it the review-ready
       // notification never fires for a card that never passed through the route.
-      // Only a card that waits on a PERSON rings: one routed to AI review goes
-      // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+      // Only a card that waits on a PERSON rings (`awaitsHuman`, shared/workflow.ts).
       if (awaitsHuman(delivered)) {
         try {
           host.broadcast({
@@ -1082,6 +1137,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     for (const [taskId, slot] of [...inFlight]) {
       const node = slot.node;
       if (!node) continue;
+      // A card closed while its run was alive: cancel the run on the node and
+      // clear the chip. Left alone, the mirror rewrote `working` on a done card
+      // and the delivery that followed carried it back to review (12/11, 17436204).
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       if (node.cancelPending) {
         await cancelTask(taskId);
         continue;
@@ -1089,6 +1151,27 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       const task = svc.get(taskId)?.task;
       if (task?.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(taskId)) {
         await cancelTask(taskId);
+        continue;
+      }
+      // A human PATCHed the card back to `todo` while this remote slot was
+      // still open — the usual move to try to restart a card that looks
+      // stuck. `inFlight` is dispatcher memory, not a card field: the patch
+      // alone never freed it, so the next poll kept re-mirroring the node's
+      // old chip onto a card whose mandate had already changed, and the card
+      // sat in `todo` forever — only a restart (which empties `inFlight`)
+      // ever unstuck it. `review`/`done`/archived are NOT this case: those
+      // already have their own dedicated treatment below (never requeued),
+      // and unconditionally cancelling here would race it. Cancel the stale
+      // run and free the slot: the ordinary dispatch loop picks the card up
+      // again on its own, on its next tick.
+      if (task && task.status === "todo") {
+        inFlight.delete(taskId);
+        try {
+          await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+          lastNodeRun.delete(taskId);
+        } catch (err) {
+          log(`nodo: la corsa ${node.runId} non si è cancellata dopo il cambio di stato di ${taskId}`, err);
+        }
         continue;
       }
       let report: NodeRunReport;
@@ -1126,6 +1209,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // collects two deliveries (KANBAN-77).
       const still = inFlight.get(taskId);
       if (!still || still.runId !== slot.runId || still.node?.runId !== node.runId) continue;
+      // The card may have been closed while `readRun` was in the air: the first
+      // look above predates the report, and mirroring it would write `working`
+      // back on a done card.
+      if (svc.get(taskId)?.task?.status === "done") {
+        await retireDoneRun(taskId, node);
+        continue;
+      }
       node.fails = 0;
       node.setupFails = 0;
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
@@ -1142,6 +1232,23 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         continue;
       }
       mirrorNodeReport(taskId, node, report);
+      // The node parked the run ITSELF (`backlog` + `failed`/`blocked`: its own
+      // dispatch ran out of road, e.g. no runtime for the model). It will never
+      // come back no matter how many more times this polls it, and mirroring
+      // the chip forever only kept the slot open and the card frozen wherever
+      // it happened to be. Close the slot here and park the card with the
+      // node's own reason, instead of waiting for a human to notice the chip
+      // and drag the card back to `todo`.
+      if (
+        task && task.status === "in_progress" && !svc.isArchived?.(taskId)
+        && report.status === "backlog" && (report.dispatchState === "failed" || report.dispatchState === CHIP_BLOCKED)
+      ) {
+        inFlight.delete(taskId);
+        lastNodeRun.delete(taskId);
+        const why = report.reason || report.dispatchError || "nessun motivo riportato";
+        parkNodeCard(task, `Il nodo «${nodeName(node.machineId)}» ha parcheggiato la corsa: ${why}`);
+        continue;
+      }
       if (report.status !== "review") continue;
       if (stopOnWeeklyLimit(taskId, report, task)) continue;
       // A paired node never sends `reason`: review with no branch and no error may be
@@ -1151,6 +1258,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         if (node.reviewWithoutBranch < NODE_BRANCH_GRACE_POLLS) continue;
       }
       await landNodeDelivery(taskId, node, report);
+    }
+    // Never awaited: a node that does not answer must not hold the poll, and the recovery behind it.
+    if (!mirrorSweep) {
+      mirrorSweep = retireClosedMirrors()
+        .catch((err) => log("node: retired mirrors sweep failed", err))
+        .finally(() => { mirrorSweep = null; });
     }
   }
 
@@ -1166,6 +1279,10 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
+    // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
+    // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
+    // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
+    if (!svc.nodeRunIsOpen(task.id)) return false;
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
@@ -1193,6 +1310,73 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     } catch (err) {
       log(`nodo: card ${task.id} non rimessa in coda dopo il riavvio`, err);
       return false;
+    }
+  }
+
+  /**
+   * The run of a card that is already done. The cancel is best effort: a node
+   * that cannot be reached must not keep the slot forever, and a late report is
+   * harmless now that a done card ignores system deliveries.
+   */
+  async function retireDoneRun(taskId: string, node: NodeSlot): Promise<void> {
+    const client = host.client;
+    if (client) {
+      try {
+        await client.cancelRun({ baseUrl: node.baseUrl, token: node.token, runId: node.runId, delegation: node.delegation });
+      } catch (err) { log(`node: run ${node.runId} of the done card ${taskId} was not cancelled`, err); }
+    }
+    inFlight.delete(taskId);
+    lastNodeRun.delete(taskId);
+    try { releaseAndEmit({ taskId, requeue: false }); }
+    catch (err) { log(`node: done card ${taskId} was not released`, err); }
+  }
+
+  /**
+   * Mirrors left open on the node by cards that left the cycle (done or archived) after their run
+   * came home. `landNodeDelivery` closes the slot here, and nothing else archived the mirror over
+   * there: it stayed in review and the node GC kept its worktree forever (16/11, 145 worktrees on
+   * the PC, disk under the dispatch floor). The cancel archives the node card, the branch stays
+   * pinned there. Best effort and idempotent: a silent node is retried next round, a 404 is done.
+   * A card in review here is NOT retired: a review sent back resumes from the branch.
+   */
+  let mirrorSweep: Promise<void> | null = null;
+  async function retireClosedMirrors(): Promise<void> {
+    const client = host.client;
+    // One failed node is skipped for the rest of the round: 39 cancels to a dead PC would
+    // otherwise each wait for the network to give up.
+    const silent = new Set<string>();
+    if (!client || !svc.retiredNodeRuns) return;
+    let rows: ReturnType<NonNullable<TaskService["retiredNodeRuns"]>>;
+    try { rows = svc.retiredNodeRuns(); } catch (err) { log("node: retired mirrors not read", err); return; }
+    for (const row of rows) {
+      // A live slot belongs to retireDoneRun or the restart path, not to this sweep.
+      if (inFlight.has(row.taskId) || launching.has(row.taskId)) continue;
+      if (!row.machineId) { lastNodeRun.delete(row.taskId); continue; }
+      if (silent.has(row.machineId)) continue;
+      const baseUrl = client.baseUrlOf(row.machineId);
+      const policy = row.capabilityId ? host.delegatedPolicyForTask?.(row.taskId) ?? null : null;
+      const token = policy
+        ? client.delegatedTokenOf?.(row.machineId, policy.id) ?? client.tokenOf(row.machineId)
+        : client.tokenOf(row.machineId);
+      if (!baseUrl || !token) continue;
+      try {
+        await withTimeout(client.cancelRun({
+          baseUrl, token, runId: row.runId,
+          delegation: policy ? {
+            capabilityId: policy.id,
+            subjectPersonId: policy.initiatorPersonId,
+            subjectDeviceId: policy.initiatorDeviceId,
+          } : undefined,
+        }), MIRROR_CANCEL_TIMEOUT_MS);
+      } catch (err) {
+        if (!(isNodeError(err) && err.status === 404)) {
+          silent.add(row.machineId);
+          log(`node: mirror of run ${row.runId} (card ${row.taskId}) not archived, retrying next round`, err);
+          continue;
+        }
+      }
+      // Only clear the id that was cancelled: a new dispatch may have written another meanwhile.
+      if (lastNodeRun.get(row.taskId) === row.runId) lastNodeRun.delete(row.taskId);
     }
   }
 

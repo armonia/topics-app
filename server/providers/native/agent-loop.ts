@@ -31,7 +31,9 @@ import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type Tool
 import { detectUserInputRequest } from "../ask-user-detector";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import type { ProviderUsage } from "../types";
-import { decide, DEFAULT_AUTONOMY } from "./permissions";
+import { decide, DEFAULT_AUTONOMY, recordTurnCreatedPaths, turnTempDir, type TurnScope } from "./permissions";
+import { randomUUID } from "crypto";
+import { resolve } from "path";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
@@ -52,6 +54,7 @@ import { splitLongWindow, betaHeader, spiegaErrore } from "./long-window";
 import { thinkingConfigFor, DEFAULT_MAX_TOKENS } from "../../lib/native-parity";
 import type { LifecycleHookRunner } from "../../services/lifecycle-hooks";
 import { anthropicMessagesUrl, engineHoldUntil, engineJustGaveUp } from "./base-url";
+import type { createDelegationTracker } from "../../lib/delegation-policy";
 
 const API_VERSION = "2023-06-01";
 
@@ -215,6 +218,13 @@ export interface AgentTurnOptions {
    * user message as the results. Absent = nobody can steer this turn.
    */
   takeSteer?: () => string[];
+  /**
+   * The session's delegation counter (`lib/delegation-policy.ts`), owned by
+   * the CALLER like `calibration` so it spans turns. Fed the tool names and
+   * the prompt size of every round; when it answers, its text joins that
+   * round's results. Absent = no nudge.
+   */
+  delegation?: ReturnType<typeof createDelegationTracker>;
 }
 
 /** Puts `text` at the end of the last message when the person wrote it (the
@@ -983,11 +993,26 @@ export async function runAgentTurn(
   opts: AgentTurnOptions,
   handler: StreamHandler,
 ): Promise<{ turnEnd: TurnEndInfo; text: string; usage: RoundResult["usage"] }> {
-  const token = await getAccessToken();
+  const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+  let token: string | null;
+  try {
+    token = await getAccessToken();
+  } catch (err) {
+    // `getAccessToken` throws (it does not return null) when the token is past
+    // its margin and the renewal itself fails — an expired or revoked refresh
+    // token, not a transient one: the mid-turn 401 path already gives a clear
+    // sentence (`retry.ts`), this is its sibling for a turn that cannot even
+    // start. Without this, the raw `OAUTH_REFRESH_FAILED` text reached the
+    // chat instead of telling the person what to do.
+    const detail = err instanceof Error ? err.message : String(err);
+    const msg = `sessione Claude scaduta: ${detail}. Fai \`claude\` → /login, poi riprova`;
+    handler.onError(msg);
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
+  }
   if (!token) {
     const msg = "nessuna credenziale Claude: fai `claude` → /login una volta, poi riprova";
     handler.onError(msg);
-    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } };
+    return { turnEnd: { end: "error", cause: "provider-error", detail: msg }, text: "", usage: zeroUsage };
   }
 
   // MCP schemas go deferred and load on request (`tool-deferral.ts`). Wrapped
@@ -1006,6 +1031,11 @@ export async function runAgentTurn(
   const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN, calibrated: false };
   const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
   if (opts.reminder) appendReminder(opts.history, opts.reminder);
+
+  // What THIS turn may `rm` beyond the generic `/tmp` exception (RT-07): its
+  // scratch folder plus what it creates, grown below and read by the NEXT `decide`.
+  const turnCreatedPaths = new Set<string>();
+  const turnScope: TurnScope = { tempDir: turnTempDir(randomUUID()), createdPaths: turnCreatedPaths };
   let compactedForNextRequest = false;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
@@ -1195,7 +1225,15 @@ export async function runAgentTurn(
       // once the wait is already over.
       const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
-      const verdict = decide(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.autonomy ?? DEFAULT_AUTONOMY);
+      // `bash`'s own cwd, resolved the same way `recordTurnCreatedPaths` does,
+      // so a relative `rm` (`rm -rf scratch`, run from the turn's temp folder)
+      // is judged on where it actually lands, not rejected for having no
+      // leading `/`.
+      const bashInput = (t.input ?? {}) as Record<string, unknown>;
+      const bashCwd = t.name === "bash"
+        ? resolve(opts.toolContext.workspace, String(bashInput.cwd ?? opts.toolContext.workspace))
+        : undefined;
+      const verdict = decide(t.name!, bashInput, opts.autonomy ?? DEFAULT_AUTONOMY, bashCwd ? { ...turnScope, cwd: bashCwd } : turnScope);
       // THE USER'S HOOK SPEAKS AFTER THE PERMISSION, never instead of it
       // (HOOKS-02): a tool the verdict denied is not offered to the hook, and
       // a tool the verdict allowed can still be refused by the user's own
@@ -1238,6 +1276,7 @@ export async function runAgentTurn(
               ...opts.toolContext,
               onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
             });
+      if (!out.isError) recordTurnCreatedPaths(turnCreatedPaths, t.name!, (t.input ?? {}) as Record<string, unknown>, opts.toolContext.workspace);
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole
@@ -1290,11 +1329,16 @@ export async function runAgentTurn(
     if (steered.length > 0) {
       console.log(`[native] steer: session_key=${opts.sessionId ?? "unknown"} round=${i + 1} messages=${steered.length}`);
     }
+    const nudge = opts.delegation?.observe(
+      toolUses.map((t) => (t as { name: string }).name),
+      round.usage.input + round.usage.cacheRead + round.usage.cacheWrite,
+    );
     opts.history.push({
       role: "user",
       content: [
         ...results,
         ...steered.map((text): Block => ({ type: "text", text })),
+        ...(nudge ? [{ type: "text", text: nudge } as Block] : []),
         ...(opts.reminder ? [{ type: "text", text: opts.reminder }] : []),
       ],
     });

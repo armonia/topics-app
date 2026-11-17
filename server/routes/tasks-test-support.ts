@@ -14,6 +14,8 @@ import { Database } from "bun:sqlite";
 import type { AppContext, RouteHandler } from "../types";
 import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
+import { writeWorkflowRules } from "../services/board-workflow";
+import type { CiPhaseMode } from "../../shared/workflow";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 export function freshDb(): Database {
@@ -26,7 +28,8 @@ export function freshDb(): Database {
     project_path TEXT,
     worktree_id TEXT,
     parent_id TEXT,
-    provider TEXT
+    provider TEXT,
+    icon TEXT NOT NULL DEFAULT 'MessageSquare'
   )`);
   // The global coordinator role is deliberately table-backed. Keeping this in
   // the shared route harness lets focused wrapper tests exercise the same
@@ -88,6 +91,16 @@ export function freshDb(): Database {
 }
 
 // Faithful copy of server/utils.ts:matchRoute (length-strict, decodes params).
+/**
+ * The board's CI rule for every board of this database (the global row): the default is `after`, and
+ * the tests of the phase that measures BEFORE the land say so here.
+ */
+export function setCiPhaseMode(db: Database, mode: CiPhaseMode): Database {
+  db.run("CREATE TABLE IF NOT EXISTS board_workflow_rules (scope TEXT PRIMARY KEY, ci_phase INTEGER, person_paths TEXT, updated_at TEXT NOT NULL)");
+  writeWorkflowRules(db, "*", { ciPhase: mode }, new Date().toISOString());
+  return db;
+}
+
 export function matchRoute(pathname: string, pattern: string): Record<string, string> | null {
   const pp = pattern.split("/"), xp = pathname.split("/");
   if (pp.length !== xp.length) return null;

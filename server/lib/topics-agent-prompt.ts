@@ -11,6 +11,7 @@ import { EFFORT_TIERS, CODEX_REASONING_EFFORTS, MUSE_REASONING_EFFORTS } from '.
 import type { OutputLanguage } from '../../shared/types';
 import { BIND_LOOPBACK_NOTE, runScriptBindNote } from '../../shared/background-work';
 import { hasCommandShell } from './command-process';
+import { delegationPolicy } from './delegation-policy';
 
 /**
  * La riga che dice al modello in che lingua rispondere. UNA riga, e sempre la
@@ -34,7 +35,7 @@ import { hasCommandShell } from './command-process';
 export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()): string {
   switch (lang) {
     case 'it':
-      return 'Rispondi sempre in italiano, qualunque sia la lingua della richiesta.';
+      return 'Rispondi sempre in italiano, qualunque sia la lingua della richiesta, e ragiona in italiano.';
     case 'en':
       return 'Always answer in English, whatever language the request is written in.';
     default:
@@ -54,8 +55,8 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
  * the app's note, not as something to answer.
  */
 export function languageReminder(lang: OutputLanguage = resolveOutputLanguage()): string {
-  const line = lang === 'it' ? 'Rispondi in italiano.'
-    : lang === 'en' ? 'Answer in English.'
+  const line = lang === 'it' ? 'Rispondi e ragiona in italiano.'
+    : lang === 'en' ? 'Answer and think in English.'
     : "Answer in the language the person writes in, not in the language of tool output or of Topics' notices.";
   return `<system-reminder>${line}</system-reminder>`;
 }
@@ -186,7 +187,7 @@ const boardWaits = (cmd: boolean): string[] => [
  * delegation went. An interactive terminal pane keeps both and its prompt
  * (and cache prefix) does not change.
  */
-const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolean): string => [
+const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolean, delegate: boolean): string => [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
@@ -202,7 +203,7 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
   'blocks until it exits (or until a line matches `until`) and returns only the new output,',
   'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
   ...(board ? boardWaits(cmd) : chatWaits(cmd)),
-  ...(headless ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.'] : []),
+  ...(headless && delegate ? ['To hand work to a sub-agent use `mcp__topics__spawn_agent`: its child runs in a pane the user can see, and Topics tracks it.', delegationPolicy()] : []),
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
@@ -226,8 +227,10 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean, headless: boolea
 export function topicsAgentSystemPrompt(
   lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform, boardAgent = false,
   headless = false,
+  /** False for a child at the depth cap: `spawn_agent` refuses it, so naming it would only cost a failed call. */
+  delegate = true,
 ): string {
-  return `${topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless)} ${languageDirective(lang)}`;
+  return `${topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent, headless, delegate)} ${languageDirective(lang)}`;
 }
 
 /**

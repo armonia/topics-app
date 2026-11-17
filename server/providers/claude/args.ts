@@ -108,6 +108,13 @@ export interface ClaudeSpawnArgsOptions {
    */
   hooksScriptPath?: string | null;
   /**
+   * The delegation nudge script (`lib/delegation-policy.ts`), as a SYNC
+   * `PostToolUse` hook: the only event that can hand text back to the model.
+   * Headless sessions only, where `Agent` is off and `spawn_agent` is the way
+   * out; a terminal pane the person drives keeps its native sub-agents.
+   */
+  delegationHookPath?: string | null;
+  /**
    * Manda il CATALOGO delle skill al modello coi soli NOMI, senza descrizioni
    * (`skillListingMaxDescChars: 1` → `- nome: …`).
    *
@@ -270,6 +277,24 @@ export const IMAGE_READ_GUARD_SETTINGS: { hooks: HooksBlock } = {
   },
 };
 
+/**
+ * The delegation nudge as a `PostToolUse` hook. Synchronous on purpose: an
+ * async hook's output never reaches the model. The script costs a few ms
+ * (sh, two tiny files) and exits 0 on any error, so it never holds a tool.
+ */
+export function delegationHookSettings(scriptPath: string): { hooks: HooksBlock } {
+  return {
+    hooks: {
+      // Only the tools the counter reads: the CLI does not even start the
+      // script on an Edit, and the wildcard matcher stays Topics' own.
+      PostToolUse: [{ matcher: DELEGATION_HOOK_MATCHER, hooks: [{ type: "command", command: `"${scriptPath}"`, timeout: 3 }] }],
+    },
+  };
+}
+
+/** Inline work plus the delegation tools, as one CLI matcher (a regex on the tool name). */
+export const DELEGATION_HOOK_MATCHER = "Bash|Read|Grep|Glob|Agent|Task|mcp__topics__run_command|mcp__topics__read_process_output|mcp__topics__wait_for_process|mcp__topics__browser_eval|mcp__topics__spawn_agent";
+
 /** Quale dei due tagli applicare. Il perché sta accanto a `toolTrim`. */
 export type ToolTrim = "chat" | "dispatched";
 
@@ -425,17 +450,20 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.noAttribution
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath || opts.noAttribution
       ? ["--settings", JSON.stringify({
           // The two `hooks` blocks MERGED event by event: the guard and ours
           // both sit on `PreToolUse`, and a spread would keep only one.
-          ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath
+          ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath
             ? {
                 hooks: mergeHooks(
                   opts.hooksScriptPath ? topicsHooksSettings(opts.hooksScriptPath).hooks : undefined,
                   mergeHooks(
-                    opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,
-                    opts.guardLiveCheckout ? LIVE_CHECKOUT_GUARD_SETTINGS.hooks : undefined,
+                    mergeHooks(
+                      opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,
+                      opts.guardLiveCheckout ? LIVE_CHECKOUT_GUARD_SETTINGS.hooks : undefined,
+                    ),
+                    opts.delegationHookPath ? delegationHookSettings(opts.delegationHookPath).hooks : undefined,
                   ),
                 ),
               }

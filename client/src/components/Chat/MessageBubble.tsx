@@ -13,7 +13,8 @@ import { MessageContent } from '../MessageContent';
 import { TurnActivityIndicator } from '../MessageParts';
 import { runningToolLabel } from './runningToolLabel';
 import { isAwaitingHuman } from '../../../../shared/types';
-import { turnIsOnlyError } from './turnError';
+import { turnIsOnlyError, turnErrorOf } from './turnError';
+import { isReserveStop, confirmReserve } from './reserveConfirm';
 import { goalLoopRowOf } from './goalLoopRow';
 import { machineStopOf } from './machineRow';
 import { messageHasView } from './viewOpens';
@@ -103,7 +104,6 @@ interface MessageBubbleProps {
   copiedMsgId: string | null;
   isCompact: boolean;
   fontSize: number;
-  isMobile: boolean;
   onReply: (msg: ChatMessage) => void;
   onCopy: (msg: ChatMessage) => void;
   onTogglePin: (msg: ChatMessage) => void;
@@ -155,7 +155,6 @@ export const MessageBubble = memo(function MessageBubble({
   copiedMsgId,
   isCompact,
   fontSize,
-  isMobile,
   onReply,
   onCopy,
   onTogglePin,
@@ -414,7 +413,11 @@ export const MessageBubble = memo(function MessageBubble({
           // they need the 85% cap to look like a bubble; assistant replies
           // have no card to constrain and get the full row width instead.
           className={`relative flex flex-col min-w-0 ${msg.role === 'assistant' && messageHasView(msg.blocks, msg.toolCalls) ? 'w-full' : ''}`}
-          style={{ maxWidth: isMobile ? 'calc(100vw - 5rem)' : (msg.role === 'user' ? '85%' : '100%') }}
+          // Same cap on the phone. It used to be `calc(100vw - 5rem)` there,
+          // from when the sidebar sat beside the chat on a phone: with the
+          // sidebar now an overlay it only took 64px off every reply, and a
+          // table cut at the edge with empty room on its right.
+          style={{ maxWidth: msg.role === 'user' ? '85%' : '100%' }}
         >
           {/* A pinned message carries the mark outside the hover too (CMDUI-10):
               it stays in the agent's context, and that is worth seeing. Out of
@@ -553,6 +556,20 @@ export const MessageBubble = memo(function MessageBubble({
               ne farebbe un secondo, a pagamento, sopra uno che è già lì. Il
               cartello dice che qualcosa è andato storto; solo l'assenza di
               lavoro dice che c'è da rifarlo. */}
+          {/* The reserve asks before it is spent: the account engine stopped
+              the turn on the last subscription. The user's yes unlocks it until
+              the first reset and sends the message again; without that yes
+              nothing goes out (15/11). */}
+          {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && isReserveStop(turnErrorOf(msg)) && (
+            <button
+              onClick={() => { void confirmReserve().then((ok) => { if (ok) onRetry(); }); }}
+              data-testid="message-reserve-continue"
+              title={tr('chat.reserve.continueTitle')}
+              className="mt-1.5 mr-1.5 px-3 py-1 text-compact leading-4 font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+            >
+              {tr('chat.reserve.continue')}
+            </button>
+          )}
           {onRetry && msg.role === 'assistant' && turnIsOnlyError(msg) && (
             <button
               onClick={onRetry}
@@ -647,6 +664,7 @@ export const MessageBubble = memo(function MessageBubble({
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
                 sessionKey={topic.sessionKey}
+                topicId={topic.id}
                 onMessage={onMessage}
                 awaitingInput={awaitingInput}
                 promptTokens={msg.usagePromptTokens}

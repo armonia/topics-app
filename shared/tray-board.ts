@@ -8,8 +8,12 @@ export interface TrayTaskInput {
   text: string;
   status: string;
   projectId: string;
-  /** The workflow column (`shared/workflow.ts`): AI review is not a person's. */
+  /** The workflow column (`shared/workflow.ts`): the CI column is not a person's. */
   stage?: string | null;
+  /** Agent time so far, subtask progress: what a card in progress says about its countdown. */
+  agentMs?: number;
+  subtaskCount?: number;
+  subtaskDoneCount?: number;
 }
 
 /**
@@ -82,6 +86,11 @@ export function trayTitle(text: string, max = 44): string {
   return `${(spazio > max * 0.6 ? tagliato.slice(0, spazio) : tagliato).trimEnd()}…`;
 }
 
+/** A row's title followed by what it adds; the title alone when there is nothing to add. */
+function withSuffix(title: string, suffix: string): string {
+  return suffix ? `${title} · ${suffix}` : title;
+}
+
 /**
  * I task aperti raggruppati per stato, pronti per il menu.
  *
@@ -91,7 +100,12 @@ export function trayTitle(text: string, max = 44): string {
  */
 export function trayBoardGroups(
   tasks: readonly TrayTaskInput[],
-  opts: { rowsPerGroup?: number; lit?: readonly TrayLitCard[] } = {},
+  opts: {
+    rowsPerGroup?: number;
+    lit?: readonly TrayLitCard[];
+    /** What a card in progress adds after its title (its countdown): the same words as everywhere, built by the caller. */
+    runningSuffix?: (task: TrayTaskInput) => string;
+  } = {},
 ): TrayGroup[] {
   const perGroup = Math.max(1, opts.rowsPerGroup ?? TRAY_ROWS_PER_GROUP);
   // With the lit cards in hand, what waits on a person comes from them (steps
@@ -99,8 +113,8 @@ export function trayBoardGroups(
   const out: TrayGroup[] = opts.lit ? trayLitGroups(opts.lit, { rowsPerGroup: perGroup }) : [];
   for (const status of TRAY_GROUP_ORDER) {
     if (opts.lit && status === "review") continue;
-    // The review group is what waits on a PERSON: a card in AI review goes back
-    // to whoever opened it, so it is not in the menu (`awaitsHuman`).
+    // The review group is what waits on a PERSON: a card in the CI column waits
+    // on the integration queue, so it is not in the menu (`awaitsHuman`).
     const miei = tasks.filter((t) => (status === "review" ? awaitsHuman(t) : t.status === status));
     if (miei.length === 0) continue;
     out.push({
@@ -108,7 +122,7 @@ export function trayBoardGroups(
       count: miei.length,
       rows: miei.slice(0, perGroup).map((t) => ({
         id: t.id,
-        title: trayTitle(t.text),
+        title: status === "in_progress" && opts.runningSuffix ? withSuffix(trayTitle(t.text), opts.runningSuffix(t)) : trayTitle(t.text),
         projectId: t.projectId,
       })),
     });

@@ -292,7 +292,7 @@ const TOOLS = [
   {
     name: "create_task",
     description:
-      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session — do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate). Pass parent_task_id to nest it as a subtask (unlimited depth; a parent with open subtasks cannot be closed).",
+      "Create a task on THIS session's project board. It lands in Backlog (intake): only a human moves it to Todo, which is what makes it eligible for auto-dispatch. The project is derived from the session: do not pass a project id. Pass idempotency_key to make retries safe (same key ⇒ same task, no duplicate). Pass parent_task_id to nest it as a subtask (unlimited depth; a parent with open subtasks cannot be closed). Scheduled or waiting work (a cron, \"recheck after 02:00\", an external wait) is NOT an idea: pass wait_reason and wait_minutes and the card is created in Todo with the waiting chip and that retry time, instead of Backlog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -301,6 +301,8 @@ const TOOLS = [
         priority: { type: "number", description: "0–4 (default 2)." },
         assignee: { type: "string", description: "Optional agent/person to assign." },
         idempotency_key: { type: "string", description: "Optional dedupe key for safe retries." },
+        wait_reason: { type: "string", description: "What the card waits for (a time, a cron, an external condition). With wait_minutes, the card starts in Todo, waiting." },
+        wait_minutes: { type: "number", description: "Minutes until the first attempt (1-1440)." },
         parent_task_id: { type: "string", description: "Optional parent task id — nests this task as its subtask." },
         bar: { type: "string", description: "Executable acceptance bar: the check that says the work is done (a command or a test). A card without it is flagged incomplete." },
         allow_duplicate: { type: "boolean", description: "Set true to open the card even though an existing one says the same thing (the board answers 409 with the twin's id otherwise). Only after reading that card and deciding it is a different job." },
@@ -382,7 +384,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exceptions: a card YOU opened that sits in AI review (close it with status='done' and the proof in `summary`), and subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
+      "Update a task on THIS session's project board: status, priority, assignee, title/description, preview_image. The project is derived from the session (no project id). DELIVERING (status='review') REQUIRES `summary`: without it the call is refused. NOTE: you CANNOT set status='done' on your MAIN task — that is a human review gate: set status='review' and a human approves it. Exception: subtask STEPS of the task assigned to you (created with parent_task_id) are your checklist — mark each done as you complete it. You also cannot REOPEN a card a human closed (approved in review, or moved to done on the board): that is their decision — comment the reason and ask. Your own steps, which you closed yourself, you may reopen. To give the reviewer something concrete to look at, do NOT reach for output_url: a live page goes in a TAB of the task (open_browser_pane) and files go in the task's download list (comment_task media[]).",
     inputSchema: {
       type: "object",
       properties: {
@@ -404,15 +406,10 @@ const TOOLS = [
         // dei posti in cui l'agente legge la regola, e finché era un riassunto
         // scritto qui diceva due rami mentre il protocollo ne diceva tre.
         preview_image: { type: "string", description: PREVIEW_RULE },
-        stage: {
-          type: "string",
-          description:
-            "The board column, when the board's workflow has more columns than statuses (e.g. triage, human_review). Triage: move a card out of 'triage' to 'todo' (or keep it in backlog) once title, priority and dependencies are set. 'ai_review' is never yours to set: the server routes a delivery there when an agent or a schedule opened the card.",
-        },
         human_ask: {
           type: "string",
           description:
-            "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. On a board with AI review it sends the card to Human review; without it, a card an agent opened goes back to that agent, which closes it with the proof. Leave it out when nobody but the opener needs to look.",
+            "WITH a delivery (status='review'): the question the PERSON has to answer or the thing they have to see. Leave it out when there is nothing to decide.",
         },
       },
       required: ["task_id"],
@@ -422,7 +419,7 @@ const TOOLS = [
   {
     name: "wait_for_condition",
     description:
-      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review' — it produced nothing yet. Declare a wait ONCE per condition, with a window long enough for it to arrive: a second wait for the same condition parks the task in the backlog for a human to decide.",
+      "Declare that YOUR task must WAIT for an external condition (a service to come back, machine load to drop, a time window) instead of holding your dispatch slot with a poller. The task goes back to the queue (todo) with your reason as a note and a 'waiting' chip, your slot is freed for other tasks, and the system re-dispatches this task automatically after `minutes`. Use this INSTEAD of sleeping/polling; do NOT move a waiting task to 'review': it produced nothing yet. A repeat for the same condition keeps the task in Todo with a LONGER window (15 min, 1 h, 6 h, 24 h), it never parks it in the backlog.",
     inputSchema: {
       type: "object",
       properties: {
@@ -531,14 +528,9 @@ const TOOLS = [
         assignee: { type: "string", description: "Agent/person to assign." },
         text: { type: "string", description: "Replacement title." },
         description: { type: "string", description: "Replacement description." },
-        stage: {
-          type: "string",
-          description:
-            "The board column, on a board whose workflow has more columns than statuses. TRIAGE is yours: a card in 'triage' gets its title, priority and dependency set, missing information asked with comment_global_task, then stage='todo' (or archive it). 'ai_review' is set only by the server. A card in AI review opened by the board API or a schedule is yours to close in its opener's place: status='done' with the proof in `summary`, or stage='human_review' with `human_ask`.",
-        },
         human_ask: {
           type: "string",
-          description: "The question for the PERSON that sends a card to Human review (with stage='human_review' or a delivery).",
+          description: "The question for the PERSON that goes with a delivery: what they have to look at or decide.",
         },
         bar: { type: "string", description: "Executable acceptance bar (a command or a test); add it to a card that was flagged incomplete." },
         source: { type: "string", description: "Where the card comes from (the session or channel opening it); add it to a card that was flagged incomplete." },
@@ -664,7 +656,7 @@ const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW sub-agent and give it a task, the way the built-in Agent tool does, but visible: by default it runs on the Topics engine as a chat of its own in this project, which the user can open, read and write into (runtime:\"claude-code\" starts an interactive Claude Code CLI in a terminal pane instead; the answer says which runtime started, and why when it fell back). It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
+      "Spawn a NEW sub-agent and give it a task, the way the built-in Agent tool does, but visible: by default it runs on the Topics engine as a chat of its own in this project, which the user can open, read and write into (runtime:\"claude-code\" starts an interactive Claude Code CLI in a terminal pane instead, and only then: the engine never falls back to the CLI by itself). It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
       "It runs on this session's model unless you pass model or an agent_type whose profile names one; the answer says which model, profile and effort really started. Never choose haiku on your own initiative: only when the user asks for it. " +
       "By default it runs in the background: when its turn ends, a chat is woken with its result (you do not need to poll), while a terminal session reads it with read_agent. With run_in_background:false the call waits up to 10 minutes and returns the result itself. It stays alive after its turn for follow-ups with send_to_agent; after 15 idle minutes it is retired, and send_to_agent resumes it from where it was. stop_agent when you no longer need it.",
     inputSchema: {
@@ -2117,7 +2109,7 @@ export async function callListTasks(
 
 export async function callUpdateTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; output_url?: unknown; text?: unknown; description?: unknown; preview_image?: unknown; previewImage?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
   fetchImpl: typeof fetch = fetch,
   /**
    * Le manopole del ciclo a gambe: servono quando la consegna fa girare i check
@@ -2179,7 +2171,6 @@ export async function callUpdateTask(
   // would answer "no field to change", which is the answer to another question.
   if (typeof toolArgs.summary === "string" && patch.status !== undefined) patch.summary = toolArgs.summary;
   // The workflow column and the question for the person (`shared/workflow.ts`).
-  if (typeof toolArgs.stage === "string" && toolArgs.stage) patch.stage = toolArgs.stage;
   if (typeof toolArgs.human_ask === "string") patch.humanAsk = toolArgs.human_ask;
   if (Object.keys(patch).length === 0) {
     throw new Error("update_task: provide at least one of 'status', 'priority', 'assignee', 'output_url', 'text', 'description', 'bar', 'source', 'preview_image'");
@@ -2257,7 +2248,7 @@ export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,
-  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown },
+  toolArgs: { text?: unknown; description?: unknown; priority?: unknown; assignee?: unknown; idempotency_key?: unknown; parent_task_id?: unknown; allow_duplicate?: unknown; bar?: unknown; wait_reason?: unknown; wait_minutes?: unknown },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   if (typeof toolArgs?.text !== "string" || !toolArgs.text.trim()) {
@@ -2275,6 +2266,8 @@ export async function callCreateTask(
   // cioè esattamente il guasto che il cancello doveva impedire.
   if (typeof toolArgs.bar === "string" && toolArgs.bar.trim()) reqBody.bar = toolArgs.bar;
   if (toolArgs.allow_duplicate === true) reqBody.allow_duplicate = true;
+  if (typeof toolArgs.wait_reason === "string" && toolArgs.wait_reason.trim()) reqBody.wait_reason = toolArgs.wait_reason;
+  if (typeof toolArgs.wait_minutes === "number") reqBody.wait_minutes = toolArgs.wait_minutes;
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/tasks`;
   const res = await httpJson<CreateTaskResp>(args, "POST", path, reqBody, fetchImpl);
   const nested = typeof toolArgs.parent_task_id === "string" && toolArgs.parent_task_id
@@ -2486,7 +2479,7 @@ export async function callCreateGlobalTask(
 
 export async function callUpdateGlobalTask(
   args: ParsedArgs,
-  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown; stage?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
+  toolArgs: { task_id?: unknown; status?: unknown; priority?: unknown; assignee?: unknown; text?: unknown; description?: unknown; summary?: unknown; human_ask?: unknown; bar?: unknown; source?: unknown },
   fetchImpl: typeof fetch = fetch,
   opts: {
     legMs?: number;
@@ -2511,7 +2504,6 @@ export async function callUpdateGlobalTask(
     ...(typeof toolArgs.text === "string" ? { text: toolArgs.text } : {}),
     ...(typeof toolArgs.description === "string" ? { description: toolArgs.description } : {}),
     ...(typeof toolArgs.summary === "string" ? { summary: toolArgs.summary } : {}),
-    ...(typeof toolArgs.stage === "string" ? { stage: toolArgs.stage } : {}),
     ...(typeof toolArgs.human_ask === "string" ? { human_ask: toolArgs.human_ask } : {}),
     ...(typeof toolArgs.bar === "string" ? { bar: toolArgs.bar } : {}),
     ...(typeof toolArgs.source === "string" ? { source: toolArgs.source } : {}),

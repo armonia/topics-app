@@ -39,6 +39,7 @@ import { useHubEverRead } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useSharedNow } from '../../state/useSharedNow';
 import { useActiveAgentRows } from '../../state/signals';
+import { ChildWorkMeter } from '../Board/ChildWorkMeter';
 import { attentionOf, terminalSubject, topicSubject, useAttentionRows } from '../../state/attention';
 import { openAutomation, openAutomationsCalendar } from '../../state/automationTarget';
 import { peekAgentsJobsFilter, takeAgentsJobsFilter } from '../../lib/agentsJobsLink';
@@ -49,9 +50,9 @@ import { setGateWaits } from '../../state/gateWaits';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { STATUS_CHIP, STATUS_DOT, STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
-import { StatusIcon } from '../Board/atoms';
 import { readJson } from '../../lib/readJson';
 import { shortTokens } from '../../lib/formatTokens';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 import {
   agentsJobs, cancelRequest, openingFilter,
   type AgentsJobsView, type JobFilter, type JobRow, type JobSection, type SectionId, type StepMark,
@@ -577,7 +578,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
   const body = (
     <>
       <span className="mt-0.5 flex h-4 w-4 flex-none items-center justify-center" title={tr(SOURCE_KIND[row.source])} data-kind-glyph={row.source}>
-        {live ? <StatusIcon status="in_progress" live className="h-3.5 w-3.5" /> : <Icon size={14} className={tone} aria-hidden="true" />}
+        {live ? <SparkLoader size={12} activity="tool" /> : <Icon size={14} className={tone} aria-hidden="true" />}
       </span>
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -594,6 +595,7 @@ function Row({ row, tr, pad, isMobile, meta, right, failedWithdraw, onOpen, onWi
             <span className="min-w-0 truncate">{meta}</span>
           </span>
         )}
+        {row.target && live && <span className="mt-0.5 block"><ChildWorkMeter id={row.target.id} /></span>}
         {timelineOpen && row.timeline && (
           <span data-testid="agents-jobs-timeline" className="mt-1 block border-l border-app-border-light pl-2">
             {row.timeline.map((line, i) => <span key={i} className="block text-mini text-app-text-secondary">{line}</span>)}

@@ -25,6 +25,16 @@ import {
 
 hermetic(test);
 
+// A reload while the server is down is carried by the service worker:
+// `client/public/sw.js` retries the navigation (250 ms to 3 s) until the server
+// is back. The bench blocks it for every spec since 13/11 (339b75bf7, for the
+// `page.route` stubs), and from that night the reload here landed on
+// `chrome-error://chromewebdata/` with ERR_CONNECTION_REFUSED at 24 ms: the tab
+// was not lost, the page was (measured 16/11, eight runners out of eight). This
+// spec has no stubs and is about that behaviour, so it turns the worker back on,
+// as `sw-restart-vs-offline` does.
+test.use({ serviceWorkers: "allow" });
+
 const SESSIONS = 3;
 const RELOADS = 5;
 
@@ -119,6 +129,9 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
     const tab = (id: string) => page.getByTestId(`pane-tab-terminal:${id}`);
     await page.goto("/");
     for (const id of ids) await expect(tab(id)).toBeVisible({ timeout: 20_000 });
+    // Without `clients.claim()` the worker serves the navigations AFTER it is
+    // active: wait for it, or the first reload runs uncovered.
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
 
     const report: string[] = [];
     for (let r = 1; r <= 3; r++) {
@@ -129,6 +142,15 @@ test.describe.serial("Refresh con più Claude Code aperti", () => {
       const start = Date.now();
       await page.reload().catch(() => {});
       await restarting;
+      // A reload that lands while the server is down can end on the browser's
+      // network-error page, or on a cached shell that boots against a dead API
+      // when the restart outlasts the service worker's retries (a loaded CI
+      // shard). Nothing the product controls can repaint that page, so the
+      // reader does what anyone does: reloads once the server answers. A tab
+      // really pruned by the restart is still missing after this reload, which
+      // is the loss the assertion below exists to catch.
+      const settled = await expect(tab(ids[0])).toBeVisible({ timeout: 10_000 }).then(() => true, () => false);
+      if (!settled) await page.reload();
       for (const id of ids) await expect(tab(id), `riavvio ${r}: tab ${id} persa`).toBeVisible({ timeout: 30_000 });
       const tabsMs = Date.now() - start;
       await afterPrunePass(page, dormantRead);

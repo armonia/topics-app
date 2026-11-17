@@ -25,6 +25,7 @@
  */
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
 import type { SubAgentResult } from "../lib/subagent-result";
+import type { WakeLaunch } from "../lib/wake-adoption";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -44,8 +45,10 @@ export interface SubagentWakeDeps {
   /**
    * `wake`: send the turn. `wait`: not now (the topic's provider is held).
    * `row`: never wake this one, write the row (an archived chat no card owns).
+   * Asked once per result, with the child it answers: a chat archived between
+   * two spawns is alive for the second one only.
    */
-  canWake(sessionKey: string): "wake" | "wait" | "row";
+  canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
   log?: (msg: string) => void;
   debounceMs?: number;
   pollMs?: number;
@@ -160,12 +163,18 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
         pending.set(sessionKey, queued.filter((r) => resultWakesParent(r.result)));
         asRows(rowsOnly);
       }
+      const live = pending.get(sessionKey) ?? [];
+      if (!live.length) return;
+      const verdicts = live.map((r) => deps.canWake(sessionKey, { subagentId: r.result.agentId }));
+      const refused = live.filter((_, i) => verdicts[i] === "row");
+      if (refused.length) {
+        pending.set(sessionKey, live.filter((_, i) => verdicts[i] !== "row"));
+        asRows(refused);
+      }
       if (!pending.get(sessionKey)?.length) return;
-      const verdict = deps.canWake(sessionKey);
-      if (verdict === "wait") { await sleep(pollMs); continue; }
+      if (verdicts.some((v) => v === "wait")) { await sleep(pollMs); continue; }
       const batch = pending.get(sessionKey)?.splice(0) ?? [];
       if (!batch.length) return;
-      if (verdict === "row") { asRows(batch); continue; }
       const results = batch.map((r) => r.result);
       const url = new URL("http://localhost/api/chat");
       const resp = await deps.route(

@@ -192,25 +192,15 @@ queste regole.
    commento di sintesi nel thread + spostamento in `review` fatto DALL'AGENTE
    (`update_task(status="review")`). L'umano approva; l'agente non porta mai a `done`.
 
-   Su una board con il workflow `armonia` la review ha due colonne
-   (`shared/workflow.ts`). Una card aperta da un agente o da una schedulazione
-   consegnata SENZA domanda va in **AI review**: torna a chi l'ha aperta, che la
-   chiude con la prova (`update_task(status="done", summary=<prova>)`), o al
-   coordinatore se chi l'ha aperta non ha una chat (`agent:api`, cron). Arriva in
-   **Human review** solo con una domanda per la persona, in uno di due modi
-   equivalenti:
-   - `human_ask` = la domanda, insieme alla consegna o con `stage="human_review"`;
-   - un commento dell'agente con `options` (il blocco ```question```) che sia
-     l'ultima parola del thread al momento della consegna, oppure scritto DOPO,
-     mentre la card sta in AI review: in quel caso la card passa da sola in Human
-     review e la domanda diventa il suo `human_ask`.
-   Le opzioni che sono solo azioni della board («Landa su main») non sono una
-   domanda. Una card aperta da una persona va sempre in Human review.
-   Vale anche per una card che NASCE in review (`POST /api/boards/:id/tasks`
-   con `status="review"`): se l'ha aperta un agente o una schedulazione nasce in
-   AI review, e in Human review solo con `human_ask` nel corpo. Il coordinatore
-   chiude con `update_global_task` anche le card che ha aperto lui: la sua
-   sessione non ha un progetto, e lì `update_task` risponde `no_project`.
+   La consegna può portare una domanda per la persona: `human_ask` = cosa deve
+   guardare o decidere, insieme alla consegna. Vale anche un commento dell'agente
+   con `options` (il blocco ```question```) che sia l'ultima parola del thread al
+   momento della consegna: la domanda diventa il suo `human_ask`. Le opzioni che
+   sono solo azioni della board («Landa su main») non sono una domanda. Ogni
+   card consegnata aspetta una persona (non esiste più una colonna «AI review»).
+   Il coordinatore chiude con `update_global_task` anche le card che ha aperto
+   lui: la sua sessione non ha un progetto, e lì `update_task` risponde
+   `no_project`.
 
 1-bis. **Una card in review si deve poter LEGGERE senza rileggere il diff.**
    Quando un turno viene tagliato prima che l'agente commenti (riavvio del
@@ -257,6 +247,15 @@ queste regole.
    task (`open_browser_pane`) è solo un EXTRA dal vivo (dev server, pagina) ed è
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
+
+   **Anteprima viva automatica: come si aggiunge a un progetto.** Alla consegna il
+   gestore (`server/services/preview-manager.ts`) avvia il progetto dalla worktree
+   della card su una porta 3400-3450 e allega lo scatto. Il comando lo sceglie
+   `server/services/preview-command.ts`: lo script `preview:worktree` del
+   `package.json` se c'è (costruisce ciò che serve, usa dati propri, ascolta su
+   `$PORT`; può scrivere in `$PREVIEW_DEEP_LINK_FILE` la pagina da fotografare),
+   altrimenti il primo tra `preview`, `dev`, `start`. Nessuno script = nessuna
+   anteprima, in silenzio; un avvio tentato e fallito lascia una nota col motivo.
 
    **Niente browser aperto a mano per filmare o fotografare.** Una tab del task che nessuna finestra mostra gira in un browser
    headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
@@ -494,22 +493,34 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
     `intent-classifier`).
      **Dal 14/11/2026 la regola è rovesciata** (regola di Attilio del 09/11: le
      card tecniche si chiudono da sole). `personPlace` in `auto-land.ts`:
-     1. **A una persona** resta solo ciò che una persona sola può giudicare:
-        l'interfaccia (`client/src/**` tranne i test), il sito pubblico
-        (`landing/**`), README e licenze; ciò che raggiunge persone (push,
+     1. **A una persona** resta solo ciò che una persona sola può giudicare, in
+        due parti. La parte GENERICA, uguale per ogni board, sta nel codice
+        (`GENERIC_PERSON_PLACES`): file di interfaccia per tipo (`.tsx`, `.vue`,
+        `.css`, `.html`…), README e licenze; ciò che raggiunge persone (push,
         presence, notifiche, mail, canali, voce, condivisioni, ospiti); sicurezza e
         soldi (auth, token, segreti, l'ambiente degli agenti, relay, licenze,
-        billing, prezzi); dipendenze e runner (`package.json`, lockfile,
-        `bunfig.toml`); il GIUDICE (`scripts/**`, `.github/**`, `tests/**` che non
-        sono file di test, ogni `*.json`, gli snapshot, i cancelli dei check,
-        `auto-land.ts`, `red-bounce.ts`, `integration-queue.ts`, le etichette e i
-        workflow) e qualunque file che `bunfig.toml`, `scripts/`, `package.json` o
-        `.github/` NOMINANO (`referencedByTheJudge`).
+        billing, prezzi); dipendenze e runner di ogni linguaggio (`package.json`,
+        lockfile, `Cargo.toml`, `go.mod`…); il GIUDICE (`.github/**` e le altre CI,
+        gli snapshot) e qualunque file che `bunfig.toml`, `scripts/`, `package.json`
+        o `.github/` NOMINANO (`referencedByTheJudge`). La parte DEL REPO sta nelle
+        **regole del workflow della board** (`board_workflow_rules`, pannello
+        impostazioni → Workflow → «Da far guardare a te», `PUT
+        /api/boards/:id/workflow { personPaths }`): un glob per riga col perché.
+        Quella di topics-app è `docs/board-workflow-rules.json` (interfaccia
+        `client/src/**`, sito, release, `scripts/**`, `tests/**`, ogni `*.json` e i
+        file del proprio giudice). Un file di test non conta mai, tranne dentro la
+        cartella della CI.
      2. **Da sola** tutto il resto, `server/**`, `shared/**`, `server.ts`,
         `desktop-tauri/**` e le migration comprese (il DB vivo è copiato ogni 10 s
         da Litestream): con la barra verde sul commit consegnato entra nella
         **fase CI** (sotto) e atterra quando la CI del commit di integrazione è verde.
-     **Fase CI** (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
+     **Quando la CI incontra il lavoro** è una regola della board a tre valori
+     (`ciPhase` nelle regole del workflow, pannello impostazioni → Workflow → «Fase CI»;
+     default `after`; i vecchi `true`/`false` valgono `before`/`off`):
+     `before` = la fase CI qui sotto (misura, poi atterra); `after` = atterra subito e la
+     CI legge main dopo (sotto, «CI dopo il land»); `off` = nessuna fase, il land è l'unico passo.
+     **Fase CI** (`ciPhase: before`)
+     (`integration-queue.ts`, colonna `ci` sopra `review`, fuori da
      «Ti aspetta»). Ogni land chiesto (Approva o «Landa» di una persona su una card
      col ramo non ancora su main, l'atterraggio automatico) mette la card in una
      coda per progetto con `tasks.land_intent` = chi l'ha deciso. La coda aspetta
@@ -532,6 +543,34 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      entra nella fase. La riconsegna dopo un ok di una persona si confronta con il commit
      approvato sui SOLI cambiamenti propri della card (`ownChangesBetween`, ciascuno
      contro la sua base): ciò che main ha ricevuto nel frattempo non la rimanda alla persona.
+     **CI dopo il land** (`ciPhase: after`, il default). In locale si unisce subito: il land
+     è quello di sempre, senza coda e senza aspettare i turni aperti, e la modifica è su main
+     (e nell'app) appena è approvata. Quando main ha CONFERMATO il merge la card porta un segno
+     (`tasks.ci_after`, che sopravvive a un riavvio: la spazzata rimette in coda chi lo ha ancora)
+     e una seconda coda per progetto (`services/integration-queue.ts` con `landed`) la misura con
+     la stessa macchina della fase CI: commit di integrazione su `origin/main`, ramo
+     `topics/integrazione-<sha8>`, PR in bozza, righe `github-ci:*` della board. Se la card è già
+     dentro `origin/main` (il land ha spinto) il commit di integrazione è un commit vuoto sopra
+     main: si misura main com'è. Verde → nota sulla card e fine. Rosso → la card esce da `done`,
+     torna in `todo` con il log e l'avviso «il tuo lavoro è già su main, correggi in avanti con
+     un commit nuovo» (`red-bounce.ts`, stesso tetto di 3 giri senza una parola umana; la decisione
+     di landare resta, e la consegna corretta atterra da sola), poi `human_ask` che offre anche il
+     `git revert -m 1`. Un rosso su più card atterrate insieme va a tutte, ciascuna con l'elenco delle
+     altre: sono già dentro lo stesso commit, il lotto non si dimezza. Main non si ripristina mai da solo:
+     si ripara in avanti. Un land chiesto con «Landa e pubblica» o trascinando in Done non passa dalla
+     misura: il push fa girare la CI di main, e a guardarla è il controllo di main (sotto).
+     **Nessuno aspetta la CI dopo il land**: l'agente consegna e chiude il turno, e una sessione
+     che ha verificato e unito si chiude subito. Il rosso lo raccoglie il flusso: torna alla
+     card che ha atterrato quel commit (`bounceAfterLand`), oppure, se il commit è su main senza una
+     card (spinto da una chat o a mano, «Landa e pubblica», trascinamento in Done), diventa una card.
+     **Controllo di main** (`services/main-ci-watch.ts`, agganciato alla spazzata di `sweepAutoLand`, nessun
+     poller): per ogni progetto con righe `github-ci:*` e la CI non spenta guarda il commit più recente di
+     `origin/main` che ha un esito della CI del PUSH. Verde → niente. In corso → richiede alla spazzata dopo.
+     Rosso → se una card della regola `after` (segno `tasks.ci_after`, non chiuso come verde) ha quel
+     commit tra i suoi, non si fa niente: lo dice la sua misura. Altrimenti UNA card in `todo`
+     «CI rossa su main dopo <sha8>: riparare», con sha, job rossi e link al run, idempotente per sha
+     (`tasks.claude_task_id` = `main-ci-red:<progetto>:<sha>`, anche se la card è poi archiviata), che il
+     dispatcher prende come le altre; si ripara in avanti.
      **Il rosso torna all'agente da solo** anche fuori dalla fase CI: una card in
      review con la barra rossa sul commit consegnato (tipicamente una consegna
      dal nodo, misurata dopo l'ingresso in review) viene rimandata dalla spazzata
@@ -542,8 +581,7 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      credenziali e il modello di un topic è una stringa libera, quindi chiunque può
      scriverlo. Una revisione AI potrà sbloccare un posto di una persona solo con
      un'identità che il server verifica (non con un commento), e quando esisterà
-     sarà una change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
-     qualunque cosa consegni.
+     sarà una change a parte.
   - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
      L'etichetta la deriva dai percorsi, e un testo che una persona legge può
      stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai

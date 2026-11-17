@@ -6,7 +6,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, deliveryNotesInFlight, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
-import { AGENT_WAIT_STREAK_CAP } from "../../shared/agent-wait-cap";
+import { AGENT_WAIT_WINDOW_MINUTES } from "../../shared/agent-wait-cap";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
@@ -1657,7 +1657,7 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(finale.dispatchState).not.toBe("failed");
   });
 
-  test("la serie è per RAGIONE: una condizione diversa la fa ricominciare da uno", () => {
+  test("il conteggio è per RAGIONE, l'orologio no: una condizione diversa riparte da uno ma tiene `waitSince`", () => {
     const t = s.create({ projectId: PID, text: "aspetta", status: "todo" });
     attende(t.id, "la CI sta girando"); passa(16);
     const due = attende(t.id, "  LA CI   STA GIRANDO "); // stessa cosa, riscritta a mano
@@ -1666,8 +1666,10 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     passa(16);
 
     const altra = attende(t.id, "aspetto la risposta di Attilio");
-    expect(altra.waitStreak).toBe(1);                    // altra condizione, altra serie
-    expect(altra.waitSince).not.toBe(inizioSerie);
+    expect(altra.waitStreak).toBe(1);                    // other condition, count restarts
+    // ...but the clock keeps running: rewording must not reset the time cap
+    // (card 60c4b56a, five rewritten waits in three days, never stopped).
+    expect(altra.waitSince).toBe(inizioSerie);
   });
 
   test("alla soglia il task si ferma, ma col chip `waited_out` e senza la parola «fallito»", () => {
@@ -1697,22 +1699,24 @@ describe("attesa dichiarata: rimborso del tentativo e contatore separato", () =>
     expect(s.get(t.id)!.comments.map((c) => c.content).join("\n")).toContain("la decisione torna a te");
   });
 
-  test("il rimando dell'AGENTE si ferma al secondo: la card chiede invece di aprire un altro turno", () => {
+  test("repeated AGENT waits stay in todo and the window grows: 15 min, 1 h, 6 h, 24 h", () => {
     const t = s.create({ projectId: PID, text: "aspetta la CI", status: "todo" });
     const prima = s.deferForWait({ taskId: t.id, reason: "la CI sta girando", minutes: 15, by: "claude" }); // no `source`: the agent
-    expect(AGENT_WAIT_STREAK_CAP).toBe(1);
     expect(prima.status).toBe("todo");
     expect(prima.dispatchState).toBe("waiting");
-    passa(16);
-
-    const second = attende(t.id, "la CI sta girando", 15, "agent");
-    expect(second.status).toBe("backlog");
-    expect(second.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(second.dispatchDeferredUntil).toBeNull();  // no restart on its own: no third turn
-    expect(second.dispatchAttempts).toBe(0);
-    expect(second.waitStreak).toBe(2);
-    expect(second.dispatchError ?? "").toContain("2 attese di fila");
-    expect(second.dispatchError ?? "").toContain("la decisione torna a te");
+    const windows: number[] = [];
+    let cur = prima;
+    for (let i = 2; i <= 6; i++) {
+      windows.push(Math.round((Date.parse(cur.dispatchDeferredUntil!) - clock.t) / 60_000));
+      passa(AGENT_WAIT_WINDOW_MINUTES[Math.min(i - 2, 3)]! + 1);
+      cur = attende(t.id, "la CI sta girando", 15, "agent");
+      expect(cur.status).toBe("todo");
+      expect(cur.dispatchState).toBe("waiting");
+      expect(cur.dispatchDeferredUntil).not.toBeNull();
+      expect(cur.dispatchAttempts).toBe(0);
+      expect(cur.waitStreak).toBe(i);
+    }
+    expect(windows).toEqual([15, 60, 360, 1440, 1440]);
   });
 
   test("il tetto dell'agente è per ragione: una condizione NUOVA è un primo rimando", () => {
@@ -2269,7 +2273,7 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          delivery_commit = 'abc1234', landing_state = 'landed', landing_checked_at = ?,
          checks_state = 'green', checks_at = ?, checks_commit = 'abc1234', checks_json = ?,
          delivered_by = 'claude', delivered_reason = 'finito', dispatch_weight = 'heavy',
-         created_source = 'session:s1', origin_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine', overflow_skip_machine = 'pc-1', overflow_skip_until = '2999-01-01T00:00:00.000Z', scheduled_by = 'Jarvis', scheduled_at = '2999-01-01T09:00:00.000Z',
+         created_source = 'session:s1', origin_topic_id = 'top-1', channel_topic_id = 'top-1', bar = 'bun test', created_missing = 'bar', stay_local_until = '2999-01-01T00:00:00.000Z', wait_source = 'machine', overflow_skip_machine = 'pc-1', overflow_skip_until = '2999-01-01T00:00:00.000Z', scheduled_by = 'Jarvis', scheduled_at = '2999-01-01T09:00:00.000Z',
          created_by_topic_id = 'top-1', plan_comment_id = 'id-9', done_actor = 'human',
          reopened_at = ?, reopened_by = 'il-reviewer', reopened_actor = 'human',
          landing_witnessed = 1, wait_streak = 2, wait_reason = 'aspetto il gate',
@@ -2342,7 +2346,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261113140000: the run this card last created on a paired node.
          node_run_id = 'run-abc',
          -- 20261114010000: the decision to land, who took it and on which commit.
-         land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234'
+         land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234',
+         -- 20261116120000: the landed card whose CI is still to be read (and how it ended).
+         ci_after = '{"commit":"abc1234","who":"human","repo":null,"at":"2020-01-01T00:00:00.000Z"}'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

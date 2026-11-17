@@ -1,6 +1,5 @@
 import { memo, useState, type MouseEvent } from 'react';
 import { AlarmClock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
-import { StatusIcon } from '../Board/atoms';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -11,9 +10,13 @@ import { useLiveWork, visibleRows } from '../../state/liveWork';
 import { CHAT_STRIP_NEUTRAL } from '../../lib/chatStripStyles';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
+import { WorkMeter } from '../Board/WorkMeter';
 import { DisclosureBody } from './DisclosureBody';
 import { ProcessTail } from './LiveShellTail';
 import { useDisclosureToggle } from './transcriptDisclosure';
+import { SparkLoader } from '../Layout/StreamingIndicator';
+import { loaderActivityForAction } from '../Layout/loaderState';
+import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -84,6 +87,9 @@ const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5
 function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
   const { id, name, state } = row;
+  // A native child's id is its chat, a CLI child's its terminal: the loader plays what it is doing.
+  const chatAction = useTopicAction(row.runtime === 'topics' ? id : undefined);
+  const terminalAction = useTerminalAction(row.runtime === 'cli' ? id : undefined);
   const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
     : tr('subagent.ended', { name });
@@ -101,12 +107,13 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
-          ? <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />
+          ? <SparkLoader size={12} activity={loaderActivityForAction(chatAction ?? terminalAction) ?? 'think'} className="flex-shrink-0" />
           : state === 'waiting'
             ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
+        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} weight={row.weight} className="ml-auto" />}
       </button>
       {state === 'ended' && (
         <button
