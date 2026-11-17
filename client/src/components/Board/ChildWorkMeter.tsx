@@ -9,5 +9,5 @@ import { WorkMeter } from './WorkMeter';
 export function ChildWorkMeter({ id, className = '' }: { id: string; className?: string }) {
   const child = useChildRow(id);
   if (!child) return null;
-  return <WorkMeter startedAt={child.startedAt} estimateMs={child.estimateMs} weight={child.weight} className={className} />;
+  return <WorkMeter startedAt={child.startedAt} estimateMs={child.estimateMs} estimateHistoryMs={child.estimateHistoryMs} weight={child.weight} className={className} />;
 }

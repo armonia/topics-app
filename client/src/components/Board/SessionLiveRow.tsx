@@ -14,7 +14,8 @@
  * and the button that jumped to the other pane has nowhere left to jump.
  */
 import { useEffect, useState } from 'react';
-import { StatusIcon } from './atoms';
+import { TaskActionLoader } from '../Layout/StreamingIndicator';
+import type { LoaderActivity } from '../Layout/squareLoader';
 import { TurnLoader } from '../Chat/TurnLoader';
 import { useT } from '../../hooks/useT';
 import { fmtLive } from './format';
@@ -31,19 +32,23 @@ export function Ticker({ since }: { since: string }) {
   return <>{Number.isFinite(ms) && ms > 0 ? fmtLive(ms) : '0s'}</>;
 }
 
-export function SessionLiveRow({ phase, since, tool }: {
+export function SessionLiveRow({ phase, since, tool, taskId, activity }: {
   /** Already-translated dispatch phase ("queued...", "starting agent...", ...). */
   phase: string;
   /** Start of the current run, when it is actually running: drives the ticker. */
   since?: string | null;
   /** Short label of the tool running now, when known. */
   tool?: string | null;
+  /** The card whose agent this row speaks for: the loader plays what that agent is doing. */
+  taskId?: string;
+  /** Overrides the task's action (previews); without either the loader thinks. */
+  activity?: LoaderActivity;
 }) {
   const tr = useT();
   return (
     <TurnLoader
       testId="task-session-live"
-      icon={<StatusIcon status="in_progress" live className="h-3 w-3 shrink-0" />}
+      icon={<TaskActionLoader taskId={taskId} activity={activity} size={12} className="shrink-0" />}
       phrase={phase}
       phraseClassName="turn-activity-phrase font-medium"
       tool={tool}

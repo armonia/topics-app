@@ -664,6 +664,7 @@ export const MessageBubble = memo(function MessageBubble({
               <TurnActivityIndicator
                 since={Date.parse(msg.timestamp)}
                 sessionKey={topic.sessionKey}
+                topicId={topic.id}
                 onMessage={onMessage}
                 awaitingInput={awaitingInput}
                 promptTokens={msg.usagePromptTokens}

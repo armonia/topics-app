@@ -13,12 +13,13 @@
  * Le RIGHE del pannello stanno un gradino piu' sotto, in `BoardSettingsSections.tsx`:
  * questo file tiene la struttura e le sezioni, non i singoli interruttori.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Laptop, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
-import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
+import { MAX_CHECKS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
+import { CiPhaseControl } from './CiPhaseControl';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
@@ -251,12 +252,11 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
       )}
       </SettingsSection>
 
-      {/* THE COLUMNS OF THIS BOARD (`shared/workflow.ts`): a preset, not an
-          editor. Two rows because there are two levels: this board, which may
-          inherit, and the default for every board. The project wins. */}
+      {/* THE WORKFLOW RULES OF THIS BOARD (`shared/workflow.ts`): the CI phase
+          and the paths a person must look at. The columns are not a choice. */}
       {workflow && onWorkflowChanged && (
         <SettingsSection label={tr('board.settings.sec.workflow')}>
-          <WorkflowPicker projectId={projectId} workflow={workflow} onChanged={onWorkflowChanged} onError={onError} />
+          <WorkflowSettings projectId={projectId} workflow={workflow} onChanged={onWorkflowChanged} onError={onError} />
         </SettingsSection>
       )}
 
@@ -363,59 +363,20 @@ function DeployCommandField({ value, suggestion, onSave }: {
  * riquadro dentro un riquadro renderebbe ogni gruppo un oggetto a sé.
  */
 /**
- * Which columns the board shows. «Inherit» is a choice of its own (no row for
- * this board: it follows the global default), and the global default is a
- * second row, because «the same workflow on every project» is the common case
- * and should not be set board by board.
+ * The board's workflow rules. There is one set of columns (the standard five
+ * plus CI), so there is nothing to pick: only the rules beside them.
  */
-function WorkflowPicker({ projectId, workflow, onChanged, onError }: {
+function WorkflowSettings({ projectId, workflow, onChanged, onError }: {
   projectId: string;
   workflow: BoardWorkflowView;
   onChanged: (w: BoardWorkflowView) => void;
   onError: (e: string) => void;
 }) {
-  const tr = useT();
-  const [globalPreset, setGlobalPreset] = useState<WorkflowPresetId | null>(workflow.source === 'global' ? workflow.preset : null);
-  useEffect(() => {
-    let alive = true;
-    boardApi.getWorkflow('*').then((g) => { if (alive) setGlobalPreset(g.own); }).catch(() => { /* the row just stays unknown */ });
-    return () => { alive = false; };
-  }, []);
-  const save = async (scope: string, preset: WorkflowPresetId | null) => {
-    try {
-      const saved = await boardApi.setWorkflow(scope, preset);
-      if (scope === '*') { setGlobalPreset(saved.own); onChanged(await boardApi.getWorkflow(projectId)); }
-      else onChanged(saved);
-    } catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
-  };
   const chip = (on: boolean) => `rounded px-1.5 py-0.5 ${on ? 'bg-emerald-500/80 text-white' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'}`;
-  const presetLabel = (p: WorkflowPresetId) => tr(`board.settings.workflow.preset.${p}`);
+  if (!workflow.rules) return null;
   return (
-    <div className="space-y-2" data-testid="board-workflow-picker">
-      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.hereTitle')}>
-        <span>{tr('board.settings.workflow.here')}</span>
-        <div className="flex flex-wrap justify-end gap-0.5">
-          <button type="button" data-testid="board-workflow-inherit" onClick={() => save(projectId, null)} className={chip(workflow.own === null)}>
-            {tr('board.settings.workflow.inherit', { preset: presetLabel(globalPreset ?? 'default') })}
-          </button>
-          {WORKFLOW_PRESET_IDS.map((p) => (
-            <button key={p} type="button" data-testid={`board-workflow-${p}`} onClick={() => save(projectId, p)} className={chip(workflow.own === p)}>
-              {presetLabel(p)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.globalTitle')}>
-        <span>{tr('board.settings.workflow.global')}</span>
-        <div className="flex gap-0.5">
-          {WORKFLOW_PRESET_IDS.map((p) => (
-            <button key={p} type="button" data-testid={`board-workflow-global-${p}`} onClick={() => save('*', p === 'default' ? null : p)} className={chip((globalPreset ?? 'default') === p)}>
-              {presetLabel(p)}
-            </button>
-          ))}
-        </div>
-      </div>
-      {workflow.rules && <WorkflowRulesEditor projectId={projectId} workflow={workflow} onChanged={onChanged} onError={onError} chip={chip} />}
+    <div className="space-y-2" data-testid="board-workflow-rules">
+      <WorkflowRulesEditor projectId={projectId} workflow={workflow} onChanged={onChanged} onError={onError} chip={chip} />
     </div>
   );
 }
@@ -438,7 +399,7 @@ function WorkflowRulesEditor({ projectId, workflow, onChanged, onError, chip }: 
   const saved = personPathsToText(own);
   const [draft, setDraft] = useState<string | null>(null);
   const text = draft ?? saved;
-  const ciOn = workflow.rules?.ciPhase ?? true;
+  const ciMode = workflow.rules?.ciPhase ?? 'after';
   const write = async (patch: Parameters<typeof boardApi.setWorkflowRules>[1]) => {
     try { onChanged(await boardApi.setWorkflowRules(projectId, patch)); setDraft(null); }
     catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
@@ -449,13 +410,7 @@ function WorkflowRulesEditor({ projectId, workflow, onChanged, onError, chip }: 
   };
   return (
     <>
-      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.ciTitle')}>
-        <span>{tr('board.settings.workflow.ci')}</span>
-        <div className="flex gap-0.5">
-          <button type="button" data-testid="board-workflow-ci-on" onClick={() => write({ ciPhase: true })} className={chip(ciOn)}>{tr('board.settings.workflow.ciOn')}</button>
-          <button type="button" data-testid="board-workflow-ci-off" onClick={() => write({ ciPhase: false })} className={chip(!ciOn)}>{tr('board.settings.workflow.ciOff')}</button>
-        </div>
-      </div>
+      <CiPhaseControl mode={ciMode} onPick={(ciPhase) => write({ ciPhase })} chip={chip} />
       <label className="block" title={tr('board.settings.workflow.pathsTitle')}>
         <span>{tr('board.settings.workflow.paths')} <span className="text-app-text-muted">{tr('board.settings.workflow.pathsHint')}</span></span>
       </label>

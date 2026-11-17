@@ -59,6 +59,7 @@ function sources(over: Partial<AttentionBootSources> = {}): AttentionBootSources
     getTopicById: ctx.getTopicById,
     cliHasWork: () => false,
     commandOwesWake: () => false,
+    subagentOwesWake: () => false,
     dispatchedSubjects: () => [],
     decode: decodeCol,
     ...over,
@@ -195,8 +196,8 @@ describe("review parity: Kanban, tab, tray, attention and Plan count the same ca
     card("parentD", "p2", "backlog");
     card("d1", "p2", "in_progress", { parent: "parentD" });
     card("d1a", "p2", "review", { parent: "d1" });
-    // Not a person's: AI review, and an archived step.
-    card("rootE", "p2", "review", { stage: "ai_review" });
+    // Not a person's: the CI column, and an archived step.
+    card("rootE", "p2", "review", { stage: "ci" });
     card("b4", "p1", "review", { parent: "parentB", archived: true });
     return db;
   }
@@ -239,5 +240,38 @@ describe("review parity: Kanban, tab, tray, attention and Plan count the same ca
     expect(perProject).toEqual([3, 2]);
     expect(perProject[0]! + perProject[1]!).toBe(boardAttention(rows, feed, null).count);
     expect(["p1", "p2"].map((p) => boardTabCounts(feed, p).find((c) => c.status === "review")?.n ?? 0)).toEqual([3, 2]);
+  });
+});
+
+describe("a restart while a chat waits on its sub-agents (BGVIS-10)", () => {
+  const child = (at: string) => ({ subagent: { kind: "subagent", label: "spawn_agent", startedAt: at } });
+
+  test("the child still runs: the chat stays at work, no epoch, no error", () => {
+    const t = topic("kid-alive");
+    const subject = `topic:${t.id}`;
+    turnStarted(subject);
+    turnEnded(subject, { turnId: "m1", outcome: "done", background: child(new Date().toISOString()) });
+    const before = getAttention(subject);
+    expect(before.state).toBe("working");
+
+    restart();
+    recomposeAttentionOnBoot(attentionBootReader(sources({ subagentOwesWake: (sk) => sk === t.sessionKey })));
+    const after = getAttention(subject);
+    expect({ state: after.state, epoch: after.epoch, background: after.background.map((x) => x.kind) })
+      .toEqual({ state: "working", epoch: before.epoch, background: ["subagent"] });
+  });
+
+  test("the child ended while the server was down: nothing hangs, and no red «process ended»", () => {
+    const t = topic("kid-gone");
+    const subject = `topic:${t.id}`;
+    turnStarted(subject);
+    turnEnded(subject, { turnId: "m1", outcome: "done", background: child(new Date().toISOString()) });
+
+    restart();
+    recomposeAttentionOnBoot(attentionBootReader(sources()));
+    const after = getAttention(subject);
+    expect(after.background).toEqual([]);
+    expect(after.outcome).not.toBe("error");
+    expect(after.state).not.toBe("working");
   });
 });

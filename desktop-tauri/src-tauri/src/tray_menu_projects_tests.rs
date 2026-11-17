@@ -109,7 +109,7 @@ fn names_are_readable_and_a_dead_project_is_never_listed_whatever_it_carries() {
     assert!(t.contains("Busy one |") && !t.contains("busy-slug |"), "the slug is not a name: {t}");
     assert!(!t.contains("Prince of Persia"), "a dead project with a budget of 3% is not listed: {t}");
     assert!(!t.contains("Ghost"), "a dead project with no setting is not listed: {t}");
-    assert!(t.contains("1 lavori in corso in 1 su 3") || t.contains("2 lavori in corso in 1 su 3"), "the count is of the listed ones: {t}");
+    assert!(t.contains("2 lavori in corso in 1 progetto su 3"), "the count is of the listed ones: {t}");
     // a priority does not bring a dead one back either
     let by_priority = live().replace(r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"normale""#, r#""name":"ghost","title":"Ghost","dead":true,"claude":0,"codex":0,"muse":0,"total":0,"state":"fermo","priority":"alta""#);
     assert!(by_priority.contains(r#""priority":"alta""#) && !dump_text(&project_table(&Some(by_priority), &None, NOW, 3600)).contains("Ghost"));

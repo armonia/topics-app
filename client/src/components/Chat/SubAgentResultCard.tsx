@@ -16,7 +16,9 @@ import { STATUS_ICON as TONE_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
 import type { SubagentResultCard, ToolCallDetail } from '../../types';
 import type { SubagentResultBlock } from './machineRow';
+import { buildToolDisplayLabel } from './toolDetail';
 import { foregroundSpawnResult, reasonText, spawnCardState, spawnRefusal, useSubagentResult, type SpawnCardState } from './subagentResult';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 const STATUS_ICON: Record<SubagentResultCard['status'], { icon: ComponentType<{ size?: number; className?: string }>; tone: string }> = {
   completed: { icon: CircleCheck, tone: STATUS_INK.ok },
@@ -88,7 +90,7 @@ export function SubAgentResultRow({ messageId, block }: { messageId?: string; bl
 }
 
 /** The live phase wears the card status glyph: the half pie, spinning. */
-const SparkIcon = () => <StatusIcon status="in_progress" live className="h-3 w-3 flex-shrink-0" />;
+const SparkIcon = () => <SparkLoader size={12} activity="tool" className="flex-shrink-0" />;
 
 const DoneIcon = () => <StatusIcon status="done" className="h-3 w-3 flex-shrink-0" />;
 
@@ -120,12 +122,17 @@ export function SpawnAgentCard({ detail, sessionKey, isRunning, isError, error }
   const state = spawnCardState({ live, result, isRunning: !!isRunning, refused: refusal !== null });
   const { icon: Icon, className } = PHASE_ICON[state];
   const name = detail.name ?? result?.name ?? detail.description ?? tr('chat.subagent.title');
+  const rowSummary = buildToolDisplayLabel(detail).summary;
   const openLabel = tr('chat.subagent.open');
   return (
     <div className="space-y-1.5" data-testid="spawn-agent-card" data-state={state} data-agent-id={detail.agentId}>
       <div className="flex min-w-0 items-center gap-1.5 text-mini">
         <Icon size={12} className={`flex-shrink-0 ${className}`} />
-        <span className="truncate font-medium text-app-text" data-testid="spawn-agent-name">{name}</span>
+        {/* The row above already says who it is: the name comes again only when
+            it is a different one (the child's own, learned from its result). */}
+        {name !== rowSummary && name !== tr('chat.subagent.title') && (
+          <span className="truncate font-medium text-app-text" data-testid="spawn-agent-name">{name}</span>
+        )}
         <span className="flex-shrink-0 text-app-text-secondary" data-testid="spawn-agent-phase">{tr(`chat.subagent.phase.${state}`)}</span>
         <span className="ml-auto" />
         <Facts agentType={detail.subAgentType} model={result?.model ?? detail.model} />

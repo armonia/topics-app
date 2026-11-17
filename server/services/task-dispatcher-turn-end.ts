@@ -438,8 +438,7 @@ export function createTurnEnd(ctx: DispatcherCtx) {
             // notification (OS banner + web-push) would never fire. Emit it here:
             // this is exactly the "task waiting for review after a timeout" case
             // that was previously silent.
-            // Only a card that waits on a PERSON rings: one routed to AI review goes
-            // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+            // Only a card that waits on a PERSON rings (`awaitsHuman`, shared/workflow.ts).
             if (awaitsHuman(delivered)) {
               try {
                 deps.broadcast({

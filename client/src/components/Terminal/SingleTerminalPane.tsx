@@ -40,6 +40,7 @@ import { TERMINAL_INPUT_DROPPED, TERMINAL_WS_CLOSE_DORMANT } from '../../../../s
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { TerminalCover } from './TerminalCover';
 import { TERMINAL_FONT_FAMILY, TERMINAL_LINE_HEIGHT, TERMINAL_PADDING_PX } from '../../lib/terminalFont';
+import { Spinner } from '../Shared/Spinner';
 
 // The toolbar keys live in ./touchKeys so the set can vary by session type:
 // Ctrl+Z freezes a Claude Code pane, so Claude sessions get Ctrl+_ instead.
@@ -1467,7 +1468,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.reloadTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              {reloading ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reloading ? t('terminal.restarting') : t('terminal.reload')}</span>
             </button>
           </div>
@@ -1487,7 +1488,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reviving ? 'animate-spin' : ''} />
+              {reviving ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reviving ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
           </div>
@@ -1551,7 +1552,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
               title={t('terminal.resumeTitle')}
               className="flex items-center gap-1.5 rounded-md bg-black/40 px-3 py-1.5 text-compact text-white transition-colors hover:bg-black/55 disabled:opacity-50"
             >
-              <RotateCw size={13} className={reloading ? 'animate-spin' : ''} />
+              {reloading ? <Spinner size={11} box={13} tone="current" /> : <RotateCw size={13} />}
               <span>{reloading ? t('terminal.restarting') : t('terminal.resume')}</span>
             </button>
           </div>
@@ -1608,7 +1609,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
         {reloading && !stale && (
           <div data-testid="terminal-reloading-overlay" className="absolute inset-0 flex items-center justify-center bg-surface/80 z-20">
             <div className="flex items-center gap-2 text-app-text-muted text-compact">
-              <RotateCw size={14} className="animate-spin" />
+              <Spinner size="sm" box={14} tone="current" />
               <span>{t('terminal.restartingSession')}</span>
             </div>
           </div>

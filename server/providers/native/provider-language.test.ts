@@ -82,8 +82,8 @@ describe("the native runtime's system prompt carries the language", () => {
   });
 
   test("the reminder follows the setting, one short line", () => {
-    expect(languageReminder("it")).toBe("<system-reminder>Rispondi in italiano.</system-reminder>");
-    expect(languageReminder("en")).toBe("<system-reminder>Answer in English.</system-reminder>");
+    expect(languageReminder("it")).toBe("<system-reminder>Rispondi e ragiona in italiano.</system-reminder>");
+    expect(languageReminder("en")).toBe("<system-reminder>Answer and think in English.</system-reminder>");
     expect(languageReminder("auto")).toContain("the language the person writes in");
   });
 

@@ -50,6 +50,8 @@ export type ToolDecision =
 export type TurnScope = {
   tempDir?: string;
   createdPaths?: ReadonlySet<string>;
+  /** The `bash` call's own cwd, to resolve a relative `rm` target against. */
+  cwd?: string;
 };
 
 /** `/tmp/topics-turn-<id>`, one per call to `runAgentTurn`. */
@@ -123,15 +125,19 @@ const TEMP_ROOT = /^(\/tmp|\/private\/tmp|\/var\/folders|\/private\/var\/folders
  * under the generic `/tmp`-style roots, under THIS turn's own temp folder, or
  * a path this turn itself created (tracked in `scope.createdPaths`).
  *
- * Relative targets (no leading `/`) never qualify: `decide` has no cwd to
- * resolve them against, and guessing one would be the widening this guard
- * exists to avoid.
+ * A relative target (no leading `/`) is resolved against `scope.cwd` — the
+ * bash call's own working directory — before the same checks run on it. A
+ * turn working from its temp folder cleans up with plain relative names
+ * (`rm -rf scratch`, not `rm -rf /tmp/topics-turn-xyz/scratch`), and that used
+ * to be rejected outright for lack of a cwd to resolve against. Without
+ * `scope.cwd` a relative target still never qualifies: guessing one would be
+ * the widening this guard exists to avoid.
  */
 function targetAllowed(target: string, scope?: TurnScope): boolean {
   if (target.includes("..")) return false;
-  if (TEMP_ROOT.test(target)) return true;
-  if (!isAbsolute(target)) return false;
-  const abs = resolve(target);
+  const abs = isAbsolute(target) ? resolve(target) : scope?.cwd ? resolve(scope.cwd, target) : null;
+  if (abs === null) return false;
+  if (TEMP_ROOT.test(abs)) return true;
   if (scope?.tempDir && insideDir(abs, scope.tempDir)) return true;
   if (scope?.createdPaths?.has(abs)) return true;
   return false;

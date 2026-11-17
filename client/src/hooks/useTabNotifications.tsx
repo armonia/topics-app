@@ -15,6 +15,7 @@ import { workLine } from '../lib/workLine';
 import { useMachinesOverview } from './useMachinesOverview';
 import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
+import { useDominantAction } from '../state/agentActionHooks';
 
 interface TabNotificationContextValue {
   /** The number on a pane's tab: `max(1, unread)` of a lit chat or terminal,
@@ -75,7 +76,7 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
     return trayBoardGroups(boardTasks, {
       lit: boardLitCards(attention, boardTasks, null).map((c) => ({ id: c.id, title: c.title, projectId: c.projectId ?? '', reason: c.reason })),
       runningSuffix: (t) => workLine(tr, {
-        estimateMs: estimates.get(t.projectId), elapsedMs: t.agentMs ?? 0, stepsDone: t.subtaskDoneCount, stepsTotal: t.subtaskCount,
+        basis: estimates.get(t.projectId), elapsedMs: t.agentMs ?? 0, stepsDone: t.subtaskDoneCount, stepsTotal: t.subtaskCount,
       }),
     });
   }, [boardTasks, attention, tr]);
@@ -115,6 +116,9 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   // Every machine Topics knows, as submenus of the tray. Only the hand that writes the tray reads them.
   const overview = useMachinesOverview(writesTheDock);
   const machinesKey = useMemo(() => JSON.stringify(trayMachines(overview?.machines ?? [], tr)), [overview, tr]);
+  // What the agents at work are doing, the latest move (steadied by the dwell
+  // rule): the tray's working glyph will draw it. Absent when nothing works.
+  const action = useDominantAction();
   useEffect(() => {
     if (!writesTheDock || !attentionReady) return;
     void tauriInvoke('set_app_status', {
@@ -123,8 +127,9 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
       groups: boardGroups,
       machines: JSON.parse(machinesKey),
       agents: JSON.parse(agentStatesKey),
+      ...(action ? { action } : {}),
     }).catch(() => {});
-  }, [writesTheDock, attentionReady, chromeCount, attentionItems, boardGroups, machinesKey, agentStatesKey]);
+  }, [writesTheDock, attentionReady, chromeCount, attentionItems, boardGroups, machinesKey, agentStatesKey, action]);
 
   // PWA / browser app badge (the Badging API, navigator.setAppBadge): the same
   // number. Not under Tauri, where the shell's dock badge is the one writer.

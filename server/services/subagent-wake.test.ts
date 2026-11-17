@@ -43,6 +43,28 @@ function harness(over: Partial<SubagentWakeDeps> & { answers?: number[] } = {}) 
 }
 
 describe("subagent wake", () => {
+  // The archive of a chat is judged against the launch each result answers: A
+  // spawned before the person archived the chat stays a row, B spawned after wakes it.
+  test("canWake is asked per child, and only the children it refuses become rows", async () => {
+    const asked: string[] = [];
+    const h = harness({
+      canWake: (_sk, launch) => {
+        const id = launch && "subagentId" in launch ? launch.subagentId : "?";
+        asked.push(id);
+        return id === "A" ? "row" : "wake";
+      },
+    });
+    h.ask(result({ agentId: "A" }));
+    h.ask(result({ agentId: "B" }));
+    await h.wake.idle();
+    expect(asked).toContain("A");
+    expect(asked).toContain("B");
+    expect(h.rows).toEqual(["A"]);
+    expect(h.posted.length).toBe(1);
+    expect(h.posted[0]!.subagentResults.map((r) => r.agentId)).toEqual(["B"]);
+    expect(h.settled.sort()).toEqual(["A:1", "B:1"]);
+  });
+
   test("an idle parent receives exactly one POST carrying the result block", async () => {
     const h = harness();
     h.ask(result());

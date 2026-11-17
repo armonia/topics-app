@@ -98,6 +98,15 @@ export async function measureIntegration(
       });
     }
     if (!measured.length) return { measured, conflicts, verdict: "empty" };
+    // Cards already inside origin/main (the `after` rule: they landed, and main was pushed) merge into
+    // nothing, so HEAD is the base itself and no pull request can carry it. An empty commit on top gives
+    // the CI a head of its own whose merge with main is main: what is measured is main as it stands.
+    const head = (await deps.git(dir, ["rev-parse", "HEAD"])).out.trim();
+    if (head === base) {
+      const when = `${Number(baseDate || 0) + cards.length + 1} +0000`;
+      const empty = await deps.git(dir, ["commit", "--allow-empty", "--quiet", "-m", "integrazione: misura di main"], { GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when });
+      if (empty.code !== 0) return unmeasured(`il commit di misura non si crea: ${empty.err.trim().slice(0, 200)}`, base);
+    }
     const sha = (await deps.git(dir, ["rev-parse", "HEAD"])).out.trim();
     branch = `${INTEGRATION_BRANCH_PREFIX}${sha.slice(0, 8)}`;
     const switched = await deps.git(dir, ["switch", "--quiet", "-C", branch]);

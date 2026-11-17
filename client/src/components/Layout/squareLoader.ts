@@ -25,8 +25,12 @@ const STRIDE = 4;
 /** Under this size a body steps at most 30 times a second. */
 const SMALL_PX = 24;
 const SMALL_FRAME_MS = 1000 / 30;
-/** A change of shape takes this long to settle (seconds). */
-const SETTLE_S = 1;
+/** A change of shape takes this long to settle (seconds); the next change waits for it. */
+export const SETTLE_S = 1;
+/** How late after its slot a frame may still count as being on it (a capped body skips frames). */
+const GRID_LAG_S = 0.05;
+/** Below this two distances (or a pixel edge) count as equal, so every platform's maths draws the same image. */
+const TIE = 1e-9;
 /** How fast a small body follows its shape: slow while changing, tight once settled. Alpha keeps the slow pace. */
 const RATE_FREE = 6.5;
 /** A small body crosses cells: step faster and a point lands on the next cell in one frame. */
@@ -252,6 +256,10 @@ export class LoaderBody {
   private mapLen = -1;
   private activity: LoaderActivity | null = null;
   private since = 0;
+  /** On the shared grid: the earliest time (shared clock, seconds) the next change of shape may start. */
+  private gate = 0;
+  /** Changes start on whole seconds of the shared clock, so loaders of one chat change in the same frame. */
+  private readonly onGrid: boolean;
   /** 0 right after a change of shape, 1 once settled. */
   private settled = 0;
   /** Last time this body stepped (seconds), for dt and the 30 fps cap. */
@@ -266,9 +274,10 @@ export class LoaderBody {
   constructor(
     readonly size: number,
     private readonly ctx: LoaderContext,
-    opts: { scale?: number; hollow?: boolean } = {},
+    opts: { scale?: number; hollow?: boolean; onGrid?: boolean } = {},
   ) {
     this.scale = opts.scale ?? 1;
+    this.onGrid = !!opts.onGrid;
     this.pixel = size <= 20;
     this.grid = this.pixel ? 7 : 9;
     this.tiny = size <= 16;
@@ -318,7 +327,9 @@ export class LoaderBody {
       free.forEach((j) => {
         const b = j * STRIDE;
         const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2 + (this.pos[b + 3] < 0.05 ? 0.5 : 0);
-        if (d < bd) { bd = d; best = j; }
+        // A tie (a symmetric shape) goes to the first square: a last-bit difference in the
+        // platform's sin/cos must not pick another one, or the tray's frames differ by machine.
+        if (d < bd - TIE) { bd = d; best = j; }
       });
       free.delete(best);
       this.mapping[best] = i;
@@ -330,15 +341,37 @@ export class LoaderBody {
       let nd = 1e9;
       raw.forEach((g, i) => {
         const d = (this.pos[b] - g[0]) ** 2 + (this.pos[b + 1] - g[1]) ** 2;
-        if (d < nd) { nd = d; near = i; }
+        if (d < nd - TIE) { nd = d; near = i; }
       });
       this.mapping[j] = -1 - near;
     });
     this.mapLen = raw.length;
   }
 
+  /** The shape the body is playing or moving towards; null before the first step. */
+  get shape(): LoaderActivity | null {
+    return this.activity;
+  }
+
   step(activity: LoaderActivity, t: number, dt: number, cache?: Map<string, Particle[]>): void {
-    if (this.activity !== activity) { this.activity = activity; this.since = t; this.mapLen = -1; }
+    // A change never cuts a change short: the next shape waits until the current one has settled.
+    // Actions can arrive every 700 ms (and a rollup of several agents faster still), the change
+    // takes SETTLE_S: cut short, each one restarted from standing and the body never reached a shape.
+    // On the grid the wait ends on a whole second of the shared clock instead of `SETTLE_S` after this
+    // body's own start: bodies born at different moments (the tab, the sidebar row, the project row)
+    // would otherwise each count from their own birth and change up to a second apart.
+    const due = this.onGrid ? t >= this.gate : t - this.since >= SETTLE_S;
+    if (this.activity !== activity && (this.activity === null || due)) {
+      // A change released by the grid (a frame or two after its slot) counts from the slot, so the next
+      // one opens on the next whole second; a change on a free body counts from now. Either way the
+      // body has a full SETTLE_S to settle before the next one, and the gate is a whole second.
+      const slot = this.activity !== null && t - this.gate < GRID_LAG_S ? this.gate : t;
+      this.gate = Math.ceil((slot + SETTLE_S) / SETTLE_S) * SETTLE_S;
+      this.activity = activity;
+      this.since = this.onGrid ? slot : t;
+      this.mapLen = -1;
+    }
+    activity = this.activity ?? activity;
     const raw = this.target(activity, t, cache);
     if (this.mapLen !== raw.length) this.assign(raw);
     const age = t - this.since;
@@ -361,9 +394,12 @@ export class LoaderBody {
 
   /** Jump straight to the shape of `activity` (the reduced-motion still frame). */
   snap(activity: LoaderActivity, t: number): void {
+    // A still frame is not a change of shape: nothing to wait for.
+    if (this.activity !== activity) { this.activity = activity; this.mapLen = -1; }
     this.step(activity, t, 0);
     // Past the ramp, or a body that has just changed shape would not move at all.
     this.since = t - SETTLE_S;
+    this.gate = -Infinity;
     this.step(activity, t, 10);
     this.settled = 1;
   }
@@ -387,7 +423,7 @@ export class LoaderBody {
       const x = W / 2 + pos[b] * R - q / 2;
       const y = W / 2 + pos[b + 1] * R - q / 2;
       c.beginPath();
-      c.roundRect(tiny ? Math.round(x) : x, tiny ? Math.round(y) : y, q, q, q * 0.28);
+      c.roundRect(tiny ? Math.round(x + TIE) : x, tiny ? Math.round(y + TIE) : y, q, q, q * 0.28);
       c.fill();
     }
     c.globalAlpha = 1;

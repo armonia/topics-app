@@ -11,11 +11,19 @@
     "Che un avviso sparisca non fa mai rosso, ma il comando lo dice: quello e il momento di",
     "riscrivere la baseline, o marcisce.",
     "03/10: accettato http-cache-semantics GHSA-ch52-4w7c-c8xp (landing, via astro). Nessuna versione corretta esiste (<= 4.2.0, senza patch). Il sito e' una build statica: astro lo usa solo in build/dev, mai come cache condivisa fra utenti, che e' la condizione dell'avviso. Si toglie appena esce la patch.",
-    "06/11: minimatch GHSA-g3hv-75wg-m249 era gia' accettato; npm ha solo cambiato l'id dell'avviso (1244012 -> 1244623). Arriva da typescript-eslint (solo lint): nemmeno typescript-eslint 8.72.1 esce dal range vulnerabile (chiede ^10.2.2, la patch e' 11.0.1)."
+    "06/11: minimatch GHSA-g3hv-75wg-m249 era gia' accettato; npm ha solo cambiato l'id dell'avviso (1244012 -> 1244623). Arriva da typescript-eslint (solo lint): nemmeno typescript-eslint 8.72.1 esce dal range vulnerabile (chiede ^10.2.2, la patch e' 11.0.1).",
+    "17/11: accettato picomatch GHSA-fc5q-39xc-vjpf (radice, client, landing). Nessuna versione corretta esiste (<= 4.0.7, first_patched_version null). Arriva solo da tooling di build e lint (knip, tinyglobby, vite, astro, anymatch): nessun pattern glob viene da input di un utente, condizione dell'avviso. Si toglie appena esce la 4.0.8."
   ],
-  "updated": "2026-11-06",
+  "updated": "2026-11-17",
   "advisories": {
     ".": [
+      {
+        "package": "picomatch",
+        "id": 1247710,
+        "severity": "high",
+        "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+        "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+      },
       {
         "package": "smol-toml",
         "id": 1241205,
@@ -40,6 +48,13 @@
         "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
       },
       {
+        "package": "picomatch",
+        "id": 1247710,
+        "severity": "high",
+        "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+        "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+      },
+      {
         "package": "source-map-js",
         "id": 1241209,
         "severity": "high",
@@ -48,6 +63,13 @@
       }
     ],
     "landing": [
+      {
+        "package": "picomatch",
+        "id": 1247710,
+        "severity": "high",
+        "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+        "url": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+      },
       {
         "package": "sharp",
         "id": 1241331,

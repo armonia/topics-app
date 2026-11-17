@@ -135,15 +135,72 @@ at work, so the amber chip and the sky blue are on screen.
 - **WHEN** the Board, the plan view or the Agents pane is captured in light or dark
 - **THEN** the capture matches its reference screenshot
 
-### Requirement: STATUS-VISUAL-01j — A card state is one glyph family, animated when live
+### Requirement: STATUS-VISUAL-01j — A card at work draws the square loader; a card state is a still glyph
 
-The card surfaces (live effort chip, plan tile activity, session live row, background work
-line, sub-agent card and strip) SHALL draw their state with `StatusIcon`, whose `live`
-variant spins the in_progress half pie under `motion-safe` at one turn per 1.44 s in 12
-steps, and which adds `failed` (red ring with a cross). They SHALL NOT use `SparkLoader`.
-Each glyph carries `data-testid="status-glyph"` and `data-status`.
+The card surfaces (live effort chip, plan tile activity and plan card, session live row,
+background work line, sub-agent card and strip, chat task card, agent rows of the sidebar
+and of the Agents pane) SHALL draw an agent at work with `SparkLoader`, the one status
+icon of Topics, in the box of the glyph it replaces. `StatusIcon` stays for the still
+categories (backlog, todo, review, done, failed: red ring with a cross) and SHALL NOT
+spin. Each `StatusIcon` carries `data-testid="status-glyph"` and `data-status`.
 
-#### Scenario: the four-dot spinner comes back on a card
+#### Scenario: a spinning half pie comes back on a card
 - **GIVEN** one of the card surfaces
-- **WHEN** it imports `SparkLoader`
+- **WHEN** it draws work in progress with a `live` or spinning `StatusIcon`
 - **THEN** the unit test fails
+
+### Requirement: STATUS-VISUAL-01k — The working loader plays what the agent is doing
+
+Every surface that says an agent is working (chat tab and sidebar row, project
+folder, terminal tab, the card surfaces of STATUS-VISUAL-01j that know their
+task, the tray payload) SHALL know WHICH action the agent is doing, as one
+`AgentAction` of `shared/agent-action.ts` (think, write, read, edit, run, web,
+browse, delegate, tool, wait, error), and pass it to the loader. The action
+SHALL become a loader shape through ONE map, `loaderActivityForAction` in
+`loaderState.ts`, and it is final: think→think, write→write, read→search,
+web→search, edit→write, run→tool, browse→tool, delegate→tool, tool→tool,
+wait→wait, error→error. A loader whose surface knows no subject plays `think`.
+The server SHALL classify each turn's stream frames once and send every window
+a global `stream:action` frame (`topicId`, `sessionKey`, `action`) only when
+that turn's action changes, because the finer stream frames reach only the
+windows holding the chat; the client SHALL take a chat's action from
+`stream:action` alone and clear it at `stream:end`. `stream:start` says nothing
+about the action, so a hook phase keeps speaking until the first action. Tool names SHALL be classified by the one pure `classifyToolAction`,
+MCP prefixes and provider spellings included. A shown action SHALL stay at
+least 700 ms, the latest input winning when that time is up, and the store
+SHALL change only when the shown action changes. A project folder SHALL show
+`wait` when a child waits for the person, else the child that changed action
+most recently.
+
+#### Scenario: a turn runs three tools in a few milliseconds
+- **GIVEN** a chat showing `read`
+- **WHEN** an `edit` and a `run` arrive within 700 ms
+- **THEN** the loader keeps `read` until 700 ms have passed, then shows `run`
+
+#### Scenario: a reply streams text
+- **GIVEN** a chat streaming its answer
+- **WHEN** fifty content chunks arrive
+- **THEN** the action store is written once
+
+### Requirement: STATUS-VISUAL-01l — The tray plays the loader of the dominant action
+
+The working glyph of the menu-bar strip SHALL be the square loader in the shape
+of the dominant action the client sends with `set_app_status` (`think` when it
+sends none), through the same map as STATUS-VISUAL-01k. Its frames SHALL come
+from the engine itself: `scripts/gen-tray-loader-frames.ts` runs `LoaderBody`
+at the size of the tray glyph and writes the squares of one natural cycle per
+shape, at most 24 frames of 120 ms, into `tray_loader_frames.rs`, and a test
+regenerates the file and fails when it differs. The waiting glyph SHALL be the
+loader's `wait` shape at its reduced-motion still, in amber; review and stopped
+keep their still glyphs. On macOS a frame step SHALL only swap the contents of
+the overlay layer, never rebuild the strip image.
+
+#### Scenario: an agent edits a file
+- **GIVEN** an agent at work whose dominant action is `edit`
+- **WHEN** the tray animation ticks
+- **THEN** the overlay steps through the frames of the `write` shape and loops
+
+#### Scenario: somebody tunes a loader shape
+- **GIVEN** a change to a shape in `squareLoader.ts`
+- **WHEN** the tray frames are not regenerated
+- **THEN** the generator test fails

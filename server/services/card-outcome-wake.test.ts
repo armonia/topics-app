@@ -39,6 +39,36 @@ describe("cardOutcome", () => {
 });
 
 describe("card outcome wake", () => {
+  test("canWake is asked with the card it answers, again when the batch goes out", async () => {
+    const asked: string[] = [];
+    const posted: string[] = [];
+    // Both cards pass the check at observation; by the time the debounce ends the
+    // person has archived the chat after the first card's launch.
+    let refuseOld = false;
+    const wake = createCardOutcomeWake({
+      pollMs: 5, debounceMs: 30, isBusy: () => false,
+      sessionKeyOfTopic: (id) => `session:${id}`,
+      canWake: (_sk, launch) => {
+        const id = launch && "taskId" in launch ? launch.taskId : "?";
+        asked.push(id);
+        return refuseOld && id === "card-old" ? "row" : "wake";
+      },
+      route: async (req) => {
+        posted.push(((await req.json()) as { messages: Array<{ content: string }> }).messages[0]!.content);
+        return new Response("data: [DONE]\n\n");
+      },
+    });
+    wake.observe(frame({ id: "card-old", status: "review" }));
+    wake.observe(frame({ id: "card-new", status: "review" }));
+    refuseOld = true;
+    await wake.idle();
+    expect(asked).toContain("card-old");
+    expect(asked).toContain("card-new");
+    expect(posted.length).toBe(1);
+    expect(posted[0]).toContain("card-new");
+    expect(posted[0]).not.toContain("card-old");
+  });
+
   test("a card taken to review wakes its opener chat with ONE message", async () => {
     const h = harness();
     h.wake.observe(frame());
@@ -103,17 +133,12 @@ describe("card outcome wake", () => {
     expect(h.posted[0]!.content).toContain('status="failed"');
   });
 
-  test("a chat that cannot take a turn is left alone, and an AI-review card is told elsewhere", async () => {
+  test("a chat that cannot take a turn is left alone", async () => {
     const gone = harness({ verdict: "row" });
     gone.wake.observe(frame());
     gone.wake.observe(frame({ status: "review" }));
     await gone.wake.idle();
     expect(gone.posted.length).toBe(0);
-    const ai = harness();
-    ai.wake.observe(frame());
-    ai.wake.observe(frame({ status: "review", stage: "ai_review" }));
-    await ai.wake.idle();
-    expect(ai.posted.length).toBe(0);
   });
 });
 

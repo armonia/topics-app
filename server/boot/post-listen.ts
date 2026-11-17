@@ -4,6 +4,7 @@
 import { refreshPlannerStats } from "../db";
 import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
+import { startMachineHealth } from "./machine-health";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
 import type { AfterRelay } from "./scope";
@@ -153,4 +154,6 @@ export function bootPostListen(scope: AfterRelay) {
     setInterval(runPlannerStats, 24 * 60 * 60_000).unref?.();
   }, 60_000).unref?.();
 
+  // Machines' health for the tray: security probes, CPU and memory, cards of today.
+  startMachineHealth(ctx);
 }

@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.4.41",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "un turno di chat non promuove card che la chat ha aperto per sé (#1230)",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.40",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.29",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.27",
     "date": "2026-11-16",
     "sections": {
