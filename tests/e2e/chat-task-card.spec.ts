@@ -76,8 +76,10 @@ test("the card in the transcript and the waiting line follow the board without a
 
   expect((await patch({ status: "in_progress" })).ok()).toBe(true);
   await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
-  await expect(card.getByTestId("status-glyph")).toHaveAttribute("data-status", "in_progress");
-  await expect(card.getByTestId("status-glyph")).toHaveCount(1);
+  // At work the card draws the square loader (the one sign of an agent at work),
+  // not the still `in_progress` glyph: exactly one sign, and it is the loader.
+  await expect(card.getByTestId("status-glyph")).toHaveCount(0);
+  await expect(card.locator("canvas")).toHaveCount(1);
   await expect(line).toContainText(title);
 
   expect((await patch({ status: "review" })).ok()).toBe(true);
