@@ -42,11 +42,14 @@ export function SidebarToggleButton({
 }: SidebarToggleButtonProps) {
   const dim = size === 'action' ? ROW_ACTION_BOX : size === 'sm' ? 'w-7 h-7' : 'w-8 h-8';
   const iconSize = size === 'md' ? 16 : 14;
+  // The 'action' button stands alone in its corner, so its touch area can grow
+  // to 44x44 (`.tap-expand`) without taking a pixel from a neighbour.
+  const hitArea = size === 'action' ? 'tap-expand' : '';
 
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick(e); }}
-      className={`${dim} flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0 ${className}`} {...NO_DRAG_REGION}
+      className={`${dim} ${hitArea} flex items-center justify-center rounded hover:bg-app-hover text-app-text-secondary transition-colors app-no-drag flex-shrink-0 ${className}`} {...NO_DRAG_REGION}
       title={title}
       aria-label={title}
       data-testid={testId}
