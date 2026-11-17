@@ -392,7 +392,7 @@ unsafe fn row_title(r: &TableRow) -> id {
             }
         }
         let piece: id = msg_send![class!(NSAttributedString), alloc];
-        let piece: id = msg_send![piece, initWithString: ns(&if i == 0 { clip(&text, 34) } else { text }), attributes: attrs(font, color, para)];
+        let piece: id = msg_send![piece, initWithString: ns(&if i == 0 && !r.tabs.is_empty() { clip(&text, 34) } else { text }), attributes: attrs(font, color, para)];
         let _: () = msg_send![out, appendAttributedString: piece];
         let _: () = msg_send![piece, release];
     }
@@ -414,8 +414,21 @@ fn state_glyph(cell: &str) -> Option<(&'static str, &str)> {
     cell.strip_prefix("☾ ").map(|rest| ("sf:moon", rest))
 }
 
+/// A name that is too long loses its middle, never its end when the end is a port («Next.js :3181»): the
+/// port is what tells two dev servers apart.
 fn clip(s: &str, max: usize) -> String {
-    if s.chars().count() <= max { s.to_string() } else { format!("{}…", s.chars().take(max - 1).collect::<String>().trim_end()) }
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let tail = s.rsplit_once(' ').map(|(_, t)| t).filter(|t| t.starts_with(':') && t.chars().count() <= 6);
+    match tail {
+        Some(t) => {
+            let head = &s[..s.len() - t.len()];
+            let room = max.saturating_sub(t.chars().count() + 2);
+            format!("{}… {t}", head.chars().take(room).collect::<String>().trim_end())
+        }
+        None => format!("{}…", s.chars().take(max - 1).collect::<String>().trim_end()),
+    }
 }
 
 /// A system symbol as a coverage mask, drawn large enough to be scaled down cleanly.

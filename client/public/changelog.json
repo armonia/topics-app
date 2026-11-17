@@ -1,5 +1,114 @@
 [
   {
+    "version": "2.4.42",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Consumi per persona: mittente vero dei canali, registro d'uso esterno, «Chi ha consumato» (#1228)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello delle domande: il tetto toglie anche la barra sopra la pane e ciò che sta sotto (#1234)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ssh del nodo cloud senza marcatura DSCP: IPQoS=none",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ssh del nodo cloud con DSCP af41, scp senza marcatura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "harness-sync: anche ssh_opts usa DSCP af41",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Marcatore persistente per le chat di sistema degli agenti (system_chats)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "l'esempio della foto della tray torna a compilare (#1248)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Manifest delle migrazioni rigenerato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il testo lungo via /send arriva intero come paste (TERM-SEND-01)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/tawny-marble (card 7749cf36) (#1247)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.41",
     "date": "2026-11-17",
     "sections": {

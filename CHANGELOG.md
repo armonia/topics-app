@@ -2,6 +2,28 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.42 — 2026-11-17
+
+### Sotto il cofano
+- Consumi per persona: mittente vero dei canali, registro d'uso esterno, «Chi ha consumato» (#1228)
+- Pannello delle domande: il tetto toglie anche la barra sopra la pane e ciò che sta sotto (#1234)
+- ssh del nodo cloud senza marcatura DSCP: IPQoS=none
+- ssh del nodo cloud con DSCP af41, scp senza marcatura
+- harness-sync: anche ssh_opts usa DSCP af41
+- accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)
+- Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)
+- Marcatore persistente per le chat di sistema degli agenti (system_chats)
+- l'esempio della foto della tray torna a compilare (#1248)
+- Manifest delle migrazioni rigenerato
+- stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)
+- il testo lungo via /send arriva intero come paste (TERM-SEND-01)
+- una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
+- topics/tawny-marble (card 7749cf36) (#1247)
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
+- ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
+- il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
+
 ## 2.4.41 — 2026-11-17
 
 ### Correzioni

@@ -76,3 +76,56 @@ export function authorForSender(db: Db, sender: Sender): { authorPersonId: strin
   if (sender.owner) return { authorPersonId: actingPersonId(db, null), authorDeviceId: null };
   return { authorPersonId: personForIdentity(db, sender.channel, sender.id, sender.name), authorDeviceId: null };
 }
+
+/** Columns that name a person as the author of work: they follow the person into a merge. */
+const AUTHOR_COLUMNS = [
+  ["messages", "author_person_id"],
+  ["usage_records", "author_person_id"],
+  ["tasks", "run_initiator_person_id"],
+] as const;
+
+export type MergeOutcome =
+  | { ok: true; moved: { identities: number; messages: number; usageRecords: number; tasks: number } }
+  | { ok: false; status: 400 | 404 | 409; error: string };
+
+/**
+ * The people born from a channel and nothing else: bound identities, no device, no org, no
+ * installation, no account. Only these can be folded into someone else.
+ */
+export function channelOnlyPeople(db: Db): Set<string> {
+  const rows = db.query(`SELECT DISTINCT pi.person_id id FROM person_identities pi JOIN people p ON p.id = pi.person_id
+    WHERE p.remote_id IS NULL AND p.email IS NULL
+      AND NOT EXISTS (SELECT 1 FROM devices d WHERE d.person_id = pi.person_id)
+      AND NOT EXISTS (SELECT 1 FROM org_members o WHERE o.person_id = pi.person_id)
+      AND NOT EXISTS (SELECT 1 FROM installation_owners i WHERE i.person_id = pi.person_id)`).all() as Array<{ id: string }>;
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * Folds a person born from a channel into another one: the same human who wrote
+ * from Discord and from WhatsApp became two people, and every count split them.
+ *
+ * Only a channel-only person can be folded (`channelOnlyPeople`): anyone else carries
+ * grants, memberships and history this function does not know how to move. The row is
+ * deleted with foreign keys on, so a reference nobody listed here stops the whole merge
+ * instead of dangling.
+ */
+export function mergeChannelPerson(db: Db, fromId: string, intoId: string, now = Date.now()): MergeOutcome {
+  if (!fromId || !intoId || fromId === intoId) return { ok: false, status: 400, error: "two different people required" };
+  const exists = (id: string) => db.query("SELECT 1 FROM people WHERE id = ?").get(id) != null;
+  if (!exists(fromId) || !exists(intoId)) return { ok: false, status: 404, error: "person not found" };
+  if (!channelOnlyPeople(db).has(fromId)) {
+    return { ok: false, status: 409, error: "only a person born from a channel, with no device, organisation or account, can be merged" };
+  }
+  const moved = { identities: 0, messages: 0, usageRecords: 0, tasks: 0 };
+  const keys = { messages: "messages", usage_records: "usageRecords", tasks: "tasks" } as const;
+  db.transaction(() => {
+    moved.identities = Number(db.query("UPDATE person_identities SET person_id = ? WHERE person_id = ?").run(intoId, fromId).changes);
+    for (const [table, column] of AUTHOR_COLUMNS) {
+      moved[keys[table]] = Number(db.query(`UPDATE ${table} SET ${column} = ? WHERE ${column} = ?`).run(intoId, fromId).changes);
+    }
+    db.query("DELETE FROM people WHERE id = ?").run(fromId);
+    db.query("UPDATE people SET rev = rev + 1, updated_at = ? WHERE id = ?").run(now, intoId);
+  })();
+  return { ok: true, moved };
+}

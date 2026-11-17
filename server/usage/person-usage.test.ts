@@ -4,6 +4,7 @@
  *  (b) backfill of the senders written in the text, on a synthetic DB
  *  (c) person-usage: subagent inheritance, points split per hour, reset
  *  (d) POST /api/usage/records idempotent
+ *  (e) one human seen on two channels folded into one person; the cached list shows it at once
  * The real migration runs on the in-memory DB: the file is tested, not a copy of it.
  * @covers USAGE-27
  */
@@ -12,10 +13,11 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { authorForSender, parseSender, senderAllowed } from "../lib/person-identities";
+import { authorForSender, channelOnlyPeople, mergeChannelPerson, parseSender, senderAllowed } from "../lib/person-identities";
 import { backfillMessageSenders, lastSenderTag } from "../../scripts/backfill-message-senders";
 import { computeCalls, peopleUsage, personDetail, pointsPerHour, splitPoints, HOUR_MS, type Call } from "./person-usage";
 import { createUsageRouter, parseUsageRecord, insertUsageRecord } from "../routes/usage";
+import type { PeopleUsage } from "../../shared/person-usage";
 
 const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261117150000-person-identities.sql")).text();
 const PROJECT_MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261118100000-usage-project-path.sql")).text();
@@ -27,6 +29,8 @@ function makeDb(): Database {
     origin TEXT NOT NULL DEFAULT 'local', remote_id TEXT, rev INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, synced_at INTEGER)`);
   db.run(`CREATE TABLE installation_owners (person_id TEXT PRIMARY KEY, added_at INTEGER NOT NULL, is_default INTEGER NOT NULL DEFAULT 0)`);
   db.run(`CREATE TABLE devices (id TEXT PRIMARY KEY, person_id TEXT, revoked_at INTEGER)`);
+  db.run(`CREATE TABLE org_members (org_id TEXT NOT NULL, person_id TEXT NOT NULL REFERENCES people(id), PRIMARY KEY (org_id, person_id))`);
+  db.run(`CREATE TABLE tasks (id TEXT PRIMARY KEY, run_initiator_person_id TEXT)`);
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, session_key TEXT NOT NULL, provider TEXT, project_path TEXT)`);
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL DEFAULT '', timestamp TEXT NOT NULL,
     blocks TEXT, usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER, cache_read_tokens INTEGER, cache_creation_tokens INTEGER,
@@ -224,5 +228,82 @@ describe("(d) POST /api/usage/records", () => {
     const db = makeDb();
     expect((await post(createUsageRouter(ctxOf(db)), { ...record, sender: undefined }))!.status).toBe(400);
     expect((await post(createUsageRouter(ctxOf(db, "guest")), record))!.status).toBe(403);
+  });
+});
+
+describe("(e) merging two people", () => {
+  // foreign keys on, as in server/db.ts: a reference the merge forgot would stop the DELETE
+  const withMergeTables = (db: Database) => { db.run("PRAGMA foreign_keys = ON"); return db; };
+
+  test("the channel person folds into the other: identities, messages, records and tasks follow, the row goes", () => {
+    const db = withMergeTables(makeDb());
+    const discord = authorForSender(db, { channel: "discord", id: "10000000000000000002", name: "Dee" }).authorPersonId!;
+    const whatsapp = authorForSender(db, { channel: "whatsapp", id: "+391234500", name: "Dee" }).authorPersonId!;
+    db.run("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES ('w1', 's', 'user', 'x', '2026-11-01T00:00:00Z', ?)", [whatsapp]);
+    db.run("INSERT INTO tasks (id, run_initiator_person_id) VALUES ('t1', ?)", [whatsapp]);
+    insertUsageRecord(db, parseUsageRecord({ id: "r9", ts: 1, model: "m", purpose: "p", sender: { channel: "whatsapp", id: "391234500", name: "Dee" } }) as never);
+
+    expect(mergeChannelPerson(db, whatsapp, discord)).toEqual({ ok: true, moved: { identities: 1, messages: 1, usageRecords: 1, tasks: 1 } });
+    expect(db.query("SELECT 1 FROM people WHERE id = ?").get(whatsapp)).toBeNull();
+    // the next message from WhatsApp lands on the merged person, not on a new one
+    expect(authorForSender(db, { channel: "whatsapp", id: "391234500@s.whatsapp.net", name: "Dee" }).authorPersonId).toBe(discord);
+    expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(2);
+  });
+
+  test("refuses the owner, a person with an organisation, a missing person and a merge into itself", () => {
+    const db = withMergeTables(makeDb());
+    const a = authorForSender(db, { channel: "discord", id: "10000000000000000003", name: "A" }).authorPersonId!;
+    const b = authorForSender(db, { channel: "discord", id: "10000000000000000004", name: "B" }).authorPersonId!;
+    expect(mergeChannelPerson(db, OWNER, a)).toMatchObject({ ok: false, status: 409 });
+    db.run("INSERT INTO org_members (org_id, person_id) VALUES ('org', ?)", [b]);
+    expect(mergeChannelPerson(db, b, a)).toMatchObject({ ok: false, status: 409 });
+    expect(mergeChannelPerson(db, "missing", a)).toMatchObject({ ok: false, status: 404 });
+    expect(mergeChannelPerson(db, a, a)).toMatchObject({ ok: false, status: 400 });
+    expect(channelOnlyPeople(db)).toEqual(new Set([a]));
+  });
+
+  test("the route answers owner only, and the cached list sees the merge at once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "people-merge-"));
+    const prev = process.env.TOPICS_USAGE_HISTORY_DIR;
+    process.env.TOPICS_USAGE_HISTORY_DIR = dir;
+    try {
+      const db = withMergeTables(makeDb());
+      const ctx = (role: "owner" | "guest") => ({
+        db, json: (b: unknown, status = 200) => Response.json(b, { status }),
+        errorResponse: (s: number, m: string) => Response.json({ error: m }, { status: s }),
+        requestIdentity: () => ({ role, deviceId: null }),
+      }) as never;
+      const call = (router: ReturnType<typeof createUsageRouter>, method: string, path: string, body?: unknown) => {
+        const req = new Request(`http://x${path}`, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+        const url = new URL(req.url);
+        return router(req, url, url.pathname, method);
+      };
+      const router = createUsageRouter(ctx("owner"));
+      const now = Date.now();
+      for (const [id, chan, ext] of [["k1", "discord", "10000000000000000005"], ["k2", "whatsapp", "391234501"]] as const) {
+        await call(router, "POST", "/api/usage/records", { id, ts: now - 1000, model: "m", purpose: "p", inputTokens: 10, sender: { channel: chan, id: ext, name: "Eve" } });
+      }
+      const before = (await (await call(router, "GET", "/api/usage/people?days=1"))!.json()) as PeopleUsage;
+      expect(before.people.filter((p) => p.name === "Eve")).toHaveLength(2);
+      expect(before.people.every((p) => p.canMerge)).toBe(true);
+      const [from, into] = before.people.map((p) => p.personId!);
+
+      expect((await call(createUsageRouter(ctx("guest")), "POST", "/api/usage/people/merge", { from, into }))!.status).toBe(403);
+      const merged = await call(router, "POST", "/api/usage/people/merge", { from, into });
+      expect(merged!.status).toBe(200);
+      // same router, cache still warm: the answer must already be the merged one
+      const after = (await (await call(router, "GET", "/api/usage/people?days=1"))!.json()) as PeopleUsage;
+      expect(after.people).toHaveLength(1);
+      expect(after.people[0]).toMatchObject({ personId: into, weighted: 20 });
+      // a record's label is the request text, its purpose only the fallback
+      const detail = (await (await call(router, "GET", `/api/usage/people/${into}?days=1`))!.json()) as { requests: Array<{ request: string }> };
+      expect(detail.requests.map((r) => r.request)).toEqual(["p"]);
+      await call(router, "POST", "/api/usage/records", { id: "k3", ts: now - 500, model: "m", purpose: "p", label: "Scadenze", inputTokens: 5, sender: { channel: "discord", id: "10000000000000000005", name: "Eve" } });
+      const withLabel = (await (await call(router, "GET", `/api/usage/people/${into}?days=1`))!.json()) as { requests: Array<{ request: string }> };
+      expect(withLabel.requests.map((r) => r.request).sort()).toEqual(["Scadenze", "p"]);
+    } finally {
+      if (prev === undefined) delete process.env.TOPICS_USAGE_HISTORY_DIR; else process.env.TOPICS_USAGE_HISTORY_DIR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

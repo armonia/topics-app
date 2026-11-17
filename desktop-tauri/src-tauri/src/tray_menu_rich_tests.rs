@@ -97,7 +97,8 @@ fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
     let machines = machines_for(&[], &sn);
     let nodes = machine_nodes(&machines, &sn, 1_800_000_000, Palette::new(false));
     let t = dump_text(&nodes);
-    assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
+    assert!(!t.contains("CPU intasata"), "the reason is under the name in the card, not again in the submenu: {t}");
+    assert!(t.matches("Cerca in una finestra…").count() == 2, "{t}");
 }
 
 /// Every clickable id of the whole menu, machines with commands and processes included.
@@ -208,10 +209,12 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
         let children = &children;
         let k = children.len();
         assert!(k >= 5, "{key}: {}", dump_text(children));
-        // the state first, then a separator and the process table, then the finder
-        assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
+        // what the machine says first (state lines, the day), a separator, the process table, then the finder; never a
+        // separator at the start or two in a row
+        assert!(!matches!(children[0], Node::Sep), "{key}: starts on a row");
+        assert!(!children.windows(2).any(|w| matches!((&w[0], &w[1]), (Node::Sep, Node::Sep))), "{key}: no separator twice in a row");
         let head = children.iter().position(|n| matches!(n, Node::Row { header: true, .. })).expect("a process table");
-        assert!(matches!(children[head - 1], Node::Sep), "{key}: a separator before the process table");
+        assert!(head == 0 || matches!(children[head - 1], Node::Sep), "{key}: a separator before the process table");
         let Node::Row { cells, table, .. } = &children[head] else { unreachable!() };
         assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
         // the MacBook measures GPU and network per process; a remote machine does not, so it has no such columns
@@ -287,14 +290,21 @@ fn a_remote_machine_invents_nothing_it_cannot_measure() {
 }
 
 #[test]
-fn a_remote_machine_shows_its_readings_and_its_day_like_the_original_submenu() {
+fn a_remote_machine_shows_its_day_and_does_not_say_the_card_again() {
     let m = r#"[{"id":"hetzner","metrics":[{"key":"cpu","name":"CPU","pct":1,"level":0,"note":"0,2 di 16 core"},{"key":"spend","name":"Spesa","pct":14,"level":2,"value":"8,44/60 €","note":"oltre il tetto"}],
       "timeline":{"window":86400,"segments":[{"t0":0,"t1":79200,"state":"lavora"},{"t0":79200,"t1":86400,"state":"dorme"}]},"procs":[]}]"#;
     let t = dump_text(&remote_sub(m));
-    assert!(t.contains("CPU 1% · 0,2 di 16 core") && t.contains("Spesa 8,44/60 € · oltre il tetto"), "a line per reading, in the service's words: {t}");
-    assert!(t.contains("Ultime 24 h · lavora 22 h · dorme 2 h"), "{t}");
-    // a reading comes before the state lines, as the card did in the original
-    assert!(t.find("CPU 1%").unwrap() < t.find("Nodo fisso acceso").unwrap(), "{t}");
+    assert!(!t.contains("CPU 1%") && !t.contains("Spesa 8,44"), "the readings are the card's: said twice they were two figures for one thing: {t}");
+    assert!(t.contains("Nelle ultime 24 h · al lavoro 22 h · dorme 2 h"), "{t}");
+}
+
+#[test]
+fn the_day_of_a_machine_never_reads_as_the_time_it_was_on() {
+    // «acceso 7 h» next to «lavora 16 h» read as on for 7 hours while working for 16: the states split the day allow-italian: quoted menu wording
+    let m = r#"[{"id":"hetzner","timeline":{"window":86400,"segments":[{"t0":0,"t1":60000,"state":"lavora"},{"t0":60000,"t1":86400,"state":"acceso"}]}}]"#;
+    let t = dump_text(&remote_sub(m));
+    assert!(t.contains("al lavoro 16 h 40 min · acceso senza lavoro 7 h 20 min"), "{t}");
+    assert!(!t.contains("lavora "), "{t}");
 }
 
 #[test]
@@ -413,4 +423,12 @@ fn tray_dump_of_the_real_menu() {
     let mut out = String::from("# Tendina della tray Rust coi dati veri dell'hub\n# ⟨icona⟩ davanti alla riga · ‹tabella, aspetto; tab› di ogni riga a colonne · ⟶ id di ciò che si clicca · ▸ si apre un sottomenu\n\n");
     dump_detailed(&menu, 0, &mut out);
     std::fs::write(dir.join("nuovo-menu-v7.txt"), out).unwrap();
+}
+
+#[test]
+fn separators_sit_between_two_rows_only() {
+    let item = |t: &str| crate::tray_menu::note(t);
+    let out = tidy_separators(vec![Node::Sep, item("a"), Node::Sep, Node::Sep, item("b"), Node::Sep]);
+    let kinds: Vec<&str> = out.iter().map(|n| if matches!(n, Node::Sep) { "-" } else { "row" }).collect();
+    assert_eq!(kinds, ["row", "-", "row"], "none at the start or the end, one where there were two");
 }

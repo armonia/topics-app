@@ -13,7 +13,7 @@ pub fn memory_sync_valid(body: &str) -> bool {
     serde_json::from_str::<Value>(body).map_or(false, |v| v.get("runs").map_or(false, Value::is_array) && v.get("parts").map_or(false, Value::is_array))
 }
 
-/// «Memorie salvate: 03:01» from the service's state (or its cached copy). Fine within 26 hours of a good
+/// «Memorie e regole · salvate alle 03:01» from the service's state (or its cached copy). Fine within 26 hours of a good allow-italian: quoted menu wording
 /// run; «da guardare» past that or with no good run on record; a problem when the last run failed.
 /// `None` until a valid answer exists.
 pub fn memory_sync_row(body: &str, now: i64, offset: i64) -> Option<StatusRow> {
@@ -33,8 +33,8 @@ pub fn memory_sync_row(body: &str, now: i64, offset: i64) -> Option<StatusRow> {
     let (text, level) = match (failed, last) {
         (true, last) => (format!("ultimo giro fallito{}{}", err.map(|e| format!(": {e}")).unwrap_or_default(), last.map(|l| format!(" · riuscito {l}")).unwrap_or_default()), 2),
         (false, None) => ("nessun giro riuscito".to_string(), 1),
-        (false, Some(l)) if stale => (format!("{l} · oltre 26 ore fa"), 1),
-        (false, Some(l)) => (l, 0),
+        (false, Some(l)) if stale => (format!("{} · oltre 26 ore fa", crate::tray_node_health::saved_text(&l)), 1),
+        (false, Some(l)) => (crate::tray_node_health::saved_text(&l), 0),
     };
-    Some(StatusRow { label: "Memorie salvate".into(), text, level })
+    Some(StatusRow { label: crate::tray_node_health::MEMORY_LABEL.into(), text, level })
 }
