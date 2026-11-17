@@ -33,13 +33,19 @@ const SIZES = {
 export type SpinnerSize = keyof typeof SIZES;
 export type SpinnerTone = 'default' | 'current';
 
-export function Spinner({ size = 'sm', tone = 'default', activity = 'sync', box, className = '' }: {
+export function Spinner({ size = 'sm', tone = 'default', activity = 'sync', box, decorative = false, className = '' }: {
   size?: SpinnerSize | number;
   tone?: SpinnerTone;
   /** The movement. `sync` for a generic load (data, network, update); `wait` for an answer of the user; `tool` for an agent at work. */
   activity?: LoaderActivity;
   /** Footprint in px when it must match the icon it replaces; the glyph is centred in it. */
   box?: number;
+  /**
+   * The glyph only, no status of its own: for a loader that sits INSIDE a
+   * region that already announces the wait (a `role="status"` line with its
+   * own words). Two nested live regions read the wait twice.
+   */
+  decorative?: boolean;
   className?: string;
 }) {
   const px = typeof size === 'number' ? size : SIZES[size];
@@ -50,8 +56,9 @@ export function Spinner({ size = 'sm', tone = 'default', activity = 'sync', box,
   // App.tsx, GitChanges): a screen reader would otherwise mix two languages.
   return (
     <span
-      role="status"
-      aria-label="Loading"
+      role={decorative ? undefined : 'status'}
+      aria-label={decorative ? undefined : 'Loading'}
+      aria-hidden={decorative ? true : undefined}
       // The one hook e2e specs use to find a wait (the ring used to be `.animate-spin`).
       data-spinner=""
       className={`inline-flex flex-shrink-0 items-center justify-center ${className}`}

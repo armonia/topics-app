@@ -237,7 +237,7 @@ export function GuestCard({ task, onChanged }: {
           )}
           {(startState === 'requesting' || (!effectiveStartState && startState === 'queued') || effectiveStartState === 'queued' || effectiveStartState === 'starting' || effectiveStartState === 'working') && (
             <p role="status" className="inline-flex items-center gap-1.5 text-mini text-app-text-secondary">
-              <Spinner size="sm" tone="current" activity={effectiveStartState === 'working' ? 'tool' : 'sync'} />
+              <Spinner size="sm" tone="current" decorative activity={effectiveStartState === 'working' ? 'tool' : 'sync'} />
               {effectiveStartState === 'working' ? tr('guest.start.working') : tr('guest.start.queued')}
             </p>
           )}
