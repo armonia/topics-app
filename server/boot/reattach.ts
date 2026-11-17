@@ -2,7 +2,7 @@
  * What survives a restart: reattach turns, reconcile phases, transcripts and archived sessions, the resume sweep and provider holds.
  */
 import { join } from "path";
-import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat } from "../lib/wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchingChatCanWake } from "../lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "../lib/ripresa-boot";
 import { holdUntilLabel, onProviderHold, configureProviderHoldStore, onPlanUsage, isProviderHeld } from "../lib/provider-hold";
 import { wireHoldToResume } from "../lib/provider-hold-broadcast";
@@ -17,6 +17,7 @@ import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "../providers/native
 import { describeTurnEnd } from "../providers/stop-reason";
 import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { commandBackgroundWork, commandWakeState, sessionsAwaitingCommandWake } from "../routes/processes";
+import { subagentWakeState } from "../lib/subagent-runtime";
 import { startProcessExitWakes } from "../lib/process-exit-wake";
 import { startSubagentWakes } from "../services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot } from "../lib/native-subagents";
@@ -564,6 +565,17 @@ export function bootReattach(scope: AfterGovernor) {
       log: (m) => console.log(`[process-exit] ${m}`),
     }));
 
+  // One answer for the wakes that return the outcome of work a chat
+  // launched (sub-agent result, card outcome): an archived
+  // chat that launched THAT work after a person archived it is alive
+  // (`lib/wake-adoption.ts`).
+  const canWakeLaunchingChat = launchingChatCanWake({
+    db: ctx.db,
+    getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+    isProviderHeld,
+    defaultProvider: () => getDefaultProviderName() ?? undefined,
+  });
+
   // The results of `spawn_agent` children wake their parent chats on the same
   // condition, and for the same reason (SUBAGENT-12).
   void survivingTurnsAdopted
@@ -571,11 +583,7 @@ export function bootReattach(scope: AfterGovernor) {
     .then(() => startSubagentWakes({
       route: topicsRouter,
       isBusy: (sk) => activeStreams.has(sk),
-      canWake: (sk) => {
-        const topic = ctx.getTopicBySessionKey(sk);
-        if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
-        return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
-      },
+      canWake: canWakeLaunchingChat,
       log: (m) => console.log(`[subagent-wake] ${m}`),
     }));
 
@@ -587,11 +595,7 @@ export function bootReattach(scope: AfterGovernor) {
       route: topicsRouter,
       isBusy: (sk) => activeStreams.has(sk),
       sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
-      canWake: (sk) => {
-        const topic = ctx.getTopicBySessionKey(sk);
-        if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
-        return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
-      },
+      canWake: canWakeLaunchingChat,
       log: (m) => console.log(`[card-outcome] ${m}`),
     }));
 
@@ -621,6 +625,7 @@ export function bootReattach(scope: AfterGovernor) {
           getTopicById: ctx.getTopicById,
           cliHasWork: sessionHasBackgroundWork,
           commandOwesWake: (sk) => commandWakeState(sk) !== "none",
+          subagentOwesWake: (sk) => subagentWakeState(sk) !== "none",
           dispatchedSubjects: () => taskDispatcher.sessionsInFlight().map((sk) => chatSubjectOfSession(sk)).filter((x): x is string => !!x),
           decode: decodeCol,
         }));

@@ -1014,9 +1014,11 @@ export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper"
  * reaper lights nothing). A restart keeps it only while the registry still
  * owes its wake (review 2 of notifications-redesign, B3).
  */
-function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: ProcessEndCause; commandsOwed?: boolean }): AttentionTaskMap {
+function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: ProcessEndCause; commandsOwed?: boolean; subagentsOwed?: boolean }): AttentionTaskMap {
   const survivors: AttentionTaskMap = {};
   if (end.cause !== "restart" || end.commandsOwed) for (const [id, t] of Object.entries(background)) if (t.kind === "command") survivors[id] = t;
+  // The sub-agents of a chat are chats of their own (BGVIS-10): the chat's CLI dying does not end them.
+  if (end.cause !== "restart" || end.subagentsOwed) if (background.subagent) survivors.subagent = background.subagent;
   return survivors;
 }
 
@@ -1027,7 +1029,8 @@ function survivorsOfProcessEnd(background: AttentionTaskMap, end: { cause: Proce
  */
 function lostWithProcess(background: AttentionTaskMap, survivors: AttentionTaskMap, end: { cause: ProcessEndCause }): number {
   const lost: AttentionTaskMap = {};
-  for (const [id, t] of Object.entries(background)) if (!(id in survivors) && !(end.cause === "restart" && t.kind === "wake")) lost[id] = t;
+  // A saved sub-agent task that no child backs any more ended while the server was down: nothing died with a process.
+  for (const [id, t] of Object.entries(background)) if (!(id in survivors) && !(end.cause === "restart" && (t.kind === "wake" || id === "subagent"))) lost[id] = t;
   return countingTaskCount(lost);
 }
 
@@ -1051,6 +1054,8 @@ export function processEnded(
     turnClosedByRoute?: boolean;
     /** A restart: the Topics commands still owe their wake (re-adopted by the process registry). */
     commandsOwed?: boolean;
+    /** A restart: a `spawn_agent` child of the chat still runs or owes its result (`subagentWakeState`). */
+    subagentsOwed?: boolean;
   },
 ): AttentionSnapshot {
   const e = entryOf(subject);
@@ -1206,6 +1211,8 @@ export interface AttentionBootReader {
   liveProcess?: (subject: string) => boolean;
   /** A chat's Topics `run_command` still owes it a wake: alive in the process registry, whatever its CLI. */
   commandOwed?: (subject: string) => boolean;
+  /** A chat's `spawn_agent` child still runs or owes a result: alive in `subagents`, whatever the chat's CLI. */
+  subagentOwed?: (subject: string) => boolean;
   /** The plan panel this subject was waiting on when the server stopped is still unanswered on its row. */
   planWaiting?: (subject: string, toolCallId: string) => boolean;
   /** Cards in review or parked, read from `tasks`. */
@@ -1279,7 +1286,7 @@ export function recomposeAttentionOnBoot(reader: AttentionBootReader = {}): void
   for (const [subject, e] of [...entries]) {
     const alive = reader.liveProcess ? reader.liveProcess(subject) : true;
     if (!alive) {
-      const end = { cause: "restart" as const, commandsOwed: reader.commandOwed?.(subject) === true };
+      const end = { cause: "restart" as const, commandsOwed: reader.commandOwed?.(subject) === true, subagentsOwed: reader.subagentOwed?.(subject) === true };
       const survivors = survivorsOfProcessEnd(e.row.background, end);
       if (lostWithProcess(e.row.background, survivors, end) > 0) {
         processEnded(subject, end);

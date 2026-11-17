@@ -1,4 +1,4 @@
-//! Native layer that turns the working glyph of the tray strip (card 792e3636).
+//! Native layer that plays the working glyph (the square loader) of the tray strip (card 792e3636).
 //!
 //! The strip image holds everything except that glyph. The glyph lives in a CALayer
 //! on top of the status button; each animation tick only swaps the layer's contents
@@ -7,6 +7,7 @@
 
 use crate::mac::{class, id, msg_send, nil, NSPoint, NSRect, NSSize};
 use crate::tray_agents::{self, OVERLAY_PT};
+use crate::tray_loader_player;
 use crate::tray_quota::{HEIGHT_PT, PAD_X, SCALE};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -34,33 +35,32 @@ pub fn set_strip_width_pt(w: f64) {
     STRIP_W_PT_X100.store((w * 100.0) as usize, Ordering::Relaxed);
 }
 
-/// One CGImage per frame, leaked on purpose: they live as long as the process.
-fn images() -> &'static Vec<usize> {
-    static IMAGES: OnceLock<Vec<usize>> = OnceLock::new();
-    IMAGES.get_or_init(|| {
-        let g = tray_agents::glyph_frames();
-        g.frames
-            .iter()
-            .map(|px| unsafe {
-                let data: &'static [u8] = Box::leak(px.clone().into_boxed_slice());
-                let provider = CGDataProviderCreateWithData(std::ptr::null_mut(), data.as_ptr() as *const c_void, data.len(), std::ptr::null());
-                let space = CGColorSpaceCreateDeviceRGB();
-                let w = g.width as usize;
-                CGImageCreate(w, g.height as usize, 8, 32, w * 4, space, ALPHA_PREMULTIPLIED_LAST, provider, std::ptr::null(), false, 0) as usize
-            })
-            .collect()
+/// The CGImage of overlay frame `i`, built the first time it is shown and leaked on
+/// purpose: it lives as long as the process. Built on first use, not all at start:
+/// the images of the changes between shapes (about 2,200) are only ever made for the
+/// changes really played, 4 KB each.
+fn image(i: usize) -> usize {
+    static IMAGES: OnceLock<Vec<OnceLock<usize>>> = OnceLock::new();
+    let all = IMAGES.get_or_init(|| (0..tray_loader_player::frame_count()).map(|_| OnceLock::new()).collect());
+    *all[i % all.len()].get_or_init(|| unsafe {
+        let data: &'static [u8] = Box::leak(tray_agents::frame_rgba((i % all.len()) as u32).into_boxed_slice());
+        let provider = CGDataProviderCreateWithData(std::ptr::null_mut(), data.as_ptr() as *const c_void, data.len(), std::ptr::null());
+        let space = CGColorSpaceCreateDeviceRGB();
+        let (w, h) = tray_agents::frame_size();
+        CGImageCreate(w as usize, h as usize, 8, 32, w as usize * 4, space, ALPHA_PREMULTIPLIED_LAST, provider, std::ptr::null(), false, 0) as usize
     })
 }
 
 /// Shows frame `frame` (or hides the layer for `None`). Must run on the main thread.
-pub unsafe fn show(button: id, frame: Option<u32>) {
+/// Returns false when there is no button or no host layer to draw on.
+pub unsafe fn show(button: id, frame: Option<u32>) -> bool {
     if button == nil {
-        return;
+        return false;
     }
     let _: () = msg_send![button, setWantsLayer: true];
     let host: id = msg_send![button, layer];
     if host == nil {
-        return;
+        return false;
     }
     let mut layer = LAYER.load(Ordering::Relaxed) as id;
     if layer == nil {
@@ -74,8 +74,7 @@ pub unsafe fn show(button: id, frame: Option<u32>) {
     let _: () = msg_send![tx, setDisableActions: true];
     match frame {
         Some(i) => {
-            let imgs = images();
-            let img = imgs[(i as usize) % imgs.len()] as *mut c_void;
+            let img = image(i as usize) as *mut c_void;
             let b: NSRect = msg_send![button, bounds];
             let strip_w = STRIP_W_PT_X100.load(Ordering::Relaxed) as f64 / 100.0;
             let x = (b.size.width - strip_w) / 2.0 + PAD_X as f64;
@@ -89,4 +88,5 @@ pub unsafe fn show(button: id, frame: Option<u32>) {
         }
     }
     let _: () = msg_send![tx, commit];
+    true
 }

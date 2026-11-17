@@ -13,11 +13,10 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
-import type { BoardWorkflow, WorkflowPresetId, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
-export { STAGE_CI, WORKFLOW_PRESETS, columnOfTask, type WorkflowPresetId } from '../../../shared/workflow';
-/** `GET /boards/:id/workflow`: the resolved workflow plus the row of exactly this board. */
+import type { BoardWorkflow, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
+export { STAGE_CI, WORKFLOW_COLUMNS, columnOfTask } from '../../../shared/workflow';
+/** `GET /boards/:id/workflow`: the columns (the same for every board) plus the rules. */
 export interface BoardWorkflowView extends BoardWorkflow {
-  own: WorkflowPresetId | null;
   /** The CI switch and the board's paths a person must look at, resolved; `ownRules` = this board's row. */
   rules?: WorkflowRules;
   ownRules?: WorkflowRulesRow | null;

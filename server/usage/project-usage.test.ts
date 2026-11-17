@@ -34,7 +34,7 @@ function makeDb(): Database {
     session_key TEXT NOT NULL, topic_id TEXT, model TEXT NOT NULL,
     input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, cost_usd REAL,
     purpose TEXT, provider TEXT, cache_read_tokens INTEGER, cache_creation_tokens INTEGER,
-    cache_creation_1h_tokens INTEGER, duration_ms INTEGER, measured INTEGER NOT NULL DEFAULT 1, error TEXT)`);
+    cache_creation_1h_tokens INTEGER, duration_ms INTEGER, measured INTEGER NOT NULL DEFAULT 1, error TEXT, project_path TEXT)`);
   return db;
 }
 
@@ -220,6 +220,16 @@ describe("projectUsage", () => {
     message(db, "topic:aaaa", { prompt: 200_000, completion: 5_000, cacheRead: 180_000 });
     // (200k - 180k) + 5k + 0.1 * 180k
     expect(projectUsage(db).projects[0].chatTokens).toBe(20_000 + 5_000 + 18_000);
+  });
+
+  test("a delegated job names its project and counts there, not among the side calls", () => {
+    const db = makeDb();
+    topic(db, "chat:a", ALPHA);
+    db.prepare(`INSERT INTO usage_records (timestamp, session_key, model, total_tokens, input_tokens, output_tokens, cost_usd, purpose, project_path)
+      VALUES (?, 'external', 'gpt-x', 1000, 600, 400, 0.2, 'delegate', ?)`).run(Date.now(), ALPHA);
+    const res = projectUsage(db);
+    expect(res.sideCalls.calls).toBe(0);
+    expect(res.projects.find((p) => p.projectPath === ALPHA)?.costUsd).toBeCloseTo(0.2);
   });
 
   test("side calls: counted by purpose, inside the window only, never in a project", () => {

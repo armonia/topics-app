@@ -222,6 +222,8 @@ const GUEST_SAFE_FRAMES = new Set<string>([
   // Let through with the other frames of a shared chat's turn. The guest view
   // shows only the chats' names today, so nothing of a guest's relights on it.
   'stream:alive',
+  // Carries only the kind of action of a shared chat's turn, which guests used to read off its content_chunk.
+  'stream:action',
   // Il recupero a metà turno. Manca**va**, ed è la mancanza che pesava di più:
   // il catch-up porta `content` e `blocks`, cioè il TESTO, non un id. Senza
   // questo nome nella lista un ospite non lo riceve nemmeno per una chat che

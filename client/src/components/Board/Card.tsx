@@ -52,7 +52,7 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { TaskCountdown } from './TaskCountdown';
 import { TaskContextChip } from './TaskContextChip';
 import { TaskChildrenChip } from './TaskChildrenChip';
-import { estimatesByProject } from '../../../../shared/task-countdown';
+import { estimatesByProject, type EstimateBasis } from '../../../../shared/task-countdown';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -211,7 +211,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
-      estimateMs={estimateByProject.get(t.projectId) ?? null}
+      estimate={estimateByProject.get(t.projectId) ?? null}
       // The live event OR the thread: the first dies with the process, the
       // second does not, and an unanswered question survives a restart.
       awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
@@ -480,8 +480,8 @@ type CardDragProps = {
 };
 
 type CardProps = {
-  /** Departure estimate learned from the project's closed cards; null = none. */
-  estimateMs?: number | null;
+  /** Estimate learned from the project's closed cards; null = none. */
+  estimate?: EstimateBasis | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -525,7 +525,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -1987,7 +1987,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} taskId={task.id} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -2023,7 +2023,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
         {task.status === 'in_progress' && (
           <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
-            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown basis={estimate} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
           </div>
         )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when

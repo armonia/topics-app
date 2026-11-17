@@ -16,7 +16,7 @@
  * @covers BGVIS-01, BGVIS-02, BGVIS-05
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { composerStopsTasks, composerStopsWork, mergeBackgroundWork, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
+import { composerStopsTasks, composerStopsWork, mergeBackgroundWork, readStreamingSnapshot, waitingOnOf, type TopicBackgroundWork } from "./backgroundWork";
 import { projectWorkingCount } from "./attentionRollups";
 import { signalsActions, useSignalsStore } from "./signals";
 import type { Topic } from "../types";
@@ -143,5 +143,27 @@ describe("composerStopsTasks: the Stop on the attention state's tasks", () => {
     expect(composerStopsTasks([{ kind: "command" }, { kind: "bash" }])).toBe(true);
     expect(composerStopsTasks([{ kind: "command" }])).toBe(false);
     expect(composerStopsTasks([])).toBe(false);
+  });
+});
+
+describe("waitingOnOf: what a chat with no turn open waits for (BGVIS-10)", () => {
+  test("a sub-agent comes first, then a process, then the CLI's own job", () => {
+    expect(waitingOnOf([{ kind: 'bash' }, { kind: 'command' }, { kind: 'subagent' }])).toBe('subagent');
+    expect(waitingOnOf([{ kind: 'bash' }, { kind: 'command' }])).toBe('process');
+    expect(waitingOnOf([{ kind: 'monitor' }])).toBe('job');
+  });
+
+  test("a queued wake, or nothing named, is the chat about to resume", () => {
+    expect(waitingOnOf([{ kind: 'wake' }])).toBe('resuming');
+    expect(waitingOnOf([])).toBe('resuming');
+  });
+
+  test("a recurring cron is never a wait", () => {
+    expect(waitingOnOf([{ kind: 'cron', recurring: true }])).toBe('resuming');
+  });
+
+  test("the composer's Stop is not offered for a sub-agent alone: its stop is the strip's", () => {
+    expect(composerStopsTasks([{ kind: 'subagent' }])).toBe(false);
+    expect(composerStopsTasks([{ kind: 'subagent' }, { kind: 'bash' }])).toBe(true);
   });
 });

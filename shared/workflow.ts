@@ -10,12 +10,14 @@
  * default column of its status: that is how every card born before workflows
  * keeps its place.
  *
- * Today there is ONE preset, `default`: the five base columns plus CI. The
- * `armonia` one (Triage, AI review, Human review) was removed because no board
- * used it; a stored row that still says `armonia` is read as no row, that is
- * `default`. The level is the project, with a global default (`'*'`); a folder
- * is a project of its own today (`projectIdForPath` hashes the path), so the
- * folder level is not here.
+ * There is ONE set of columns for every board (`WORKFLOW_COLUMNS`): the five
+ * base ones plus CI. It used to be a preset a board could choose; the only
+ * other one (`armonia`: Triage, AI review, Human review) was removed because
+ * no board used it, and then the choice went away with it. A `board_workflows`
+ * row left in a database is not read any more. What a board can still set are
+ * the RULES beside the columns (`WorkflowRules`): the level is the project,
+ * with a global default (`'*'`); a folder is a project of its own today
+ * (`projectIdForPath` hashes the path), so the folder level is not here.
  */
 
 import { commentAuthorLabel } from './comment-author';
@@ -36,10 +38,7 @@ export interface WorkflowColumn {
   explicitOnly?: boolean;
 }
 
-export const WORKFLOW_PRESET_IDS = ['default'] as const;
-export type WorkflowPresetId = (typeof WORKFLOW_PRESET_IDS)[number];
-
-/** Reserved scope of the global row, the same key `board_settings` uses. */
+/** Reserved scope of the global rules row, the same key `board_settings` uses. */
 export const GLOBAL_WORKFLOW_SCOPE = '*';
 
 /**
@@ -66,26 +65,12 @@ export const STATUS_COLUMN_LABEL: Record<TaskStatus, string> = {
 
 const plain = (s: TaskStatus): WorkflowColumn => ({ id: s, label: STATUS_COLUMN_LABEL[s], base: s });
 
-export const WORKFLOW_PRESETS: Record<WorkflowPresetId, readonly WorkflowColumn[]> = {
-  default: [...TASK_STATUSES.filter((s) => s !== 'done').map(plain), CI_COLUMN, plain('done')],
-};
+/** The columns of every board, in the order they are drawn. */
+export const WORKFLOW_COLUMNS: readonly WorkflowColumn[] = [...TASK_STATUSES.filter((s) => s !== 'done').map(plain), CI_COLUMN, plain('done')];
 
-export function isWorkflowPresetId(v: unknown): v is WorkflowPresetId {
-  return typeof v === 'string' && (WORKFLOW_PRESET_IDS as readonly string[]).includes(v);
-}
-
+/** `GET /boards/:id/workflow`: the columns of the board and its resolved rules. */
 export interface BoardWorkflow {
-  preset: WorkflowPresetId;
-  /** Where the preset came from: the project row, the global row, or neither. */
-  source: 'project' | 'global' | 'default';
   columns: readonly WorkflowColumn[];
-}
-
-/** The project row wins over the global one; neither = `default`. Unknown ids are ignored. */
-export function resolveWorkflow(rows: { project?: string | null; global?: string | null }): BoardWorkflow {
-  if (isWorkflowPresetId(rows.project)) return { preset: rows.project, source: 'project', columns: WORKFLOW_PRESETS[rows.project] };
-  if (isWorkflowPresetId(rows.global)) return { preset: rows.global, source: 'global', columns: WORKFLOW_PRESETS[rows.global] };
-  return { preset: 'default', source: 'default', columns: WORKFLOW_PRESETS.default };
 }
 
 /**
@@ -100,22 +85,39 @@ export interface PersonPath { pattern: string; why: string }
 /** The rules of a workflow beside its columns. */
 export interface WorkflowRules {
   /**
-   * Accepted work is measured together with main in the CI column before it
-   * lands. Takes effect only on a board with CI rows and auto-merge on.
+   * When accepted work meets the CI (`CiPhaseMode`). Takes effect only on a
+   * board with CI rows and auto-merge on.
    */
-  ciPhase: boolean;
+  ciPhase: CiPhaseMode;
   /** This board's paths on top of the generic list: the global row's first, then the project's. */
   personPaths: PersonPath[];
 }
 
-/** One scope's row: `null`/absent = inherit (the global row, then the default). */
-export interface WorkflowRulesRow { ciPhase?: boolean | null; personPaths?: PersonPath[] | null }
+/**
+ * When accepted work is measured by the CI:
+ *  - `before`: measured together with main in the CI column, then it lands;
+ *  - `after`: it lands at once, the CI measures main afterwards and a red goes back to the agent;
+ *  - `off`: no CI phase, the land is the only step.
+ */
+export type CiPhaseMode = 'before' | 'after' | 'off';
+export const CI_PHASE_MODES: readonly CiPhaseMode[] = ['before', 'after', 'off'];
+export const DEFAULT_CI_PHASE: CiPhaseMode = 'after';
+
+/** A mode, or the boolean the switch used to be (`true` = before, `false` = off); `null` when it is neither. */
+export function parseCiPhase(v: unknown): CiPhaseMode | null {
+  if (v === true) return 'before';
+  if (v === false) return 'off';
+  return typeof v === 'string' && (CI_PHASE_MODES as readonly string[]).includes(v) ? (v as CiPhaseMode) : null;
+}
+
+/** One scope's row: `null`/absent = inherit (the global row, then the default). A boolean is the old form of the switch. */
+export interface WorkflowRulesRow { ciPhase?: CiPhaseMode | boolean | null; personPaths?: PersonPath[] | null }
 
 export const MAX_PERSON_PATHS = 200;
 
-/** The project's CI switch wins over the global one (on by default); the paths add up. */
+/** The project's CI mode wins over the global one (`after` by default); the paths add up. */
 export function resolveWorkflowRules(rows: { project?: WorkflowRulesRow | null; global?: WorkflowRulesRow | null }): WorkflowRules {
-  const ciPhase = rows.project?.ciPhase ?? rows.global?.ciPhase ?? true;
+  const ciPhase = parseCiPhase(rows.project?.ciPhase) ?? parseCiPhase(rows.global?.ciPhase) ?? DEFAULT_CI_PHASE;
   return { ciPhase, personPaths: [...(rows.global?.personPaths ?? []), ...(rows.project?.personPaths ?? [])] };
 }
 

@@ -150,6 +150,7 @@ describe("copertura del registro ws-outbound", () => {
       "stream:retry": "topic",
       "stream:start": "global",
       "stream:end": "global",
+      "stream:action": "global",
       "message:new": "global",
       "attention:updated": "global",
     });

@@ -261,24 +261,20 @@ describe("the round stops at the first red, like the local commands", () => {
 });
 
 /**
- * NOT MEASURED, and the reason names the way out a PERSON takes first. Weighed
- * again on 17/09/2026: three real cards of that night had this shape (work
- * already in main, nothing to land) and this verdict bounces them back to their
- * agent. Kept, because from here the shape is the same as a commit made on the
- * wrong branch or a branch a rebase emptied, and two greens on an input where
- * nothing was measured is the lie these rows exist not to tell.
+ * SKIPPED, not NOT MEASURED: until 17/11/2026 this bounced every delivery with
+ * nothing of its own beyond main back to its agent, including cards whose work
+ * genuinely lives outside the repo (card 9f9663cc, two rounds lost on nothing
+ * but `gh pr create` never being reached). Nothing to measure is a legitimate
+ * outcome: `ok: true` lets `update_task(status="review")` through, `skipped:
+ * true` keeps the row from claiming a verdict GitHub never gave.
  */
 describe("a delivery with nothing of its own beyond main", () => {
-  test("is NOT MEASURED, nothing is pushed or opened, and both exits are named", async () => {
+  test("is SKIPPED, nothing is pushed or opened, and the review gate is not blocked", async () => {
     const { port, calls } = fakePort({ ownCommits: async () => ({ ok: true, value: 0 }) });
     const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
-    expect(rows.map((r) => [r.ok, r.code, r.notMeasured])).toEqual([[false, 97, true], [false, 97, true]]);
+    expect(rows.map((r) => [r.ok, r.code, r.skipped])).toEqual([[true, 0, true], [true, 0, true]]);
     expect(rows[0]!.tail).toContain("no commit of its own");
-    // The exit an agent cannot take is not the only one on offer any more: a
-    // card whose work is already merged has no new commit to make.
-    expect(rows[0]!.tail).toContain("already in main");
-    expect(rows[0]!.tail).toContain("a person closes it");
-    expect(rows[0]!.tail).toContain("only a new commit can");
+    expect(rows[0]!.notMeasured).toBeUndefined();
     expect(calls.push.length).toBe(0);
     expect(calls.pr).toBe(0);
   });

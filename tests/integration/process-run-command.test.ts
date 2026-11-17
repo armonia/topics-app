@@ -380,6 +380,29 @@ describe("the end of a command reaches the topic that launched it", () => {
     expect(await scriptRow(processId)).toMatchObject({ status: "error", exitCode: 1 });
   });
 
+  // The command's start is the launch the wake answers (`startedAt` in
+  // `requestWakeFor`): a chat a person archived BEFORE it started it is alive for
+  // this command. A chat born archived (`reconcile:registry`) is not.
+  test("a command started after a person archived the chat still wakes it", async () => {
+    const topic = newTopic({ archived: true });
+    bench.ctx.db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic', ?, ?, 'archive')", [topic.id, new Date(Date.now() - 3_600_000).toISOString()]);
+    const { processId } = await runCommand(topic, "echo archived-but-alive");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    expect(exitRows(topic.sessionKey)[0]!.content).toContain("archived-but-alive");
+    await finishTurn();
+    await processExitWakesIdle();
+  });
+
+  test("a chat that was born archived (reconcile:registry) gets nothing for a command it started", async () => {
+    const topic = newTopic({ archived: true });
+    bench.ctx.db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic', ?, ?, 'reconcile:registry')", [topic.id, new Date(Date.now() - 3_600_000).toISOString()]);
+    const { processId } = await runCommand(topic, "echo born-archived");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await processExitWakesIdle();
+    expect(exitRows(topic.sessionKey)).toHaveLength(0);
+  });
+
   // The route refuses with a 409 that no turn clears: the chat is bound to the
   // Topics engine and the engine is down until somebody changes a setting. Waited on as
   // if the session were busy, the wake posted twice a second forever and the

@@ -22,6 +22,7 @@ describe('validateOutbound — valid registered messages', () => {
     { type: 'dashboard:updated' },
     { type: 'memory:pressure', pressure: true },
     { type: 'stream:end', sessionKey: 'sk-1', messageId: 'm-1' },
+    { type: 'stream:action', sessionKey: 'sk-1', topicId: 'topic-1', action: 'run' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: 'hello' },
     { type: 'typing', topicId: 'topic-1', clientId: 'ws-1', text: '' },
     { type: 'drag:start', topicId: 'topic-1', sourceWindowId: 'win-1' },
@@ -62,6 +63,11 @@ describe('validateOutbound — malformed registered messages', () => {
     const r = validateOutbound({ type: 'stream:end', messageId: 'm-1' });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('sessionKey');
+  });
+
+  test('rejects stream:action with a word outside the vocabulary', () => {
+    const r = validateOutbound({ type: 'stream:action', sessionKey: 'sk-1', topicId: 't', action: 'dance' });
+    expect(r.ok).toBe(false);
   });
 
   test('rejects typing missing clientId', () => {
@@ -242,6 +248,7 @@ describe('outbound registry contract', () => {
       'scripts:output',
       'scripts:updated',
       'session:state',
+      'stream:action',
       'stream:alive',
       'stream:catchup',
       'stream:command-answer',
@@ -437,8 +444,11 @@ describe('outbound registry contract', () => {
   // Sender `server/lib/hub-live.ts`, listener `client/src/state/hubLive.ts`.
   // 108 -> 107: `task:ai-review` goes out with the AI review column (the `armonia`
   // workflow preset was removed, nothing sent it any more).
+  // 107 -> 108: `stream:action`, what a topic's agent is doing now, global and sent
+  // only when it changes. Sender `server/lib/stream-action-feed.ts`, listener
+  // `client/src/state/agentActions.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(107);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
   });
 });
 

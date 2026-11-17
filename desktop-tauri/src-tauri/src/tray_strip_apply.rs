@@ -1,4 +1,4 @@
-//! Puts a rendered strip, and the turning glyph, on the status item (card 066276b6).
+//! Puts a rendered strip, and the playing working loader, on the status item (card 066276b6).
 //! Shared by the app and by the `tray_tracking` example, so the example exercises the
 //! very code the app runs.
 
@@ -75,25 +75,57 @@ unsafe fn is_click_target(v: id) -> bool {
     !cls.is_null() && (*cls).name().to_bytes() == b"TaoTrayTarget"
 }
 
-/// Shows glyph frame `frame` (or hides it): only a layer swap, never during a menu.
-pub fn apply_overlay(tray: &tauri::tray::TrayIcon, frame: Option<u32>) {
-    if tray_tracking::is_open() {
-        return;
-    }
-    let _ = tray.with_inner_tray_icon(move |inner| {
-        if let Some(item) = inner.ns_status_item() {
-            unsafe {
-                let item: id = objc2::rc::Retained::as_ptr(&item) as id;
-                let button: id = msg_send![item, button];
-                tray_overlay::show(button, frame);
-            }
+/// Shows glyph frame `frame` (or hides it). Returns true when the layer was swapped.
+///
+/// Unlike the strip and the menu this does NOT wait for an open menu to close: it only
+/// swaps the contents of a sublayer, which neither replaces the button image, nor
+/// relays out the button, nor touches the menu (the three writes `tray_tracking`
+/// holds back). Waiting here froze the working loader for as long as the menu stayed
+/// open, which is exactly when the user is looking at the tray.
+pub fn apply_overlay(tray: &tauri::tray::TrayIcon, frame: Option<u32>) -> bool {
+    tray.with_inner_tray_icon(move |inner| {
+        let Some(item) = inner.ns_status_item() else { return false };
+        unsafe {
+            let item: id = objc2::rc::Retained::as_ptr(&item) as id;
+            overlay_on_button(msg_send![item, button], frame)
         }
-    });
+    })
+    .unwrap_or(false)
+}
+
+/// The overlay write on the status button itself, menu open or not.
+/// SAFETY: AppKit main thread, or a headless test.
+unsafe fn overlay_on_button(button: id, frame: Option<u32>) -> bool {
+    tray_overlay::show(button, frame)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Goes red when the working loader waits for the open menu to close again: with
+    /// the menu open (the moment the user looks at the tray) the overlay must still
+    /// swap its frame, it is a sublayer write that tracking does not hold back.
+    #[test]
+    fn the_loader_keeps_moving_while_the_menu_is_open() {
+        unsafe {
+            let button: id = msg_send![class!(NSButton), alloc];
+            let button: id = msg_send![button, initWithFrame: NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(60.0, 22.0))];
+            assert!(button != nil);
+            tray_tracking::set_open_for_test(true);
+            let first = overlay_on_button(button, Some(0));
+            let host: id = msg_send![button, layer];
+            let subs: id = msg_send![host, sublayers];
+            let n: usize = if subs == nil { 0 } else { msg_send![subs, count] };
+            let layer: id = if n > 0 { msg_send![subs, objectAtIndex: n - 1] } else { nil };
+            let a: id = if layer == nil { nil } else { msg_send![layer, contents] };
+            let second = overlay_on_button(button, Some(1));
+            let b: id = if layer == nil { nil } else { msg_send![layer, contents] };
+            tray_tracking::set_open_for_test(false);
+            assert!(first && second, "the overlay was swapped with the menu open");
+            assert!(a != nil && b != nil && a != b, "the layer shows the next frame");
+        }
+    }
 
     // The strip reaches the status button already at its final size: if the image came
     // out at the PNG's pixel size (or as a template), the item would reflow or turn

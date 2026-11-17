@@ -2,7 +2,7 @@
  * Card previews, auto-merge, worktree cleanup and the delivery references a card's branch is read through.
  */
 import { join } from "path";
-import { mkdirSync, statSync, readlinkSync, realpathSync } from "fs";
+import { mkdirSync, readFileSync, statSync, readlinkSync, realpathSync } from "fs";
 import { createTaskAutoMerge, declaredDeliveryFor, worktreeRealDirt } from "../services/task-automerge";
 import { imageShape, isBlankLikeImage } from "../services/image-shape";
 import { createPreviewManager, type PreviewProcess } from "../services/preview-manager";
@@ -80,6 +80,9 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // heuristic) lives in `resolvePreviewCommand`. The server honours PORT (injected
     // by the manager) so the pool port sticks.
     resolveCommand: (_taskId, wt) => resolvePreviewCommand(wt.absPath),
+    readDeepLink: (file) => {
+      try { return readFileSync(file, "utf-8").trim() || null; } catch { return null; }
+    },
     spawn: (cmd, opts): PreviewProcess => {
       const child = Bun.spawn(cmd, {
         cwd: opts.cwd,

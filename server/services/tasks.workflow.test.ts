@@ -1,10 +1,10 @@
 /**
  * BOARD WORKFLOWS on the task service (the board-workflows proposal in openspec).
  *
- * The stage rides on top of the status. There is one preset, `default`: the
- * `armonia` one (Triage, AI review, Human review) was removed, so every
- * delivery waits on a person, and a row or a stage left over from it must read
- * as the plain board without errors.
+ * The stage rides on top of the status. There is one set of columns for every
+ * board (the `armonia` preset, with Triage, AI review and Human review, was
+ * removed, so every delivery waits on a person), and a row or a stage left over
+ * from it must read as the plain board without errors.
  *
  * @covers KANBAN-102
  */
@@ -12,18 +12,15 @@ import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { TaskService } from "./tasks";
 import { freshDb, svc, PID } from "./tasks-test-db";
-import { readBoardWorkflow, writeBoardWorkflow } from "./board-workflow";
-import { awaitsHuman } from "../../shared/workflow";
+import { WORKFLOW_COLUMNS, awaitsHuman } from "../../shared/workflow";
 import { UNOWNED_BACKLOG_MS } from "../../shared/created-by";
 
-const WORKFLOWS_DDL = `CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)`;
 const OPENER = "topic-opener";
 const WORKER = "topic-worker";
 const NOW = "2026-10-30T10:00:00.000Z";
 
 function setup(): { db: Database; s: TaskService } {
   const db = freshDb();
-  db.run(WORKFLOWS_DDL);
   for (const id of [OPENER, WORKER]) db.run("INSERT INTO topics (id) VALUES (?)", [id]);
   return { db, s: svc(db, { t: Date.parse(NOW) }) };
 }
@@ -40,33 +37,6 @@ function agentCard(db: Database, s: TaskService, extra: Record<string, unknown> 
 
 const deliver = (s: TaskService, id: string, extra: Record<string, unknown> = {}) =>
   s.update({ taskId: id, actor: "agent", by: `agent:${WORKER}`, agentTopicId: WORKER, patch: { status: "review", summary: "done, see the test", ...extra } });
-
-describe("storage: project wins over global, nothing = default", () => {
-  let db: Database;
-  beforeEach(() => { ({ db } = setup()); });
-
-  test("no row: the five columns of before", () => {
-    expect(readBoardWorkflow(db, PID).preset).toBe("default");
-  });
-  test("the global row applies to every board, the project row wins", () => {
-    writeBoardWorkflow(db, "*", "default", NOW);
-    expect(readBoardWorkflow(db, PID)).toMatchObject({ preset: "default", source: "global" });
-    writeBoardWorkflow(db, PID, "default", NOW);
-    expect(readBoardWorkflow(db, PID)).toMatchObject({ preset: "default", source: "project" });
-    writeBoardWorkflow(db, PID, null, NOW);
-    expect(readBoardWorkflow(db, PID).source).toBe("global");
-  });
-  test("a database without the table reads as default instead of failing", () => {
-    const bare = freshDb();
-    expect(readBoardWorkflow(bare, PID).preset).toBe("default");
-  });
-  test("a row the removed preset left behind reads as the default, and cannot be written any more", () => {
-    db.run("INSERT INTO board_workflows (scope, preset, updated_at) VALUES ('*', 'armonia', ?), (?, 'armonia', ?)", [NOW, PID, NOW]);
-    expect(readBoardWorkflow(db, PID)).toMatchObject({ preset: "default", source: "default" });
-    expect(readBoardWorkflow(db, PID).columns.map((c) => c.id)).toEqual(["backlog", "todo", "in_progress", "review", "ci", "done"]);
-    expect(() => writeBoardWorkflow(db, PID, "armonia" as never, NOW)).toThrow(/unknown workflow preset/);
-  });
-});
 
 describe("a board on the default workflow does not change", () => {
   let db: Database; let s: TaskService;
@@ -112,16 +82,20 @@ describe("what the removed preset left on cards", () => {
       const t = s.create({ projectId: PID, text: `left in ${stage}`, createdBy: "human", status });
       db.run("UPDATE tasks SET stage = ? WHERE id = ?", [stage, t.id]);
       const read = s.get(t.id)!.task;
-      expect(readBoardWorkflow(db, PID).columns.some((c) => c.id === stage)).toBe(false);
+      expect(WORKFLOW_COLUMNS.some((c) => c.id === stage)).toBe(false);
       if (status === "review") expect(awaitsHuman(read)).toBe(true);
     }
   });
 
-  test("applying the default clears the stages the board no longer has", () => {
-    const t = s.create({ projectId: PID, text: "left in ai_review", createdBy: "human", status: "review" });
-    db.run("UPDATE tasks SET stage = 'ai_review' WHERE id = ?", [t.id]);
-    expect(s.applyBoardWorkflow({ scope: PID, preset: "default" }).map((c) => c.id)).toEqual([t.id]);
-    expect(s.get(t.id)!.task.stage).toBeUndefined();
+  test("a row left in board_workflows by the removed preset changes nothing: the card is created and delivered as on any board", () => {
+    db.run("CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
+    db.run("INSERT INTO board_workflows (scope, preset, updated_at) VALUES ('*', 'armonia', ?), (?, 'armonia', ?)", [NOW, PID, NOW]);
+    const h = s.create({ projectId: PID, text: "from a person", createdBy: "human" });
+    expect(h.stage).toBeUndefined();
+    const a = agentCard(db, s);
+    const d = deliver(s, a.id);
+    expect(d.stage).toBeUndefined();
+    expect(awaitsHuman(d)).toBe(true);
   });
 });
 

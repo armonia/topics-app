@@ -3,7 +3,6 @@ import type { Actor, UpdateBoardSettingsPatch } from "./tasks";
 import type { RepoProbe } from "./deliveryReportChecks";
 import { type CheckRun } from "./review-checks";
 import { type LandingAuditCandidate } from "./landing-candidates";
-import { type WorkflowPresetId } from "../../shared/workflow";
 import type { ParkedChildrenDecision } from "../../shared/board";
 import { type LabelSource, type TaskFile } from "../../shared/task-labels";
 import { type Neighbour } from "../../shared/task-similarity";
@@ -379,14 +378,6 @@ export interface TaskService {
    * board's dispatch switch says.
    */
   sweepUnownedBacklog(): Task[];
-  /**
-   * Write a board's workflow preset (`'*'` = the global default; `null`
-   * removes the row) and put back in the default column of their status the
-   * cards whose stage the board's NEW workflow does not have, so none keeps a
-   * stage its board cannot draw.
-   * Returns the cards it moved.
-   */
-  applyBoardWorkflow(args: { scope: string; preset: WorkflowPresetId | null }): Task[];
   /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette

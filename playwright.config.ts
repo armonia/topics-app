@@ -442,6 +442,7 @@ export default defineConfig({
         "**/mobile-screens-under-chrome.spec.ts",
         "**/mobile-bottom-bar-geometry.spec.ts",
         "**/board-mobile-phone.spec.ts",
+        "**/board-touch-targets-44.spec.ts",
         "**/mobile-edge-swipe-no-history.spec.ts",
         // The phone chrome feedback loop (05/10): its own viewport
         // (390x844 with a finger), the engine that ships, runs only in `webkit`.
@@ -671,6 +672,7 @@ export default defineConfig({
         // The board on a phone: the bar that does not scroll, the 44px search,
         // the columns that fill and the room under the last card (05/10).
         "**/board-mobile-phone.spec.ts",
+        "**/board-touch-targets-44.spec.ts",
         // A card that runs on «Cloud Claude»: the board as the desktop shell shows it, and the one
         // card scenario that can be filmed on this Mac (no agent runs here, the cloud is a fake).
         "**/board-cloud-card.spec.ts",
@@ -719,6 +721,9 @@ export default defineConfig({
         // A sub-agent's description is printed once, in the row or in the body, by
         // the measured truncation of the summary: the layout is read where it ships.
         "**/sub-agent-description-cut.spec.ts",
+        // The rows of a transcript on one grid (thinking, tools, sub-agents, cards, background jobs), read where it ships.
+        "**/chat-rows-layout.spec.ts",
+        "**/chat-rows-strip.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.

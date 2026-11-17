@@ -24,6 +24,9 @@ interface Props {
  * "Over" is the moment `partial` drops for this row: in the blocks timeline
  * that is when the next block (an answer, a tool) starts, so the body folds
  * while what follows is just being drawn and nothing already read moves.
+ * It folds in one frame, with that block: the answer and the end of the turn
+ * can arrive in the same read, and a fold still animating when the turn ends
+ * would move the transcript after the end (chat-turn-end-still).
  * A press by the person wins over both automatic states.
  */
 export function ReasoningRow({ content, partial, defaultCollapsed = true, messageId }: Props) {
@@ -57,17 +60,19 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
         type="button"
         onClick={(e) => { disclose(e.currentTarget); setPressed(collapsed); }}
         aria-expanded={!collapsed}
-        className="w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+        className="group/reasoning w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
       >
-        {collapsed ? <ChevronRight size={12} className="text-app-text-muted flex-shrink-0" /> : <ChevronDown size={12} className="text-app-text-muted flex-shrink-0" />}
         <Brain size={13} className="text-purple-500 flex-shrink-0" />
-        <span className="text-app-text">Reasoning</span>
+        <span className="text-app-text">Thinking</span>
         <span className="text-mini text-app-text-muted">({length.toLocaleString()} chars)</span>
+        {/* The chevron sits at the end of the row, on hover and focus only: no column
+            reserved on the left, so the row starts flush with the text. */}
+        {collapsed ? <ChevronRight size={12} aria-hidden="true" className="flex-shrink-0 text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" /> : <ChevronDown size={12} aria-hidden="true" className="flex-shrink-0 text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" />}
         {partial && (
           <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
       </button>
-      <DisclosureBody open={!collapsed} className="ml-1.5 pb-1.5">
+      <DisclosureBody open={!collapsed} instantClose={pressed === null} className="ml-1.5 pb-1.5">
         {/* Prose, not code: the thinking is sentences, in the reading font,
             muted and set off by a rule on the left. */}
         <div

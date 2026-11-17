@@ -11,7 +11,8 @@ import { SilentShellStatus } from './SilentShellStatus';
 import { ToolCardBody } from './ToolCards';
 import { spawnRefusal } from './subagentResult';
 import { toolCardHasBody } from './toolCardBody';
-import { iconForDetail } from './toolIcons';
+import { iconForCall } from './toolIcons';
+import { isEmptySubAgent, workKindOf } from './workKind';
 import { ToolPermissionRow } from './ToolPermissionRow';
 import { QuestionAnswerCard, QuestionAnswerRecap } from './QuestionAnswer';
 import type { AskedQuestion } from './questionAnswers';
@@ -27,6 +28,7 @@ import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFe
 import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
+import { isCommandCall } from '../../../../shared/agent-action';
 import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
 import { startVisibleInterval } from '../../state/documentVisibility';
@@ -242,7 +244,8 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const display = buildToolDisplayLabel(detail, toolCall.name);
   const summaryRef = useRef<HTMLSpanElement>(null);
   const summaryCut = useIsTextCut(summaryRef, display.summary);
-  const Icon = iconForDetail(detail);
+  const Icon = iconForCall(toolCall.name, detail);
+  const workKind = workKindOf(toolCall.name, detail);
   const status = toolCall.status ?? 'pending';
   // A call the server marked `pending` has NOT started: the native runtime
   // announces it while the model writes it and runs it after the calls before
@@ -460,29 +463,12 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
 
   // The header's content, the same in the button (a row with a body) and in
   // the plain row (nothing to open).
-  // Sub-agent rows drop the chevron column and the command name (`Explore`):
-  // the row is icon + description + time, and the type stays in its title.
+  // Every row has the same grid: icon, name, what it is about, then what is
+  // live (clock, cost, loader) and, last, the open/close cue. A sub-agent's
+  // line is prose, not a command, so it has no parentheses and no mono face.
   const isSubAgent = detail.type === 'sub_agent' || detail.type === 'task_card';
   const headerInner = (
         <>
-        {/* Il posto del chevron c'è sempre — occupato o vuoto — o le righe con
-            corpo e quelle senza partirebbero da due colonne diverse. */}
-        {/* The chevron is a hover/focus cue: hidden until the row is hovered
-            or focused, but its 12px column is always reserved so nothing
-            shifts when it appears. Touch (`coarse:`) shows it always, since
-            there is no hover to wait for. The `revealing` spinner is a state
-            and always shows. */}
-        {hasBody && revealing ? (
-          <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
-        ) : isSubAgent ? null : hasBody ? (
-          <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
-            {effectiveOpen
-              ? <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
-              : <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />}
-          </span>
-        ) : (
-          <span className="w-3 flex-shrink-0" aria-hidden="true" />
-        )}
         {/* `Icon` is a stable Lucide component from iconForDetail()'s static
             lookup, not one defined during render; createElement is the
             lint-clean equivalent of `<Icon/>` (react-hooks/static-components). */}
@@ -502,17 +488,15 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               cioè non diceva niente — e teneva occupata una colonna a destra
               per tutte le righe pur di servirne una su cento. */}
           {isError && <X size={11} className="flex-shrink-0 text-red-500 self-center" aria-label={tr('tool.failed')} />}
-          {!isSubAgent && (
-            <span
-              data-testid="tool-call-name"
-              className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
-            >
-              {label ?? display.name}
-            </span>
-          )}
+          <span
+            data-testid="tool-call-name"
+            className={`flex-shrink-0 max-w-[55%] truncate font-medium ${isRunning ? 'text-primary' : isError ? 'text-red-500' : 'text-app-text'}`}
+          >
+            {label ?? display.name}
+          </span>
           {display.summary && isSubAgent && (
             <span
-              className="min-w-0 flex items-baseline text-mini text-app-text-secondary"
+              className="ml-1 min-w-0 flex items-baseline text-mini text-app-text-secondary"
               title={`${display.name}${display.tooltip ? ` · ${display.tooltip}` : ''}`}
             >
               {/* min-w-0: as a flex item it must be allowed to shrink, or it
@@ -527,6 +511,21 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               <span className="flex-shrink-0">)</span>
             </span>
           )}
+        </span>
+        {/* The chevron is a hover/focus cue, hidden until the row is hovered or
+            focused, but its 12px slot is always reserved so nothing shifts when
+            it appears and the rows with no body keep the same columns. Touch
+            (`coarse:`) shows it always. It sits AFTER the text, as in the
+            Thinking row: no empty column on the left. The `revealing` spinner
+            is a state and always shows. */}
+        <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden={hasBody && revealing ? undefined : true}>
+          {hasBody && revealing ? (
+            <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name, { command: isCommandCall(toolCall.name, toolCall.args) })} />
+          ) : hasBody ? (
+            effectiveOpen
+              ? <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
+              : <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/tool:opacity-100 group-focus-within/tool:opacity-100 coarse:opacity-100" />
+          ) : null}
         </span>
         <span className="flex-shrink-0 inline-flex items-center gap-1.5">
           {/* Cronometro vivo SOLO mentre l'agente è davvero dentro al tool.
@@ -583,10 +582,13 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
               al tool, il cerchietto ambra mentre la palla è tua. L'esito, buono
               o cattivo, sta accanto al nome. */}
-          {isRunning && <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />}
+          {isRunning && <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name, { command: isCommandCall(toolCall.name, toolCall.args) })} />}
         </span>
         </>
   );
+
+  // A finished sub-agent call with nothing to say is not a row (see `isEmptySubAgent`).
+  if (isEmptySubAgent(toolCall, detail)) return null;
 
   return (
     <div
@@ -600,16 +602,14 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
       // riga, e adesso è scritto dove vive davvero.
       data-status={status}
+      // A sub-agent (another chat that works and comes back) or background
+      // work (a process that wakes the chat when it ends), when it is one.
+      data-work-kind={workKind}
       data-highlighted={highlighted ? 'true' : undefined}
-      className={`text-compact rounded-md transition-colors ${enteredLive ? 'stream-fade' : ''} ${
-        // "In use" state must be unmissable: the active tool gets a soft
-        // primary tint + hairline ring (negative margin keeps the text
-        // column aligned with settled rows). Settled rows stay flat.
-        // `ring-inset`: il margine negativo porta la riga 6px oltre la colonna
-        // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
-        // bordo veniva tagliato a metà proprio sui due lati lunghi.
-        isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
-      } ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
+      // Flat, running or not: the live tool says so with its primary icon and
+      // name, its clock and its loader. A tinted box with its own radius and a
+      // negative margin put it off the grid of the rows around it.
+      className={`text-compact rounded-md transition-colors ${enteredLive ? 'stream-fade' : ''} ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
     >
       {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
           disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da

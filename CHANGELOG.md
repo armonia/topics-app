@@ -2,10 +2,148 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.29 — 2026-11-17
+## 2.4.42 — 2026-11-17
+
+### Sotto il cofano
+- Consumi per persona: mittente vero dei canali, registro d'uso esterno, «Chi ha consumato» (#1228)
+- Pannello delle domande: il tetto toglie anche la barra sopra la pane e ciò che sta sotto (#1234)
+- ssh del nodo cloud senza marcatura DSCP: IPQoS=none
+- ssh del nodo cloud con DSCP af41, scp senza marcatura
+- harness-sync: anche ssh_opts usa DSCP af41
+- accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)
+- Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)
+- Marcatore persistente per le chat di sistema degli agenti (system_chats)
+- l'esempio della foto della tray torna a compilare (#1248)
+- Manifest delle migrazioni rigenerato
+- stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)
+- il testo lungo via /send arriva intero come paste (TERM-SEND-01)
+- una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
+- topics/tawny-marble (card 7749cf36) (#1247)
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
+- ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
+- il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
+
+## 2.4.41 — 2026-11-17
+
+### Correzioni
+- **board** · un turno di chat non promuove card che la chat ha aperto per sé (#1230)
+
+### Sotto il cofano
+- Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)
+- Pannello delle domande a scelte: resta dentro la pane e scorre dentro di sé (#1229)
+- righe di tool, sottoagenti e card sulla stessa griglia (#1227)
+- Tab e riga di una chat col turno chiuso dicono cosa aspettano (sottoagente, processo, lavoro) (#1225)
+- il loader non si ferma più quando apri il menu (#1232)
+- an unreachable node says so in three words, not with the transport's timeout message
+
+## 2.4.40 — 2026-11-17
+
+### Correzioni
+- **chat** · una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)
+
+### Sotto il cofano
+- node cards hide technical names and link the PC by name
+- rewrite the Italian code comments in English so the comment-language gate passes
+- a provider firewall in front of a node wins over its own ufw reading
+- Add an e2e spec measuring every board button at 44px under a coarse pointer (375 and 768)
+- Fix the touch target spec: an empty audit list is the pass, count the board buttons separately
+- Widen the sidebar 'action' toggle touch area to 44px
+- Make the card preview commands a 44px always-visible target under a coarse pointer
+- name the OS tools the security probes read, and spell out a regex the linter counts as hard
+- write the health file where the tray reads it, not in the server's data folder
+
+## 2.4.39 — 2026-11-17
+
+### Sotto il cofano
+- node cards say memories, code and security, with small charts
+- per-machine security probes and 24h history in machines-health.json for the tray
+- harness-sync: put each project's memory where Claude Code on the node looks for it
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- harness-sync: stop rsync --delete from wiping the node's own folders
+- nodo principale scelto a mano (analisi, proposta, tracce)
+- nodo principale per tutto il sistema agentico (strada completa, mappa, account)
+- sul principale i modelli Claude solo da abbonamento, con barra in T2
+- harness-sync: raise the open-files limit under launchd
+- harness-sync: resend at once what the node lost, without waiting for the 15 minute retry gate
+- Drop the empty left column from the Thinking row (#1223)
+
+## 2.4.38 — 2026-11-17
+
+### Sotto il cofano
+- Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+- cloud-node: carry the Mac's agent rules and memories to the nodes, with the private part encrypted at rest
+
+## 2.4.37 — 2026-11-17
+
+### Sotto il cofano
+- verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)
+
+## 2.4.36 — 2026-11-17
+
+### Sotto il cofano
+- baseline follows the scores that rose tonight
+- F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)
+
+## 2.4.35 — 2026-11-17
+
+### Sotto il cofano
+- **git-status-native** · force a fresh generation between the disabled and native rounds (#1216)
+
+## 2.4.34 — 2026-11-17
+
+### Sotto il cofano
+- la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma
+- topics/sleepy-phantom (card 3d431e73) (#1210)
+- sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader
+- **deploy-outcome** · 2 s deadline cap so a slow shell start still prints before it
+- Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)
+
+## 2.4.33 — 2026-11-17
+
+### Sotto il cofano
+- Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)
+
+## 2.4.32 — 2026-11-17
+
+### Sotto il cofano
+- an archived chat that launched work after being archived is alive (#1195)
+- Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)
+- in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)
+- topics/brassy-hour (card 2a1f2e84) (#1208)
+
+## 2.4.31 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)
+- la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)
+
+## 2.4.30 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)
+- topics/patient-badger (card 3c348ab4) (#1191)
+- node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac
+- toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
+- Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
+- un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
+- toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
+- il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
+- note on ghost queued CI runs that the API cannot cancel (#1179)
+
+## 2.4.29 — 2026-11-16
 
 ### Correzioni
 - **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
+### Sotto il cofano
+- Align the reworded-wait test with agent waits staying in todo
+
+## 2.4.28 — 2026-11-16
+
+### Sotto il cofano
+- Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog
 
 ## 2.4.27 — 2026-11-16
 

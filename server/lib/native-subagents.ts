@@ -29,7 +29,7 @@ import type { SubAgentOutcome } from "./subagent-result";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { claimTurnReport, getSubagent, getSubagentBySessionKey, insertSubagent, isSubagentEngaged, lastReportedTurnStatus, lastUnreportedTurn, moveSubagentToEngine, recordTurnStarted, runningSubagents, setSubagentState, subagentRuntimeReason, turnWasReported, type SubagentRow } from "./subagent-store";
 import { migratedChildPromptFor } from "./subagent-migration";
-import { childPhase, cliChildPhaseNow, noteChildSeeded, reportNativeChildTurn, runtimeOf, subagentWakeOwed } from "./subagent-runtime";
+import { childPhase, cliChildPhaseNow, noteChildSeeded, reportNativeChildTurn, setChildPhase, subagentWakeOwed } from "./subagent-runtime";
 import { onTurnEnd, onTurnStart, type TurnStartMeta } from "../providers/turn-end-registry";
 import { internalAbortRequest, internalRequest } from "./abort-cause";
 import { profileInstructions, type AgentProfile } from "./agent-profiles";
@@ -650,7 +650,7 @@ async function runDrivenTurn(id: string, text: string, opts: { refusalIsResult: 
       answered({ ok: false, status: status >= 400 ? status : 502, error: routeError });
       if (!openTurn.has(id) && getSubagent(db, id)?.state === "running" && row0.state !== "running") {
         setSubagentState(db, id, row0.state);
-        runtimeOf(id).phase = "finished";
+        setChildPhase(id, "finished");
       }
       return;
     }
@@ -717,7 +717,7 @@ function reportTurn(id: string, turnId: string, opts: { end: TurnEndInfo | null;
   // (SUBAGENT-19). Looked at again until the work is over (`watchWaitingChild`).
   const completed = outcome.status === "completed";
   if (getSubagent(db, id)?.state === "running" && stillWorkingFor(row.sessionKey)) {
-    runtimeOf(id).phase = "working";
+    setChildPhase(id, "working");
     watchWaitingChild(id, completed);
     return;
   }
@@ -738,7 +738,7 @@ function closeTurn(id: string, completed: boolean): void {
   if (!row?.sessionKey) return;
   const retiredNow = row.state === "running";
   if (retiredNow) setSubagentState(db, id, "retired");
-  runtimeOf(id).phase = "finished";
+  setChildPhase(id, "finished");
   const topic = retiredNow && completed ? deps?.getTopicBySessionKey(row.sessionKey) : null;
   if (deps && topic && !topic.archived && !isSubagentEngaged(db, id)) {
     // The state above is already `retired`, so no later tick would come back

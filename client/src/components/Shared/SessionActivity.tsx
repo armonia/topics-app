@@ -16,10 +16,13 @@
 // test unitario che lo monta — `SessionActivity.test.ts`.
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart } from '../../state/signals';
+import { useSessionActivity, useSubjectLastActivity, useProjectWorkStart, useTopicWaitingOn } from '../../state/signals';
+import { useTopicAction } from '../../state/agentActionHooks';
+import { loaderActivityForAction } from '../Layout/loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
+import type { WaitingOn } from '../../state/backgroundWork';
 import { timeToneClass, timeVoice } from './timeTone';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
@@ -181,8 +184,21 @@ export function TopicSubline({ topicId, onFill, className = '' }: {
   className?: string;
 }) {
   const activity = useSessionActivity(topicId);
+  // A closed turn that waits on work says WHAT, in words, where the last message would sit (BGVIS-10).
+  const waitingOn = useTopicWaitingOn(topicId);
   if (activity) return <SessionActivityText subjectId={topicId} onFill={onFill} className={className} />;
+  if (waitingOn) return <WaitingLine on={waitingOn} onFill={onFill} className={className} />;
   return <TopicPreviewLine topicId={topicId} onFill={onFill} className={className} />;
+}
+
+function WaitingLine({ on, onFill, className = '' }: { on: WaitingOn; onFill?: boolean; className?: string }) {
+  const tr = useT();
+  const text = tr(`topic.waitLine.${on}`);
+  return (
+    <span className={`truncate-tight text-mini ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-secondary'} ${className}`} title={text} data-testid="topic-waiting-on" data-waiting-on={on}>
+      {text}
+    </span>
+  );
 }
 
 function TopicPreviewLine({ topicId, onFill, className = '' }: {
@@ -287,6 +303,8 @@ function ProjectElapsedTicking({ startedAt, onFill, className = '' }: {
  */
 export function SessionActivityBar({ subjectId, className = '' }: { subjectId: string | undefined; className?: string }) {
   const activity = useSessionActivity(subjectId);
+  // The bar sits in a chat (subjectId is its topic): the loader plays what its agent is doing.
+  const action = useTopicAction(subjectId);
   if (!activity) return null;
   // Il blu qui era `bg-sky-500`, cioè una tinta DIVERSA da quella dei fill di
   // tab e riga: due superfici che dicono la stessa cosa con due blu. Ora vengono
@@ -299,7 +317,7 @@ export function SessionActivityBar({ subjectId, className = '' }: { subjectId: s
   return (
     <div className={`flex items-center gap-2 px-3 py-1.5 border-b border-app-border bg-surface flex-shrink-0 ${className}`}>
       {activity.working || activity.tier === 'input'
-        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} />
+        ? <SparkLoader className="flex-shrink-0" state={activity.working ? 'working' : 'waiting'} activity={activity.working ? loaderActivityForAction(action) : undefined} />
         : <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot}`} />}
       <SessionActivity subjectId={subjectId} className="!text-compact" />
     </div>
