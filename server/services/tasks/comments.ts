@@ -3,10 +3,8 @@ import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { INTERRUPT_CLAIM_MS, TaskServiceError, REOPEN_COMMENT_SLACK_MS } from "./shared";
 import { NUDGE_CLAIM_MS, gateNudge } from "../nudge-gate";
-import { STAGE_AI_REVIEW } from "../../../shared/workflow";
 import { type TaskComment, hasPlanApproveOption, HUMAN_AUTHOR } from "../../../shared/board";
 import { isAgentAuthor } from "../../../shared/comment-author";
-import { routeAskOutOfAiReview } from "../board-workflow";
 
 export function createCommentsMethods(db: Database, opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "recheckRecentDeliveries" | "addComment" | "claimInterruption" | "pendingHumanReopen" | "claimNudge" | "markInterrupted" | "noteStranded"> {
   const {
@@ -204,8 +202,6 @@ addComment({ taskId, author, content, mentions, media, projectId, questionOption
       // drawer, review card) see a change signal and refetch — without this, a
       // new comment broadcasts task:updated but the payload looks identical.
       db.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run(ts, taskId);
-      // A question for the person takes the card out of AI review.
-      if (row.status === "review" && row.stage === STAGE_AI_REVIEW && commentKind !== "service") routeAskOutOfAiReview(db, row, author, body);
       // QUALE commento è il piano: lo si SCRIVE qui, non lo si indovina dopo.
       // Il segnale è il contratto piano-prima — un task `plan_first` + un blocco
       // question che offre l'approvazione del piano, scritto da un agente (mai

@@ -1,7 +1,7 @@
 /**
  * Pieces of the tasks routes that more than one sibling module needs: error codes, the review-ready edge, process stop, server repo check.
  */
-import { STAGE_AI_REVIEW, awaitsHuman } from "../../shared/workflow";
+import { awaitsHuman } from "../../shared/workflow";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -16,11 +16,6 @@ export const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
-  // The two gates of a board workflow (shared/workflow.ts): closing an AI
-  // review without the proof, reaching Human review without the question.
-  // State refusals like the one above, not permissions.
-  ai_review_needs_proof: 409,
-  human_review_needs_ask: 409,
   // A card the board ALREADY labelled `visibile` has a surface someone will
   // look at, so it delivers with a preview. 409 like the other review gates:
   // the delivery is refused for its state, not for a missing permission.
@@ -63,16 +58,9 @@ export function emitReviewReadyEdge(
    * be a query for nothing.
    */
   resolveComments?: () => readonly PendingQuestionComment[] | null | undefined,
-  /**
-   * The column the card was in. A card that moves from AI review to Human
-   * review does not change status, and it is exactly the moment it starts
-   * waiting on the person.
-   */
-  prevStage?: string | null,
 ): void {
-  // Only what waits on a PERSON rings: a card in AI review goes back to whoever
-  // opened it (`awaitsHuman`, rule of 28/10).
-  const entered = !!task && task.status === "review" && (prevStatus !== "review" || prevStage === STAGE_AI_REVIEW);
+  // Only what waits on a PERSON rings (`awaitsHuman`).
+  const entered = !!task && task.status === "review" && prevStatus !== "review";
   if (task && entered && awaitsHuman(task)) {
     let question: { text: string; options: string[] } | null = null;
     // Best-effort: a thread read that fails must not swallow the edge (a banner

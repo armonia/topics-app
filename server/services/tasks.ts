@@ -7,7 +7,6 @@ import { parseCreatedBy } from "../../shared/created-by";
 
 import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
 
-import { STAGE_AI_REVIEW, namesHumanReviewWithoutAsk, stageAtBirth } from "../../shared/workflow";
 
 import { dropStageOutsideTarget, readBoardWorkflow } from "./board-workflow";
 
@@ -97,7 +96,6 @@ export type { ServiceOpts, TaskService };
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
   const shared = createTasksShared(db, opts);
   const {
-    announceAiReview,
     archiveSubtree,
     assertBlockerValid,
     checkedStage,
@@ -283,19 +281,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const bornAsk = (input.humanAsk ?? "").trim() || null;
       if (!input.parentTaskId) {
         const columns = readBoardWorkflow(db, input.projectId).columns;
-        if (namesHumanReviewWithoutAsk(columns, { status, createdBy: parseCreatedBy(input.createdBy), humanAsk: bornAsk, stage: input.stage })) {
-          throw new TaskServiceError("human_review_needs_ask", "a card reaches Human review with a question for the person: send `human_ask` with what they have to look at or decide.");
-        }
-        if (input.stage) {
-          birthStage = checkedStage(columns, input.stage, status);
-        } else if (input.stage === undefined) {
-          birthStage = stageAtBirth(columns, {
-            status,
-            createdBy: parseCreatedBy(input.createdBy),
-            complete: input.priority !== undefined && !!(input.description ?? "").trim(),
-            humanAsk: bornAsk,
-          });
-        }
+        if (input.stage) birthStage = checkedStage(columns, input.stage, status);
       }
 
       // THE AGENT-CARD CONTRACT, in the one place every door goes through
@@ -355,8 +341,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (birthStage) db.prepare("UPDATE tasks SET stage = ? WHERE id = ?").run(birthStage, id);
       if (bornAsk && status === "review") db.prepare("UPDATE tasks SET human_ask = ? WHERE id = ?").run(bornAsk, id);
       if (input.parentTaskId) releaseContainerFromCardContract(input.parentTaskId);
-      // Born in AI review: whoever opened it is told, as on any other entry.
-      if (birthStage === STAGE_AI_REVIEW && status === "review") announceAiReview(id);
       return rowToTask(getTaskRow(id));
     },
 

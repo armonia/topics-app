@@ -8,8 +8,7 @@ import { holdUntilLabel, onProviderHold, configureProviderHoldStore, onPlanUsage
 import { wireHoldToResume } from "../lib/provider-hold-broadcast";
 import { resolveStateDir } from "../lib/data-dir";
 import { existsSync } from "fs";
-import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { startAiReviewNotices } from "../services/ai-review-notice";
+import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { startCardOutcomeWake } from "../services/card-outcome-wake";
 import { logActivity } from "../db/activity-log";
 import { endReattachLeg } from "../lib/closed-outside";
@@ -580,26 +579,6 @@ export function bootReattach(scope: AfterGovernor) {
         return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
       },
       log: (m) => console.log(`[subagent-wake] ${m}`),
-    }));
-
-  // A card that enters AI review wakes whoever has to close it (its opener's
-  // chat, or the coordinator), on the same condition as the two above.
-  void survivingTurnsAdopted
-    .catch(() => { /* logged by the chain below */ })
-    .then(() => startAiReviewNotices({
-      route: topicsRouter,
-      isBusy: (sk) => activeStreams.has(sk),
-      sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
-      canWake: (sk) => {
-        const topic = ctx.getTopicBySessionKey(sk);
-        if (!topic || wakeVerdict({ id: topic.id, archived: topic.archived }, (id) => runningTaskOwnsTopic(ctx.db, id), (id) => stoppedSubagentChat(ctx.db, id)) !== "adopt") return "row";
-        return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
-      },
-      coordinatorSessionKey: () => eligibleGlobalOrchestratorSessionKey(ctx.db),
-      isCoordinatorSession: (sk) => isGlobalOrchestratorSession(ctx.db, sk),
-      broadcast: (msg) => ctx.broadcastToAll(msg),
-      recordActivity: logActivity,
-      log: (m) => console.log(`[ai-review] ${m}`),
     }));
 
   // A card a chat sent to work wakes that chat when it reaches review or done,

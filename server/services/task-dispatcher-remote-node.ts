@@ -1024,8 +1024,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       // Same edge the local system delivery emits: without it the review-ready
       // notification never fires for a card that never passed through the route.
-      // Only a card that waits on a PERSON rings: one routed to AI review goes
-      // back to whoever opened it (`awaitsHuman`, shared/workflow.ts).
+      // Only a card that waits on a PERSON rings (`awaitsHuman`, shared/workflow.ts).
       if (awaitsHuman(delivered)) {
         try {
           host.broadcast({

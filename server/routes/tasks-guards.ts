@@ -1,7 +1,6 @@
 /**
  * Request guards of the tasks routes: attachments, session resolution, review and fan-out gates.
  */
-import { STAGE_AI_REVIEW } from "../../shared/workflow";
 import { existsSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { TASK_STATUSES, type TaskStatus } from "../../shared/board";
@@ -670,8 +669,8 @@ export function createTasksGuards(core: TasksCore, late: TasksLate) {
         // ownership carve-out would make a registry-authorized cross-board
         // coordinator depend on whichever task happens to own its Topic.
         patch: parsed.patch,
-        // What it has instead is the coordinator's own carve-out: closing a
-        // card in AI review in place of an opener that has no chat to do it.
+        // What it has instead is the coordinator's own carve-out: writing the
+        // question for the person on a card whose opener has no chat to do it.
         asCoordinator: true,
       });
       if (prevStatus !== "done" && task.status === "done") requestCardProcessStop(opts, taskId);
@@ -688,12 +687,8 @@ export function createTasksGuards(core: TasksCore, late: TasksLate) {
         else if (prevStatus === "todo") dispatcher.onLeaveTodo(taskId);
         if (task.status === "done") dispatcher.onBlockerDone(taskId);
       }
-      // An AI review closed in the opener's place lands like a person's approval.
-      if (prevStatus === "review" && prev?.stage === STAGE_AI_REVIEW && task.status === "done" && task.deliveryBranch) {
-        enqueueLandOnDone(projectId, taskId, task.deliveryBranch);
-      }
       emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
-        () => svc.get(task.id)?.comments, prev?.stage ?? null);
+        () => svc.get(task.id)?.comments);
       triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
       return json(task);
     } catch (e) { return fail(e); }

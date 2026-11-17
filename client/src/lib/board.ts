@@ -679,7 +679,7 @@ export interface BoardTask {
   channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
-  /** The question for the person the delivery carried (Human review). */
+  /** The question for the person the delivery carried. */
   humanAsk?: string;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
@@ -873,7 +873,7 @@ export function __resetFeedRevalidation(): void {
 
 export interface CreateTaskBody {
   text: string;
-  /** The workflow column to be born in; absent = the server decides (Triage for a person's card). */
+  /** The workflow column to be born in; absent = the default column of its status. */
   stage?: string;
   description?: string | null;
   priority?: number;
@@ -1368,9 +1368,6 @@ export const boardApi = {
   /** The board's workflow: its columns, which preset, and whether it is chosen HERE (`own`) or inherited. */
   getWorkflow: (projectId: string) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`),
-  /** Choose this board's preset; `null` goes back to inheriting the global one. */
-  setWorkflow: (projectId: string, preset: WorkflowPresetId | null) =>
-    req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify({ preset }) }),
   /** Write the workflow's rules; only the keys present change, `null` = inherit. */
   setWorkflowRules: (projectId: string, patch: WorkflowRulesRow) =>
     req<BoardWorkflowView>(`/boards/${enc(projectId)}/workflow`, { method: 'PUT', body: JSON.stringify(patch) }),
