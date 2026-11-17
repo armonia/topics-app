@@ -175,6 +175,8 @@ describe('the rows of what works now', () => {
     test('keeps its row while no card says how it ended, and a live child keeps it even with an old card', async () => {
       const h = await mountedFor(SK);
       expect(hosts(h, 'subagent-row').map((n) => n.props['data-subagent-id'])).toEqual(['cli-1', 'nat-1', 'old-1']);
+      // The first strip is unmounted first: a second one left mounted would keep answering the frames of the tests after it.
+      harness?.unmount();
       __resetMessageStore();
       seed('cli-1', 'completed');
       const again = await mountedFor(SK);
