@@ -92,9 +92,9 @@ describe("(b) backfill", () => {
   });
   test("un id visto col segno di proprietario resta suo anche dove il segno manca", () => {
     const db = makeDb();
-    const ins = db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES (?, 's', 'user', ?, '2026-11-01T00:00:00Z', ?)");
-    ins.run("m1", '<messaggio da="Io (10000000000000000009)" proprietario="sì">a', OWNER);
-    ins.run("m2", '<messaggio da="Io (10000000000000000009)">b', OWNER);
+    const insert = db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES (?, 's', 'user', ?, '2026-11-01T00:00:00Z', ?)");
+    insert.run("m1", '<messaggio da="Io (10000000000000000009)" proprietario="sì">a', OWNER);
+    insert.run("m2", '<messaggio da="Io (10000000000000000009)">b', OWNER);
     const r = backfillMessageSenders(db, { apply: true });
     expect(r.changed).toBe(0);
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(1);
@@ -109,11 +109,11 @@ describe("(b) backfill", () => {
   });
   test("scrive gli autori, dry run non tocca nulla, rieseguibile", () => {
     const db = makeDb();
-    const ins = db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES (?, 's', 'user', ?, '2026-11-01T00:00:00Z', ?)");
-    ins.run("m1", '<messaggio da="Ann (10000000000000000001)">a', OWNER);
-    ins.run("m2", '<messaggio da="Ann (10000000000000000001)">b', OWNER);
-    ins.run("m3", '<messaggio da="Io (921)" proprietario="sì">c', null);
-    ins.run("m4", "scritto a mano", OWNER);
+    const insert = db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES (?, 's', 'user', ?, '2026-11-01T00:00:00Z', ?)");
+    insert.run("m1", '<messaggio da="Ann (10000000000000000001)">a', OWNER);
+    insert.run("m2", '<messaggio da="Ann (10000000000000000001)">b', OWNER);
+    insert.run("m3", '<messaggio da="Io (921)" proprietario="sì">c', null);
+    insert.run("m4", "scritto a mano", OWNER);
     const dry = backfillMessageSenders(db, { apply: false });
     expect(dry.changed).toBe(3);
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(1);
@@ -134,13 +134,13 @@ describe("(c) person-usage", () => {
   const H0 = Date.UTC(2026, 10, 10, 10);
   test("punti per ora: aumenti per account, un calo è un reset che conta il valore nuovo", () => {
     const t = (ms: number) => ms / 1000;
-    const pts = pointsPerHour([
+    const points = pointsPerHour([
       { t: t(H0), s: { "claude|a|7d": 10, "claude|b|7d": 50, "codex|a|7d": 1 } },
       { t: t(H0 + 30 * 60_000), s: { "claude|a|7d": 14, "claude|b|7d": 51, "codex|a|7d": 90 } },
       { t: t(H0 + HOUR_MS + 1), s: { "claude|a|7d": 3, "claude|b|7d": 51 } },
     ], H0 - 1, H0 + 2 * HOUR_MS);
-    expect(pts.get(Math.floor(H0 / HOUR_MS))).toBe(5);
-    expect(pts.get(Math.floor(H0 / HOUR_MS) + 1)).toBe(3);
+    expect(points.get(Math.floor(H0 / HOUR_MS))).toBe(5);
+    expect(points.get(Math.floor(H0 / HOUR_MS) + 1)).toBe(3);
   });
   test("i punti dell'ora si dividono in proporzione al peso", () => {
     const c = (ts: number, weight: number): Call => ({ ts, weight, personId: null, chatKey: "s", requestId: null, requestText: "", source: "native" });
@@ -184,9 +184,9 @@ describe("(c) person-usage", () => {
       // 10 points in one hour split by weight: 555/1000 to Ann
       expect(byName.Ann!.accountPct).toBe(5.6);
       expect(byName.Owner!.accountPct).toBe(4);
-      const det = personDetail(c, db as never, "ann");
-      expect(det.requests).toHaveLength(1);
-      expect(det.requests[0]).toMatchObject({ chatName: "Chat", requestId: "u1", calls: 3 });
+      const detail = personDetail(c, db as never, "ann");
+      expect(detail.requests).toHaveLength(1);
+      expect(detail.requests[0]).toMatchObject({ chatName: "Chat", requestId: "u1", calls: 3 });
       // no history: it says so and gives only the weighted tokens
       const none = peopleUsage(computeCalls(db as never, { days: 1, now: H0 + 2 * HOUR_MS, historyFile: join(dir, "manca.jsonl"), readTranscript: () => [] }), db as never);
       expect(none.quotaHistory).toBe(false);
@@ -205,13 +205,13 @@ describe("(d) POST /api/usage/records", () => {
     const req = new Request("http://x/api/usage/records", { method: "POST", body: JSON.stringify(body) });
     return router(req, new URL(req.url), "/api/usage/records", "POST");
   };
-  const rec = { id: "turn-1", ts: Date.UTC(2026, 10, 10), model: "claude", purpose: "channel-turn", inputTokens: 10, outputTokens: 2, sender: { channel: "discord", id: "5", name: "Cy" } };
+  const record = { id: "turn-1", ts: Date.UTC(2026, 10, 10), model: "claude", purpose: "channel-turn", inputTokens: 10, outputTokens: 2, sender: { channel: "discord", id: "5", name: "Cy" } };
 
   test("idempotente sull'id del chiamante, con l'autore", async () => {
     const db = makeDb();
     const router = createUsageRouter(ctxOf(db));
-    expect((await post(router, rec))!.status).toBe(201);
-    const again = await post(router, rec);
+    expect((await post(router, record))!.status).toBe(201);
+    const again = await post(router, record);
     expect(again!.status).toBe(200);
     expect(await again!.json()).toMatchObject({ id: "turn-1", duplicate: true });
     const rows = db.query("SELECT author_person_id p FROM usage_records").all() as Array<{ p: string }>;
@@ -220,7 +220,7 @@ describe("(d) POST /api/usage/records", () => {
   });
   test("rifiuta un corpo incompleto e un ospite", async () => {
     const db = makeDb();
-    expect((await post(createUsageRouter(ctxOf(db)), { ...rec, sender: undefined }))!.status).toBe(400);
-    expect((await post(createUsageRouter(ctxOf(db, "guest")), rec))!.status).toBe(403);
+    expect((await post(createUsageRouter(ctxOf(db)), { ...record, sender: undefined }))!.status).toBe(400);
+    expect((await post(createUsageRouter(ctxOf(db, "guest")), record))!.status).toBe(403);
   });
 });

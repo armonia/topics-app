@@ -95,9 +95,9 @@ export function backfillMessageSenders(db: Database, opts: { apply: boolean }): 
     if (!opts.apply) throw new DryRun();
   };
   try { db.transaction(run)(); } catch (e) { if (!(e instanceof DryRun)) throw e; }
-  const labelled = new Map<string, number>();
-  for (const [pid, n] of res.byPerson) labelled.set(`${names.get(pid)} [${pid.slice(0, 8)}]`, n);
-  res.byPerson = labelled;
+  const named = new Map<string, number>();
+  for (const [pid, n] of res.byPerson) named.set(`${names.get(pid)} [${pid.slice(0, 8)}]`, n);
+  res.byPerson = named;
   return res;
 }
 

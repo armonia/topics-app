@@ -120,11 +120,11 @@ export type TranscriptReader = (cwd: string, claudeSessionId: string) => Array<{
 export const readTranscriptCalls: TranscriptReader = (cwd, sid) => {
   const file = findClaudeTranscript(cwd, sid);
   if (!file) return [];
-  let txt: string;
-  try { txt = readFileSync(file, "utf8"); } catch { return []; }
+  let raw: string;
+  try { raw = readFileSync(file, "utf8"); } catch { return []; }
   const seen = new Set<string>();
   const out: Array<{ ts: number; usage: TokenUsage }> = [];
-  for (const line of txt.split("\n")) {
+  for (const line of raw.split("\n")) {
     if (!line.includes('"usage"')) continue;
     let o: { type?: string; uuid?: string; timestamp?: string; message?: { id?: string; usage?: Record<string, number | undefined> } };
     try { o = JSON.parse(line); } catch { continue; }
@@ -158,13 +158,13 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   const lines = new Map<string, AuthorMark[]>();
   // Rows written by the machine (subagent results, end of a process, goal
   // nudge) continue the work of whoever asked for it: they do not change the author.
-  const users = db.query(`SELECT id, session_key sk, timestamp ts, author_person_id pid, substr(content, 1, 4000) txt,
+  const users = db.query(`SELECT id, session_key sk, timestamp ts, author_person_id pid, substr(content, 1, 4000) text,
       (blocks LIKE '%"kind":"dispatched-envelope"%' AND content NOT LIKE '%<messaggio da=%') machine
     FROM messages WHERE role = 'user' AND timestamp > ? AND timestamp <= ?
       AND (blocks IS NULL OR (blocks NOT LIKE '%"kind":"subagent-result"%' AND blocks NOT LIKE '%"kind":"process-exit"%'
         AND blocks NOT LIKE '%"kind":"goal-nudge"%'))
     ORDER BY timestamp`)
-    .all(iso(o.sinceMs - 7 * 24 * HOUR_MS), iso(o.untilMs)) as Array<{ id: string; sk: string; ts: string; pid: string | null; txt: string; machine: number }>;
+    .all(iso(o.sinceMs - 7 * 24 * HOUR_MS), iso(o.untilMs)) as Array<{ id: string; sk: string; ts: string; pid: string | null; text: string; machine: number }>;
   for (const u of users) {
     const ts = Date.parse(u.ts);
     if (!Number.isFinite(ts)) continue;
@@ -173,7 +173,7 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
     // A machine notice with no sender (work done, board nudge) inside a conversation
     // someone already started continues their work; in a new chat it opens the line.
     if (u.machine && l.length) continue;
-    l.push({ ts, personId: u.pid, messageId: u.id, text: requestTextOf(u.txt ?? "") });
+    l.push({ ts, personId: u.pid, messageId: u.id, text: requestTextOf(u.text ?? "") });
   }
 
   const subs = db.query(`SELECT parent_session_key psk, session_key sk, claude_session_id csid, cwd, runtime, created_at
@@ -233,11 +233,11 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   }
 
   // Registry rows: calls outside the engine (sandboxed channels, service calls).
-  const recs = db.query(`SELECT timestamp ts, session_key sk, author_person_id pid, purpose, COALESCE(input_tokens,0) i, COALESCE(output_tokens,0) o,
+  const records = db.query(`SELECT timestamp ts, session_key sk, author_person_id pid, purpose, COALESCE(input_tokens,0) i, COALESCE(output_tokens,0) o,
       COALESCE(cache_read_tokens,0) cr, COALESCE(cache_creation_tokens,0) cw
     FROM usage_records WHERE timestamp > ? AND timestamp <= ? AND measured = 1`)
     .all(o.sinceMs, o.untilMs) as Array<{ ts: number; sk: string; pid: string | null; purpose: string | null; i: number; o: number; cr: number; cw: number }>;
-  for (const r of recs) {
+  for (const r of records) {
     const weight = weighTokens({ input: r.i, output: r.o, cacheWrite: r.cw, cacheRead: r.cr });
     const mark = r.pid ? null : authorAt(r.sk, r.ts);
     const c = make(r.ts, weight, r.sk, mark, "record", r.pid ?? mark?.personId ?? null);
@@ -270,9 +270,9 @@ export function computeCalls(db: Database, o: { days: number; now?: number; hist
   const history = readHistory(o.historyFile ?? usageHistoryFile());
   let totalPoints: number | null = null, attributedPoints: number | null = null;
   if (history) {
-    const pts = pointsPerHour(history, sinceMs, untilMs);
-    splitPoints(calls, pts);
-    totalPoints = [...pts.values()].reduce((s, x) => s + x, 0);
+    const hourPoints = pointsPerHour(history, sinceMs, untilMs);
+    splitPoints(calls, hourPoints);
+    totalPoints = [...hourPoints.values()].reduce((s, x) => s + x, 0);
     attributedPoints = calls.reduce((s, c) => s + (c.points ?? 0), 0);
   }
   return { calls, meta: { days: o.days, since: new Date(sinceMs).toISOString(), until: new Date(untilMs).toISOString(), quotaHistory: !!history, totalPoints, attributedPoints } };
