@@ -100,7 +100,7 @@ export function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: 
   const primaryCls = task.checksState === 'fail' && d.primary === 'accept'
     ? 'bg-amber-700 hover:bg-amber-800 text-white'
     : 'bg-emerald-700 hover:bg-emerald-800 text-white';
-  const neutralCls = 'bg-white/10 text-app-text hover:bg-white/20';
+  const neutralCls = 'bg-black/5 dark:bg-white/10 text-app-text hover:bg-black/10 dark:hover:bg-white/20';
   // THE GLYPHS COME FROM THE SINGLE TABLE, not from here. They used to be
   // `ShieldCheck` and `ShieldX`, the CHECKS shields: on the same screen the
   // green shield is already the «checks green» chip, so the button that closes
@@ -275,7 +275,7 @@ deliveryOpen && task ? (
                       href={getMediaUrl(p)}
                       download={name}
                       title={tr('board.task.downloadFileTitle')}
-                      className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-white/10 hover:text-white"
+                      className="shrink-0 rounded p-1 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-white"
                     ><Download className="h-3.5 w-3.5" /></a>
                   </li>
                 );
@@ -299,7 +299,7 @@ deliveryOpen && task ? (
               <div className="flex flex-wrap items-center gap-2">
                 {isAgentReview && <button disabled={recapturing} onClick={recapturePreview}
                   title={tr('board.task.recapturePreviewTitle')} data-testid="task-recapture-preview"
-                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-40">
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40">
                   {recapturing ? <Spinner size="sm" tone="current" /> : <Camera className="h-3 w-3" />}{tr('board.task.recapturePreview')}
                 </button>}
               </div>
@@ -348,7 +348,7 @@ deliveryOpen && task ? (
                       title={tr('board.task.removeTabTitle')}
                       aria-label={tr('board.task.removeTabTitle')}
                       data-testid="parked-tab-remove"
-                      className="tap-expand-y mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100 focus-visible:opacity-100 coarse:p-1.5 coarse:opacity-100"
+                      className="tap-expand-y mr-1 rounded p-0.5 text-app-text-muted opacity-0 hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text group-hover/prev:opacity-100 focus-visible:opacity-100 coarse:p-1.5 coarse:opacity-100"
                     ><X className="h-3 w-3" /></button>
                   </div>
                 );
@@ -392,7 +392,7 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
           className="flex shrink-0 items-start justify-between gap-2 border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-mini text-sky-300"
         >
           <span>{notice}</span>
-          <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
+          <button aria-label={tr('board.task.closeError')} onClick={() => setNotice(null)} className="tap-expand shrink-0 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10 coarse:p-1.5"><X className="h-3 w-3" /></button>
         </div>
       )}
       {/* Land QUEUED, not yet happened. It sits above the "not on
@@ -447,7 +447,7 @@ export function DeliveryBanners({ busy, deploying, doDeploy, doLand, landWord, l
         </div>
       )}
       {task?.deployState === 'running' && (
-        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-300">
+        <div data-testid="task-deploy-running-banner" className="flex shrink-0 items-center gap-1.5 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-mini text-amber-800 dark:text-amber-300">
           <Spinner size="sm" tone="current" /> {tr('board.task.deployRunning')}
         </div>
       )}

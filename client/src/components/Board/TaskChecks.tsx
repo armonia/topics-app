@@ -24,7 +24,7 @@ export function ChecksSection({ task }: { task: BoardTask }) {
     const progress = task.checksProgress;
     const ci = task.checksCi;
     return (
-      <div className="rounded bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
+      <div className="rounded bg-black/5 dark:bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
         <div className="flex items-center gap-1.5">
           <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
           {progress
@@ -101,7 +101,7 @@ export function ChecksSection({ task }: { task: BoardTask }) {
     <div className={`rounded text-mini ${box}`}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/5"
+        className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
