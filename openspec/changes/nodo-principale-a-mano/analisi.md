@@ -72,6 +72,8 @@ Fonti: `launchctl list` e i plist in `~/Library/LaunchAgents` (82 plist, ognuno 
 3. Per togliere il rischio alla radice, i due account con refresh vengono convertiti in token da un anno con `~/.claude/jarvis/scripts/switchboard-token <email>`: un login nel browser di Attilio per account, una volta, poi niente più rotazione e nessun trasferimento da custodire. Gli account già in quel formato dimostrano che lo switch automatico funziona anche senza scope `user:profile` (legge i limiti dagli header di risposta, `migrate_state` in `oauth.rs`).
 4. Se un token muore, parte da solo la voce in «Ti aspetta» che c'è già per gli account in scadenza (cron «Login di switchboard per … in scadenza»).
 
+**Solo abbonamenti (Attilio, 17/11).** L'hub ha anche un ripiego a chiave API quando nessun account OAuth può servire (`sb/apikey.rs:1-4`, `api-accounts.json`, oggi 3 voci, segreti nel Keychain). Sul principale quel ripiego resta spento e le chiavi non vengono copiate; con tutti gli account al limite il turno aspetta il reset invece di costare. Il segno di un turno in abbonamento è la finestra 5h dell'account che sale (`sb/acct.rs:50`) e gli header `anthropic-ratelimit-unified-*` (`acct.rs:75-79`); che una chiamata a chiave API non li porti è dedotto, non verificato.
+
 **Non verificato.** Che l'abbonamento regga da un IP di datacenter: si prova con un turno vero (T2) prima di costruire il resto.
 
 ## 4. Il ritorno del Mac e il passaggio senza perdere scritture

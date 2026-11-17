@@ -15,6 +15,7 @@
 - **Passaggio pulito con drain** (`analisi.md` sez. 4): fermi i dispatch, `.backup` del DB, copia con cartella di stato, jarvis-channels e account, avvio sul nuovo con epoca+1. Mac morto: `claim` dal replicato Litestream (~1 s di scritture a rischio, dichiarato dal prodotto).
 - **Segue il principale** (`analisi.md` sez. 2): Topics (DB, board, dispatcher, turni), hub-service (account), jarvis-channels (canali, voce, 38 cron agent e i cron command del sistema), node-pool, gateway MCP e memoria. **Resta sul Mac** quello che è del Mac come computer: backup, salute, Promemoria, Beeper, iPhone, hobby; e le card su cartelle non git, che aspettano il Mac.
 - **Account** (`analisi.md` sez. 3): un solo titolare dei refresh per volta; i due token da un anno funzionano ovunque; i due che ruotano vengono convertiti (scelta 2).
+- **Requisito (Attilio, 17/11): sul principale i modelli Claude passano solo dagli abbonamenti** (account dello switch, token OAuth o da un anno), mai da una API key a consumo né da crediti comprati. L'hub ha un ripiego a chiave API (`sb/apikey.rs`, `api-accounts.json`, 3 voci): sul principale è spento e le chiavi non entrano nel deposito segreti. Barra in T2.
 - **Il Mac che torna** è un nodo, non il principale: la app si collega al principale, le card che gli servono arrivano a lui, il riporto del principale è un comando a mano dal menù (deciso da me: un ritorno automatico farebbe decidere al caso chi comanda). Il suo DB di prima resta da parte come `topics.db.prima-<epoca>`.
 - **Tray**: menù «Nodo principale» con la lista dei computer, chi lo è adesso, da quando; se il principale scelto non risponde per N minuti la tray lo dice e offre «prendi tu» a mano (mai automatico).
 
@@ -22,7 +23,7 @@
 
 **Barra.** Per traccia in `tasks.md`; d'insieme: un passaggio vero Mac → server → Mac con video, con una card in volo, un messaggio WhatsApp ricevuto sul server, un turno su un account Claude fatto dal server e il DB confrontato prima e dopo; `openspec validate nodo-principale-a-mano` esce 0.
 
-**Fuori.** Sposta solo ciò che segue il principale; i servizi RESTA della mappa non si toccano. Nomi, IP e account nel codice: mai (tutto da `machines`, impostazioni, deposito segreti). Il PC Windows non è candidato a principale (dorme). Fusione di due DB: non si fa.
+**Fuori.** Qualunque chiave API Claude a consumo e crediti a pagamento sul principale. Sposta solo ciò che segue il principale; i servizi RESTA della mappa non si toccano. Nomi, IP e account nel codice: mai (tutto da `machines`, impostazioni, deposito segreti). Il PC Windows non è candidato a principale (dorme). Fusione di due DB: non si fa.
 
 **Costo.** ≈ 175 h di lavoro (tracce in `tasks.md`, ±30%; non misurato). Spesa nuova: 0 € se resta sul nodo permanente (scelta 3).
 
