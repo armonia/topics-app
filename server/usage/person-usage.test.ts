@@ -89,6 +89,15 @@ describe("(b) backfill", () => {
     expect(lastSenderTag('<messaggio da="-">giro')).toBeNull();
     expect(lastSenderTag('<messaggio da="Ann (+391234567)">a</messaggio><messaggio da="Io (921)" proprietario="sì">b')).toMatchObject({ externalId: "391234567", owner: false });
   });
+  test("un id visto col segno di proprietario resta suo anche dove il segno manca", () => {
+    const db = makeDb();
+    const ins = db.query("INSERT INTO messages (id, session_key, role, content, timestamp, author_person_id) VALUES (?, 's', 'user', ?, '2026-11-01T00:00:00Z', ?)");
+    ins.run("m1", '<messaggio da="Io (10000000000000000009)" proprietario="sì">a', OWNER);
+    ins.run("m2", '<messaggio da="Io (10000000000000000009)">b', OWNER);
+    const r = backfillMessageSenders(db, { apply: true });
+    expect(r.changed).toBe(0);
+    expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(1);
+  });
   test("non sovrascrive un autore che non è il proprietario", () => {
     const db = makeDb();
     db.query("INSERT INTO people (id, display_name, created_at, origin, rev, updated_at) VALUES ('manuale', 'Scelto a mano', 1, 'local', 1, 1)").run();
@@ -108,7 +117,9 @@ describe("(b) backfill", () => {
     expect(dry.changed).toBe(3);
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(1);
     const r = backfillMessageSenders(db, { apply: true });
-    expect(r).toMatchObject({ scanned: 3, changed: 3, ownerRows: 1, created: 1 });
+    // due identità nuove: quella di Ann e quella del proprietario (921), legata a lui e non a una persona nuova
+    expect(r).toMatchObject({ scanned: 3, changed: 3, ownerRows: 1, created: 2 });
+    expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(2);
     const pid = (id: string) => (db.query("SELECT author_person_id p FROM messages WHERE id = ?").get(id) as { p: string }).p;
     expect(pid("m1")).toBe(pid("m2"));
     expect(pid("m1")).not.toBe(OWNER);

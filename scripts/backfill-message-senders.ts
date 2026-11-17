@@ -39,6 +39,13 @@ export function channelOf(id: string): { channel: string; id: string } {
  * è il sistema (cron, giri) e non è nessuno: null.
  */
 export function lastSenderTag(content: string): ParsedTag | null {
+  const tags = senderTags(content);
+  if (!tags.length) return null;
+  return [...tags].reverse().find((t) => !t.owner) ?? tags[tags.length - 1]!;
+}
+
+/** Tutti i tag di mittente di un testo, nell'ordine, senza quelli di sistema. */
+export function senderTags(content: string): ParsedTag[] {
   const tags: ParsedTag[] = [];
   let m: RegExpExecArray | null;
   TAG.lastIndex = 0;
@@ -52,8 +59,7 @@ export function lastSenderTag(content: string): ParsedTag | null {
     const { channel, id } = channelOf(rawId);
     tags.push({ name: name || id, externalId: id, channel, owner });
   }
-  if (!tags.length) return null;
-  return [...tags].reverse().find((t) => !t.owner) ?? tags[tags.length - 1]!;
+  return tags;
 }
 
 export interface BackfillResult { scanned: number; changed: number; ownerRows: number; created: number; byPerson: Map<string, number> }
@@ -67,6 +73,10 @@ export function backfillMessageSenders(db: Database, opts: { apply: boolean }): 
   const update = db.query("UPDATE messages SET author_person_id = ? WHERE id = ?");
   const names = new Map<string, string>();
   const run = () => {
+    // Gli id che compaiono almeno una volta col segno di proprietario sono suoi anche dove il segno manca
+    // (i messaggi più vecchi non lo portavano): si legano a lui prima di tutto, così non diventano persone.
+    const bind = db.query("INSERT OR IGNORE INTO person_identities (channel, external_id, person_id, created_at) VALUES (?, ?, ?, ?)");
+    if (owner) for (const r of rows) for (const t of senderTags(r.content)) if (t.owner) bind.run(t.channel, t.externalId, owner, Date.now());
     for (const r of rows) {
       const tag = lastSenderTag(r.content);
       if (!tag) continue;
