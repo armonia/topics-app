@@ -168,7 +168,7 @@ export function bootRoutersFirst(scope: AfterTracker) {
 
   // The usage hub's quotas, Mac and services, read by ONE reader while a window
   // is connected and pushed as `hub:live` (server/lib/hub-live.ts).
-  const waiting = createWaitingStore({ file: path.join(ctx.APP_DATA_DIR, "waiting-items.json") });
+  const waiting = createWaitingStore({ file: join(ctx.APP_DATA_DIR, "waiting-items.json") });
   const hubLive = createHubLive({
     waiting,
     base: () => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL),
