@@ -1,3 +1,8 @@
+/**
+ * Codex quota hold: lifted when the CLI logs in with a different account.
+ *
+ * @covers RESUME-04
+ */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
