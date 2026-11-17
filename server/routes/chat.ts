@@ -77,6 +77,7 @@ import {
   noteSteerFailed, noteSteerMessage, offerSteer, setSteerSink, steerState, type SteerItem, type SteerMeta,
 } from "../lib/turn-steer";
 import { onTurnEnded } from "../lib/turn-ended";
+import { authorForSender, parseSender, senderAllowed } from "../lib/person-identities";
 
 /**
  * The keys of the messages already taken, to recognise a resend: the fast
@@ -360,9 +361,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * carried here instead.
    */
   const replayAuthors = new WeakMap<Request, SteerMeta["author"]>();
+  /** The author a trusted caller declared with `sender` (a channel message), resolved once per request. */
+  const senderAuthors = new WeakMap<Request, SteerMeta["author"]>();
   const authorFor = (req: Request) => replayAuthors.has(req)
     ? replayAuthors.get(req) ?? undefined
-    : autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
+    : senderAuthors.get(req) ?? autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null);
   /** A steered message still waiting for the turn, by its idempotency slot: a resend under the same key gets the same answer, not a second copy. */
   const pendingSteerBySlot = new Map<string, string>();
 
@@ -591,6 +594,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       turn.body = body;
       if (!body) return json({ error: "body required" }, 400);
+      // The real sender of a channel turn: only whoever administers the machine may declare it.
+      const sender = parseSender(body.sender);
+      if (sender && senderAllowed(ctx.requestIdentity?.(req) ?? null)) {
+        try { senderAuthors.set(req, authorForSender(ctx.db as never, sender)); }
+        catch (err) { console.warn(`[chat] sender not resolved: ${err instanceof Error ? err.message : String(err)}`); }
+      }
       const sessionKey = body.sessionKey;
       turn.sessionKey = sessionKey;
       /**
