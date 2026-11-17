@@ -558,7 +558,19 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      `git revert -m 1`. Un rosso su più card atterrate insieme va a tutte, ciascuna con l'elenco delle
      altre: sono già dentro lo stesso commit, il lotto non si dimezza. Main non si ripristina mai da solo:
      si ripara in avanti. Un land chiesto con «Landa e pubblica» o trascinando in Done non passa dalla
-     misura: il push fa girare la CI di main.
+     misura: il push fa girare la CI di main, e a guardarla è il controllo di main (sotto).
+     **Nessuno aspetta la CI dopo il land**: l'agente consegna e chiude il turno, e una sessione
+     che ha verificato e unito si chiude subito. Il rosso lo raccoglie il flusso: torna alla
+     card che ha atterrato quel commit (`bounceAfterLand`), oppure, se il commit è su main senza una
+     card (spinto da una chat o a mano, «Landa e pubblica», trascinamento in Done), diventa una card.
+     **Controllo di main** (`services/main-ci-watch.ts`, agganciato alla spazzata di `sweepAutoLand`, nessun
+     poller): per ogni progetto con righe `github-ci:*` e la CI non spenta guarda il commit più recente di
+     `origin/main` che ha un esito della CI del PUSH. Verde → niente. In corso → richiede alla spazzata dopo.
+     Rosso → se una card della regola `after` (segno `tasks.ci_after`, non chiuso come verde) ha quel
+     commit tra i suoi, non si fa niente: lo dice la sua misura. Altrimenti UNA card in `todo`
+     «CI rossa su main dopo <sha8>: riparare», con sha, job rossi e link al run, idempotente per sha
+     (`tasks.claude_task_id` = `main-ci-red:<progetto>:<sha>`, anche se la card è poi archiviata), che il
+     dispatcher prende come le altre; si ripara in avanti.
      **Il rosso torna all'agente da solo** anche fuori dalla fase CI: una card in
      review con la barra rossa sul commit consegnato (tipicamente una consegna
      dal nodo, misurata dopo l'ingresso in review) viene rimandata dalla spazzata

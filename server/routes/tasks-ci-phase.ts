@@ -14,6 +14,7 @@ import { runGit } from "../lib/run-git";
 import { awaitCiEvidence, closeCiDraft, spawnCapped } from "../services/ci-evidence";
 import { createIntegrationQueue, type IntegrationMeasure } from "../services/integration-queue";
 import { measureIntegration } from "../services/integration-measure";
+import { describeMainRed, mainRedKey, mainRedTitle, watchMainCi, type MainCiOutcome, type MainCiPort } from "../services/main-ci-watch";
 import { personPlace } from "../services/auto-land";
 import { readWorkflowRules } from "../services/board-workflow";
 import { MAX_AUTO_BOUNCES, bouncesSinceHuman, redBounceMessage, redBounceVerdict } from "../services/red-bounce";
@@ -39,6 +40,11 @@ export interface CiPhaseDeps {
   integrationRepo?: (taskId: string) => Promise<string | null>;
   integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
   integrationCollectMs?: number;
+  /**
+   * main's own CI, for the red no card owns (`services/main-ci-watch.ts`): git and GitHub of the
+   * repository behind a project. `null` = this project has none. Absent = the watch is inert.
+   */
+  mainCiPort?: (projectId: string) => Promise<MainCiPort | null>;
   /** Files that differ between two commits of the card's repo; `null` = git could not say. */
   filesBetween?: (taskId: string, from: string, to: string) => Promise<string[] | null>;
 }
@@ -309,7 +315,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
   // Nothing reverts main by itself: the fix goes forward, and after the third round the person is asked
   // (and offered the revert).
 
-  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null };
+  /**
+   * `settled` says how the measure ended and the mark STAYS: a red push CI of main on the very sha this
+   * card carried is the card's own business (`bounced`, `asked`), and the watch of main must not open a
+   * second card for it. A `green` card does not hold a red back: the measure said green, the push said red.
+   */
+  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" };
 
   function readAfter(taskId: string): AfterMark | null {
     try {
@@ -321,6 +332,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
   function writeAfter(taskId: string, mark: AfterMark | null): void {
     try { deps.db.query("UPDATE tasks SET ci_after = ? WHERE id = ?").run(mark ? JSON.stringify(mark) : null, taskId); }
     catch (err) { console.warn(`[ci-after] ${taskId.slice(0, 8)} marca non scritta:`, err); }
+  }
+
+  /** The measure is over: the mark stays, settled. */
+  function settleAfter(taskId: string, how: NonNullable<AfterMark["settled"]>): void {
+    const mark = readAfter(taskId);
+    if (mark) writeAfter(taskId, { ...mark, settled: how });
   }
 
   /** Did a land SEE this card's work on main (`unpushed` is on main in this machine, not yet on origin)? */
@@ -350,7 +367,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     const ticket = deps.landDirect(projectId, taskId, landOpts);
     void deps.whenLanded(taskId)?.then(async () => {
       if (!witnessedOnMain(taskId)) return; // a refusal or a conflict: the land already said it, the card stays with its agent or in review
-      writeAfter(taskId, { commit, who: intent, repo: await repo });
+      writeAfter(taskId, { commit, who: intent, repo: await repo, at: new Date().toISOString() });
       try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* the mark is what matters */ }
       afterQueue.request(projectId, taskId);
     }).catch((err) => console.warn(`[ci-after] ${taskId.slice(0, 8)} non messa in misura:`, err));
@@ -374,11 +391,12 @@ export function createCiPhase(deps: CiPhaseDeps) {
    */
   async function bounceAfterLand(projectId: string, taskId: string, why: string): Promise<void> {
     const mark = readAfter(taskId);
-    writeAfter(taskId, null);
+    settleAfter(taskId, "bounced");
     const got = deps.svc.get(taskId, { projectId });
     if (!got) return;
     const done = bouncesSinceHuman(got.comments);
     if (done >= MAX_AUTO_BOUNCES) {
+      settleAfter(taskId, "asked");
       askPersonAfter(projectId, taskId,
         `Tre giri di CI rossa dopo il land senza uscirne: ${why.split("\n")[0]!.slice(0, 200)}. Il lavoro è già su main: lascia riprovare l'agente rispondendo qui, oppure annulla il land con \`git revert -m 1 <commit>\` (il commit è nella riga «Mergiato su main» di questa card).`);
       return;
@@ -413,17 +431,18 @@ export function createCiPhase(deps: CiPhaseDeps) {
     }),
     // Green: nothing left to do but say so (the queue writes the note) and drop the mark.
     land: async (projectId, taskId) => {
-      writeAfter(taskId, null);
+      settleAfter(taskId, "green");
       const t = deps.svc.get(taskId, { projectId })?.task;
       if (t) deps.broadcast({ type: "task:updated", projectId, task: t });
     },
     bounce: (projectId, taskId, why) => bounceAfterLand(projectId, taskId, why),
     giveUp: (projectId, taskId, why) => {
-      writeAfter(taskId, null);
+      settleAfter(taskId, "asked");
       askPersonAfter(projectId, taskId, `La CI dopo il land non dà un esito: ${why.split("\n")[0]!.slice(0, 220)}. Il lavoro è già su main.`);
     },
     stillWanted: (_projectId, taskId) => {
-      if (!readAfter(taskId)) return false;
+      const mark = readAfter(taskId);
+      if (!mark || mark.settled) return false;
       const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
       return !row?.archived;
     },
@@ -433,6 +452,71 @@ export function createCiPhase(deps: CiPhaseDeps) {
     log: (line) => console.warn(line),
   });
 
+  /** Does a card of the `after` rule already carry this red? Its own measure tells it; a second card would be a duplicate. */
+  async function ownedByAfterCard(projectId: string, sha: string, port: MainCiPort): Promise<boolean> {
+    let rows: Array<{ ci_after: string }> = [];
+    try { rows = deps.db.query("SELECT ci_after FROM tasks WHERE project_id = ? AND ci_after IS NOT NULL").all(projectId) as typeof rows; } catch { return false; }
+    const recent = Date.now() - 48 * 3_600_000;
+    for (const r of rows) {
+      let mark: AfterMark;
+      try { mark = JSON.parse(r.ci_after) as AfterMark; } catch { continue; }
+      if (mark.settled === "green" || !mark.commit || Date.parse(mark.at) < recent) continue;
+      if (await port.entersAt(mark.commit, sha).catch(() => false)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The CI of main for this project, looked at for the red no card owns (`services/main-ci-watch.ts`): one
+   * card per sha, opened for the dispatcher like any other. Only a board that declares CI rows and has not
+   * turned the CI off.
+   */
+  async function watchMain(projectId: string): Promise<MainCiOutcome | "off"> {
+    if (!deps.mainCiPort) return "off";
+    try {
+      if (readWorkflowRules(deps.db, projectId).ciPhase === "off") return "off";
+      if (!deps.svc.getBoardSettings(projectId).reviewChecks.some(isCiEvidenceCheck)) return "off";
+    } catch { return "off"; }
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return "off";
+    return watchMainCi({
+      port,
+      owned: (sha, p) => ownedByAfterCard(projectId, sha, p),
+      open: (commit, verdict) => {
+        const key = mainRedKey(projectId, commit.sha);
+        if (deps.db.query("SELECT 1 FROM tasks WHERE claude_task_id = ?").get(key)) return false;
+        const task = deps.svc.create({
+          projectId, text: mainRedTitle(commit.sha), status: "todo", createdBy: "cron:main-ci", idempotencyKey: key,
+          description: describeMainRed(commit, verdict),
+          bar: "La CI del push su main è verde su un commit che contiene la riparazione.",
+        });
+        deps.broadcast({ type: "task:updated", projectId, task });
+        console.warn(`[main-ci] ${commit.sha.slice(0, 8)} rossa senza una card che la possieda: aperta ${task.id.slice(0, 8)}`);
+        try { deps.dispatcher?.onEnterTodo(projectId, task.id); } catch { /* the dispatcher's own tick finds it */ }
+        return true;
+      },
+    });
+  }
+
+  /** What the periodic sweep asks of the `after` rule: the lost queue back in, main's own CI looked at. Never throws. */
+  async function sweepAfterLand(): Promise<void> {
+    try { resumeAfterMeasures(); } catch (err) { console.warn("[ci-after] ripresa delle misure fallita:", err); }
+    try { await watchMainAll(); } catch (err) { console.warn("[main-ci] controllo di main fallito:", err); }
+  }
+
+  /** Every project that has a board gets its main looked at; one project failing never stops the others. */
+  async function watchMainAll(): Promise<number> {
+    if (!deps.mainCiPort) return 0;
+    let projects: Array<{ project_id: string }> = [];
+    try { projects = deps.db.query("SELECT DISTINCT project_id FROM tasks WHERE archived = 0").all() as typeof projects; } catch { return 0; }
+    let opened = 0;
+    for (const p of projects) {
+      try { if ((await watchMain(p.project_id)) === "opened") opened += 1; }
+      catch (err) { console.warn(`[main-ci] ${p.project_id}: controllo fallito:`, err); }
+    }
+    return opened;
+  }
+
   /**
    * Every landed card still carrying its mark goes back in the measure queue: the queue lives in memory
    * and a restart drops it. A board that turned the CI off since does not measure: the marks are dropped.
@@ -440,7 +524,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
    */
   function resumeAfterMeasures(): number {
     let rows: Array<{ id: string; project_id: string }> = [];
-    try { rows = deps.db.query("SELECT id, project_id FROM tasks WHERE ci_after IS NOT NULL").all() as typeof rows; } catch { return 0; }
+    try { rows = deps.db.query("SELECT id, project_id FROM tasks WHERE ci_after IS NOT NULL AND ci_after NOT LIKE '%\"settled\"%'").all() as typeof rows; } catch { return 0; }
     let asked = 0;
     for (const r of rows) {
       if (boardCiMode(r.project_id) === "off") { writeAfter(r.id, null); continue; }
@@ -504,7 +588,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   return {
-    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase, boardCiMode, landThenMeasure, resumeAfterMeasures,
+    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase, boardCiMode, landThenMeasure, resumeAfterMeasures, watchMain, watchMainAll, sweepAfterLand,
     pending: (projectId: string) => integration.pending(projectId),
     pendingAfter: (projectId: string) => afterQueue.pending(projectId),
     idleAfter: (projectId: string) => afterQueue.idle(projectId),

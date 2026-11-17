@@ -84,7 +84,9 @@ describe("the CI phase, `after` rule", () => {
     const approve = async () => (await call(router, "POST", `/api/boards/${projectId}/tasks/${id}/review`, { decision: "approve" }))!;
     const settle = async () => { for (let i = 0; i < 40; i++) await Bun.sleep(10); };
     const mark = () => (db.query("SELECT ci_after AS m FROM tasks WHERE id = ?").get(id) as { m: string | null }).m;
-    return { router, id, projectId, deliver, approve, settle, mark, read: () => svc.get(id)!.task, thread: () => svc.get(id)!.comments };
+    /** The mark stays after the measure, settled: it is what keeps main's watch from opening a second card. */
+    const state = () => { const m = mark(); return m ? ((JSON.parse(m) as { settled?: string }).settled ?? "pending") : null; };
+    return { router, id, projectId, deliver, approve, settle, mark, state, read: () => svc.get(id)!.task, thread: () => svc.get(id)!.comments };
   }
 
   test("an approval lands at once, no queue in front; the CI reads main after and a green leaves only a note", async () => {
@@ -99,6 +101,7 @@ describe("the CI phase, `after` rule", () => {
     expect(s.read().stage ?? null).not.toBe("ci");
     expect(s.read().landIntent).toBeUndefined();
     expect(JSON.parse(s.mark()!)).toMatchObject({ commit, who: "human" });
+    expect(s.state()).toBe("pending");
     measureGate = Promise.resolve();
   }, 30_000);
 
@@ -109,7 +112,7 @@ describe("the CI phase, `after` rule", () => {
     await s.settle();
     expect(measured).toEqual([[s.id]]);
     expect(s.read().status).toBe("done");
-    expect(s.mark()).toBeNull();
+    expect(s.state()).toBe("green");
     expect(s.thread().some((c) => c.content.includes("CI verde") && c.content.includes("dopo l'atterraggio"))).toBe(true);
     expect(s.thread().some((c) => c.content.startsWith(RED_BOUNCE_NOTE))).toBe(false);
   }, 30_000);
@@ -124,7 +127,7 @@ describe("the CI phase, `after` rule", () => {
     expect(merges).toEqual([s.id]); // landed once, never reverted
     expect(back.task.status).toBe("todo");
     expect(back.task.landIntent).toBe("human");
-    expect(s.mark()).toBeNull();
+    expect(s.state()).toBe("bounced");
     const note = back.comments.find((c) => c.content.startsWith(RED_BOUNCE_NOTE));
     expect(note?.content).toContain("unit-ci");
     expect(note?.content).toContain("GIÀ SU MAIN");
@@ -142,7 +145,7 @@ describe("the CI phase, `after` rule", () => {
     expect(t.status).toBe("review");
     expect(t.humanAsk).toContain("git revert -m 1");
     expect(t.landIntent).toBeUndefined();
-    expect(s.mark()).toBeNull();
+    expect(s.state()).toBe("asked");
   }, 30_000);
 
   test("a restart drops the queue: the sweep puts back the landed card that still carries its mark", async () => {
@@ -152,13 +155,13 @@ describe("the CI phase, `after` rule", () => {
     await s.settle();
     expect(measured).toEqual([[s.id]]);
     // The process died between the land and the CI's answer: a new one has an empty queue and the mark on the card.
-    db.prepare("UPDATE tasks SET ci_after = ? WHERE id = ?").run(JSON.stringify({ commit, who: "human", repo: null }), s.id);
+    db.prepare("UPDATE tasks SET ci_after = ? WHERE id = ?").run(JSON.stringify({ commit, who: "human", repo: null, at: new Date().toISOString() }), s.id);
     await sweep!();
     await s.settle();
     expect(measured).toEqual([[s.id], [s.id]]);
-    expect(s.mark()).toBeNull();
+    expect(s.state()).toBe("green");
     // A board that turned the CI off since does not measure: the mark is dropped, nothing is asked.
-    db.prepare("UPDATE tasks SET ci_after = ? WHERE id = ?").run(JSON.stringify({ commit, who: "human", repo: null }), s.id);
+    db.prepare("UPDATE tasks SET ci_after = ? WHERE id = ?").run(JSON.stringify({ commit, who: "human", repo: null, at: new Date().toISOString() }), s.id);
     setCiPhaseMode(db, "off");
     await sweep!();
     await s.settle();
