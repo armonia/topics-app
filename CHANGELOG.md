@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.36 — 2026-11-17
+
+### Sotto il cofano
+- baseline follows the scores that rose tonight
+- F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)
+
 ## 2.4.35 — 2026-11-17
 
 ### Sotto il cofano

@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.4.36",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "baseline follows the scores that rose tonight",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.35",
     "date": "2026-11-17",
     "sections": {
