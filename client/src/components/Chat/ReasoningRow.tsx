@@ -62,14 +62,12 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
         aria-expanded={!collapsed}
         className="group/reasoning w-full flex items-center gap-2 py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
       >
-        {/* Same cue as the tool rows: the chevron shows on hover and focus only,
-            in a 12px column that is always reserved so nothing shifts. */}
-        <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
-          {collapsed ? <ChevronRight size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" /> : <ChevronDown size={12} className="text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" />}
-        </span>
         <Brain size={13} className="text-purple-500 flex-shrink-0" />
         <span className="text-app-text">Thinking</span>
         <span className="text-mini text-app-text-muted">({length.toLocaleString()} chars)</span>
+        {/* The chevron sits at the end of the row, on hover and focus only: no column
+            reserved on the left, so the row starts flush with the text. */}
+        {collapsed ? <ChevronRight size={12} aria-hidden="true" className="flex-shrink-0 text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" /> : <ChevronDown size={12} aria-hidden="true" className="flex-shrink-0 text-app-text-muted opacity-0 transition-opacity group-hover/reasoning:opacity-100 group-focus-visible/reasoning:opacity-100 coarse:opacity-100" />}
         {partial && (
           <SparkLoader className="ml-auto flex-shrink-0" activity="think" />
         )}
