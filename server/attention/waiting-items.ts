@@ -161,6 +161,12 @@ export function createWaitingStore(opts: { file?: string | null; now?: () => num
       open(h as WaitingOpenInput, { hubId: h.id, at: typeof h.at === "number" ? h.at : undefined });
       if (JSON.stringify(openRows().map(publicItem)) !== before) changed = true;
     }
+    // A tombstone has done its job once the hub no longer lists the item: drop it, so a later item with the same id is not hidden.
+    const listed = new Set(items.map((i) => (i as { id?: unknown } | null)?.id));
+    for (const r of [...rows.values()]) {
+      if (r.closed && r.closed.until === null && r.hubIds.length > 0 && !r.hubIds.some((id) => listed.has(id))) { rows.delete(r.id); changed = true; }
+    }
+    if (changed) persist();
     return changed;
   }
 

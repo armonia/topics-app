@@ -28,6 +28,15 @@ describe("waiting inbox", () => {
     expect(s.list()).toHaveLength(0);
   });
 
+  test("once the hub stops listing a closed item, the same id shows again when it is reopened", () => {
+    const s = createWaitingStore();
+    s.ingestHubItems([hubItem()]);
+    s.close(s.list()[0]!.id);
+    s.ingestHubItems([]);
+    s.ingestHubItems([hubItem()]);
+    expect(s.list()).toHaveLength(1);
+  });
+
   test("a snoozed item returns after its until", () => {
     let t = 1000;
     const s = createWaitingStore({ now: () => t });
