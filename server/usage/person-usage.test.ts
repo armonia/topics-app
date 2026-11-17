@@ -1,10 +1,11 @@
 /**
- * Mittenti dei canali e consumi per persona: le quattro barre della change.
- *  (a) sender → persona creata una volta e riusata, owner → predefinita, assente → invariato
- *  (b) backfill dei mittenti scritti nel testo, su un DB sintetico
- *  (c) person-usage: eredità del sottoagente, divisione dei punti per ora, reset
- *  (d) POST /api/usage/records idempotente
- * La migration vera gira sul DB in memoria: si prova il file, non una sua copia.
+ * Channel senders and usage per person: the four bars of the change.
+ *  (a) sender → person created once and reused, owner → default, missing → unchanged
+ *  (b) backfill of the senders written in the text, on a synthetic DB
+ *  (c) person-usage: subagent inheritance, points split per hour, reset
+ *  (d) POST /api/usage/records idempotent
+ * The real migration runs on the in-memory DB: the file is tested, not a copy of it.
+ * @covers USAGE-27
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -50,7 +51,7 @@ describe("(a) sender", () => {
     expect(a).not.toBe(OWNER);
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(2);
     expect((db.query("SELECT display_name FROM people WHERE id = ?").get(a) as { display_name: string }).display_name).toBe("Cliente");
-    // stesso id su un altro canale = un'altra persona
+    // same id on another channel = another person
     expect(authorForSender(db, { channel: "whatsapp", id: "123", name: "X" }).authorPersonId).not.toBe(a);
   });
   test("owner → persona predefinita, senza creare nessuno", () => {
@@ -85,7 +86,7 @@ describe("(b) backfill", () => {
     expect(lastSenderTag('<messaggio da="391234567@s.whatsapp.net">x')).toMatchObject({ channel: "whatsapp", externalId: "391234567", name: "391234567" });
     expect(lastSenderTag('<messaggio da="cli">x')).toMatchObject({ channel: "legacy", externalId: "cli" });
     expect(lastSenderTag("niente tag")).toBeNull();
-    // un tag di sistema non è nessuno; con un esterno e il proprietario nello stesso messaggio vale l'esterno
+    // a system tag is nobody; with an external sender and the owner in the same message the external one wins
     expect(lastSenderTag('<messaggio da="-">giro')).toBeNull();
     expect(lastSenderTag('<messaggio da="Ann (+391234567)">a</messaggio><messaggio da="Io (921)" proprietario="sì">b')).toMatchObject({ externalId: "391234567", owner: false });
   });
@@ -117,7 +118,7 @@ describe("(b) backfill", () => {
     expect(dry.changed).toBe(3);
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(1);
     const r = backfillMessageSenders(db, { apply: true });
-    // due identità nuove: quella di Ann e quella del proprietario (921), legata a lui e non a una persona nuova
+    // two new identities: Ann's and the owner's (921), bound to the owner and not to a new person
     expect(r).toMatchObject({ scanned: 3, changed: 3, ownerRows: 1, created: 2 });
     expect((db.query("SELECT COUNT(*) n FROM people").get() as { n: number }).n).toBe(2);
     const pid = (id: string) => (db.query("SELECT author_person_id p FROM messages WHERE id = ?").get(id) as { p: string }).p;
@@ -155,16 +156,16 @@ describe("(c) person-usage", () => {
       cache_read_tokens, cache_creation_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     msg.run("u1", "root", "user", "fai", iso(H0), "ann", null, null, null, null, null);
     msg.run("u2", "root", "user", "io ora", iso(H0 + 40 * 60_000), OWNER, null, null, null, null, null);
-    // il risultato di un sottoagente non cambia l'autore
+    // a subagent's result does not change the author
     msg.run("u3", "root", "user", "risultato", iso(H0 + 5 * 60_000), OWNER, '[{"kind":"subagent-result"}]', null, null, null, null);
-    msg.run("a1", "root", "assistant", "", iso(H0 + 6 * 60_000), null, null, 1000, 10, 800, 100); // input vero 100: 100+50+125+80 = 355
-    // figlio nativo nato a +2 min (autore Ann), nipote nato a +45 min: eredita dalla madre alla sua nascita
+    msg.run("a1", "root", "assistant", "", iso(H0 + 6 * 60_000), null, null, 1000, 10, 800, 100); // real input 100: 100+50+125+80 = 355
+    // native child born at +2 min (author Ann), grandchild born at +45 min: inherits from its parent at its birth
     db.run(`INSERT INTO subagents (id, parent_session_key, session_key, cwd, runtime, created_at) VALUES ('c', 'root', 'child', '/x', 'topics', ?)`, [iso(H0 + 2 * 60_000)]);
     db.run(`INSERT INTO subagents (id, parent_session_key, session_key, cwd, runtime, created_at) VALUES ('g', 'child', 'grand', '/x', 'topics', ?)`, [iso(H0 + 3 * 60_000)]);
     msg.run("cu", "child", "user", "prompt dalla madre", iso(H0 + 2 * 60_000), OWNER, null, null, null, null, null);
     msg.run("ca", "child", "assistant", "", iso(H0 + 50 * 60_000), null, null, 100, 0, 0, 0);
     msg.run("ga", "grand", "assistant", "", iso(H0 + 50 * 60_000), null, null, 100, 0, 0, 0);
-    // sottoagente Claude Code nato dopo «io ora»: è del proprietario
+    // Claude Code subagent born after the owner's message: it is the owner's
     db.run(`INSERT INTO subagents (id, parent_session_key, claude_session_id, cwd, runtime, created_at) VALUES ('cc', 'root', 'csid', '/x', 'claude-code', ?)`, [iso(H0 + 41 * 60_000)]);
     insertUsageRecord(db, parseUsageRecord({ id: "r1", ts: H0 + 55 * 60_000, model: "m", purpose: "channel-turn", inputTokens: 45, sender: { channel: "discord", id: "77", name: "Bea" } }) as never);
 
@@ -180,13 +181,13 @@ describe("(c) person-usage", () => {
       expect(byName.Ann!.weighted).toBe(355 + 100 + 100);
       expect(byName.Owner!.weighted).toBe(400);
       expect(byName.Bea!.weighted).toBe(45);
-      // 10 punti in un'ora divisi per peso: 555/1000 ad Ann
+      // 10 points in one hour split by weight: 555/1000 to Ann
       expect(byName.Ann!.accountPct).toBe(5.6);
       expect(byName.Owner!.accountPct).toBe(4);
       const det = personDetail(c, db as never, "ann");
       expect(det.requests).toHaveLength(1);
       expect(det.requests[0]).toMatchObject({ chatName: "Chat", requestId: "u1", calls: 3 });
-      // senza storico: lo dichiara e dà solo i token pesati
+      // no history: it says so and gives only the weighted tokens
       const none = peopleUsage(computeCalls(db as never, { days: 1, now: H0 + 2 * HOUR_MS, historyFile: join(dir, "manca.jsonl"), readTranscript: () => [] }), db as never);
       expect(none.quotaHistory).toBe(false);
       expect(none.people.every((p) => p.accountPct === null)).toBe(true);

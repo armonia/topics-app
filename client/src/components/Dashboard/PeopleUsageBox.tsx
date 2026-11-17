@@ -1,10 +1,10 @@
 /**
- * CHI HA CONSUMATO: la quota settimanale divisa per persona, e per richiesta.
+ * WHO SPENT IT: the weekly quota split per person, and per request.
  *
- * Una riga per persona con la % di un account e la quota del totale; il clic
- * apre le sue richieste (chat e messaggio che hanno avviato il lavoro). I
- * numeri vengono da `GET /api/usage/people`, che li tiene in cache un minuto:
- * leggere più spesso non dà niente.
+ * One row per person with the % of one account and the share of the total; a
+ * click opens their requests (the chat and the message that started the work).
+ * The numbers come from `GET /api/usage/people`, cached for a minute: reading
+ * more often gains nothing.
  */
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Users } from 'lucide-react';
@@ -16,7 +16,7 @@ import type { PeopleUsage, PersonUsageDetail, PersonUsageRow } from '../../../..
 
 const POLL_MS = 60_000;
 const DAYS = 7;
-/** Le richieste più care bastano a capire dove è andata la quota; il resto si conta. */
+/** The costliest requests are enough to see where the quota went; the rest is counted. */
 const MAX_REQUESTS = 20;
 
 type PersonRow = PersonUsageRow;
@@ -27,8 +27,8 @@ export function PeopleUsageBox() {
   const tr = useT();
   const [data, setData] = useState<PeopleUsage | null>(null);
   const [open, setOpen] = useState<PersonRow | null>(null);
-  // il dettaglio porta la chiave di chi è aperto: cambiata la persona, quello vecchio non si mostra
-  // (si legge qui, senza azzerarlo dentro l'effect)
+  // the detail carries the key of the open person: once the person changes, the old one is not shown
+  // (checked here, without clearing it inside the effect)
   const [loaded, setLoaded] = useState<{ key: string; data: PersonUsageDetail } | null>(null);
   const openKey = open ? open.personId ?? 'none' : null;
   const detail = loaded && loaded.key === openKey ? loaded.data : null;

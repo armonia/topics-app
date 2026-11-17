@@ -1,25 +1,25 @@
 /**
- * CHI HA CONSUMATO la quota settimanale: per persona, e per richiesta.
+ * WHO SPENT the weekly quota: per person, and per request.
  *
- * Il conto è lo stesso dello strumento a riga di comando da cui nasce (ore di
- * script a mano per dire quanto aveva speso una persona sola):
+ * The count is the same as the command-line tool it comes from (hours of
+ * hand-written scripts to say how much one person had spent):
  *
- *  · ogni chiamata del modello ha un PESO in token: input + 5·output +
- *    1,25·cache scritta + 0,1·cache letta. Nel motore nativo
- *    `usage_prompt_tokens` COMPRENDE la cache letta e scritta, quindi l'input
- *    vero è il resto;
- *  · una chiamata appartiene all'autore dell'ultimo messaggio utente della sua
- *    sessione; un sottoagente eredita l'autore della madre al momento in cui è
- *    nato, risalendo finché serve; i sottoagenti Claude Code si leggono dal loro
- *    transcript; le righe di `usage_records` portano l'autore da sé;
- *  · i PUNTI vengono dallo storico della quota: ogni ora la % settimanale di
- *    tutti gli account sale di N (un calo è un reset: conta il valore nuovo), e
- *    quei punti si dividono fra le chiamate di quell'ora in proporzione al peso.
- *    100 punti = un account settimanale intero.
+ *  · every model call has a token WEIGHT: input + 5·output +
+ *    1.25·cache write + 0.1·cache read. In the native engine
+ *    `usage_prompt_tokens` INCLUDES cache read and write, so the real input
+ *    is the remainder;
+ *  · a call belongs to the author of the last user message of its session;
+ *    a subagent inherits its parent's author at the moment it was born,
+ *    climbing as far as needed; Claude Code subagents are read from their
+ *    transcript; `usage_records` rows carry their own author;
+ *  · the POINTS come from the quota history: every hour the weekly % of
+ *    every account rises by N (a drop is a reset: the new value counts), and
+ *    those points are split across that hour's calls by weight.
+ *    100 points = one whole weekly account.
  *
- * È una stima: la quota si legge a campioni, e le chiamate che Topics non vede
- * restano nel totale senza un autore. Senza lo storico la risposta lo dice e dà
- * solo i token pesati.
+ * It is an estimate: the quota is sampled, and calls Topics does not see
+ * stay in the total with no author. Without the history the answer says so and
+ * gives only the weighted tokens.
  */
 import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
@@ -39,10 +39,10 @@ export function weighTokens(u: TokenUsage): number {
   return u.input + 5 * u.output + 1.25 * u.cacheWrite + 0.1 * u.cacheRead;
 }
 
-/** Una riga dello storico della quota (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
+/** One line of the quota history (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
 export interface QuotaHistorySample { t: number; s?: Record<string, number> }
 
-/** Punti per ora (chiave = ora intera da epoca): aumenti della % 7d di ogni account Claude. */
+/** Points per hour (key = whole hour since epoch): rises of the 7d % of every Claude account. */
 export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, untilMs: number): Map<number, number> {
   const out = new Map<number, number>();
   const prev = new Map<string, number>();
@@ -68,16 +68,16 @@ export interface Call {
   ts: number;
   weight: number;
   personId: string | null;
-  /** La sessione radice (la chat che ha generato la chiamata). */
+  /** The root session (the chat that produced the call). */
   chatKey: string;
-  /** Il messaggio utente che l'ha chiesta, quando si sa. */
+  /** The user message that asked for it, when known. */
   requestId: string | null;
   requestText: string;
   source: "native" | "claude-code" | "record";
   points?: number;
 }
 
-/** Divide i punti di ogni ora fra le chiamate di quell'ora, in proporzione al peso. */
+/** Splits each hour's points across that hour's calls, by weight. */
 export function splitPoints(calls: Call[], points: Map<number, number>): Call[] {
   const w = new Map<number, number>();
   for (const c of calls) { const h = Math.floor(c.ts / HOUR_MS); w.set(h, (w.get(h) ?? 0) + c.weight); }
@@ -91,7 +91,7 @@ export function splitPoints(calls: Call[], points: Map<number, number>): Call[] 
 
 interface AuthorMark { ts: number; personId: string | null; messageId: string; text: string }
 
-/** Chi parlava in una sessione a un dato istante: ricerca binaria sulla linea dei messaggi utente. */
+/** Who was speaking in a session at a given instant: binary search on the line of user messages. */
 function lastBefore(line: AuthorMark[], ts: number): AuthorMark | null {
   let lo = 0, hi = line.length - 1, r: AuthorMark | null = null;
   while (lo <= hi) {
@@ -103,20 +103,20 @@ function lastBefore(line: AuthorMark[], ts: number): AuthorMark | null {
 
 const TAG_RE = /<messaggio da="[^"]*"[^>]*>/g;
 
-/** Il testo della richiesta: dopo l'ultimo `<messaggio da=…>` se c'è, senza spazi doppi. */
+/** The request text: after the last `<messaggio da=...>` if any, without double spaces. */
 export function requestTextOf(content: string): string {
   let last: RegExpExecArray | null = null, m: RegExpExecArray | null;
   TAG_RE.lastIndex = 0;
   while ((m = TAG_RE.exec(content))) last = m;
   const body = last ? content.slice(last.index + last[0].length).split("</messaggio>")[0]! : content;
-  // Il preambolo dei canali di gruppo è uguale per tutti: resta la richiesta.
+  // The group channels' preamble is the same for everyone: the request is what remains.
   return body.replace(/^\s*Richiesta del gruppo «[^»]*», fatta da [^,]*, riassunta[^:]*:\s*/, "")
     .replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
 export type TranscriptReader = (cwd: string, claudeSessionId: string) => Array<{ ts: number; usage: TokenUsage }>;
 
-/** Le chiamate di un transcript Claude Code: una per `message.id` (le righe per blocco si ripetono). */
+/** The calls of a Claude Code transcript: one per `message.id` (per-block lines repeat). */
 export const readTranscriptCalls: TranscriptReader = (cwd, sid) => {
   const file = findClaudeTranscript(cwd, sid);
   if (!file) return [];
@@ -149,15 +149,15 @@ export interface CollectOptions {
   readTranscript?: TranscriptReader;
 }
 
-/** Tutte le chiamate dell'intervallo, ciascuna con il suo autore. */
+/** Every call in the window, each with its author. */
 export function collectCalls(db: Database, o: CollectOptions): Call[] {
   const iso = (ms: number) => new Date(ms).toISOString();
   const readTranscript = o.readTranscript ?? readTranscriptCalls;
 
-  // Linee degli autori per sessione: anche prima della finestra, una sessione lunga lavora per chi ha scritto ieri.
+  // Author lines per session: also before the window, a long session works for whoever wrote yesterday.
   const lines = new Map<string, AuthorMark[]>();
-  // Le righe scritte dalla macchina (risultati dei sottoagenti, fine di un processo, spinta
-  // dell'obiettivo) continuano il lavoro di chi l'ha chiesto: non cambiano l'autore.
+  // Rows written by the machine (subagent results, end of a process, goal
+  // nudge) continue the work of whoever asked for it: they do not change the author.
   const users = db.query(`SELECT id, session_key sk, timestamp ts, author_person_id pid, substr(content, 1, 4000) txt,
       (blocks LIKE '%"kind":"dispatched-envelope"%' AND content NOT LIKE '%<messaggio da=%') machine
     FROM messages WHERE role = 'user' AND timestamp > ? AND timestamp <= ?
@@ -170,8 +170,8 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
     if (!Number.isFinite(ts)) continue;
     let l = lines.get(u.sk);
     if (!l) lines.set(u.sk, (l = []));
-    // Un avviso della macchina senza mittente (lavoro finito, spinta della board) dentro una
-    // conversazione già avviata da qualcuno continua il suo lavoro; in una chat nuova apre la linea.
+    // A machine notice with no sender (work done, board nudge) inside a conversation
+    // someone already started continues their work; in a new chat it opens the line.
     if (u.machine && l.length) continue;
     l.push({ ts, personId: u.pid, messageId: u.id, text: requestTextOf(u.txt ?? "") });
   }
@@ -186,13 +186,13 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
     for (let i = 0; i < MAX_DEPTH && parent.has(k); i++) k = parent.get(k)!.psk;
     return k;
   };
-  /** L'autore a quell'istante; un sottoagente senza messaggi propri lo eredita dalla madre alla nascita. */
+  /** The author at that instant; a subagent with no messages of its own inherits it from its parent at birth. */
   const authorAt = (sk: string, ts: number): AuthorMark | null => {
     let k: string | undefined = sk, t = ts;
     for (let i = 0; k && i < MAX_DEPTH; i++) {
       const p = parent.get(k);
-      // Un sottoagente non ha un autore suo: i suoi prompt li scrive la madre (dal server, quindi
-      // col proprietario come autore). Eredita chi parlava nella madre quando è nato.
+      // A subagent has no author of its own: its prompts are written by the parent (by the server, so
+      // with the owner as author). It inherits whoever was speaking in the parent when it was born.
       if (p) { k = p.psk; t = p.ts; continue; }
       const line = lines.get(k);
       return line ? lastBefore(line, t) : null;
@@ -205,7 +205,7 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   });
 
   const calls: Call[] = [];
-  // Motore nativo: chat e sottoagenti nativi.
+  // Native engine: native chats and subagents.
   const msgs = db.query(`SELECT m.session_key sk, m.timestamp ts, COALESCE(m.usage_prompt_tokens,0) p, COALESCE(m.usage_completion_tokens,0) o,
       COALESCE(m.cache_read_tokens,0) cr, COALESCE(m.cache_creation_tokens,0) cw
     FROM messages m
@@ -220,7 +220,7 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
     calls.push(make(ts, weight, m.sk, authorAt(m.sk, ts), "native"));
   }
 
-  // Sottoagenti Claude Code: le chiamate stanno nel loro transcript, l'autore è quello della madre alla nascita.
+  // Claude Code subagents: the calls live in their transcript, the author is the parent's at birth.
   for (const s of subs) {
     if (s.runtime === "topics" || !s.csid) continue;
     const born = Date.parse(s.created_at);
@@ -232,7 +232,7 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
     }
   }
 
-  // Righe del registro: chiamate fuori dal motore (canali in sandbox, chiamate di servizio).
+  // Registry rows: calls outside the engine (sandboxed channels, service calls).
   const recs = db.query(`SELECT timestamp ts, session_key sk, author_person_id pid, purpose, COALESCE(input_tokens,0) i, COALESCE(output_tokens,0) o,
       COALESCE(cache_read_tokens,0) cr, COALESCE(cache_creation_tokens,0) cw
     FROM usage_records WHERE timestamp > ? AND timestamp <= ? AND measured = 1`)
@@ -256,7 +256,7 @@ export function readHistory(file: string): QuotaHistorySample[] | null {
   } catch { return null; }
 }
 
-/** La cartella dello storico della quota: `TOPICS_USAGE_HISTORY_DIR`, altrimenti `~/.topics/usage-history`. */
+/** The quota history folder: `TOPICS_USAGE_HISTORY_DIR`, otherwise `~/.topics/usage-history`. */
 export function usageHistoryFile(env: NodeJS.ProcessEnv = process.env): string {
   return join(env.TOPICS_USAGE_HISTORY_DIR || join(homedir(), ".topics", "usage-history"), "history.jsonl");
 }
@@ -303,7 +303,7 @@ export function peopleUsage(c: Computed, db: Database): PeopleUsage {
       accountPct: c.meta.quotaHistory ? round1(e.p) : null,
       sharePct: round1(c.meta.quotaHistory && totP > 0 ? (100 * e.p) / totP : totW > 0 ? (100 * e.w) / totW : 0),
     } as PersonUsageRow,
-    // l'ordine sui valori pieni: arrotondati a una cifra, le righe sotto lo 0,05% risultavano pari e in disordine
+    // order on the full values: rounded to one digit, rows under 0.05% came out equal and unordered
     key: c.meta.quotaHistory ? e.p : e.w,
   })).sort((a, b) => b.key - a.key || b.row.weighted - a.row.weighted).map((x) => x.row);
   return { ...c.meta, people };

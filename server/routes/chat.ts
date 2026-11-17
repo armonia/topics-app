@@ -592,7 +592,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const body = await readJSON(req);
       turn.body = body;
       if (!body) return json({ error: "body required" }, 400);
-      // Il mittente vero di un turno di canale: solo chi amministra la macchina può dichiararlo.
+      // The real sender of a channel turn: only whoever administers the machine may declare it.
       const sender = parseSender(body.sender);
       if (sender && senderAllowed(ctx.requestIdentity?.(req) ?? null)) {
         try { senderAuthors.set(req, authorForSender(ctx.db as never, sender)); }

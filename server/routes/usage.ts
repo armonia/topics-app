@@ -118,8 +118,8 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // GET /api/usage/people?days=7 — chi ha consumato la quota; /api/usage/people/:personId — per richiesta.
-    // `:personId` = `none` per le chiamate senza autore.
+    // GET /api/usage/people?days=7: who spent the quota; /api/usage/people/:personId: per request.
+    // `:personId` = `none` for the calls with no author.
     if (method === "GET" && (pathname === "/api/usage/people" || pathname.startsWith("/api/usage/people/"))) {
       const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days")) || 7));
       try {
@@ -137,11 +137,11 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       }
     }
 
-    // POST /api/usage/records — una chiamata fatta fuori dal motore (canali in sandbox), con il suo autore.
+    // POST /api/usage/records: a call made outside the engine (sandboxed channels), with its author.
     if (method === "POST" && pathname === "/api/usage/records") {
       if (!senderAllowed(ctx.requestIdentity?.(_req) ?? null)) return json({ error: "owner only" }, 403);
       let body: Record<string, unknown> | null = null;
-      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformato */ }
+      try { body = (await _req.json()) as Record<string, unknown>; } catch { /* malformed */ }
       const parsed = parseUsageRecord(body);
       if (typeof parsed === "string") return json({ error: parsed }, 400);
       try {
@@ -158,7 +158,7 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
   };
 }
 
-/** Il corpo di `POST /api/usage/records`, validato; una stringa = il motivo del rifiuto. */
+/** The body of `POST /api/usage/records`, validated; a string = why it was refused. */
 export function parseUsageRecord(b: Record<string, unknown> | null): UsageRecordInput | string {
   if (!b) return "body required";
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null);
@@ -187,9 +187,8 @@ export interface UsageRecordInput {
 }
 
 /**
- * Scrive una chiamata fatta fuori dal motore, con il suo autore. Idempotente
- * sull'`id` del chiamante: la stessa chiamata rimandata dopo un errore di rete
- * resta una riga sola.
+ * Writes a call made outside the engine, with its author. Idempotent on the
+ * caller's `id`: the same call sent again after a network error stays one row.
  */
 export function insertUsageRecord(db: Database, r: UsageRecordInput): { id: string; duplicate: boolean } {
   const { authorPersonId } = authorForSender(db, r.sender);

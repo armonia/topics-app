@@ -1,14 +1,14 @@
 /**
- * IL MITTENTE VERO di un messaggio arrivato da un canale esterno.
+ * THE REAL SENDER of a message that came from an external channel.
  *
- * I canali (WhatsApp, Discord…) entrano da loopback: `autoreDaIdentita` lì
- * ricade sul proprietario, e così ogni messaggio di un cliente o di un collega
- * risultava scritto da lui. Il servizio dei canali sa chi ha scritto e lo
- * dichiara nel campo `sender` di `POST /api/chat`; qui quell'id esterno diventa
- * una persona, creata la prima volta e poi riusata.
+ * Channels (WhatsApp, Discord...) come in over loopback, where `autoreDaIdentita`
+ * falls back to the owner, so every message from a client or a colleague
+ * looked written by the owner. The channel service knows who wrote and
+ * declares it in the `sender` field of `POST /api/chat`; here that external id
+ * becomes a person, created the first time and reused after.
  *
- * Fidarsi del campo è sicuro solo per chi amministra già la macchina: un ospite
- * potrebbe attribuire un messaggio a chiunque. `senderAllowed` lo decide.
+ * Trusting the field is safe only for whoever already administers the machine:
+ * a guest could attribute a message to anyone. `senderAllowed` decides it.
  */
 import { randomUUID } from "node:crypto";
 import type { Database } from "bun:sqlite";
@@ -23,7 +23,7 @@ export interface Sender {
   owner?: boolean;
 }
 
-/** Il campo `sender` del corpo, validato; null se manca o è malformato. */
+/** The body's `sender` field, validated; null when missing or malformed. */
 export function parseSender(raw: unknown): Sender | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -35,8 +35,8 @@ export function parseSender(raw: unknown): Sender | null {
 }
 
 /**
- * Lo stesso numero WhatsApp arriva come `+39…`, `39…@s.whatsapp.net`, `39…@c.us`:
- * una forma sola, senza suffisso né `+`, perché resti una persona sola.
+ * The same WhatsApp number arrives as `+39...`, `39...@s.whatsapp.net`, `39...@c.us`:
+ * one form, with no suffix and no `+`, so it stays one person.
  */
 export function normalizeExternalId(channel: string, id: string): string {
   const s = id.trim();
@@ -44,16 +44,16 @@ export function normalizeExternalId(channel: string, id: string): string {
   return s.replace(/@(s\.whatsapp\.net|c\.us)$/i, "").replace(/^\+/, "");
 }
 
-/** Solo il proprietario (loopback compreso) può dichiarare chi ha scritto. */
+/** Only the owner (loopback included) may declare who wrote. */
 export function senderAllowed(identity: { role: "owner" | "guest"; delegatedAuthorizationId?: string } | null | undefined): boolean {
   if (!identity) return true;
   return identity.role === "owner" && !identity.delegatedAuthorizationId;
 }
 
 /**
- * La persona di un id esterno: quella già legata, oppure una nuova riga di
- * `people` legata adesso. Il nome si scrive solo alla nascita: chi rinomina una
- * persona in Topics non se la vede cambiare dal canale.
+ * The person of an external id: the one already bound, or a new `people` row
+ * bound now. The name is written only at birth: renaming a person in Topics
+ * is not undone by the channel.
  */
 export function personForIdentity(db: Db, channel: string, rawId: string, rawName: string, now = Date.now()): string {
   const externalId = normalizeExternalId(channel, rawId);
@@ -71,7 +71,7 @@ export function personForIdentity(db: Db, channel: string, rawId: string, rawNam
   return personId;
 }
 
-/** L'autore di un messaggio con `sender`: il proprietario predefinito, o la persona del canale. */
+/** The author of a message with `sender`: the default owner, or the channel's person. */
 export function authorForSender(db: Db, sender: Sender): { authorPersonId: string | null; authorDeviceId: null } {
   if (sender.owner) return { authorPersonId: actingPersonId(db, null), authorDeviceId: null };
   return { authorPersonId: personForIdentity(db, sender.channel, sender.id, sender.name), authorDeviceId: null };

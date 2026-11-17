@@ -1,18 +1,18 @@
 #!/usr/bin/env bun
 /**
- * Dà il mittente vero ai messaggi utente già in archivio arrivati dai canali.
+ * Gives the real sender to archived user messages that came from the channels.
  *
- * Fino all'introduzione di `sender` su `POST /api/chat` i turni dei canali
- * risultavano tutti del proprietario; il mittente stava solo nel testo, come
- * `<messaggio da="Nome (id)">` o `<messaggio da="Nome (id)" proprietario="sì">`.
- * Qui il mittente del messaggio diventa l'autore (vedi `lastSenderTag`): proprietario → persona
- * predefinita, altrimenti la persona legata a (canale, id), creata se manca. Tocca solo i messaggi
- * senza autore o con quello del proprietario.
+ * Until `sender` existed on `POST /api/chat`, every channel turn belonged to
+ * the owner; the sender lived only in the text, as
+ * `<messaggio da="Nome (id)">` or `<messaggio da="Nome (id)" proprietario="sì">`. allow-italian: the literal tag the channels write
+ * Here the message's sender becomes its author (see `lastSenderTag`): owner → default
+ * person, otherwise the person bound to (channel, id), created if missing. It touches only
+ * messages with no author or with the owner as author.
  *
- * Il canale si ricava dalla forma dell'id (numero lungo = discord, telefono o
- * jid WhatsApp = whatsapp), altrimenti `legacy`. Un tag senza id fra parentesi
- * usa il testo intero come id. Dry run di default, `--apply` scrive. Rieseguibile:
- * a ogni giro ricalcola gli stessi autori.
+ * The channel comes from the shape of the id (long number = discord, phone or
+ * WhatsApp jid = whatsapp), otherwise `legacy`. A tag with no id in brackets
+ * uses the whole text as id. Dry run by default, `--apply` writes. Rerunnable:
+ * every run computes the same authors.
  *
  *   bun run scripts/backfill-message-senders.ts [--apply] [--db PATH]
  */
@@ -25,7 +25,7 @@ const TAG = /<messaggio da="([^"]*)"([^>]*)>/g;
 
 export interface ParsedTag { name: string; externalId: string; channel: string; owner: boolean }
 
-/** Il canale dalla forma dell'id; `legacy` quando non si riconosce. */
+/** The channel from the shape of the id; `legacy` when not recognised. */
 export function channelOf(id: string): { channel: string; id: string } {
   if (/^\+?\d{6,15}(@(s\.whatsapp\.net|c\.us))?$/i.test(id)) return { channel: "whatsapp", id: normalizeExternalId("whatsapp", id) };
   if (/^\d{17,20}$/.test(id)) return { channel: "discord", id };
@@ -33,10 +33,10 @@ export function channelOf(id: string): { channel: string; id: string } {
 }
 
 /**
- * Il mittente di un testo dai suoi tag `<messaggio da=…>`. Un messaggio unito può portarne più d'uno: vale
- * l'ultimo tag di una persona esterna, se c'è, perché è il lavoro chiesto da fuori che il proprietario
- * sta solo inoltrando o commentando; altrimenti l'ultimo del proprietario. Un tag senza id (`-`, vuoto)
- * è il sistema (cron, giri) e non è nessuno: null.
+ * The sender of a text from its `<messaggio da=...>` tags. A merged message may carry several: the last
+ * tag of an external person wins, if any, because that is work asked from outside that the owner is only
+ * forwarding or commenting; otherwise the owner's last one. A tag with no id (`-`, empty)
+ * is the system (cron, rounds) and is nobody: null.
  */
 export function lastSenderTag(content: string): ParsedTag | null {
   const tags = senderTags(content);
@@ -44,7 +44,7 @@ export function lastSenderTag(content: string): ParsedTag | null {
   return [...tags].reverse().find((t) => !t.owner) ?? tags[tags.length - 1]!;
 }
 
-/** Tutti i tag di mittente di un testo, nell'ordine, senza quelli di sistema. */
+/** Every sender tag of a text, in order, without the system ones. */
 export function senderTags(content: string): ParsedTag[] {
   const tags: ParsedTag[] = [];
   let m: RegExpExecArray | null;
@@ -73,8 +73,8 @@ export function backfillMessageSenders(db: Database, opts: { apply: boolean }): 
   const update = db.query("UPDATE messages SET author_person_id = ? WHERE id = ?");
   const names = new Map<string, string>();
   const run = () => {
-    // Gli id che compaiono almeno una volta col segno di proprietario sono suoi anche dove il segno manca
-    // (i messaggi più vecchi non lo portavano): si legano a lui prima di tutto, così non diventano persone.
+    // Ids seen at least once with the owner mark are the owner's even where the mark is missing
+    // (older messages did not carry it): they are bound to the owner first, so they do not become people.
     const bind = db.query("INSERT OR IGNORE INTO person_identities (channel, external_id, person_id, created_at) VALUES (?, ?, ?, ?)");
     if (owner) for (const r of rows) for (const t of senderTags(r.content)) if (t.owner) bind.run(t.channel, t.externalId, owner, Date.now());
     for (const r of rows) {
@@ -86,12 +86,12 @@ export function backfillMessageSenders(db: Database, opts: { apply: boolean }): 
       if (!pid) continue;
       names.set(pid, tag.owner ? "(proprietario)" : tag.name);
       res.byPerson.set(pid, (res.byPerson.get(pid) ?? 0) + 1);
-      // Si scrive solo dove l'autore manca o è il proprietario messo dal loopback: un autore già giusto,
-      // o corretto a mano, resta com'è anche a un secondo giro.
+      // Write only where the author is missing or is the owner set by loopback: an author already right,
+      // or fixed by hand, stays as it is on a second run too.
       if (pid !== r.pid && (r.pid === null || r.pid === owner)) { update.run(pid, r.id); res.changed++; }
     }
     res.created = (db.query("SELECT COUNT(*) n FROM person_identities").get() as { n: number }).n - before;
-    // Il dry run gira nella stessa transazione e la annulla: stessi numeri, niente scritto.
+    // The dry run runs in the same transaction and rolls it back: same numbers, nothing written.
     if (!opts.apply) throw new DryRun();
   };
   try { db.transaction(run)(); } catch (e) { if (!(e instanceof DryRun)) throw e; }

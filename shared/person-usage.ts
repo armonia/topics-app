@@ -1,18 +1,18 @@
 /**
- * Le forme di `GET /api/usage/people` e `GET /api/usage/people/:personId`,
- * una volta sola per server e client (`tests/unit/no-type-mirrors.test.ts`).
+ * The shapes of `GET /api/usage/people` and `GET /api/usage/people/:personId`,
+ * written once for server and client (`tests/unit/no-type-mirrors.test.ts`).
  */
 
-/** Una persona e quanto ha consumato nella finestra. */
+/** One person and how much they spent in the window. */
 export interface PersonUsageRow {
-  /** null = le chiamate senza autore. */
+  /** null = the calls with no author. */
   personId: string | null;
   name: string;
-  /** Token pesati (input + 5·output + 1,25·cache scritta + 0,1·cache letta). */
+  /** Weighted tokens (input + 5·output + 1.25·cache write + 0.1·cache read). */
   weighted: number;
-  /** % di un account settimanale; null senza storico della quota. */
+  /** % of one weekly account; null without quota history. */
   accountPct: number | null;
-  /** Quota del totale attribuito, in %. */
+  /** Share of the attributed total, in %. */
   sharePct: number;
 }
 
@@ -20,11 +20,11 @@ export interface PeopleUsageMeta {
   days: number;
   since: string;
   until: string;
-  /** false = storico della quota assente: ci sono solo i token pesati. */
+  /** false = no quota history: only the weighted tokens are known. */
   quotaHistory: boolean;
-  /** Punti spesi da tutti gli account nell'intervallo (100 = un account settimanale). */
+  /** Points spent by every account in the window (100 = one weekly account). */
   totalPoints: number | null;
-  /** Punti assegnati a una chiamata vista da Topics (il resto non ha chiamate nell'ora). */
+  /** Points given to a call Topics saw (the rest had no call in that hour). */
   attributedPoints: number | null;
 }
 
@@ -32,7 +32,7 @@ export interface PeopleUsage extends PeopleUsageMeta {
   people: PersonUsageRow[];
 }
 
-/** Una richiesta (il messaggio che ha avviato il lavoro) e quanto è costata. */
+/** One request (the message that started the work) and what it cost. */
 export interface PersonRequestRow {
   chatKey: string;
   chatName: string;
