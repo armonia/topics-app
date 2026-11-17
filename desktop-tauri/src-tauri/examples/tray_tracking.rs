@@ -28,6 +28,10 @@ mod tray_poller;
 #[allow(dead_code)]
 mod tray_agents;
 #[cfg(target_os = "macos")]
+#[path = "../src/tray_loader_player.rs"]
+#[allow(dead_code)]
+mod tray_loader_player;
+#[cfg(target_os = "macos")]
 #[path = "../src/tray_loader_frames.rs"]
 #[allow(dead_code)]
 mod tray_loader_frames;
@@ -90,13 +94,14 @@ fn main() {
                 if quiet {
                     return;
                 }
-                let mut tick = 0u32;
+                let mut player = tray_loader_player::LoaderPlayer::new();
+                let think = tray_agents::shape_for_action(None);
                 loop {
-                    std::thread::sleep(Duration::from_millis(tray_agents::FRAME_MS));
-                    tick = tick.wrapping_add(1);
+                    let tick = player.next(think);
                     if let Some(t) = h_anim.tray_by_id("main") {
-                        tray_strip_apply::apply_overlay(&t, Some(tray_poller::overlay_frame_for(None, tick)));
+                        tray_strip_apply::apply_overlay(&t, Some(tick.frame));
                     }
+                    std::thread::sleep(Duration::from_millis(tick.hold_ms));
                 }
             });
             // The poll: a new strip and a new menu every 300 ms (the app does it every minute).

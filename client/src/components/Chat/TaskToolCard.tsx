@@ -78,7 +78,7 @@ export function TaskToolCard({ detail, isRunning, isError, error }: {
       onClick={canOpen ? (e) => { e.stopPropagation(); open(); } : undefined}
       onKeyDown={canOpen ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(); } } : undefined}
       title={canOpen ? tr('chat.taskCard.open') : undefined}
-      className={`space-y-1.5 text-mini ${canOpen ? 'cursor-pointer rounded-lg hover:bg-app-hover/40' : ''}`}
+      className={`space-y-1.5 text-mini ${canOpen ? 'cursor-pointer rounded-md hover:bg-app-hover/40' : ''}`}
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
         {refused

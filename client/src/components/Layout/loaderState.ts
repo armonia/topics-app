@@ -51,14 +51,16 @@ export function loaderArcClass(state: LoaderState, onFill = false): string {
 }
 
 /**
- * The ink of a loader: the state's arc, except for the two outcomes, which
- * carry their own colour (green done, red error). Those are only ever drawn
- * where a surface already shows that outcome.
+ * The ink of the two outcomes (green done, red error), or '' for every other
+ * shape. It follows the shape the body is really playing (`LoaderBody.shape`),
+ * never the one asked for: a change waits for the one before it to settle, and
+ * a green sign on the old shape would say the work was over while it still
+ * moved. Those are only ever drawn where a surface already shows that outcome.
  */
-export function loaderInkClass(state: LoaderState, onFill = false, activity?: string): string {
-  if (activity === 'done') return 'text-green-500';
-  if (activity === 'error') return 'text-red-500';
-  return loaderArcClass(state, onFill);
+export function loaderOutcomeInkClass(shape: string | null | undefined): string {
+  if (shape === 'done') return 'text-green-500';
+  if (shape === 'error') return 'text-red-500';
+  return '';
 }
 
 /**
