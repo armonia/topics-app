@@ -133,17 +133,12 @@ describe("card outcome wake", () => {
     expect(h.posted[0]!.content).toContain('status="failed"');
   });
 
-  test("a chat that cannot take a turn is left alone, and an AI-review card is told elsewhere", async () => {
+  test("a chat that cannot take a turn is left alone", async () => {
     const gone = harness({ verdict: "row" });
     gone.wake.observe(frame());
     gone.wake.observe(frame({ status: "review" }));
     await gone.wake.idle();
     expect(gone.posted.length).toBe(0);
-    const ai = harness();
-    ai.wake.observe(frame());
-    ai.wake.observe(frame({ status: "review", stage: "ai_review" }));
-    await ai.wake.idle();
-    expect(ai.posted.length).toBe(0);
   });
 });
 

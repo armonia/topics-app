@@ -8,10 +8,7 @@ import { holdUntilLabel, onProviderHold, configureProviderHoldStore, onPlanUsage
 import { wireHoldToResume } from "../lib/provider-hold-broadcast";
 import { resolveStateDir } from "../lib/data-dir";
 import { existsSync } from "fs";
-import { eligibleGlobalOrchestratorSessionKey, isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { startAiReviewNotices } from "../services/ai-review-notice";
 import { startCardOutcomeWake } from "../services/card-outcome-wake";
-import { logActivity } from "../db/activity-log";
 import { endReattachLeg } from "../lib/closed-outside";
 import { getDefaultProviderName, tryGetProvider, sessionHasPendingSend } from "../providers";
 import { sessionHasBackgroundWork, sessionsWithBackgroundWork } from "../providers/background-probes";
@@ -567,8 +564,8 @@ export function bootReattach(scope: AfterGovernor) {
       log: (m) => console.log(`[process-exit] ${m}`),
     }));
 
-  // One answer for the three wakes that return the outcome of work a chat
-  // launched (sub-agent result, card outcome, AI-review notice): an archived
+  // One answer for the wakes that return the outcome of work a chat
+  // launched (sub-agent result, card outcome): an archived
   // chat that launched THAT work after a person archived it is alive
   // (`lib/wake-adoption.ts`).
   const canWakeLaunchingChat = launchingChatCanWake({
@@ -587,22 +584,6 @@ export function bootReattach(scope: AfterGovernor) {
       isBusy: (sk) => activeStreams.has(sk),
       canWake: canWakeLaunchingChat,
       log: (m) => console.log(`[subagent-wake] ${m}`),
-    }));
-
-  // A card that enters AI review wakes whoever has to close it (its opener's
-  // chat, or the coordinator), on the same condition as the two above.
-  void survivingTurnsAdopted
-    .catch(() => { /* logged by the chain below */ })
-    .then(() => startAiReviewNotices({
-      route: topicsRouter,
-      isBusy: (sk) => activeStreams.has(sk),
-      sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
-      canWake: canWakeLaunchingChat,
-      coordinatorSessionKey: () => eligibleGlobalOrchestratorSessionKey(ctx.db),
-      isCoordinatorSession: (sk) => isGlobalOrchestratorSession(ctx.db, sk),
-      broadcast: (msg) => ctx.broadcastToAll(msg),
-      recordActivity: logActivity,
-      log: (m) => console.log(`[ai-review] ${m}`),
     }));
 
   // A card a chat sent to work wakes that chat when it reaches review or done,

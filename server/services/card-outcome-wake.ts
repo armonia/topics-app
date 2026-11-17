@@ -32,8 +32,6 @@ export interface CardFrame {
   deliveryBranch?: string | null;
   checksState?: string | null;
   updatedAt?: string;
-  /** `ai_review`: the opener is already told by `services/ai-review-notice.ts`. */
-  stage?: string | null;
   recentComments?: ReadonlyArray<{ author?: string; content?: string; kind?: string }>;
 }
 
@@ -168,7 +166,7 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
       const changedAt = frame.updatedAt ? Date.parse(frame.updatedAt) : NaN;
       if (!Number.isFinite(changedAt) || now() - changedAt > freshMs) return;
     }
-    if (!frame.openerTopicId || frame.stage === "ai_review") return;
+    if (!frame.openerTopicId) return;
     const sessionKey = deps.sessionKeyOfTopic(frame.openerTopicId);
     if (!sessionKey || deps.canWake(sessionKey, { taskId: frame.id }) === "row") return;
     enqueue(sessionKey, frame, outcome);

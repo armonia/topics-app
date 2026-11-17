@@ -192,25 +192,15 @@ queste regole.
    commento di sintesi nel thread + spostamento in `review` fatto DALL'AGENTE
    (`update_task(status="review")`). L'umano approva; l'agente non porta mai a `done`.
 
-   Su una board con il workflow `armonia` la review ha due colonne
-   (`shared/workflow.ts`). Una card aperta da un agente o da una schedulazione
-   consegnata SENZA domanda va in **AI review**: torna a chi l'ha aperta, che la
-   chiude con la prova (`update_task(status="done", summary=<prova>)`), o al
-   coordinatore se chi l'ha aperta non ha una chat (`agent:api`, cron). Arriva in
-   **Human review** solo con una domanda per la persona, in uno di due modi
-   equivalenti:
-   - `human_ask` = la domanda, insieme alla consegna o con `stage="human_review"`;
-   - un commento dell'agente con `options` (il blocco ```question```) che sia
-     l'ultima parola del thread al momento della consegna, oppure scritto DOPO,
-     mentre la card sta in AI review: in quel caso la card passa da sola in Human
-     review e la domanda diventa il suo `human_ask`.
-   Le opzioni che sono solo azioni della board («Landa su main») non sono una
-   domanda. Una card aperta da una persona va sempre in Human review.
-   Vale anche per una card che NASCE in review (`POST /api/boards/:id/tasks`
-   con `status="review"`): se l'ha aperta un agente o una schedulazione nasce in
-   AI review, e in Human review solo con `human_ask` nel corpo. Il coordinatore
-   chiude con `update_global_task` anche le card che ha aperto lui: la sua
-   sessione non ha un progetto, e lì `update_task` risponde `no_project`.
+   La consegna può portare una domanda per la persona: `human_ask` = cosa deve
+   guardare o decidere, insieme alla consegna. Vale anche un commento dell'agente
+   con `options` (il blocco ```question```) che sia l'ultima parola del thread al
+   momento della consegna: la domanda diventa il suo `human_ask`. Le opzioni che
+   sono solo azioni della board («Landa su main») non sono una domanda. Ogni
+   card consegnata aspetta una persona (non esiste più una colonna «AI review»).
+   Il coordinatore chiude con `update_global_task` anche le card che ha aperto
+   lui: la sua sessione non ha un progetto, e lì `update_task` risponde
+   `no_project`.
 
 1-bis. **Una card in review si deve poter LEGGERE senza rileggere il diff.**
    Quando un turno viene tagliato prima che l'agente commenti (riavvio del
@@ -257,6 +247,15 @@ queste regole.
    task (`open_browser_pane`) è solo un EXTRA dal vivo (dev server, pagina) ed è
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
+
+   **Anteprima viva automatica: come si aggiunge a un progetto.** Alla consegna il
+   gestore (`server/services/preview-manager.ts`) avvia il progetto dalla worktree
+   della card su una porta 3400-3450 e allega lo scatto. Il comando lo sceglie
+   `server/services/preview-command.ts`: lo script `preview:worktree` del
+   `package.json` se c'è (costruisce ciò che serve, usa dati propri, ascolta su
+   `$PORT`; può scrivere in `$PREVIEW_DEEP_LINK_FILE` la pagina da fotografare),
+   altrimenti il primo tra `preview`, `dev`, `start`. Nessuno script = nessuna
+   anteprima, in silenzio; un avvio tentato e fallito lascia una nota col motivo.
 
    **Niente browser aperto a mano per filmare o fotografare.** Una tab del task che nessuna finestra mostra gira in un browser
    headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
@@ -549,8 +548,7 @@ in `server/services/task-dispatcher.ts`: tenerle allineate.
      credenziali e il modello di un topic è una stringa libera, quindi chiunque può
      scriverlo. Una revisione AI potrà sbloccare un posto di una persona solo con
      un'identità che il server verifica (non con un commento), e quando esisterà
-     sarà una change a parte. Una card nella colonna `ai_review` la chiude chi l'ha aperta,
-     qualunque cosa consegni.
+     sarà una change a parte.
   - **Cosa tocca una persona senza passare da `client/src`: `human_ask`.**
      L'etichetta la deriva dai percorsi, e un testo che una persona legge può
      stare fuori da `client/src` (notifiche push, presence Discord, messaggi ai

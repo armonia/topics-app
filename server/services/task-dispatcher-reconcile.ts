@@ -466,13 +466,6 @@ export function createReconcile(ctx: DispatcherCtx) {
         });
       }
     } catch (err) { log("avviso card senza padrone fallito", err); }
-    // 1-sexies) A CARD LEFT IN AI REVIEW: whoever opened it was told when it
-    //    entered the column (`services/ai-review-notice.ts`); one still there,
-    //    untouched, past `AI_REVIEW_REMIND_MS` is the coordinator's. The
-    //    service sends the reminder and stamps the card. Its own `try`, like
-    //    the one above, and before the auto-dispatch gate for the same reason.
-    try { deps.svc.sweepStaleAiReview?.(); }
-    catch (err) { log("AI review reminder failed", err); }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un

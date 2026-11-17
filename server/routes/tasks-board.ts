@@ -581,9 +581,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             originTopicId: knownTopicId(ctx.db, body?.originTopicId ?? body?.origin_topic_id),
             // The Jarvis channel chat the work is followed in: display only, no wake and no state move.
             channelTopicId: knownTopicId(ctx.db, body?.channelTopicId ?? body?.channel_topic_id),
-            // The workflow column it is born in; absent = the server decides.
+            // The workflow column it is born in; absent = the default column of its status.
             stage: typeof body?.stage === "string" ? body.stage : undefined,
-            // A card born in review: the question that lets it be born in Human review.
+            // A card born in review: the question for the person.
             humanAsk: typeof body?.human_ask === "string" ? body.human_ask
               : typeof body?.humanAsk === "string" ? body.humanAsk : undefined,
           });
@@ -1502,7 +1502,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           task = await captureDelivery(task, prevStatus);
           broadcastToAll({ type: "task:updated", projectId, task });
           emitReviewReadyEdge(broadcastToAll, projectId, task, prevStatus, undefined,
-            () => svc.get(taskId)?.comments, prevTask?.stage ?? null);
+            () => svc.get(taskId)?.comments);
           triggerUrlProbe(taskId, task.outputUrl ?? null, projectId);
           // Auto-dispatch trigger: the human dragging a task INTO todo is the
           // "vai" signal; dragging it back OUT while still queued cancels it.

@@ -272,7 +272,6 @@ describe('outbound registry contract', () => {
       'stream:tool_user_input_required',
       'stream:usage',
       'swap-freeze:state',
-      'task:ai-review',
       'task:awaiting-human',
       'task:created',
       'task:deleted',
@@ -436,8 +435,10 @@ describe('outbound registry contract', () => {
   // 107 -> 108: `hub:live`, the usage hub's quotas, Mac and services pushed by
   // ONE server-side reader instead of every hub tab polling. Owner-only.
   // Sender `server/lib/hub-live.ts`, listener `client/src/state/hubLive.ts`.
+  // 108 -> 107: `task:ai-review` goes out with the AI review column (the `armonia`
+  // workflow preset was removed, nothing sent it any more).
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(107);
   });
 });
 

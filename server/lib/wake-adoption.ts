@@ -156,8 +156,8 @@ export function launchedSinceRetired(db: QueryDb, topicId: string, sessionKey: s
 }
 
 /**
- * The `canWake` the three launch-answering wakes share (sub-agent results,
- * card outcomes, AI-review notices): one verdict per launch, from the topic's
+ * The `canWake` the launch-answering wakes share (sub-agent results and card
+ * outcomes): one verdict per launch, from the topic's
  * row, its owner task, its stopped state and, for an archived chat, the launch
  * after a person's archive. `wait` while the provider is held.
  */
