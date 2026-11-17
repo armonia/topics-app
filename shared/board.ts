@@ -2584,7 +2584,7 @@ export function isLandedWork(task: { landingState?: string | null }): boolean {
  * `/comments` keeps ANY message on a landed card a note (see tasks-board.ts,
  * same reasoning as `isLandedWork`): re-kicking the agent over content
  * already on main would reopen a cycle the merge already closed. A box that
- * still said "Invia all'agente" on that card promised a turn the server was
+ * still offered to send to the agent on that card promised a turn the server was
  * never going to run, and the person read the silence as a bug.
  */
 export function canSendToAgent(task: {
@@ -2627,9 +2627,9 @@ export function showsDeployProposal(task: { deployState: string | null | undefin
 }
 
 /**
- * ARE THE REVIEW DECISIONS (Approva/Rimanda indietro/Landa) STILL LIVE.
+ * ARE THE REVIEW DECISIONS (approve, send back, land) STILL LIVE.
  *
- * `archive()` never touches `status` — a card archived straight out of
+ * `archive()` never touches `status`: a card archived straight out of
  * review keeps saying `review` forever after, because nothing else moves it.
  * A drawer left open on it kept drawing the three buttons as if the card
  * were still waiting for a verdict, and a click there changed nothing the
