@@ -10,12 +10,12 @@
 import { describe, expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { createTaskService } from "../services/tasks";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, setCiPhaseMode } from "./tasks-test-support";
 import type { IntegrationMeasure } from "../services/integration-queue";
 
 describe("approve come superata su una board con la fase CI", () => {
   test("si chiude superata, non entra in fase CI e non misura niente", async () => {
-    const db = freshDb();
+    const db = setCiPhaseMode(freshDb(), "before");
     const svc = createTaskService(db);
     let measured = 0;
     const router = createTasksRouter(makeCtx(db, []), undefined, {

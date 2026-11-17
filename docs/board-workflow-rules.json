@@ -1,6 +1,6 @@
 {
   "_": "The topics-app board's own workflow rules (PUT /api/boards/<projectId>/workflow with this body). The generic list lives in server/services/auto-land.ts; these are the paths specific to THIS repository.",
-  "ciPhase": true,
+  "ciPhase": "after",
   "personPaths": [
     { "pattern": "client/src/**", "why": "interface" },
     { "pattern": "{landing,site,public}/**", "why": "public site" },

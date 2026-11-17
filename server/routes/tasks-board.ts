@@ -31,7 +31,7 @@ import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
-import { MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parsePersonPaths } from "../../shared/workflow";
+import { CI_PHASE_MODES, MAX_PERSON_PATHS, STAGE_CI, WORKFLOW_COLUMNS, parseCiPhase, parsePersonPaths } from "../../shared/workflow";
 import type { TasksRouterOpts, emitReviewReadyEdge } from "./tasks";
 
 /**
@@ -301,7 +301,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       const scope = bWorkflow.projectId;
       // `rules` = the CI switch and the board's paths a person must look at,
       // resolved; `ownRules` = this scope's row. PUT takes any of
-      // `ciPhase` (boolean | null) and `personPaths` (list | null): only the
+      // `ciPhase` (before | after | off | true | false | null) and `personPaths` (list | null): only the
       // keys present are written, `null` = inherit. A `preset` key from an old
       // caller is accepted and ignored: there is one set of columns now.
       const view = () => ({ columns: WORKFLOW_COLUMNS, rules: readWorkflowRules(ctx.db, scope), ownRules: readOwnWorkflowRules(ctx.db, scope) });
@@ -315,8 +315,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         if (!has("preset") && !has("ciPhase") && !has("personPaths")) {
           return json({ error: "nothing to write: send ciPhase or personPaths", code: "invalid_input" }, 400);
         }
-        if (has("ciPhase") && body.ciPhase !== null && typeof body.ciPhase !== "boolean") {
-          return json({ error: "ciPhase must be true, false or null", code: "invalid_input" }, 400);
+        if (has("ciPhase") && body.ciPhase !== null && parseCiPhase(body.ciPhase) === null) {
+          return json({ error: `ciPhase must be one of ${CI_PHASE_MODES.join(", ")}, true, false or null`, code: "invalid_input" }, 400);
         }
         const personPaths = has("personPaths") && body.personPaths !== null ? parsePersonPaths(body.personPaths) : null;
         if (has("personPaths") && body.personPaths !== null && personPaths === null) {
@@ -325,7 +325,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         try {
           if (has("ciPhase") || has("personPaths")) {
             writeWorkflowRules(ctx.db, scope, {
-              ...(has("ciPhase") ? { ciPhase: body.ciPhase as boolean | null } : {}),
+              ...(has("ciPhase") ? { ciPhase: parseCiPhase(body.ciPhase) } : {}),
               ...(has("personPaths") ? { personPaths } : {}),
             }, new Date().toISOString());
           }
