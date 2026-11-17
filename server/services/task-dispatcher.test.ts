@@ -521,7 +521,7 @@ describe("task-dispatcher", () => {
     expect(finale.status).not.toBe("backlog");
   });
 
-  it("il secondo rimando dell'agente ferma la card e la chiede: nessun terzo turno parte", async () => {
+  it("a repeated agent wait stays in todo with a longer window: no park, no third-turn question", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 2 });
     h.svc.setGlobalCap({ auto: false, max: 2 });
@@ -529,29 +529,22 @@ describe("task-dispatcher", () => {
 
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.dispatcher.deferWait("t1", "il servizio X è giù", 30).status).toBe("todo");
+    const first = h.dispatcher.deferWait("t1", "il servizio X è giù", 15);
+    expect(first.status).toBe("todo");
     h.finishTurn();
     await flush();
     h.db.run("UPDATE tasks SET dispatch_deferred_until = ? WHERE id = 't1'", [new Date(Date.now() - 1000).toISOString()]);
 
     await h.dispatcher.tick(PID);
     await flush();
-    expect(h.task("t1")!.dispatchState).toBe("working"); // the second turn starts: the first wait was legitimate
-    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
-    expect(parked.status).toBe("backlog");
-    expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(1); // the question reaches the human
-    h.finishTurn();
-    await flush();
-
-    const turns = h.turns.length;
-    await h.dispatcher.tick(PID);
-    await flush();
-    const t = h.task("t1")!;
-    expect(t.status).toBe("backlog");
-    expect(t.dispatchState).toBe(PARKED_WAITED_OUT);
-    expect(h.dispatcher.isInFlight("t1")).toBe(false);
-    expect(h.turns.length).toBe(turns);
+    expect(h.task("t1")!.dispatchState).toBe("working");
+    const second = h.dispatcher.deferWait("t1", "il servizio X è giù", 15);
+    expect(second.status).toBe("todo");
+    expect(second.dispatchState).toBe("waiting");
+    expect(second.waitStreak).toBe(2);
+    const windowMin = (Date.parse(second.dispatchDeferredUntil!) - Date.now()) / 60_000;
+    expect(windowMin).toBeGreaterThan(55); // 15 -> 60
+    expect(h.events.filter((e) => e.type === "task:parked")).toHaveLength(0);
   });
 
   it("sfondato il tetto delle attese la card resta `waited_out`: onTurnEnd non la azzera", async () => {
@@ -571,7 +564,7 @@ describe("task-dispatcher", () => {
       WAIT_STREAK_CAP, "il servizio x è giù", new Date().toISOString(),
     ]);
 
-    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30);
+    const parked = h.dispatcher.deferWait("t1", "il servizio X è giù", 30, "machine");
     expect(parked.status).toBe("backlog");
     expect(parked.dispatchState).toBe(PARKED_WAITED_OUT);
     expect(parked.dispatchDeferredUntil).toBeNull();
@@ -606,7 +599,7 @@ describe("task-dispatcher", () => {
     h.db.run("UPDATE tasks SET wait_streak = ?, wait_reason = ?, wait_since = ? WHERE id = 't1'", [
       WAIT_STREAK_CAP, "la ci sta girando", new Date().toISOString(),
     ]);
-    h.dispatcher.deferWait("t1", "la CI sta girando", 30);
+    h.dispatcher.deferWait("t1", "la CI sta girando", 30, "machine");
 
     const parked = h.events.filter((e) => e.type === "task:parked");
     expect(parked).toHaveLength(1);
@@ -4161,7 +4154,7 @@ describe("il reconcile cronometra le attese, non solo il servizio", () => {
     const wake = new Date(Date.now() - 4 * 3_600_000).toISOString();
     h.db.run(
       `UPDATE tasks SET dispatch_state = 'waiting', dispatch_deferred_until = ?,
-         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+         wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?, wait_source = 'machine'
        WHERE id = ?`,
       [wake, since, id],
     );
@@ -4198,7 +4191,7 @@ describe("il reconcile cronometra le attese, non solo il servizio", () => {
     expect(h.turns.length).toBe(1);
     const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
     h.db.run(
-      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?
+      `UPDATE tasks SET wait_streak = 2, wait_reason = 'aspetto che la ci finisca', wait_since = ?, wait_source = 'machine'
        WHERE id = ?`,
       [since, "t1"],
     );

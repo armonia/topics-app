@@ -24,19 +24,31 @@ describe("attesa riformulata", () => {
   const clock = { t: T0 };
   beforeEach(() => { clock.t = T0; db = freshDb(); s = svc(db, clock); });
 
-  test("due ragioni diverse a 5 ore di distanza: la seconda parcheggia", () => {
+  test("due ragioni diverse a 5 ore di distanza: la seconda di una macchina parcheggia", () => {
     const t = s.create({ projectId: PID, text: "C2 dopo C1", status: "todo" });
     s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: t.id, reason: "C2 dipende da C1, aspetto che chiuda", minutes: 240, by: "claude" });
+    s.deferForWait({ taskId: t.id, reason: "C2 dipende da C1, aspetto che chiuda", minutes: 240, by: "claude", source: "machine" });
     expect(s.get(t.id)!.task.status).toBe("todo");
 
     clock.t += 5 * ORA;
     s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
-    s.deferForWait({ taskId: t.id, reason: "C1 (7e64f79d) non ancora chiusa", minutes: 480, by: "claude" });
+    s.deferForWait({ taskId: t.id, reason: "C1 (7e64f79d) non ancora chiusa", minutes: 480, by: "claude", source: "machine" });
 
     const after = s.get(t.id)!.task;
     expect(after.dispatchState).toBe(PARKED_WAITED_OUT);
     expect(after.status).toBe("backlog");
+  });
+
+  test("la stessa serie dichiarata da un agente resta in todo", () => {
+    const t = s.create({ projectId: PID, text: "C2 dopo C1", status: "todo" });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
+    s.deferForWait({ taskId: t.id, reason: "C2 dipende da C1, aspetto che chiuda", minutes: 240, by: "claude" });
+    clock.t += 5 * ORA;
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
+    s.deferForWait({ taskId: t.id, reason: "C1 (7e64f79d) non ancora chiusa", minutes: 480, by: "claude" });
+    const after = s.get(t.id)!.task;
+    expect(after.status).toBe("todo");
+    expect(after.dispatchState).toBe("waiting");
   });
 
   test("ragione nuova dentro il tetto: la serie tiene l'orologio, il conteggio riparte", () => {
