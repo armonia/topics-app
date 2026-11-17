@@ -98,6 +98,7 @@ pub fn parse_health(body: &str) -> Option<Health> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SyncTarget {
+    pub name: String,
     pub rev: String,
     pub at: i64,
     pub error: Option<String>,
@@ -124,6 +125,7 @@ pub fn parse_sync(body: &str) -> Option<HarnessSync> {
         source_rev: text(source, "rev"),
         source_at: int(source, "at").unwrap_or(0),
         targets: v.get("targets").and_then(Value::as_object).into_iter().flatten().map(|(id, t)| (id.clone(), SyncTarget {
+            name: text(t, "name"),
             rev: text(t, "rev"),
             at: int(t, "at").unwrap_or(0),
             error: nonempty(text(t, "error")),
@@ -227,7 +229,13 @@ pub fn sync_row(sync: &HarnessSync, machine_id: &str, offset: i64) -> Option<Sta
             parts.push("privato chiuso".into());
             level = level.max(1);
         }
-        "skipped" => parts.push(format!("privato non copiato{}", t.reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default())),
+        // the writer's own reason often already opens with the words «privato non copiato»
+        // the technical aside in brackets («(BitLocker spento su C:)») does not fit the line and is the writer's detail
+        "skipped" => parts.push(match t.reason.as_deref().map(|r| r.split(" (").next().unwrap_or(r).trim()) {
+            Some(r) if r.to_lowercase().starts_with("privato") => r.to_string(),
+            Some(r) => format!("privato non copiato: {r}"),
+            None => "privato non copiato".into(),
+        }),
         _ => {}
     }
     Some(row("Memorie e regole", parts.join(" · "), level))

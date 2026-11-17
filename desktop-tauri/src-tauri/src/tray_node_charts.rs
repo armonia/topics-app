@@ -85,7 +85,12 @@ impl NodeData {
         let seat = crate::tray_nodes::pool_of(card, &self.pool, details);
         let ids = [card.machine_id.as_str(), seat.map_or("", |n| n.machine_id.as_str()), card.id.as_str()];
         let machine = self.health.as_ref().and_then(|h| health::health_of(h, card.local, &ids, &card.name).map(|m| (h, m)));
-        let sync_id = ids.iter().find(|i| !i.is_empty() && self.sync.as_ref().map_or(false, |s| s.targets.contains_key(**i))).copied().unwrap_or("");
+        // a machine the sync file names but no id of this card matches (a PC without a client twin): its name decides
+        let sync_id = self.sync.as_ref().and_then(|s| {
+            ids.iter().find(|i| !i.is_empty() && s.targets.contains_key(**i)).map(|i| i.to_string())
+                .or_else(|| s.targets.iter().find(|(_, t)| !card.local && !t.name.is_empty() && t.name.trim().eq_ignore_ascii_case(card.name.trim())).map(|(id, _)| id.clone()))
+        }).unwrap_or_default();
+        let sync_id = sync_id.as_str();
         let mut rows: Vec<StatusRow> = Vec::new();
         if card.local {
             rows.extend(self.memory_row.clone());
@@ -236,21 +241,24 @@ pub fn hours_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     Some(pic)
 }
 
-/// How late the memories and rules were on this machine over the last 24 hours.
+/// How late the memories and rules were on this machine, over the last 24 hours or as far back as the history goes
+/// (a young history fills the plot instead of hugging its right edge, and the caption says how far it reaches).
 pub fn lag_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     let pts: Vec<(i64, i64)> = e.lag.iter().filter(|(at, _)| e.now - at <= 86_400 && *at <= e.now).cloned().collect();
     if pts.len() < 2 {
         return None;
     }
+    let window = (e.now - pts[0].0).clamp(900, 86_400);
+    let start = e.now - window;
     let last = pts.last().map_or(0, |p| p.1);
     let level = if last > 24 * 3600 { 2 } else if last > 3600 { 1 } else { 0 };
     let now_say = if last < 60 { "ora: in pari".to_string() } else { format!("ora: indietro di {}", health::span(last)) };
-    let mut pic = framed(96.0, "Ritardo della sincronizzazione · 24 h", &now_say, if level > 0 { tone(level) } else { p.fg }, p);
+    let mut pic = framed(96.0, &format!("Ritardo della sincronizzazione · {}", health::span(window)), &now_say, if level > 0 { tone(level) } else { p.fg }, p);
     let (x, y, w, h) = (CARD_X + 14.0, 38.0, CARD_W - 28.0, 36.0);
-    let max = (pts.iter().map(|p| p.1).max().unwrap_or(0).max(3600)) as f32;
+    let max = (pts.iter().map(|p| p.1).max().unwrap_or(0).max(900)) as f32;
     pic.hline(x, y, w, p.fg, 0.10);
     pic.hline(x, y + h, w, p.fg, 0.18);
-    let at = |t: i64, lag: i64| (x + w * (t - (e.now - 86_400)) as f32 / 86_400.0, y + h - (lag as f32 / max).clamp(0.0, 1.0) * h);
+    let at = |t: i64, lag: i64| (x + w * (t - start) as f32 / window as f32, y + h - (lag as f32 / max).clamp(0.0, 1.0) * h);
     for pair in pts.windows(2) {
         pic.seg(at(pair[0].0, pair[0].1), at(pair[1].0, pair[1].1), 1.4, line_ink(p), 1.0);
     }
@@ -258,7 +266,7 @@ pub fn lag_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     pic.dot(lx, ly, 2.6, tone(level), 1.0);
     // the scale sits on the top guide, the time axis under the line
     pic.text(Face::SansRegular, &format!("{} di ritardo", health::span(max as i64)), x + 2.0, y + 11.0, 9.5, p.fg, p.dim);
-    pic.text(Face::SansRegular, "24 ore fa", x, y + h + 13.0, 9.5, p.fg, p.dim);
+    pic.text(Face::SansRegular, &format!("{} fa", health::span(window)), x, y + h + 13.0, 9.5, p.fg, p.dim);
     pic.text(Face::SansRegular, "ora", x + w - Pic::text_w(Face::SansRegular, "ora", 9.5), y + h + 13.0, 9.5, p.fg, p.dim);
     Some(pic)
 }

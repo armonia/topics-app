@@ -70,6 +70,14 @@ pub struct MachineCard {
 }
 
 impl MachineCard {
+    /// The card's lines with the segments `is_id` flags taken out («srv-1 · 16 core» keeps «16 core»); a line left empty goes.
+    pub fn card_lines_without_ids(&self, is_id: impl Fn(&str) -> bool) -> Vec<String> {
+        self.lines.iter().filter_map(|l| {
+            let rest: Vec<&str> = l.split(" · ").filter(|seg| !is_id(seg)).collect();
+            (!rest.is_empty()).then(|| rest.join(" · "))
+        }).collect()
+    }
+
     /// The name as the card draws it: numbered when the machines are in dispatch order.
     pub fn display_name(&self) -> String {
         if self.order == 0 { self.name.clone() } else { format!("{} · {}", self.order, self.name) }

@@ -98,6 +98,15 @@ pub(crate) fn pool_of<'a>(card: &MachineCard, pool: &'a [PoolNode], details: &[M
     })
 }
 
+/// A line that is only an id or a technical name: the server's own name at the provider, a machine id,
+/// anything shaped like a uuid. The cards never show those (they say the work, not the plumbing).
+fn is_technical(line: &str, card: &MachineCard, node: Option<&PoolNode>) -> bool {
+    let l = line.trim().to_lowercase();
+    let uuid = l.len() == 36 && l.chars().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { c == '-' } else { c.is_ascii_hexdigit() });
+    let named = |t: &str| !t.is_empty() && l == t.to_lowercase();
+    uuid || named(&card.id) || named(&card.machine_id) || node.map_or(false, |n| named(&n.server_name) || named(&n.machine_id))
+}
+
 /// What a node is called, from what it is: a fixed server, or the hourly one of that seat.
 fn node_name(n: &PoolNode, provider: &str) -> String {
     let kind = if n.fixed { "Server fisso".to_string() } else { format!("Nodo a ore {}", n.n) };
@@ -161,6 +170,10 @@ pub fn arrange(cards: Vec<MachineCard>, client: &[MachineCard], pool: &[PoolNode
     }).cloned().collect();
     let mut rows: Vec<(u8, usize, MachineCard)> = kept.into_iter().enumerate().map(|(i, mut c)| {
         let node = pool_of(&c, pool, details);
+        // a technical name (the provider's server name, an id) is dropped from the lines and from the reason
+        let kept = c.card_lines_without_ids(|t| is_technical(t, &c, node));
+        c.reason = if is_technical(&c.reason, &c, node) { kept.first().map(|l| l.split(" · ").next().unwrap_or(l).to_string()).unwrap_or_default() } else { c.reason.clone() };
+        c.lines = kept;
         let twin = node.and_then(|n| client.iter().find(|x| !n.machine_id.is_empty() && x.id == n.machine_id));
         if let Some(n) = node {
             // «Hetzner · cx53 · 25 €» opens with the provider's own word when the pool did not write one

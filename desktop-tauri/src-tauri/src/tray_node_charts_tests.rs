@@ -88,6 +88,19 @@ fn a_card_with_a_twin_in_the_client_list_finds_its_machine_by_that_id() {
 }
 
 #[test]
+fn a_pc_the_sync_file_names_is_found_by_its_name_when_no_id_matches() {
+    // the real file: keyed by the PC's Topics machine id, which the service's card (id «pc») does not carry
+    let body = format!(r#"{{"source":{{"rev":"r","at":{NOW}}},"targets":{{"fbe3f00f":{{"name":"PC Windows","rev":"r","at":{},"error":null,"private":"skipped","private_reason":"privato non copiato: disco non cifrato"}}}},"history":{{"fbe3f00f":[{{"at":{},"lag_s":0}},{{"at":{},"lag_s":300}}]}}}}"#, NOW - 300, NOW - 7200, NOW - 3600);
+    let d = NodeData::from_snapshot(&Snapshot { harness_sync: Some(body), ..Default::default() }, NOW, OFF);
+    let pc = MachineCard { id: "pc".into(), name: "PC Windows".into(), ..Default::default() };
+    let e = d.extras(&pc, &[], NOW, OFF);
+    assert_eq!(e.rows[0].text, "allineate alle 08:55 · privato non copiato: disco non cifrato");
+    assert_eq!(e.lag.len(), 2);
+    // this computer is never matched by name
+    assert!(d.extras(&MachineCard { local: true, ..pc }, &[], NOW, OFF).rows.is_empty());
+}
+
+#[test]
 fn cpu_and_memory_lines_need_two_readings_and_the_card_total_needs_a_count() {
     let mut e = NodeExtras { cpu: vec![Some(1.0)], mem: vec![None, None, Some(5.0)], ..Default::default() };
     assert_eq!(e.panels(), 0, "one reading is no line");
@@ -129,6 +142,19 @@ fn the_lag_chart_needs_two_points_in_the_last_24_hours() {
     assert!(lag_card(&e(vec![(NOW - 7200, 100)]), p).is_none());
     assert!(lag_card(&e(vec![(NOW - 3 * 86_400, 1), (NOW - 2 * 86_400, 2)]), p).is_none(), "points older than a day do not count");
     assert!(lag_card(&e(vec![]), p).is_none());
+}
+
+#[test]
+fn a_young_lag_history_fills_the_plot_and_the_title_says_how_far_it_reaches() {
+    let p = Palette::new(false);
+    let at = |from: i64| NodeExtras { lag: vec![(NOW - from, 0), (NOW - from / 2, 120), (NOW, 480)], now: NOW, ..Default::default() };
+    let young = lag_card(&at(1800), p).unwrap();
+    let old = lag_card(&at(20 * 3600), p).unwrap();
+    assert_eq!(young.h, old.h, "same card, the plot only changes its time axis");
+    // 30 minutes of history span the whole plot: the line reaches the left half, not only the right edge
+    let ink = line_ink(p);
+    let left_has_line = (0..young.cv.h).any(|y| (14..270).any(|x| young.cv.px[((y * young.cv.w + x * 2) * 4) as usize..][..3] == ink));
+    assert!(left_has_line);
 }
 
 #[test]

@@ -186,3 +186,12 @@ fn saved_memories_are_no_row_without_a_valid_answer() {
     }
     assert!(memory_sync_valid(r#"{"runs":[],"parts":[]}"#));
 }
+
+#[test]
+fn a_private_reason_that_already_says_privato_is_not_said_twice() {
+    let r = sync_row(&sync(&target("r2", NOW, "null", "skipped", r#""privato non copiato: disco non cifrato""#)), "m1", OFF).unwrap();
+    assert_eq!(r.text, "allineate alle 09:00 · privato non copiato: disco non cifrato");
+    // the writer's technical aside in brackets is left out: the line has to fit the card
+    let long = sync_row(&sync(&target("r2", NOW, "null", "skipped", r#""privato non copiato: disco non cifrato (BitLocker spento su C:)""#)), "m1", OFF).unwrap();
+    assert_eq!(long.text, "allineate alle 09:00 · privato non copiato: disco non cifrato");
+}
