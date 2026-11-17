@@ -50,6 +50,9 @@ fn a_closed_private_store_is_worth_a_look_and_a_skipped_one_says_why() {
 fn a_sync_error_is_a_problem_and_a_machine_the_file_does_not_know_has_no_row() {
     let r = sync_row(&sync(&target("r2", NOW, r#""rsync: connessione rifiutata""#, "open", "null")), "m1", OFF).unwrap();
     assert_eq!((r.text.as_str(), r.level), ("rsync: connessione rifiutata", 2));
+    // an unreachable node says so in a few words: the transport's message and the closed private part are not repeated
+    let down = sync_row(&sync(&target("r2", NOW, r#""nodo non raggiungibile: Connection timed out during banner exchange""#, "closed", r#""nodo non raggiungibile""#)), "m1", OFF).unwrap();
+    assert_eq!((down.text.as_str(), down.level), ("nodo non raggiungibile", 2));
     assert!(sync_row(&sync(&target("r2", NOW, "null", "open", "null")), "other", OFF).is_none());
     assert!(parse_sync("not json").is_none() && parse_sync("{}").is_none());
 }

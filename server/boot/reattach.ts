@@ -17,6 +17,7 @@ import { sessionKeyOfBrokerId, nativeDetachedEnabled } from "../providers/native
 import { describeTurnEnd } from "../providers/stop-reason";
 import { getAiBridgeClient } from "../lib/ai-bridge-client";
 import { commandBackgroundWork, commandWakeState, sessionsAwaitingCommandWake } from "../routes/processes";
+import { subagentWakeState } from "../lib/subagent-runtime";
 import { startProcessExitWakes } from "../lib/process-exit-wake";
 import { startSubagentWakes } from "../services/subagent-wake";
 import { abandonCutTurn, adoptNativeChildrenAtBoot } from "../lib/native-subagents";
@@ -624,6 +625,7 @@ export function bootReattach(scope: AfterGovernor) {
           getTopicById: ctx.getTopicById,
           cliHasWork: sessionHasBackgroundWork,
           commandOwesWake: (sk) => commandWakeState(sk) !== "none",
+          subagentOwesWake: (sk) => subagentWakeState(sk) !== "none",
           dispatchedSubjects: () => taskDispatcher.sessionsInFlight().map((sk) => chatSubjectOfSession(sk)).filter((x): x is string => !!x),
           decode: decodeCol,
         }));

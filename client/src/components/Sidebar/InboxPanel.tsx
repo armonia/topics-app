@@ -513,7 +513,7 @@ function FinishedRow({ item, first, onOpen, onMarkSeen }: { item: InboxItem; fir
 }
 
 /** The task kinds the catalogue names; an unknown kind shows its label alone. */
-const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron', 'command', 'wake']);
+const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron', 'command', 'wake', 'subagent']);
 
 /**
  * THE FOOT OF THE PANEL: «3 at work», grey, no number on the button, opens in

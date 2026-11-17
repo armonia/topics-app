@@ -52,14 +52,15 @@ fn image(i: usize) -> usize {
 }
 
 /// Shows frame `frame` (or hides the layer for `None`). Must run on the main thread.
-pub unsafe fn show(button: id, frame: Option<u32>) {
+/// Returns false when there is no button or no host layer to draw on.
+pub unsafe fn show(button: id, frame: Option<u32>) -> bool {
     if button == nil {
-        return;
+        return false;
     }
     let _: () = msg_send![button, setWantsLayer: true];
     let host: id = msg_send![button, layer];
     if host == nil {
-        return;
+        return false;
     }
     let mut layer = LAYER.load(Ordering::Relaxed) as id;
     if layer == nil {
@@ -87,4 +88,5 @@ pub unsafe fn show(button: id, frame: Option<u32>) {
         }
     }
     let _: () = msg_send![tx, commit];
+    true
 }
