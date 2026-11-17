@@ -50,7 +50,7 @@ export function useReasoningTranslationsVersion(): number {
   return useSyncExternalStore(subscribe, getVersion, getVersion);
 }
 
-export interface AppliedTranslation {
+interface AppliedTranslation {
   /** The text with every translated sentence swapped in; the original where there is none. */
   text: string;
   /** How many sentences were swapped. Zero means `text` is the original. */

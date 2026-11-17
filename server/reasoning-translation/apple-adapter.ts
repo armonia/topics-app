@@ -32,7 +32,7 @@ const IDLE_EXIT_MS = 5 * 60_000;
 /** After a failed build the adapter stays off for this long, so a broken compiler is not retried per sentence. */
 const BUILD_RETRY_MS = 10 * 60_000;
 
-export interface AppleAdapterOptions {
+interface AppleAdapterOptions {
   /** Folder for the compiled helper (created when needed). */
   cacheDir: string;
   /** A ready-made helper executable, used instead of compiling: tests and e2e put a fake here. */

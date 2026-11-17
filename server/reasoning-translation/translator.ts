@@ -26,13 +26,3 @@ export interface ReasoningTranslator {
   translate(text: string, from: string, to: string): Promise<string>;
 }
 
-/** An adapter that never translates: what the service sees where nothing can. */
-export const unavailableTranslator: ReasoningTranslator = {
-  name: "none",
-  available: async () => false,
-  detect: async () => null,
-  pairReady: async () => false,
-  translate: async () => {
-    throw new Error("no translator available");
-  },
-};

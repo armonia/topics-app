@@ -22,7 +22,7 @@ import type { ReasoningTranslator } from "./translator";
 /** A block shorter than this is not translated: too little text to name its language. */
 export const MIN_DETECT_CHARS = 40;
 /** Below this confidence the detected language is not trusted. */
-export const MIN_DETECT_CONFIDENCE = 0.7;
+const MIN_DETECT_CONFIDENCE = 0.7;
 /** How long "this pair is (not) ready" is remembered before the adapter is asked again. */
 const PAIR_MEMO_MS = 60_000;
 
@@ -68,14 +68,14 @@ export function hashSentence(sentence: string): string {
   return createHash("sha256").update(sentence).digest("hex");
 }
 
-export interface ReasoningTranslationDeps {
+interface ReasoningTranslationDeps {
   translator: ReasoningTranslator;
   store: TranslationStore;
   /** The chat language right now: the setting, else the interface language. */
   resolveTarget: () => string;
 }
 
-export interface TranslateResult {
+interface TranslateResult {
   /** False when no translation can happen on this machine (the client stops asking for a while). */
   available: boolean;
   target: string;
