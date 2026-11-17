@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.35",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "force a fresh generation between the disabled and native rounds (#1216)",
+          "en": "",
+          "scope": "git-status-native",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.34",
     "date": "2026-11-17",
     "sections": {

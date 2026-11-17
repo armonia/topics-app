@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.35 — 2026-11-17
+
+### Sotto il cofano
+- **git-status-native** · force a fresh generation between the disabled and native rounds (#1216)
+
 ## 2.4.34 — 2026-11-17
 
 ### Sotto il cofano
