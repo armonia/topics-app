@@ -265,6 +265,8 @@ const EN = {
   'project.chatAnswers': 'A chat in this project is answering',
   'topic.backgroundOne': 'One job in the background. The chat is free, you can write',
   'topic.backgroundMany': '{n} jobs in the background. The chat is free, you can write',
+  'topic.waitingOnSubagent': 'The turn is over: waiting for a sub-agent. It starts writing again when it answers. The chat is free, you can write',
+  'topic.waitingOnProcess': 'The turn is over: waiting for a background process. It starts writing again when it ends. The chat is free, you can write',
   'topic.backgroundResuming': 'The background work reported back and the chat is about to resume. It is free meanwhile, you can write',
   'ctx.removeFromContext': 'Remove from the context',
   'ctx.removeFile': 'Remove the file',

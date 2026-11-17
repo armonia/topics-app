@@ -34,13 +34,14 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useTopicWaitingOn, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/agentActionHooks';
 import { useT } from '../../hooks/useT';
-import { loaderActivityForAction, loaderInkClass, loaderStateFor, type LoaderState } from './loaderState';
+import { loaderActivityForAction, loaderArcClass, loaderOutcomeInkClass, loaderStateFor, type LoaderState } from './loaderState';
 import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } from './squareLoader';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
+import type { WaitingOn } from '../../state/backgroundWork';
 
 /**
  * THE SQUARE LOADER: 48 rounded squares that slide between shapes (the engine
@@ -62,6 +63,9 @@ const GLYPH = 12;
 
 /** The ink fades from one state to the next (CSS, `motion-safe`); the canvas re-reads it for this long. */
 const INK_FADE_MS = 400;
+
+/** The canvas carries the colour transition (and, set by hand, the outcome ink); the span only the arc. */
+const CANVAS_CLASS = 'block motion-safe:transition-colors motion-safe:duration-base';
 
 /** The movement a loader plays when the caller does not say. */
 function defaultActivity(state: LoaderState): LoaderActivity {
@@ -89,29 +93,43 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
+    canvas.className = CANVAS_CLASS;
     const scale = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = canvas.height = Math.round(size * scale);
-    const body = new LoaderBody(size, ctx, { scale, hollow });
+    const body = new LoaderBody(size, ctx, { scale, hollow, onGrid: true });
     let color = getComputedStyle(canvas).color;
+    // The outcome ink sits on the canvas and follows the shape on screen, not the one asked for.
+    let outcome = '';
+    const syncOutcomeInk = (): boolean => {
+      const next = loaderOutcomeInkClass(body.shape);
+      if (next === outcome) return false;
+      outcome = next;
+      canvas.className = `${CANVAS_CLASS} ${next}`.trim();
+      return true;
+    };
     let draws = 0;
     let fadingUntil = 0;
     const still = !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     refreshRef.current = () => {
+      if (still) { body.snap(activityRef.current, 2); syncOutcomeInk(); }
       color = getComputedStyle(canvas).color;
       fadingUntil = performance.now() + INK_FADE_MS;
-      if (still) { body.snap(activityRef.current, 2); body.draw(color); }
+      if (still) body.draw(color);
     };
     const client: ClockClient = {
       body,
       activity: () => activityRef.current,
       // The ink can change with the theme: re-read it now and then, not on every frame.
       color: () => {
+        if (syncOutcomeInk()) fadingUntil = performance.now() + INK_FADE_MS;
         if (++draws % 45 === 0 || performance.now() < fadingUntil) color = getComputedStyle(canvas).color;
         return color;
       },
     };
     if (still) {
       body.snap(activityRef.current, 2);
+      syncOutcomeInk();
+      color = getComputedStyle(canvas).color;
       body.draw(color);
       return;
     }
@@ -133,14 +151,14 @@ export function SparkLoader({ className = '', state = 'working', onFill = false,
 
   return (
     <span
-      className={`relative inline-flex items-center justify-center motion-safe:transition-colors motion-safe:duration-base ${loaderInkClass(state, onFill, activity)} ${className}`}
+      className={`relative inline-flex items-center justify-center ${loaderArcClass(state, onFill)} ${className}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
       {/* In flow, not `absolute`: the glyph is a sign, never a layer. A positioned
           canvas read as something laid over whatever surface hosts the loader
           (the browser pane's "starting" wait counted as an overlay on the page). */}
-      <canvas ref={canvasRef} className="block" style={{ width: size, height: size }} />
+      <canvas ref={canvasRef} className={CANVAS_CLASS} style={{ width: size, height: size }} />
     </span>
   );
 }
@@ -157,6 +175,8 @@ interface LoaderSlotProps {
   onFill?: boolean;
   /** The movement, when the caller knows what the agent is doing (`loaderActivityForAction`). */
   activity?: LoaderActivity;
+  /** The turn is over and the chat waits on this (BGVIS-10): it reads as a wait, not as writing. */
+  waitingOn?: WaitingOn;
 }
 
 /**
@@ -173,7 +193,7 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false, activity }: LoaderSlotProps) {
+export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false, activity, waitingOn }: LoaderSlotProps) {
   const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
@@ -182,6 +202,7 @@ export function LoaderSlot({ title, className = '', size = 16, state = 'working'
       title={tip}
       aria-label={tip}
       data-loader-state={state}
+      data-waiting-on={waitingOn}
     >
       <SparkLoader state={state} onFill={onFill} activity={activity} />
     </span>
@@ -262,6 +283,8 @@ export function TopicStreamingSpinner({
   // `working`, the frame the fill reads too, so the ring and a fill agree).
   const inProgress = useTopicInProgress(topicId);
   const tasks = useTopicBackgroundTasks(topicId);
+  // The turn is over and the chat waits on work: said apart from a chat that writes.
+  const waitingOn = useTopicWaitingOn(topicId);
   const activity = loaderActivityForAction(useTopicAction(topicId));
   const tr = useT();
   const state = loaderStateFor({ inProgress, waiting });
@@ -269,6 +292,10 @@ export function TopicStreamingSpinner({
   // No turn open: the ring of the job left running, never the labeled clock,
   // which times a turn. The tooltip says what runs, and that the chat is free.
   if (!streaming) {
+    // BGVIS-10: the slow `wait` movement and a tooltip that names what is awaited, never the ring of a chat that is writing.
+    if (waitingOn) {
+      return <LoaderSlot title={title ?? waitingTip(tr, waitingOn, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} activity="wait" waitingOn={waitingOn} />;
+    }
     return <LoaderSlot title={title ?? backgroundTip(tr, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} activity={activity} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
@@ -294,6 +321,13 @@ export function TopicStreamingSpinner({
 /** The tasks that are work: a queued wake is the CLI about to answer, said as «resuming». */
 function workCount(tasks: readonly { kind: string }[]): number {
   return tasks.filter((t) => t.kind !== 'wake').length;
+}
+
+/** What the chat with no turn open waits for, and that it is free; a CLI job keeps its count («2 jobs in the background»). */
+function waitingTip(tr: ReturnType<typeof useT>, on: WaitingOn, n: number): string {
+  if (on === 'subagent') return tr('topic.waitingOnSubagent');
+  if (on === 'process') return tr('topic.waitingOnProcess');
+  return backgroundTip(tr, n);
 }
 
 /** How much runs, and that the chat is free: what the ring of a closed turn cannot say on its own. */

@@ -52,6 +52,7 @@ const ATTENTION_EN: Dict = {
   'inbox.task.cron': 'Cron',
   'inbox.task.command': 'Command',
   'inbox.task.wake': 'Wake',
+  'inbox.task.subagent': 'Sub-agent',
   'bell.group.broken': 'Broken',
   'bell.group.quota': 'Quotas and accounts',
   'bell.chip.quota': 'Quotas',

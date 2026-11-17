@@ -22,6 +22,8 @@ export interface AttentionBootSources extends ActiveRowsSource {
   cliHasWork: (sessionKey: string) => boolean;
   /** A Topics `run_command` of this session still owes it a wake (`commandWakeState` not `none`). */
   commandOwesWake: (sessionKey: string) => boolean;
+  /** A `spawn_agent` child of this session still runs or owes it a result (`subagentWakeState` not `none`). */
+  subagentOwesWake?: (sessionKey: string) => boolean;
   /** The chat subjects of the board agents in flight (dispatcher). */
   dispatchedSubjects: () => string[];
   decode: (value: unknown) => string | null | undefined;
@@ -55,6 +57,10 @@ export function attentionBootReader(src: AttentionBootSources): AttentionBootRea
     commandOwed: (subject) => {
       const sk = sessionOf(subject);
       return !!sk && src.commandOwesWake(sk);
+    },
+    subagentOwed: (subject) => {
+      const sk = sessionOf(subject);
+      return !!sk && src.subagentOwesWake?.(sk) === true;
     },
     planWaiting: (subject, toolCallId) => {
       const sk = sessionOf(subject);

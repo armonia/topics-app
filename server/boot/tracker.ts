@@ -12,7 +12,9 @@ import { sessionAttentionBackground } from "../providers/background-probes";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { commandWakeState, isChatServerTask, settleEndedShells } from "../routes/processes";
 import { configureAttentionStore, getAttention, processEnded } from "../attention/store";
-import { withCommandTask } from "../attention/background-tasks";
+import { withCommandTask, withSubagentTask } from "../attention/background-tasks";
+import { subagentWakeState } from "../lib/subagent-runtime";
+import { observeSubagentWaitChanged } from "../lib/subagent-wait-events";
 import { observeCommandChanged } from "../lib/command-background";
 import { chatBackgroundChanged, chatSubjectOfSession } from "../attention/wire";
 import { terminalSubject } from "../../shared/attention";
@@ -115,7 +117,9 @@ export function bootTracker(scope: AfterBrowser) {
     if (!subject) return;
     const work = sessionAttentionBackground(sessionKey);
     const base = work?.tasks ?? Object.fromEntries(getAttention(subject).background.map(({ id, ...t }) => [id, t]));
-    chatBackgroundChanged(sessionKey, withCommandTask(base, commandWakeState(sessionKey), new Date().toISOString()).tasks);
+    const at = new Date().toISOString();
+    const withCommands = withCommandTask(base, commandWakeState(sessionKey), at).tasks;
+    chatBackgroundChanged(sessionKey, withSubagentTask(withCommands, subagentWakeState(sessionKey), at).tasks);
   }
 
   // A task listed or gone, a Monitor recognised: every window refetches the
@@ -132,6 +136,8 @@ export function bootTracker(scope: AfterBrowser) {
   // A Topics command of a chat started or ended: the same map, with the command folded in.
   // A chat's server (a port seen or gone) goes through here too, and leaves or rejoins the map.
   observeCommandChanged(syncChatBackgroundTasks);
+  // A sub-agent of a chat started, opened or closed a turn, ended, or left a result: the same map, with the children folded in (BGVIS-10).
+  observeSubagentWaitChanged(syncChatBackgroundTasks);
 
   // A background Bash of a chat that listens on a port is its server, never a task it waits for (BGVIS-09).
   configureAttentionStore({ isServerTask: isChatServerTask });
