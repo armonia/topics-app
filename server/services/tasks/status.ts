@@ -5,7 +5,7 @@ import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead
 import { PARKED_WAITED_OUT, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap } from "../../../shared/board";
 import { type Task } from "../task-shapes";
 import { markTargetNotificationsSeen } from "../../db/notification-log";
-import { readBoardWorkflow, clearStagesOutsideWorkflow, writeBoardWorkflow } from "../board-workflow";
+import { WORKFLOW_COLUMNS } from "../../../shared/workflow";
 import { liveAgentCount } from "../agent-census";
 import { agentWaitWindowMinutes } from "../../../shared/agent-wait-cap";
 import { PARKED_CHILDREN_CANDIDATES_SQL, PARKED_IN_SERIES_SQL, UNOWNED_BACKLOG_SQL, QUEUED_ROOT_BOARDS_SQL } from "../../lib/task-timer-reads";
@@ -14,7 +14,7 @@ import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepWaitedOut" | "sweepUnownedBacklog" | "applyBoardWorkflow" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -283,7 +283,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
       // A subtask has no column (like at creation and in the system delivery):
       // its status moves, its stage never does.
       if (!row.parent_task_id && (wantsStage !== undefined || (patch.status !== undefined && patch.status !== current))) {
-        const columns = readBoardWorkflow(db, row.project_id).columns;
+        const columns = WORKFLOW_COLUMNS;
         // A question the agent already wrote in the thread is the `human_ask`,
         // read BEFORE the summary below enters the thread and hides it.
         if (!humanAsk && patch.status === "review") askFromThread = !!(humanAsk = agentAskOnThread(taskId));
@@ -1513,11 +1513,6 @@ sweepUnownedBacklog(): Task[] {
         if (row) alerted.push(rowToTask(row));
       }
       return alerted;
-    },
-
-applyBoardWorkflow({ scope, preset }): Task[] {
-      writeBoardWorkflow(db, scope, preset, now());
-      return clearStagesOutsideWorkflow(db, scope, now()).map((id) => rowToTask(getTaskRow(id)));
     },
 
 resolveParkedChildren(this: TaskService, { taskId, decision, by }): { task: Task; children: Task[] } | null {

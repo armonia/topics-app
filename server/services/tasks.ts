@@ -8,7 +8,7 @@ import { parseCreatedBy } from "../../shared/created-by";
 import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
 
 
-import { dropStageOutsideTarget, readBoardWorkflow } from "./board-workflow";
+import { WORKFLOW_COLUMNS } from "../../shared/workflow";
 
 import { createTasksShared, MACHINE_RETRY_CAP, STATUSES, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman, VALID_EFFORT, clampInt, TaskServiceError, GLOBAL_SETTINGS_KEY } from "./tasks/shared";
 export {
@@ -280,7 +280,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       let birthStage: string | null = null;
       const bornAsk = (input.humanAsk ?? "").trim() || null;
       if (!input.parentTaskId) {
-        const columns = readBoardWorkflow(db, input.projectId).columns;
+        const columns = WORKFLOW_COLUMNS;
         if (input.stage) birthStage = checkedStage(columns, input.stage, status);
       }
 
@@ -608,7 +608,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Re-append the root at the end of the target board; children keep their
       // relative order (kanban_order is just a per-board sort key).
       db.prepare("UPDATE tasks SET kanban_order = ? WHERE id = ?").run((maxRow?.m ?? 0) + 1, taskId);
-      dropStageOutsideTarget(db, taskId, target);
       return rowToTask(getTaskRow(taskId));
     },
 

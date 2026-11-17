@@ -23,7 +23,6 @@ let router: ReturnType<typeof createTasksRouter>;
 
 beforeEach(() => {
   db = freshDb();
-  db.run("CREATE TABLE board_workflows (scope TEXT PRIMARY KEY, preset TEXT NOT NULL, updated_at TEXT NOT NULL)");
   db.run("INSERT INTO topics (id) VALUES (?)", [TOPIC]);
   broadcasts = [];
   const topic = { id: TOPIC, name: "worker", projectPath: "/Users/x/Projects/topics-app" };
