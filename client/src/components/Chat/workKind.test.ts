@@ -1,3 +1,8 @@
+/**
+ * What kind of work a row stands for: a sub-agent is not a background job.
+ *
+ * @covers CHAT-TOOL-14
+ */
 import { describe, expect, test } from 'bun:test';
 import { deriveToolDetail } from '../../../../shared/tool-detail';
 import { iconForCall, iconForDetail } from './toolIcons';
