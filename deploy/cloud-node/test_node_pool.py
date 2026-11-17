@@ -56,6 +56,20 @@ class Drain(unittest.TestCase):
         self.run_at(1000); self.run_at(1000 + np.BEHIND_S)
         self.assertEqual(self.sl["drain_until"], 1000 + np.BEHIND_S + np.DRAIN_MAX_S)
 
+    def test_a_later_success_clears_an_old_failure(self):
+        self.sl["align_failed"] = "older"
+        self.run_at(1000)
+        self.run_at(1000 + np.BEHIND_S)
+        self.busy = 0
+        self.run_at(1000 + np.BEHIND_S + 60)
+        self.assertEqual(self.sl["aligned"], "new")
+        self.assertNotIn("align_failed", self.sl)
+
+    def test_already_aligned_forgets_the_failure_of_an_older_commit(self):
+        self.sl.update({"aligned": "new", "align_failed": "older"})
+        self.run_at(1000)
+        self.assertNotIn("align_failed", self.sl)
+
     def test_d_under_threshold_no_drain(self):
         self.run_at(1000); self.run_at(1000 + np.BEHIND_S - 1)
         self.assertEqual(self.patches, [])

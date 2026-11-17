@@ -112,7 +112,7 @@ fn node_state(n: &PoolNode, card: &MachineCard, offset: i64) -> Option<(String, 
         return Some(("in svuotamento".into(), format!("si riallinea a main, card ferme{until}"), 1));
     }
     if n.align_failed {
-        return Some(("riallineamento fallito".into(), "indietro su main, riprova al prossimo commit".into(), 1));
+        return Some(("riallineamento fallito".into(), "resta indietro su main".into(), 1));
     }
     // a node that does not answer, or sleeps, says so by itself: «acceso» would lie
     if is_silent(card) {
@@ -166,6 +166,10 @@ pub fn arrange(cards: Vec<MachineCard>, client: &[MachineCard], pool: &[PoolNode
                 .unwrap_or_default();
             c.name = node_name(n, &provider);
             if let Some((badge, reason, level)) = node_state(n, &c, offset) {
+                // the line beside the name is short: the whole sentence is the first line of the card's submenu
+                if reason != c.reason && !reason.is_empty() {
+                    c.lines.insert(0, reason.clone());
+                }
                 c.badge = badge;
                 c.reason = reason;
                 c.level = level;

@@ -649,6 +649,10 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
     if not c or sl.get("aligned") == c or sl.get("align_failed") == c:
         sl.pop("behind_since", None)
         sl["draining"] = False
+        # un fallimento è del commit che non è passato: se il nodo è già a quello del Mac non ce n'è più
+        # (la tray lo leggeva per sempre come «riallineamento fallito»)
+        if sl.get("aligned") == c:
+            sl.pop("align_failed", None)
         return
     # The clock starts when the node first falls behind and only stops once it is aligned again:
     # a Mac commit that moves every few minutes must not restart it
@@ -674,6 +678,7 @@ def align_permanent(sl, ip, key, c, ci_busy, now=None):
         sl["align_failed"] = c
     else:
         sl["aligned"] = c
+        sl.pop("align_failed", None)
     log(f"posto {key}: nodo permanente riallineato a {c[:10]} (exit {a.returncode})")
     if sl.get("draining"):
         sl["draining"] = False

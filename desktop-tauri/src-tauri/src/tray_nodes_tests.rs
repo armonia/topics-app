@@ -57,6 +57,7 @@ fn a_fixed_server_shows_once_named_by_what_it_is_and_worded_by_the_pool() {
     // 1_799_990_000 + 10_800 s = 1_800_000_800 = 08:13 UTC, 09:13 in a +1 h zone
     assert_eq!(out[0].reason, "si riallinea a main, card ferme fino alle 09:13");
     assert_eq!(out[0].level, 1);
+    assert_eq!(out[0].lines[0], out[0].reason, "the full sentence is also in the submenu");
 }
 
 #[test]
