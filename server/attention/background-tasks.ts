@@ -251,7 +251,7 @@ export function withCommandTask(
 }
 
 /** What `subagentWakeState` (`lib/subagent-runtime.ts`) says of a chat's `spawn_agent` children. */
-export type SubagentOwed = "running" | "wake-queued" | "none";
+type SubagentOwed = "running" | "wake-queued" | "none";
 
 /**
  * A chat's task map with its sub-agents folded in as ONE task (BGVIS-10): the
