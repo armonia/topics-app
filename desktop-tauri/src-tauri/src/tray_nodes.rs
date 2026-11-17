@@ -2,7 +2,7 @@
 //! sends work to them.
 //!
 //! Two things lied in the menu: a node-pool server deleted days ago still showed as
-//! «Nodo cloud 2, spento» (its machine row stayed behind), and the permanent server
+//! cloud node 2, switched off (its machine row stayed behind), and the permanent server
 //! showed twice (the service's «Server Hetzner» card and the client's «Nodo cloud 1»)
 //! with no word about being drained for a realign. The pool writes its own state
 //! file (`node-pool/state.json`, `deploy/cloud-node/node-pool`): it says which

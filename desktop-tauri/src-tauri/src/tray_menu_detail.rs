@@ -23,7 +23,7 @@ pub struct MachineDetail {
     pub metrics: Vec<DetailMetric>,
     /// Where the machine's state spent the window (awake, asleep, off), as the service logged it.
     pub timeline: Vec<Segment>,
-    /// What the service says the machine is, in one line («topics-permanent-node · 16 core · sempre acceso»).
+    /// What the service says the machine is, in one line: machine name, cores, power state.
     pub caption: String,
 }
 
