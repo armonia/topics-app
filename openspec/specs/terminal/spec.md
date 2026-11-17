@@ -1000,3 +1000,13 @@ Monospace text SHALL show the real characters: ligatures SHALL stay off on `code
 - **THEN** `document.fonts` reports both JetBrains Mono faces as `loaded`
 - **AND** the rows xterm draws are 21 px tall, also when the face arrives after xterm has opened (xterm measures its cell again once the face is in)
 - **AND** the gap between the terminal box and xterm's screen is 12 px on the top and the left, and at least 12 px on the bottom and the right, at every pane height: the last row (the prompt) stays inside the pane
+
+### Requirement: TERM-SEND-01 — Long plain text sent to a Claude TUI SHALL arrive whole, as one paste
+
+Text over 1000 bytes sent through `/send` to a `claude-code` session SHALL go as one bracketed paste with the trailing Enter sent as its own key, because a raw write over 1022 bytes reaches the TUI without its head. Short text SHALL stay a raw write.
+
+#### Scenario: Long text becomes a paste
+- **GIVEN** a `claude-code` session
+- **WHEN** 3000 bytes of plain text followed by Enter are sent
+- **THEN** the route answers `pasted: true` with `enter: true`
+- **AND** a short text is not pasted

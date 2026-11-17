@@ -7,6 +7,18 @@ import { type Task } from "../task-shapes";
 import { isDeliverySheetPath, isAutoCapturedPreview } from "../../../shared/media-kind";
 import { statSync } from "node:fs";
 
+/**
+ * SQL for `past_delivery_branches` when `delivery_branch` is about to be
+ * overwritten (one `?` = the new branch). SQLite reads the OLD row on the right
+ * of every assignment, so the outgoing branch is appended once, never twice,
+ * and never when it is the same branch written again.
+ */
+const REMEMBER_REPLACED_BRANCH =
+  "CASE WHEN delivery_branch IS NULL OR delivery_branch = COALESCE(?, '') " +
+  "OR instr(' ' || COALESCE(past_delivery_branches, '') || ' ', ' ' || delivery_branch || ' ') > 0 " +
+  "THEN past_delivery_branches " +
+  "ELSE TRIM(COALESCE(past_delivery_branches, '') || ' ' || delivery_branch) END";
+
 export function createDeliveryMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "deliverToReviewBySystem" | "retirePreview" | "sweepReviewPreviews" | "recordDelivery" | "setDeliveryStat" | "setDeliveryBranch"> {
   const {
     agentAskOnThread,
@@ -443,12 +455,17 @@ recordDelivery({ taskId, branch, commit, stat }): void {
       // sulla card i numeri del lavoro di prima, che è peggio del non saperlo.
       // Per questo `stat` assente scrive NULL invece di lasciare il valore
       // vecchio: un dato che non si aggiorna insieme al suo soggetto mente.
+      // The branch being replaced is still the card's own history: a node round
+      // planted `topics/a`, the next round `topics/b` on top of it, and with `a`
+      // forgotten the land counted its commits as another session's and landed
+      // `b`'s alone (card 76d3e2ff, 17/11: the fix left out, its e2e spec on main).
       db.prepare(
-        "UPDATE tasks SET delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
+        `UPDATE tasks SET past_delivery_branches = ${REMEMBER_REPLACED_BRANCH}, ` +
+        "delivery_branch = ?, delivery_commit = ?, landing_state = NULL, " +
         "landing_checked_at = NULL, landing_witnessed = 0, prior_uncommitted_files = NULL, " +
         "delivery_files_changed = ?, delivery_insertions = ?, delivery_deletions = ? WHERE id = ?",
       ).run(
-        branch || null, commit || null,
+        branch || null, branch || null, commit || null,
         stat?.filesChanged ?? null, stat?.insertions ?? null, stat?.deletions ?? null,
         taskId,
       );
@@ -497,7 +514,8 @@ setDeliveryBranch(taskId: string, branch: string): void {
       // insieme al suo soggetto mente) non si applica qui: non ci sono nuovi
       // dati da scrivere, solo un indirizzo da conservare prima che la cartella
       // sparisca. Toccare commit/diffstat/landing_state sarebbe distruttivo.
-      db.prepare("UPDATE tasks SET delivery_branch = ? WHERE id = ?").run(branch, taskId);
+      db.prepare(`UPDATE tasks SET past_delivery_branches = ${REMEMBER_REPLACED_BRANCH}, delivery_branch = ? WHERE id = ?`)
+        .run(branch, branch, taskId);
     }
   };
 }
