@@ -7,6 +7,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { isCiEvidenceCheck } from "../../shared/board";
+import type { CiPhaseMode } from "../../shared/workflow";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
@@ -26,8 +27,8 @@ export interface CiPhaseDeps {
   dispatcher?: TaskDispatcher;
   broadcast(msg: { type: "task:updated"; projectId: string; task: Task }): void;
   cardTurnIsLive(task: Task): boolean;
-  /** The land queue's own door: merge, confirm on main, close. */
-  landDirect(projectId: string, taskId: string): unknown;
+  /** The land queue's own door: merge, confirm on main, close. Returns the queue ticket. */
+  landDirect(projectId: string, taskId: string, landOpts?: LandRunOpts): unknown;
   /**
    * "Asked, not on main yet": the same stamp the direct land writes before it queues. Entering the CI
    * phase is a land asked, not a land done, and a `landed` left over from a deduction must not survive it.
@@ -119,15 +120,24 @@ export function createCiPhase(deps: CiPhaseDeps) {
   /** The commit each card was measured on in the CI phase: it lands only if it still delivers that one. */
   const ciMeasured = new Map<string, string>();
 
-  /** Does this board measure accepted work in the CI phase? Only with CI rows, a repo and the merge switch on. */
-  function boardHasCiPhase(projectId: string): boolean {
-    if (!deps.integrationRepo && !deps.integrationMeasure) return false;
+  /**
+   * The board's CI mode as far as it can act: `off` unless the board has what the phase needs (CI rows, a
+   * repo and the merge switch on), whatever its workflow rules say. The rule is `before` (measure, then
+   * land) or `after` (land, then measure); `off` has no phase and the land is the only step.
+   */
+  function boardCiMode(projectId: string): CiPhaseMode {
+    if (!deps.integrationRepo && !deps.integrationMeasure) return "off";
     try {
-      // The board's workflow can turn the phase off; on by default.
-      if (!readWorkflowRules(deps.db, projectId).ciPhase) return false;
+      const mode = readWorkflowRules(deps.db, projectId).ciPhase;
+      if (mode === "off") return "off";
       const s = deps.svc.getBoardSettings(projectId);
-      return s.dispatchAutoMerge && s.reviewChecks.some(isCiEvidenceCheck);
-    } catch { return false; }
+      return s.dispatchAutoMerge && s.reviewChecks.some(isCiEvidenceCheck) ? mode : "off";
+    } catch { return "off"; }
+  }
+
+  /** Does accepted work wait for the CI BEFORE it lands (the queue below)? */
+  function boardHasCiPhase(projectId: string): boolean {
+    return boardCiMode(projectId) === "before";
   }
 
   /**
@@ -137,6 +147,8 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * no CI phase here, the caller lands directly.
    */
   function enterCiPhase(projectId: string, taskId: string, landOpts?: LandRunOpts): boolean {
+    // `after`: the card lands at once and the CI reads main later; the land is asked here, the verdict comes later.
+    if (boardCiMode(projectId) === "after") return landThenMeasure(projectId, taskId, landOpts) !== null;
     if (!boardHasCiPhase(projectId)) return false;
     const cur = deps.svc.get(taskId, { projectId })?.task;
     // A card with no code of its own (an analysis) has nothing to measure: it closes as before.
@@ -167,42 +179,54 @@ export function createCiPhase(deps: CiPhaseDeps) {
     return true;
   }
 
+  /**
+   * Builds the integration commit of these cards on `origin/main` and reads the board's CI rows on it.
+   * `commitOf` says which commit each card brings; `repoOf` where to build it (default: the repo the
+   * card's delivery lives in); `remember` keeps the measured commit for the `before` land to check.
+   */
+  async function measureCards(
+    projectId: string,
+    taskIds: string[],
+    how: { commitOf: (taskId: string) => string | null; repoOf?: (taskId: string) => Promise<string | null>; remember?: boolean },
+  ): Promise<IntegrationMeasure> {
+    if (deps.integrationMeasure) {
+      if (how.remember) for (const id of taskIds) { const c = how.commitOf(id); if (c) ciMeasured.set(id, c); }
+      return deps.integrationMeasure(projectId, taskIds);
+    }
+    const cards = taskIds.flatMap((id) => {
+      const commit = how.commitOf(id);
+      return commit ? [{ taskId: id, commit }] : [];
+    });
+    if (how.remember) for (const c of cards) ciMeasured.set(c.taskId, c.commit);
+    const repoOf = how.repoOf ?? ((id: string) => deps.integrationRepo!(id).catch(() => null));
+    const repo = cards.length ? await repoOf(cards[0]!.taskId) : null;
+    if (!repo) return { measured: [], conflicts: [], verdict: "unmeasured", why: "il repository della card non si trova" };
+    const checks = deps.svc.getBoardSettings(projectId).reviewChecks.filter(isCiEvidenceCheck);
+    return measureIntegration(repo, cards, checks, {
+      git: async (cwd, args, env) => {
+        const r = await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.write, env: { GIT_TERMINAL_PROMPT: "0", ...env } });
+        return { code: r.code, out: r.stdout, err: r.stderr };
+      },
+      awaitCi: (input) => awaitCiEvidence(input),
+      closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
+      describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
+      rerunFailed: async (cwd, sha) => {
+        // The same capped door every other gh call of the board goes through (deadline, process group).
+        const gh = async (args: string[]) => {
+          const r = await spawnCapped(["gh", ...args], cwd);
+          return { code: r.code, out: r.out };
+        };
+        const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
+        const id = list.out.trim();
+        if (list.code !== 0 || !id) return false;
+        return (await gh(["run", "rerun", id, "--failed"])).code === 0;
+      },
+    });
+  }
+
   const integration = createIntegrationQueue({
     collectMs: deps.integrationCollectMs,
-    measure: async (projectId, taskIds) => {
-      if (deps.integrationMeasure) {
-        for (const id of taskIds) { const c = deps.svc.get(id, { projectId })?.task.deliveryCommit; if (c) ciMeasured.set(id, c); }
-        return deps.integrationMeasure(projectId, taskIds);
-      }
-      const cards = taskIds.flatMap((id) => {
-        const t = deps.svc.get(id, { projectId })?.task;
-        return t?.deliveryCommit ? [{ taskId: id, commit: t.deliveryCommit }] : [];
-      });
-      for (const c of cards) ciMeasured.set(c.taskId, c.commit);
-      const repo = cards.length ? await deps.integrationRepo!(cards[0]!.taskId).catch(() => null) : null;
-      if (!repo) return { measured: [], conflicts: [], verdict: "unmeasured", why: "il repository della card non si trova" };
-      const checks = deps.svc.getBoardSettings(projectId).reviewChecks.filter(isCiEvidenceCheck);
-      return measureIntegration(repo, cards, checks, {
-        git: async (cwd, args, env) => {
-          const r = await runGit(cwd, args, { timeoutMs: SPAWN_TIMEOUT.write, env: { GIT_TERMINAL_PROMPT: "0", ...env } });
-          return { code: r.code, out: r.stdout, err: r.stderr };
-        },
-        awaitCi: (input) => awaitCiEvidence(input),
-        closeDraft: (input) => closeCiDraft({ ...input, closePr: true }),
-        describeRed: (runs, commit) => formatChecksComment(runs, { commit }),
-        rerunFailed: async (cwd, sha) => {
-          // The same capped door every other gh call of the board goes through (deadline, process group).
-          const gh = async (args: string[]) => {
-            const r = await spawnCapped(["gh", ...args], cwd);
-            return { code: r.code, out: r.out };
-          };
-          const list = await gh(["run", "list", "--commit", sha, "--workflow", "ci.yml", "--limit", "1", "--json", "databaseId", "-q", ".[0].databaseId"]);
-          const id = list.out.trim();
-          if (list.code !== 0 || !id) return false;
-          return (await gh(["run", "rerun", id, "--failed"])).code === 0;
-        },
-      });
-    },
+    measure: (projectId, taskIds) => measureCards(projectId, taskIds, { commitOf: (id) => deps.svc.get(id, { projectId })?.task.deliveryCommit ?? null, remember: true }),
     // Landed like a person's «Landa»: the integration commit measured main plus this branch, so the land may
     // bring origin/main into the branch first (the automatic land's `noRealign` would refuse every branch
     // that fell behind). The one fact re-read here is the commit: a card that moved on is measured again.
@@ -277,6 +301,155 @@ export function createCiPhase(deps: CiPhaseDeps) {
     } catch (err) { console.warn(`[integration] ${taskId.slice(0, 8)} non restituita a una persona:`, err); }
   }
 
+  // ── THE `after` RULE: THE CARD LANDS AT ONCE, THE CI READS MAIN LATER ─────────────────────────────────
+  //
+  // What a person waited 15-20 minutes for (the queue above: collect, batch, draft pull request, CI) is
+  // now the CI's own time, not the land's: the change is on main, and in the person's app, when it is
+  // approved. The CI still measures it, with the same machine, and a red goes back to who made it.
+  // Nothing reverts main by itself: the fix goes forward, and after the third round the person is asked
+  // (and offered the revert).
+
+  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null };
+
+  function readAfter(taskId: string): AfterMark | null {
+    try {
+      const r = deps.db.query("SELECT ci_after FROM tasks WHERE id = ?").get(taskId) as { ci_after?: string | null } | null;
+      return r?.ci_after ? (JSON.parse(r.ci_after) as AfterMark) : null;
+    } catch { return null; }
+  }
+
+  function writeAfter(taskId: string, mark: AfterMark | null): void {
+    try { deps.db.query("UPDATE tasks SET ci_after = ? WHERE id = ?").run(mark ? JSON.stringify(mark) : null, taskId); }
+    catch (err) { console.warn(`[ci-after] ${taskId.slice(0, 8)} marca non scritta:`, err); }
+  }
+
+  /** Did a land SEE this card's work on main (`unpushed` is on main in this machine, not yet on origin)? */
+  function witnessedOnMain(taskId: string): boolean {
+    const r = deps.db.query("SELECT landing_state AS s, landing_witnessed AS w FROM tasks WHERE id = ?").get(taskId) as { s?: string | null; w?: number | null } | null;
+    return r?.w === 1 && (r.s === "landed" || r.s === "unpushed");
+  }
+
+  /**
+   * The land of the `after` rule: the same land a board without the CI phase makes, then the card is
+   * put in the measure queue once main has CONFIRMED it. `null` = this board or card does not take it
+   * (the caller goes on as it always did). Returns the land's queue ticket.
+   */
+  function landThenMeasure(projectId: string, taskId: string, landOpts?: LandRunOpts): unknown | null {
+    if (boardCiMode(projectId) !== "after") return null;
+    const cur = deps.svc.get(taskId, { projectId })?.task;
+    // The same cards the `before` phase takes: code of their own, not on main yet.
+    if (!cur || cur.status !== "review" || !cur.deliveryBranch || !cur.deliveryCommit) return null;
+    if (landedOnMain(deps.db, cur)) return null;
+    const who = landOpts?.recheck ? "auto" : "human";
+    let intent: "human" | "auto" = who;
+    // The decision is kept across a red: the fixed delivery lands again without asking anybody.
+    try { intent = deps.svc.setLandIntent({ taskId, who }).landIntent ?? who; } catch { return null; }
+    // The branch and its worktree are gone once the land has reaped them: the repo is asked now.
+    const repo = deps.integrationRepo ? deps.integrationRepo(taskId).catch(() => null) : Promise.resolve(null);
+    const commit = cur.deliveryCommit;
+    const ticket = deps.landDirect(projectId, taskId, landOpts);
+    void deps.whenLanded(taskId)?.then(async () => {
+      if (!witnessedOnMain(taskId)) return; // a refusal or a conflict: the land already said it, the card stays with its agent or in review
+      writeAfter(taskId, { commit, who: intent, repo: await repo });
+      try { deps.svc.setLandIntent({ taskId, who: null }); } catch { /* the mark is what matters */ }
+      afterQueue.request(projectId, taskId);
+    }).catch((err) => console.warn(`[ci-after] ${taskId.slice(0, 8)} non messa in misura:`, err));
+    return ticket;
+  }
+
+  /** The card goes back to a person (review, with the question), main stays as it is. */
+  function askPersonAfter(projectId: string, taskId: string, question: string): void {
+    try {
+      let t: Task;
+      try { t = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "review", humanAsk: question }, statusReason: "la CI dopo il land non si risolve da sola" }); }
+      catch { t = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { humanAsk: question } }); }
+      deps.broadcast({ type: "task:updated", projectId, task: t });
+    } catch (err) { console.warn(`[ci-after] ${taskId.slice(0, 8)} non restituita a una persona:`, err); }
+  }
+
+  /**
+   * A red on main after the land: the card leaves `done` and goes back to its agent with the log, the
+   * same round count as a red before the land (`bouncesSinceHuman`, `MAX_AUTO_BOUNCES`). Its work is
+   * ALREADY on main and its branch is reaped, so the agent starts from the updated main and fixes forward.
+   */
+  async function bounceAfterLand(projectId: string, taskId: string, why: string): Promise<void> {
+    const mark = readAfter(taskId);
+    writeAfter(taskId, null);
+    const got = deps.svc.get(taskId, { projectId });
+    if (!got) return;
+    const done = bouncesSinceHuman(got.comments);
+    if (done >= MAX_AUTO_BOUNCES) {
+      askPersonAfter(projectId, taskId,
+        `Tre giri di CI rossa dopo il land senza uscirne: ${why.split("\n")[0]!.slice(0, 200)}. Il lavoro è già su main: lascia riprovare l'agente rispondendo qui, oppure annulla il land con \`git revert -m 1 <commit>\` (il commit è nella riga «Mergiato su main» di questa card).`);
+      return;
+    }
+    const message = redBounceMessage(done + 1, why) + "\n\n" +
+      "ATTENZIONE: il tuo lavoro è GIÀ SU MAIN (la riga «Mergiato su main» di questa card dice il commit) e il tuo ramo è stato rimosso. " +
+      "Parti dal main aggiornato (`git fetch origin main`, ramo nuovo da `origin/main`), correggi IN AVANTI con un commit nuovo, niente revert. " +
+      "Quando rimetti in review atterra da sola, senza passare da una persona.";
+    try {
+      deps.svc.addComment({ taskId, author: "system", content: message });
+      // Fresh from the queue: the worktree the old session ran in is gone, the thread carries the context.
+      const queued = deps.svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" }, statusReason: "la CI su main è rossa dopo il land" });
+      try { deps.svc.addComment({ taskId, author: "system", kind: "service", content: FRESH_SESSION_NOTE }); } catch { /* the requeue is what matters */ }
+      // `land_intent` survives the round: the next green delivery comes back to land by itself.
+      let back = queued;
+      if (mark?.who) { try { back = deps.svc.setLandIntent({ taskId, who: mark.who }); } catch { /* a person decides again */ } }
+      deps.broadcast({ type: "task:updated", projectId, task: back });
+      console.warn(`[ci-after] ${taskId.slice(0, 8)} rimandata all'agente: CI rossa su main`);
+      if (queued.status === "todo") deps.dispatcher?.onEnterTodo(projectId, taskId);
+    } catch (err) {
+      console.warn(`[ci-after] ${taskId.slice(0, 8)} non rimandata:`, err);
+      askPersonAfter(projectId, taskId, `La CI è rossa su main dopo il land e non sono riuscito a rimandare la card all'agente: ${why.split("\n")[0]!.slice(0, 200)}`);
+    }
+  }
+
+  const afterQueue = createIntegrationQueue({
+    landed: true,
+    collectMs: deps.integrationCollectMs,
+    measure: (projectId, taskIds) => measureCards(projectId, taskIds, {
+      commitOf: (id) => readAfter(id)?.commit ?? null,
+      repoOf: async (id) => readAfter(id)?.repo ?? (await deps.integrationRepo?.(id).catch(() => null)) ?? null,
+    }),
+    // Green: nothing left to do but say so (the queue writes the note) and drop the mark.
+    land: async (projectId, taskId) => {
+      writeAfter(taskId, null);
+      const t = deps.svc.get(taskId, { projectId })?.task;
+      if (t) deps.broadcast({ type: "task:updated", projectId, task: t });
+    },
+    bounce: (projectId, taskId, why) => bounceAfterLand(projectId, taskId, why),
+    giveUp: (projectId, taskId, why) => {
+      writeAfter(taskId, null);
+      askPersonAfter(projectId, taskId, `La CI dopo il land non dà un esito: ${why.split("\n")[0]!.slice(0, 220)}. Il lavoro è già su main.`);
+    },
+    stillWanted: (_projectId, taskId) => {
+      if (!readAfter(taskId)) return false;
+      const row = deps.db.query("SELECT archived FROM tasks WHERE id = ?").get(taskId) as { archived?: number } | null;
+      return !row?.archived;
+    },
+    note: (taskId, text) => {
+      deps.svc.addComment({ taskId, author: "system", kind: "service", content: text, replaces: ["CI non misurata", "CI rossa su", "CI verde su"] });
+    },
+    log: (line) => console.warn(line),
+  });
+
+  /**
+   * Every landed card still carrying its mark goes back in the measure queue: the queue lives in memory
+   * and a restart drops it. A board that turned the CI off since does not measure: the marks are dropped.
+   * Returns how many cards were asked.
+   */
+  function resumeAfterMeasures(): number {
+    let rows: Array<{ id: string; project_id: string }> = [];
+    try { rows = deps.db.query("SELECT id, project_id FROM tasks WHERE ci_after IS NOT NULL").all() as typeof rows; } catch { return 0; }
+    let asked = 0;
+    for (const r of rows) {
+      if (boardCiMode(r.project_id) === "off") { writeAfter(r.id, null); continue; }
+      afterQueue.request(r.project_id, r.id);
+      asked += 1;
+    }
+    return asked;
+  }
+
   /**
    * A card carrying a decision to land, back in review: does it go straight to
    * the CI phase? `auto` = the automatic land decides again, on the new commit,
@@ -331,7 +504,9 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   return {
-    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase,
+    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase, boardCiMode, landThenMeasure, resumeAfterMeasures,
     pending: (projectId: string) => integration.pending(projectId),
+    pendingAfter: (projectId: string) => afterQueue.pending(projectId),
+    idleAfter: (projectId: string) => afterQueue.idle(projectId),
   };
 }

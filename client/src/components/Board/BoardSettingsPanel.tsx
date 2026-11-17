@@ -19,6 +19,7 @@ import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { MAX_CHECKS, WORKFLOW_PRESET_IDS, boardApi, personPathsFromText, personPathsToText, type BoardSettings, type BoardSettingsPatch, type BoardTask, type BoardWorkflowView, type ReviewCheck, type WorkflowPresetId } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
+import { CiPhaseControl } from './CiPhaseControl';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { useTaskModelTrigger } from '../../hooks/useTaskModelTrigger';
 import { TaskModelSelector } from '../Shared/ModelSelector/TaskModelSelector';
@@ -438,7 +439,7 @@ function WorkflowRulesEditor({ projectId, workflow, onChanged, onError, chip }: 
   const saved = personPathsToText(own);
   const [draft, setDraft] = useState<string | null>(null);
   const text = draft ?? saved;
-  const ciOn = workflow.rules?.ciPhase ?? true;
+  const ciMode = workflow.rules?.ciPhase ?? 'after';
   const write = async (patch: Parameters<typeof boardApi.setWorkflowRules>[1]) => {
     try { onChanged(await boardApi.setWorkflowRules(projectId, patch)); setDraft(null); }
     catch (e) { onError(e instanceof Error ? e.message : 'workflow save failed'); }
@@ -449,13 +450,7 @@ function WorkflowRulesEditor({ projectId, workflow, onChanged, onError, chip }: 
   };
   return (
     <>
-      <div className="flex items-center justify-between gap-2" title={tr('board.settings.workflow.ciTitle')}>
-        <span>{tr('board.settings.workflow.ci')}</span>
-        <div className="flex gap-0.5">
-          <button type="button" data-testid="board-workflow-ci-on" onClick={() => write({ ciPhase: true })} className={chip(ciOn)}>{tr('board.settings.workflow.ciOn')}</button>
-          <button type="button" data-testid="board-workflow-ci-off" onClick={() => write({ ciPhase: false })} className={chip(!ciOn)}>{tr('board.settings.workflow.ciOff')}</button>
-        </div>
-      </div>
+      <CiPhaseControl mode={ciMode} onPick={(ciPhase) => write({ ciPhase })} chip={chip} />
       <label className="block" title={tr('board.settings.workflow.pathsTitle')}>
         <span>{tr('board.settings.workflow.paths')} <span className="text-app-text-muted">{tr('board.settings.workflow.pathsHint')}</span></span>
       </label>

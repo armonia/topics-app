@@ -112,6 +112,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
    * «Landa», la quick-reply dell'agente, e il trascinamento in Done.
    */
   function enqueueLand(projectId: string, taskId: string, landOpts?: LandRunOpts): LandingTicket {
+    // `after`: the land is the usual one, the CI reads main once it is confirmed (`tasks-ci-phase.ts`).
+    const direct = ciPhase.landThenMeasure(projectId, taskId, landOpts);
+    if (direct) return direct as LandingTicket;
     if (enterCiPhase(projectId, taskId, landOpts)) {
       const at = ciPhase.pending(projectId).indexOf(taskId);
       return { taskId, phase: "queued", ahead: at > 0 ? at : 0, queuedAt: new Date().toISOString(), settledAt: null, error: null, outcome: null, reason: null };
@@ -176,7 +179,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     liveTurns: opts?.liveTurnCount,
     waitsForTurns: (taskId) => {
       const projectId = svc.get(taskId)?.task.projectId;
-      return !projectId || !ciPhase.boardHasCiPhase(projectId);
+      return !projectId || ciPhase.boardCiMode(projectId) === "off";
     },
     cardTurnLive: (taskId) => {
       const t = svc.get(taskId)?.task;
@@ -208,7 +211,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     svc, db, dispatcher,
     broadcast: (msg) => broadcastToAll(msg),
     cardTurnIsLive: (t) => cardTurnIsLive(t),
-    landDirect: (projectId, taskId) => landDirect(projectId, taskId),
+    landDirect: (projectId, taskId, landOpts) => landDirect(projectId, taskId, landOpts as LandRunOpts | undefined),
     markLandPending: opts?.markLandPending,
     whenLanded: (taskId) => landings.whenSettled(taskId),
     tryAutoLand: (projectId, taskId) => autoLander.tryLand(projectId, taskId),
@@ -227,6 +230,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
+    // The queue of the `after` rule lives in memory too: a landed card still waiting for its CI goes back in.
+    try { ciPhase.resumeAfterMeasures(); } catch (err) { console.warn("[ci-after] ripresa delle misure fallita:", err); }
     const rows = svc.list({ scope: "all", status: "review", rootsOnly: true });
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {

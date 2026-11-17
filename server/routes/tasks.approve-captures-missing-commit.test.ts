@@ -12,12 +12,12 @@
 import { describe, expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { createTaskService } from "../services/tasks";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, setCiPhaseMode } from "./tasks-test-support";
 import type { IntegrationMeasure } from "../services/integration-queue";
 
 describe("approve su un ramo senza delivery_commit ancora catturato", () => {
   test("lo cattura ora e passa dalla fase CI, invece di chiudere done senza misurare", async () => {
-    const db = freshDb();
+    const db = setCiPhaseMode(freshDb(), "before");
     const svc = createTaskService(db);
     let measured = 0;
     const router = createTasksRouter(makeCtx(db, []), undefined, {
@@ -55,7 +55,7 @@ describe("approve su un ramo senza delivery_commit ancora catturato", () => {
   });
 
   test("rifiuta con un motivo quando non c'è proprio niente da catturare", async () => {
-    const db = freshDb();
+    const db = setCiPhaseMode(freshDb(), "before");
     const svc = createTaskService(db);
     const router = createTasksRouter(makeCtx(db, []), undefined, {
       integrationCollectMs: 0,
