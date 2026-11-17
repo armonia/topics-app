@@ -88,6 +88,11 @@ test("the card in the transcript and the waiting line follow the board without a
   // keeps the reconcile sweep from recovering an agent that has no live turn.
   expect((await request.post(`${E2E_BASE}/api/test/dispatch-hold`, { data: { ms: 60_000 } })).ok()).toBe(true);
   expect((await request.post(`${E2E_BASE}/api/test/tasks/${id}/dispatch-state`, { data: { state: "working" } })).ok()).toBe(true);
+  // The test verb writes the chip without a board frame, so the client reads it on the next load.
+  await page.reload();
+  await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
+  if (!(await card.isVisible())) await page.locator(`[data-pane-id="${topic.id}"]`).first().click();
+  await expect(card).toHaveAttribute("data-phase", "working", { timeout: 20_000 });
   await expect(line).toContainText(title, { timeout: 20_000 });
 
   expect((await patch({ status: "review" })).ok()).toBe(true);
