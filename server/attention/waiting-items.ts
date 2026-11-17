@@ -24,10 +24,11 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const WAITING_KINDS = ["decisione", "spesa", "pubblico", "vista"] as const; // allow-italian: the hub's wire values
-export type WaitingKind = (typeof WAITING_KINDS)[number];
+import { WAITING_KINDS, type WaitingKind } from "../../shared/waiting-kind";
+export { WAITING_KINDS };
+export type { WaitingKind };
 
-export interface WaitingItem {
+export interface WaitingEntry {
   id: string;
   tipo: WaitingKind; // allow-italian: wire field of the hub
   title: string;
@@ -53,7 +54,7 @@ export interface WaitingOpenInput {
   taskId?: unknown;
 }
 
-interface Row extends WaitingItem {
+interface Row extends WaitingEntry {
   hubIds: string[];
   /** Set once closed: `until` null is forever, a number is a snooze. */
   closed?: { at: number; until: number | null };
@@ -82,10 +83,10 @@ export function validateWaitingOpen(b: WaitingOpenInput): string | null {
 const identity = (r: { key?: string; from: string; title: string }): string => (r.key ? `key:${r.key}` : `title:${r.from}|${r.title.slice(0, TITLE_MAX).trim().toLowerCase()}`);
 
 export interface WaitingStore {
-  open(input: WaitingOpenInput, opts?: { hubId?: string; at?: number }): WaitingItem;
+  open(input: WaitingOpenInput, opts?: { hubId?: string; at?: number }): WaitingEntry;
   /** Closes (or snoozes with `until`); false when no such item is open. */
   close(id: string, opts?: { until?: unknown; by?: string }): boolean;
-  list(): WaitingItem[];
+  list(): WaitingEntry[];
   /** The hub ids behind an item, to forward its close. */
   hubIdsOf(id: string): string[];
   /** Ingest the hub's current list: new items open, known ones refresh, closed ones stay closed. */
@@ -114,9 +115,9 @@ export function createWaitingStore(opts: { file?: string | null; now?: () => num
 
   const isOpen = (r: Row, t: number): boolean => !r.closed || (r.closed.until !== null && r.closed.until <= t);
   const openRows = (): Row[] => [...rows.values()].filter((r) => isOpen(r, now()));
-  const publicItem = ({ hubIds: _h, closed: _c, ...item }: Row): WaitingItem => item;
+  const publicItem = ({ hubIds: _h, closed: _c, ...item }: Row): WaitingEntry => item;
 
-  function open(input: WaitingOpenInput, o: { hubId?: string; at?: number } = {}): WaitingItem {
+  function open(input: WaitingOpenInput, o: { hubId?: string; at?: number } = {}): WaitingEntry {
     const t = now();
     const key = input.key ? String(input.key).slice(0, 80) : undefined;
     const taskId = input.taskId ? String(input.taskId).trim().slice(0, 80) : undefined;
