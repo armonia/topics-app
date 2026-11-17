@@ -11,6 +11,8 @@
  * Since 2026-10-04 that is work in progress like any other: one ring.
  */
 import { ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { classifyToolAction, type AgentAction } from '../../../../shared/agent-action';
+import type { LoaderActivity } from './squareLoader';
 
 export type LoaderState = 'working' | 'waiting';
 
@@ -60,12 +62,34 @@ export function loaderInkClass(state: LoaderState, onFill = false, activity?: st
 }
 
 /**
- * The movement a running tool call plays: looking things up, writing files, or
- * the generic tool movement. Matches on the bare tool name, MCP-prefixed or not.
+ * TEMPORARY ADAPTER: the agent's action as one of the movements `squareLoader`
+ * draws today. Remove it, and pass the AgentAction straight through, once
+ * squareLoader exports one shape per action (a shape redesign is in flight in
+ * parallel). It is the ONLY place that folds the eleven actions onto the old
+ * movements, so the swap is one edit.
  */
-export function loaderActivityForTool(name: string): 'search' | 'write' | 'tool' {
-  const bare = (name.split('__').pop() ?? name).toLowerCase();
-  if (bare === 'grep' || bare === 'glob' || bare === 'websearch' || bare === 'web_search') return 'search';
-  if (bare === 'edit' || bare === 'write' || bare === 'multiedit' || bare === 'notebookedit') return 'write';
-  return 'tool';
+const LOADER_FOR_ACTION: Record<AgentAction, LoaderActivity> = {
+  think: 'think',
+  write: 'write',
+  read: 'search',
+  edit: 'write',
+  run: 'tool',
+  web: 'search',
+  browse: 'tool',
+  delegate: 'tool',
+  tool: 'tool',
+  wait: 'wait',
+  error: 'error',
+};
+
+export function loaderActivityForAction(action: AgentAction | undefined): LoaderActivity | undefined {
+  return action ? LOADER_FOR_ACTION[action] : undefined;
+}
+
+/**
+ * The movement a running tool call plays: an adapter on `classifyToolAction`,
+ * the one classifier of tool names (MCP-prefixed or not).
+ */
+export function loaderActivityForTool(name: string): LoaderActivity {
+  return LOADER_FOR_ACTION[classifyToolAction(name)];
 }
