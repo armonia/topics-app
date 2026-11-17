@@ -1,6 +1,7 @@
 /**
  * Scheduler runs copied into Topics: outcome kept, tokens joined from the usage log, no run lost or doubled.
  * The scheduler is a fake CLI; no real job is touched.
+ * @covers CRONRUNS-01
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
