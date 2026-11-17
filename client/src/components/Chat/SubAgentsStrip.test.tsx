@@ -26,6 +26,7 @@ import { liveWorkApi, scriptsApi } from '../../lib/api';
 import { dispatchFrame } from '../../lib/wsFrameBus';
 import { resetOpenLinkDedupeForTest } from '../../lib/openLink';
 import { SubAgentsStrip } from './SubAgentsStrip';
+import { __resetMessageStore, updateMessages } from '../../state/messageStore';
 import type { LiveWorkRow } from '../../../../shared/live-work';
 
 const g = globalThis as unknown as Record<string, unknown>;
@@ -143,6 +144,45 @@ describe('the rows of what works now', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 120));
     h.rerender();
     expect(hosts(h, 'subagent-row').map((n) => n.props['data-subagent-id'])).toEqual(['cli-1', 'nat-1']);
+  });
+
+  // BGVIS-10: a child that ended is told ONCE. Its result card in the transcript says how it ended
+  // («stopped before finishing», «finished»); the strip's «finished» row under it said it again, and
+  // for a stopped child said the opposite.
+  describe('an ended sub-agent whose result is already in the chat', () => {
+    const SK = 'topic:parent';
+    const card = (agentId: string, status: 'completed' | 'stopped') => ({
+      agentId, name: agentId, turn: 1, status, partial: false, text: '',
+    });
+    const seed = (agentId: string, status: 'completed' | 'stopped') => updateMessages((prev) => ({
+      ...prev,
+      [SK]: [{ id: 'm1', role: 'user', content: '', blocks: [{ kind: 'subagent-result', results: [card(agentId, status)] }] }] as never,
+    }));
+    const mountedFor = async (sessionKey: string): Promise<Harness> => {
+      harness = mount(createElement(SubAgentsStrip, { topicId: 'topic-1', sessionKey }));
+      await flush();
+      harness.rerender();
+      return harness;
+    };
+    afterEach(() => { __resetMessageStore(); });
+
+    test('has no row of its own: the card is the one line, and says the true state', async () => {
+      seed('old-1', 'stopped');
+      const h = await mountedFor(SK);
+      expect(hosts(h, 'subagent-row').map((n) => n.props['data-subagent-id'])).toEqual(['cli-1', 'nat-1']);
+    });
+
+    test('keeps its row while no card says how it ended, and a live child keeps it even with an old card', async () => {
+      const h = await mountedFor(SK);
+      expect(hosts(h, 'subagent-row').map((n) => n.props['data-subagent-id'])).toEqual(['cli-1', 'nat-1', 'old-1']);
+      // The first strip is unmounted first: a second one left mounted would keep answering the frames of the tests after it.
+      harness?.unmount();
+      __resetMessageStore();
+      seed('cli-1', 'completed');
+      const again = await mountedFor(SK);
+      expect(hosts(again, 'subagent-row').map((n) => [n.props['data-subagent-id'], n.props['data-state']]))
+        .toEqual([['cli-1', 'working'], ['nat-1', 'waiting'], ['old-1', 'ended']]);
+    });
   });
 
   test('no rows, no strip', async () => {

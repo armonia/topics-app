@@ -51,11 +51,13 @@ export interface LiveAgentRow {
   /** Absent when nothing is measured on this child yet. */
   weight?: WorkWeight;
   /**
-   * How long a child like this takes, from the children of the same kind that
-   * already finished (their median); absent below the sample floor, and then
+   * How long a child like this takes at departure, from the children of the
+   * same kind that already finished; absent below the sample floor, and then
    * no countdown is drawn.
    */
   estimateMs?: number;
+  /** The durations that estimate came from, sorted ascending: the checkpoints re-read them (`revisedEstimate`). */
+  estimateHistoryMs?: number[];
 }
 
 export interface LiveCommandRow {

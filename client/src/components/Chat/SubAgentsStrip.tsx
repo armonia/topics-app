@@ -17,6 +17,7 @@ import { useDisclosureToggle } from './transcriptDisclosure';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForAction } from '../Layout/loaderState';
 import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import { useSubagentResultIds } from './subagentResult';
 
 /**
  * WHAT WORKS NOW FOR THIS CHAT, one row each, at the end of the transcript (chat-live-work):
@@ -113,7 +114,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
             : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
-        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} weight={row.weight} className="ml-auto" />}
+        {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} estimateHistoryMs={row.estimateHistoryMs} weight={row.weight} className="ml-auto" />}
       </button>
       {state === 'ended' && (
         <button
@@ -215,9 +216,11 @@ function withEnded(rows: readonly LiveWorkRow[], gone: LiveCommandRow): readonly
   return at < 0 ? [...rows, gone] : [...rows.slice(0, at), gone, ...rows.slice(at)];
 }
 
-export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId }: { topicId: string }) {
+export const SubAgentsStrip = memo(function SubAgentsStrip({ topicId, sessionKey }: { topicId: string; sessionKey?: string }) {
   const dismissed = useDismissedSubAgents();
-  const live = visibleRows(useLiveWork(topicId), dismissed);
+  // An ended child whose result card is already in the chat is told there, once, with how it really ended.
+  const told = useSubagentResultIds(sessionKey);
+  const live = visibleRows(useLiveWork(topicId), dismissed).filter((r) => !(r.kind === 'agent' && r.state === 'ended' && told.has(r.id)));
   const disclose = useDisclosureToggle();
   // The command whose log is open: ended with its log open, it keeps its row until the log closes.
   const [open, setOpen] = useState<LiveCommandRow | null>(null);
