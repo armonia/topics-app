@@ -95,7 +95,7 @@ fn a_section_without_data_is_not_drawn() {
 fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
     let sn = Snapshot { procs: Some(r#"{"units":[]}"#.into()), ..snap() };
     let machines = machines_for(&[], &sn);
-    let nodes = machine_nodes(&machines, &sn, Palette::new(false));
+    let nodes = machine_nodes(&machines, &sn, 1_800_000_000, Palette::new(false));
     let t = dump_text(&nodes);
     assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
 }
@@ -192,7 +192,7 @@ const UNIFORM_MACHINES: &str = r#"[
 
 fn uniform_cards() -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(UNIFORM_MACHINES.into()), procs: Some(r#"{"units":[{"id":"u1","name":"Topics","type":"app","n":3,"memMB":900,"pids":[]}]}"#.into()), ..Default::default() };
-    machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true))
+    machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true))
 }
 
 #[test]
@@ -248,7 +248,7 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
 
 fn remote_sub(machines: &str) -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(machines.into()), ..Default::default() };
-    let cards = machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true));
+    let cards = machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true));
     let Node::Card { children, .. } = &cards[2] else { panic!("the server card") };
     children.clone()
 }
@@ -396,6 +396,8 @@ fn tray_dump_of_the_real_menu() {
         memory_sync: read("memory-sync"),
         memory_sync_set: read("memory-sync").is_some(),
         pool: read("pool"),
+        health: read("machines-health"),
+        harness_sync: read("harness-sync"),
         cpu,
     };
     // the poller reads the pictures from the service; the dump only needs to know there is one

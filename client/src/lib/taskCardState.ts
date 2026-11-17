@@ -24,9 +24,25 @@ export function isAwaitedPhase(phase: TaskCardPhase): boolean {
   return phase === 'todo' || phase === 'working';
 }
 
+/**
+ * Is a chat really waiting on this card? A card in `todo` is in the dispatcher's
+ * queue and will be picked up. One in `in_progress` is waited on only while an
+ * agent has it (`dispatchState` set): a card moved there by hand,
+ * or by a sub-agent's `update_task`, has no `dispatchState` and nobody on it,
+ * so no outcome will ever wake the chat (`card-outcome-wake`). Counted, it kept
+ * the line «waiting on a background job» up for five hours on a chat that had
+ * nothing running (17/11, topic bdace50c).
+ */
+export function isAwaitedCard(task: Pick<BoardTask, 'status' | 'dispatchState'>): boolean {
+  const phase = taskCardPhase(task);
+  if (!isAwaitedPhase(phase)) return false;
+  // A card in `working` with no dispatch state at all was never given to an agent.
+  return phase !== 'working' || !!task.dispatchState;
+}
+
 /** The cards `topicId` opened that are still going: what its sidebar row and waiting line name. */
 export function openCardsOf(tasks: readonly BoardTask[], topicId: string, extraIds: ReadonlySet<string> = new Set()): BoardTask[] {
-  return tasks.filter((t) => (t.openerTopicId === topicId || extraIds.has(t.id)) && isAwaitedPhase(taskCardPhase(t)));
+  return tasks.filter((t) => (t.openerTopicId === topicId || extraIds.has(t.id)) && isAwaitedCard(t));
 }
 
 /** The one phase to glyph map: the chat card draws these with `StatusIcon`. */
