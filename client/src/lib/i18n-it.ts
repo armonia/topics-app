@@ -3863,6 +3863,7 @@ const IT: Dict = {
   'firstRun.done': 'Fatto',
   'firstRun.skip': 'Salta',
   'firstRun.reopen': 'Configurazione iniziale',
+  'profile.support': 'Supporto e community',
   'firstRun.nameError': 'Non siamo riusciti a salvare il nome.',
   'firstRun.loadError': 'Non siamo riusciti a leggere lo stato di questa macchina.',
   'stepper.decrease': 'Riduci {name}',
