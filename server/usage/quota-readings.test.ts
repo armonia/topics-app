@@ -1,3 +1,6 @@
+/**
+ * @covers USAGE-28
+ */
 import { describe, expect, test } from "bun:test";
 import { latestReadings } from "./quota-readings";
 
