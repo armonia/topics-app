@@ -566,7 +566,6 @@
   "version-bundle-drift.spec.ts": 1.7,
   "window-chrome-inset.spec.ts": 5,
   "windows-window-controls.spec.ts": 0.9,
-  "workflow-per-progetto.spec.ts": 3.8,
   "worktree-domain.spec.ts": 0.8,
   "worktree-ready.spec.ts": 8.3,
   "ws-reconnect-catchup.spec.ts": 8.6

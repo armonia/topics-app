@@ -519,7 +519,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(panel(page).getByTestId("board-workflow-ci-off")).toHaveClass(/bg-emerald/);
     await panel(page).getByTestId("board-workflow-ci-on").click();
     await again.scrollIntoViewIfNeeded();
-    await panel(page).getByTestId("board-workflow-picker").screenshot({ path: join(SHOTS, "workflow-regole.png") });
+    await panel(page).getByTestId("board-workflow-rules").screenshot({ path: join(SHOTS, "workflow-regole.png") });
     await page.screenshot({ path: join(SHOTS, "workflow-pannello.png") });
   });
 });

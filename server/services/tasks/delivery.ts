@@ -20,7 +20,7 @@ export function createDeliveryMethods(db: Database, _opts: ServiceOpts, shared: 
     now,
     promoteReviewPreview,
     rejectedPaths,
-    routeSystemDelivery,
+    writeSystemDeliveryAsk,
     rowToTask,
     uuid,
   } = shared;
@@ -312,10 +312,9 @@ deliverToReviewBySystem(this: TaskService, { taskId, reason, cause, nextMove, un
       ).run(ts, typeof uncommittedFiles === "number" ? uncommittedFiles : null, cause ?? null, ts, taskId);
       if (row.status !== "review") logStatus(taskId, row.status, "review", "dispatcher");
       markReopened(taskId, row.status, "review", "system", "dispatcher");
-      // THE BOARD'S WORKFLOW ROUTES THIS DELIVERY TOO: a machine card goes
-      // back to whoever opened it unless the AGENT's last word (not the
-      // thread's: this door writes its own notes under it) asks the person.
-      routeSystemDelivery(taskId, agentAskOnThread(taskId), nextMove);
+      // THE QUESTION OF THIS DELIVERY: the AGENT's last word (not the
+      // thread's: this door writes its own notes under it) when it asks the person.
+      writeSystemDeliveryAsk(taskId, agentAskOnThread(taskId), nextMove);
       // Open the pending review approval so the review decision flow works, just
       // like an agent-initiated hand-off would.
       try {

@@ -88,13 +88,13 @@ describe('the lanes wait for the person first', () => {
 });
 
 describe('taskWaitsOnPerson', () => {
-  test('review, a question, a human ask, a «waits» line and a parked card wait; a done card or an AI review do not', () => {
+  test('review, a question, a human ask, a «waits» line and a parked card wait; a done card or one in the CI column do not', () => {
     expect(taskWaitsOnPerson(cardOf('a', 'p', { status: 'review' }))).toBe(true);
     expect(taskWaitsOnPerson(cardOf('b', 'p', { status: 'in_progress', awaitingAnswer: true }))).toBe(true);
-    expect(taskWaitsOnPerson(cardOf('c', 'p', { status: 'review', stage: 'human_review', humanAsk: 'Ti piace?' }))).toBe(true);
+    expect(taskWaitsOnPerson(cardOf('c', 'p', { status: 'review', humanAsk: 'Ti piace?' }))).toBe(true);
     expect(taskWaitsOnPerson(cardOf('d', 'p', { status: 'backlog', descriptionPreview: 'Piano.\naspetta: attilio' }))).toBe(true);
     expect(taskWaitsOnPerson(cardOf('e', 'p', { status: 'backlog', dispatchState: 'failed' }))).toBe(true);
-    expect(taskWaitsOnPerson(cardOf('f', 'p', { status: 'review', stage: 'ai_review' }))).toBe(false);
+    expect(taskWaitsOnPerson(cardOf('f', 'p', { status: 'review', stage: 'ci' }))).toBe(false);
     expect(taskWaitsOnPerson(cardOf('g', 'p', { status: 'done', awaitingAnswer: true }))).toBe(false);
     expect(taskWaitsOnPerson(cardOf('h', 'p', { status: 'todo' }))).toBe(false);
   });
@@ -102,7 +102,7 @@ describe('taskWaitsOnPerson', () => {
 
 describe('lane drop ids', () => {
   test('round trip to the workflow column, plain ids untouched', () => {
-    expect(columnIdOfDropTarget(laneDropId('ai_review', 'proj-x'))).toBe('ai_review');
+    expect(columnIdOfDropTarget(laneDropId('ci', 'proj-x'))).toBe('ci');
     expect(columnIdOfDropTarget('todo')).toBe('todo');
     expect(columnIdOfDropTarget('3f2a-task-id')).toBe('3f2a-task-id');
   });
