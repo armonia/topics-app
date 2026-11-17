@@ -4,7 +4,7 @@
  * terminal roster (the server reads it from the child's transcript, not from
  * its PTY bytes), the result from the chat's `subagent-result` rows.
  */
-import { useCallback, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { ContentBlock, SubagentResultCard, ToolCallDetail } from '../../types';
 import type { TerminalSessionInfo } from '../../types';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
@@ -22,6 +22,27 @@ export function latestSubagentResult(
     }
   }
   return null;
+}
+
+/** The ids of the children whose result is already a card of this chat (a primitive snapshot: no re-render while it holds). */
+function resultAgentKey(messages: readonly { blocks?: readonly ContentBlock[] | null }[]): string {
+  const ids = new Set<string>();
+  for (const m of messages) for (const b of m.blocks ?? []) if (b.kind === 'subagent-result') for (const r of b.results) ids.add(r.agentId);
+  return [...ids].sort().join('\n');
+}
+
+/**
+ * The children this chat already shows a result card for, kept live with its rows. The strip under
+ * the chat leaves an ended child to that card: told twice, a stopped child was also «finished» (BGVIS-10).
+ */
+export function useSubagentResultIds(sessionKey: string | undefined): ReadonlySet<string> {
+  const subscribe = useCallback(
+    (onChange: () => void) => (sessionKey ? subscribeSession(sessionKey, onChange) : () => {}),
+    [sessionKey],
+  );
+  const snapshot = useCallback(() => (sessionKey ? resultAgentKey(getSessionMessagesFromStore(sessionKey)) : ''), [sessionKey]);
+  const key = useSyncExternalStore(subscribe, snapshot, snapshot);
+  return useMemo(() => new Set(key ? key.split('\n') : []), [key]);
 }
 
 const ENVELOPE = /<subagent-result(.*)>\n([\s\S]*?)\n<\/subagent-result>/g;
