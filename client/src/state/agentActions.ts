@@ -14,12 +14,13 @@
  *
  * Keyed by SUBJECT id, like `sessionActivity` in `signals.ts`: topicId for
  * chats, terminal session id for terminals (two disjoint id spaces). Fed from
- * `useSignalsSync` (chat stream frames, Claude Code terminal phases); read
+ * `useSignalsSync` (the server's global `stream:action` frame for chats,
+ * Claude Code terminal phases); read
  * through the facade hooks in `signals.ts` (`useTopicAction` and friends), which
  * decide WHETHER a subject works. This module only says WHAT it is doing.
  */
 import { create } from 'zustand';
-import { classifyToolAction, type AgentAction } from '../../../shared/agent-action';
+import { isAgentAction, type AgentAction } from '../../../shared/agent-action';
 import type { AttentionTask } from '../../../shared/attention';
 
 /** How long a shown action stays before the next one may replace it. */
@@ -67,50 +68,6 @@ export function dwellSettle(prev: DwellState, now: number, dwellMs = ACTION_DWEL
   return { state: { shown: prev.latest, shownAt: now, latest: prev.latest }, changed: true, wakeAt: null };
 }
 
-// ---- Chat stream frames (pure) -----------------------------------------------
-
-/** The fields of a stream frame this module reads. */
-export interface StreamFrameLite {
-  type: string;
-  late?: boolean;
-  toolCall?: { name?: string };
-}
-
-/**
- * What a chat stream frame says the agent is doing.
- *   - an action: the agent moved to it;
- *   - 'clear': the turn ended, the subject has no action any more;
- *   - null: the frame says nothing about the action (usage, alive, a partial
- *     tool output, a late frame of a turn already closed).
- * `lastTool` is the action of the last tool call of that subject: a granted
- * permission resumes THAT tool, and the frame does not carry its name.
- */
-export function chatFrameAction(frame: StreamFrameLite, lastTool?: AgentAction): AgentAction | 'clear' | null {
-  if (frame.late) return null;
-  switch (frame.type) {
-    case 'stream:start':
-    case 'stream:thinking_start':
-    case 'stream:thinking_chunk':
-    case 'stream:tool_result':
-      return 'think';
-    case 'stream:content_chunk':
-      return 'write';
-    case 'stream:tool_call':
-      return classifyToolAction(frame.toolCall?.name ?? '');
-    case 'stream:tool_permission_required':
-    case 'stream:tool_user_input_required':
-      return 'wait';
-    case 'stream:tool_permission_resolved':
-      return lastTool ?? 'think';
-    case 'stream:error':
-      return 'error';
-    case 'stream:end':
-      return 'clear';
-    default:
-      return null;
-  }
-}
-
 // ---- Rollups (pure) ----------------------------------------------------------
 
 export interface ActionEntry {
@@ -122,13 +79,18 @@ export interface ActionEntry {
 /**
  * The one action a group of working subjects shows: the one that changed
  * action most recently, undefined for an empty group. With `waitWins` (a
- * project folder) a subject waiting for the person makes the group wait; the
- * tray, which counts the waiting ones apart, wants the latest move instead.
+ * project folder) a subject waiting for the person makes the group wait. The
+ * tray (`waitWins: false`) counts the waiting ones apart, so a wait is not a
+ * move of the agents at work there: those entries are left out, and a group
+ * where everyone waits has no working action.
  */
 export function rollupAction(entries: Iterable<ActionEntry>, { waitWins = true }: { waitWins?: boolean } = {}): AgentAction | undefined {
   let best: ActionEntry | undefined;
   for (const e of entries) {
-    if (waitWins && e.action === 'wait') return 'wait';
+    if (e.action === 'wait') {
+      if (waitWins) return 'wait';
+      continue;
+    }
     if (!best || e.changedAt > best.changedAt) best = e;
   }
   return best?.action;
@@ -214,6 +176,32 @@ export const agentActionActions = {
     publish(key, undefined);
   },
 };
+
+/** The fields of the frames that feed a chat's action. */
+export interface ActionFrameLite {
+  type: string;
+  topicId?: string;
+  sessionKey?: string;
+  action?: unknown;
+  late?: boolean;
+}
+
+/**
+ * Feeds the store from the socket: the server's global `stream:action` sets a
+ * chat's action, `stream:end` clears it. Every other frame is ignored here, so
+ * the finer `topic` frames a window may also receive never contradict it: one
+ * source per chat. `topicOf` resolves a frame that names only its session.
+ */
+export function applyActionFrame(frame: ActionFrameLite, topicOf: (sessionKey: string) => string | undefined): void {
+  if (frame.type !== 'stream:action' && frame.type !== 'stream:end') return;
+  const topicId = frame.topicId || (frame.sessionKey ? topicOf(frame.sessionKey) : undefined);
+  if (!topicId) return;
+  if (frame.type === 'stream:end') {
+    if (!frame.late) agentActionActions.clear(topicId);
+    return;
+  }
+  if (isAgentAction(frame.action)) agentActionActions.note(topicId, frame.action);
+}
 
 /** Tests only: back to the boot state. */
 export function __resetAgentActions(): void {

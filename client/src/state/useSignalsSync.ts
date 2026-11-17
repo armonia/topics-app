@@ -12,8 +12,7 @@ import type { TopicServices } from '../../../shared/background-work';
 import { attentionActions } from './attention';
 import { subscribeAllSessionFlags } from './sessionFlags';
 import { apiFetch } from '../lib/shell/net';
-import { agentActionActions, chatFrameAction } from './agentActions';
-import type { AgentAction } from '../../../shared/agent-action';
+import { agentActionActions, applyActionFrame, type ActionFrameLite } from './agentActions';
 
 interface Args {
   topics: Record<string, Topic>;
@@ -60,34 +59,23 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     fedTerminals.current = fed;
   }, [topics, terminalSessions, claudeSessions]);
 
-  // Chat stream frames → the action of each chat, by topic (the key of
-  // `useTopicLoading`). Subscribed to the raw socket, not to the chat's own
-  // handler: that one skips the frames of a turn this window streams over its
-  // own SSE, and every window must draw the same movement.
+  // The action of each chat, by topic (the key of `useTopicLoading`), from ONE
+  // source: the server's global `stream:action` frame. The finer stream frames
+  // (tool_call, content_chunk...) are of class `topic` and reach only the
+  // windows holding that chat, so the board, the sidebar, the folders and the
+  // tray never saw them; the server classifies them once and tells every window
+  // when a turn's action changes. `stream:end` (global too) clears it.
+  // Subscribed to the raw socket, not to the chat's own handler: that one skips
+  // the frames of a turn this window streams over its own SSE.
   const topicBySession = useRef(new Map<string, string>());
   useEffect(() => {
     const m = new Map<string, string>();
     for (const t of Object.values(topics)) if (t.sessionKey) m.set(t.sessionKey, t.id);
     topicBySession.current = m;
   }, [topics]);
-  useEffect(() => {
-    const lastTool = new Map<string, AgentAction>();
-    return onWSMessage((msg) => {
-      if (!msg.type?.startsWith('stream:')) return;
-      const frame = msg as WSMessage & { sessionKey?: string; topicId?: string; late?: boolean; toolCall?: { name?: string } };
-      const topicId = frame.topicId || (frame.sessionKey ? topicBySession.current.get(frame.sessionKey) : undefined);
-      if (!topicId) return;
-      const action = chatFrameAction(frame, lastTool.get(topicId));
-      if (action === null) return;
-      if (action === 'clear') {
-        lastTool.delete(topicId);
-        agentActionActions.clear(topicId);
-        return;
-      }
-      if (frame.type === 'stream:tool_call') lastTool.set(topicId, action);
-      agentActionActions.note(topicId, action);
-    });
-  }, [onWSMessage]);
+  useEffect(() => onWSMessage((msg) => {
+    applyActionFrame(msg as WSMessage & ActionFrameLite, (key) => topicBySession.current.get(key));
+  }), [onWSMessage]);
 
   // "When did each session last actually do something" → unfiltered twin of
   // the activity map above (includes idle/finished sessions). Drives sidebar

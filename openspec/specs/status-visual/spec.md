@@ -159,7 +159,13 @@ browse, delegate, tool, wait, error), and pass it to the loader. The action
 SHALL become a loader shape through ONE map, `loaderActivityForAction` in
 `loaderState.ts`, and it is final: think→think, write→write, read→search,
 web→search, edit→write, run→tool, browse→tool, delegate→tool, tool→tool,
-wait→wait, error→error. A loader whose surface knows no subject plays `think`. Tool names SHALL be classified by the one pure `classifyToolAction`,
+wait→wait, error→error. A loader whose surface knows no subject plays `think`.
+The server SHALL classify each turn's stream frames once and send every window
+a global `stream:action` frame (`topicId`, `sessionKey`, `action`) only when
+that turn's action changes, because the finer stream frames reach only the
+windows holding the chat; the client SHALL take a chat's action from
+`stream:action` alone and clear it at `stream:end`. `stream:start` says nothing
+about the action, so a hook phase keeps speaking until the first action. Tool names SHALL be classified by the one pure `classifyToolAction`,
 MCP prefixes and provider spellings included. A shown action SHALL stay at
 least 700 ms, the latest input winning when that time is up, and the store
 SHALL change only when the shown action changes. A project folder SHALL show

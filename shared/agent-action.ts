@@ -47,7 +47,7 @@ export function isAgentAction(v: unknown): v is AgentAction {
  * `web-search`; `MultiEdit`, `multi_edit`), and one folded table covers them all.
  */
 function fold(s: string): string {
-  return s.toLowerCase().replace(/[\s_.\-]/g, '');
+  return s.toLowerCase().replace(/[\s_.-]/g, '');
 }
 
 // Every table holds FOLDED names. Sources: Claude Code's built-in tools, the
@@ -105,7 +105,9 @@ const BROWSE_SERVER = /browser|playwright|puppeteer|chrome|chromium|webkit/;
  * Two provider quirks are folded here, so no caller has to know them:
  *   - Codex names a `command_execution` after the COMMAND itself
  *     (`server/providers/codex.ts`, `item.command`): a name with whitespace is
- *     a command line, never a tool identifier, so it is `run`.
+ *     a command line, never a tool identifier, so it is `run`. A bare command
+ *     (`pwd`, `make`) has no whitespace to tell it apart, so the caller says so
+ *     with `{ command: true }` (see `isCommandCall`).
  *   - Muse reports a tool as `tool.<name>` or `tool:<name>`: the prefix goes.
  *
  * MCP names are split on `__`: `mcp__server__tool`, and through the gateway
@@ -114,7 +116,8 @@ const BROWSE_SERVER = /browser|playwright|puppeteer|chrome|chromium|webkit/;
  * server names (so every tool of an `exa` or `playwright` server is `web` or
  * `browse` whatever its own name says).
  */
-export function classifyToolAction(name: string): AgentAction {
+export function classifyToolAction(name: string, opts?: { command?: boolean }): AgentAction {
+  if (opts?.command) return 'run';
   const raw = (name ?? '').trim().replace(/^tool[.:]/i, '');
   if (!raw) return 'tool';
   const parts = raw.split('__').filter(Boolean);
@@ -135,6 +138,20 @@ export function classifyToolAction(name: string): AgentAction {
   return 'tool';
 }
 
+/**
+ * Is this tool call a shell command, named after itself?
+ *
+ * Codex reports a `command_execution` with the command line as the tool NAME and
+ * the same string as `args.command` (`server/providers/codex.ts`). Both sides of
+ * the wire can tell it from any other tool by that equality, so nothing new
+ * travels and the name the person reads stays the command. PURE.
+ */
+export function isCommandCall(name: string | undefined, args: unknown): boolean {
+  if (!name || !args || typeof args !== 'object') return false;
+  const command = (args as { command?: unknown }).command;
+  return typeof command === 'string' && command.trim() !== '' && command.trim() === name.trim();
+}
+
 function classifyBare(tool: string): AgentAction | null {
   if (tool.startsWith('browser') || BROWSE.has(tool)) return 'browse';
   if (DELEGATE.has(tool)) return 'delegate';
@@ -145,4 +162,52 @@ function classifyBare(tool: string): AgentAction | null {
   if (WEB.has(tool)) return 'web';
   if (THINK.has(tool)) return 'think';
   return null;
+}
+
+/** The fields of a stream frame `streamFrameAction` reads. */
+export interface StreamFrameLite {
+  type: string;
+  late?: boolean;
+  toolCall?: { name?: string; args?: unknown };
+}
+
+/**
+ * What a chat stream frame says the agent is doing.
+ *   - an action: the agent moved to it;
+ *   - 'clear': the turn ended, the subject has no action any more;
+ *   - null: the frame says nothing about the action (usage, alive, a partial
+ *     tool output, a late frame of a turn already closed).
+ * `lastTool` is the action of the last tool call of that subject: a granted
+ * permission resumes THAT tool, and the frame does not carry its name.
+ *
+ * `stream:start` says nothing: it opens the turn before the agent does anything
+ * (hooks may still be running), so showing `think` there would be a guess.
+ * PURE: the server derives `stream:action` from it and the client reads the
+ * frames of the chat it holds with the very same rule.
+ */
+export function streamFrameAction(frame: StreamFrameLite, lastTool?: AgentAction): AgentAction | 'clear' | null {
+  if (frame.late) return null;
+  switch (frame.type) {
+    case 'stream:thinking_start':
+    case 'stream:thinking_chunk':
+    case 'stream:tool_result':
+      return 'think';
+    case 'stream:content_chunk':
+      return 'write';
+    case 'stream:tool_call': {
+      const name = frame.toolCall?.name ?? '';
+      return classifyToolAction(name, { command: isCommandCall(name, frame.toolCall?.args) });
+    }
+    case 'stream:tool_permission_required':
+    case 'stream:tool_user_input_required':
+      return 'wait';
+    case 'stream:tool_permission_resolved':
+      return lastTool ?? 'think';
+    case 'stream:error':
+      return 'error';
+    case 'stream:end':
+      return 'clear';
+    default:
+      return null;
+  }
 }

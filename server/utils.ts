@@ -7,6 +7,7 @@ import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
 import { warnThrottled } from "./lib/warn-throttled";
+import { createStreamActionFeed } from "./lib/stream-action-feed";
 import { isReusableHeadstone } from "./lib/empty-turn-headstone";
 import { NOT_STEERED_ROW } from "./lib/steered-row";
 import type {
@@ -255,6 +256,21 @@ export function createAppContext(baseDir: string): AppContext {
   // Whether a turn is open, from every source (`lib/turn-ledger.ts`); each change goes to every window.
   const turnLedger = createTurnLedger({ onChange: (state) => broadcastToAll({ type: "turn:state", ...state }) });
   const wsClients = new Set<ServerWebSocket<WSData>>();
+  // What each topic's agent is doing, said once to EVERY window when it changes (`lib/stream-action-feed.ts`).
+  // The stream frames that carry it are topic-class; every one of them, from every provider, ends in
+  // `broadcastToAll` or `broadcastToTopicSubscribers` below, which is where the feed watches them.
+  const streamActionFeed = createStreamActionFeed((payload) => broadcastToAll({ type: "stream:action", ...payload }));
+  const observeStreamAction = (message: OutboundMessage, topicId: string | undefined): void => {
+    if (!message.type.startsWith("stream:")) return;
+    const frame = message as OutboundMessage & { topicId?: unknown; sessionKey?: unknown };
+    const sessionKey = typeof frame.sessionKey === "string" ? frame.sessionKey : undefined;
+    const id = topicId ?? (typeof frame.topicId === "string" ? frame.topicId : sessionKey ? getTopicBySessionKey(sessionKey)?.id : undefined);
+    // A side-effect of watching must never break a broadcast.
+    try {
+      const { late, toolCall } = message as { late?: boolean; toolCall?: { name?: string; args?: unknown } };
+      streamActionFeed.observe({ type: message.type, late, toolCall, topicId: id, sessionKey });
+    } catch { /* the frame already went out */ }
+  };
   // Revocation covers all transports; broadcast registries remain separate.
   const deviceSockets = new Set<ServerWebSocket<WSData>>();
 
@@ -1108,6 +1124,7 @@ export function createAppContext(baseDir: string): AppContext {
       // Built once per fan-out, and only when a guest is reached.
       sendFrame(ws, guest ? (guestPayload ??= guestPayloadOf(presentedMessage, payload)) : payload, presentedMessage.type);
     }
+    observeStreamAction(message, undefined);
     // No push from here any more (notifications-redesign, design section
     // 10.1): a frame is not a fact. The push and the history row of a new
     // epoch are decided by the attention store, which hands its own frame to
@@ -1279,6 +1296,7 @@ export function createAppContext(baseDir: string): AppContext {
       if (guests && isGuestSocket(ws) && !guests.mayReadTopic(ws.data, topicId)) continue;
       sendFrame(ws, payload, message.type);
     }
+    observeStreamAction(message, topicId);
   }
 
   // --- Project + Worktree domain (Phase A · migrations 016-018) ---

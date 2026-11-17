@@ -27,6 +27,7 @@ import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFe
 import { TranscriptRowResizeContext } from './transcriptRowResize';
 import { useDisclosureToggle } from './transcriptDisclosure';
 import { DisclosureBody } from './DisclosureBody';
+import { isCommandCall } from '../../../../shared/agent-action';
 import { FindToolIdContext, useFindFocusTool } from '../../state/chatFindFocus';
 import { CHAT_BOTTOM_GUTTER_PX, COMPOSER_HEIGHT_PROPERTY } from './useComposerDock';
 import { startVisibleInterval } from '../../state/documentVisibility';
@@ -473,7 +474,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             there is no hover to wait for. The `revealing` spinner is a state
             and always shows. */}
         {hasBody && revealing ? (
-          <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />
+          <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name, { command: isCommandCall(toolCall.name, toolCall.args) })} />
         ) : isSubAgent ? null : hasBody ? (
           <span className="w-3 flex-shrink-0 inline-flex justify-center" aria-hidden="true">
             {effectiveOpen
@@ -583,7 +584,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           {/* Qui resta solo ciò che è VIVO: la rotella mentre l'agente è dentro
               al tool, il cerchietto ambra mentre la palla è tua. L'esito, buono
               o cattivo, sta accanto al nome. */}
-          {isRunning && <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name)} />}
+          {isRunning && <SparkLoader className="flex-shrink-0" activity={loaderActivityForTool(toolCall.name, { command: isCommandCall(toolCall.name, toolCall.args) })} />}
         </span>
         </>
   );

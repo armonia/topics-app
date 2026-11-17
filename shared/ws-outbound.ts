@@ -36,6 +36,7 @@
  * and `.safeParse` is identical.
  */
 import { z } from 'zod/mini';
+import { AGENT_ACTIONS } from './agent-action';
 import { welcomeMessageSchema, formatZodIssues } from './ws-handshake';
 
 /**
@@ -575,6 +576,17 @@ const streamCommandAnswerSchema = z.looseObject({
   command: z.string(),
   text: z.string(),
   outcome: z.optional(z.looseObject({ ok: z.boolean(), error: z.optional(z.string()) })),
+});
+
+// What a topic's agent is doing now, one word (`shared/agent-action.ts`). The
+// stream frames that say it are topic-class and reach only the windows holding
+// that topic; this one is GLOBAL and sent only when the action changes, so the
+// board, the sidebar, the folders and the tray can draw the same movement.
+const streamActionSchema = z.looseObject({
+  type: z.literal('stream:action'),
+  sessionKey: z.string(),
+  topicId: z.string(),
+  action: z.enum(AGENT_ACTIONS),
 });
 
 const streamToolCallSchema = z.looseObject({
@@ -1450,6 +1462,7 @@ const OUTBOUND_SCHEMAS = {
   'turn:snapshot': turnSnapshotSchema,
   // Stream
   'stream:end': streamEndSchema,
+  'stream:action': streamActionSchema,
   'stream:catchup': streamCatchupSchema,
   // Collaboration
   'typing': typingBroadcastSchema,
@@ -1647,6 +1660,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'scripts:output': 'global',
   'scripts:updated': 'global',
   'session:state': 'global',
+  'stream:action': 'global',
   'stream:alive': 'topic',
   'stream:catchup': 'topic',
   'stream:command-answer': 'topic',

@@ -96,6 +96,6 @@ export function loaderActivityForAction(action: AgentAction | undefined): Loader
  * The movement a running tool call plays: an adapter on `classifyToolAction`,
  * the one classifier of tool names (MCP-prefixed or not).
  */
-export function loaderActivityForTool(name: string): LoaderActivity {
-  return LOADER_FOR_ACTION[classifyToolAction(name)];
+export function loaderActivityForTool(name: string, opts?: { command?: boolean }): LoaderActivity {
+  return LOADER_FOR_ACTION[classifyToolAction(name, opts)];
 }

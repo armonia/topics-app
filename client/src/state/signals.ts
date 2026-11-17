@@ -24,7 +24,7 @@
  * indicator is never silently gated by an unset field (the bug class that
  * plagued the per-type call sites).
  */
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { Topic, ClaudeSessionPhase, ClaudeSessionState, AttentionTier, PhaseTier } from '../types';
@@ -962,28 +962,39 @@ export function useProjectAction(projectPath: string | undefined): AgentAction |
   const waiting = useProjectAwaitingInput(projectPath);
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
-  const actions = useAgentActionStore((s) => s.actions);
   const { live, hydrated, phaseActive } = useSignalsStore(useShallow((s) => ({
     live: s.liveStreamTopics,
     hydrated: s.hydratedStreamTopics,
     phaseActive: s.claudePhaseActiveTermIds,
   })));
-  return useMemo(() => {
-    if (!projectPath || !loading) return undefined;
-    if (waiting) return 'wait';
-    const children: ActionEntry[] = [];
+  // The working children's keys, joined: a string, so the selector below only
+  // changes identity when the set of children does.
+  const childKeys = useMemo(() => {
+    if (!projectPath || !loading || waiting) return '';
+    const keys: string[] = [];
     for (const t of Object.values(topics)) {
-      if (t.projectPath !== projectPath || !(live.has(t.id) || hydrated.has(t.id))) continue;
-      const e = actions.get(t.id);
-      if (e) children.push(e);
+      if (t.projectPath === projectPath && (live.has(t.id) || hydrated.has(t.id))) keys.push(t.id);
     }
     for (const ts of terminalSessions) {
       if (ts.type === 'shell' || !ts.cwd || !terminalBelongsToProject(ts.cwd, projectPath)) continue;
-      const e = phaseActive.has(ts.id) ? actions.get(ts.id) : undefined;
+      if (phaseActive.has(ts.id)) keys.push(ts.id);
+    }
+    return keys.join('\n');
+  }, [projectPath, loading, waiting, topics, terminalSessions, live, hydrated, phaseActive]);
+  // A primitive out of the action store: a folder redraws when ITS rollup
+  // changes, not on every action change of every subject in the app.
+  const rolled = useAgentActionStore(useCallback((s: { actions: ReadonlyMap<string, ActionEntry> }) => {
+    if (!childKeys) return undefined;
+    const children: ActionEntry[] = [];
+    for (const key of childKeys.split('\n')) {
+      const e = s.actions.get(key);
       if (e) children.push(e);
     }
-    return rollupAction(children) ?? 'think';
-  }, [projectPath, loading, waiting, topics, terminalSessions, actions, live, hydrated, phaseActive]);
+    return rollupAction(children);
+  }, [childKeys]));
+  if (!projectPath || !loading) return undefined;
+  if (waiting) return 'wait';
+  return rolled ?? 'think';
 }
 
 /**

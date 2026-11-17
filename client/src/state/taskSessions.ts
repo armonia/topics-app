@@ -103,11 +103,6 @@ export function applyTaskSessionIndex(next: Record<string, TopicTaskRef>): void 
   }
 }
 
-/** The topic a task's agent works in, if the board feed names one. */
-export function getTaskTopicId(taskId: string): string | undefined {
-  return topicByTask.get(taskId);
-}
-
 /** The topic of ONE task, waking only when that task's topic changes. */
 export function useTaskTopicId(taskId: string | undefined): string | undefined {
   const subscribe = useCallback((onChange: () => void) => {

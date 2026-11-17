@@ -1,5 +1,5 @@
 /**
- * The action layer of the loaders: the dwell rule, the chat frame mapping, the
+ * The action layer of the loaders: the dwell rule, the stream:action feed, the
  * rollups, the precedence of one subject, the Claude Code phase mapping and the
  * store's "publish only on change" contract.
  *
@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
-  ACTION_DWELL_MS, __resetAgentActions, agentActionActions, backgroundAction, chatFrameAction,
+  ACTION_DWELL_MS, __resetAgentActions, agentActionActions, applyActionFrame, backgroundAction,
   dwellSettle, dwellStep, rollupAction, subjectActionFrom, useAgentActionStore,
 } from './agentActions';
 import { actionForPhase } from './signals';
@@ -62,30 +62,36 @@ describe('dwellStep / dwellSettle', () => {
   });
 });
 
-describe('chatFrameAction', () => {
-  test('maps the stream frames', () => {
-    expect(chatFrameAction({ type: 'stream:start' })).toBe('think');
-    expect(chatFrameAction({ type: 'stream:thinking_start' })).toBe('think');
-    expect(chatFrameAction({ type: 'stream:content_chunk' })).toBe('write');
-    expect(chatFrameAction({ type: 'stream:tool_call', toolCall: { name: 'Bash' } })).toBe('run');
-    expect(chatFrameAction({ type: 'stream:tool_call', toolCall: { name: 'mcp__exa__web_search_exa' } })).toBe('web');
-    expect(chatFrameAction({ type: 'stream:tool_result' })).toBe('think');
-    expect(chatFrameAction({ type: 'stream:tool_permission_required' })).toBe('wait');
-    expect(chatFrameAction({ type: 'stream:tool_user_input_required' })).toBe('wait');
-    expect(chatFrameAction({ type: 'stream:error' })).toBe('error');
-    expect(chatFrameAction({ type: 'stream:end' })).toBe('clear');
+describe('applyActionFrame: one source per chat', () => {
+  afterEach(() => __resetAgentActions());
+  const topicOf = (key: string) => (key === 'sess-1' ? 'topic-1' : undefined);
+  const shown = (id: string) => useAgentActionStore.getState().actions.get(id)?.action;
+
+  test('a global stream:action sets the chat action, resolved by topic or by session', () => {
+    applyActionFrame({ type: 'stream:action', topicId: 'topic-2', action: 'edit' }, topicOf);
+    applyActionFrame({ type: 'stream:action', sessionKey: 'sess-1', action: 'web' }, topicOf);
+    expect(shown('topic-2')).toBe('edit');
+    expect(shown('topic-1')).toBe('web');
   });
 
-  test('a granted permission resumes the tool that asked', () => {
-    expect(chatFrameAction({ type: 'stream:tool_permission_resolved' }, 'edit')).toBe('edit');
-    expect(chatFrameAction({ type: 'stream:tool_permission_resolved' })).toBe('think');
+  test('stream:start and the topic frames say nothing: the hook phase keeps speaking', () => {
+    for (const type of ['stream:start', 'stream:tool_call', 'stream:content_chunk', 'stream:thinking_start', 'stream:error']) {
+      applyActionFrame({ type, topicId: 'topic-3' }, topicOf);
+    }
+    expect(shown('topic-3')).toBeUndefined();
   });
 
-  test('frames that say nothing, and late frames of a closed turn, are ignored', () => {
-    expect(chatFrameAction({ type: 'stream:usage' })).toBeNull();
-    expect(chatFrameAction({ type: 'stream:alive' })).toBeNull();
-    expect(chatFrameAction({ type: 'stream:tool_update' })).toBeNull();
-    expect(chatFrameAction({ type: 'stream:tool_call', late: true, toolCall: { name: 'Bash' } })).toBeNull();
+  test('stream:end clears it, a late end of a closed turn does not', () => {
+    applyActionFrame({ type: 'stream:action', topicId: 'topic-4', action: 'run' }, topicOf);
+    applyActionFrame({ type: 'stream:end', topicId: 'topic-4', late: true }, topicOf);
+    expect(shown('topic-4')).toBe('run');
+    applyActionFrame({ type: 'stream:end', topicId: 'topic-4' }, topicOf);
+    expect(shown('topic-4')).toBeUndefined();
+  });
+
+  test('a word this client does not know is ignored', () => {
+    applyActionFrame({ type: 'stream:action', topicId: 'topic-5', action: 'dance' }, topicOf);
+    expect(shown('topic-5')).toBeUndefined();
   });
 });
 
@@ -97,6 +103,11 @@ describe('rollupAction', () => {
     const kids = [{ action: 'wait' as const, changedAt: 1 }, { action: 'edit' as const, changedAt: 3 }];
     expect(rollupAction(kids)).toBe('wait');
     expect(rollupAction(kids, { waitWins: false })).toBe('edit');
+  });
+  test('for the tray a wait is not a move: the latest wait does not beat an older write', () => {
+    const kids = [{ action: 'write' as const, changedAt: 1 }, { action: 'wait' as const, changedAt: 2 }];
+    expect(rollupAction(kids, { waitWins: false })).toBe('write');
+    expect(rollupAction([{ action: 'wait' as const, changedAt: 2 }], { waitWins: false })).toBeUndefined();
   });
   test('an empty group has no action', () => {
     expect(rollupAction([])).toBeUndefined();

@@ -6,7 +6,9 @@
  * @covers STATUS-VISUAL-01k
  */
 import { describe, expect, test } from 'bun:test';
-import { AGENT_ACTIONS, classifyToolAction, isAgentAction, type AgentAction } from './agent-action';
+import {
+  AGENT_ACTIONS, classifyToolAction, isAgentAction, isCommandCall, streamFrameAction, type AgentAction,
+} from './agent-action';
 
 const TABLE: Array<[string, AgentAction]> = [
   // Claude Code built-ins
@@ -75,6 +77,65 @@ describe('classifyToolAction', () => {
 
   test('every result is one of the declared actions', () => {
     for (const [name] of TABLE) expect(AGENT_ACTIONS).toContain(classifyToolAction(name));
+  });
+});
+
+// A Codex `command_execution` is named after its command and carries it as
+// `args.command`: a bare word with no whitespace to give it away.
+const CODEX_COMMANDS = ['pwd', 'make', 'npm', 'ls', 'git', 'cat'];
+
+describe('Codex commands', () => {
+  for (const cmd of CODEX_COMMANDS) {
+    test(`${cmd} as a command → run`, () => {
+      expect(classifyToolAction(cmd, { command: true })).toBe('run');
+      expect(isCommandCall(cmd, { command: cmd })).toBe(true);
+      expect(streamFrameAction({ type: 'stream:tool_call', toolCall: { name: cmd, args: { command: cmd } } })).toBe('run');
+    });
+  }
+
+  test('without the command mark the name alone still decides', () => {
+    expect(classifyToolAction('pwd')).toBe('tool');
+    expect(classifyToolAction('ls')).toBe('read');
+    expect(streamFrameAction({ type: 'stream:tool_call', toolCall: { name: 'pwd' } })).toBe('tool');
+  });
+
+  test('a tool with a `command` argument of its own is not a command call', () => {
+    expect(isCommandCall('Bash', { command: 'ls -la' })).toBe(false);
+    expect(isCommandCall('pwd', undefined)).toBe(false);
+    expect(isCommandCall('pwd', { command: '' })).toBe(false);
+    expect(isCommandCall(undefined, { command: 'pwd' })).toBe(false);
+    expect(isCommandCall('pwd', { command: 3 })).toBe(false);
+  });
+});
+
+describe('streamFrameAction', () => {
+  test('maps the stream frames', () => {
+    expect(streamFrameAction({ type: 'stream:thinking_start' })).toBe('think');
+    expect(streamFrameAction({ type: 'stream:thinking_chunk' })).toBe('think');
+    expect(streamFrameAction({ type: 'stream:content_chunk' })).toBe('write');
+    expect(streamFrameAction({ type: 'stream:tool_call', toolCall: { name: 'Bash' } })).toBe('run');
+    expect(streamFrameAction({ type: 'stream:tool_call', toolCall: { name: 'mcp__exa__web_search_exa' } })).toBe('web');
+    expect(streamFrameAction({ type: 'stream:tool_result' })).toBe('think');
+    expect(streamFrameAction({ type: 'stream:tool_permission_required' })).toBe('wait');
+    expect(streamFrameAction({ type: 'stream:tool_user_input_required' })).toBe('wait');
+    expect(streamFrameAction({ type: 'stream:error' })).toBe('error');
+    expect(streamFrameAction({ type: 'stream:end' })).toBe('clear');
+  });
+
+  test('stream:start says nothing: the hooks may still be running', () => {
+    expect(streamFrameAction({ type: 'stream:start' })).toBeNull();
+  });
+
+  test('a granted permission resumes the tool that asked', () => {
+    expect(streamFrameAction({ type: 'stream:tool_permission_resolved' }, 'edit')).toBe('edit');
+    expect(streamFrameAction({ type: 'stream:tool_permission_resolved' })).toBe('think');
+  });
+
+  test('frames that say nothing, and late frames of a closed turn, are ignored', () => {
+    expect(streamFrameAction({ type: 'stream:usage' })).toBeNull();
+    expect(streamFrameAction({ type: 'stream:alive' })).toBeNull();
+    expect(streamFrameAction({ type: 'stream:tool_update' })).toBeNull();
+    expect(streamFrameAction({ type: 'stream:tool_call', late: true, toolCall: { name: 'Bash' } })).toBeNull();
   });
 });
 
