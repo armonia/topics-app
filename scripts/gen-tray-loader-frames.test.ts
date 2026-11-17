@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { AGENT_ACTIONS } from '../shared/agent-action';
 import { loaderActivityForAction } from '../client/src/components/Layout/loaderState';
-import { OUT_PATH, renderTrayLoaderFrames, sampleTrayLoader, trayActivities, trayGeometry } from './gen-tray-loader-frames';
+import { OUT_PATH, renderTrayLoaderFrames, sampleTrayLoader, trayActivities, trayGeometry, transitionAnchors } from './gen-tray-loader-frames';
 
 describe('tray loader frames', () => {
   test('the committed Rust file is what the engine generates today', () => {
@@ -21,6 +21,8 @@ describe('tray loader frames', () => {
     expect(g.glyphPt).toBeGreaterThan(0);
     expect(g.scale).toBeGreaterThan(0);
     expect(g.frameMs).toBe(120);
+    expect(g.transitionMs).toBeGreaterThanOrEqual(40);
+    expect(g.transitionMs).toBeLessThanOrEqual(60);
   });
 
   test('every shape the action map reaches has a loop of at most 24 frames inside the box', () => {
@@ -56,6 +58,28 @@ describe('tray loader frames', () => {
     const src = readFileSync(OUT_PATH, 'utf8');
     for (const a of AGENT_ACTIONS) {
       expect(src).toContain(`("${a}", "${loaderActivityForAction(a)}"),`);
+    }
+  });
+
+  // The tray used to jump from one loop to the other: every change is now the engine's own slide.
+  test('every pair of shapes has its change from every start frame, and each lands on the new loop', () => {
+    const { shapes, transitions } = sampleTrayLoader();
+    const key = (t: { from: string; fromFrame: number; to: string }) => `${t.from}@${t.fromFrame}>${t.to}`;
+    const have = new Set(transitions.map(key));
+    for (const from of shapes) {
+      for (const fromFrame of transitionAnchors(from.frames.length)) {
+        for (const to of shapes) if (to !== from) expect(have.has(key({ from: from.activity, fromFrame, to: to.activity }))).toBe(true);
+      }
+    }
+    const geo = trayGeometry();
+    for (const t of transitions) {
+      const to = shapes.find((s) => s.activity === t.to)!;
+      expect(t.land).toBeGreaterThanOrEqual(0);
+      expect(t.land).toBeLessThan(to.frames.length);
+      // At least the app's settle (one second, the image that lands included), never a cut.
+      expect((t.frames.length + 1) * geo.transitionMs).toBeGreaterThanOrEqual(1000);
+      // It moves: not a run of copies of one image.
+      expect(new Set(t.frames.map((f) => JSON.stringify(f))).size).toBeGreaterThan(3);
     }
   });
 });
