@@ -152,7 +152,7 @@ describe("wake adoption: an archived chat that launched work after being archive
     expect(wakeVerdict(PARENT, () => false, noStoppedChild)).toBe("archived");
   });
 
-  test("no archive date on record: the launch is the only evidence, and it wins", () => {
-    expect(verdictOf(launchDb({ childAt: "2026-11-16T23:41:09.861Z" }))).toBe("adopt");
+  test("no archive date on record: nothing proves the launch came after, so the old verdict stands", () => {
+    expect(verdictOf(launchDb({ childAt: "2026-11-16T23:41:09.861Z" }))).toBe("archived");
   });
 });

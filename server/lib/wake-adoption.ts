@@ -122,7 +122,8 @@ export function lastLaunchFrom(db: QueryDb, topicId: string, sessionKey: string)
  * `launchedAt` is the launch the wake answers when the caller knows it (a
  * command's start); otherwise the chat's latest launch. Archive time comes
  * from `retirements` (the person's archive writes it with the date). With no
- * date there is nothing to say the archive came later, so the launch wins.
+ * date nothing proves the archive came BEFORE the launch, and refusing is the
+ * safe side: it is the old verdict.
  */
 export function launchedSinceRetired(db: QueryDb, topicId: string, sessionKey: string, launchedAt?: string | null): boolean {
   const launch = launchedAt ?? lastLaunchFrom(db, topicId, sessionKey);
@@ -134,5 +135,5 @@ export function launchedSinceRetired(db: QueryDb, topicId: string, sessionKey: s
   } catch {
     // No `retirements` table (an older database): no archive date to compare.
   }
-  return !retiredAt || launch > retiredAt;
+  return retiredAt !== null && launch > retiredAt;
 }
