@@ -3,7 +3,7 @@
 //! samples taken at two moments). The card takes its figures from the Topics machine list (the Processes view of the
 //! app reads it too, so the two cannot tell different stories) and keeps the usage service's judgement, the colour,
 //! and what only it measures (GPU, swap, spend). Every figure then says what it is out of: «8,9 di 12 core»,
-//! «27,8 di 34,4 GB», «pieno · 77 GB liberi». Pure functions on `MachineCard`.
+//! «27,8 di 34,4 GB», «pieno · 77 GB liberi». Pure functions on `MachineCard`. // allow-italian: quoted UI copy
 
 use crate::tray_menu_views::{MachineCard, Metric};
 use crate::tray_node_health::span;
@@ -75,7 +75,7 @@ pub fn one_source(c: &mut MachineCard, twin: Option<&MachineCard>) {
     say_what_each_is_of(c);
 }
 
-/// What the notes of the hub say, worded for the card: «adesso» goes (the value is the reading now), a disk says it is
+/// What the notes of the hub say, worded for the card: «adesso» goes (the value is the reading now), a disk says it is // allow-italian: quoted UI copy
 /// full and what is left, and a peak says over how long it was measured.
 pub fn say_what_each_is_of(c: &mut MachineCard) {
     for m in &mut c.metrics {
