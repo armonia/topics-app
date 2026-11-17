@@ -271,7 +271,6 @@ const IT: Dict = {
   'topic.backgroundMany': '{n} lavori in background. La chat è libera, puoi scrivere',
   'topic.waitingOnSubagent': 'Il turno è finito: aspetta un sottoagente. Si rimette a scrivere quando risponde. La chat è libera, puoi scrivere',
   'topic.waitingOnProcess': 'Il turno è finito: aspetta un processo in background. Si rimette a scrivere quando finisce. La chat è libera, puoi scrivere',
-  'topic.waitingOnJob': 'Il turno è finito: aspetta un lavoro in background. Si rimette a scrivere quando finisce. La chat è libera, puoi scrivere',
   'topic.backgroundResuming': 'Il lavoro in background ha risposto e la chat sta per riprendere. Intanto è libera, puoi scrivere',
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',

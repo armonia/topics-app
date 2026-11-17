@@ -306,11 +306,10 @@ function workCount(tasks: readonly { kind: string }[]): number {
   return tasks.filter((t) => t.kind !== 'wake').length;
 }
 
-/** What the chat with no turn open waits for, and that it is free. */
+/** What the chat with no turn open waits for, and that it is free; a CLI job keeps its count («2 jobs in the background»). */
 function waitingTip(tr: ReturnType<typeof useT>, on: WaitingOn, n: number): string {
   if (on === 'subagent') return tr('topic.waitingOnSubagent');
   if (on === 'process') return tr('topic.waitingOnProcess');
-  if (on === 'job') return tr('topic.waitingOnJob');
   return backgroundTip(tr, n);
 }
 
