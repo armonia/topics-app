@@ -495,6 +495,14 @@ describe("formatChecksComment", () => {
   test("nessun comando dichiarato non è un verde", () => {
     expect(formatChecksComment([])).not.toContain("verdi");
   });
+
+  test("un SALTATO e' verde (non blocca la review) ma non si spaccia per una misura", () => {
+    const skipped: CheckRun = { name: "unit-ci", cmd: "github-ci:unit", ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: "SKIPPED: no commit of its own" };
+    const out = formatChecksComment([green, skipped]);
+    expect(out).toContain("verdi");
+    expect(out).toContain("saltato");
+    expect(out).not.toContain("0ms");
+  });
 });
 
 describe("formatChecksThreadSummary", () => {

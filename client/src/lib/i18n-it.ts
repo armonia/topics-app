@@ -1505,6 +1505,7 @@ const IT: Dict = {
   // them apart in amber; the drawer painted this one red.
   'board.task.checks.unknown': 'Checks NON MISURATI',
   'board.task.checks.notMeasured': 'non misurato',
+  'board.task.checks.skipped': 'saltato, nessun commit proprio',
   'board.task.checks.ciPr': 'pull request',
   'board.task.checks.ciRun': 'run della CI',
   // The hint is split in two because the send-back word goes in the middle, in
