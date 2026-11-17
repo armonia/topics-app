@@ -46,7 +46,7 @@ export function SettingsPanelHead({ onClose, dispatchOn, onToggleDispatch }: {
               aria-checked={dispatchOn === true}
               data-testid="dispatch-dashboard-switch"
               onClick={onToggleDispatch}
-              className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${dispatchOn === true ? 'bg-emerald-500' : 'bg-white/20'}`}
+              className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${dispatchOn === true ? 'bg-emerald-500' : 'bg-black/10 dark:bg-white/20'}`}
             ><i className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${dispatchOn === true ? 'left-3.5' : 'left-0.5'}`} /></button>
           </label>
         )}
@@ -56,7 +56,7 @@ export function SettingsPanelHead({ onClose, dispatchOn, onToggleDispatch }: {
           // 24 with the mouse (`tap-expand`), a real 44 box under a finger: a
           // projected 44 here would reach into the first row of the panel and
           // take its taps (usability audit, 04/10).
-          className="tap-expand rounded p-0.5 text-app-text-secondary hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
+          className="tap-expand rounded p-0.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 coarse:flex coarse:h-11 coarse:w-11 coarse:items-center coarse:justify-center"
         ><X className="h-3.5 w-3.5" /></button>
       </div>
     </div>
@@ -102,7 +102,7 @@ export function GlobalSettingsSection({ dispatchOn, onToggleDispatch, tasks, onO
 
       {/* THE CAP stays in the panel (a tooltip does not exist on a phone). It is the
           SAME component the header menu mounts, on the same store. */}
-      {/* The dashboard card is outlined, not tinted: a `bg-white/5` fill lifts the dark panel
+      {/* The dashboard card is outlined, not tinted: a faint tinted fill lifts the dark panel
           to #343638, where the muted labels (3.91) and the unselected segment (4.08, on a
           track lifted the same way) fall under AA 4.5. The ring keeps the card readable on
           the panel's own background, which these tokens were measured on. */}

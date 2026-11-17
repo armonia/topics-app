@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+// Exception to the light/dark pairing rule: the lightbox always sits on a dark backdrop, so bare white tints are right.
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, FileText, Maximize2, PanelTop, X } from 'lucide-react';
