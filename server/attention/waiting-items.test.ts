@@ -1,3 +1,8 @@
+/**
+ * The «waiting for you» inbox Topics owns: one item per identity, bridged from the hub, closed from Topics.
+ *
+ * @covers HUBBR-01
+ */
 import { describe, expect, test } from "bun:test";
 import { createWaitingStore } from "./waiting-items";
 import { createHubRouter } from "../routes/hub";
