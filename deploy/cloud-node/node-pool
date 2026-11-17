@@ -66,6 +66,10 @@ LPORT, RPORT, PROXY = 3400, 3410, 3391
 PERMANENT_RPORT = 3301
 
 
+# Chi ospita i server di questo pool: finisce nello stato per i nomi della tray
+PROVIDER_LABEL = "Hetzner"
+
+
 def rport(sl):
     return PERMANENT_RPORT if sl.get("fixed") else RPORT + sl["n"]
 PERMANENT_NAME = os.environ.get("NODE_POOL_PERMANENT", "topics-permanent-node")
@@ -494,7 +498,7 @@ def bring_up(state, n, reason):
         save_state(state)
         log(f"posto {n}: nessun server ({eur})")
         return None
-    sl.update({"server_id": server["id"], "name": server["name"], "created": t0, "eur_h": eur, "idle_since": None})
+    sl.update({"server_id": server["id"], "name": server["name"], "provider": PROVIDER_LABEL, "created": t0, "eur_h": eur, "idle_since": None})
     state["lives"].append({"server_id": server["id"], "slot": n, "created": t0, "eur_h": eur, "reason": reason})
     save_state(state)
     ip = wait_ready(server)
@@ -597,7 +601,7 @@ def ensure_permanent(state, fx):
             delete(state, PERMANENT_SLOT, "il posto passa al nodo permanente")
         sl = {"n": PERMANENT_SLOT, "machine_id": (state["slots"].get(key) or {}).get("machine_id")}
         state["slots"][key] = sl
-    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "ip": ip, "eur_h": 0.0,
+    sl.update({"server_id": fx["id"], "name": fx["name"], "fixed": True, "provider": PROVIDER_LABEL, "ip": ip, "eur_h": 0.0,
                "created": sl.get("created") or time.time(), "idle_since": None})
     if not sl.get("ready"):
         if fx.get("status") != "running":
@@ -772,6 +776,13 @@ def giro():
                 continue
             if sl.get("ip") and not tunnel_alive(sl):
                 log(f"posto {key}: tunnel riaperto ({open_tunnel(sl)})")
+        # carico di ogni posto per la tray: «acceso, N card». Solo lettura del DB del Mac.
+        for sl in state["slots"].values():
+            if sl.get("machine_id") and (sl.get("server_id") or sl.get("fixed")):
+                try:
+                    sl["cards"] = slot_busy(sl["machine_id"])
+                except Exception:
+                    pass
         save_state(state)
         # 3. domanda: col nodo permanente non si accendono nodi a richiesta
         if fx:

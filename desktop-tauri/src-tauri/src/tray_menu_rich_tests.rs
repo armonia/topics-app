@@ -142,8 +142,9 @@ fn the_client_machines_join_the_service_ones_without_doubles() {
     let names: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.name.clone()).collect();
     let client = vec![card("me", "anything", true), card("twin", &names[names.len() - 1].to_uppercase(), false), card("n1", "Node", false)];
     let ids: Vec<String> = machines_for(&client, &snap()).iter().map(|m| m.id.clone()).collect();
+    // dispatch order: this computer, then the node that answers, then the one asleep (the service lists «pc» as «dorme»)
     let mut want = service.clone();
-    want.push("n1".into());
+    want.insert(1, "n1".into());
     assert_eq!(ids, want);
     // with no service there is nothing to merge: the client list is the menu
     let none = Snapshot { board: None, ..snap() };
@@ -392,6 +393,9 @@ fn tray_dump_of_the_real_menu() {
         trust: read("trust"),
         backup: read("backup"),
         backup_set: read("backup").is_some(),
+        memory_sync: read("memory-sync"),
+        memory_sync_set: read("memory-sync").is_some(),
+        pool: read("pool"),
         cpu,
     };
     // the poller reads the pictures from the service; the dump only needs to know there is one

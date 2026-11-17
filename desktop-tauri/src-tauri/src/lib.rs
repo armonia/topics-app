@@ -29,6 +29,8 @@ mod tray_agents;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_nodes;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu;
 mod tray_menu_actions;
 mod tray_menu_clock;
