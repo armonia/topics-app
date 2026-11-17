@@ -279,11 +279,12 @@ export interface RemoteNodeLane {
   /** One poll per remote slot: the whole life signal of a remote run. */
   poll(): Promise<void>;
   /**
-   * The restart orphan pass, for a card that names a node: `true` requeued,
-   * `false` left alone (failed to requeue, or a launch of this process is still
-   * on its way to the node), `null` not this lane's card.
+   * The restart orphan pass, for a card that names a node: `true` reattached or
+   * requeued, `false` left alone (node silent, failed to requeue, or a launch of
+   * this process is still on its way to the node), `null` not this lane's card.
+   * Async: it reads the run's actual state on the node before deciding.
    */
-  queueAfterRestart(task: Task): boolean | null;
+  queueAfterRestart(task: Task): Promise<boolean | null>;
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
@@ -1271,11 +1272,19 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * A card that names a NODE is never resumed HERE. The recovery in `reconcile`
    * ends in `resume`, which opens a local topic and a local turn: for a remote
    * card that is the one thing KANBAN-76 forbids. Its slot lived only in
-   * memory, so after a restart the honest move is the queue - the tick
-   * re-dispatches it to the node, and that dispatch cancels the old run
-   * before creating a new one (KANBAN-77).
+   * memory, so after a restart this asks the node what actually happened to
+   * the run (`node_run_id`, persisted) before deciding anything:
+   *
+   *  - alive or already finished there → the slot is REBUILT in `inFlight` and
+   *    the next `poll()` carries it home. No `cancelRun`, no `createRun`: the
+   *    run on the node is untouched (17/11, a finished run was thrown away on
+   *    every restart before this).
+   *  - the node does not answer → left exactly where it is, run untouched: the
+   *    next reconcile pass retries the same question.
+   *  - the node confirms the run is gone (404) → today's behaviour: back to
+   *    the queue, attempt refunded, the next dispatch creates a fresh run.
    */
-  function queueAfterRestart(task: Task): boolean | null {
+  async function queueAfterRestart(task: Task): Promise<boolean | null> {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
@@ -1298,12 +1307,60 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return false;
       }
     }
+    const machineId = task.machineId;
+    const client = host.client;
+    const runId = lastNodeRun.get(task.id);
+    const policy = task.delegatedStartCapabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
+    const baseUrl = runId ? client.baseUrlOf(machineId) : null;
+    const token = runId ? (policy ? client.delegatedTokenOf?.(machineId, policy.id) ?? null : client.tokenOf(machineId)) : null;
+    const delegation: NodeRunBinding | undefined = policy
+      ? { capabilityId: policy.id, subjectPersonId: policy.initiatorPersonId, subjectDeviceId: policy.initiatorDeviceId }
+      : undefined;
+    if (runId && baseUrl && token) {
+      try {
+        const report = await client.readRun({ baseUrl, token, runId, delegation });
+        const runNo = host.beginRun(task.id, nodeSessionKey(machineId, runId));
+        if (!host.ownsRun(task.id, runNo)) return false; // superseded while we asked
+        host.bindRunSession(task.id, runNo, nodeSessionKey(machineId, runId));
+        const slot = inFlight.get(task.id);
+        if (slot) {
+          // Seed `seen` from what the card ALREADY carries (its comments' `messageId`), never
+          // blindly from this report: the old first-poll seed treated every comment the node had
+          // at that point as already known, so a comment written there while the Mac was off was
+          // never mirrored. `primed: true` skips that seed and goes straight to the normal diff.
+          const seen = new Set<string>();
+          for (const c of svc.get(task.id)?.comments ?? []) if (c.messageId) seen.add(c.messageId);
+          slot.node = { machineId, baseUrl, token, runId, fails: 0, seen, primed: true, ...(policy ? { delegation } : {}) };
+        }
+        try {
+          svc.addComment({
+            taskId: task.id, author: "system", kind: "service",
+            content:
+              "Il server è ripartito mentre questa card girava su un nodo: la corsa è ancora lì, la riaggancio " +
+              "invece di rifarla.",
+          });
+        } catch { /* best-effort: the reattach stands without its note */ }
+        emit(svc.setDispatchState({ taskId: task.id, state: report.dispatchState ?? CHIP_WORKING }));
+        return true;
+      } catch (err) {
+        if (isNodeError(err) && err.status === 404) return queueBackAfterRestart(task);
+        // The node did not answer at all: leave the card exactly where it is, run untouched. The
+        // orphan pass runs again on the next reconcile and asks the same question.
+        log(`nodo: nodo muto al riavvio per la card ${task.id}, la corsa resta com'è`, err);
+        return false;
+      }
+    }
+    return queueBackAfterRestart(task);
+  }
+
+  /** The run is confirmed gone (or never had an id/pairing left): the honest move is the queue. */
+  function queueBackAfterRestart(task: Task): boolean {
     try {
       svc.claimInterruption({
         taskId: task.id,
         note:
-          "Il server è ripartito mentre questa card girava su un nodo: la rimetto in coda (nessun tentativo consumato). " +
-          "Riparte sul nodo, dopo aver cancellato la corsa vecchia.",
+          "Il server è ripartito mentre questa card girava su un nodo, e la corsa non c'è più là: la rimetto in " +
+          "coda (nessun tentativo consumato).",
       });
       releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
       return true;

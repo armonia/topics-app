@@ -57,7 +57,9 @@ describe("lo slot remoto non resta zombie", () => {
     expect(h.dispatcher.busyIds()).toContain(TASK);
   });
 
-  it("restart with an open run whose chip the poll copied from the node (needs_input): requeued, old run cancelled", async () => {
+  it("restart with an open run whose chip the poll copied from the node (needs_input): reattached, not requeued", async () => {
+    // `queueAfterRestart` now asks the node first (task-dispatcher-remote-node-restart.test.ts):
+    // a run still alive there is reattached, never cancelled and recreated.
     const h = harness();
     h.seed();
     await dispatch(h);
@@ -69,10 +71,8 @@ describe("lo slot remoto non resta zombie", () => {
     await h2.dispatcher.reconcile({ reason: "boot" });
     await flush();
 
-    // The reconcile's own tick takes the requeued card straight out again.
-    await dispatch(h2);
-    const order = h2.calls.filter((c) => c === "create" || c.startsWith("cancel"));
-    expect(order).toEqual(["cancel:run-1", "create"]);
+    expect(h.task().status).toBe("in_progress");
+    expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
   });
 
   it("a done card dragged back to In Progress by hand, with no open run, is not relaunched after a restart", async () => {
