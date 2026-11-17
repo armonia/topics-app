@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.29 — 2026-11-17
+
+### Correzioni
+- **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
 ## 2.4.27 — 2026-11-16
 
 ### Correzioni
