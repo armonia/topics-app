@@ -157,11 +157,10 @@ test.describe("Status colours on the Board, the plan and the Agents pane", () =>
       await evidence(page, board, `status-visual-board-${scheme}.png`);
 
       // ── Plan ─────────────────────────────────────────────────────────────
-      // The plan is the last stop of the detail slider, on the global board only.
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
-      const plan = page.getByTestId("plan-view");
-      await expect(plan).toBeVisible({ timeout: 15_000 });
+      // The cards view (the old plan), reached from the single view selector.
+      await page.getByTestId("board-view-plan").click();
+      const plan = page.getByTestId("kanban-board");
+      await expect(page.getByTestId("board-cards-grid").first()).toBeVisible({ timeout: 15_000 });
       await expect(plan.locator(`[data-task-card="${needsInputTask}"]`)).toBeVisible();
       await evidence(page, plan, `status-visual-plan-${scheme}.png`);
 
