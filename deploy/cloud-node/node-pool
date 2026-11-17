@@ -313,7 +313,7 @@ _SERVER_OF_IP = {}
 def ssh(ip, cmd, timeout=120, inp=None):
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+    return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
                            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
                            f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
 
@@ -456,7 +456,7 @@ def open_tunnel(sl):
     if tunnel_alive(sl):
         return True
     known = known_file(sl['ip'])
-    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
+    p = subprocess.Popen(["ssh", "-N", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
                           "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new",
                           "-o", f"UserKnownHostsFile={known}", "-L", f"127.0.0.1:{LPORT + sl['n']}:127.0.0.1:3341",
                           "-R", f"127.0.0.1:{rport(sl)}:127.0.0.1:{PROXY}", f"root@{sl['ip']}"],
@@ -757,7 +757,7 @@ def permanent_ci():
         raise SystemExit("node-pool: gh non dà i token di registrazione e rimozione dei runner")
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
                     "-o", f"UserKnownHostsFile={known}", os.path.join(HERE, "..", "permanent-node", "ci-runners.sh"),
                     f"root@{ip}:/root/ci-runners.sh"], check=True, timeout=120)
     r = ssh(ip, f"read -r REG_TOKEN; read -r REMOVE_TOKEN; export REG_TOKEN REMOVE_TOKEN; N={CI_RUNNERS} bash /root/ci-runners.sh",
@@ -968,7 +968,7 @@ def sync_repo(sl, origin, repo, git_name, git_email):
         raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
     _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
     known = known_file(sl['ip'])
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
+    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
     os.remove(bundle)
     # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
     # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
