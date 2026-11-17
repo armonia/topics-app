@@ -306,13 +306,17 @@ export function peopleUsage(c: Computed, db: Database): PeopleUsage {
   }
   const totW = c.calls.reduce((s, x) => s + x.weight, 0);
   const totP = c.meta.attributedPoints ?? 0;
-  const people: PersonRow[] = [...g].map(([personId, e]) => ({
-    personId,
-    name: personId ? names.get(personId) ?? personId : NO_AUTHOR,
-    weighted: Math.round(e.w),
-    accountPct: c.meta.quotaHistory ? round1(e.p) : null,
-    sharePct: round1(c.meta.quotaHistory && totP > 0 ? (100 * e.p) / totP : totW > 0 ? (100 * e.w) / totW : 0),
-  })).sort((a, b) => b.sharePct - a.sharePct || b.weighted - a.weighted);
+  const people = [...g].map(([personId, e]) => ({
+    row: {
+      personId,
+      name: personId ? names.get(personId) ?? personId : NO_AUTHOR,
+      weighted: Math.round(e.w),
+      accountPct: c.meta.quotaHistory ? round1(e.p) : null,
+      sharePct: round1(c.meta.quotaHistory && totP > 0 ? (100 * e.p) / totP : totW > 0 ? (100 * e.w) / totW : 0),
+    } as PersonRow,
+    // l'ordine sui valori pieni: arrotondati a una cifra, le righe sotto lo 0,05% risultavano pari e in disordine
+    key: c.meta.quotaHistory ? e.p : e.w,
+  })).sort((a, b) => b.key - a.key || b.row.weighted - a.row.weighted).map((x) => x.row);
   return { ...c.meta, people };
 }
 
