@@ -1,7 +1,74 @@
 [
   {
-    "version": "2.4.29",
+    "version": "2.4.30",
     "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/patient-badger (card 3c348ab4) (#1191)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un nodo per server vero, in ordine di dispatch, e la scheda delle memorie",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "note on ghost queued CI runs that the API cannot cancel (#1179)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.29",
+    "date": "2026-11-16",
     "sections": {
       "new": [],
       "fixes": [
@@ -13,7 +80,29 @@
         }
       ],
       "perf": [],
-      "internal": []
+      "internal": [
+        {
+          "it": "Align the reworded-wait test with agent waits staying in todo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.28",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog",
+          "en": "",
+          "scope": null
+        }
+      ]
     }
   },
   {
