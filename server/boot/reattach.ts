@@ -2,7 +2,7 @@
  * What survives a restart: reattach turns, reconcile phases, transcripts and archived sessions, the resume sweep and provider holds.
  */
 import { join } from "path";
-import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchedSinceRetired } from "../lib/wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchingChatCanWake } from "../lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "../lib/ripresa-boot";
 import { holdUntilLabel, onProviderHold, configureProviderHoldStore, onPlanUsage, isProviderHeld } from "../lib/provider-hold";
 import { wireHoldToResume } from "../lib/provider-hold-broadcast";
@@ -569,19 +569,14 @@ export function bootReattach(scope: AfterGovernor) {
 
   // One answer for the three wakes that return the outcome of work a chat
   // launched (sub-agent result, card outcome, AI-review notice): an archived
-  // chat that launched it after being archived is alive (`lib/wake-adoption.ts`).
-  const canWakeLaunchingChat = (sk: string): "wake" | "wait" | "row" => {
-    const topic = ctx.getTopicBySessionKey(sk);
-    if (!topic) return "row";
-    const verdict = wakeVerdict(
-      { id: topic.id, archived: topic.archived },
-      (id) => runningTaskOwnsTopic(ctx.db, id),
-      (id) => stoppedSubagentChat(ctx.db, id),
-      (id) => launchedSinceRetired(ctx.db, id, sk),
-    );
-    if (verdict !== "adopt") return "row";
-    return isProviderHeld(topic.provider || getDefaultProviderName() || "claude-code") ? "wait" : "wake";
-  };
+  // chat that launched THAT work after a person archived it is alive
+  // (`lib/wake-adoption.ts`).
+  const canWakeLaunchingChat = launchingChatCanWake({
+    db: ctx.db,
+    getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+    isProviderHeld,
+    defaultProvider: () => getDefaultProviderName() ?? undefined,
+  });
 
   // The results of `spawn_agent` children wake their parent chats on the same
   // condition, and for the same reason (SUBAGENT-12).

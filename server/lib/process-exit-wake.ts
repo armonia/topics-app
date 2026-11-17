@@ -273,7 +273,7 @@ export async function deliverProcessExit(
     // A command a chat started after it was archived is that chat at work.
     if (!topic || wakeVerdict(
       { id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask, (id) => stoppedSubagentChat(deps.db, id),
-      (id) => launchedSinceRetired(deps.db, id, topic.sessionKey, f.startedAt),
+      (id) => launchedSinceRetired(deps.db, id, topic.sessionKey, f.startedAt ? { startedAt: f.startedAt } : undefined),
     ) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.

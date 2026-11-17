@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchedSinceRetired, lastLaunchFrom } from "./wake-adoption";
+import { wakeVerdict, runningTaskOwnsTopic, stoppedSubagentChat, launchedSinceRetired, launchingChatCanWake, type WakeLaunch } from "./wake-adoption";
 
 const noStoppedChild = () => false;
 
@@ -98,61 +98,141 @@ describe("wake adoption: which topic takes a spontaneous turn", () => {
   });
 });
 
-// 17/11: a channel chat (archived on 11/11, still driven by its bridge) spawned
-// a child; the child's result was written as a plain row and the parent never
-// read it, because the verdict for any archived topic was "archived".
-describe("wake adoption: an archived chat that launched work after being archived is alive", () => {
+// 17/11: a channel chat (archived by a person on 11/11, still driven by its
+// bridge) spawned a child; the child's result was written as a plain row and the
+// parent never read it, because every archived topic got the verdict "archived".
+describe("wake adoption: an archived chat that launched work after a person archived it is alive", () => {
   const PARENT = { id: "t-parent", archived: true };
   const SK = "topic:parent";
+  const RETIRED = "2026-11-11T15:35:28.893Z";
+  const AFTER = "2026-11-16T23:41:09.861Z";
+  const BEFORE = "2026-11-05T10:00:00.000Z";
 
-  function launchDb(o: { retiredAt?: string; childAt?: string; cardAt?: string }): Database {
+  interface Rows {
+    retired?: { at: string; reason: string };
+    children?: Array<{ id: string; at: string; parent?: string }>;
+    cards?: Array<{ id: string; at: string; createdBy?: string | null; origin?: string | null }>;
+  }
+  function launchDb(o: Rows): Database {
     const db = new Database(":memory:");
     db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, assigned_topic_id TEXT, created_by_topic_id TEXT, origin_topic_id TEXT, created_at TEXT)");
     db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, parent_session_key TEXT, created_at TEXT)");
-    db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT, PRIMARY KEY (kind, ref_id))");
-    if (o.retiredAt) db.run("INSERT INTO retirements VALUES ('topic', 't-parent', ?)", [o.retiredAt]);
-    if (o.childAt) db.run("INSERT INTO subagents VALUES ('c1', ?, ?)", [SK, o.childAt]);
-    if (o.cardAt) db.run("INSERT INTO tasks (id, status, created_by_topic_id, created_at) VALUES ('k1', 'done', 't-parent', ?)", [o.cardAt]);
+    db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT, reason TEXT, PRIMARY KEY (kind, ref_id))");
+    if (o.retired) db.run("INSERT INTO retirements VALUES ('topic', 't-parent', ?, ?)", [o.retired.at, o.retired.reason]);
+    for (const c of o.children ?? []) db.run("INSERT INTO subagents VALUES (?, ?, ?)", [c.id, c.parent ?? SK, c.at]);
+    for (const k of o.cards ?? []) db.run("INSERT INTO tasks (id, status, created_by_topic_id, origin_topic_id, created_at) VALUES (?, 'done', ?, ?, ?)", [k.id, k.createdBy === undefined ? "t-parent" : k.createdBy, k.origin ?? null, k.at]);
     return db;
   }
-  const verdictOf = (db: Database, launchedAt?: string) =>
-    wakeVerdict(PARENT, (id) => runningTaskOwnsTopic(db, id), noStoppedChild, (id) => launchedSinceRetired(db, id, SK, launchedAt));
+  const person = { at: RETIRED, reason: "archive" };
+  const verdictOf = (db: Database, launch?: WakeLaunch) =>
+    wakeVerdict(PARENT, (id) => runningTaskOwnsTopic(db, id), noStoppedChild, (id) => launchedSinceRetired(db, id, SK, launch));
 
-  test("a child spawned after the chat was archived wakes it", () => {
-    const db = launchDb({ retiredAt: "2026-11-11T15:35:28.893Z", childAt: "2026-11-16T23:41:09.861Z" });
-    expect(verdictOf(db)).toBe("adopt");
+  test("a child spawned after the person archived the chat wakes it", () => {
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("adopt");
   });
 
-  test("a card opened after the archive wakes it too", () => {
-    const db = launchDb({ retiredAt: "2026-11-11T15:35:28.893Z", cardAt: "2026-11-16T22:00:00.000Z" });
-    expect(verdictOf(db)).toBe("adopt");
+  test("a card the chat opened after the archive wakes it; a command started after it too", () => {
+    const db = launchDb({ retired: person, cards: [{ id: "k1", at: AFTER }] });
+    expect(verdictOf(db, { taskId: "k1" })).toBe("adopt");
+    expect(verdictOf(db, { startedAt: AFTER })).toBe("adopt");
   });
 
-  test("a command started after the archive wakes it (the caller names the start)", () => {
-    const db = launchDb({ retiredAt: "2026-11-11T15:35:28.893Z" });
-    expect(verdictOf(db, "2026-11-16T10:00:00.000Z")).toBe("adopt");
+  test("each wake is judged on ITS launch: child A before the archive stays a row, child B after it wakes", () => {
+    const db = launchDb({ retired: person, children: [{ id: "A", at: BEFORE }, { id: "B", at: AFTER }] });
+    expect(verdictOf(db, { subagentId: "A" })).toBe("archived");
+    expect(verdictOf(db, { subagentId: "B" })).toBe("adopt");
   });
 
-  test("a person archiving the chat after the launch is still obeyed: row", () => {
-    const db = launchDb({ retiredAt: "2026-11-16T23:50:00.000Z", childAt: "2026-11-16T23:41:09.861Z" });
-    expect(verdictOf(db)).toBe("archived");
+  test("a person archiving the chat after the launch is still obeyed", () => {
+    const db = launchDb({ retired: { at: "2026-11-16T23:50:00.000Z", reason: "archive" }, children: [{ id: "c1", at: AFTER }] });
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
   });
 
-  test("an archived chat that launched nothing is refused", () => {
-    expect(verdictOf(launchDb({ retiredAt: "2026-11-11T15:35:28.893Z" }))).toBe("archived");
-    expect(lastLaunchFrom(launchDb({}), "t-parent", SK)).toBeNull();
+  test("the same millisecond is not later: a tie keeps the old verdict", () => {
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: RETIRED }] });
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
+  });
+
+  test("the archive reasons a person writes count: archive, bulk-archive, tab-close", () => {
+    for (const reason of ["archive", "bulk-archive", "tab-close"]) {
+      const db = launchDb({ retired: { at: RETIRED, reason }, children: [{ id: "c1", at: AFTER }] });
+      expect(verdictOf(db, { subagentId: "c1" })).toBe("adopt");
+    }
+  });
+
+  // The measured defect of the first version: 1482 of 3249 retirement rows are
+  // `reconcile:registry`, the chats of board agents that are BORN archived,
+  // dated by the first restart. Counting them woke 102 chats that never were a
+  // person's (66 with their card done).
+  test("a chat born archived (reconcile:registry, attempt-reap, backfill) stays a row", () => {
+    for (const reason of ["reconcile:registry", "attempt-reap", "backfill:archived"]) {
+      const db = launchDb({ retired: { at: RETIRED, reason }, children: [{ id: "c1", at: AFTER }], cards: [{ id: "k1", at: AFTER }] });
+      expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
+      expect(verdictOf(db, { taskId: "k1" })).toBe("archived");
+      expect(verdictOf(db, { startedAt: AFTER })).toBe("archived");
+    }
+  });
+
+  test("a card is proof of launch only through created_by_topic_id: origin_topic_id is a caller's word", () => {
+    const db = launchDb({ retired: person, cards: [{ id: "k1", at: AFTER, createdBy: null, origin: "t-parent" }, { id: "k2", at: AFTER, createdBy: "t-other" }] });
+    expect(verdictOf(db, { taskId: "k1" })).toBe("archived");
+    expect(verdictOf(db, { taskId: "k2" })).toBe("archived");
+  });
+
+  test("a child of another chat proves nothing", () => {
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER, parent: "topic:other" }] });
+    expect(verdictOf(db, { subagentId: "c1" })).toBe("archived");
+  });
+
+  test("no launch named, no archive row, or an unknown child: the old verdict", () => {
+    expect(verdictOf(launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] }))).toBe("archived");
+    expect(verdictOf(launchDb({ children: [{ id: "c1", at: AFTER }] }), { subagentId: "c1" })).toBe("archived");
+    expect(verdictOf(launchDb({ retired: person }), { subagentId: "ghost" })).toBe("archived");
   });
 
   test("a stopped child still wins over a recent launch", () => {
-    const db = launchDb({ retiredAt: "2026-11-11T15:35:28.893Z", childAt: "2026-11-16T23:41:09.861Z" });
-    expect(wakeVerdict(PARENT, () => false, () => true, (id) => launchedSinceRetired(db, id, SK))).toBe("stopped");
+    const db = launchDb({ retired: person, children: [{ id: "c1", at: AFTER }] });
+    expect(wakeVerdict(PARENT, () => false, () => true, (id) => launchedSinceRetired(db, id, SK, { subagentId: "c1" }))).toBe("stopped");
   });
 
   test("without the fourth argument the verdict is the old one (spontaneous CLI turns)", () => {
     expect(wakeVerdict(PARENT, () => false, noStoppedChild)).toBe("archived");
   });
+});
 
-  test("no archive date on record: nothing proves the launch came after, so the old verdict stands", () => {
-    expect(verdictOf(launchDb({ childAt: "2026-11-16T23:41:09.861Z" }))).toBe("archived");
+// The function the three wakes in `boot/reattach.ts` are wired to: the whole road
+// from topic row to verdict, with a real database.
+describe("launchingChatCanWake: the shared canWake of the wakes that answer a launch", () => {
+  const RETIRED = "2026-11-11T15:35:28.893Z";
+  const AFTER = "2026-11-16T23:41:09.861Z";
+  function setup(topic: { archived: boolean; provider?: string }, held = false) {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, assigned_topic_id TEXT, created_by_topic_id TEXT, origin_topic_id TEXT, created_at TEXT)");
+    db.run("CREATE TABLE subagents (id TEXT PRIMARY KEY, runtime TEXT, state TEXT, parent_session_key TEXT, created_at TEXT)");
+    db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT, reason TEXT, PRIMARY KEY (kind, ref_id))");
+    db.run("INSERT INTO retirements VALUES ('topic', 't-parent', ?, 'archive')", [RETIRED]);
+    db.run("INSERT INTO subagents VALUES ('c1', 'topics', 'retired', 'topic:parent', ?)", [AFTER]);
+    const canWake = launchingChatCanWake({
+      db,
+      getTopicBySessionKey: (sk) => (sk === "topic:parent" ? { id: "t-parent", ...topic } : null),
+      isProviderHeld: () => held,
+      defaultProvider: () => undefined,
+    });
+    return { db, canWake };
+  }
+
+  test("an archived parent is woken for the child it launched after the archive, and only for it", () => {
+    const { canWake } = setup({ archived: true });
+    expect(canWake("topic:parent", { subagentId: "c1" })).toBe("wake");
+    expect(canWake("topic:parent", { subagentId: "ghost" })).toBe("row");
+    expect(canWake("topic:parent")).toBe("row");
+    expect(canWake("topic:gone", { subagentId: "c1" })).toBe("row");
+  });
+
+  test("an open parent is woken, `wait` while its provider is held", () => {
+    expect(setup({ archived: false }).canWake("topic:parent")).toBe("wake");
+    expect(setup({ archived: false }, true).canWake("topic:parent")).toBe("wait");
+    expect(setup({ archived: true }, true).canWake("topic:parent", { subagentId: "c1" })).toBe("wait");
   });
 });

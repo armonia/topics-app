@@ -31,6 +31,7 @@
 
 import type { ActivityLogEntry } from "../db/activity-log";
 import type { OutboundMessage } from "../../shared/ws-outbound";
+import type { WakeLaunch } from "../lib/wake-adoption";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -59,7 +60,7 @@ export interface AiReviewNoticeDeps {
   /** The session of a topic, `null` when it is gone. */
   sessionKeyOfTopic(topicId: string): string | null;
   /** `wake`: send now. `wait`: not now (provider held). `row`: this chat cannot take a turn. */
-  canWake(sessionKey: string): "wake" | "wait" | "row";
+  canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
   /** The eligible global coordinator's session, `null` when there is none. */
   coordinatorSessionKey(): string | null;
   /** Any global coordinator's session (eligible or not): it has no project, so it closes with the global tools. */
@@ -125,7 +126,7 @@ export function createAiReviewNotices(deps: AiReviewNoticeDeps) {
       // A card the coordinator opened (the global route stamps its topic) is
       // its own to close, but with the global tools: its session has no
       // project, and `update_task` there answers `no_project`.
-      if (sk && deps.canWake(sk) !== "row") out.push({ sessionKey: sk, closer: "opener", globalTool: sk === coordinator || !!deps.isCoordinatorSession?.(sk) });
+      if (sk && deps.canWake(sk, { taskId: n.taskId }) !== "row") out.push({ sessionKey: sk, closer: "opener", globalTool: sk === coordinator || !!deps.isCoordinatorSession?.(sk) });
     }
     if (coordinator && !out.some((t) => t.sessionKey === coordinator)) out.push({ sessionKey: coordinator, closer: "coordinator", globalTool: true });
     return out;
