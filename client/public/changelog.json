@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.33",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.32",
     "date": "2026-11-17",
     "sections": {

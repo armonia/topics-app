@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.33 — 2026-11-17
+
+### Sotto il cofano
+- Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)
+
 ## 2.4.32 — 2026-11-17
 
 ### Sotto il cofano
