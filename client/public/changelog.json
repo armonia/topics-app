@@ -1,5 +1,73 @@
 [
   {
+    "version": "2.4.40",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "node cards hide technical names and link the PC by name",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "rewrite the Italian code comments in English so the comment-language gate passes",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a provider firewall in front of a node wins over its own ufw reading",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Add an e2e spec measuring every board button at 44px under a coarse pointer (375 and 768)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the touch target spec: an empty audit list is the pass, count the board buttons separately",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Widen the sidebar 'action' toggle touch area to 44px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Make the card preview commands a 44px always-visible target under a coarse pointer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "name the OS tools the security probes read, and spell out a regex the linter counts as hard",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "write the health file where the tray reads it, not in the server's data folder",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.39",
     "date": "2026-11-17",
     "sections": {
@@ -8,10 +76,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "node cards say memories, code and security, with small charts",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "per-machine security probes and 24h history in machines-health.json for the tray",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "harness-sync: put each project's memory where Claude Code on the node looks for it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-17 [skip ci]",
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "harness-sync: stop rsync --delete from wiping the node's own folders",
+          "en": "",
+          "scope": null
         },
         {
           "it": "nodo principale scelto a mano (analisi, proposta, tracce)",
@@ -32,6 +122,16 @@
           "breaking": false
         },
         {
+          "it": "harness-sync: raise the open-files limit under launchd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "harness-sync: resend at once what the node lost, without waiting for the 15 minute retry gate",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Drop the empty left column from the Thinking row (#1223)",
           "en": "",
           "scope": null
@@ -49,6 +149,11 @@
       "internal": [
         {
           "it": "Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cloud-node: carry the Mac's agent rules and memories to the nodes, with the private part encrypted at rest",
           "en": "",
           "scope": null
         }

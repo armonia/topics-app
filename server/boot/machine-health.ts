@@ -1,7 +1,7 @@
 /**
  * The machines' health round: every 5 minutes it samples CPU and memory of
  * every machine Topics uses, every 30 minutes it asks for their security
- * probes, and it writes `<APP_DATA_DIR>/machines-health.json` for the tray.
+ * probes, and it writes `~/.topics/machines-health.json` for the tray.
  *
  * The machines come from the `machines` table: this computer and the paired
  * nodes (the fixed server, the PC). A node is asked the way the load view
@@ -10,6 +10,7 @@
  * does not know the probe, its last result stays, with its own time.
  */
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
 import type { MachineMetrics } from "../../shared/machine-overview";
@@ -29,6 +30,16 @@ const FIRST_TICK_DELAY_MS = 20_000;
 
 export const MACHINES_HEALTH_FILE = "machines-health.json";
 
+/**
+ * Where the tray and the node tooling (`node-pool`, `harness-sync`) keep their
+ * files: `~/.topics`, whatever data folder this server uses. The production
+ * server on the Mac runs on a legacy data folder, so writing next to the
+ * database would put the file where the tray never looks.
+ */
+export function sharedToolingDir(): string {
+  return process.env.TOPICS_TOOLING_DIR || join(homedir(), ".topics");
+}
+
 async function fetchNodeJson<T>(ctx: AppContext, id: string, baseUrl: string, path: string, timeoutMs: number): Promise<T | null> {
   const token = readNodeToken(ctx.STATE_DIR, id);
   if (!token) return null;
@@ -44,8 +55,8 @@ async function fetchNodeJson<T>(ctx: AppContext, id: string, baseUrl: string, pa
 }
 
 /** The public IP of a cloud node from `node-pool/state.json`; `null` for a machine with no public address (the PC, this computer). */
-async function publicHostOf(ctx: AppContext, machineId: string): Promise<string | null> {
-  try { return poolIpOf(await readFile(join(ctx.APP_DATA_DIR, "node-pool", "state.json"), "utf8"), machineId); } catch { return null; }
+async function publicHostOf(machineId: string): Promise<string | null> {
+  try { return poolIpOf(await readFile(join(sharedToolingDir(), "node-pool", "state.json"), "utf8"), machineId); } catch { return null; }
 }
 
 export function startMachineHealth(ctx: AppContext): void {
@@ -78,7 +89,7 @@ export function startMachineHealth(ctx: AppContext): void {
       if (t.kind === "local") return probeLocal();
       const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
-      return report ? applyExposure(report, await publicHostOf(ctx, t.id)).catch(() => report) : null;
+      return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
     },
     attemptsToday: (sinceMs) => (ctx.db.query(
       `SELECT t.machine_id AS machineId, a.created_at AS createdAt
@@ -94,8 +105,8 @@ export function startMachineHealth(ctx: AppContext): void {
       // A row without an address is an old name of this same computer (the network host name changes with the network).
       return row.baseUrl ? row.id : local.id;
     },
-    filePath: join(ctx.APP_DATA_DIR, MACHINES_HEALTH_FILE),
-    statePath: join(ctx.APP_DATA_DIR, "machines-health-history.json"),
+    filePath: join(sharedToolingDir(), MACHINES_HEALTH_FILE),
+    statePath: join(sharedToolingDir(), "machines-health-history.json"),
     now: Date.now,
     log: (msg) => console.warn(msg),
   });
