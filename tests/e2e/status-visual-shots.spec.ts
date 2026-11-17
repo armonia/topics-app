@@ -151,11 +151,10 @@ test.describe("Status colours on the Board, the plan and the Agents pane", () =>
       await expect(asking).toBeVisible({ timeout: 15_000 });
       await expect(asking.locator('[data-testid="dispatch-chip"][data-state="needs_input"]')).toBeVisible();
       await expect(page.locator(`[data-task-card="${workingTask}"]`)).toBeVisible();
-      for (const status of ["backlog", "todo", "review"]) {
+      // :visible, because the composer's hidden status menu holds glyphs too and comes first in the DOM.
+      for (const status of ["backlog", "todo", "in_progress", "review"]) {
         await expect(board.locator(`[data-testid="status-glyph"][data-status="${status}"]:visible`).first()).toBeVisible();
       }
-      // The card whose agent is at work wears the loader in place of its in-progress glyph.
-      await expect(page.locator(`[data-task-card="${workingTask}"] [data-spinner]`).first()).toBeVisible();
       await evidence(page, board, `status-visual-board-${scheme}.png`);
 
       // ── Plan ─────────────────────────────────────────────────────────────
