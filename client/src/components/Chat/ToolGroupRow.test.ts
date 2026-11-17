@@ -90,7 +90,8 @@ describe('the chevron of a group', () => {
     expect(cls).toContain('coarse:opacity-100');
   });
 
-  test('its 12px column is always reserved, so nothing shifts on hover', () => {
+  test('its 12px slot comes after the title, so nothing shifts on hover and the row starts flush', () => {
+    expect(html.indexOf('data-testid="tool-group-chevron"')).toBeGreaterThan(html.indexOf('data-testid="tool-group-title"'));
     const at = html.indexOf('data-testid="tool-group-chevron"');
     expect(html.slice(at, html.indexOf('>', at) + 1)).toContain('w-3');
   });
