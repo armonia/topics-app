@@ -10,6 +10,7 @@ import { createPreviewBrowser } from "../services/preview-browser";
 import { recordServerSpawn } from "../lib/spawn-metrics";
 import { registerPreviewProcess, unregisterPreviewProcess, trackedScriptPidTrees } from "../routes/processes";
 import { killProcessTree } from "../lib/process-tree";
+import { installArgv, missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
 import { deliveryPointer } from "../services/own-commits";
 import { resolveDeliveryBranch, type DeliveryBranchDeps } from "../services/delivery-branch-ref";
@@ -37,7 +38,13 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
   // la card mostrava un'immagine rotta.
   const PREVIEW_MEDIA_DIR = join(ctx.APP_DATA_DIR, "media", "task-previews");
 
-  const PREVIEW_SCRIPT_CANDIDATES = ["preview", "dev", "start"];
+  // `preview:worktree` is the contract of a project that knows how to show
+  // itself from a freshly born worktree (builds what it needs, uses its own
+  // data, listens on `PORT`): when present it wins over the generic scripts.
+  // The other three are the heuristic for any frontend.
+  const PREVIEW_SCRIPT_CANDIDATES = ["preview:worktree", "preview", "dev", "start"];
+  /** A `preview:worktree` script builds by itself (measured: 97 s of build alone on a loaded Mac), so the wait cap is wide. */
+  const PREVIEW_CONTRACT_READY_MS = 300_000;
 
   const previewBrowser = createPreviewBrowser();
 
@@ -54,6 +61,20 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
       const t = setTimeout(() => { try { proc.kill(); } catch { /* già uscito */ } }, ms);
       try { return await new Response(proc.stdout).text(); } finally { clearTimeout(t); }
     } catch { return ""; }
+  }
+
+
+  /** Last ~4 KB of a stream, to say why a child died. */
+  function collectTail(stream: ReadableStream<Uint8Array> | null | undefined, sink: { text: string }): void {
+    if (!stream) return;
+    void (async () => {
+      try {
+        const decoder = new TextDecoder();
+        for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+          sink.text = (sink.text + decoder.decode(chunk, { stream: true })).slice(-4096);
+        }
+      } catch { /* the child is closed: the tail stays as it is */ }
+    })();
   }
 
 
@@ -76,20 +97,50 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
         const scripts = (JSON.parse(readFileSync(pkgPath, "utf-8"))?.scripts ?? {}) as Record<string, string>;
         const script = PREVIEW_SCRIPT_CANDIDATES.find((s) => typeof scripts[s] === "string" && scripts[s].trim());
         if (!script) return null;
-        return { cmd: ["bun", "run", script], deepLinkPath };
+        // A worktree is born WITHOUT `node_modules`: `bun run dev` there died in
+        // "command not found" and the wait recorded it as slowness. Install
+        // first, with the manager the project's lockfile declares.
+        const prepare: string[][] = [];
+        if (!existsSync(join(wt.absPath, "node_modules")) && !missingPackageManager(wt.absPath)) prepare.push(installArgv(wt.absPath));
+        const contract = script === "preview:worktree";
+        return {
+          cmd: runScriptArgv(wt.absPath, [script]),
+          deepLinkPath,
+          prepare,
+          readyTimeoutMs: contract ? PREVIEW_CONTRACT_READY_MS : undefined,
+        };
       } catch { return null; }
     },
     spawn: (cmd, opts): PreviewProcess => {
       const child = Bun.spawn(cmd, {
         cwd: opts.cwd,
         env: { ...process.env, ...opts.env },
-        stdout: "ignore", stderr: "ignore", stdin: "ignore",
+        stdout: "pipe", stderr: "pipe", stdin: "ignore",
       });
+      const out = { text: "" };
+      collectTail(child.stdout, out);
+      collectTail(child.stderr, out);
       return {
         get pid() { return child.pid ?? null; },
         alive() { return child.exitCode === null && !child.killed; },
         kill() { try { child.kill(); } catch { /* already gone */ } },
+        tail() { return out.text; },
       };
+    },
+    runStep: async (cmd, opts) => {
+      try {
+        const child = Bun.spawn(cmd, { cwd: opts.cwd, env: { ...process.env, ...opts.env }, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+        const out = { text: "" };
+        collectTail(child.stdout, out);
+        collectTail(child.stderr, out);
+        const timer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } }, opts.timeoutMs);
+        try {
+          const code = await child.exited;
+          return { ok: code === 0, tail: out.text };
+        } finally { clearTimeout(timer); }
+      } catch (err) {
+        return { ok: false, tail: String(err instanceof Error ? err.message : err) };
+      }
     },
     probe: async (url) => {
       try {
