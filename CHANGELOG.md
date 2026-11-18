@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.43 — 2026-11-18
+
+### Sotto il cofano
+- Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)
+- numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
+- ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
+- il test della riga delle fasce misura con i font del Mac
+- consumo per progetto con conto giusto, avviso sul telefono e freno al budget
+- topics/gleaming-panther (card bb70db88) (#1270)
+- stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)
+- Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto
+- topics/transient-bay (card 6d1e962f) (#1271)
+
 ## 2.4.42 — 2026-11-17
 
 ### Sotto il cofano
@@ -20,6 +33,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
 - topics/tawny-marble (card 7749cf36) (#1247)
 - CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Usage ledger: external calls (delegate jobs) name their project and count in it
 - Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
 - ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
 - il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
