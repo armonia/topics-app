@@ -253,3 +253,71 @@ fn a_long_name_keeps_its_port() {
     assert_eq!(clip("Server :3181", 24), "Server :3181");
     assert!(clip("Un nome lunghissimo senza porta alla fine", 20).ends_with('…'));
 }
+
+/// Frames of the hover, drawn off screen: the card's view is given a cursor at a series of x over its charts and
+/// each state is saved as a PNG. No window and no real mouse.
+/// TRAY_HOVER_FRAMES=<dir> TRAY_MENU_NATIVE_MACHINES/_HEALTH/_POOL/_SYNC/_CLIENT as for `native_rows`.
+#[test]
+fn hover_frames() {
+    let Ok(dir) = std::env::var("TRAY_HOVER_FRAMES") else { return };
+    let base = std::env::var("TRAY_MENU_HUB").unwrap_or_else(|_| crate::tray_quota::hub_base());
+    let mut snap = crate::tray_menu::Snapshot::fetch(&base, None);
+    for (var, slot) in [("TRAY_MENU_NATIVE_MACHINES", 0), ("TRAY_MENU_NATIVE_HEALTH", 1), ("TRAY_MENU_NATIVE_POOL", 2), ("TRAY_MENU_NATIVE_SYNC", 3)] {
+        if let Ok(f) = std::env::var(var) {
+            let body = std::fs::read_to_string(f).unwrap();
+            match slot { 0 => snap.machines = Some(body), 1 => snap.health = Some(body), 2 => snap.pool = Some(body), _ => snap.harness_sync = Some(body) }
+        }
+    }
+    let client: Vec<crate::tray_menu_views::MachineCard> = std::env::var("TRAY_MENU_NATIVE_CLIENT").ok()
+        .map(|f| serde_json::from_str::<Vec<crate::tray_machines::StatusMachine>>(&std::fs::read_to_string(f).unwrap()).unwrap())
+        .unwrap_or_default().iter().filter_map(|m| m.card()).collect();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let machines = crate::tray_menu_rich::machines_for(&client, &snap);
+    let dark = std::env::var("TRAY_HOVER_DARK").is_ok();
+    let menu = crate::tray_menu_rich::build_menu_rich(&snap, crate::tray_menu::Prefs::default(), now, &machines, dark);
+    type Found = (String, Vec<u8>, f64, f64, Vec<crate::tray_hover::HoverZone>);
+    // every card of the menu that has charts, plus the charts of their submenus
+    fn collect(nodes: &[Node], out: &mut Vec<Found>) {
+        for n in nodes {
+            if let Node::Card { key, png, w, h, hover, children } = n {
+                if !hover.is_empty() {
+                    out.push((key.replace(':', "-"), png.clone(), *w as f64, *h as f64, hover.clone()));
+                }
+                collect(children, out);
+            }
+        }
+    }
+    let mut cards: Vec<Found> = Vec::new();
+    collect(&menu, &mut cards);
+    unsafe {
+        let name = if dark { "NSAppearanceNameDarkAqua" } else { "NSAppearanceNameAqua" };
+        let appearance: id = msg_send![class!(NSAppearance), appearanceNamed: ns(name)];
+        let _: () = msg_send![class!(NSAppearance), setCurrentAppearance: appearance];
+        for (key, png, w, h, zones) in &cards {
+            let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() as *const std::ffi::c_void, length: png.len()];
+            let image: id = msg_send![class!(NSImage), alloc];
+            let image: id = msg_send![image, initWithData: data];
+            let _: () = msg_send![image, setSize: NSSize::new(*w, *h)];
+            let frame = NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(*w, *h));
+            let view = crate::tray_menu_hover_view::new_view(frame, image, zones.clone());
+            // the view follows the appearance asked for, not the one of the system running the test
+            let _: () = msg_send![view, setAppearance: appearance];
+            for (zi, z) in zones.iter().enumerate() {
+                let n = z.points.len();
+                // sweep across the chart: about 24 frames, each on a point's x
+                let picks: Vec<usize> = if n <= 24 { (0..n).collect() } else { (0..24).map(|i| i * (n - 1) / 23).collect() };
+                for (fi, pi) in picks.iter().enumerate() {
+                    crate::tray_menu_hover_view::hover_at(view, Some((z.points[*pi].x, z.y + z.h / 2.0)));
+                    let rep: id = msg_send![view, bitmapImageRepForCachingDisplayInRect: frame];
+                    let _: () = msg_send![view, cacheDisplayInRect: frame, toBitmapImageRep: rep];
+                    let opts: id = msg_send![class!(NSDictionary), dictionary];
+                    let png_data: id = msg_send![rep, representationUsingType: 4usize, properties: opts];
+                    let len: usize = msg_send![png_data, length];
+                    let ptr: *const u8 = msg_send![png_data, bytes];
+                    std::fs::write(format!("{dir}/{key}-z{zi}-{fi:02}.png"), std::slice::from_raw_parts(ptr, len)).unwrap();
+                }
+                crate::tray_menu_hover_view::hover_at(view, None);
+            }
+        }
+    }
+}

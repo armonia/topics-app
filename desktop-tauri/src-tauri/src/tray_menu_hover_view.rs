@@ -66,9 +66,10 @@ extern "C" fn draw_rect(this: id, _s: Sel, _dirty: NSRect) {
         let _: () = msg_send![image, drawInRect: bounds, fromRect: zero, operation: 2usize, fraction: 1.0f64, respectFlipped: true, hints: nil];
         let Some(m) = mark else { return };
         let ink: id = msg_send![class!(NSColor), labelColor];
-        let line: id = msg_send![ink, colorWithAlphaComponent: 0.5f64];
+        let line: id = msg_send![ink, colorWithAlphaComponent: 0.65f64];
         let _: () = msg_send![line, set];
-        let rect = NSRect::new(NSPoint::new(m.line_x as f64 - 0.5, m.top as f64), NSSize::new(1.0, (m.bottom - m.top) as f64));
+        // a little past the plot at both ends, so the line reads as a cursor and not as a grid guide
+        let rect = NSRect::new(NSPoint::new(m.line_x as f64 - 0.75, m.top as f64 - 3.0), NSSize::new(1.5, (m.bottom - m.top) as f64 + 6.0));
         let _: () = msg_send![class!(NSBezierPath), fillRect: rect];
         let box_rect = NSRect::new(NSPoint::new(m.box_x as f64, m.box_y as f64), NSSize::new(m.box_w as f64, m.box_h as f64));
         let path: id = msg_send![class!(NSBezierPath), bezierPathWithRoundedRect: box_rect, xRadius: 5.0f64, yRadius: 5.0f64];
@@ -86,21 +87,20 @@ extern "C" fn draw_rect(this: id, _s: Sel, _dirty: NSRect) {
     }
 }
 
-/// Sets the mark for the cursor of `ev` (or none), and redraws only when it changed.
-unsafe fn follow(this: id, ev: id, inside: bool) {
-    let mark = if inside {
-        let window_point: NSPoint = msg_send![ev, locationInWindow];
-        let p: NSPoint = msg_send![this, convertPoint: window_point, fromView: nil];
-        let (zones, width) = {
-            let guard = VIEWS.lock().unwrap();
-            match guard.as_ref().and_then(|m| m.get(&(this as usize))) {
-                Some(st) => (st.zones.clone(), st.width),
-                None => return,
-            }
-        };
-        mark_at(&zones, p.x as f32, p.y as f32, &|t| unsafe { label_width(t) }, width)
-    } else {
-        None
+/// Sets the mark for a cursor at `at` (view points, top origin; `None` = the mouse left), and redraws only when it changed.
+pub(crate) unsafe fn hover_at(this: id, at: Option<(f32, f32)>) {
+    let mark = match at {
+        Some((px, py)) => {
+            let (zones, width) = {
+                let guard = VIEWS.lock().unwrap();
+                match guard.as_ref().and_then(|m| m.get(&(this as usize))) {
+                    Some(st) => (st.zones.clone(), st.width),
+                    None => return,
+                }
+            };
+            mark_at(&zones, px, py, &|t| unsafe { label_width(t) }, width)
+        }
+        None => None,
     };
     let changed = {
         let mut guard = VIEWS.lock().unwrap();
@@ -115,6 +115,15 @@ unsafe fn follow(this: id, ev: id, inside: bool) {
     if changed {
         let _: () = msg_send![this, setNeedsDisplay: true];
     }
+}
+
+unsafe fn follow(this: id, ev: id, inside: bool) {
+    if !inside {
+        return hover_at(this, None);
+    }
+    let window_point: NSPoint = msg_send![ev, locationInWindow];
+    let p: NSPoint = msg_send![this, convertPoint: window_point, fromView: nil];
+    hover_at(this, Some((p.x as f32, p.y as f32)));
 }
 
 extern "C" fn mouse_moved(this: id, _s: Sel, ev: id) {
