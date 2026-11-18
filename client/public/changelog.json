@@ -1,5 +1,68 @@
 [
   {
+    "version": "2.4.43",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il test della riga delle fasce misura con i font del Mac",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "consumo per progetto con conto giusto, avviso sul telefono e freno al budget",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "topics/gleaming-panther (card bb70db88) (#1270)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/transient-bay (card 6d1e962f) (#1271)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.42",
     "date": "2026-11-17",
     "sections": {
@@ -85,6 +148,11 @@
         },
         {
           "it": "CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Usage ledger: external calls (delegate jobs) name their project and count in it",
           "en": "",
           "scope": null
         },
