@@ -15,7 +15,7 @@
  *  - a helper that dies mid-request must not hang the chat, so every request
  *    has a deadline and a dead process rejects all that waited on it.
  */
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
@@ -43,6 +43,19 @@ interface Pending {
   resolve: (reply: Record<string, unknown>) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Are the command line tools installed? `xcode-select -p` is silent and never
+ * opens the install dialog that the `/usr/bin/swiftc` shim would.
+ */
+function commandLineToolsInstalled(): Promise<boolean> {
+  return new Promise((resolve) => {
+    // runtime-dep-ok: macOS only (the caller checked the platform), a read-only probe with a deadline.
+    const probe = spawn("xcode-select", ["-p"], { stdio: "ignore", timeout: 5_000 });
+    probe.on("exit", (code) => resolve(code === 0));
+    probe.on("error", () => resolve(false));
+  });
 }
 
 export class AppleReasoningTranslator implements ReasoningTranslator {
@@ -174,8 +187,7 @@ export class AppleReasoningTranslator implements ReasoningTranslator {
     if (helperPath) return existsSync(helperPath) ? helperPath : null;
     if (process.platform !== "darwin") return null;
     if (Number.parseInt(release(), 10) < MIN_DARWIN_MAJOR) return null;
-    // `xcode-select -p` is silent and never opens the install dialog the swiftc shim would.
-    if (spawnSync("xcode-select", ["-p"], { stdio: "ignore" }).status !== 0) return null;
+    if (!(await commandLineToolsInstalled())) return null;
 
     // The binary is named after the source it was built from: a new app version with a new
     // helper compiles a new file and never runs a stale one.
@@ -191,10 +203,10 @@ export class AppleReasoningTranslator implements ReasoningTranslator {
       // Built beside the final name and renamed, so two servers starting together never run a half-written binary.
       const partial = `${binary}.${process.pid}.tmp`;
       const built = await new Promise<boolean>((resolve) => {
-        const compiler = spawn("swiftc", ["-O", source, "-o", partial], { stdio: "ignore" });
-        const timer = setTimeout(() => { compiler.kill(); resolve(false); }, COMPILE_TIMEOUT_MS);
-        compiler.on("exit", (code) => { clearTimeout(timer); resolve(code === 0); });
-        compiler.on("error", () => { clearTimeout(timer); resolve(false); });
+        // runtime-dep-ok: macOS 26 only (checked above), and only when `xcode-select -p` found the command line tools; any failure leaves the reasoning in its original language.
+        const compiler = spawn("swiftc", ["-O", source, "-o", partial], { stdio: "ignore", timeout: COMPILE_TIMEOUT_MS });
+        compiler.on("exit", (code) => resolve(code === 0));
+        compiler.on("error", () => resolve(false));
       });
       if (!built || !existsSync(partial)) return null;
       chmodSync(partial, 0o755);

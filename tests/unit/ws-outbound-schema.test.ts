@@ -448,8 +448,11 @@ describe('outbound registry contract', () => {
   // 107 -> 108: `stream:action`, what a topic's agent is doing now, global and sent
   // only when it changes. Sender `server/lib/stream-action-feed.ts`, listener
   // `client/src/state/agentActions.ts`.
+  // 108 -> 109: `stream:reasoning_translation`, a reasoning sentence translated into
+  // the chat language, sent as each sentence closes. Sender
+  // `server/reasoning-translation/turn.ts`, listener `client/src/hooks/chatStreamEvents.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(108);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(109);
   });
 });
 
