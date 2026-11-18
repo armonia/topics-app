@@ -315,6 +315,7 @@ const IT: Dict = {
   'subagent.waiting': '{name} · in attesa del prompt (apri)',
   'subagent.busy': '{name} · al lavoro (apri)',
   'subagent.open': '{name} · apri',
+  'subagent.awaiting': '{name} · turno finito, aspetta i suoi sotto-agenti o comandi (apri)',
   'subagent.ended': '{name} · terminato (apri)',
   'subagent.dismiss': 'Togli {name} dalla lista',
   'subagent.strip': 'Sotto-agenti',

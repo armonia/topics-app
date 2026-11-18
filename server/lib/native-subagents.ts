@@ -64,6 +64,8 @@ export interface NativeSubagentDeps {
   stopBackgroundWork?(sessionKey: string): void;
   /** How often a child waiting on its own work is looked at again (default 5 s). */
   waitPollMs?: number;
+  /** How long a waiting child may go without news before it is closed (default `SUBAGENT_WAIT_DEADLINE_MS`). */
+  waitDeadlineMs?: number;
   log?(msg: string): void;
   /** Whether the boot's resume can still resend the chat's cut turn (`cutTurnResumable`). Absent: it cannot. */
   cutTurnResumable?(sessionKey: string): Promise<boolean>;
@@ -717,7 +719,9 @@ function reportTurn(id: string, turnId: string, opts: { end: TurnEndInfo | null;
   // (SUBAGENT-19). Looked at again until the work is over (`watchWaitingChild`).
   const completed = outcome.status === "completed";
   if (getSubagent(db, id)?.state === "running" && stillWorkingFor(row.sessionKey)) {
-    setChildPhase(id, "working");
+    // Its turn is over: it waits, it does not work. Drawn `working`, fourteen
+    // such children wore a loader for hours on 18/11 with nothing of theirs running.
+    setChildPhase(id, "waiting-results");
     watchWaitingChild(id, completed);
     return;
   }
@@ -771,6 +775,49 @@ function stillWorkingFor(sessionKey: string): boolean {
 
 /** Children waiting on their own work, looked at again until it is over. */
 const waitWatches = new Map<string, ReturnType<typeof setInterval>>();
+/** When each waiting child last had news: a turn of its own (a grandchild's result wakes it). */
+const waitNewsAt = new Map<string, number>();
+
+/**
+ * A child that waits on its own work this long with no news is closed, and its
+ * parent told what it was still waiting for. With no deadline a stuck
+ * grandchild kept its child `running` for good: 8c155a32 waited from 01:03 on
+ * 18/11, and its parent with it.
+ */
+export const SUBAGENT_WAIT_DEADLINE_MS = 6 * 60 * 60 * 1000;
+
+/** What a waiting child still waits for, in words for its parent: its live children by name, then the rest. */
+function waitedFor(sessionKey: string): string {
+  const parts = runningSubagents(getDatabase(), sessionKey)
+    .filter((r) => childPhase(r.id) !== "finished")
+    .map((r) => `sub-agent "${r.name}" (${r.id})`);
+  if (!parts.length && subagentWakeOwed(sessionKey)) parts.push("results of its sub-agents not yet delivered");
+  let background = false;
+  try { background = deps?.backgroundWork?.(sessionKey) === true; } catch { /* unknown is not a claim */ }
+  if (background) parts.push("background commands of its own");
+  return parts.join(", ") || "work of its own";
+}
+
+/**
+ * The deadline passed: one more result for the parent, partial, naming what
+ * the child was waiting for, then the child is closed. Claimed like any turn
+ * (`claimTurnReport`), so a second look or a restart reports it once.
+ */
+function expireWaitingChild(id: string, row: SubagentRow & { sessionKey: string }, deadlineMs: number): void {
+  const db = getDatabase();
+  const turnId = `wait-expired:${row.turnsReported}`;
+  const lastText = [...(deps?.loadMessages(row.sessionKey) ?? [])].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  const hours = Math.round((deadlineMs / 3_600_000) * 10) / 10;
+  const outcome: SubAgentOutcome = {
+    status: "stopped", partial: true, text: lastText,
+    reason: { code: "wait-expired", detail: `${hours} h, waiting for ${waitedFor(row.sessionKey)}` },
+  };
+  if (claimTurnReport(db, id, turnId, outcome.status)) {
+    reportNativeChildTurn({ id, name: row.name, cwd: row.cwd, parentSessionKey: row.parentSessionKey }, row.turnsReported + 1, outcome, { model: row.model, durationMs: null });
+  }
+  deps?.log?.(`waiting child ${id} closed: ${outcome.reason?.code === "wait-expired" ? outcome.reason.detail : ""}`);
+  closeTurn(id, false);
+}
 
 /**
  * A child kept `running` because its work is not over is looked at again
@@ -780,15 +827,33 @@ const waitWatches = new Map<string, ReturnType<typeof setInterval>>();
  * child is closed here instead of holding its slot and its parent's wait for
  * good, the way its last turn ended (`completed`) deciding the archive.
  */
-function watchWaitingChild(id: string, completed: boolean): void {
-  if (waitWatches.has(id) || !deps) return;
+function watchWaitingChild(id: string, completed: boolean, newsAt = Date.now()): void {
+  if (!deps) return;
+  // Every call is news: the report of a turn it just ran, or the boot's adoption.
+  waitNewsAt.set(id, newsAt);
+  if (waitWatches.has(id)) return;
   const timer = setInterval(() => {
     const d = deps;
     const row = getSubagent(getDatabase(), id);
     if (!d || !row?.sessionKey || row.state !== "running") { stopWatchingChild(id); return; }
     // A turn of its own is open or being reported: that path closes it.
-    if (driving.has(id) || adopting.has(id) || openTurn.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) return;
-    if (stillWorkingFor(row.sessionKey)) return;
+    if (driving.has(id) || adopting.has(id) || openTurn.has(id) || reportChains.has(id) || d.isBusy(row.sessionKey)) {
+      waitNewsAt.set(id, Date.now());
+      return;
+    }
+    if (stillWorkingFor(row.sessionKey)) {
+      const deadlineMs = d.waitDeadlineMs ?? SUBAGENT_WAIT_DEADLINE_MS;
+      if (Date.now() - (waitNewsAt.get(id) ?? Date.now()) < deadlineMs) return;
+      try {
+        expireWaitingChild(id, { ...row, sessionKey: row.sessionKey }, deadlineMs);
+      } catch (err) {
+        if (!isSqliteBusy(err)) throw err;
+        d.log?.(`expiry of waiting child ${id}: database busy, tried again on the next tick`);
+        return;
+      }
+      if (getSubagent(getDatabase(), id)?.state !== "running") stopWatchingChild(id);
+      return;
+    }
     // Its last turn was reported already: nothing new to say, only the slot to free.
     // CLOSE FIRST, STOP WATCHING AFTER. A busy database refuses the close: the
     // child is still `running`, so this interval is what tries again on its
@@ -818,6 +883,7 @@ function stopWatchingChild(id: string): void {
   const timer = waitWatches.get(id);
   if (timer) clearInterval(timer);
   waitWatches.delete(id);
+  waitNewsAt.delete(id);
 }
 
 /** The reports of each child's turns, one chain per child: in order. */
@@ -961,7 +1027,12 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
   for (const row of rows) adopting.add(row.id);
   await Promise.all(rows.map(async (row) => {
     const sessionKey = row.sessionKey!;
-    noteChildSeeded(row.id, { working: true });
+    // Only a turn its parent never heard of can be at work after a restart.
+    // One that reported and waits on its own work is drawn waiting from the
+    // first look, not `working` for the adoption's minute and beyond.
+    const cutAtBoot = unreportedTurnOf(row) != null;
+    noteChildSeeded(row.id, { working: cutAtBoot });
+    if (!cutAtBoot) setChildPhase(row.id, "waiting-results");
     const until = Date.now() + waitMs;
     while (adopting.has(row.id) && !d.isBusy(sessionKey) && Date.now() < until) await sleep(pollMs);
     if (!adopting.delete(row.id)) return;
@@ -974,8 +1045,12 @@ export async function adoptNativeChildrenAtBoot(opts: { waitMs?: number; pollMs?
       // How its last turn ended, as the live path read it when it reported it:
       // `done` on the row also covers max_tokens, a refusal, the round cap.
       const completed = lastReportedTurnStatus(db, row.id) === "completed";
-      if (stillWorkingFor(sessionKey)) watchWaitingChild(row.id, completed);
-      else closeTurn(row.id, completed);
+      if (stillWorkingFor(sessionKey)) {
+        setChildPhase(row.id, "waiting-results");
+        // Its last news is its last report, not this boot: a restart does not buy a stuck wait six more hours.
+        const reported = cur.reportedAt ? Date.parse(cur.reportedAt) : NaN;
+        watchWaitingChild(row.id, completed, Number.isFinite(reported) ? reported : Date.now());
+      } else closeTurn(row.id, completed);
       return;
     }
     // The resume can still send it (a provider hold, a deferred sweep): it stays
@@ -1013,7 +1088,7 @@ export function liveNativeChildren(parentSessionKey: string) {
     .filter((r) => r.runtime === "topics")
     .map((r) => ({
       agentId: r.id, name: r.name, cwd: r.cwd, branch: r.branch, claudeSessionId: null, runtime: "topics" as const, sessionKey: r.sessionKey,
-      busy: childPhase(r.id) !== "finished", state: "running" as const, phase: childPhase(r.id),
+      busy: childPhase(r.id) !== "finished" && childPhase(r.id) !== "waiting-results", state: "running" as const, phase: childPhase(r.id),
     }));
 }
 

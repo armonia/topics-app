@@ -23,7 +23,7 @@ import {
   type SubAgentEnding, type SubAgentOutcome, type SubAgentResult, type TranscriptTally,
 } from "./subagent-result";
 import {
-  SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent,
+  SUBAGENT_RETIRE_IDLE_MS, SUBAGENT_RESUME_WINDOW_MS, addPendingResult, allPendingResults, clearPendingResult, getSubagent, markPendingResultRowWritten,
   markTurnReported, parentHasPendingResults, runningSubagents, setSubagentState, subagentDepth, type SubagentRow,
 } from "./subagent-store";
 import type { SubAgentExitInfo } from "../routes/subagent-exit";
@@ -110,8 +110,13 @@ interface TranscriptCursor {
   partial: string;
   tally: TranscriptTally;
 }
-/** The live state of a child as its strip and card show it (SUBAGENT-16). */
-export type SubAgentPhase = 'waiting-prompt' | 'working' | 'finished';
+/**
+ * The live state of a child as its strip and card show it (SUBAGENT-16).
+ * `waiting-results`: a native child whose turn closed and was reported, kept
+ * `running` only because its own work (a grandchild, a command) will wake it
+ * again. No turn of its own is open: the strip must not draw it at work.
+ */
+export type SubAgentPhase = 'waiting-prompt' | 'working' | 'waiting-results' | 'finished';
 const childRuntime = new Map<string, ChildRuntime>();
 /** Delivered results, per `resultKey`: the per-turn dedup of this process. */
 const deliveredResultKeys = new Set<string>();
@@ -254,6 +259,8 @@ function deliverChildResult(clean: SubAgentResult, exitCode: number | null, pare
       turn: clean.turn, model: clean.model, agentType: clean.agentType, durationMs: clean.durationMs, cwd: clean.cwd,
       ...(clean.stoppedByParent ? { stoppedByParent: true as const } : {}),
       settle: () => clearPendingResult(getDatabase(), clean.agentId, clean.turn, clean.status),
+      ...(clean.rowWritten ? { rowWritten: true } : {}),
+      markRowWritten: () => markPendingResultRowWritten(getDatabase(), clean.agentId, clean.turn, clean.status),
     });
   } catch (err) {
     console.warn(`[Terminal] subAgentExitHandler failed for ${clean.agentId}:`, err);
