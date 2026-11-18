@@ -237,8 +237,27 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
     >
       {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
       {preview.text}
+      <FinishedAgo topicId={topicId} />
     </span>
   );
+}
+
+/**
+ * The receipt of a finished chat ("· 34m fa") at the tail of its preview line.
+ * Split into its own component so the shared 10s clock is subscribed only by
+ * rows that actually have a last-activity time to age.
+ */
+function FinishedAgo({ topicId }: { topicId: string | undefined }) {
+  const lastActivityAt = useSubjectLastActivity(topicId);
+  if (!lastActivityAt || !Number.isFinite(lastActivityAt) || lastActivityAt <= 0) return null;
+  return <FinishedAgoText at={lastActivityAt} />;
+}
+
+function FinishedAgoText({ at }: { at: number }) {
+  const now = useSharedNow();
+  const label = formatElapsedShort(Math.max(0, now - at));
+  if (!label) return null;
+  return <span data-testid="finished-ago">{` · ${label} fa`}</span>;
 }
 
 /**
