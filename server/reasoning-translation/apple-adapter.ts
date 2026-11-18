@@ -143,11 +143,11 @@ export class AppleReasoningTranslator implements ReasoningTranslator {
 
   private onData(chunk: string): void {
     this.buffer += chunk;
-    let newline = this.buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = this.buffer.slice(0, newline);
-      this.buffer = this.buffer.slice(newline + 1);
-      newline = this.buffer.indexOf("\n");
+    let lineEnd = this.buffer.indexOf("\n");
+    while (lineEnd >= 0) {
+      const line = this.buffer.slice(0, lineEnd);
+      this.buffer = this.buffer.slice(lineEnd + 1);
+      lineEnd = this.buffer.indexOf("\n");
       let reply: Record<string, unknown>;
       try {
         reply = JSON.parse(line) as Record<string, unknown>;

@@ -46,12 +46,12 @@ describe("with a helper process", () => {
 
   test("requests sent together are answered each with its own reply", async () => {
     const a = adapter();
-    const replies = await Promise.all([
+    const answers = await Promise.all([
       a.translate("After that the answer can be written.", "en", "it"),
       a.translate("Then I will check the migration file for the new column.", "en", "it"),
       a.translate("Something the dictionary does not know.", "en", "it"),
     ]);
-    expect(replies).toEqual([
+    expect(answers).toEqual([
       "Dopo di che si può scrivere la risposta.",
       "Poi controllerò il file di migrazione per la nuova colonna.",
       "[it] Something the dictionary does not know.",

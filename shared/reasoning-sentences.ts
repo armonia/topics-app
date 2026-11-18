@@ -11,13 +11,13 @@
 /** Below this many letters a sentence is not worth a translation round trip ("ok.", "Dr."). */
 const MIN_LETTERS = 8;
 
-let segmenter: Intl.Segmenter | null = null;
+let cutter: Intl.Segmenter | null = null;
 
 /** The raw segments of `text`, whitespace kept, so joining them gives `text` back. */
 export function splitSentences(text: string): string[] {
-  segmenter ??= new Intl.Segmenter(undefined, { granularity: "sentence" });
+  cutter ??= new Intl.Segmenter(undefined, { granularity: "sentence" });
   const out: string[] = [];
-  for (const part of segmenter.segment(text)) out.push(part.segment);
+  for (const part of cutter.segment(text)) out.push(part.segment);
   return out;
 }
 

@@ -49,9 +49,9 @@ func emit(_ obj: [String: Any]) {
 func detect(_ text: String) -> (String, Double) {
     let r = NLLanguageRecognizer()
     r.processString(text)
-    guard let lang = r.dominantLanguage else { return ("und", 0) }
-    let p = r.languageHypotheses(withMaximum: 1)[lang] ?? 0
-    return (lang.rawValue, p)
+    guard let dominant = r.dominantLanguage else { return ("und", 0) }
+    let p = r.languageHypotheses(withMaximum: 1)[dominant] ?? 0
+    return (dominant.rawValue, p)
 }
 
 if #available(macOS 26.0, *) {
