@@ -7,6 +7,8 @@
  * available". The block at the bottom builds and runs the REAL Swift helper and
  * is skipped where that cannot work (not macOS 26, no command line tools, or the
  * English-Italian pair not installed).
+ *
+ * @covers REASONING-TRANSLATE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";

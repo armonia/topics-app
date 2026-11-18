@@ -1,6 +1,8 @@
 /**
  * The reasoning translation store: a sentence the server translated replaces
  * that sentence in a row, wherever the row got its text, and nothing else.
+ *
+ * @covers REASONING-TRANSLATE-01
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { applyReasoningTranslations, rememberReasoningTranslation, resetReasoningTranslations } from './reasoningTranslations';

@@ -1,6 +1,8 @@
 /**
  * Which language the reasoning is translated into: the output language of the
  * settings, else the interface language, else the app default.
+ *
+ * @covers REASONING-TRANSLATE-01
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync } from "node:fs";

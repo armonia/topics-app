@@ -5,6 +5,8 @@
  * The adapter is a scripted fake at the translator interface. The real one has
  * its own tests (`apple-adapter.test.ts`, with a fake helper process and, on a
  * Mac that can, the real helper).
+ *
+ * @covers REASONING-TRANSLATE-01
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

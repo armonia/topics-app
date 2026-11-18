@@ -1,6 +1,8 @@
 /**
  * The per-turn side of the reasoning translation, and the route that serves a
  * settled block, with the service replaced by a fake at its own interface.
+ *
+ * @covers REASONING-TRANSLATE-01
  */
 import { describe, expect, spyOn, test } from "bun:test";
 import { createTurnReasoningTranslator, withReasoningTranslation } from "./turn";

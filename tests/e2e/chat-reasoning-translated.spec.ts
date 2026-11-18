@@ -18,7 +18,7 @@
  * Set THINKING_PROOF_DIR to also copy the video and two screenshots (the row
  * translated and the same row in its original wording) out of the test folder.
  *
- * @covers USAGE-20
+ * @covers REASONING-TRANSLATE-01
  */
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
