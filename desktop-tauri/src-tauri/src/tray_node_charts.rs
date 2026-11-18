@@ -277,15 +277,17 @@ pub fn draw_block(pic: &mut Pic, e: &NodeExtras, y0: f32, p: Palette) {
         pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &rest, 10.5, RIGHT - tx - lw), tx + lw, y + 12.0, 10.5, p.fg, 1.0);
         y += ROW_H;
     }
-    let n = e.panels();
-    if n == 0 {
+    if e.panels() == 0 {
         return;
     }
+    // always three columns (CPU, memory, cards of the day): a machine with one chart gets that chart in its own
+    // column, not stretched across the card with its figure far from its title
     let gap = 14.0;
-    let w = (RIGHT - X0 - gap * (n as f32 - 1.0)) / n as f32;
+    let w = (RIGHT - X0 - gap * 2.0) / 3.0;
     let mut x = X0;
     for (name, v) in [("CPU", &e.cpu), ("Memoria", &e.mem)] {
         if !drawable(v) {
+            x += w + gap;
             continue;
         }
         let (v, first, secs) = covered(v, e.step_s);

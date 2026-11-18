@@ -213,12 +213,13 @@ unsafe fn icon_image(spec: &str) -> id {
     }
     if let Some(name) = spec.strip_prefix("png:") {
         // a project's own picture, read by the poller; 15×15 and in its own colours, as the original draws it
-        let Some(png) = crate::tray_menu::project_icon_png(name) else { return nil };
+        // a picture that cannot be read leaves the row with the folder, never with no icon at all
+        let Some(png) = crate::tray_menu::project_icon_png(name) else { return icon_image("sf:folder") };
         let data: id = msg_send![class!(NSData), dataWithBytes: png.as_ptr() as *const std::ffi::c_void, length: png.len()];
         let img: id = msg_send![class!(NSImage), alloc];
         let img: id = msg_send![img, initWithData: data];
         if img == nil {
-            return nil;
+            return icon_image("sf:folder");
         }
         let _: () = msg_send![img, setSize: NSSize::new(PROJECT_ICON_PT, PROJECT_ICON_PT)];
         let _: () = msg_send![img, setTemplate: false];
@@ -321,6 +322,15 @@ unsafe fn inline_symbol(spec: &str) -> Option<id> {
     Some(piece)
 }
 
+/// An empty piece as wide and tall as an inline symbol (13×12): the place an arrow would take.
+unsafe fn blank_slot() -> Option<id> {
+    let att: id = msg_send![class!(NSTextAttachment), new];
+    let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
+    let piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
+    let _: () = msg_send![att, release];
+    Some(piece)
+}
+
 /// One table row as an attributed string: cells separated by tabs, the numbers in a
 /// monospaced-digit face, the header small and grey, the name semibold when the row's look says so.
 unsafe fn row_title(r: &TableRow) -> id {
@@ -377,7 +387,14 @@ unsafe fn row_title(r: &TableRow) -> id {
                 Priority::Low => Some("sf:arrow.down|teal"),
                 Priority::Normal => None,
             };
-            if let Some(glyph) = arrow.and_then(|spec| inline_symbol(spec)) {
+            // the place of an arrow the other rows of the table wear: a blank attachment of its size
+            let arrow = arrow.or(if r.look.arrow_slot { Some("blank") } else { None });
+            let glyph = match arrow {
+                Some("blank") => blank_slot(),
+                Some(spec) => inline_symbol(spec),
+                None => None,
+            };
+            if let Some(glyph) = glyph {
                 let _: () = msg_send![out, appendAttributedString: glyph];
                 let gap: id = msg_send![class!(NSAttributedString), alloc];
                 let gap: id = msg_send![gap, initWithString: ns(" "), attributes: attrs(font, color, para)];

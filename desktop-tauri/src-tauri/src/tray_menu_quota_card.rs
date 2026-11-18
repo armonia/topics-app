@@ -150,6 +150,8 @@ const Q_GAP: f32 = 8.0;
 const Q_INSET: f32 = 9.0;
 const METER_H: f32 = 27.0;
 const MINOR_H: f32 = 16.0;
+/// Where a card's values begin, from the card's inner left edge: the minor rows' values and the meters' percentages.
+const VALUE_COL: f32 = 56.0;
 
 fn quota_card_h(c: &QuotaCard) -> f32 {
     let n = c.minors.len() as f32;
@@ -162,7 +164,9 @@ fn draw_meter(pic: &mut Pic, m: &Option<Meter>, label: &str, x: f32, y: f32, w: 
     let l1 = y + 11.0;
     // the label says what the share is of («7 giorni»); the percentage follows it, the time of the reset ends the line
     let lw = pic.text(Face::SansRegular, label, x, l1, 11.0, p.fg, p.dim * a);
-    let px = x + lw + 6.0;
+    // the percentage starts on the column the minor rows put their values on, so «5 ore —», «7 giorni 90%» and
+    // «Piano Ultra» line up; a label wider than the column pushes it right
+    let px = (x + VALUE_COL).max(x + lw + 6.0);
     let pct = m.as_ref().map_or("—".to_string(), |m| format!("{}%", m.used.round() as i64));
     let pw = pic.text(Face::MonoBold, &pct, px, l1 + 1.0, 14.0, p.fg, a);
     if let Some(m) = m.as_ref().filter(|m| !m.reset.is_empty()) {
@@ -277,7 +281,7 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
             continue;
         }
         pic.text(Face::SansRegular, &m.label, ix + 15.0, base, 11.0, p.fg, p.dim);
-        let vx = ix + 56.0;
+        let vx = ix + VALUE_COL;
         // the value goes down half a point (twice) before the note beside it has to be cut: the date of the API credit
         // is worth more than the third decimal of a size
         let note_w = |size: f32| Pic::text_w(Face::Mono, m.right.rsplit(' ').next().unwrap_or(""), size);

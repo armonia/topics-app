@@ -17,6 +17,23 @@ mod mac {
 extern "C" {}
 
 #[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CgPoint {
+    x: f64,
+    y: f64,
+}
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventCreate(source: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn CGEventGetLocation(ev: *mut std::ffi::c_void) -> CgPoint;
+    fn CGEventCreateMouseEvent(source: *mut std::ffi::c_void, kind: u32, at: CgPoint, button: u32) -> *mut std::ffi::c_void;
+    fn CGEventPost(tap: u32, ev: *mut std::ffi::c_void);
+    fn CGWarpMouseCursorPosition(at: CgPoint) -> i32;
+}
+
+#[cfg(target_os = "macos")]
 fn main() {
     use mac::*;
     use objc2::runtime::Sel;
@@ -67,21 +84,33 @@ fn main() {
         static STEP: AtomicUsize = AtomicUsize::new(0);
         static VIEW_P: AtomicUsize = AtomicUsize::new(0);
         static MENU_P: AtomicUsize = AtomicUsize::new(0);
+        static ORIG_X: AtomicI64 = AtomicI64::new(0);
+        static ORIG_Y: AtomicI64 = AtomicI64::new(0);
         VIEW_P.store(view as usize, Ordering::SeqCst);
         MENU_P.store(menu as usize, Ordering::SeqCst);
         extern "C" fn step(this: id, _s: Sel, _arg: id) {
             unsafe {
                 let n = STEP.fetch_add(1, Ordering::SeqCst);
-                let view = VIEW_P.load(Ordering::SeqCst) as id;
-                let xs = [20.0f64, 60.0, 120.0, 200.0, 260.0];
+                let xs = [420.0f64, 460.0, 520.0, 600.0, 660.0];
+                // the REAL cursor, over the view, only while the Mac is free (the caller checked); the menu was popped
+                // at screen (400, 400) from the bottom, so the view's middle is at y = screen height - 400 + 40 from the top
+                let main_screen: id = msg_send![class!(NSScreen), mainScreen];
+                let screen: NSRect = msg_send![main_screen, frame];
+                let y = screen.size.height - 400.0 + 40.0;
+                if n == 0 {
+                    let ev = CGEventCreate(std::ptr::null_mut());
+                    let at = CGEventGetLocation(ev);
+                    ORIG_X.store(at.x as i64, Ordering::SeqCst);
+                    ORIG_Y.store(at.y as i64, Ordering::SeqCst);
+                }
                 if n < xs.len() {
-                    let win: id = msg_send![view, window];
-                    if win == nil { eprintln!("no window for the view"); }
-                    let no: isize = if win == nil { 0 } else { msg_send![win, windowNumber] };
-                    let ev: id = msg_send![class!(NSEvent), mouseEventWithType: 5usize, location: NSPoint::new(xs[n], 40.0), modifierFlags: 0usize, timestamp: 0.0f64, windowNumber: no, context: nil, eventNumber: 0isize, clickCount: 0isize, pressure: 0.0f32];
-                    let app: id = msg_send![class!(NSApplication), sharedApplication];
-                    let _: () = msg_send![app, postEvent: ev, atStart: false];
+                    let at = CgPoint { x: xs[n], y };
+                    CGWarpMouseCursorPosition(at);
+                    let ev = CGEventCreateMouseEvent(std::ptr::null_mut(), 5, at, 0);
+                    CGEventPost(0, ev);
                 } else {
+                    let back = CgPoint { x: ORIG_X.load(Ordering::SeqCst) as f64, y: ORIG_Y.load(Ordering::SeqCst) as f64 };
+                    CGWarpMouseCursorPosition(back);
                     let m = MENU_P.load(Ordering::SeqCst) as id;
                     let _: () = msg_send![m, cancelTracking];
                     return;

@@ -82,6 +82,9 @@ pub struct Look {
     /// The first cell in semibold: a project with agents at work, a verdict line.
     pub bold: bool,
     pub priority: Priority,
+    /// Leaves the place of the priority arrow empty before the name, so the names of a table whose other rows
+    /// wear an arrow all start on the same x.
+    pub arrow_slot: bool,
 }
 
 /// A data row of a table, without a look of its own.
