@@ -1,7 +1,7 @@
-# Consumo per progetto: conto giusto, avviso sul telefono, freno al budget
+# Consumo per progetto: conto giusto, limite di default e conferma sincronizzata
 
 ## Da decidere
-Niente: nessuna spesa, nessun dato che esce oltre a una riga di testo verso il canale che il proprietario configura. I valori di partenza (soglia d'avviso 15%, budget solo dove è già scritto) li decide l'agente e si cambiano dal menu del progetto.
+Niente: deciso da Attilio il 18/11 alle 01:22 («fai 10% a progetto. poi l'ok ad andare avanti dovrebbe essere sincronizzato e sbloccare tutto del progetto»). Nessuna spesa, nessun dato che esce oltre a una riga verso il canale che il proprietario configura.
 
 ## Perché
 Il 17/11 un account Claude è passato da 0 a 90% della settimana in nove ore e nessuno se n'è accorto. I tre pezzi che dovevano dirlo erano rotti:
@@ -16,12 +16,13 @@ Il conto è quello di USAGE-27 (chi ha speso la quota, per persona): stessa sali
 
 ## Cosa cambia
 - **Il conto** (`server/usage/project-quota.ts`): ogni chiamata del motore nativo, dei sottoagenti, dei transcript di Claude Code nella cartella dei progetti (anche le sessioni aperte fuori da Topics) e di `usage_records` va al progetto della sua cartella (worktree → suo progetto). Punti nelle ultime 24 ore e negli ultimi 7 giorni. `GET /api/usage/projects/quota`.
-- **Le soglie** si scrivono in Topics (tabella sua), dal menu del progetto che oggi scrive il budget all'hub: budget della settimana (nessuno di default) e soglia d'avviso nelle 24 ore (15% di default, per tutti). Un budget che l'hub ha e Topics no si importa una volta.
-- **L'avviso** è una riga nella campanella, una spinta, e il comando d'avviso del proprietario se configurato (`TOPICS_OWNER_ALERT_COMMAND`, argv in JSON, testo su stdin; vuoto = nessun invio). Una volta al giorno per progetto e soglia (24 ore, 80% del budget, budget pieno). Su questa macchina il comando è `jarvis-channels send-to whatsapp <chat principale>`, nell'ambiente del server, non nel codice.
-- **Il freno** a budget pieno: le card del progetto aspettano in Todo con il motivo, `spawn_agent` non fa nascere figli nuovi e la spinta d'obiettivo tace; il messaggio di una persona passa sempre e il turno in corso finisce. «Togli il freno» dal menu lo toglie fino a mezzanotte.
+- **Limite di default: 10 punti nelle 24 ore per ogni progetto**, senza configurare niente; dal menu del progetto si cambia o si toglie.
+- **Sopra il limite il progetto va in pausa**: le card aspettano in Todo col motivo, `spawn_agent` non fa nascere figli, la spinta d'obiettivo tace. Il messaggio di una persona passa sempre (la conferma che bloccava i messaggi, tolta il 30/10 dopo 43 messaggi fermati, non torna) e il turno in corso finisce.
+- **Una conferma sola, sincronizzata**: la pausa è uno stato del server per progetto, mostrato in ogni chat del progetto, sulla board, nella campanella, in una spinta e su WhatsApp. «Continua» premuto in un posto qualsiasi sblocca tutto il progetto ovunque, per altri 10 punti; «Pausa fino a domani» la tiene fino a mezzanotte.
+- **Fuori dall'app**: `TOPICS_OWNER_ALERT_COMMAND` (argv in JSON, testo su stdin; vuoto = nessun invio), una volta per pausa. Su questa macchina è `jarvis-channels send-to whatsapp <chat principale>`, nell'ambiente del server, non nel codice.
 
 ## Barra
-`bun test server/usage/project-quota.test.ts server/services/project-budget-brake.test.ts` esce 0; lo scenario e2e con video esce 0; il conto rifatto sul DB vero del 17/11 dà i numeri sopra ±1; con la divisione oraria tolta il test del conto è rosso. Dettaglio in `specs/acceptance.md`.
+`bun test server/usage/project-quota.test.ts server/services/project-pause.test.ts server/services/project-pause-alerts.test.ts` esce 0; lo scenario e2e a due finestre con video esce 0; il conto rifatto sul DB vero del 17/11 dà i numeri sopra ±1; con la divisione oraria tolta il test del conto è rosso. Dettaglio in `specs/acceptance.md`.
 
 ## Fuori
 Fermare le sessioni fuori da Topics (app desktop, terminali): si contano e si avvisano, non si frenano. Codex e Muse (unità diverse, non sommabili alla settimana Claude). Toccare l'hub o `quota-guard.py`. Un avviso sul ritmo degli account (c'è già nell'hub).
