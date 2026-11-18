@@ -101,3 +101,19 @@ export function highlightCode(code: string, lang: string): string | null {
     return null;
   }
 }
+
+/**
+ * Best-effort language for a tool RESULT with no file path (shell output, MCP
+ * text). Deliberately narrow: only shapes that are unambiguous (a JSON
+ * document, a unified diff), because mis-colouring plain log lines is worse
+ * than leaving them plain. Returns '' when nothing matches.
+ */
+export function sniffResultLang(text: string): string {
+  const head = text.trimStart().slice(0, 400);
+  if (!head) return '';
+  if (/^(diff --git |--- \S.*\n\+\+\+ |@@ -\d)/.test(head)) return 'diff';
+  if (/^[[{]/.test(head) && text.length <= MAX_HIGHLIGHT_CHARS) {
+    try { JSON.parse(text); return 'json'; } catch { return ''; }
+  }
+  return '';
+}
