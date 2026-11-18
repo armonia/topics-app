@@ -108,7 +108,7 @@ export function highlightCode(code: string, lang: string): string | null {
  * document, a unified diff), because mis-colouring plain log lines is worse
  * than leaving them plain. Returns '' when nothing matches.
  */
-export function detectResultLang(text: string): string {
+export function detectResultLanguage(text: string): string {
   const head = text.trimStart().slice(0, 400);
   if (!head) return '';
   if (/^(diff --git |--- \S.*\n\+\+\+ |@@ -\d)/.test(head)) return 'diff';
