@@ -62,10 +62,13 @@ export function useCreatedFlash(holdCreated: (taskId: string) => void, refetch: 
   const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(() => new Set());
   const clearPinned = useCallback(() => setPinnedIds((prev) => (prev.size ? new Set() : prev)), []);
   /** Creation started from this window: flash + the board scrolls to it. */
-  const onCreatedHere = useCallback((taskId?: string) => {
-    if (taskId) {
-      flashCreated(taskId); setScrollTarget(taskId); holdCreated(taskId);
-      setPinnedIds((prev) => new Set(prev).add(taskId));
+  const onCreatedHere = useCallback((taskIds?: string | string[]) => {
+    // A plan creates several cards at once: all of them are pinned, the board scrolls to the first.
+    const ids = (Array.isArray(taskIds) ? taskIds : [taskIds]).filter((id): id is string => !!id);
+    if (ids.length) {
+      for (const id of ids) { flashCreated(id); holdCreated(id); }
+      setScrollTarget(ids[0]);
+      setPinnedIds((prev) => new Set([...prev, ...ids]));
     }
     refetch();
   }, [flashCreated, holdCreated, refetch]);
