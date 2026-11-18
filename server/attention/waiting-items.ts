@@ -164,7 +164,9 @@ export function createWaitingStore(opts: { file?: string | null; now?: () => num
     // A tombstone has done its job once the hub no longer lists the item: drop it, so a later item with the same id is not hidden.
     const listed = new Set(items.map((i) => (i as { id?: unknown } | null)?.id));
     for (const r of [...rows.values()]) {
-      if (r.closed && r.closed.until === null && r.hubIds.length > 0 && !r.hubIds.some((id) => listed.has(id))) { rows.delete(r.id); changed = true; }
+      if (r.hubIds.length === 0 || r.hubIds.some((id) => listed.has(id))) continue;
+      // Forever-closed: the tombstone is spent. Open or snoozed: the hub closed it on its side, so it no longer waits here either.
+      if (!r.closed || r.closed.until === null || isOpen(r, t)) { rows.delete(r.id); changed = true; }
     }
     if (changed) persist();
     return changed;
