@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.4.47",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Thinking body: no empty space under the last sentence (#1282)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Client nested in a Topics pane no longer drives the real app (#1285)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.46",
     "date": "2026-11-18",
     "sections": {
