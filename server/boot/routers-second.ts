@@ -14,6 +14,7 @@ import { createNotificationsRouter } from "../routes/notifications";
 import { createUiStateRouter } from "../routes/ui-state";
 import { createProvidersRouter } from "../routes/providers";
 import { createAppSettingsRouter } from "../routes/app-settings";
+import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { createCalendarRouter } from "../routes/calendar";
 import { createHeavySlotRouter } from "../routes/heavy-slot";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
@@ -70,6 +71,9 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
   const providersRouter = createProvidersRouter(ctx);
 
   const appSettingsRouter = createAppSettingsRouter(ctx);
+
+  // The reasoning text in the chat language, for a row the person opens.
+  const reasoningTranslationRouter = createReasoningTranslationRouter(ctx);
 
   // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
   const calendarRouter = createCalendarRouter(ctx);
@@ -203,5 +207,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }

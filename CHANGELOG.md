@@ -2,6 +2,53 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.47 — 2026-11-18
+
+### Sotto il cofano
+- Thinking body: no empty space under the last sentence (#1282)
+- Client nested in a Topics pane no longer drives the real app (#1285)
+- fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)
+
+## 2.4.46 — 2026-11-18
+
+### Sotto il cofano
+- grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)
+
+## 2.4.45 — 2026-11-18
+
+### Sotto il cofano
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-18 [skip ci]
+- browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)
+
+## 2.4.44 — 2026-11-18
+
+### Sotto il cofano
+- niente useMemo con dipendenza da store esterno, il caso senza traduzioni esce subito
+- Nomi in inglese per il cancello degli identificatori
+
+## 2.4.43 — 2026-11-18
+
+### Sotto il cofano
+- Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)
+- Thinking tradotto nella lingua della chat, gratis su macOS (Translation di Apple, helper Swift on-device)
+- Manifest delle migration riallineato dopo il merge di main
+- numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
+- ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
+- la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper
+- il test della riga delle fasce misura con i font del Mac
+- consumo per progetto con conto giusto, avviso sul telefono e freno al budget
+- Reasoning translation: export solo ciò che serve fuori dal modulo
+- topics/gleaming-panther (card bb70db88) (#1270)
+- spawn dell'helper dichiarati (scadenza, motivo), trattino della regex annotato, registro dei tipi in uscita a 109
+- stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)
+- Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto
+- Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati
+- apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)
+- topics/transient-bay (card 6d1e962f) (#1271)
+- Traduzione del ragionamento: requisito REASONING-TRANSLATE-01 nelle spec della chat, @covers sui test, binari di sistema dichiarati a knip
+- withReasoningTranslation riceve il servizio come gli altri: niente import a namespace che accecava il gate del codice morto
+
 ## 2.4.42 — 2026-11-17
 
 ### Sotto il cofano
@@ -20,6 +67,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
 - topics/tawny-marble (card 7749cf36) (#1247)
 - CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Usage ledger: external calls (delegate jobs) name their project and count in it
 - Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
 - ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
 - il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme

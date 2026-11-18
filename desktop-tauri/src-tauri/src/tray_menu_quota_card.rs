@@ -32,6 +32,8 @@ pub struct Minor {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct QuotaCard {
     pub provider: String,
+    /// The provider's name for people («Claude», «Codex», «Muse»), as the hub says it.
+    pub provider_name: String,
     pub who: String,
     pub used: f32,
     pub state: String,
@@ -41,6 +43,9 @@ pub struct QuotaCard {
     /// Needle of the pace dial (0..2), when the pace is measured.
     pub needle: Option<f32>,
     pub five_hour: Option<Meter>,
+    /// What the hub says in place of the 5 hour percentage when the account has none (no such limit on the plan,
+    /// not read yet); empty when the window is read.
+    pub five_say: String,
     pub week: Option<Meter>,
     pub minors: Vec<Minor>,
 }
@@ -130,6 +135,7 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
         let dial = st.get("dial").and_then(Value::as_bool).unwrap_or(false);
         QuotaCard {
             provider: s(a, "provider").into(),
+            provider_name: s(a, "providerName").into(),
             who: Some(s(a, "email")).filter(|e| !e.is_empty()).unwrap_or(s(a, "name")).into(),
             used: num(a, "used").unwrap_or(0.0) as f32,
             state: s(&st, "text").into(),
@@ -137,6 +143,7 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
             state_icon: Some(s(&st, "icon")).filter(|i| !i.is_empty()).map(|i| quota_symbol(i).to_string()).unwrap_or_default(),
             needle: if dial { a.get("gauge").and_then(|g| num(g, "needle")).map(|n| n as f32) } else { None },
             five_hour: win("5h").map(|w| meter_of(w, "5 ore")),
+            five_say: a.get("fiveHour").filter(|f| s(f, "state") != "ok").map(|f| s(f, "say").trim().to_string()).unwrap_or_default(),
             week: win("week").map(|w| meter_of(w, "7 giorni")),
             minors,
         }
@@ -150,34 +157,104 @@ const Q_GAP: f32 = 8.0;
 const Q_INSET: f32 = 9.0;
 const METER_H: f32 = 27.0;
 const MINOR_H: f32 = 16.0;
+/// Where a card's values begin, from the card's inner left edge: the minor rows' values and the meters' percentages.
+const VALUE_COL: f32 = 56.0;
 
 fn quota_card_h(c: &QuotaCard) -> f32 {
     let n = c.minors.len() as f32;
     Q_INSET + 16.0 + 4.0 + 20.0 + 6.0 + 2.0 * METER_H + 5.0 + if n > 0.0 { 8.0 + n * MINOR_H } else { 0.0 } + Q_INSET - 2.0
 }
 
-fn draw_meter(pic: &mut Pic, m: &Option<Meter>, label: &str, x: f32, y: f32, w: f32, p: Palette) {
+/// The account's line: the email at `size` and, after it, the provider in a smaller regular face. The provider is
+/// left out when it is the name already (a Muse account is called «Muse»). Two cards with the same email tell
+/// each other apart by it, so it is the email that gives way: the size goes down first, the email is cut last.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WhoLine {
+    pub who: String,
+    pub size: f32,
+    pub suffix: String,
+    pub suffix_size: f32,
+}
+
+pub(crate) fn who_line(who: &str, provider_name: &str, room: f32) -> WhoLine {
+    who_line_capped(who, provider_name, room, 11.5)
+}
+
+/// The same, never larger than `cap`: the cards of a panel share the smallest size any of them needs, so the
+/// emails read at one size across the three columns.
+pub(crate) fn who_line_capped(who: &str, provider_name: &str, room: f32, cap: f32) -> WhoLine {
+    let name = provider_name.trim();
+    let tail = if name.is_empty() || name.eq_ignore_ascii_case(who.trim()) { String::new() } else { format!(" · {name}") };
+    for size in [11.5_f32, 11.0, 10.5, 10.0, 9.5, 9.0].into_iter().filter(|s| *s <= cap) {
+        let sz = (size - 1.5).max(8.0);
+        if Pic::text_w(Face::Sans, who, size) + if tail.is_empty() { 0.0 } else { Pic::text_w(Face::SansRegular, &tail, sz) } <= room {
+            return WhoLine { who: who.into(), size, suffix: tail, suffix_size: sz };
+        }
+    }
+    let (size, sz) = (9.0, 8.0);
+    let tail_w = if tail.is_empty() { 0.0 } else { Pic::text_w(Face::SansRegular, &tail, sz) };
+    WhoLine { who: Pic::fit(Face::Sans, who, size, (room - tail_w).max(0.0)), size, suffix: tail, suffix_size: sz }
+}
+
+/// The hub's sentence for a missing 5 hour reading, set at the right edge like the notes of the minor rows, in the
+/// regular face (a sentence, not a figure): the size goes down before the sentence is cut.
+pub(crate) fn say_fit(text: &str, room: f32) -> (String, f32) {
+    for size in [10.0_f32, 9.5, 9.0] {
+        if Pic::text_w(Face::SansRegular, text, size) <= room {
+            return (text.into(), size);
+        }
+    }
+    (Pic::fit(Face::SansRegular, text, 9.0, room.max(0.0)), 9.0)
+}
+
+fn draw_meter(pic: &mut Pic, m: &Option<Meter>, say: &str, label: &str, x: f32, y: f32, w: f32, p: Palette) {
     let a = if m.is_some() { 1.0 } else { 0.45 };
     let used = m.as_ref().map_or(0.0, |m| m.used);
     let l1 = y + 11.0;
-    // the label says what the share is of («7 giorni»); the percentage follows it, the time of the reset ends the line
+    // the label says what the share is of; the percentage follows it, the time of the reset ends the line
     let lw = pic.text(Face::SansRegular, label, x, l1, 11.0, p.fg, p.dim * a);
     let px = x + lw + 6.0;
-    let pct = m.as_ref().map_or("—".to_string(), |m| format!("{}%", m.used.round() as i64));
+    // no reading and a sentence from the hub: the sentence says why, in place of the dash
+    let said = m.is_none() && !say.is_empty();
+    let pct = m.as_ref().map_or(if said { String::new() } else { "—".to_string() }, |m| format!("{}%", m.used.round() as i64));
     let pw = pic.text(Face::MonoBold, &pct, px, l1 + 1.0, 14.0, p.fg, a);
+    if said {
+        let (text, size) = say_fit(say, x + w - px);
+        let sw = Pic::text_w(Face::SansRegular, &text, size);
+        pic.text(Face::SansRegular, &text, x + w - sw, l1, size, p.fg, p.dim);
+    }
     if let Some(m) = m.as_ref().filter(|m| !m.reset.is_empty()) {
-        // the refresh arrow goes when the time would not fit with it, never the time
+        // the time of the reset is never cut: it shrinks, loses its refresh arrow, then its day word
         let room = x + w - (px + pw + 8.0);
-        let arrow = if Pic::text_w(Face::Mono, &m.reset, 10.5) + 12.0 <= room { 12.0 } else { 0.0 };
-        let r = Pic::fit(Face::Mono, &m.reset, 10.5, (room - arrow).max(0.0));
-        let rw = Pic::text_w(Face::Mono, &r, 10.5);
-        pic.text(Face::Mono, &r, x + w - rw, l1, 10.5, p.fg, p.dim);
-        if let (true, Some(mask)) = (arrow > 0.0, system_symbol("arrow.clockwise")) {
+        let (text, size, arrow) = fit_note(&m.reset, room, true, 10.5);
+        let rw = Pic::text_w(Face::Mono, &text, size);
+        pic.text(Face::Mono, &text, x + w - rw, l1, size, p.fg, p.dim);
+        if let (true, Some(mask)) = (arrow, system_symbol("arrow.clockwise")) {
             pic.mask(x + w - rw - 12.0, l1 - 9.0, 9.0, &mask, p.fg, p.dim);
         }
     }
     let c = m.as_ref().map_or(p.fg, |m| tone(m.level));
     pic.bar(x, y + 22.0, w, used, m.as_ref().and_then(|m| m.mark), c, p);
+}
+
+/// How a note at the right edge of a card row is set in `room`: the whole text at `base` with its refresh arrow
+/// when it wants one, then without it, then half a point and a point smaller, and only then without its first word
+/// (the day, «ieri»). The last resort cuts the text. Returns the text, the size and whether the arrow is drawn.
+pub(crate) fn fit_note(text: &str, room: f32, arrow: bool, base: f32) -> (String, f32, bool) {
+    let shorter = text.split_once(' ').map(|(_, rest)| rest);
+    let steps = [(base, arrow), (base, false), (base - 0.5, false), (base - 1.0, false)];
+    for candidate in std::iter::once(text).chain(shorter) {
+        for (size, with_arrow) in steps {
+            if with_arrow && !arrow {
+                continue;
+            }
+            if Pic::text_w(Face::Mono, candidate, size) + if with_arrow { 12.0 } else { 0.0 } <= room {
+                return (candidate.to_string(), size, with_arrow);
+            }
+        }
+    }
+    let last = shorter.unwrap_or(text);
+    (Pic::fit(Face::Mono, last, base - 1.0, room.max(0.0)), base - 1.0, false)
 }
 
 /// How the state of an account is set in the room of its line.
@@ -223,7 +300,7 @@ fn draw_state(pic: &mut Pic, state: &str, x: f32, right: f32, base: f32, color: 
     }
 }
 
-fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32, p: Palette) {
+fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, who_cap: f32, x: f32, y: f32, w: f32, h: f32, p: Palette) {
     pic.frame(x, y, w, h, p);
     let (ix, iw) = (x + Q_INSET, w - 2.0 * Q_INSET);
     // provider mark: its initial in a capsule, then the account
@@ -236,8 +313,11 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
             pic.text(Face::Sans, &init, ix + 6.5 - Pic::text_w(Face::Sans, &init, 9.0) / 2.0, ty - 0.5, 9.0, p.fg, 1.0);
         }
     }
-    let who = Pic::fit(Face::Sans, &c.who, 11.5, iw - 20.0);
-    pic.text(Face::Sans, &who, ix + 20.0, ty, 11.5, p.fg, 1.0);
+    let line = who_line_capped(&c.who, &c.provider_name, iw - 18.0, who_cap);
+    let ww = pic.text(Face::Sans, &line.who, ix + 18.0, ty, line.size, p.fg, 1.0);
+    if !line.suffix.is_empty() {
+        pic.text(Face::SansRegular, &line.suffix, ix + 18.0 + ww, ty, line.suffix_size, p.fg, p.dim);
+    }
     let sy = y + Q_INSET + 16.0 + 4.0;
     let st = tone(c.state_level);
     let tx;
@@ -258,8 +338,8 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     }
     draw_state(pic, &c.state, tx, ix + iw, sy + 15.0, st);
     let my = sy + 20.0 + 6.0;
-    draw_meter(pic, &c.five_hour, "5 ore", ix, my, iw, p);
-    draw_meter(pic, &c.week, "7 giorni", ix, my + METER_H + 5.0, iw, p);
+    draw_meter(pic, &c.five_hour, &c.five_say, "5 ore", ix, my, iw, p);
+    draw_meter(pic, &c.week, "", "7 giorni", ix, my + METER_H + 5.0, iw, p);
     if c.minors.is_empty() {
         return;
     }
@@ -277,7 +357,7 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
             continue;
         }
         pic.text(Face::SansRegular, &m.label, ix + 15.0, base, 11.0, p.fg, p.dim);
-        let vx = ix + 56.0;
+        let vx = ix + VALUE_COL;
         // the value goes down half a point (twice) before the note beside it has to be cut: the date of the API credit
         // is worth more than the third decimal of a size
         let note_w = |size: f32| Pic::text_w(Face::Mono, m.right.rsplit(' ').next().unwrap_or(""), size);
@@ -285,28 +365,14 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
             .find(|(vs, ns)| ix + iw - (vx + Pic::text_w(Face::Sans, &m.value, *vs) + 6.0) >= note_w(*ns)).map_or(10.0, |(vs, _)| vs);
         let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, value_pt, iw - 56.0), vx, base, value_pt, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
         let full = ix + iw - (vx + vw + 6.0);
-        let mut arrow = if m.reset { 12.0 } else { 0.0 };
-        // when it does not fit, the note loses its first word («sost.»), then half a point, then the refresh arrow
-        // (the date beside it says it is a time of renewal) before it is ever cut
-        let mut right = m.right.as_str();
-        if Pic::text_w(Face::Mono, right, 10.0) > full - arrow {
-            if let Some((_, rest)) = right.split_once(' ') {
-                right = rest;
-            }
-        }
-        let size = if Pic::text_w(Face::Mono, right, 10.0) > full - arrow { 9.5 } else { 10.0 };
-        if Pic::text_w(Face::Mono, right, size) > full - arrow {
-            arrow = 0.0;
-        }
-        let room = full - arrow;
-        if !right.is_empty() && room > 16.0 {
-            let r = Pic::fit(Face::Mono, right, size, room);
-            let rw = Pic::text_w(Face::Mono, &r, size);
-            pic.text(Face::Mono, &r, ix + iw - rw, base, size, p.fg, p.dim);
-            if arrow > 0.0 {
-                if let Some(mask) = system_symbol("arrow.clockwise") {
-                    pic.mask(ix + iw - rw - 12.0, base - 9.0, 9.0, &mask, p.fg, p.dim);
-                }
+        if !m.right.is_empty() {
+            // the note ends on the right margin and is whole: it shrinks, loses its refresh arrow (the date beside it
+            // says it is a time of renewal), then its first word («sost.», «ieri») before it is ever cut
+            let (text, size, arrow) = fit_note(&m.right, full, m.reset, 10.0);
+            let rw = Pic::text_w(Face::Mono, &text, size);
+            pic.text(Face::Mono, &text, ix + iw - rw, base, size, p.fg, p.dim);
+            if let (true, Some(mask)) = (arrow, system_symbol("arrow.clockwise")) {
+                pic.mask(ix + iw - rw - 12.0, base - 9.0, 9.0, &mask, p.fg, p.dim);
             }
         }
         yy += MINOR_H;
@@ -323,10 +389,11 @@ pub fn draw_quota_panel(cards: &[QuotaCard], p: Palette) -> Option<Pic> {
     let heights: Vec<f32> = rows.iter().map(|r| r.iter().map(quota_card_h).fold(0.0, f32::max)).collect();
     let total: f32 = 4.0 + heights.iter().map(|h| h + Q_GAP).sum::<f32>();
     let mut pic = Pic::new(MENU_W, total);
+    let who_cap = cards.iter().map(|c| who_line(&c.who, &c.provider_name, cw - 2.0 * Q_INSET - 18.0).size).fold(11.5, f32::min);
     let mut y = 4.0;
     for (r, row) in rows.iter().enumerate() {
         for (i, c) in row.iter().enumerate() {
-            draw_quota_card(&mut pic, c, PAD + i as f32 * (cw + Q_GAP), y, cw, heights[r], p);
+            draw_quota_card(&mut pic, c, who_cap, PAD + i as f32 * (cw + Q_GAP), y, cw, heights[r], p);
         }
         y += heights[r] + Q_GAP;
     }
