@@ -1,3 +1,6 @@
+/**
+ * @covers CHAT-TOOL-04
+ */
 import { describe, expect, test } from 'bun:test';
 import { detectResultLang } from './syntaxHighlight';
 
