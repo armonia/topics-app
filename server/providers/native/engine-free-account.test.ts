@@ -10,14 +10,16 @@ const saved = {
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
   TOPICS_SWITCHBOARD_URL: process.env.TOPICS_SWITCHBOARD_URL,
 };
-let accounts: unknown = [];
+let profiles: unknown = [];
 let status = 200;
 let engine: ReturnType<typeof Bun.serve>;
 
 beforeAll(() => {
   engine = Bun.serve({
     port: 0,
-    fetch: () => new Response(JSON.stringify({ accounts, recentEvents: [] }), { status }),
+    fetch: (req) => new URL(req.url).pathname === "/api/profiles"
+      ? new Response(JSON.stringify({ profiles }), { status })
+      : new Response("not found", { status: 404 }),
   });
   process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:1";
   process.env.TOPICS_SWITCHBOARD_URL = `http://127.0.0.1:${engine.port}`;
@@ -30,18 +32,22 @@ afterAll(() => {
   }
 });
 
-const spent = { available: false, limited: true, expired: false };
-const free = { available: true, limited: false, expired: false };
+// As the engine's `/api/profiles` lists them on 18/11: `limited` is its own
+// selector's verdict (an account at 99% of its week is limited there, while
+// `/api/proxy-status` still calls it available).
+const noCap = { over: false };
+const spent = { limited: true, blockKind: "quota-7d", disabled: false, expired: false, cap: noCap };
+const free = { limited: false, blockKind: null, disabled: false, expired: false, cap: noCap };
 
 describe("engineHasFreeAccount", () => {
   test("one spent account and one free: the engine can serve", async () => {
-    accounts = [spent, free];
+    profiles = [spent, free];
     status = 200;
     expect(await engineHasFreeAccount()).toBe(true);
   });
 
-  test("every account spent or expired: it cannot", async () => {
-    accounts = [spent, { available: true, limited: false, expired: true }];
+  test("every account spent, expired, disabled or over its cap: it cannot", async () => {
+    profiles = [spent, { ...free, expired: true }, { ...free, disabled: true }, { ...free, cap: { over: true } }];
     status = 200;
     expect(await engineHasFreeAccount()).toBe(false);
   });
@@ -50,13 +56,13 @@ describe("engineHasFreeAccount", () => {
     status = 500;
     expect(await engineHasFreeAccount()).toBeNull();
     status = 200;
-    accounts = [];
+    profiles = [];
     expect(await engineHasFreeAccount()).toBeNull();
   });
 
   test("a base URL off this machine has no local engine to ask", async () => {
     process.env.ANTHROPIC_BASE_URL = "https://api.anthropic.com";
-    accounts = [free];
+    profiles = [free];
     expect(await engineHasFreeAccount()).toBeNull();
     process.env.ANTHROPIC_BASE_URL = "http://127.0.0.1:1";
   });
