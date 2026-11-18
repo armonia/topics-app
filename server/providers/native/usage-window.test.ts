@@ -4,8 +4,8 @@
  * @covers RESUME-04
  */
 import { describe, expect, test, beforeEach } from "bun:test";
-import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
-import { providerHold, clearProviderHold, planUsage, clearPlanUsage, holdForApiDown } from "../../lib/provider-hold";
+import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, releaseHoldIfEngineFree, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
+import { providerHold, clearProviderHold, planUsage, clearPlanUsage, holdForApiDown, setProviderHold } from "../../lib/provider-hold";
 
 const NOW = Date.parse("2026-09-04T15:00:00Z");
 const RESET_5H = "2026-09-04T20:49:59.852026+00:00";
@@ -141,5 +141,34 @@ describe("observePlanUsage", () => {
     const ok = (async () => new Response(JSON.stringify(measured))) as unknown as typeof fetch;
     await saturationHold("tok", NOW, ok);
     expect(planUsage(NOW)?.sevenDay?.utilization).toBe(measured.seven_day.utilization);
+  });
+});
+
+describe("releaseHoldIfEngineFree", () => {
+  beforeEach(() => clearProviderHold());
+  const spentWeek = { untilMs: NOW + 4 * 86_400_000, window: "seven_day" as const, reason: "finestra settimanale del piano esaurita" };
+
+  test("a spent account is no wall while the engine has a free one: the hold goes", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => true, NOW)).toBe(true);
+    expect(providerHold(NOW)).toBeNull();
+  });
+
+  test("every account spent: the hold stays", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => false, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("seven_day");
+  });
+
+  test("no engine, or an engine that cannot be read, decides nothing", async () => {
+    setProviderHold(spentWeek, NOW);
+    expect(await releaseHoldIfEngineFree(async () => null, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("seven_day");
+  });
+
+  test("an API outage hold is not the engine's to lift", async () => {
+    holdForApiDown(NOW);
+    expect(await releaseHoldIfEngineFree(async () => true, NOW)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("api-down");
   });
 });

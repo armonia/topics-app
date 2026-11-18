@@ -135,3 +135,18 @@ export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now
   clearProviderHold();
   return true;
 }
+
+/**
+ * A plan hold lifted because the account engine behind the base URL still has
+ * an account that can serve (`engineHasFreeAccount`, `base-url.ts`). The hold
+ * measures one account's windows, the engine rotates past it: a spent account
+ * is no wall while another one is free. An API outage hold is not the
+ * engine's to lift, and an engine that cannot be read decides nothing.
+ */
+export async function releaseHoldIfEngineFree(engineFree: () => Promise<boolean | null>, nowMs: number = Date.now()): Promise<boolean> {
+  const hold = providerHold(nowMs);
+  if (!hold || hold.window === "api-down") return false;
+  if ((await engineFree()) !== true) return false;
+  clearProviderHold();
+  return true;
+}

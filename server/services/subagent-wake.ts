@@ -129,6 +129,8 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   const graceMs = deps.endGraceMs ?? 20_000;
   const pending = new Map<string, SubagentWakeRequest[]>();
   const workers = new Map<string, Promise<void>>();
+  /** Sessions already said to be waiting on a hold: one log line per wait, not one per poll. */
+  const saidWaiting = new Set<string>();
 
   async function drain(sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
     let read = reader.read();
@@ -172,7 +174,17 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
         asRows(refused);
       }
       if (!pending.get(sessionKey)?.length) return;
-      if (verdicts.some((v) => v === "wait")) { await sleep(pollMs); continue; }
+      if (verdicts.some((v) => v === "wait")) {
+        // A wait used to be silent: on 18/11 three parents sat on eleven
+        // results for hours behind a hold and the log said nothing.
+        if (!saidWaiting.has(sessionKey)) {
+          saidWaiting.add(sessionKey);
+          deps.log?.(`${sessionKey}: the topic's provider is held, ${pending.get(sessionKey)?.length ?? 0} result(s) wait for the hold to lift`);
+        }
+        await sleep(pollMs);
+        continue;
+      }
+      saidWaiting.delete(sessionKey);
       const batch = pending.get(sessionKey)?.splice(0) ?? [];
       if (!batch.length) return;
       const results = batch.map((r) => r.result);
