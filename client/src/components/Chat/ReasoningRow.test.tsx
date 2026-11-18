@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MessageContent } from '../MessageContent';
+import { rememberReasoningTranslation, resetReasoningTranslations } from '../../state/reasoningTranslations';
 
 const render = (partial: boolean, thinking: string) =>
   renderToStaticMarkup(
@@ -73,5 +74,39 @@ describe('ReasoningRow across partial and final', () => {
     // The answer has started: the reasoning is no longer the live block.
     expect(render(true, 'abc')).not.toContain('reasoning-body');
     expect(render(false, 'abc')).not.toContain('reasoning-body');
+  });
+});
+
+describe('ReasoningRow with a translation', () => {
+  const ONE = 'First I need to read the failing test and see what it expects.';
+  const TWO = 'Then I will check the migration file.';
+
+  // The reasoning is the last block and still live, so the row is open and its body drawn.
+  const live = (thinking: string) =>
+    renderToStaticMarkup(
+      <MessageContent role="assistant" content="" partial blocks={[{ kind: 'thinking', text: thinking }]} messageId="m3" />,
+    );
+
+  test('with no translation the row is the one it always was: same text, no control', () => {
+    resetReasoningTranslations();
+    const html = live(`${ONE} ${TWO}`);
+    expect(html).toContain(ONE);
+    expect(html).not.toContain('reasoning-original-toggle');
+    expect(html).not.toContain('data-translated');
+  });
+
+  test('a translated sentence replaces its original inside the body, and the control appears', () => {
+    resetReasoningTranslations();
+    rememberReasoningTranslation(ONE, 'Prima devo leggere il test che fallisce.');
+    const html = live(`${ONE} ${TWO}`);
+    expect(html).toContain('Prima devo leggere il test che fallisce.');
+    expect(html).not.toContain(ONE);
+    // The sentence not translated yet stays as the model wrote it.
+    expect(html).toContain(TWO);
+    expect(html).toContain('data-translated="true"');
+    expect(html).toContain('reasoning-original-toggle');
+    // The count in the header is the original text's: translating changes no number the row shows.
+    expect(html).toContain(`(${(ONE.length + 1 + TWO.length).toLocaleString()} chars)`);
+    resetReasoningTranslations();
   });
 });
