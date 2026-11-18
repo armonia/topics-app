@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.46",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.45",
     "date": "2026-11-18",
     "sections": {

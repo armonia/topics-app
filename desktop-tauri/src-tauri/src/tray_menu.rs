@@ -16,7 +16,7 @@ pub enum Node {
     Sep,
     Sub { label: String, children: Vec<Node> },
     /// A graphic row: a PNG drawn by `tray_menu_views`, `w` x `h` points. `children` open on hover.
-    Card { key: String, png: Vec<u8>, w: f32, h: f32, children: Vec<Node> },
+    Card { key: String, png: Vec<u8>, w: f32, h: f32, hover: Vec<crate::tray_hover::HoverZone>, children: Vec<Node> },
     /// A table row: one cell per column, aligned by the tab stops of its `table`. `children` open on hover.
     Row { id: String, cells: Vec<String>, header: bool, table: Table, look: Look, children: Vec<Node> },
     /// Puts a system icon (`sf:<symbol name>`) or an app's own icon (`app:<bundle path>`) before any other row.
@@ -82,6 +82,9 @@ pub struct Look {
     /// The first cell in semibold: a project with agents at work, a verdict line.
     pub bold: bool,
     pub priority: Priority,
+    /// Leaves the place of the priority arrow empty before the name, so the names of a table whose other rows
+    /// wear an arrow all start on the same x.
+    pub arrow_slot: bool,
 }
 
 /// A data row of a table, without a look of its own.

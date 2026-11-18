@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { AppContext } from "../types";
 import type { MachineMetrics } from "../../shared/machine-overview";
 import type { MachineSecurityReport } from "../../shared/machine-health";
-import { createMachineHealth, STEP_S, type HealthTarget } from "../lib/machine-health";
+import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { readLocalMetrics } from "../lib/machine-metrics";
 import { localSecurityProbe } from "../routes/machine-security";
@@ -59,6 +59,17 @@ async function publicHostOf(machineId: string): Promise<string | null> {
   try { return poolIpOf(await readFile(join(sharedToolingDir(), "node-pool", "state.json"), "utf8"), machineId); } catch { return null; }
 }
 
+/**
+ * Whether a paired node is the home PC: a node with no seat in the cloud pool (`node-pool/state.json` lists
+ * the paid servers by machine id). Only that one has a minute log from the usage hub.
+ */
+async function isHomePc(machineId: string): Promise<boolean> {
+  try {
+    const slots = (JSON.parse(await readFile(join(sharedToolingDir(), "node-pool", "state.json"), "utf8")) as { slots?: Record<string, { machine_id?: string }> }).slots ?? {};
+    return !Object.values(slots).some((slot) => slot.machine_id === machineId);
+  } catch { return true; }
+}
+
 export function startMachineHealth(ctx: AppContext): void {
   const probeLocal = localSecurityProbe(ctx.APP_DATA_DIR);
 
@@ -85,17 +96,17 @@ export function startMachineHealth(ctx: AppContext): void {
         : (await fetchNodeJson<{ metrics?: MachineMetrics }>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-metrics", REMOTE_METRICS_TIMEOUT_MS))?.metrics ?? null;
       return metrics ? { cpu: metrics.cpuPct, mem: metrics.memPct } : null;
     },
+    externalSamples: async (t, sinceS) => {
+      if (t.kind === "local" || !(await isHomePc(t.id))) return [];
+      try { return samplesFromMinuteLog(await readFile(join(sharedToolingDir(), "usage-history", "pc-history.jsonl"), "utf8"), sinceS); } catch { return []; }
+    },
     probe: async (t): Promise<MachineSecurityReport | null> => {
       if (t.kind === "local") return probeLocal();
       const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
       return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
     },
-    attemptsToday: (sinceMs) => (ctx.db.query(
-      `SELECT t.machine_id AS machineId, a.created_at AS createdAt
-         FROM task_attempts a JOIN tasks t ON t.id = a.task_id
-        WHERE a.created_at >= ?`,
-    ).all(new Date(sinceMs).toISOString()) as Array<{ machineId: string | null; createdAt: string }>),
+    attemptsToday: (sinceMs) => cardRunsToday(ctx.db, sinceMs),
     attribute: (machineId) => {
       const local = ctx.machineStore.upsertLocal();
       if (machineId === null || machineId === local.id) return local.id;
