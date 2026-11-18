@@ -6,7 +6,8 @@ import { existsSync } from "fs";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
-import { awaitCiEvidence } from "../services/ci-evidence";
+import { CI_BASE_BRANCH, awaitCiEvidence, githubPort } from "../services/ci-evidence";
+import { supersedeEarlierRounds } from "../services/ci-supersede";
 import { worktreeDirtProbe, worktreeRealDirt } from "../services/task-automerge";
 import { killAgentProcessTree } from "../lib/kill-agent-tree";
 import { branchStatusFromRepo, commitIsAncestor, resolveCommit } from "../services/branch-status";
@@ -248,6 +249,8 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     },
     // The e2e row of a delivery is read from the pull request CI, never run here.
     ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+    // A round on a new branch ends the pull requests of the card's earlier rounds.
+    supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
     // No new pre-review command starts under the memory floor, into sustained
     // swap, or within 2 minutes of another delivery's release (15/09/2026: 5.9 GB
     // free and 9.9 GB of swap, four commands on one poll). The floor is READ HERE,
