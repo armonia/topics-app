@@ -337,3 +337,19 @@ fn a_backup_day_says_its_date_and_its_outcome() {
     assert!(last.label.ends_with("copia fatta") || last.label.ends_with("niente da giudicare"), "{}", last.label);
     assert!(z.points.iter().any(|p| p.label.ends_with("copia non riuscita")));
 }
+
+#[test]
+fn a_note_at_the_edge_of_an_account_card_is_never_cut_while_a_smaller_form_fits() {
+    let wide = Pic::text_w(Face::Mono, "ieri 14:18", 10.0) + 12.0;
+    // room for everything: the text as it is, with its arrow
+    assert_eq!(fit_note("ieri 14:18", wide + 1.0, true, 10.0), ("ieri 14:18".to_string(), 10.0, true));
+    // a little less: the arrow goes first, the text stays whole
+    let (t, size, arrow) = fit_note("ieri 14:18", wide - 6.0, true, 10.0);
+    assert_eq!((t.as_str(), arrow), ("ieri 14:18", false));
+    assert!(size <= 10.0);
+    // much less: the day word goes, the time stays
+    let (t, _, _) = fit_note("ieri 14:18", Pic::text_w(Face::Mono, "14:18", 9.0) + 1.0, true, 10.0);
+    assert_eq!(t, "14:18");
+    // nothing to cut when there is room for the time alone, and a note with no arrow never draws one
+    assert!(!fit_note("14/12", 200.0, false, 10.0).2);
+}

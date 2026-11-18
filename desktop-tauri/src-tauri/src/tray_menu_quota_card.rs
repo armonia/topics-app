@@ -164,24 +164,41 @@ fn draw_meter(pic: &mut Pic, m: &Option<Meter>, label: &str, x: f32, y: f32, w: 
     let l1 = y + 11.0;
     // the label says what the share is of («7 giorni»); the percentage follows it, the time of the reset ends the line
     let lw = pic.text(Face::SansRegular, label, x, l1, 11.0, p.fg, p.dim * a);
-    // the percentage starts on the column the minor rows put their values on, so «5 ore —», «7 giorni 90%» and
-    // «Piano Ultra» line up; a label wider than the column pushes it right
-    let px = (x + VALUE_COL).max(x + lw + 6.0);
+    let px = x + lw + 6.0;
     let pct = m.as_ref().map_or("—".to_string(), |m| format!("{}%", m.used.round() as i64));
     let pw = pic.text(Face::MonoBold, &pct, px, l1 + 1.0, 14.0, p.fg, a);
     if let Some(m) = m.as_ref().filter(|m| !m.reset.is_empty()) {
-        // the refresh arrow goes when the time would not fit with it, never the time
+        // the time of the reset is never cut: it shrinks, loses its refresh arrow, then its day word
         let room = x + w - (px + pw + 8.0);
-        let arrow = if Pic::text_w(Face::Mono, &m.reset, 10.5) + 12.0 <= room { 12.0 } else { 0.0 };
-        let r = Pic::fit(Face::Mono, &m.reset, 10.5, (room - arrow).max(0.0));
-        let rw = Pic::text_w(Face::Mono, &r, 10.5);
-        pic.text(Face::Mono, &r, x + w - rw, l1, 10.5, p.fg, p.dim);
-        if let (true, Some(mask)) = (arrow > 0.0, system_symbol("arrow.clockwise")) {
+        let (text, size, arrow) = fit_note(&m.reset, room, true, 10.5);
+        let rw = Pic::text_w(Face::Mono, &text, size);
+        pic.text(Face::Mono, &text, x + w - rw, l1, size, p.fg, p.dim);
+        if let (true, Some(mask)) = (arrow, system_symbol("arrow.clockwise")) {
             pic.mask(x + w - rw - 12.0, l1 - 9.0, 9.0, &mask, p.fg, p.dim);
         }
     }
     let c = m.as_ref().map_or(p.fg, |m| tone(m.level));
     pic.bar(x, y + 22.0, w, used, m.as_ref().and_then(|m| m.mark), c, p);
+}
+
+/// How a note at the right edge of a card row is set in `room`: the whole text at `base` with its refresh arrow
+/// when it wants one, then without it, then half a point and a point smaller, and only then without its first word
+/// (the day, «ieri»). The last resort cuts the text. Returns the text, the size and whether the arrow is drawn.
+pub(crate) fn fit_note(text: &str, room: f32, arrow: bool, base: f32) -> (String, f32, bool) {
+    let shorter = text.split_once(' ').map(|(_, rest)| rest);
+    let steps = [(base, arrow), (base, false), (base - 0.5, false), (base - 1.0, false)];
+    for candidate in std::iter::once(text).chain(shorter) {
+        for (size, with_arrow) in steps {
+            if with_arrow && !arrow {
+                continue;
+            }
+            if Pic::text_w(Face::Mono, candidate, size) + if with_arrow { 12.0 } else { 0.0 } <= room {
+                return (candidate.to_string(), size, with_arrow);
+            }
+        }
+    }
+    let last = shorter.unwrap_or(text);
+    (Pic::fit(Face::Mono, last, base - 1.0, room.max(0.0)), base - 1.0, false)
 }
 
 /// How the state of an account is set in the room of its line.
@@ -289,28 +306,14 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
             .find(|(vs, ns)| ix + iw - (vx + Pic::text_w(Face::Sans, &m.value, *vs) + 6.0) >= note_w(*ns)).map_or(10.0, |(vs, _)| vs);
         let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, value_pt, iw - 56.0), vx, base, value_pt, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
         let full = ix + iw - (vx + vw + 6.0);
-        let mut arrow = if m.reset { 12.0 } else { 0.0 };
-        // when it does not fit, the note loses its first word («sost.»), then half a point, then the refresh arrow
-        // (the date beside it says it is a time of renewal) before it is ever cut
-        let mut right = m.right.as_str();
-        if Pic::text_w(Face::Mono, right, 10.0) > full - arrow {
-            if let Some((_, rest)) = right.split_once(' ') {
-                right = rest;
-            }
-        }
-        let size = if Pic::text_w(Face::Mono, right, 10.0) > full - arrow { 9.5 } else { 10.0 };
-        if Pic::text_w(Face::Mono, right, size) > full - arrow {
-            arrow = 0.0;
-        }
-        let room = full - arrow;
-        if !right.is_empty() && room > 16.0 {
-            let r = Pic::fit(Face::Mono, right, size, room);
-            let rw = Pic::text_w(Face::Mono, &r, size);
-            pic.text(Face::Mono, &r, ix + iw - rw, base, size, p.fg, p.dim);
-            if arrow > 0.0 {
-                if let Some(mask) = system_symbol("arrow.clockwise") {
-                    pic.mask(ix + iw - rw - 12.0, base - 9.0, 9.0, &mask, p.fg, p.dim);
-                }
+        if !m.right.is_empty() {
+            // the note ends on the right margin and is whole: it shrinks, loses its refresh arrow (the date beside it
+            // says it is a time of renewal), then its first word («sost.», «ieri») before it is ever cut
+            let (text, size, arrow) = fit_note(&m.right, full, m.reset, 10.0);
+            let rw = Pic::text_w(Face::Mono, &text, size);
+            pic.text(Face::Mono, &text, ix + iw - rw, base, size, p.fg, p.dim);
+            if let (true, Some(mask)) = (arrow, system_symbol("arrow.clockwise")) {
+                pic.mask(ix + iw - rw - 12.0, base - 9.0, 9.0, &mask, p.fg, p.dim);
             }
         }
         yy += MINOR_H;
