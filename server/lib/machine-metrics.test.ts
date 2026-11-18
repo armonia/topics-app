@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { parseMeminfoPct, readMemPct } from "./machine-metrics";
+import { parseProcMemoryPct, readMemPct } from "./machine-metrics";
 
-const MEMINFO = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:   16000000 kB\n";
+const PROC_MEMORY_TEXT = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:   16000000 kB\n";
 
 describe("memoria dei nodi non macOS", () => {
   test("Linux: totale meno MemAvailable, in percento", () => {
-    expect(parseMeminfoPct(MEMINFO)).toBe(50);
-    expect(readMemPct(null, "linux", () => MEMINFO)).toBe(50);
+    expect(parseProcMemoryPct(PROC_MEMORY_TEXT)).toBe(50);
+    expect(readMemPct(null, "linux", () => PROC_MEMORY_TEXT)).toBe(50);
   });
   test("una riga mancante è non misurato, mai 0", () => {
-    expect(parseMeminfoPct("MemTotal: 100 kB\n")).toBeNull();
+    expect(parseProcMemoryPct("MemTotal: 100 kB\n")).toBeNull();
     expect(readMemPct(null, "linux", () => { throw new Error("no procfs"); })).toBeNull();
   });
   test("Windows: freemem è la memoria disponibile", () => {

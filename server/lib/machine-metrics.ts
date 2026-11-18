@@ -37,7 +37,7 @@ export function parseProcNetDev(text: string): { rx: number; tx: number } | null
  * swapping is total minus `MemAvailable` (the kernel's own estimate, cache already counted as free).
  * `null` when either line is missing: not measured, never 0.
  */
-export function parseMeminfoPct(text: string): number | null {
+export function parseProcMemoryPct(text: string): number | null {
   const kb = (name: string): number | null => {
     const n = Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(text)?.[1] ?? NaN);
     return Number.isFinite(n) ? n : null;
@@ -59,13 +59,13 @@ export function parseMeminfoPct(text: string): number | null {
 export function readMemPct(
   gate: number | null,
   platform: NodeJS.Platform = process.platform,
-  readMeminfo: () => string = () => readFileSync("/proc/meminfo", "utf8"),
+  readProcMemory: () => string = () => readFileSync("/proc/meminfo", "utf8"),
   total: number = os.totalmem(),
   free: number = os.freemem(),
 ): number | null {
   if (gate !== null) return gate;
   try {
-    if (platform === "linux") return parseMeminfoPct(readMeminfo());
+    if (platform === "linux") return parseProcMemoryPct(readProcMemory());
     if (platform === "win32" && total > 0) return Math.round(Math.min(100, Math.max(0, (1 - free / total) * 100)));
   } catch { /* no procfs: not measured */ }
   return null;
