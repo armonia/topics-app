@@ -9,6 +9,8 @@
  * Nothing here can fail a turn: the service swallows adapter errors, and the
  * promises are detached on purpose, so a slow helper never delays a chunk.
  */
+import type { StreamHandler } from "../providers";
+import type { ChatTurnScope } from "../routes/chat-turn-scope";
 import { getReasoningTranslationService } from "./default";
 import type { ReasoningTranslationStream, TranslatedSentence } from "./service";
 
@@ -39,6 +41,33 @@ export function createTurnReasoningTranslator(
       const finished = block;
       block = null;
       void finished?.end().catch(() => {});
+    },
+  };
+}
+
+/**
+ * Wraps a turn's stream handler so every reasoning block is also translated:
+ * the original callbacks run first and untouched, and each translated sentence
+ * leaves on a `stream:reasoning_translation` frame to whoever watches the topic.
+ */
+export function withReasoningTranslation(
+  handler: StreamHandler,
+  turn: Pick<ChatTurnScope, "sessionKey" | "matchedTopic" | "broadcastToAll" | "broadcastToTopicSubscribers">,
+): StreamHandler {
+  const translator = createTurnReasoningTranslator((sentence) => {
+    const frame = { type: "stream:reasoning_translation" as const, sessionKey: turn.sessionKey, topicId: turn.matchedTopic?.id, ...sentence };
+    if (turn.matchedTopic?.id) turn.broadcastToTopicSubscribers(turn.matchedTopic.id, frame);
+    else turn.broadcastToAll(frame);
+  });
+  return {
+    ...handler,
+    onThinkingDelta: (text: string) => {
+      handler.onThinkingDelta?.(text);
+      translator.delta(text);
+    },
+    onThinkingEnd: () => {
+      handler.onThinkingEnd?.();
+      translator.end();
     },
   };
 }

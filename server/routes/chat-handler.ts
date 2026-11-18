@@ -20,21 +20,13 @@ import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
 import { rememberCodexHoldLogin } from "../lib/codex-login-watch";
 import type { ChatTurnScope } from "./chat-turn-scope";
 import { failedToolText } from "../lib/tool-finalize-status";
-import { createTurnReasoningTranslator } from "../reasoning-translation/turn";
+import { withReasoningTranslation } from "../reasoning-translation/turn";
 
 /** Builds the provider stream handler of a turn. */
 export function createStreamHandler(turn: ChatTurnScope): void {
   const { SAVE_INTERVAL, addToolCallToLastMessage, appendTextBlock, appendThinkingBlock, appendToolBlock, blocks, broadcastToAll, broadcastToTopicSubscribers, broadcastTurnFrame, browserNavigatedTopics, browserService, controlDispatchDeps, ctx, deps, detectLocalhostAutoNav, finalizeStream, findToolBlock, globalOrchestrator, humanWait, inheritsOpenCompaction, late, liveCalls, markToolExecuting, matchedTopic, overrideModel, ownMirrored, ownRow, ownStream, partialMsg, persistTurnBody, priorToolTimes, providerSignalsExecStart, resetStreamTimer, rowOfFrame, sessionKey, settleTrackedTool, spawnedModel, sseToolCallDelta, trackBackgroundShell, trackedToolCallIds, undoInlineMarkAfterFailedTurn, updateBlockTool, updateLastMessage, updateStreamActivity, updateStreamContent, updateToolCallFields, updateToolCallResult, watchSessionForSubagents, writeSSE, writeToolResultSSE } = turn;
-  // The owed answers this turn carries reach the model with it: its
-  // first event settles them (`lib/answer-relay.ts`).
+  // The owed answers this turn carries reach the model with it: its first event settles them (`lib/answer-relay.ts`).
   const heardCarry = turn.carry ? () => { if (turn.carry) deps.answerRelay?.heard(turn.carry); } : null;
-  // The reasoning in the chat language: each sentence that closes is translated and
-  // sent on its own frame; the original text keeps travelling untouched.
-  const reasoningTranslator = createTurnReasoningTranslator((sentence) => {
-    const frame = { type: "stream:reasoning_translation" as const, sessionKey, topicId: matchedTopic?.id, ...sentence };
-    if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, frame);
-    else broadcastToAll(frame);
-  });
   const handler: StreamHandler = onFirstModelEvent(guardFinalizedTurn({
     onTextDelta: (text: string, _fullText: string) => {
       resetStreamTimer();
@@ -109,7 +101,6 @@ export function createStreamHandler(turn: ChatTurnScope): void {
     },
 
     onThinkingEnd: () => {
-      reasoningTranslator.end();
       const end = { type: "stream:thinking_end" as const, sessionKey, topicId: matchedTopic?.id };
       if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, end);
       else broadcastToAll(end);
@@ -120,7 +111,6 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       resetStreamTimer();
       turn.fullThinking += text;
       appendThinkingBlock(text);
-      reasoningTranslator.delta(text);
       const thinkingChunk = { type: "stream:thinking_chunk" as const, sessionKey, topicId: matchedTopic?.id, content: text };
       if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, thinkingChunk);
       else broadcastToAll(thinkingChunk);
@@ -806,5 +796,5 @@ export function createStreamHandler(turn: ChatTurnScope): void {
       void finalizeStream("aborted", undefined, message?.turnEnd).catch(warnIfBusy(`finalize (aborted) of ${sessionKey}`));
     },
   }, () => turn.streamState === "finalized", late), heardCarry);
-  turn.handler = handler;
+  turn.handler = withReasoningTranslation(handler, turn);
 }

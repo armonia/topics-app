@@ -2,8 +2,9 @@
  * The per-turn side of the reasoning translation, and the route that serves a
  * settled block, with the service replaced by a fake at its own interface.
  */
-import { describe, expect, test } from "bun:test";
-import { createTurnReasoningTranslator } from "./turn";
+import { describe, expect, spyOn, test } from "bun:test";
+import { createTurnReasoningTranslator, withReasoningTranslation } from "./turn";
+import * as defaultModule from "./default";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { ReasoningTranslationService, memoryTranslationStore } from "./service";
 import type { ReasoningTranslator } from "./translator";
@@ -65,5 +66,33 @@ describe("POST /api/reasoning/translate", () => {
     expect((await call({}))!.status).toBe(400);
     expect(await call({ text: BLOCK_ONE }, "GET")).toBeNull();
     expect(await call({ text: BLOCK_ONE }, "POST", "/api/other")).toBeNull();
+  });
+});
+
+describe("withReasoningTranslation", () => {
+  test("the original callbacks run untouched and the translated sentences leave as frames to the topic", async () => {
+    const calls: string[] = [];
+    const frames: Array<Record<string, unknown>> = [];
+    const original = { onThinkingDelta: (t: string) => void calls.push(`delta:${t.length}`), onThinkingEnd: () => void calls.push("end"), onTextDelta: () => {} };
+    const turn = {
+      sessionKey: "topic:abc",
+      matchedTopic: { id: "t1" },
+      broadcastToAll: () => calls.push("all"),
+      broadcastToTopicSubscribers: (_id: string, frame: Record<string, unknown>) => void frames.push(frame),
+    };
+    const svc = service();
+    const spy = spyOn(defaultModule, "getReasoningTranslationService").mockReturnValue(svc);
+    try {
+      const wrapped = withReasoningTranslation(original as never, turn as never);
+      expect(wrapped.onTextDelta).toBe(original.onTextDelta);
+      wrapped.onThinkingDelta?.(BLOCK_ONE);
+      wrapped.onThinkingEnd?.();
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(calls).toEqual([`delta:${BLOCK_ONE.length}`, "end"]);
+    expect(frames.map((f) => f.type)).toEqual(["stream:reasoning_translation", "stream:reasoning_translation"]);
+    expect(frames[0]).toMatchObject({ sessionKey: "topic:abc", topicId: "t1", index: 0 });
   });
 });
