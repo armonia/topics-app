@@ -68,3 +68,13 @@ describe("waiting inbox", () => {
     expect(JSON.parse(calls[0]!.body).ref).toBe("h1");
   });
 });
+
+describe("hub close seen through the bridge", () => {
+  test("an item the hub stops listing leaves the inbox", () => {
+    const store = createWaitingStore();
+    store.ingestHubItems([{ id: "h1", tipo: "vista", title: "look", from: "x" }]);
+    expect(store.list()).toHaveLength(1);
+    store.ingestHubItems([]);
+    expect(store.list()).toHaveLength(0);
+  });
+});
