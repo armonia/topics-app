@@ -375,6 +375,15 @@ fn an_account_card_carries_its_provider_name_and_the_hubs_sentence_only_when_the
     assert_eq!(by("muse").five_say, "da leggere");
 }
 
+// the widths come from CoreText: the estimate used where there is none is wider
+#[cfg(target_os = "macos")]
+#[test]
+fn a_long_address_and_its_provider_share_the_room_of_a_card_whole() {
+    let card_room = (MENU_W - 2.0 * PAD - 8.0 * 2.0) / 3.0 - 18.0 - 18.0;
+    let real = who_line("abcd@example.org", "Claude", card_room);
+    assert_eq!(real.who, "abcd@example.org", "{real:?}");
+}
+
 #[test]
 fn the_provider_follows_the_email_unless_it_is_the_name_already() {
     let room = 127.0;
@@ -388,10 +397,6 @@ fn the_provider_follows_the_email_unless_it_is_the_name_already() {
     let tight = who_line("abcdefghijklmnopqrstu@example.org", "Claude", 100.0);
     assert_eq!(tight.suffix, " · Claude");
     assert!(tight.size <= 9.0 && tight.who.ends_with('…'), "{tight:?}");
-    // the longest real pair of the hub (a sixteen character address and the provider) is whole in the room of a card
-    let card_room = (MENU_W - 2.0 * PAD - 8.0 * 2.0) / 3.0 - 18.0 - 18.0;
-    let real = who_line("abcd@example.org", "Claude", card_room);
-    assert_eq!(real.who, "abcd@example.org", "{real:?}");
     let wide = who_line("a@example.org", "Claude", 300.0);
     assert_eq!((wide.who.as_str(), wide.size), ("a@example.org", 11.5));
 }
