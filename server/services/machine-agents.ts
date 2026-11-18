@@ -119,10 +119,10 @@ export function readMachineAgents(input: MachineAgentsInput): Map<string, Machin
     return known.has(machineId) ? machineId : null;
   };
 
-  const acc = new Map<string, ReturnType<typeof emptyAgents>>();
-  for (const m of machines) acc.set(m.id, emptyAgents());
+  const byMachine = new Map<string, ReturnType<typeof emptyAgents>>();
+  for (const m of machines) byMachine.set(m.id, emptyAgents());
   const add = (machineId: string | null, state: MachineAgentState | "idle", project: string, item: MachineAgentItem | null, counted = true): void => {
-    const target = machineId ? acc.get(machineId) : undefined;
+    const target = machineId ? byMachine.get(machineId) : undefined;
     if (!target) return;
     if (state === "chat") target.chats++;
     else target[state]++;
@@ -204,7 +204,7 @@ export function readMachineAgents(input: MachineAgentsInput): Map<string, Machin
   }
 
   const out = new Map<string, MachineAgents>();
-  for (const [id, a] of acc) {
+  for (const [id, a] of byMachine) {
     const items = a._items
       .sort((x, y) => STATE_ORDER.indexOf(x.state) - STATE_ORDER.indexOf(y.state) || (y.since ?? 0) - (x.since ?? 0))
       .slice(0, MAX_AGENT_ITEMS);
