@@ -6,7 +6,7 @@ import { existsSync } from "fs";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
-import { CI_BASE_BRANCH, awaitCiEvidence, githubPort } from "../services/ci-evidence";
+import { CI_BASE_BRANCH, awaitCiEvidence, githubPort, spawnCapped } from "../services/ci-evidence";
 import { supersedeEarlierRounds } from "../services/ci-supersede";
 import { worktreeDirtProbe, worktreeRealDirt } from "../services/task-automerge";
 import { killAgentProcessTree } from "../lib/kill-agent-tree";
@@ -251,6 +251,14 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
     // A round on a new branch ends the pull requests of the card's earlier rounds.
     supersedeEarlierRounds: ({ cwd, taskId }) => supersedeEarlierRounds(githubPort(), { cwd, taskId, baseBranch: CI_BASE_BRANCH }),
+    // The review sweep asks whether a green card's pull request still merges into main.
+    reviewPrMergeable: async (taskId, branch) => {
+      const repo = (await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null))?.repoPath ?? null;
+      if (!repo) return null;
+      const r = await spawnCapped(["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "mergeable", "--limit", "1"], repo);
+      if (r.code !== 0) return null;
+      try { return String((JSON.parse(r.out) as Array<{ mergeable?: string }>)[0]?.mergeable ?? "") || null; } catch { return null; }
+    },
     // No new pre-review command starts under the memory floor, into sustained
     // swap, or within 2 minutes of another delivery's release (15/09/2026: 5.9 GB
     // free and 9.9 GB of swap, four commands on one poll). The floor is READ HERE,

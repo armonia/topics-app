@@ -24,8 +24,9 @@ describe("a red card in review goes back to its agent", () => {
   beforeEach(() => { db = freshDb(); svc = createTaskService(db); sweep = null; });
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
 
-  async function inReview() {
+  async function inReview(extra: Record<string, unknown> = {}) {
     const router = createTasksRouter(makeCtx(db, []), undefined, {
+      ...extra,
       taskCheckoutRef: async () => ({ cwd, commit: "abc1234" }),
       realignForChecks: async () => ({ ok: true, note: null }),
       taskDeliveryRef: async () => ({ branch: "topics/red", commit: "abc1234", repoPath: "/repo" }),
@@ -80,5 +81,31 @@ describe("a red card in review goes back to its agent", () => {
     const after = svc.get(id)!.task;
     expect(after.status).toBe("review");
     expect(after.humanAsk).toContain("Tre giri rossi");
+  }, 30_000);
+  async function until(cond: () => boolean, what: string): Promise<void> {
+    for (let i = 0; i < 400; i++) { if (cond()) return; await Bun.sleep(25); }
+    throw new Error(`never happened: ${what}`);
+  }
+
+  test("a review card with no verdict on the commit it delivers is measured again, and its red goes back", async () => {
+    const id = await inReview();
+    svc.updateBoardSettings(svc.get(id)!.task.projectId, { reviewChecks: [{ name: "ko", cmd: "false" }] });
+    db.prepare("UPDATE tasks SET checks_state = 'unknown', checks_commit = 'abc1234', delivery_commit = 'abc1234', delivery_branch = 'topics/red' WHERE id = ?").run(id);
+    await sweep!();
+    await until(() => svc.get(id)!.task.checksState === "fail", "the bar was measured on the delivered commit");
+    await sweep!();
+    await until(() => svc.get(id)!.task.status === "in_progress", "the red went back to the agent");
+    expect(svc.get(id)!.comments.some((c) => c.content.startsWith(RED_BOUNCE_NOTE))).toBe(true);
+  }, 30_000);
+
+  test("a green review card whose pull request conflicts with main goes back to its agent", async () => {
+    const asked: string[] = [];
+    const id = await inReview({ reviewPrMergeable: async (_taskId: string, branch: string) => { asked.push(branch); return "CONFLICTING"; } });
+    db.prepare("UPDATE tasks SET checks_state = 'pass', checks_commit = 'abc1234', delivery_commit = 'abc1234', delivery_branch = 'topics/red' WHERE id = ?").run(id);
+    await sweep!();
+    expect(asked).toEqual(["topics/red"]);
+    const after = svc.get(id)!;
+    expect(after.task.status).toBe("in_progress");
+    expect(after.comments.find((c) => c.content.startsWith(RED_BOUNCE_NOTE))?.content).toContain("in conflitto con main");
   }, 30_000);
 });

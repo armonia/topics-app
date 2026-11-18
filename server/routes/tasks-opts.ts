@@ -345,5 +345,11 @@ export interface TasksRouterOpts {
    * Housekeeping: never awaited by the round, never allowed to throw into it.
    */
   supersedeEarlierRounds?: (input: { cwd: string; taskId: string }) => Promise<unknown>;
+  /**
+   * GitHub's `mergeable` for the open pull request whose head is `branch`
+   * (`CONFLICTING`, `MERGEABLE`, `UNKNOWN`), or null when there is none or the
+   * read failed. Read by the review sweep for green cards waiting on a person.
+   */
+  reviewPrMergeable?: (taskId: string, branch: string) => Promise<string | null>;
 }
 
