@@ -137,6 +137,7 @@ import { setBenchEndedTtl } from "../lib/live-work";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
+import { setReasoningHelperOverride } from "../reasoning-translation/default";
 
 /** The `sleep` children `POST /api/test/session-usage` spawned (a bun process holding memory), by session key. */
 const e2eSessionChildren = new Map<string, { pid: number; kill: () => void }>();
@@ -540,6 +541,19 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       }
       removeProvider("topics");
       return json({ ok: true, connected: false });
+    }
+
+    // POST /api/test/reasoning-helper {path} | {path: null}
+    //
+    // Points the reasoning translation at a fake helper executable, so a spec
+    // exercises the real server (segmentation, cache, frames) with a translator
+    // that answers the same on every machine. The fake sits at the process
+    // boundary, where the Swift helper would; `{path: null}` puts the real
+    // adapter back so the specs after it see the bench as it booted.
+    if (method === "POST" && pathname === "/api/test/reasoning-helper") {
+      const body = (await req.json().catch(() => null)) as { path?: string | null } | null;
+      setReasoningHelperOverride(typeof body?.path === "string" ? body.path : null);
+      return json({ ok: true });
     }
 
     // POST /api/test/plan-usage {fiveHour, sevenDay} | {clear: true}

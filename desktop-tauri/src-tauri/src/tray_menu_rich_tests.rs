@@ -49,7 +49,7 @@ fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
     let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
     assert!(busy < idle && !t.contains("Gone"));
     assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | ▸ 1"), "{t}");
-    assert!(t.contains("Idle one | – | – | – | – | –"));
+    assert!(t.contains("Idle one | – | – | – |  | –"));
 }
 
 #[test]
@@ -431,4 +431,14 @@ fn separators_sit_between_two_rows_only() {
     let out = tidy_separators(vec![Node::Sep, item("a"), Node::Sep, Node::Sep, item("b"), Node::Sep]);
     let kinds: Vec<&str> = out.iter().map(|n| if matches!(n, Node::Sep) { "-" } else { "row" }).collect();
     assert_eq!(kinds, ["row", "-", "row"], "none at the start or the end, one where there were two");
+}
+
+#[test]
+fn the_history_of_a_reading_comes_from_the_machines_answer_and_bounds_the_peak() {
+    let board = machine_cards_from_board(r#"{"machines":[{"id":"local","name":"Mac","state":"x","metrics":[{"key":"gpu","pct":77,"note":"picco 24 h 77%"}]}]}"#);
+    let mut cards = board;
+    attach_histories(&mut cards, Some(r#"[{"id":"local","metrics":[{"key":"gpu","history":[{"t":1000000,"v":10},{"t":1600000,"v":77},{"t":2200000,"v":30}]}]}]"#));
+    assert_eq!((cards[0].metrics[0].hist_n, cards[0].metrics[0].hist_span_s, cards[0].metrics[0].hist_peak), (3, 1200, Some(77)));
+    crate::tray_numbers::say_what_each_is_of(&mut cards[0]);
+    assert_eq!(cards[0].metrics[0].note, "picco 77% · ultime 20 minuti", "twenty minutes of history are not 24 hours");
 }

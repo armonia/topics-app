@@ -52,6 +52,8 @@ pub struct HealthMachine {
     pub mem: Vec<Option<f64>>,
     /// Seconds between two readings of `cpu` and `mem`.
     pub step_s: i64,
+    /// Epoch second of the first reading of `cpu` and `mem` (0 when the file does not say).
+    pub from_s: i64,
     pub cards_today: Vec<u32>,
 }
 
@@ -93,6 +95,7 @@ pub fn parse_health(body: &str) -> Option<Health> {
                 cpu: series(hist.get("cpu")),
                 mem: series(hist.get("mem")),
                 step_s: int(&hist, "step_s").filter(|t| *t > 0).unwrap_or(300),
+                from_s: int(&hist, "from").unwrap_or(0),
                 cards_today: m.get("cards_today").and_then(Value::as_array).map(|a| a.iter().map(|x| x.as_u64().unwrap_or(0) as u32).collect()).unwrap_or_default(),
             }
         }).collect(),

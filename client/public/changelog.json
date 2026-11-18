@@ -1,5 +1,208 @@
 [
   {
+    "version": "2.4.47",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Thinking body: no empty space under the last sentence (#1282)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Client nested in a Topics pane no longer drives the real app (#1285)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.46",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.45",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-18 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.44",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "niente useMemo con dipendenza da store esterno, il caso senza traduzioni esce subito",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Nomi in inglese per il cancello degli identificatori",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.43",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Thinking tradotto nella lingua della chat, gratis su macOS (Translation di Apple, helper Swift on-device)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manifest delle migration riallineato dopo il merge di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il test della riga delle fasce misura con i font del Mac",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "consumo per progetto con conto giusto, avviso sul telefono e freno al budget",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Reasoning translation: export solo ciò che serve fuori dal modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/gleaming-panther (card bb70db88) (#1270)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "spawn dell'helper dichiarati (scadenza, motivo), trattino della regex annotato, registro dei tipi in uscita a 109",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/transient-bay (card 6d1e962f) (#1271)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Traduzione del ragionamento: requisito REASONING-TRANSLATE-01 nelle spec della chat, @covers sui test, binari di sistema dichiarati a knip",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "withReasoningTranslation riceve il servizio come gli altri: niente import a namespace che accecava il gate del codice morto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.42",
     "date": "2026-11-17",
     "sections": {
@@ -85,6 +288,11 @@
         },
         {
           "it": "CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Usage ledger: external calls (delegate jobs) name their project and count in it",
           "en": "",
           "scope": null
         },

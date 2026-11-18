@@ -48,6 +48,10 @@ pub struct Metric {
     /// a reading the dial has no band for.
     pub name: String,
     pub value: String,
+    /// The service's history of the reading: how many points and how long it reaches, and its highest one.
+    pub hist_n: usize,
+    pub hist_span_s: i64,
+    pub hist_peak: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -69,6 +73,8 @@ pub struct MachineCard {
     pub order: u32,
     /// The id this machine has in Topics' machine list, when the card is the service's own and its id is another one.
     pub machine_id: String,
+    /// The node's agents, from the client's machine of the same node.
+    pub agents: Option<crate::tray_node_agents::NodeAgents>,
 }
 
 impl MachineCard {
@@ -84,6 +90,16 @@ impl MachineCard {
     pub fn display_name(&self) -> String {
         if self.order == 0 { self.name.clone() } else { format!("{} · {}", self.order, self.name) }
     }
+}
+
+/// How many points the service's history of a reading has, how many seconds it reaches and its highest value.
+pub(crate) fn hist_of(x: &Value) -> (usize, i64, Option<u32>) {
+    let pts: Vec<(f64, f64)> = x.get("history").and_then(Value::as_array).map(|h| h.iter().filter_map(|p| Some((p.get("t")?.as_f64()?, p.get("v")?.as_f64()?))).collect()).unwrap_or_default();
+    let span = match (pts.first(), pts.last()) {
+        (Some(a), Some(b)) => ((b.0 - a.0) / 1000.0) as i64,
+        _ => 0,
+    };
+    (pts.len(), span, pts.iter().map(|p| p.1).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))).map(|v| v.round() as u32))
 }
 
 /// Machines of the usage service's board (`/api/board`, `machines`).
@@ -107,9 +123,13 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
                 note: s(x, "note").into(),
                 name: s(x, "name").into(),
                 value: s(x, "value").into(),
+                hist_n: hist_of(x).0,
+                hist_span_s: hist_of(x).1,
+                hist_peak: hist_of(x).2,
             }).collect()).unwrap_or_default(),
             order: 0,
             machine_id: String::new(),
+            agents: None,
         })
         .collect()
 }
@@ -125,6 +145,37 @@ const LEGEND_RIGHT: f32 = 16.0;
 /// server's spend) as rows of their own under the four of the dial.
 pub fn card_line(m: &MachineCard) -> String {
     m.reason.clone()
+}
+
+/// The dial's rows the legend draws, in its order: a reading the machine does not have (no value and no note, the
+/// GPU of a server) is not a row of dashes. The dial keeps its bands.
+pub(crate) fn legend_dial_rows(m: &MachineCard) -> Vec<(&'static str, &'static str)> {
+    [("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Memoria"), ("disk", "Disco")].into_iter()
+        .filter(|(k, _)| m.metrics.iter().find(|x| x.key == *k).map_or(false, |x| x.pct.is_some() || !x.note.is_empty()))
+        .collect()
+}
+
+/// The columns every row of a card's legend shares.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LegendCols {
+    /// Where the values end (they are right aligned there).
+    pub val_right: f32,
+    pub bar_x: f32,
+    pub bar_end: f32,
+    /// The width the notes may take, ending on the right margin.
+    pub note_w: f32,
+}
+
+/// One set of columns for the whole legend: the value column is as wide as the widest label plus value needs
+/// (a «8,44/60 €» widens it for every row, instead of overrunning it on its own), the bars share both ends.
+pub(crate) fn legend_cols(lx: f32, right: f32, labels: &[&str], values: &[String], notes: &[&str]) -> LegendCols {
+    let label_end = labels.iter().map(|l| lx + 20.0 + Pic::text_w(Face::Sans, l, 10.5)).fold(lx + 20.0, f32::max);
+    let value_w = values.iter().map(|v| Pic::text_w(Face::MonoBold, v, 11.5)).fold(0.0, f32::max);
+    let val_right = (lx + 100.0).max(label_end + 8.0 + value_w);
+    let bar_x = val_right + 12.0;
+    let note_w = notes.iter().map(|t| Pic::text_w(Face::SansRegular, t, 10.0)).fold(0.0, f32::max).min((right - bar_x - 40.0 - 12.0).max(0.0));
+    let bar_end = if note_w > 0.0 { right - note_w - 12.0 } else { right };
+    LegendCols { val_right, bar_x, bar_end, note_w }
 }
 
 /// The readings the dial has no band for, as extra legend rows: everything but the
@@ -281,7 +332,8 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
     let inline = !m.local && !line.is_empty() && Pic::text_w(Face::SansRegular, &line, 10.0) <= inline_room;
     let brake = !line.is_empty() && !inline;
     let top = if brake { 44.0 } else { 27.0 };
-    let rows = 4 + extras.len();
+    let dial_rows = legend_dial_rows(m);
+    let rows = dial_rows.len() + extras.len();
     let body_h = (edge + 6.0 + 6.0).max(rows as f32 * 18.0 + 2.0);
     let mut pic = Pic::new(MENU_W, top + body_h + 8.0 + node.block_h());
     let head = tone(m.level);
@@ -296,7 +348,8 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
         pic.pill_plain(MENU_W - 16.0, 12.5, &m.badge, if off { p.fg } else { head });
     }
     if brake {
-        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
+        // only this computer's line is about its own trouble; what a remote machine is doing is a description
+        let (c, a) = if lvl >= 1 && m.local { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
         // this computer's line is about its brake (a sign), a remote machine's is what it is doing (no sign)
         let tx = if m.local { 53.0 } else { 38.0 };
         if let Some(mask) = system_symbol(if lvl >= 1 { "pause.circle.fill" } else { "clock.fill" }).filter(|_| m.local) {
@@ -333,9 +386,14 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
     // bar to the reading and the note, which ends on the right margin like the status rows' text
     let lx = cx + outer + 26.0;
     let swap = find("swap").filter(|x| !x.value.is_empty());
-    let notes: Vec<(String, [u8; 3], f32)> = [("cpu", 0usize), ("gpu", 1), ("mem", 2), ("disk", 3)].iter().map(|(key, _)| {
+    let notes: Vec<(String, [u8; 3], f32)> = dial_rows.iter().map(|(key, _)| {
         match (*key, swap) {
-            ("mem", Some(s)) => (format!("swap {}", s.value), if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim }),
+            // the memory in use out of its total, then the swap behind it: the swap's colour is the note's when it is at risk
+            ("mem", Some(s)) => {
+                let base = find("mem").map_or(String::new(), |x| x.note.clone());
+                let swap_say = format!("swap {}", s.value);
+                (if base.is_empty() { swap_say } else { format!("{base} · {swap_say}") }, if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim })
+            }
             _ => (find(key).map_or(String::new(), |x| x.note.clone()), p.fg, p.dim),
         }
     }).chain(extras.iter().map(|x| {
@@ -344,38 +402,42 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
         (note, p.fg, p.dim)
     })).collect();
     let right = MENU_W - LEGEND_RIGHT;
-    let note_w = notes.iter().map(|(t, _, _)| Pic::text_w(Face::SansRegular, t, 10.0)).fold(0.0, f32::max).min(right - (lx + 108.0) - 70.0);
-    let bar_x = lx + 112.0;
-    // the bar starts after the value: a wide one («8,44/60 €») pushes it right instead of running into it
-    let bar = |pic: &mut Pic, y: f32, pct: Option<u32>, c: [u8; 3], value_end: f32| {
-        let x0 = bar_x.max(value_end + 8.0);
-        let w = right - note_w - 12.0 - x0;
+    // one set of columns for every row of the legend: the values end on the same x, the bars start and end on the
+    // same x, and the notes end on the right margin
+    let labels: Vec<&str> = dial_rows.iter().map(|(_, l)| *l).chain(extras.iter().map(|x| if x.name.is_empty() { x.key.as_str() } else { x.name.as_str() })).collect();
+    let values: Vec<String> = dial_rows.iter().map(|(k, _)| find(k).and_then(|x| x.pct).map_or("—".to_string(), |v| format!("{v}%")))
+        .chain(extras.iter().map(|x| if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |v| format!("{v}%")) })).collect();
+    let note_texts: Vec<&str> = notes.iter().map(|n| n.0.as_str()).collect();
+    let cols = legend_cols(lx, right, &labels, &values, &note_texts);
+    let bar = |pic: &mut Pic, y: f32, pct: Option<u32>, c: [u8; 3]| {
+        let w = cols.bar_end - cols.bar_x;
         if let (Some(v), true) = (pct, w >= 40.0) {
-            pic.fill_rrect(x0, y + 8.0, w, 4.0, 2.0, p.fg, 0.12);
-            pic.fill_rrect(x0, y + 8.0, (w * v as f32 / 100.0).max(3.0), 4.0, 2.0, c, 1.0);
+            pic.fill_rrect(cols.bar_x, y + 8.0, w, 4.0, 2.0, p.fg, 0.12);
+            pic.fill_rrect(cols.bar_x, y + 8.0, (w * v as f32 / 100.0).max(3.0), 4.0, 2.0, c, 1.0);
         }
     };
     let put_note = |pic: &mut Pic, y: f32, text: &str, c: [u8; 3], a: f32| {
-        let t = Pic::fit(Face::SansRegular, text, 10.0, note_w);
+        let t = Pic::fit(Face::SansRegular, text, 10.0, cols.note_w);
         pic.text(Face::SansRegular, &t, right - Pic::text_w(Face::SansRegular, &t, 10.0), y + 12.0, 10.0, c, a);
     };
-    for (i, (key, label)) in [("cpu", "CPU"), ("gpu", "GPU"), ("mem", "Memoria"), ("disk", "Disco")].iter().enumerate() {
+    let put_value = |pic: &mut Pic, y: f32, value: &str, c: [u8; 3], a: f32| {
+        pic.text(Face::MonoBold, value, cols.val_right - Pic::text_w(Face::MonoBold, value, 11.5), y + 12.0, 11.5, c, a);
+    };
+    for (i, (key, label)) in dial_rows.iter().enumerate() {
         let y = top + i as f32 * 18.0;
         let x = find(key);
         let c = col(x).unwrap_or(p.fg);
         mini_dial(&mut pic, lx + 7.0, y + 12.0, key, c, p);
         pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
         let has = x.and_then(|x| x.pct).is_some();
-        let value = x.and_then(|x| x.pct).map_or("—".to_string(), |v| format!("{v}%"));
-        let vw = Pic::text_w(Face::MonoBold, &value, 11.5);
-        pic.text(Face::MonoBold, &value, lx + 100.0 - vw, y + 12.0, 11.5, if has { c } else { p.fg }, if has { 1.0 } else { 0.4 });
-        bar(&mut pic, y, x.and_then(|x| x.pct), c, lx + 100.0);
+        put_value(&mut pic, y, &values[i], c, if has { 1.0 } else { 0.4 });
+        bar(&mut pic, y, x.and_then(|x| x.pct), c);
         let (note, ncol, na) = &notes[i];
         put_note(&mut pic, y, note, *ncol, *na);
     }
     // the readings with no band: one row each, the sign of the reading in place of the tiny dial
     for (i, x) in extras.iter().enumerate() {
-        let y = top + (4 + i) as f32 * 18.0;
+        let y = top + (dial_rows.len() + i) as f32 * 18.0;
         let c = if x.level > 0 { tone(x.level) } else { p.fg };
         let symbol = if x.key == "spend" { "eurosign.circle" } else { "circle" };
         if let Some(mask) = system_symbol(symbol) {
@@ -383,15 +445,10 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
         } else {
             pic.stroke_rrect(lx + 2.0, y + 6.0, 10.0, 10.0, 5.0, 1.3, c, 1.0);
         }
-        let label = if x.name.is_empty() { x.key.as_str() } else { x.name.as_str() };
-        pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
-        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |v| format!("{v}%")) };
-        let vw = Pic::text_w(Face::MonoBold, &value, 11.5);
-        // a value wider than the column (8,44/60 €) starts at the label's end instead of overrunning it
-        let vx = (lx + 100.0 - vw).max(lx + 20.0 + Pic::text_w(Face::Sans, label, 10.5) + 6.0);
-        pic.text(Face::MonoBold, &value, vx, y + 12.0, 11.5, c, 1.0);
-        bar(&mut pic, y, x.pct, c, vx + vw);
-        let (note, ncol, na) = &notes[4 + i];
+        pic.text(Face::Sans, labels[dial_rows.len() + i], lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
+        put_value(&mut pic, y, &values[dial_rows.len() + i], c, 1.0);
+        bar(&mut pic, y, x.pct, c);
+        let (note, ncol, na) = &notes[dial_rows.len() + i];
         put_note(&mut pic, y, note, *ncol, *na);
     }
     crate::tray_node_charts::draw_block(&mut pic, node, top + body_h - 4.0, p);
@@ -409,6 +466,8 @@ pub struct BackupCard {
     pub caption: String,
     /// 30 days, oldest first: Some(true) copy made, Some(false) failed, None nothing to judge yet.
     pub days: Vec<Option<bool>>,
+    /// The day number (days since 1970-01-01) of the last entry of `days`, so a day can say its date.
+    pub today: i64,
     pub days_say: String,
     pub proofs: Vec<(String, String, bool)>,
     /// The footer line: what the backup costs this computer right now.
@@ -508,7 +567,8 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     } else {
         foot_parts.push("Adesso niente".into());
         if let Some(sec) = v.get("last_seconds").and_then(Value::as_f64) {
-            foot_parts.push(format!("ultimo giro {} min", ((sec / 60.0).round() as i64).max(1)));
+            let mins = ((sec / 60.0).round() as i64).max(1);
+            foot_parts.push(if mins >= 120 { format!("ultimo giro {} h {} min", mins / 60, mins % 60) } else { format!("ultimo giro {mins} min") });
         }
     }
     if let Some(local) = v.get("icloud").and_then(|i| i.get("local_bytes")).and_then(Value::as_f64) {
@@ -516,7 +576,7 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     }
     foot_parts.retain(|p| !p.is_empty());
     let foot = if foot_parts.is_empty() { String::new() } else { format!("Sul Mac: {}", foot_parts.join(" · ")) };
-    Some(BackupCard { title: "Backup del Mac".into(), badge: badge.into(), level, caption, days, days_say, proofs, foot })
+    Some(BackupCard { title: "Backup del Mac".into(), badge: badge.into(), level, caption, days, today, days_say, proofs, foot })
 }
 
 pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
@@ -538,6 +598,10 @@ pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
     pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &b.caption, 10.5, CARD_W - 52.0), m + 24.0, 43.0, 10.5, if b.level == 2 { c } else { p.fg }, if b.level == 2 { 1.0 } else { p.dim });
     let inner = CARD_W - 28.0;
     let step = inner / b.days.len().max(1) as f32;
+    pic.hover.push(crate::tray_hover::HoverZone { x: m, y: 55.0, w: inner, h: 18.0, points: b.days.iter().enumerate().map(|(i, d)| crate::tray_hover::HoverPoint {
+        x: m + i as f32 * step + step / 2.0,
+        label: format!("{} · {}", crate::tray_hover::day_label(b.today - (b.days.len() - 1 - i) as i64), match d { Some(true) => "copia fatta", Some(false) => "copia non riuscita", None => "niente da giudicare" }),
+    }).collect() });
     for (i, d) in b.days.iter().enumerate() {
         let (col, a) = match d {
             Some(true) => (tone(0), 1.0),

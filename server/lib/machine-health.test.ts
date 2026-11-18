@@ -1,12 +1,13 @@
 /**
  * @covers MACHINE-05
  */
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  buildHistory, cardsPerHour, createMachineHealth, HISTORY_POINTS, pushSample, STEP_S,
+  buildHistory, cardRunsToday, cardsPerHour, samplesFromMinuteLog, createMachineHealth, HISTORY_POINTS, pushSample, STEP_S,
   type HealthTarget, type MachineHealthDeps, type Sample,
 } from "./machine-health";
 import type { MachinesHealthFile, MachineSecurityReport } from "../../shared/machine-health";
@@ -155,5 +156,57 @@ describe("il giro scrive il file nel formato del contratto", () => {
     await createMachineHealth(deps({ readMetrics: async () => { throw new Error("x"); }, probe: async () => { throw new Error("y"); } })).tick();
     const file = JSON.parse(await readFile(join(dir, "machines-health.json"), "utf8")) as MachinesHealthFile;
     expect(file.machines[0].security.status).toBe("unknown");
+  });
+});
+
+describe("letture che il server del nodo non sa dare", () => {
+  test("il registro al minuto del PC diventa medie da 5 minuti; il PC che dorme resta un buco", () => {
+    const base = Math.floor(NOW_S / STEP_S) * STEP_S;
+    const text = [
+      JSON.stringify({ t: base - 600, s: "lavora", cpu: 10, mem: 40 }),
+      JSON.stringify({ t: base - 590, s: "lavora", cpu: 20, mem: 42 }),
+      JSON.stringify({ t: base - 300, s: "dorme" }),
+      "riga rotta",
+      JSON.stringify({ t: base + 5, s: "lavora", cpu: 7, mem: 50 }),
+    ].join("\n");
+    const got = samplesFromMinuteLog(text, base - 3600);
+    expect(got).toEqual([{ t: base - 600, cpu: 15, mem: 41 }, { t: base, cpu: 7, mem: 50 }]);
+  });
+
+  test("esternali riempiono solo i punti vuoti: la lettura del nodo vince", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mh-ext-"));
+    const base = Math.floor(NOW_S / STEP_S) * STEP_S;
+    const h = createMachineHealth({
+      targets: () => [{ id: "pc", name: "PC", kind: "remote" }],
+      readMetrics: async () => ({ cpu: 99, mem: 98 }),
+      probe: async () => null,
+      attemptsToday: () => [],
+      attribute: () => null,
+      externalSamples: async () => [{ t: base - 300, cpu: 5, mem: 6 }, { t: base, cpu: 1, mem: 1 }],
+      filePath: join(dir, "h.json"), statePath: join(dir, "s.json"), now: () => NOW,
+    });
+    await h.tick();
+    const out = JSON.parse(await readFile(join(dir, "h.json"), "utf8")) as MachinesHealthFile;
+    const hist = out.machines[0].history;
+    expect(hist.cpu[HISTORY_POINTS - 1]).toBe(99);
+    expect(hist.cpu[HISTORY_POINTS - 2]).toBe(5);
+    expect(hist.mem[HISTORY_POINTS - 2]).toBe(6);
+    await rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe("card di oggi di un nodo", () => {
+  test("un tentativo di oggi, una card avviata oggi senza tentativo e una vecchia ma in corso contano una volta; una chiusa ieri no", () => {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, machine_id TEXT, status TEXT, in_progress_at TEXT)");
+    db.run("CREATE TABLE task_attempts (id TEXT PRIMARY KEY, task_id TEXT, created_at TEXT)");
+    const midnight = new Date(2026, 10, 17, 0, 0, 0).getTime();
+    const iso = (h: number) => new Date(midnight + h * 3600_000).toISOString();
+    db.run("INSERT INTO tasks VALUES ('a','n1','review',?), ('b','n1','in_progress',?), ('c','n1','in_progress',?), ('d','n1','review',?), ('e',NULL,'review',?)", [iso(-5), iso(9), iso(-20), iso(-30), iso(3)]);
+    db.run("INSERT INTO task_attempts VALUES ('1','a',?), ('2','a',?), ('3','e',?)", [iso(2), iso(5), iso(3)]);
+    const runs = cardRunsToday(db, midnight);
+    const byMachine = (m: string | null) => runs.filter((r) => r.machineId === m).map((r) => r.createdAt).sort();
+    expect(byMachine("n1")).toEqual([iso(0), iso(2), iso(5), iso(9)].sort());
+    expect(byMachine(null)).toEqual([iso(3)]);
   });
 });
