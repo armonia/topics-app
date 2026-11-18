@@ -559,6 +559,14 @@ export interface WSStreamThinkingChunkMessage extends WSFrameRow {
   sessionKey: string;
   content: string;
 }
+/** A reasoning sentence translated into the chat language (`shared/ws-outbound.ts`). */
+export interface WSStreamReasoningTranslationMessage {
+  type: 'stream:reasoning_translation';
+  sessionKey: string;
+  index: number;
+  source: string;
+  text: string;
+}
 export interface WSStreamThinkingEndMessage {
   type: 'stream:thinking_end';
   sessionKey: string;
@@ -1277,6 +1285,7 @@ export type WSMessage =
   | WSStreamEndMessage
   | WSStreamThinkingStartMessage
   | WSStreamThinkingChunkMessage
+  | WSStreamReasoningTranslationMessage
   | WSStreamThinkingEndMessage
   | WSStreamContentChunkMessage
   | WSStreamToolCallMessage

@@ -6781,3 +6781,22 @@ A call of a card tool (`create_task`, `update_task`, `comment_task`, `get_task`,
 - **GIVEN** a card opened by a chat
 - **WHEN** it is taken to review and the same frame arrives again
 - **THEN** the chat SHALL receive exactly one message
+
+### Requirement: REASONING-TRANSLATE-01 — Il ragionamento si legge nella lingua della chat, e quando non si può tradurre resta l'originale
+
+Il riassunto del ragionamento (la riga «Thinking») arriva dal modello spesso in inglese anche in una chat italiana. Dove la macchina sa tradurre (framework Translation di Apple, sul dispositivo, gratis), il testo SHALL comparire nella lingua della chat, frase per frase mentre scorre, nella finestra della riga che già c'è. La lingua della chat è l'impostazione «lingua di risposta» e, su «auto», la lingua dell'interfaccia. Si traduce solo se la lingua rilevata del blocco è diversa e il blocco è abbastanza lungo da riconoscerla con sicurezza. Ogni frase tradotta SHALL essere salvata, così alla ricarica non si traduce di nuovo. Senza traduttore (non macOS 26, nessun compilatore Swift, lingua non installata, errore) la riga SHALL restare identica a oggi, senza errori visibili. Un controllo «Originale» SHALL dare indietro il testo del modello senza cambiare l'altezza della riga: la fine del turno non sposta niente.
+
+#### Scenario: Ragionamento inglese in una chat italiana
+- **GIVEN** una chat con lingua di risposta italiana e un traduttore disponibile
+- **WHEN** il modello ragiona in inglese
+- **THEN** la riga Thinking SHALL mostrare le frasi in italiano man mano che si chiudono, e a fine turno la riga, la risposta e la riga di dettagli SHALL muoversi di 0 px
+
+#### Scenario: Stessa lingua, testo cortissimo, traduttore assente
+- **GIVEN** un ragionamento già nella lingua della chat, oppure più corto di una frase, oppure nessun traduttore
+- **WHEN** la riga si disegna
+- **THEN** il testo SHALL restare quello del modello e nessun errore SHALL comparire
+
+#### Scenario: Ricarica
+- **GIVEN** un blocco già tradotto
+- **WHEN** la persona riapre la chat e la riga
+- **THEN** le frasi SHALL arrivare dalla cache salvata, senza chiamare di nuovo il traduttore
