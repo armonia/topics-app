@@ -17,6 +17,7 @@ import { buildContextUpdate } from "../usage/usage-update";
 import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
+import { rememberCodexHoldLogin } from "../lib/codex-login-watch";
 import type { ChatTurnScope } from "./chat-turn-scope";
 import { failedToolText } from "../lib/tool-finalize-status";
 import { createTurnReasoningTranslator } from "../reasoning-translation/turn";
@@ -770,14 +771,13 @@ export function createStreamHandler(turn: ChatTurnScope): void {
     onError: (error: string) => {
       console.error(`[StreamWS] Error for ${sessionKey}: ${error}`);
       // The second writer to the shared provider-hold memo (see
-      // server/lib/provider-hold.ts): Codex publishes no usage
-      // endpoint, only this sentence in the error itself, so this is
-      // where the wall becomes something the dispatcher can read
-      // instead of retrying four times into it (card 31be77d3).
+      // server/lib/provider-hold.ts): Codex publishes no usage endpoint,
+      // only this sentence in the error itself, so this is where the wall
+      // becomes something the dispatcher can read (card 31be77d3).
       if (turn.topicProvider.name === "codex") {
         const limit = parseCodexUsageLimit(error);
         if (limit) {
-          setProviderHold({ ...limit, window: "usage_limit", provider: "codex" });
+          setProviderHold({ ...limit, window: "usage_limit", provider: "codex" }); rememberCodexHoldLogin();
           console.warn(`[StreamWS] Codex usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
         }
       }
