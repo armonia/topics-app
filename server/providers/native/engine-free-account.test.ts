@@ -2,6 +2,8 @@
  * The account engine's own word on whether a request can be served
  * (`engineHasFreeAccount`): the question that lifts a plan hold read off one
  * spent account while the engine rotates to another (18/11).
+ *
+ * @covers RESUME-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { engineHasFreeAccount } from "./base-url";

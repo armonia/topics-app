@@ -148,7 +148,7 @@ export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now
 
 /**
  * A plan hold lifted because the account engine behind the base URL still has
- * an account that can serve (`engineHasFreeAccount`, `base-url.ts`). The hold
+ * an account that can take requests (`engineHasFreeAccount`, `base-url.ts`). The hold
  * measures one account's windows, the engine rotates past it: a spent account
  * is no wall while another one is free. An API outage hold is not the
  * engine's to lift, and an engine that cannot be read decides nothing.
