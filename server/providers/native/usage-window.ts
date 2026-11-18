@@ -65,8 +65,15 @@ export function observePlanUsage(usage: Usage | null, nowMs: number = Date.now()
   recordPlanUsage(usage, nowMs);
   const hold = holdFromUsage(usage, nowMs);
   if (!hold) return;
-  // The wall the engine just said it rotates past: not set again (see `ENGINE_LIFT_TRUST_MS`).
-  if (engineLift && nowMs - engineLift.atMs < ENGINE_LIFT_TRUST_MS && hold.untilMs <= engineLift.untilMs) return;
+  // The very wall the engine just said it rotates past is not set again on
+  // the CLI's word alone (see `ENGINE_LIFT_TRUST_MS`): the engine is asked
+  // again, and the wall goes up if it no longer has a free account. Any
+  // other wall (another window, another reset) is set at once.
+  const lift = engineLift;
+  if (lift && nowMs - lift.atMs < ENGINE_LIFT_TRUST_MS && hold.window === lift.window && hold.untilMs === lift.untilMs) {
+    void lift.probe().then((free) => { if (free !== true) setProviderHold(hold, nowMs); }).catch(() => setProviderHold(hold, nowMs));
+    return;
+  }
   setProviderHold(hold, nowMs);
 }
 
@@ -155,7 +162,7 @@ export async function releaseHoldIfEngineFree(engineFree: () => Promise<boolean 
   if ((await engineFree()) !== true) return false;
   if (providerHold(nowMs)?.sinceMs !== hold.sinceMs) return false;
   clearProviderHold();
-  engineLift = { untilMs: hold.untilMs, atMs: nowMs };
+  engineLift = { window: hold.window, untilMs: hold.untilMs, atMs: nowMs, probe: engineFree };
   return true;
 }
 
@@ -167,7 +174,7 @@ export async function releaseHoldIfEngineFree(engineFree: () => Promise<boolean 
  * A real 429 (`saturationHold`) is not stopped by this.
  */
 export const ENGINE_LIFT_TRUST_MS = 10 * 60_000;
-let engineLift: { untilMs: number; atMs: number } | null = null;
+let engineLift: { window: UsageWindowKind; untilMs: number; atMs: number; probe: () => Promise<boolean | null> } | null = null;
 
 /** Tests only: forget the last engine lift. */
 export function resetEngineLift(): void {

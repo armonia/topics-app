@@ -202,4 +202,24 @@ describe("releaseHoldIfEngineFree", () => {
     expect(await saturationHold("tok", NOW + 1_000, spent)).toBe(spentWeek.untilMs);
     expect(providerHold(NOW + 1_000)?.window).toBe("seven_day");
   });
+
+  test("after a lift, a different wall (another window) is set at once", async () => {
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => true, NOW);
+    const fiveHourSpent = { five_hour: { utilization: 100, resets_at: new Date(NOW + 2 * 3_600_000).toISOString() }, seven_day: null };
+    observePlanUsage(parseUsage(fiveHourSpent), NOW + 1_000);
+    expect(providerHold(NOW + 1_000)?.window).toBe("five_hour");
+  });
+
+  test("after a lift, the same wall goes up again once the engine has no free account left", async () => {
+    let free = true;
+    setProviderHold(spentWeek, NOW);
+    await releaseHoldIfEngineFree(async () => free, NOW);
+    free = false;
+    const sameWall = { five_hour: null, seven_day: { utilization: 100, resets_at: new Date(spentWeek.untilMs).toISOString() } };
+    observePlanUsage(parseUsage(sameWall), NOW + 1_000);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(providerHold(NOW + 1_000)?.window).toBe("seven_day");
+  });
 });
+
