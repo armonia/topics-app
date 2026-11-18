@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.45 — 2026-11-18
+
+### Sotto il cofano
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-18 [skip ci]
+- browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)
+
 ## 2.4.44 — 2026-11-18
 
 ### Sotto il cofano

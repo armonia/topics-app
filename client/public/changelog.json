@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.4.45",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-18 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.44",
     "date": "2026-11-18",
     "sections": {
