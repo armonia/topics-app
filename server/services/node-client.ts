@@ -66,6 +66,8 @@ export interface NodeClientDeps {
   hostname: string;
   /** Between two status polls while the node has not answered yet. */
   pollIntervalMs?: number;
+  /** The primary's epoch headers, so a node learns the highest epoch and refuses a replaced primary. */
+  extraHeaders?: () => Record<string, string>;
 }
 
 export interface PairRequestResult {
@@ -333,6 +335,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     "User-Agent": userAgent,
     Accept: "application/json",
     ...(token ? { Cookie: `${NODE_SESSION_COOKIE}=${token}` } : {}),
+    ...(deps.extraHeaders?.() ?? {}),
     ...extra,
   });
   const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>

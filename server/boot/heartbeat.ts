@@ -7,6 +7,7 @@ import { SERVER_VERSION } from "../ws-capabilities";
 import { createActivityRouter } from "../routes/activity";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
+import { getPrimaryRole } from "../lib/primary-role";
 import { createNodeProbe } from "../services/node-heartbeat";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { initVapid } from "../push-service";
@@ -33,6 +34,7 @@ export async function bootHeartbeat(scope: AfterRouters2) {
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       version: SERVER_VERSION,
       hostname: osHostname(),
+      extraHeaders: () => getPrimaryRole()?.outgoingHeaders() ?? {},
     }),
     tokenOf: (machineId) => readNodeToken(ctx.STATE_DIR, machineId),
     touch: (machineId) => ctx.machineStore.touchNode(machineId),

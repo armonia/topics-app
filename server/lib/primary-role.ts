@@ -10,11 +10,13 @@
  * AND in a state file written FIRST: the file survives a DB that is swapped or
  * restored, and at boot the higher epoch of the two wins.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Database } from "bun:sqlite";
 import { writeFileAtomic } from "./atomic-write";
 
 export const PRIMARY_EPOCH_HEADER = "x-topics-primary-epoch";
+export const PRIMARY_ID_HEADER = "x-topics-primary-id";
 export const STALE_EPOCH_CODE = "stale_primary_epoch";
 
 export interface PrimaryState {
@@ -30,8 +32,14 @@ export interface PrimaryRole {
   epoch(): number;
   /** Record a new primary. Refuses an epoch below the current one; same epoch must name the same machine. */
   adopt(next: { primaryMachineId: string; epoch: number }): PrimaryState;
-  /** A 409 for a request carrying a lower epoch than ours, else null (no header counts as unknown, not lower). */
+  /**
+   * A 409 for a request carrying a lower epoch than ours, else null. An absent,
+   * empty or unparsable header means "not declared", never 0. A higher epoch with
+   * the sender's machine id is adopted, so from then on lower ones are refused.
+   */
   rejectStale(req: Request): Response | null;
+  /** Headers an outgoing call from the primary carries: its epoch and machine id. Empty until a primary was chosen. */
+  outgoingHeaders(): Record<string, string>;
 }
 
 export interface PrimaryRoleDeps {
@@ -77,7 +85,11 @@ function staleResponse(current: number, presented: number): Response {
 
 export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
   const now = deps.now ?? (() => new Date().toISOString());
+  // Read once: a hostname change must not turn this server into a secondary in silence.
+  let localId: string | null = null;
+  const localMachineId = () => (localId ??= deps.localMachineId());
   const persist = (s: PrimaryState) => {
+    mkdirSync(dirname(deps.stateFile), { recursive: true });
     // File first: if the DB write fails the file already holds the newer epoch and boot repairs the DB.
     writeFileAtomic(deps.stateFile, JSON.stringify(s));
     writeDb(deps.db, s);
@@ -88,9 +100,9 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
   let current = fromFile && fromFile.epoch > fromDb.epoch ? fromFile : fromDb;
   if (fromFile === null || fromFile.epoch !== current.epoch || fromDb.epoch !== current.epoch) persist(current);
 
-  return {
+  const role: PrimaryRole = {
     state: () => ({ ...current }),
-    isPrimary: () => current.primaryMachineId === null || current.primaryMachineId === deps.localMachineId(),
+    isPrimary: () => current.primaryMachineId === null || current.primaryMachineId === localMachineId(),
     epoch: () => current.epoch,
     adopt(next) {
       if (!next.primaryMachineId) throw new Error("primary machine id is required");
@@ -105,13 +117,24 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       return { ...current };
     },
     rejectStale(req) {
-      const raw = req.headers.get(PRIMARY_EPOCH_HEADER);
-      if (raw === null) return null;
+      const raw = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim();
+      if (!raw || !/^\d+$/.test(raw)) return null;
       const presented = Number(raw);
-      if (!Number.isInteger(presented) || presented < 0 || presented >= current.epoch) return null;
+      if (presented > current.epoch) {
+        const id = req.headers.get(PRIMARY_ID_HEADER)?.trim();
+        if (id) {
+          try { role.adopt({ primaryMachineId: id, epoch: presented }); } catch { /* keep the current role */ }
+        }
+        return null;
+      }
+      if (presented >= current.epoch) return null;
       return staleResponse(current.epoch, presented);
     },
+    outgoingHeaders: (): Record<string, string> => (current.primaryMachineId && current.epoch > 0
+      ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch), [PRIMARY_ID_HEADER]: current.primaryMachineId }
+      : {}),
   };
+  return role;
 }
 
 let active: PrimaryRole | null = null;
