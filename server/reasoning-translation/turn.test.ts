@@ -4,9 +4,8 @@
  *
  * @covers REASONING-TRANSLATE-01
  */
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createTurnReasoningTranslator, withReasoningTranslation } from "./turn";
-import * as defaultModule from "./default";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { ReasoningTranslationService, memoryTranslationStore } from "./service";
 import type { ReasoningTranslator } from "./translator";
@@ -82,17 +81,11 @@ describe("withReasoningTranslation", () => {
       broadcastToAll: () => calls.push("all"),
       broadcastToTopicSubscribers: (_id: string, frame: Record<string, unknown>) => void frames.push(frame),
     };
-    const svc = service();
-    const spy = spyOn(defaultModule, "getReasoningTranslationService").mockReturnValue(svc);
-    try {
-      const wrapped = withReasoningTranslation(original as never, turn as never);
-      expect(wrapped.onTextDelta).toBe(original.onTextDelta);
-      wrapped.onThinkingDelta?.(BLOCK_ONE);
-      wrapped.onThinkingEnd?.();
-      await new Promise((r) => setTimeout(r, 30));
-    } finally {
-      spy.mockRestore();
-    }
+    const wrapped = withReasoningTranslation(original as never, turn as never, service);
+    expect(wrapped.onTextDelta).toBe(original.onTextDelta);
+    wrapped.onThinkingDelta?.(BLOCK_ONE);
+    wrapped.onThinkingEnd?.();
+    await new Promise((r) => setTimeout(r, 30));
     expect(calls).toEqual([`delta:${BLOCK_ONE.length}`, "end"]);
     expect(frames.map((f) => f.type)).toEqual(["stream:reasoning_translation", "stream:reasoning_translation"]);
     expect(frames[0]).toMatchObject({ sessionKey: "topic:abc", topicId: "t1", index: 0 });

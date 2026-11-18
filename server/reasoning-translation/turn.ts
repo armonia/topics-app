@@ -53,12 +53,13 @@ export function createTurnReasoningTranslator(
 export function withReasoningTranslation(
   handler: StreamHandler,
   turn: Pick<ChatTurnScope, "sessionKey" | "matchedTopic" | "broadcastToAll" | "broadcastToTopicSubscribers">,
+  getService: typeof getReasoningTranslationService = getReasoningTranslationService,
 ): StreamHandler {
   const translator = createTurnReasoningTranslator((sentence) => {
     const frame = { type: "stream:reasoning_translation" as const, sessionKey: turn.sessionKey, topicId: turn.matchedTopic?.id, ...sentence };
     if (turn.matchedTopic?.id) turn.broadcastToTopicSubscribers(turn.matchedTopic.id, frame);
     else turn.broadcastToAll(frame);
-  });
+  }, getService);
   return {
     ...handler,
     onThinkingDelta: (text: string) => {
