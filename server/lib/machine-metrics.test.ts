@@ -1,3 +1,6 @@
+/**
+ * @covers MACHINE-05
+ */
 import { describe, expect, test } from "bun:test";
 import { parseProcMemoryPct, readMemPct } from "./machine-metrics";
 
