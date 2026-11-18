@@ -9,7 +9,7 @@ Il 17/11 un account Claude è passato da 0 a 90% della settimana in nove ore e n
 - **l'avviso finiva nel diario dell'hub**, che nessuno apre (tolto da WhatsApp il 24/10 perché avvisava 25 volte a settimana sul ritmo);
 - **il freno esiste solo per un progetto** (Prince of Persia, `quota-guard.py`, fuori da Topics).
 
-Misura del 17/11 14:54-24:00 (89 punti, 100 = un account per una settimana), salita oraria della quota divisa sulle chiamate di quell'ora per peso: jarvis 20, pixel-console 15, zenocms 14,5, quadra 14, topics-app 12, .openclaw 5, cloud-sim 4,4. I sottoagenti `spawn_agent` fanno 380 dei 479 milioni di token pesati del motore nativo.
+Misura del 17/11 14:54-24:00 (89 punti, 100 = un account per una settimana), salita oraria della quota divisa sulle chiamate di quell'ora per peso: jarvis 20, pixel-console 15, zenocms 14,5, quadra 14, topics-app 12, un workspace di agenti 5, cloud-sim 4,4. I sottoagenti `spawn_agent` fanno 380 dei 479 milioni di token pesati del motore nativo.
 
 ## Stato dell'arte
 Il conto è quello di USAGE-27 (chi ha speso la quota, per persona): stessa salita oraria, stesso peso (input + 5·output + 1,25·scrittura cache + 0,1·lettura cache), raggruppato per progetto invece che per persona. LiteLLM e Helicone fanno budget per chiave o per tag con soglia d'avviso e blocco alla soglia; qui il «tag» è la cartella del progetto, il blocco è il freno già scritto in `task-dispatcher-spend-cap.ts` («freno, non taglio»).
