@@ -18,6 +18,8 @@ struct CardImage {
     png: Vec<u8>,
     w: f64,
     h: f64,
+    /// The charts of the card that answer to the mouse; a card with none is a plain image view.
+    hover: Vec<crate::tray_hover::HoverZone>,
 }
 
 struct TableRow {
@@ -46,8 +48,8 @@ pub fn reset() {
 }
 
 /// The marker title of a card item; its image is applied by `decorate`.
-pub fn register_card(key: &str, png: &[u8], w: f32, h: f32) -> String {
-    CARDS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.into(), CardImage { png: png.to_vec(), w: w as f64, h: h as f64 });
+pub fn register_card(key: &str, png: &[u8], w: f32, h: f32, hover: &[crate::tray_hover::HoverZone]) -> String {
+    CARDS.lock().unwrap().get_or_insert_with(HashMap::new).insert(key.into(), CardImage { png: png.to_vec(), w: w as f64, h: h as f64, hover: hover.to_vec() });
     format!("{CARD_MARK}{key}")
 }
 
@@ -280,11 +282,18 @@ unsafe fn set_card_view(mi: id, c: &CardImage) {
     }
     let _: () = msg_send![image, setSize: NSSize::new(c.w, c.h)];
     let _: () = msg_send![image, setTemplate: false];
-    let view: id = msg_send![class!(NSImageView), alloc];
-    let view: id = msg_send![view, initWithFrame: NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(c.w, c.h))];
-    let _: () = msg_send![view, setImage: image];
-    // The image is exactly the view's size: no scaling, no resampling blur.
-    let _: () = msg_send![view, setImageScaling: 2usize];
+    let frame = NSRect::new(crate::mac::NSPoint::new(0.0, 0.0), NSSize::new(c.w, c.h));
+    // a card with charts is a view that follows the mouse and draws the line and the label over its image
+    let view: id = if c.hover.is_empty() {
+        let view: id = msg_send![class!(NSImageView), alloc];
+        let view: id = msg_send![view, initWithFrame: frame];
+        let _: () = msg_send![view, setImage: image];
+        // The image is exactly the view's size: no scaling, no resampling blur.
+        let _: () = msg_send![view, setImageScaling: 2usize];
+        view
+    } else {
+        crate::tray_menu_hover_view::new_view(frame, image, c.hover.clone())
+    };
     let _: () = msg_send![mi, setView: view];
     let _: () = msg_send![view, release];
     let _: () = msg_send![image, release];

@@ -69,11 +69,13 @@ pub struct Pic {
     pub cv: Canvas,
     pub w: f32,
     pub h: f32,
+    /// The charts of this picture that answer to the mouse (`tray_hover`); empty for a picture with none.
+    pub hover: Vec<crate::tray_hover::HoverZone>,
 }
 
 impl Pic {
     pub fn new(w: f32, h: f32) -> Self {
-        Pic { cv: Canvas::new((w * SCALE).ceil() as u32, (h * SCALE).ceil() as u32), w, h }
+        Pic { cv: Canvas::new((w * SCALE).ceil() as u32, (h * SCALE).ceil() as u32), w, h, hover: Vec::new() }
     }
 
     /// Paints `cov` (0..1 at a point in pt) over the box, in colour `c` at opacity `a`.

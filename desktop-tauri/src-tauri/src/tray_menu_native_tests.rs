@@ -216,7 +216,7 @@ fn the_menu_a_status_item_receives_is_decorated() {
         hook_set_menu(probe_class as *const _ as *const std::ffi::c_void);
         let menu: id = msg_send![class!(NSMenu), new];
         raw_item(menu, &format!("{}Apri Topics", icon_mark("sf:macwindow")));
-        raw_item(menu, &register_card("machine:local", &[], 280.0, 90.0));
+        raw_item(menu, &register_card("machine:local", &[], 280.0, 90.0, &[]));
         let parent = raw_item(menu, &register_row(1, &["Projects".to_string(), "3".to_string()], true, Table::Projects, Look::default()));
         let sub: id = msg_send![class!(NSMenu), new];
         raw_item(sub, &format!("{}Esci", icon_mark("sf:power")));

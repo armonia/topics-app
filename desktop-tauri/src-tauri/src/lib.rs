@@ -40,8 +40,12 @@ mod tray_node_health;
 mod tray_menu;
 mod tray_menu_actions;
 mod tray_menu_clock;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_hover;
 #[cfg(target_os = "macos")]
 mod tray_menu_native;
+#[cfg(target_os = "macos")]
+mod tray_menu_hover_view;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_detail;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
