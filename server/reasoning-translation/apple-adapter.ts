@@ -15,7 +15,8 @@
  *  - a helper that dies mid-request must not hang the chat, so every request
  *    has a deadline and a dead process rejects all that waited on it.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { release } from "node:os";
@@ -62,7 +63,7 @@ export class AppleReasoningTranslator implements ReasoningTranslator {
   readonly name = "apple";
   private helper: Promise<string | null> | null = null;
   private failedAt = 0;
-  private child: ChildProcessWithoutNullStreams | null = null;
+  private child: ChildProcessByStdio<Writable, Readable, null> | null = null;
   private buffer = "";
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
@@ -118,7 +119,7 @@ export class AppleReasoningTranslator implements ReasoningTranslator {
     });
   }
 
-  private ensureChild(path: string): ChildProcessWithoutNullStreams {
+  private ensureChild(path: string): ChildProcessByStdio<Writable, Readable, null> {
     if (this.child) return this.child;
     const child = spawn(path, [], { stdio: ["pipe", "pipe", "ignore"] });
     this.child = child;
