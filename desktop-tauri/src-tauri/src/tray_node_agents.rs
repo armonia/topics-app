@@ -65,6 +65,7 @@ fn state_word(state: &str) -> &str {
         "review" => "in revisione",
         "stuck" => "fermo sul limite",
         "queued" => "in coda",
+        "chat" => "chat aperta",
         other => other,
     }
 }
