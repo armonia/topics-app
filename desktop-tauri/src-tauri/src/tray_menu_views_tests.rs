@@ -14,7 +14,7 @@ const BOARD: &str = r#"{
   {"provider":"claude","email":"a@example.org","used":100,"state":{"text":"esaurito → dom 10:00","tone":"bad"},
    "gauge":{"needle":2,"zone":"frenato"},"windows":[{"key":"week","label":"7 g","used":100,"reset":"dom 10:00","tone":"bad"}],
    "plan":{"label":"Piano","value":"Ultra","right":"23/11","tone":"mut"},"api":{"label":"API","value":"—","right":"da leggere","tone":"mut"},"end":null,"tokens":null},
-  {"provider":"codex","email":"b@example.org","used":40,"state":{"text":"in ritmo","tone":"ok","dial":true},"gauge":{"needle":0.8,"zone":"ok"},
+  {"provider":"codex","email":"b@example.org","used":40,"state":{"text":"in ritmo","tone":"ok","dial":true},"gauge":{"needle":0.8,"zone":"ok","day":2.5},
    "windows":[{"key":"5h","label":"5 h","used":30,"reset":"tra 2 h","tone":"ok","mark":50},{"key":"week","label":"7 g","used":40,"reset":"gio 09:00","tone":"ok"},{"key":"day","label":"24 h","used":12,"tone":"ok","note":"ok"}],
    "tokens":{"left":"231 M","perDay":"283 M/g"},"end":{"text":"finisce oggi 23:12","tone":"bad"}}]}"#;
 
@@ -40,7 +40,11 @@ fn quota_cards_put_spent_accounts_last_and_keep_every_minor_row() {
     assert_eq!(q[0].needle, Some(0.8));
     assert_eq!(q[0].five_hour.as_ref().map(|m| m.mark), Some(Some(50.0)));
     let labels: Vec<_> = q[0].minors.iter().map(|m| m.label.as_str()).collect();
-    assert_eq!(labels, ["Fine", "Token", "24 h"]);
+    // the 24 hour window is a pace: one sentence across the card, in times the sustainable one, and not a percentage
+    assert_eq!(labels, ["Finisce", "Token", ""]);
+    assert_eq!(q[0].minors[2].whole, "Ritmo: 2,5× il sostenibile");
+    assert_eq!(q[0].minors[1].right, "rimasti", "tokens say they are what is left");
+    assert_eq!(ratio_text(29.0), "29");
     assert_eq!(q[1].needle, None, "no dial unless the state asks for it");
     assert!(q[1].five_hour.is_none() && q[1].week.is_some());
     assert!(quota_cards("{}").is_empty());
@@ -256,4 +260,35 @@ fn an_odd_proof_takes_the_footer_beside_it_when_it_fits_and_no_row_of_its_own() 
     }
     let long = BackupCard { foot: "Sul Mac: una frase troppo lunga per mezza riga della scheda, che resta intera".into(), ..b };
     assert!(draw_backup_card(&long, Palette::new(true)).cv.h > without, "a footer too wide for the half row keeps its own line, whole");
+}
+
+// the widths come from CoreText: the estimate used where there is none is wider and says nothing about the menu
+#[cfg(target_os = "macos")]
+#[test]
+fn a_meter_names_what_its_share_is_of_and_keeps_the_time_of_its_reset() {
+    let q = quota_cards(BOARD);
+    assert_eq!(q[0].five_hour.as_ref().map(|m| m.label.as_str()), Some("5 ore"));
+    assert_eq!(q[0].week.as_ref().map(|m| m.label.as_str()), Some("7 giorni"));
+    // the longest reset of the sample fits the line next to its percentage: the arrow is what goes when it cannot
+    let w = (MENU_W - 2.0 * PAD - 8.0 * 2.0) / 3.0 - 18.0;
+    let used = Pic::text_w(Face::SansRegular, "7 giorni", 11.0) + 6.0 + Pic::text_w(Face::MonoBold, "100%", 14.0) + 8.0;
+    assert!(used + Pic::text_w(Face::Mono, "dom 10:00", 10.5) <= w, "label, percentage and reset share {w} pt");
+}
+
+#[test]
+fn a_remote_machines_description_is_not_coloured_like_trouble() {
+    // the PC's disk is red, its card level high: the line of what it is doing stays a grey description
+    let m = MachineCard { id: "pc".into(), name: "PC".into(), badge: "lavora".into(), level: 2, reason: "Barra completa della rubrica Contatti con i suoi test per un terminale, da 7 minuti".into(), ..Default::default() };
+    let pic = draw_machine_card(&m, Palette::new(true));
+    let red = |px: &[u8]| px[3] > 90 && px[0] > 200 && px[1] < 110 && px[2] < 110;
+    let (w, scale) = (pic.cv.w as usize, crate::tray_quota::SCALE);
+    let band = ((26.0 * scale) as usize * w * 4)..((42.0 * scale) as usize * w * 4);
+    assert!(!pic.cv.px[band].chunks(4).any(red), "the second line of a remote card has no red ink");
+}
+
+#[test]
+fn the_meters_of_an_account_are_named_by_what_they_cover_on_every_platform() {
+    let q = quota_cards(BOARD);
+    assert_eq!(q[0].five_hour.as_ref().map(|m| m.label.as_str()), Some("5 ore"));
+    assert_eq!(q[0].week.as_ref().map(|m| m.label.as_str()), Some("7 giorni"));
 }

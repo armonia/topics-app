@@ -322,7 +322,7 @@ pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: 
     let busy = rows.iter().filter(|p| working(p)).count();
     let agents: usize = rows.iter().map(|p| agent_count(p)).sum();
     // the small grey line under the header is the header's own second line, as in the original tray
-    let summary = if agents == 0 { "nessun lavoro in corso · consumo in % della settimana".to_string() } else { format!("{agents} {} in {busy} {} su {} · consumo in % della settimana", if agents == 1 { "lavoro in corso" } else { "lavori in corso" }, if busy == 1 { "progetto" } else { "progetti" }, rows.len()) };
+    let summary = if agents == 0 { "nessun lavoro in corso · token della settimana: % dell'abbonamento di ogni fornitore".to_string() } else { format!("{agents} {} in {busy} {} su {} · token della settimana: % dell'abbonamento di ogni fornitore", if agents == 1 { "lavoro in corso" } else { "lavori in corso" }, if busy == 1 { "progetto" } else { "progetti" }, rows.len()) };
     let mut head = ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec();
     head.push(second_line(summary));
     let mut out = vec![head_row(Table::Projects, head)];

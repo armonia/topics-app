@@ -25,6 +25,8 @@ pub struct Minor {
     pub value: String,
     pub right: String,
     pub level: u32,
+    /// A row that is one sentence across the card (the pace), in place of label, value and note.
+    pub whole: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -41,6 +43,11 @@ pub struct QuotaCard {
     pub five_hour: Option<Meter>,
     pub week: Option<Meter>,
     pub minors: Vec<Minor>,
+}
+
+/// How many times the sustainable pace: one decimal below ten, whole from there.
+pub(crate) fn ratio_text(r: f64) -> String {
+    if r >= 10.0 { format!("{r:.0}") } else { format!("{r:.1}").replace('.', ",") }
 }
 
 fn meter_of(w: &Value, label: &str) -> Meter {
@@ -79,7 +86,7 @@ fn minor_of(label: &str, v: &Value) -> Option<Minor> {
     if v.is_null() {
         return None;
     }
-    Some(Minor { icon: quota_symbol(s(v, "icon")).into(), reset: v.get("reset").and_then(Value::as_bool).unwrap_or(false), label: label.into(), value: text_of(v, "value"), right: text_of(v, "right"), level: level_of_tone(s(v, "tone")) })
+    Some(Minor { icon: quota_symbol(s(v, "icon")).into(), reset: v.get("reset").and_then(Value::as_bool).unwrap_or(false), label: label.into(), value: text_of(v, "value"), right: text_of(v, "right"), level: level_of_tone(s(v, "tone")), ..Default::default() })
 }
 
 /// One card per account of `/api/board`: usable first, spent ones last.
@@ -92,12 +99,19 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
         let mut minors: Vec<Minor> = Vec::new();
         minors.extend(a.get("plan").and_then(|x| minor_of(s(x, "label").trim().is_empty().then_some("Piano").unwrap_or(s(x, "label")), x)));
         if let Some(e) = a.get("end").filter(|e| !e.is_null()) {
-            minors.push(Minor { icon: "clock".into(), reset: false, label: "Fine".into(), value: s(e, "text").into(), right: String::new(), level: level_of_tone(s(e, "tone")) });
+            minors.push(Minor { icon: "clock".into(), reset: false, label: "Finisce".into(), value: s(e, "text").into(), right: String::new(), level: level_of_tone(s(e, "tone")), ..Default::default() });
         }
         if let Some(t) = a.get("tokens").filter(|t| !t.is_null()) {
-            minors.push(Minor { icon: "square.stack.3d.up".into(), reset: false, label: "Token".into(), value: text_of(t, "left"), right: text_of(t, "perDay"), level: 0 });
+            minors.push(Minor { icon: "square.stack.3d.up".into(), reset: false, label: "Token".into(), value: text_of(t, "left"), right: "rimasti".into(), level: 0, ..Default::default() });
         }
         for w in wins.iter().filter(|w| s(w, "key") != "5h" && s(w, "key") != "week") {
+            // the 24 hour window is a pace, not a share: how many times the sustainable one the account runs at
+            if s(w, "key") == "day" {
+                if let Some(ratio) = a.get("gauge").and_then(|g| num(g, "day")) {
+                    minors.push(Minor { icon: "waveform.path.ecg".into(), whole: format!("Ritmo: {}× il sostenibile", ratio_text(ratio)), level: level_of_tone(s(w, "tone")), ..Default::default() });
+                }
+                continue;
+            }
             let reset = s(w, "reset");
             minors.push(Minor {
                 icon: if s(w, "key") == "day" { "waveform.path.ecg" } else { "sparkles" }.into(),
@@ -106,10 +120,11 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
                 value: format!("{}%", num(w, "used").unwrap_or(0.0).round() as i64),
                 right: if reset.is_empty() { s(w, "note").into() } else { reset.into() },
                 level: level_of_tone(s(w, "tone")),
+                ..Default::default()
             });
         }
         if let Some(b) = a.get("bonus").filter(|b| !b.is_null()) {
-            minors.push(Minor { icon: "gift".into(), reset: false, label: "Bonus".into(), value: format!("${}", num(b, "left").unwrap_or(0.0).round() as i64), right: s(b, "renews").into(), level: 0 });
+            minors.push(Minor { icon: "gift".into(), reset: false, label: "Bonus".into(), value: format!("${}", num(b, "left").unwrap_or(0.0).round() as i64), right: s(b, "renews").into(), level: 0, ..Default::default() });
         }
         minors.extend(a.get("api").and_then(|x| minor_of(s(x, "label"), x)));
         let dial = st.get("dial").and_then(Value::as_bool).unwrap_or(false);
@@ -121,8 +136,8 @@ pub fn quota_cards(body: &str) -> Vec<QuotaCard> {
             state_level: level_of_tone(s(&st, "tone")),
             state_icon: Some(s(&st, "icon")).filter(|i| !i.is_empty()).map(|i| quota_symbol(i).to_string()).unwrap_or_default(),
             needle: if dial { a.get("gauge").and_then(|g| num(g, "needle")).map(|n| n as f32) } else { None },
-            five_hour: win("5h").map(|w| meter_of(w, "5 h")),
-            week: win("week").map(|w| meter_of(w, "7 g")),
+            five_hour: win("5h").map(|w| meter_of(w, "5 ore")),
+            week: win("week").map(|w| meter_of(w, "7 giorni")),
             minors,
         }
     }).collect();
@@ -145,15 +160,19 @@ fn draw_meter(pic: &mut Pic, m: &Option<Meter>, label: &str, x: f32, y: f32, w: 
     let a = if m.is_some() { 1.0 } else { 0.45 };
     let used = m.as_ref().map_or(0.0, |m| m.used);
     let l1 = y + 11.0;
-    pic.text(Face::SansRegular, label, x, l1, 11.0, p.fg, p.dim * a);
+    // the label says what the share is of («7 giorni»); the percentage follows it, the time of the reset ends the line
+    let lw = pic.text(Face::SansRegular, label, x, l1, 11.0, p.fg, p.dim * a);
+    let px = x + lw + 6.0;
     let pct = m.as_ref().map_or("—".to_string(), |m| format!("{}%", m.used.round() as i64));
-    let pw = pic.text(Face::MonoBold, &pct, x + 28.0, l1 + 1.0, 14.0, p.fg, a);
+    let pw = pic.text(Face::MonoBold, &pct, px, l1 + 1.0, 14.0, p.fg, a);
     if let Some(m) = m.as_ref().filter(|m| !m.reset.is_empty()) {
-        let room = w - 28.0 - pw - 8.0 - 12.0;
-        let r = Pic::fit(Face::Mono, &m.reset, 10.5, room.max(0.0));
+        // the refresh arrow goes when the time would not fit with it, never the time
+        let room = x + w - (px + pw + 8.0);
+        let arrow = if Pic::text_w(Face::Mono, &m.reset, 10.5) + 12.0 <= room { 12.0 } else { 0.0 };
+        let r = Pic::fit(Face::Mono, &m.reset, 10.5, (room - arrow).max(0.0));
         let rw = Pic::text_w(Face::Mono, &r, 10.5);
         pic.text(Face::Mono, &r, x + w - rw, l1, 10.5, p.fg, p.dim);
-        if let Some(mask) = system_symbol("arrow.clockwise") {
+        if let (true, Some(mask)) = (arrow > 0.0, system_symbol("arrow.clockwise")) {
             pic.mask(x + w - rw - 12.0, l1 - 9.0, 9.0, &mask, p.fg, p.dim);
         }
     }
@@ -239,8 +258,8 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
     }
     draw_state(pic, &c.state, tx, ix + iw, sy + 15.0, st);
     let my = sy + 20.0 + 6.0;
-    draw_meter(pic, &c.five_hour, "5 h", ix, my, iw, p);
-    draw_meter(pic, &c.week, "7 g", ix, my + METER_H + 5.0, iw, p);
+    draw_meter(pic, &c.five_hour, "5 ore", ix, my, iw, p);
+    draw_meter(pic, &c.week, "7 giorni", ix, my + METER_H + 5.0, iw, p);
     if c.minors.is_empty() {
         return;
     }
@@ -251,9 +270,20 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, x: f32, y: f32, w: f32, h: f32,
         if let Some(mask) = system_symbol(&m.icon) {
             pic.mask(ix, base - 10.0, 11.0, &mask, p.fg, p.dim);
         }
+        if !m.whole.is_empty() {
+            let c = if m.level > 0 { tone(m.level) } else { p.fg };
+            pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &m.whole, 10.5, iw - 15.0), ix + 15.0, base, 10.5, c, if m.level > 0 { 1.0 } else { p.dim });
+            yy += MINOR_H;
+            continue;
+        }
         pic.text(Face::SansRegular, &m.label, ix + 15.0, base, 11.0, p.fg, p.dim);
-        let vx = ix + 52.0;
-        let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, 11.0, iw - 52.0), vx, base, 11.0, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
+        let vx = ix + 56.0;
+        // the value goes down half a point (twice) before the note beside it has to be cut: the date of the API credit
+        // is worth more than the third decimal of a size
+        let note_w = |size: f32| Pic::text_w(Face::Mono, m.right.rsplit(' ').next().unwrap_or(""), size);
+        let value_pt = [(11.0_f32, 10.0_f32), (10.5, 9.5), (10.0, 9.0)].into_iter()
+            .find(|(vs, ns)| ix + iw - (vx + Pic::text_w(Face::Sans, &m.value, *vs) + 6.0) >= note_w(*ns)).map_or(10.0, |(vs, _)| vs);
+        let vw = pic.text(Face::Sans, &Pic::fit(Face::Sans, &m.value, value_pt, iw - 56.0), vx, base, value_pt, if m.level > 0 { tone(m.level) } else { p.fg }, 1.0);
         let full = ix + iw - (vx + vw + 6.0);
         let mut arrow = if m.reset { 12.0 } else { 0.0 };
         // when it does not fit, the note loses its first word («sost.»), then half a point, then the refresh arrow

@@ -48,6 +48,10 @@ pub struct Metric {
     /// a reading the dial has no band for.
     pub name: String,
     pub value: String,
+    /// The service's history of the reading: how many points and how long it reaches, and its highest one.
+    pub hist_n: usize,
+    pub hist_span_s: i64,
+    pub hist_peak: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -69,6 +73,8 @@ pub struct MachineCard {
     pub order: u32,
     /// The id this machine has in Topics' machine list, when the card is the service's own and its id is another one.
     pub machine_id: String,
+    /// The node's agents, from the client's machine of the same node.
+    pub agents: Option<crate::tray_node_agents::NodeAgents>,
 }
 
 impl MachineCard {
@@ -84,6 +90,16 @@ impl MachineCard {
     pub fn display_name(&self) -> String {
         if self.order == 0 { self.name.clone() } else { format!("{} · {}", self.order, self.name) }
     }
+}
+
+/// How many points the service's history of a reading has, how many seconds it reaches and its highest value.
+pub(crate) fn hist_of(x: &Value) -> (usize, i64, Option<u32>) {
+    let pts: Vec<(f64, f64)> = x.get("history").and_then(Value::as_array).map(|h| h.iter().filter_map(|p| Some((p.get("t")?.as_f64()?, p.get("v")?.as_f64()?))).collect()).unwrap_or_default();
+    let span = match (pts.first(), pts.last()) {
+        (Some(a), Some(b)) => ((b.0 - a.0) / 1000.0) as i64,
+        _ => 0,
+    };
+    (pts.len(), span, pts.iter().map(|p| p.1).fold(None, |m: Option<f64>, v| Some(m.map_or(v, |m| m.max(v)))).map(|v| v.round() as u32))
 }
 
 /// Machines of the usage service's board (`/api/board`, `machines`).
@@ -107,9 +123,13 @@ pub fn machine_cards_from_board(body: &str) -> Vec<MachineCard> {
                 note: s(x, "note").into(),
                 name: s(x, "name").into(),
                 value: s(x, "value").into(),
+                hist_n: hist_of(x).0,
+                hist_span_s: hist_of(x).1,
+                hist_peak: hist_of(x).2,
             }).collect()).unwrap_or_default(),
             order: 0,
             machine_id: String::new(),
+            agents: None,
         })
         .collect()
 }
@@ -296,7 +316,8 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
         pic.pill_plain(MENU_W - 16.0, 12.5, &m.badge, if off { p.fg } else { head });
     }
     if brake {
-        let (c, a) = if lvl >= 1 { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
+        // only this computer's line is about its own trouble; what a remote machine is doing is a description
+        let (c, a) = if lvl >= 1 && m.local { (tone(lvl), 1.0) } else { (p.fg, p.dim) };
         // this computer's line is about its brake (a sign), a remote machine's is what it is doing (no sign)
         let tx = if m.local { 53.0 } else { 38.0 };
         if let Some(mask) = system_symbol(if lvl >= 1 { "pause.circle.fill" } else { "clock.fill" }).filter(|_| m.local) {
@@ -335,7 +356,12 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
     let swap = find("swap").filter(|x| !x.value.is_empty());
     let notes: Vec<(String, [u8; 3], f32)> = [("cpu", 0usize), ("gpu", 1), ("mem", 2), ("disk", 3)].iter().map(|(key, _)| {
         match (*key, swap) {
-            ("mem", Some(s)) => (format!("swap {}", s.value), if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim }),
+            // the memory in use out of its total, then the swap behind it: the swap's colour is the note's when it is at risk
+            ("mem", Some(s)) => {
+                let base = find("mem").map_or(String::new(), |x| x.note.clone());
+                let swap_say = format!("swap {}", s.value);
+                (if base.is_empty() { swap_say } else { format!("{base} · {swap_say}") }, if s.level > 0 { tone(s.level) } else { p.fg }, if s.level > 0 { 1.0 } else { p.dim })
+            }
             _ => (find(key).map_or(String::new(), |x| x.note.clone()), p.fg, p.dim),
         }
     }).chain(extras.iter().map(|x| {
@@ -508,7 +534,8 @@ pub fn backup_card(body: &str, now: i64) -> Option<BackupCard> {
     } else {
         foot_parts.push("Adesso niente".into());
         if let Some(sec) = v.get("last_seconds").and_then(Value::as_f64) {
-            foot_parts.push(format!("ultimo giro {} min", ((sec / 60.0).round() as i64).max(1)));
+            let mins = ((sec / 60.0).round() as i64).max(1);
+            foot_parts.push(if mins >= 120 { format!("ultimo giro {} h {} min", mins / 60, mins % 60) } else { format!("ultimo giro {mins} min") });
         }
     }
     if let Some(local) = v.get("icloud").and_then(|i| i.get("local_bytes")).and_then(Value::as_f64) {
