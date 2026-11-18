@@ -3,6 +3,13 @@
 use super::*;
 use crate::tray_menu::dump_text;
 
+#[test]
+fn every_state_the_service_names_has_its_words() {
+    for (state, words) in [("working", "lavora"), ("waiting", "aspetta te"), ("review", "in revisione"), ("stuck", "fermo sul limite"), ("queued", "in coda"), ("chat", "chat aperta")] {
+        assert_eq!(state_word(state), words);
+    }
+}
+
 const SHAPE: &str = r#"{"working":2,"waiting":1,"review":0,"stuck":0,"queued":1,"chats":3,
   "byProject":[{"project":"topics-app","count":2},{"project":"quadra","count":1}],
   "items":[{"title":"Tray: impaginazione","project":"topics-app","state":"working","since":1800000000000},
