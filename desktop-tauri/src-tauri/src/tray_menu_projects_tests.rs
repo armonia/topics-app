@@ -171,3 +171,10 @@ fn the_names_of_a_table_with_a_priority_arrow_all_start_on_one_x() {
     assert!(plain.iter().filter_map(|n| match n { crate::tray_menu::Node::Icon { node, .. } => Some(&**node), _ => None })
         .all(|n| matches!(n, crate::tray_menu::Node::Row { look, .. } if !look.arrow_slot)));
 }
+
+#[test]
+fn a_rate_column_with_no_rate_has_no_heading() {
+    let (_, t) = braked_table("");
+    assert!(t.starts_with("PROGETTI | Claude | Codex | Muse |  | stato"), "{t}");
+    assert!(table().contains("ritmo/h"), "a column with a rate keeps its heading");
+}

@@ -330,6 +330,10 @@ pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: 
     let tail = "token della settimana: % dell'abbonamento";
     let summary = if agents == 0 { format!("nessun lavoro in corso{braked} · {tail}") } else { format!("{agents} {} in {busy} {} su {}{braked} · {tail}", if agents == 1 { "lavoro in corso" } else { "lavori in corso" }, if busy == 1 { "progetto" } else { "progetti" }, rows.len()) };
     let mut head = ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec();
+    // a rate column with no rate in any row has nothing to head
+    if !rows.iter().any(|p| agents_of(p).iter().any(|a| a.get("use").map_or(0.0, |u| n(u, "hourTokens")) > 0.0)) {
+        head[4].clear();
+    }
     head.push(second_line(summary));
     let mut out = vec![head_row(Table::Projects, head)];
     // the arrow of a priority pushes a name right: when any row has one, the others keep its place empty

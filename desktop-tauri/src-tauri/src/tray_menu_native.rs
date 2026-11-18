@@ -324,10 +324,15 @@ unsafe fn inline_symbol(spec: &str) -> Option<id> {
 
 /// An empty piece as wide and tall as an inline symbol (13×12): the place an arrow would take.
 unsafe fn blank_slot() -> Option<id> {
+    // an attachment with no image has no width: a transparent image of the arrow's size is what holds the place
+    let blank: id = msg_send![class!(NSImage), alloc];
+    let blank: id = msg_send![blank, initWithSize: NSSize::new(13.0, 12.0)];
     let att: id = msg_send![class!(NSTextAttachment), new];
+    let _: () = msg_send![att, setImage: blank];
     let _: () = msg_send![att, setBounds: NSRect::new(crate::mac::NSPoint::new(0.0, -2.0), NSSize::new(13.0, 12.0))];
     let piece: id = msg_send![class!(NSAttributedString), attributedStringWithAttachment: att];
     let _: () = msg_send![att, release];
+    let _: () = msg_send![blank, release];
     Some(piece)
 }
 
