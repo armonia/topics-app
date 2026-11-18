@@ -929,6 +929,9 @@ function onNativeChildChatTurnStart(sessionKey: string, turnId: string, meta: Tu
       else d.saveTopic({ ...topic, archived: false, updatedAt: new Date().toISOString() }, false);
     }
   } else if (row.state !== "retired") {
+    // A running child waiting on its own work, woken by it: its turn is open,
+    // so it is at work again (its report set it `waiting-results`).
+    setChildPhase(row.id, "working");
     return;
   }
   setSubagentState(db, row.id, "running");
