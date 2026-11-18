@@ -2,6 +2,7 @@
  * The landing audit and the sweep of lands left behind.
  */
 import { providerHold } from "../lib/provider-hold";
+import { releaseCodexHoldIfLoginChanged } from "../lib/codex-login-watch";
 import { getAccessToken } from "../providers/native/auth";
 import { releaseHoldIfFreed } from "../providers/native/usage-window";
 import { existsSync } from "fs";
@@ -22,6 +23,9 @@ export function bootDeliveryAudit(scope: AfterReattach) {
             if (token && await releaseHoldIfFreed(token)) {
               console.log("[provider-hold] lifted: the usage endpoint no longer marks any window spent (current credential)");
             }
+          }
+          if (releaseCodexHoldIfLoginChanged()) {
+            console.log("[provider-hold] lifted: the Codex CLI is logged in as a different account");
           }
         } catch (err) {
           console.error("[provider-hold] recheck failed", err);
