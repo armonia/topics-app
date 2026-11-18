@@ -123,17 +123,30 @@ function ownWindowId(): string {
 
 /**
  * Map of topicId → {windowId, windowLabel} for topics held in a window OTHER
- * than `selfWindowId`. First-seen wins when a topic is open in several other
+ * than this one. First-seen wins when a topic is open in several other
  * windows (arbitrary but stable enough for a single "focus that window"
  * affordance). Drives the sidebar gate + AppWindow glyph.
+ *
+ * Inside the desktop shell (`selfWindowLabel` set) a row marked "elsewhere" is
+ * a promise that clicking it brings that window forward, so only windows that
+ * can keep it count:
+ *   - a peer WITHOUT a label (a web tab, a phone) is not an OS window this
+ *     shell can focus. Counting it handed the row an empty label, and the
+ *     click fell through to opening the chat here.
+ *   - a peer with THIS window's label is this window, reborn with a new
+ *     `windowId` once its sessionStorage was emptied. Focusing it is a no-op.
+ * Off the shell there is no label to check, and other tabs are genuinely
+ * other windows, so every peer counts.
  */
 export function computeDetachedTopicMap(
   windows: Record<string, PresenceWindow>,
   selfWindowId: string,
+  selfWindowLabel?: string | null,
 ): Map<string, { windowId: string; windowLabel?: string }> {
   const map = new Map<string, { windowId: string; windowLabel?: string }>();
   for (const w of Object.values(windows)) {
     if (w.windowId === selfWindowId) continue;
+    if (selfWindowLabel && (!w.windowLabel || w.windowLabel === selfWindowLabel)) continue;
     for (const topicId of w.topicIds) {
       if (!map.has(topicId)) {
         map.set(topicId, { windowId: w.windowId, windowLabel: w.windowLabel });
@@ -177,10 +190,10 @@ export function computeSpaceWindows(
 
 // ── React hooks (thin wrappers over the pure selectors) ──────────────────────
 
-/** See computeDetachedTopicMap — excludes THIS window's id. */
+/** See computeDetachedTopicMap. Excludes THIS window by id and by label. */
 export function useDetachedTopicMap(): Map<string, { windowId: string; windowLabel?: string }> {
   const windows = useWindowPresenceStore((s) => s.windows);
-  return useMemo(() => computeDetachedTopicMap(windows, ownWindowId()), [windows]);
+  return useMemo(() => computeDetachedTopicMap(windows, ownWindowId(), currentWindowLabel()), [windows]);
 }
 
 /**

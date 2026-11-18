@@ -2947,6 +2947,8 @@ const EN = {
   'topic.serverOn': 'Server running: {where}. It stays up by itself, the chat is free',
   'topic.serverOnLan': 'Server running and visible on the LAN: {where}. Anyone on the same network can open it',
   'topic.openElsewhere': 'Open in another window',
+  'topic.elsewhereUnreachable': 'The window holding this chat cannot be reached from here',
+  'topic.openHere': 'Open here',
   // ── Sharing.
   'share.button': 'Share',
   'share.sharedWith': 'Shared with {n}',

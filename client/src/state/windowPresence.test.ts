@@ -61,6 +61,28 @@ describe('computeDetachedTopicMap', () => {
     expect(map.has('y')).toBe(true);
     expect(map.get('y')?.windowLabel).toBeUndefined();
   });
+
+  // Card 9e7607dd: inside the desktop shell an unlabelled holder gave the
+  // sidebar row an empty label, and the click opened the chat in this window.
+  test('in the desktop shell a holder without a label is not "elsewhere"', () => {
+    const windows = byId(
+      win({ windowId: 'phone', topicIds: ['y'] }),
+      win({ windowId: 'w2', windowLabel: 'detach-1', detached: true, topicIds: ['z'] }),
+    );
+    const map = computeDetachedTopicMap(windows, 'self', 'main');
+    expect(map.has('y')).toBe(false);
+    expect(map.get('z')).toEqual({ windowId: 'w2', windowLabel: 'detach-1' });
+  });
+
+  test('in the desktop shell this window reborn with a new id is excluded by label', () => {
+    const windows = byId(
+      win({ windowId: 'old-id', windowLabel: 'detach-1', topicIds: ['a'] }),
+      win({ windowId: 'w3', windowLabel: 'main', topicIds: ['b'] }),
+    );
+    const map = computeDetachedTopicMap(windows, 'self', 'detach-1');
+    expect(map.has('a')).toBe(false);
+    expect(map.get('b')?.windowLabel).toBe('main');
+  });
 });
 
 describe('computeSpaceWindows — quale gruppo vive in quale finestra', () => {

@@ -3297,6 +3297,8 @@ const IT: Dict = {
   'topic.serverOn': 'Server acceso: {where}. Resta su da solo, la chat è libera',
   'topic.serverOnLan': 'Server acceso e visibile in LAN: {where}. Chiunque sia sulla stessa rete può aprirlo',
   'topic.openElsewhere': "Aperto in un'altra finestra",
+  'topic.elsewhereUnreachable': 'La finestra che tiene questa chat non si raggiunge da qui',
+  'topic.openHere': 'Apri qui',
   // ── Condivisione. Il pannello era scritto a mano in inglese dentro un'app
   //    che parla italiano: qui le sue parole entrano nel dizionario come tutte
   //    le altre, e con loro il «copia il link» che prima viveva in un'icona a
