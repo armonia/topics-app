@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFindFocusThinking } from '../../state/chatFindFocus';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -51,9 +51,10 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
   }
   const collapsed = pressed === null ? (live ? false : defaultCollapsed) : !pressed;
   const tr = useT();
+  // Subscribes the row: it draws again whenever a sentence is translated.
   const translationsVersion = useReasoningTranslationsVersion();
   const [showOriginal, setShowOriginal] = useState(false);
-  const translated = useMemo(() => applyReasoningTranslations(content), [content, translationsVersion]);
+  const translated = applyReasoningTranslations(content);
   const hasTranslation = translated.count > 0;
   // A settled block that a person opens is translated on demand; the live one
   // gets its sentences from the stream as they close.

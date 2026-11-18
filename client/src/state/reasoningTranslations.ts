@@ -59,6 +59,8 @@ interface AppliedTranslation {
 
 /** Swaps the translated sentences into `content`, keeping the whitespace around each one. */
 export function applyReasoningTranslations(content: string): AppliedTranslation {
+  // The common case, nothing translated yet: no need to cut the text at all.
+  if (entries.size === 0) return { text: content, count: 0 };
   let count = 0;
   let text = '';
   for (const part of splitSentences(content)) {
