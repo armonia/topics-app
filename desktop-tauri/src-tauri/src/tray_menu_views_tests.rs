@@ -107,10 +107,12 @@ fn the_server_card_is_the_pc_card_with_one_more_row_for_its_spend() {
     server.metrics.push(Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), level: 2, ..Default::default() });
     let with_spend = draw_machine_card(&server, p);
     assert_eq!(plain.cv.h, draw_machine_card(&pc, p).cv.h, "same card as the PC");
-    assert_eq!(with_spend.cv.h, plain.cv.h + 36, "the spend takes one legend row (18 pt at 2x)");
-    // a server that measures only its spend still gets the dial, not a different card
+    // three readings and the spend are four rows: the card grows by what the dial's own height did not already hold
+    assert!(with_spend.cv.h > plain.cv.h, "the spend is one more legend row");
+    assert!(with_spend.cv.h <= plain.cv.h + 36, "and not more than one row (18 pt at 2x)");
+    // a server that measures only its spend still gets the dial's height, not a squashed card
     let only_spend = MachineCard { metrics: vec![server.metrics[3].clone()], ..server.clone() };
-    assert_eq!(draw_machine_card(&only_spend, p).cv.h, with_spend.cv.h);
+    assert_eq!(draw_machine_card(&only_spend, p).cv.h, plain.cv.h);
 }
 
 #[test]
@@ -291,4 +293,64 @@ fn the_meters_of_an_account_are_named_by_what_they_cover_on_every_platform() {
     let q = quota_cards(BOARD);
     assert_eq!(q[0].five_hour.as_ref().map(|m| m.label.as_str()), Some("5 ore"));
     assert_eq!(q[0].week.as_ref().map(|m| m.label.as_str()), Some("7 giorni"));
+}
+
+// ---- the legend: one set of columns, and no row for a reading the machine does not have
+
+fn metric(key: &str, pct: Option<u32>, note: &str) -> Metric {
+    Metric { key: key.into(), pct, note: note.into(), ..Default::default() }
+}
+
+#[test]
+fn a_reading_the_machine_does_not_have_is_not_a_row() {
+    let m = MachineCard { metrics: vec![metric("cpu", Some(90), "14,4 di 16 core"), metric("gpu", None, ""), metric("mem", Some(48), ""), metric("disk", Some(24), "pieno")], ..Default::default() };
+    let keys: Vec<&str> = legend_dial_rows(&m).iter().map(|r| r.0).collect();
+    assert_eq!(keys, ["cpu", "mem", "disk"]);
+    // a reading with a value but no note stays; one with a note and no value stays too (it says why)
+    let n = MachineCard { metrics: vec![metric("gpu", None, "non misurata")], ..Default::default() };
+    assert_eq!(legend_dial_rows(&n).len(), 1);
+}
+
+#[test]
+fn a_wide_value_widens_the_value_column_for_every_row_and_the_bars_share_both_ends() {
+    let labels = ["CPU", "Memoria", "Spesa"];
+    let narrow = legend_cols(200.0, 524.0, &labels, &["66%".into(), "88%".into(), "9%".into()], &["7,9 di 12 core", "", ""]);
+    let wide = legend_cols(200.0, 524.0, &labels, &["66%".into(), "88%".into(), "8,44/60 €".into()], &["7,9 di 12 core", "", ""]);
+    // short values keep the column near where it always was (the text metrics differ a little between systems)
+    assert!(narrow.val_right >= 300.0 && narrow.val_right < 312.0, "{narrow:?}");
+    assert!(wide.val_right > narrow.val_right, "{wide:?}");
+    // the widest value fits between the widest label and the column's end, whatever row it is on
+    let value_w = Pic::text_w(Face::MonoBold, "8,44/60 €", 11.5);
+    let label_end = 200.0 + 20.0 + Pic::text_w(Face::Sans, "Memoria", 10.5);
+    assert!(wide.val_right - value_w >= label_end, "{wide:?}");
+    assert!(wide.bar_x > wide.val_right && wide.bar_end > wide.bar_x + 40.0, "{wide:?}");
+    // with no note on any row the bars run to the right margin
+    assert_eq!(legend_cols(200.0, 524.0, &labels, &["1%".into(), "2%".into(), "3%".into()], &["", "", ""]).bar_end, 524.0);
+}
+
+#[test]
+fn a_backup_day_says_its_date_and_its_outcome() {
+    let b = backup_card(r#"{"last_ok":1800000000,"runs":[{"at":1799990000,"ok":true},{"at":1799900000,"ok":false}]}"#, 1_800_000_100).unwrap();
+    let pic = draw_backup_card(&b, Palette::new(false));
+    let z = &pic.hover[0];
+    assert_eq!(z.points.len(), 30);
+    let last = z.points.last().unwrap();
+    assert!(last.label.ends_with("copia fatta") || last.label.ends_with("niente da giudicare"), "{}", last.label);
+    assert!(z.points.iter().any(|p| p.label.ends_with("copia non riuscita")));
+}
+
+#[test]
+fn a_note_at_the_edge_of_an_account_card_is_never_cut_while_a_smaller_form_fits() {
+    let wide = Pic::text_w(Face::Mono, "ieri 14:18", 10.0) + 12.0;
+    // room for everything: the text as it is, with its arrow
+    assert_eq!(fit_note("ieri 14:18", wide + 1.0, true, 10.0), ("ieri 14:18".to_string(), 10.0, true));
+    // a little less: the arrow goes first, the text stays whole
+    let (t, size, arrow) = fit_note("ieri 14:18", wide - 6.0, true, 10.0);
+    assert_eq!((t.as_str(), arrow), ("ieri 14:18", false));
+    assert!(size <= 10.0);
+    // much less: the day word goes, the time stays
+    let (t, _, _) = fit_note("ieri 14:18", Pic::text_w(Face::Mono, "14:18", 9.0) + 1.0, true, 10.0);
+    assert_eq!(t, "14:18");
+    // nothing to cut when there is room for the time alone, and a note with no arrow never draws one
+    assert!(!fit_note("14/12", 200.0, false, 10.0).2);
 }
