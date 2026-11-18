@@ -64,7 +64,7 @@ fn the_mac_has_its_saved_memories_and_security_but_no_code_or_sync_row() {
 #[test]
 fn no_files_no_rows_and_no_charts() {
     let e = NodeData::from_snapshot(&Snapshot::default(), NOW, OFF).extras(&server(), &[], NOW, OFF);
-    assert_eq!(e, NodeExtras { now: NOW, ..Default::default() });
+    assert_eq!(e, NodeExtras { now: NOW, offset: OFF, ..Default::default() });
     assert_eq!(e.block_h(), 0.0);
     let p = Palette::new(false);
     assert!(hours_card(&e, p).is_none() && lag_card(&e, p).is_none() && spend_card(&e, p).is_none());
@@ -286,7 +286,7 @@ fn tray_nodes_v2_fixture_images() {
 fn a_young_history_fills_the_axis_and_the_title_says_how_far_it_reaches() {
     let mut v = vec![None; 211];
     v.extend((0..77).map(|i| Some(40.0 + i as f64 % 7.0)));
-    let (part, secs) = covered(&v, 300);
+    let (part, _first, secs) = covered(&v, 300);
     assert_eq!((part.len(), secs), (77, 77 * 300), "the empty start of the day is not part of the axis");
     assert!(part[0].is_some(), "the line starts on a reading");
     assert_eq!(window_title("CPU", secs), "CPU · 6 ore");
@@ -320,4 +320,78 @@ fn every_status_row_of_a_card_fits_its_line_whole() {
     for text in ["salvate alle 22:21 · privato non copiato: disco non cifrato", "da guardare · 1 aggiornamento in attesa da 7 giorni", "problema · Antivirus e accessi falliti", "salvate ieri alle 03:01 · oltre 26 ore fa"] {
         assert!(Pic::text_w(Face::SansRegular, text, 10.5) <= room, "«{text}» does not fit in {room} pt");
     }
+}
+
+// ---- holes in a chart: a hole is a hole, never a stroke or a comb
+
+fn s(v: &[Option<f64>]) -> Vec<(usize, usize)> {
+    stretches(v)
+}
+
+#[test]
+fn a_hole_of_two_or_more_readings_breaks_the_line_and_one_skipped_reading_does_not() {
+    let (a, n) = (Some(10.0), None);
+    assert_eq!(s(&[a, a, a, a]), [(0, 3)]);
+    assert_eq!(s(&[a, a, n, a, a]), [(0, 4)], "one skipped round is crossed");
+    assert_eq!(s(&[a, a, n, n, a, a]), [(0, 1), (4, 5)], "two in a row are a hole");
+    assert_eq!(holes(&[a, a, n, n, a, a]), [(2, 3)]);
+    assert_eq!(holes(&[n, n, a, a]), [(0, 1)], "no readings yet at the start");
+    assert_eq!(holes(&[a, a, n, n, n]), [(2, 4)], "nothing read lately");
+    assert!(holes(&[a, n, a, a]).is_empty());
+}
+
+#[test]
+fn a_reading_every_other_slot_is_dots_between_bands_not_a_comb_of_strokes() {
+    // alternating readings: no segment may join two of them
+    let v: Vec<Option<f64>> = (0..12).map(|i| if i % 3 == 0 { Some(5.0 + i as f64) } else { None }).collect();
+    assert_eq!(s(&v), [(0, 0), (3, 3), (6, 6), (9, 9)]);
+    let mut pic = Pic::new(300.0, 80.0);
+    pct_line(&mut pic, (10.0, 10.0, 200.0, 30.0), &v, Palette::new(false), &|i, val| format!("{i}:{val:?}"));
+    // every slot answers to the mouse, with its own words, readings or not
+    assert_eq!(pic.hover.len(), 1);
+    assert_eq!(pic.hover[0].points.len(), 12);
+    assert_eq!(pic.hover[0].points[1].label, "1:None");
+}
+
+// ---- the mouse over a chart says the time and the value of the point under it
+
+#[test]
+fn a_cpu_point_says_its_clock_and_its_value_and_a_missing_one_says_nothing_was_read() {
+    let mut e = data().extras(&server(), &detail(), NOW, OFF);
+    e.from_s = 1_800_000_000 - 1_800_000_000 % 86_400 + 12 * 3600; // 12:00 UTC = 13:00 in the zone
+    e.step_s = 300;
+    assert_eq!(pct_say(&e, 0, 0, Some(61.6)), "13:00 · 62%");
+    assert_eq!(pct_say(&e, 2, 1, Some(5.0)), "13:15 · 5%", "the slice starts two readings after the file's first");
+    assert_eq!(pct_say(&e, 0, 12, None), "14:00 · nessuna lettura");
+    e.from_s = 0;
+    assert_eq!(pct_say(&e, 0, 0, Some(40.0)), "40%", "a file with no start time says only the value");
+}
+
+#[test]
+fn the_cpu_chart_hands_the_menu_one_zone_and_the_hours_card_one_per_hour() {
+    let e = data().extras(&server(), &detail(), NOW, OFF);
+    let mut card = Pic::new(540.0, 200.0);
+    draw_block(&mut card, &e, 0.0, Palette::new(false));
+    assert!(card.hover.len() >= 2, "CPU and memory: {}", card.hover.len());
+    let hours = hours_card(&e, Palette::new(false)).unwrap();
+    assert_eq!(hours.hover[0].points.len(), 24);
+    assert_eq!(hours.hover[0].points[9].label, "09:00-10:00 · 3 card");
+    assert_eq!(hours.hover[0].points[10].label, "10:00-11:00 · 1 card");
+    assert_eq!(hours.hover[0].points[0].label, "00:00-01:00 · nessuna card");
+    assert_eq!(hours.hover[0].points[23].label, "23:00-00:00 · nessuna card");
+    // the cursor over the ninth bar finds that bar
+    let z = &hours.hover[0];
+    assert_eq!(z.at(z.points[9].x, z.y + 5.0).unwrap().label, "09:00-10:00 · 3 card");
+}
+
+#[test]
+fn the_lag_and_the_spend_charts_say_their_point() {
+    let e = data().extras(&server(), &detail(), NOW, OFF);
+    let lag = lag_card(&e, Palette::new(false)).unwrap();
+    assert!(lag.hover[0].points.iter().any(|p| p.label.ends_with("in pari")), "{:?}", lag.hover[0].points);
+    assert!(lag.hover[0].points.iter().any(|p| p.label.contains("indietro di")));
+    let spend = spend_card(&e, Palette::new(false)).unwrap();
+    let labels: Vec<&str> = spend.hover[0].points.iter().map(|p| p.label.as_str()).collect();
+    // 2027-01-01 is a Friday
+    assert_eq!(labels, ["ven 1 · 1,00 €", "sab 2 · 3,50 €", "dom 3 · 0,00 €"]);
 }

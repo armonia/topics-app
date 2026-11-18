@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.46 — 2026-11-18
+
+### Sotto il cofano
+- grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)
+
 ## 2.4.45 — 2026-11-18
 
 ### Sotto il cofano
