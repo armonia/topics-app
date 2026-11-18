@@ -65,13 +65,17 @@ export function observePlanUsage(usage: Usage | null, nowMs: number = Date.now()
   recordPlanUsage(usage, nowMs);
   const hold = holdFromUsage(usage, nowMs);
   if (!hold) return;
-  // The very wall the engine just said it rotates past is not set again on
-  // the CLI's word alone (see `ENGINE_LIFT_TRUST_MS`): the engine is asked
-  // again, and the wall goes up if it no longer has a free account. Any
-  // other wall (another window, another reset) is set at once.
+  // The very wall the engine just said it rotates past (same window, a reset
+  // no later) is not set again on the CLI's word alone (see
+  // `ENGINE_LIFT_TRUST_MS`): the engine is asked again, and the wall goes up
+  // if it no longer has a free account. Any other wall is set at once.
   const lift = engineLift;
-  if (lift && nowMs - lift.atMs < ENGINE_LIFT_TRUST_MS && hold.window === lift.window && hold.untilMs === lift.untilMs) {
-    void lift.probe().then((free) => { if (free !== true) setProviderHold(hold, nowMs); }).catch(() => setProviderHold(hold, nowMs));
+  if (lift && nowMs - lift.atMs < ENGINE_LIFT_TRUST_MS && hold.window === lift.window && hold.untilMs <= lift.untilMs) {
+    // Only for the lift it was asked about: a later lift (the engine free
+    // again) makes this answer stale.
+    void lift.probe()
+      .then((free) => { if (free !== true && engineLift === lift) setProviderHold(hold, nowMs); })
+      .catch(() => { if (engineLift === lift) setProviderHold(hold, nowMs); });
     return;
   }
   setProviderHold(hold, nowMs);
