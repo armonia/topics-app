@@ -62,13 +62,16 @@ drop_stale() {  # bookings of runs that are over
     done
 }
 
-# True when the run has jobs on this booking (label or label-prep) and none is still
-# queued or running. The job that gives the runners back waits on ubuntu-latest, so the
-# run itself stays "queued" and would hold the booking behind a queue it should relieve.
-# A run with no listed job on the label (not created yet) keeps its booking.
+# True when the run has jobs on this exact booking label and none is still queued or
+# running. The run itself stays "queued" while any other job of it waits, and would hold
+# the booking behind a queue it should relieve. A run with no listed job on the label
+# (not created yet) keeps its booking. Only the exact label counts: the shard runners'
+# `pn-<run>-<n>` judged by the finished `-prep` job would be dropped in the seconds
+# between the end of prepare-e2e and the creation of the shards, stranding them on a
+# label nobody serves.
 run_done_with() {  # <run id> <booking label>
   gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" '
-    [.jobs[]? | select(any(.labels[]?; . == $l or . == ($l + "-prep")))] as $j
+    [.jobs[]? | select(any(.labels[]?; . == $l))] as $j
     | ($j | length) > 0 and all($j[]; .status == "completed")' >/dev/null 2>&1
 }
 

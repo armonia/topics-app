@@ -876,7 +876,7 @@ jobs:
       # runner booked by two runs, so a shard queues behind another run. About 20 s.
       - name: Prenotazione dei runner del nodo permanente (ci-permanent-reserve)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bash scripts/ci-permanent-reserve.test.sh
+        run: bash scripts/ci-permanent-reserve.test.sh && bash deploy/permanent-node/ci-job-start.test.sh
 
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
@@ -1059,9 +1059,14 @@ jobs:
   # The repository is PUBLIC, so the rules (hcloud-runner.yml has the rest):
   #  - self-hosted only for a push to main or a pull request from this
   #    repository; a fork's pull request never reaches a machine of ours;
-  #  - RUNNER_ADMIN_TOKEN lives only in the create and delete jobs, which run
-  #    on ubuntu-latest and execute no code of the change but the two
-  #    placement scripts; no Hetzner token in the CI any more;
+  #  - RUNNER_ADMIN_TOKEN lives only in the create and delete jobs, which
+  #    execute no code of the change but the two placement scripts; no Hetzner
+  #    token in the CI any more. create runs on ubuntu-latest; delete runs where
+  #    PERMANENT_RELEASE_RUNNER says (the node's release runner, JSON
+  #    '["permanent-release"]'), unset = ubuntu-latest. On the node it starts
+  #    as soon as the shards end, instead of waiting behind the GitHub-hosted
+  #    queue with the runners booked and idle; that runner refuses forks
+  #    (deploy/permanent-node/ci-runners.sh). Node down: unset the variable;
   #  - the machines can make the run faster, never red: anything that fails in
   #    the create job sends the shards to ubuntu-latest as before.
   #  - `hcloud-delete` gives the runners back with `always()`; a booking of a
@@ -1091,6 +1096,7 @@ jobs:
     with:
       mode: delete
       label: ${{ needs.hcloud.outputs.label }}
+      controller: ${{ vars.PERMANENT_RELEASE_RUNNER || '"ubuntu-latest"' }}
     secrets:
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
 

@@ -16,8 +16,9 @@ name: Posto degli shard e2e (PC, nodo permanente, GitHub)
 # prenota va su GitHub subito: mai una run appesa.
 #
 # Repo PUBBLICO:
-# - create e delete girano su ubuntu-latest, mai su macchine nostre: sono gli unici job che
-#   vedono RUNNER_ADMIN_TOKEN, ed eseguono del ramo solo i due script della mappa;
+# - create e delete sono gli unici job che vedono RUNNER_ADMIN_TOKEN, ed eseguono del ramo
+#   solo i due script della mappa. create gira su ubuntu-latest; delete dove dice `controller`
+#   (ci.yml: il runner di rilascio del nodo, che rifiuta i job delle PR da fork);
 # - nessun token Hetzner nella CI: il server non lo crea né lo cancella più la CI;
 # - se qualcosa qui fallisce, `placement` resta vuota e ogni job va su GitHub.
 

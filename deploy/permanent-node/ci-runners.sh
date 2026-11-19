@@ -22,7 +22,14 @@
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
 # - ci.slice with a low CPU weight and a memory ceiling: Topics cards come first;
-# - a job-completed hook kills what a job left running in the runner's cgroup.
+# - a job-completed hook kills what a job left running in the runner's cgroup;
+# - one more runner, `ctl` (label permanent-release), runs only the job that gives a
+#   run's bookings back. It is never booked and never runs a shard, so the give-back
+#   starts as soon as the shards end instead of waiting behind the GitHub-hosted queue
+#   (the runners stayed booked and idle 20+ minutes on 19/11). That job sees the
+#   existing RUNNER_ADMIN_TOKEN, only in its environment and only while it runs: no
+#   credential is written here. A fork's pull request can rewrite ci.yml to land on
+#   it, so a job-started hook refuses any job of a pull request from another repo.
 set -euo pipefail
 : "${REG_TOKEN:?registration token}"
 pending=0
@@ -106,6 +113,24 @@ exit 0
 EOS
 chmod 755 /usr/local/bin/ci-job-done.sh
 
+# Refuses, before any step runs, a job of a pull request whose head is not this
+# repository (a fork, or a fork deleted since: head.repo is null). A non-zero exit
+# fails the job without running it (docs.github.com, "Running scripts before or after
+# a job", Handling exit codes).
+cat > /usr/local/bin/ci-job-start.sh <<'EOS'
+#!/bin/bash
+ev=${GITHUB_EVENT_PATH:-}
+[ -r "$ev" ] || { echo "ci-job-start: no event payload, job refused" >&2; exit 1; }
+if jq -e 'has("pull_request")' "$ev" >/dev/null 2>&1; then
+  head=$(jq -r '.pull_request.head.repo.full_name // ""' "$ev" 2>/dev/null)
+  if [ -z "$head" ] || [ "$head" != "${GITHUB_REPOSITORY:-}" ]; then
+    echo "ci-job-start: pull request from '${head:-unknown}', job refused" >&2; exit 1
+  fi
+fi
+exit 0
+EOS
+chmod 755 /usr/local/bin/ci-job-start.sh
+
 cat > /etc/systemd/system/ci-runner@.service <<'EOS'
 [Unit]
 Description=GitHub runner %i of armonia/topics-app
@@ -130,12 +155,19 @@ RestartSec=10
 WantedBy=multi-user.target
 EOS
 
+# The release runner: the fork guard, and out of ci.slice so a memory ceiling hit by
+# the shards cannot stall the job that frees them.
+mkdir -p /etc/systemd/system/ci-runner@ctl.service.d
+printf '[Service]\nEnvironment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/bin/ci-job-start.sh\nSlice=system.slice\n' \
+  > /etc/systemd/system/ci-runner@ctl.service.d/release.conf
+
 V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
 tgz=/opt/actions-runner-$V.tar.gz
 [ -f "$tgz" ] || curl -fsSL -o "$tgz" "https://github.com/actions/runner/releases/download/v$V/actions-runner-linux-x64-$V.tar.gz"
 
-# i = 0 is the prep runner (label permanent-prep, one light job per run), 1..N take shards.
-for i in 0 $(seq 1 "$N"); do
+# i = 0 is the prep runner (label permanent-prep, one light job per run), 1..N take
+# shards, ctl gives the bookings back (label permanent-release).
+for i in 0 $(seq 1 "$N") ctl; do
   u=ci$i
   id "$u" >/dev/null 2>&1 || useradd -M -d "/srv/rh-$i" -g ci -s /bin/bash "$u"
   mkdir -p "/srv/rh-$i" "/srv/runner-$i"
@@ -156,7 +188,7 @@ for i in 0 $(seq 1 "$N"); do
     [ -x "/srv/runner-$i/config.sh" ] || tar xzf "$tgz" -C "/srv/runner-$i"
     [ "$i" = 0 ] && /srv/runner-0/bin/installdependencies.sh >/var/log/ci-runner-deps.log 2>&1
     chown -R "$u:ci" "/srv/runner-$i"
-    l=permanent; [ "$i" = 0 ] && l=permanent-prep
+    l=permanent; [ "$i" = 0 ] && l=permanent-prep; [ "$i" = ctl ] && l=permanent-release
     # The token goes through the environment (ACTIONS_RUNNER_INPUT_TOKEN), not argv:
     # /proc/<pid>/environ is readable only by that user, a command line by everybody.
     (cd "/srv/runner-$i" && ACTIONS_RUNNER_INPUT_TOKEN=$REG_TOKEN runuser -u "$u" -- ./config.sh --unattended \
@@ -169,7 +201,7 @@ systemctl restart ci-firewall.service  # a re-run must apply the rules it just w
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
 # A unit changed by a re-run of this script takes effect on restart: only idle runners,
 # a busy one would lose its job (the next re-run catches it).
-for i in 0 $(seq 1 "$N"); do
+for i in 0 $(seq 1 "$N") ctl; do
   systemctl enable "ci-runner@$i.service" >/dev/null
   pgrep -u "ci$i" -x Runner.Worker >/dev/null || systemctl restart "ci-runner@$i.service"
 done
