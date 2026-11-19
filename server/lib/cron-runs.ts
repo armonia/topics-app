@@ -22,10 +22,10 @@ const CONCURRENCY = 4;
 interface JobHead { id: string; name: string; lastRunAtMs: number | null }
 
 function parseHeads(stdout: string): JobHead[] | null {
-  let d: any;
-  try { d = JSON.parse(stdout); } catch { return null; }
+  let d: { jobs?: unknown } | null;
+  try { d = JSON.parse(stdout) as { jobs?: unknown } | null; } catch { return null; }
   if (!Array.isArray(d?.jobs)) return null;
-  return d.jobs.flatMap((j: any): JobHead[] => {
+  return (d.jobs as Array<{ id?: unknown; name?: unknown; state?: { lastRunAtMs?: unknown } } | null>).flatMap((j): JobHead[] => {
     if (typeof j?.id !== "string" || !j.id) return [];
     const last = j.state?.lastRunAtMs;
     return [{ id: j.id, name: typeof j.name === "string" && j.name ? j.name : j.id, lastRunAtMs: typeof last === "number" ? last : null }];
@@ -58,7 +58,7 @@ export async function syncCronRuns(db: Database, cli: CronCli): Promise<{ ok: tr
       const h = stale[next++]!;
       const r = await cli(["runs", "--id", h.id, "--json", "--limit", String(RUNS_PER_JOB)]);
       if (!r.ok) continue; // one job failing must not hide the others; the next cycle retries it
-      let entries: any[] = [];
+      let entries: Array<Record<string, unknown> | null> = [];
       try { entries = JSON.parse(r.stdout)?.entries ?? []; } catch { continue; }
       for (const e of entries) {
         if (typeof e?.runAtMs !== "number") continue;
@@ -81,12 +81,17 @@ export async function syncCronRuns(db: Database, cli: CronCli): Promise<{ ok: tr
  * session key carries the job id, so tokens are summed from `usage_records` inside the run window;
  * command jobs have none and read 0.
  */
+interface CronRunDbRow {
+  job_id: string; job_name: string; run_at: number; ended_at: number | null; duration_ms: number | null;
+  status: string; error: string | null; output: string | null;
+}
+
 export function listCronRuns(db: Database, opts: { jobId?: string | null; limit?: number } = {}): CronRunRow[] {
   const limit = Math.min(500, Math.max(1, opts.limit ?? 100));
   const runs = db.query(
     `SELECT job_id, job_name, run_at, ended_at, duration_ms, status, error, output FROM cron_runs
      WHERE (?1 IS NULL OR job_id = ?1) ORDER BY run_at DESC LIMIT ?2`,
-  ).all(opts.jobId ?? null, limit) as any[];
+  ).all(opts.jobId ?? null, limit) as CronRunDbRow[];
   // Per run, not one big join: the time index narrows each lookup to the run window.
   const tokens = db.query(
     `SELECT COALESCE(SUM(input_tokens), 0) AS i, COALESCE(SUM(output_tokens), 0) AS o, SUM(cost_usd) AS c
