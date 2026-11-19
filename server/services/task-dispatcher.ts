@@ -69,13 +69,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   ctx.reconcile = createReconcile(ctx);
   ctx.events = createBoardEvents(ctx);
   const { admissionCountingSince, inFlight, log, shared } = ctx.core;
-  const active = () => deps.isActive?.() !== false;
 
 
   return {
     taskForSession: (...args) => ctx.runs.taskWaitingOnSession(...args),
     sessionsInFlight: () => [...inFlight.values()].map((slot) => slot.sessionKey).filter((sk): sk is string => typeof sk === "string" && !!sk),
-    tick: (...args) => active() ? ctx.tick.tick(...args) : Promise.resolve(), onEnterTodo: (...args) => { if (active()) ctx.events.onEnterTodo(...args); }, onLeaveTodo: (...args) => ctx.events.onLeaveTodo(...args), deferWait: (...args) => ctx.events.deferWait(...args), onBlockerDone: (...args) => ctx.events.onBlockerDone(...args), resume: (...args) => active() ? ctx.resume.resume(...args) : Promise.resolve(), reconcile: (...args) => active() ? ctx.reconcile.reconcile(...args) : Promise.resolve(), markInterrupted: (...args) => ctx.events.markInterrupted(...args),
+    tick: (...args) => ctx.tick.tick(...args), onEnterTodo: (...args) => ctx.events.onEnterTodo(...args), onLeaveTodo: (...args) => ctx.events.onLeaveTodo(...args), deferWait: (...args) => ctx.events.deferWait(...args), onBlockerDone: (...args) => ctx.events.onBlockerDone(...args), resume: (...args) => ctx.resume.resume(...args), reconcile: (...args) => ctx.reconcile.reconcile(...args), markInterrupted: (...args) => ctx.events.markInterrupted(...args),
     revokeDelegatedCapability: (...args) => ctx.events.revokeDelegatedCapability(...args), shutdown: (...args) => ctx.events.shutdown(...args), nightStatus: (...args) => ctx.events.nightStatus(...args), admissionPreview: (...args) => ctx.admission.admissionPreview(...args), childAdmissionPreview: (...args) => ctx.admission.childAdmissionPreview(...args), memoryQueueSnapshot: ctx.queue.memoryQueueSnapshot, dispatchWork: (...args) => ctx.queue.dispatchWork(...args),
     sampleCardWeight: (treeGB) => ctx.admission.cardWeights.sample(treeGB, [...inFlight].filter(([, slot]) => !slot.node && !isNodeSessionKey(slot.sessionKey))
       .flatMap(([taskId]) => { try { const projectId = deps.svc.get(taskId)?.task.projectId; return projectId ? [{ taskId, projectId }] : []; } catch { return []; } })),
