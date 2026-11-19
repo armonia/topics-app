@@ -92,10 +92,12 @@ describe("a red card in review goes back to its agent", () => {
     svc.updateBoardSettings(svc.get(id)!.task.projectId, { reviewChecks: [{ name: "ko", cmd: "false" }] });
     db.prepare("UPDATE tasks SET checks_state = 'unknown', checks_commit = 'abc1234', delivery_commit = 'abc1234', delivery_branch = 'topics/red' WHERE id = ?").run(id);
     await sweep!();
-    await until(() => svc.get(id)!.task.checksState === "fail", "the bar was measured on the delivered commit");
-    await sweep!();
-    await until(() => svc.get(id)!.task.status === "in_progress", "the red went back to the agent");
-    expect(svc.get(id)!.comments.some((c) => c.content.startsWith(RED_BOUNCE_NOTE))).toBe(true);
+    // One sweep does both: it measures the delivered commit and, the bar being red, sends the card back in the same
+    // background run. The red row is never observable in review (the bounce clears the verdict), so the proof that the
+    // bar was measured is the note naming the failing command, on a card that started with no verdict at all.
+    await until(() => svc.get(id)!.task.status === "in_progress", "the bar was measured on the delivered commit and its red went back to the agent");
+    const note = svc.get(id)!.comments.find((c) => c.content.startsWith(RED_BOUNCE_NOTE));
+    expect(note?.content).toContain("ko");
   }, 30_000);
 
   test("a green review card whose pull request conflicts with main goes back to its agent", async () => {
