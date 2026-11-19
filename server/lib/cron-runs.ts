@@ -79,7 +79,7 @@ export async function syncCronRuns(db: Database, cli: CronCli): Promise<{ ok: tr
 /**
  * Recent runs with the tokens of the chat turns they started. Agent jobs run as turns whose
  * topic carries the job name, so tokens are summed from its messages inside the run window;
- * command jobs have none and read 0.
+ * command jobs have none and read 0. Cost is cents on the message, reported here in USD.
  */
 interface CronRunDbRow {
   job_id: string; job_name: string; run_at: number; ended_at: number | null; duration_ms: number | null;
