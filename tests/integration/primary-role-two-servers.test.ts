@@ -265,21 +265,22 @@ describe("A is the primary at epoch 2, B is not", () => {
     }
   }, 60_000);
 
-  test("an unauthenticated caller declaring epoch 99 changes nothing on A", async () => {
+  test("an unauthenticated caller declaring the next epoch changes nothing on A", async () => {
     const claim = { [ID_HEADER]: machineA };
+    // Epoch 3, one above A: it passes the one-step ceiling, so only authentication stops it.
     // From outside (the tunnel ports carry no owner session) and on the model proxy without a token.
     const anonymous = [
-      status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "99", { headers: claim }),
-      status(`http://127.0.0.1:${serverA.tunnelHttpPort}/api/nodes/delegated-requests`, "99", { headers: claim }),
-      status(`http://127.0.0.1:${serverA.modelProxyPort}/v1/messages`, "99", { method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}" }),
+      status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "3", { headers: claim }),
+      status(`http://127.0.0.1:${serverA.tunnelHttpPort}/api/nodes/delegated-requests`, "3", { headers: claim }),
+      status(`http://127.0.0.1:${serverA.modelProxyPort}/v1/messages`, "3", { method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}" }),
     ];
     for (const res of await Promise.all(anonymous)) expect(res.status, "refused for lack of credentials").toBe(401);
     // A path the access gate lets through with no identity reaches the nodes router: still no adoption.
-    const exempt = await status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "99", {
+    const exempt = await status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "3", {
       method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}",
     });
     expect(exempt.status).not.toBe(409);
-    // Had epoch 99 been adopted, epoch 2 would now be stale.
+    // Had epoch 3 been adopted, epoch 2 would now be stale.
     for (const [door, call] of Object.entries(doors(serverA))) {
       expect((await call("2")).status, `${door} with epoch 2 after the anonymous claim`).not.toBe(409);
     }
