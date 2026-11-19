@@ -1,5 +1,5 @@
 //! The agents of a node, as the service counts them (`agents` of a row of `/api/machines/overview`): one summary
-//! row for the card («3 agenti · topics-app 2, quadra 1 · 1 aspetta te») and, in the node's submenu, the list by
+//! row for the card («3 agenti · topics-app 2, quadra 1 · 1 aspetta te») and, in the node's submenu, the list by // allow-italian: quoted UI string
 //! project with what each one does and since when. Pure functions from the counts to rows and nodes.
 
 use crate::tray_menu::{note, with_icon, Node};
@@ -65,6 +65,7 @@ fn state_word(state: &str) -> &str {
         "review" => "in revisione",
         "stuck" => "fermo sul limite",
         "queued" => "in coda",
+        "chat" => "chat aperta",
         other => other,
     }
 }

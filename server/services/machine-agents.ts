@@ -92,7 +92,7 @@ export function shortTitle(raw: string | null | undefined, fallback: string): st
   if (t.length > TITLE_MAX) {
     const cut = t.slice(0, TITLE_MAX);
     const space = cut.lastIndexOf(" ");
-    t = `${(space > TITLE_MAX * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.\-–—]+$/, "")}…`;
+    t = `${(space > TITLE_MAX * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:.\-\u2013\u2014]+$/, "")}…`;
   }
   t = t.replace(/[\s:;,]+$/, "");
   const looksLikeId = /^[0-9a-f-]{8,}$/i.test(t) || /^[\w.-]+\/[\w./-]+$/.test(t) || /^topic:/.test(t);
@@ -119,10 +119,10 @@ export function readMachineAgents(input: MachineAgentsInput): Map<string, Machin
     return known.has(machineId) ? machineId : null;
   };
 
-  const acc = new Map<string, ReturnType<typeof emptyAgents>>();
-  for (const m of machines) acc.set(m.id, emptyAgents());
+  const byMachine = new Map<string, ReturnType<typeof emptyAgents>>();
+  for (const m of machines) byMachine.set(m.id, emptyAgents());
   const add = (machineId: string | null, state: MachineAgentState | "idle", project: string, item: MachineAgentItem | null, counted = true): void => {
-    const target = machineId ? acc.get(machineId) : undefined;
+    const target = machineId ? byMachine.get(machineId) : undefined;
     if (!target) return;
     if (state === "chat") target.chats++;
     else target[state]++;
@@ -204,7 +204,7 @@ export function readMachineAgents(input: MachineAgentsInput): Map<string, Machin
   }
 
   const out = new Map<string, MachineAgents>();
-  for (const [id, a] of acc) {
+  for (const [id, a] of byMachine) {
     const items = a._items
       .sort((x, y) => STATE_ORDER.indexOf(x.state) - STATE_ORDER.indexOf(y.state) || (y.since ?? 0) - (x.since ?? 0))
       .slice(0, MAX_AGENT_ITEMS);

@@ -59,6 +59,7 @@ const GOLDEN_ORDER = [
   "uiStateRouter",
   "providersRouter",
   "appSettingsRouter",
+  "reasoningTranslationRouter",
   "calendarRouter",
   "heavySlotRouter",
   "agentChannelsRouter",

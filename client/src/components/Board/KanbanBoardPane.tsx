@@ -52,7 +52,7 @@ import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
 import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
-import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
+import { QUICK_FILTERS, countQuickFiltersWithoutCreator, taskMatchesQuick, type QuickFilter } from './quickFilters';
 import { DetailSlider } from './DetailSlider';
 import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
@@ -537,7 +537,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
 
   // The cards the search filters let through, before the quick filter: its counts read from here.
   const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
-  const quickCounts = useMemo(() => countQuickFilters(filtered), [filtered]);
+  // The counts ignore the creator toggle: with «mine» on, «Jarvis» and «Agents» would read 0 for a filter that is not broken.
+  const quickCounts = useMemo(
+    () => countQuickFiltersWithoutCreator(tasks, filters),
+    [tasks, filters],
+  );
   const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
   // The Plan hides the board cards these filters hide; a card the board does not hold (a sub-card) stays.
   const visibleTaskIds = useMemo(() => {

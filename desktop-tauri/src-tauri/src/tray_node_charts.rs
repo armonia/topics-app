@@ -1,9 +1,10 @@
-//! What the node cards and their submenus add to the dial: status rows, the two small 24 hour
-//! lines and the day's card count in the card; the hour by hour bars, the lag line and the cloud
-//! spend in the submenu. Pure functions from the files' data to images; a chart with no data is no
+//! What the node cards and their submenus add to the dial: status rows (the day's cards among them, with
+//! their hours as small bars) and, inside the CPU and memory rows of the legend, each one's 24 hour line; the
+//! lag line and the cloud spend in the submenu, the two histories no row of the card carries. Pure functions from the files' data to images; a chart with no data is no
 //! image at all, never an empty box. Drawn like the other cards of the menu, in the menu's ink, so
 //! they read on the light and the dark surface.
 
+use crate::tray_hover::{HoverPoint, HoverZone};
 use crate::tray_menu::{note, with_icon, Node, Snapshot};
 use crate::tray_menu_detail::MachineDetail;
 use crate::tray_menu_pic::{tone, Palette, Pic, MENU_W};
@@ -17,8 +18,6 @@ const X0: f32 = 38.0;
 const RIGHT: f32 = MENU_W - 16.0;
 const ROW_H: f32 = 17.0;
 const LABEL_W: f32 = 100.0;
-const PANEL_H: f32 = 56.0;
-const PLOT_H: f32 = 34.0;
 
 /// Everything one node says beyond its dial. Empty when no file knows the machine.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -28,6 +27,10 @@ pub struct NodeExtras {
     pub mem: Vec<Option<f64>>,
     /// Seconds between two readings of `cpu` and `mem` (0 = not known: a day of 5 minute readings).
     pub step_s: i64,
+    /// Epoch second of the first reading of `cpu` and `mem`, so a point can say its time (0 = not known).
+    pub from_s: i64,
+    /// The zone's distance from UTC in seconds, for the clock a hovered point says.
+    pub offset: i64,
     /// The month's spend as the card says it («8,44/60 €»): the one figure, so the chart cannot say another.
     pub spend_say: Option<String>,
     /// Cards started today on this machine, hour by hour.
@@ -56,14 +59,11 @@ impl NodeExtras {
         self.cards_total().filter(|t| *t > 0)
     }
 
-    fn panels(&self) -> usize {
-        [drawable(&self.cpu), drawable(&self.mem), self.cards_panel().is_some()].iter().filter(|x| **x).count()
-    }
-
-    /// Height the card grows by to hold the rows and the small charts.
+    /// Height the card grows by to hold the status rows (the day's cards are one of them). The CPU and memory
+    /// histories live in their legend rows and take no height.
     pub fn block_h(&self) -> f32 {
-        let (rows, charts) = (self.rows.len() as f32 * ROW_H, if self.panels() > 0 { PANEL_H + 4.0 } else { 0.0 });
-        if rows + charts == 0.0 { 0.0 } else { 8.0 + rows + charts + 2.0 }
+        let rows = (self.rows.len() + usize::from(self.cards_panel().is_some())) as f32 * ROW_H;
+        if rows == 0.0 { 0.0 } else { 8.0 + rows + 2.0 }
     }
 }
 
@@ -117,6 +117,8 @@ impl NodeData {
             cpu: machine.map(|(_, m)| m.cpu.clone()).unwrap_or_default(),
             mem: machine.map(|(_, m)| m.mem.clone()).unwrap_or_default(),
             step_s: machine.map_or(0, |(_, m)| m.step_s),
+            from_s: machine.map_or(0, |(_, m)| m.from_s),
+            offset,
             spend_say: card.metrics.iter().find(|x| x.key == "spend").map(|x| x.value.clone()).filter(|v| !v.is_empty()),
             cards_hours: machine.map(|(_, m)| m.cards_today.clone()).unwrap_or_default(),
             checks: machine.map(|(_, m)| health::check_lines(m)).unwrap_or_default(),
@@ -136,20 +138,11 @@ fn level_of_pct(v: f64) -> u32 {
 }
 
 /// The part of a series that holds readings: from the first one on (a history that is hours old would otherwise
-/// leave its line in a few pixels at the right edge of a day), and how long that part reaches, in seconds.
-fn covered(v: &[Option<f64>], step_s: i64) -> (&[Option<f64>], i64) {
+/// leave its line in a few pixels at the right edge of a day), how many readings it skips, and how long it reaches, in seconds.
+fn covered(v: &[Option<f64>], step_s: i64) -> (&[Option<f64>], usize, i64) {
     let first = v.iter().position(Option::is_some).unwrap_or(0);
     let part = &v[first..];
-    (part, part.len() as i64 * if step_s > 0 { step_s } else { 300 })
-}
-
-/// «CPU · 24 h», or «CPU · 5 ore» while the history is younger than a day.
-fn window_title(name: &str, secs: i64) -> String {
-    if secs >= 23 * 3600 { format!("{name} · 24 h") } else { format!("{name} · {}", health::span(secs)) }
-}
-
-fn last_value(v: &[Option<f64>]) -> Option<f64> {
-    v.iter().rev().flatten().next().copied()
+    (part, first, part.len() as i64 * if step_s > 0 { step_s } else { 300 })
 }
 
 /// The ink of a chart line: a solid mid tone (a translucent one shows its joints where two segments overlap).
@@ -157,37 +150,124 @@ fn line_ink(p: Palette) -> [u8; 3] {
     if p.fg[0] > 127 { [205, 205, 205] } else { [75, 75, 75] }
 }
 
-/// A 24 hour line, 0 to 100 %: faint guides at 0, 50 and 100, the line in the menu's ink, the last reading as a coloured dot.
-fn pct_line(pic: &mut Pic, (x, y, w, h): (f32, f32, f32, f32), v: &[Option<f64>], p: Palette) {
-    for g in [0.0, 0.5, 1.0] {
+/// The stretches of a series a line runs through, as inclusive index ranges. One missing reading between two
+/// present ones (a round the collector skipped) is crossed by the line; two or more in a row are a hole, and
+/// the line stops there: a series with a reading every other slot used to draw as a comb of vertical strokes.
+fn stretches(v: &[Option<f64>]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < v.len() {
+        if v[i].is_none() {
+            i += 1;
+            continue;
+        }
+        let (start, mut last, mut j) = (i, i, i + 1);
+        while j < v.len() {
+            if v[j].is_some() {
+                last = j;
+                j += 1;
+            } else if j - last == 1 && v.get(j + 1).map_or(false, Option::is_some) {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        out.push((start, last));
+        i = last + 1;
+    }
+    out
+}
+
+/// The holes of a series, as inclusive index ranges of the slots between two stretches (or after the last one).
+fn holes(v: &[Option<f64>]) -> Vec<(usize, usize)> {
+    let st = stretches(v);
+    let mut out: Vec<(usize, usize)> = st.windows(2).map(|w| (w[0].1 + 1, w[1].0 - 1)).collect();
+    if let Some(last) = st.last().filter(|l| l.1 + 1 < v.len()) {
+        out.push((last.1 + 1, v.len() - 1));
+    }
+    if let Some(first) = st.first().filter(|f| f.0 > 0) {
+        out.insert(0, (0, first.0 - 1));
+    }
+    out
+}
+
+/// A 24 hour line, 0 to 100 %, small enough to sit inside a row of the legend: faint guides at 0 and 100, the line in
+/// the menu's ink, the last reading as a coloured dot. A hole is a faint band with a dashed middle (no reading
+/// there), never a stroke to the next reading; a lone reading is a dot. `say` words the point at index `i` for the
+/// hover, and the line answers to the mouse with one point per slot, only a little above and below itself.
+pub(crate) fn spark_line(pic: &mut Pic, (x, y, w, h): (f32, f32, f32, f32), v: &[Option<f64>], p: Palette, say: &dyn Fn(usize, Option<f64>) -> String) {
+    for g in [0.0, 1.0] {
         pic.hline(x, y + h * g, w, p.fg, 0.10);
     }
     let step = w / (v.len().max(2) - 1) as f32;
-    let pt = |i: usize, val: f64| (x + i as f32 * step, y + h - (val / 100.0).clamp(0.0, 1.0) as f32 * h);
-    let mut prev: Option<(f32, f32)> = None;
-    let mut last = None;
-    for (i, val) in v.iter().enumerate() {
-        match val {
-            Some(val) => {
-                let at = pt(i, *val);
-                if let Some(pp) = prev {
-                    pic.seg(pp, at, 1.4, line_ink(p), 1.0);
-                }
-                prev = Some(at);
-                last = Some((at, *val));
-            }
-            None => prev = None,
+    let at_x = |i: usize| x + i as f32 * step;
+    let pt = |i: usize, val: f64| (at_x(i), y + h - (val / 100.0).clamp(0.0, 1.0) as f32 * h);
+    for (a, b) in holes(v) {
+        // from the middle of the last reading before it to the next one (or to the line's edge)
+        let (x0, x1) = (if a == 0 { x } else { at_x(a - 1) }, if b + 1 >= v.len() { x + w } else { at_x(b + 1) });
+        pic.fill_rrect(x0, y, (x1 - x0).max(1.0), h, 0.0, p.fg, 0.07);
+        let mut dx = x0 + 2.0;
+        while dx < x1 - 2.0 {
+            pic.hline(dx, y + h / 2.0, 3.0_f32.min(x1 - 2.0 - dx), p.fg, 0.35);
+            dx += 6.0;
         }
     }
-    if let Some(((lx, ly), val)) = last {
-        pic.dot(lx, ly, 2.4, tone(level_of_pct(val)), 1.0);
+    let mut last = None;
+    // a day of 5 minute readings in 90 points of width is a dense scribble: the line goes through the mean of every
+    // few readings (about one per two points of width), the holes and the last reading stay as they are
+    let chunk = ((v.len() as f32 / (w / 2.0).max(1.0)).floor() as usize).max(1);
+    for (a, b) in stretches(v) {
+        let mut pts: Vec<(f32, f32)> = Vec::new();
+        let mut i = a;
+        while i <= b {
+            let end = (i + chunk).min(b + 1);
+            let got: Vec<(usize, f64)> = (i..end).filter_map(|j| v[j].map(|val| (j, val))).collect();
+            if !got.is_empty() {
+                let mean = got.iter().map(|g| g.1).sum::<f64>() / got.len() as f64;
+                let mid = got.iter().map(|g| g.0 as f32).sum::<f32>() / got.len() as f32;
+                pts.push((x + mid * step, pt(0, mean).1));
+            }
+            i = end;
+        }
+        // the line reaches the stretch's last reading, where the dot sits
+        if let (Some(val), Some(end)) = (v[b], pts.last()) {
+            if at_x(b) - end.0 > 0.5 {
+                pts.push(pt(b, val));
+            }
+        }
+        if pts.len() == 1 {
+            pic.dot(pts[0].0, pts[0].1, 1.2, line_ink(p), 1.0);
+        }
+        for pair in pts.windows(2) {
+            pic.seg(pair[0], pair[1], 1.2, line_ink(p), 1.0);
+        }
+        last = (a..=b).rev().find_map(|j| v[j].map(|val| (pt(j, val), val)));
     }
+    if let Some(((lx, ly), val)) = last.filter(|_| v.last().map_or(false, Option::is_some)) {
+        pic.dot(lx, ly, 1.9, tone(level_of_pct(val)), 1.0);
+    }
+    pic.hover.push(HoverZone { x, y, w, h, points: v.iter().enumerate().map(|(i, val)| HoverPoint { x: at_x(i), label: say(i, *val) }).collect(), reach: Some(SPARK_REACH) });
 }
 
-fn panel_title(pic: &mut Pic, x: f32, w: f32, y: f32, title: &str, value: &str, color: [u8; 3], p: Palette) {
-    pic.text(Face::SansRegular, title, x, y + 9.0, 10.0, p.fg, p.dim);
-    let vw = Pic::text_w(Face::MonoBold, value, 10.5);
-    pic.text(Face::MonoBold, value, x + w - vw, y + 9.5, 10.5, color, 1.0);
+/// How far above and below a line in a row the mouse still reads it: the row is 18 points, the line 12.
+const SPARK_REACH: f32 = 3.0;
+
+/// The history of one reading, drawn inside its row of the legend: `rect` is the plot's box. None (nothing drawn,
+/// no room kept) when the history has fewer than two readings, so the caller keeps its bar.
+pub(crate) fn spark_for(pic: &mut Pic, rect: (f32, f32, f32, f32), series: &[Option<f64>], e: &NodeExtras, p: Palette) -> bool {
+    if !drawable(series) {
+        return false;
+    }
+    let (v, first, _) = covered(series, e.step_s);
+    spark_line(pic, rect, v, p, &|i, val| pct_say(e, first, i, val));
+    true
+}
+
+/// What a hovered reading of CPU or memory says: its time and value, or that nothing was read then.
+fn pct_say(e: &NodeExtras, first: usize, i: usize, val: Option<f64>) -> String {
+    let clock = if e.from_s > 0 { crate::tray_hover::clock_label(e.from_s + (first + i) as i64 * if e.step_s > 0 { e.step_s } else { 300 }, e.offset) } else { String::new() };
+    let what = val.map_or("nessuna lettura".to_string(), |v| format!("{}%", v.round() as i64));
+    if clock.is_empty() { what } else { format!("{clock} · {what}") }
 }
 
 /// Status rows and small charts, from `y0` down, under a faint line.
@@ -212,30 +292,33 @@ pub fn draw_block(pic: &mut Pic, e: &NodeExtras, y0: f32, p: Palette) {
         pic.text(Face::SansRegular, &Pic::fit(Face::SansRegular, &rest, 10.5, RIGHT - tx - lw), tx + lw, y + 12.0, 10.5, p.fg, 1.0);
         y += ROW_H;
     }
-    let n = e.panels();
-    if n == 0 {
-        return;
-    }
-    let gap = 14.0;
-    let w = (RIGHT - X0 - gap * (n as f32 - 1.0)) / n as f32;
-    let mut x = X0;
-    for (name, v) in [("CPU", &e.cpu), ("Memoria", &e.mem)] {
-        if !drawable(v) {
-            continue;
-        }
-        let (v, secs) = covered(v, e.step_s);
-        let now = last_value(v).unwrap_or(0.0);
-        panel_title(pic, x, w, y + 4.0, &window_title(name, secs), &format!("{}%", now.round() as i64), if level_of_pct(now) > 0 { tone(level_of_pct(now)) } else { p.fg }, p);
-        pct_line(pic, (x, y + 4.0 + 18.0, w, PLOT_H - 4.0), v, p);
-        x += w + gap;
-    }
+    // the cards of the day: a status row like the others, with the day's hours as small bars on its right
     if let Some(total) = e.cards_panel() {
-        panel_title(pic, x, w, y + 4.0, "Card oggi", "", p.fg, p);
-        let num = total.to_string();
-        let nw = pic.text(Face::MonoBold, &num, x, y + 4.0 + 42.0, 22.0, p.fg, 1.0);
-        let say = if total == 1 { "avviata oggi" } else { "avviate oggi" };
-        pic.text(Face::SansRegular, say, x + nw + 8.0, y + 4.0 + 42.0, 10.5, p.fg, p.dim);
+        cards_row(pic, e, total, y, p);
     }
+}
+
+const CARDS_BARS_W: f32 = 96.0;
+
+/// «Card oggi · 17 avviate» and, at the right margin, a bar per hour of the day (one point each for the hover).
+fn cards_row(pic: &mut Pic, e: &NodeExtras, total: u32, y: f32, p: Palette) {
+    pic.dot(X0 + 3.5, y + 8.5, 3.0, tone(0), 1.0);
+    pic.text(Face::SansRegular, "Card oggi", X0 + 14.0, y + 12.0, 10.5, p.fg, p.dim);
+    let tx = X0 + 14.0 + LABEL_W;
+    pic.text(Face::SansRegular, &format!("{total} {}", if total == 1 { "avviata" } else { "avviate" }), tx, y + 12.0, 10.5, p.fg, 1.0);
+    let n = e.cards_hours.len().max(1);
+    let (x, top, h) = (RIGHT - CARDS_BARS_W, y + 3.0, 11.0);
+    let step = CARDS_BARS_W / n as f32;
+    let max = *e.cards_hours.iter().max().unwrap_or(&1) as f32;
+    pic.hline(x, top + h, CARDS_BARS_W, p.fg, 0.18);
+    for (i, v) in e.cards_hours.iter().enumerate().filter(|(_, v)| **v > 0) {
+        let bh = (h * *v as f32 / max).max(2.0);
+        pic.fill_rrect(x + i as f32 * step + 0.5, top + h - bh, (step - 1.0).max(1.0), bh, 0.5, tone(0), 1.0);
+    }
+    pic.hover.push(HoverZone { x, y: top, w: CARDS_BARS_W, h, points: e.cards_hours.iter().enumerate().map(|(i, v)| HoverPoint {
+        x: x + (i as f32 + 0.5) * step,
+        label: format!("{:02}:00-{:02}:00 · {}", i, (i + 1) % 24, match v { 0 => "nessuna card".to_string(), 1 => "1 card".to_string(), n => format!("{n} card") }),
+    }).collect(), reach: Some(SPARK_REACH) });
 }
 
 // ------------------------------------------------------------------ in the submenu
@@ -250,27 +333,6 @@ fn framed(h: f32, title: &str, value: &str, color: [u8; 3], p: Palette) -> Pic {
     let vw = Pic::text_w(Face::MonoBold, value, 11.5);
     pic.text(Face::MonoBold, value, CARD_X + CARD_W - 14.0 - vw, 24.0, 11.5, color, 1.0);
     pic
-}
-
-/// Cards started today, hour by hour. None when there is no count or nothing was started (an empty plot says nothing).
-pub fn hours_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
-    let total = e.cards_total().filter(|t| *t > 0)?;
-    let mut pic = framed(96.0, "Card oggi, ora per ora", &format!("{total} in tutto"), p.fg, p);
-    let (x, y, w, h) = (CARD_X + 14.0, 38.0, CARD_W - 28.0, 36.0);
-    let n = e.cards_hours.len();
-    let step = w / n as f32;
-    let max = *e.cards_hours.iter().max().unwrap_or(&1) as f32;
-    pic.hline(x, y + h, w, p.fg, 0.18);
-    for (i, v) in e.cards_hours.iter().enumerate() {
-        if *v > 0 {
-            let bh = (h * *v as f32 / max).max(2.0);
-            pic.fill_rrect(x + i as f32 * step + 1.0, y + h - bh, (step - 2.0).max(2.0), bh, 1.0, tone(0), 1.0);
-        }
-    }
-    for hour in (0..n).step_by(6) {
-        pic.text(Face::SansRegular, &format!("{hour}"), x + hour as f32 * step, y + h + 13.0, 9.5, p.fg, p.dim);
-    }
-    Some(pic)
 }
 
 /// How late the memories and rules were on this machine, over the last 24 hours or as far back as the history goes
@@ -296,6 +358,10 @@ pub fn lag_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     }
     let (lx, ly) = at(pts[pts.len() - 1].0, last);
     pic.dot(lx, ly, 2.6, tone(level), 1.0);
+    pic.hover.push(HoverZone { x, y, w, h, points: pts.iter().map(|(t, lag)| HoverPoint {
+        x: at(*t, *lag).0,
+        label: format!("{} · {}", crate::tray_hover::clock_label(*t, e.offset), if *lag < 60 { "in pari".to_string() } else { format!("indietro di {}", health::span(*lag)) }),
+    }).collect(), reach: None });
     // the scale sits on the top guide, the time axis under the line
     pic.text(Face::SansRegular, &format!("{} fa", health::span(window)), x, y + h + 13.0, 9.5, p.fg, p.dim);
     // the scale rides on the axis row, between its two ends: the top guide is where the line peaks
@@ -335,6 +401,13 @@ pub fn spend_card(e: &NodeExtras, p: Palette) -> Option<Pic> {
     let max = days.iter().map(|d| d.1).fold(share.unwrap_or(0.0) * 1.2, f64::max).max(0.01) as f32;
     let step = w / dim as f32;
     pic.hline(x, y + h, w, p.fg, 0.18);
+    // one reading per day up to the last one the log has; a day with no row says so instead of «0,00 €»
+    let upto = days.iter().map(|d| d.0).max().unwrap_or(0);
+    let first_day = crate::tray_hover::civil_day(year, mon, 1);
+    pic.hover.push(HoverZone { x, y, w, h, points: (1..=upto).map(|d| HoverPoint {
+        x: x + (d - 1) as f32 * step + step / 2.0,
+        label: format!("{} · {}", crate::tray_hover::day_label(first_day + d - 1), days.iter().find(|r| r.0 == d).map_or("nessuna spesa registrata".to_string(), |r| euro(r.1))),
+    }).collect(), reach: None });
     for (d, v) in &days {
         let bh = (h * *v as f32 / max).max(if *v > 0.0 { 2.0 } else { 0.0 });
         let hot = share.map_or(false, |s| *v > s);
@@ -378,10 +451,10 @@ pub fn submenu_nodes(e: &NodeExtras, key: &str, p: Palette, offset: i64) -> Vec<
             with_icon(format!("sf:circle.fill|{tone}"), note(format!("{label} · {say}")))
         }));
     }
-    let charts: Vec<(&str, Option<Pic>)> = vec![("hours", hours_card(e, p)), ("lag", lag_card(e, p)), ("spend", spend_card(e, p))];
+    let charts: Vec<(&str, Option<Pic>)> = vec![("lag", lag_card(e, p)), ("spend", spend_card(e, p))];
     let mut cards: Vec<Node> = charts.into_iter().filter_map(|(k, pic)| {
         let pic = pic?;
-        Some(Node::Card { key: format!("chart:{key}:{k}"), png: pic.to_png()?, w: pic.w, h: pic.h, children: Vec::new() })
+        Some(Node::Card { key: format!("chart:{key}:{k}"), png: pic.to_png()?, w: pic.w, h: pic.h, hover: pic.hover.clone(), children: Vec::new() })
     }).collect();
     if !out.is_empty() && !cards.is_empty() {
         out.push(Node::Sep);

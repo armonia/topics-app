@@ -858,6 +858,8 @@ export default defineConfig({
         // The dispatch dashboard panel: the DOM reading runs in both engines, the
         // webkit run also gives the screenshot taken on the engine the app ships in.
         "**/board-dispatch-dashboard.spec.ts",
+        // The drawer's ground in a narrow window: WKWebView is where it was seen.
+        "**/board-drawer-opaque-narrow.spec.ts",
       ],
       use: {
         browserName: "webkit",

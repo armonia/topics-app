@@ -17,7 +17,7 @@ Chi lo riceve davvero, e quando:
 **DUE LINGUE, e non e' una svista.** Dal 2026-08-15 l'ENVELOPE e' in inglese —
 `buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le quattro
 costanti che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`,
-`VERSION_BUMP_RULE`, `RECOMMENDED_OPTION_RULE` in `shared/board.ts`). E' un
+`VERSION_BUMP_RULE`, `RECOMMENDED_OPTION_RULE`, `REVIEW_CARD_RULE` in `shared/board.ts`). E' un
 contratto di RUNTIME letto da un modello, sta nel codice, e in questo repo il
 codice e' in inglese. QUESTA copia resta in italiano perche' il suo lettore e'
 una persona, e lo dice la prima riga. Cio' che deve restare allineato sono le
@@ -220,6 +220,20 @@ queste regole.
 3. **Ogni claim con EVIDENZA verificabile.** Esiti di comandi, log, `mtime`,
    conteggio dei test che passano. Una promessa ("build in corso", "dovrebbe
    funzionare") non è una consegna: è una consegna solo ciò che è verificato.
+
+3-bis. **La consegna E' la card di review: cinque campi fissi.** Il testo non sta
+   scritto qui: e' la costante `REVIEW_CARD_RULE` in `shared/board.ts`, la stessa
+   stringa che leggono l'envelope di kickoff, il resume e la descrizione di
+   `summary` in `update_task`. Il `summary` della consegna si legge dalla card
+   senza aprire diff, thread o PR, in parole di chi decide, in cinque righe brevi
+   che cominciano con l'intestazione in grassetto, in quest'ordine:
+   **Cosa e perché** (1-2 frasi) · **Prova** (comando ed exit, link CI,
+   screenshot o video gia' allegato) · **Come verificarlo tu** (un gesto, se
+   serve l'occhio) · **Rischio e come si annulla** · **Decisione** (una riga,
+   la consigliata per prima; oppure «nessuna: atterra da sola» se la card e'
+   tecnica). Le intestazioni sono fisse apposta: il server le cerca come testo
+   esatto e, se ne manca una, lascia nel thread una nota di avviso (non rifiuta
+   la review), cosi' l'agente la corregge alla consegna dopo.
 
 4. **Anteprima = evidenza DUREVOLE, e il ramo si sceglie con un criterio
    misurabile.** Il testo della regola **non sta più scritto qui** (ed è in

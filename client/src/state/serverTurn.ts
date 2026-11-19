@@ -189,6 +189,21 @@ export function openTurnRef(sessionKey: string): TurnRef | undefined {
   return t?.open ? { boot: t.boot, turnId: t.turnId } : undefined;
 }
 
+/**
+ * True only when this window has ALREADY HEARD the close of the turn a
+ * statement names: same boot, a turn id no older than the named one, and the
+ * word held says closed. Silence is not a close, so a statement this module
+ * cannot read - a refusal that names no turn at all - answers false: there the
+ * session may well be busy with a turn nobody here has heard of yet, and the
+ * only honest thing is to keep waiting.
+ */
+export function turnAlreadyClosed(sessionKey: string, statement: unknown): boolean {
+  if (!isServerTurn(statement)) return false;
+  const held = turns.get(sessionKey);
+  if (!held || held.open) return false;
+  return held.boot === statement.boot && held.turnId >= statement.turnId;
+}
+
 /** The latest Stop by a person this window has heard of on a session. */
 export function lastStopOf(sessionKey: string): TurnRef | undefined {
   return stops.get(sessionKey);

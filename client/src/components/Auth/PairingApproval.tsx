@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { Monitor, Smartphone } from 'lucide-react';
+import { Monitor, Smartphone, ShieldAlert } from 'lucide-react';
 import { guestPairingPeople, pairingApprovalBody, type PairingIdentity, type PairingPerson } from './pairingPerson';
 import { apiFetch } from '../../lib/shell/net';
+import { getSession, subscribeSession } from '../../lib/auth/sessionState';
 
 /**
  * Il cartello che compare sulla macchina GIÀ fidata quando un dispositivo nuovo
@@ -33,6 +34,24 @@ interface Richiesta {
    * as it was.
    */
   from?: 'locale' | 'lan' | 'internet' | 'ignota';
+  /**
+   * Set only when a Topics server, not a phone or a browser, is asking to
+   * pair as a NODE: approving it hands this node's channel to that machine.
+   * `currentPrimaryMachineId` is who holds it today (null for nobody yet),
+   * and `currentPrimaryMachineName` the name a person reads for it (the
+   * machine's name or hostname); an older server sends no name.
+   */
+  machineId?: string | null;
+  machineEpoch?: number | null;
+  currentPrimaryMachineId?: string | null;
+  currentPrimaryMachineName?: string | null;
+}
+
+/** Who loses the channel, in words: the machine's name, the short id only when there is none. */
+function channelHolderLabel(r: Pick<Richiesta, 'currentPrimaryMachineId' | 'currentPrimaryMachineName'>): string | null {
+  const name = r.currentPrimaryMachineName?.trim();
+  if (name) return name;
+  return r.currentPrimaryMachineId ? r.currentPrimaryMachineId.slice(0, 8) : null;
 }
 
 export function PairingApproval() {
@@ -42,6 +61,14 @@ export function PairingApproval() {
   const [inCorso, setInCorso] = useState<string | null>(null);
   /** Chi sta scrivendo il nome di un'altra persona, e cosa ha scritto. */
   const [altrui, setAltrui] = useState<{ id: string; personId: string; create: boolean; name: string } | null>(null);
+  // A machine takeover is approved only from a LOCAL human session (the
+  // computer's own UI): server/routes/auth.ts rejects the call itself, this
+  // just spares the person a click that the server would refuse anyway.
+  const [loopback, setLoopback] = useState(() => {
+    const s = getSession();
+    return s.status === 'paired' && s.as === 'loopback';
+  });
+  useEffect(() => subscribeSession((s) => setLoopback(s.status === 'paired' && s.as === 'loopback')), []);
 
   useEffect(() => {
     // Stato iniziale: una richiesta può essere arrivata mentre questa finestra
@@ -117,7 +144,7 @@ export function PairingApproval() {
   return (
     <div className="fixed bottom-4 right-4 z-[9998] flex w-[320px] flex-col gap-2">
       {richieste.map((r) => (
-        <div key={r.id} className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
+        <div key={r.id} data-testid="pair-request-card" className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <Smartphone size={14} className="text-app-text-secondary" />
             <span className="text-prose font-medium text-app-text">{tr('pair.requestsAccess', { name: r.name })}</span>
@@ -138,6 +165,23 @@ export function PairingApproval() {
               {r.from && r.from !== 'ignota' ? tr(`pair.origin.${r.from}`) : null}
               {r.from && r.from !== 'ignota' && r.ip ? ' · ' : null}
               {r.ip ? r.ip.replace(/^::ffff:/, '') : null}
+            </div>
+          )}
+
+          {/* A Topics server declaring a machine id is not asking for a device
+              slot, it is asking for this NODE'S CHANNEL — which primary it
+              obeys from now on. Say that in plain words, with who loses it,
+              so approving is an informed act and not a reflex on a familiar
+              card (MACHINE-01). */}
+          {r.machineId && (
+            <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-500/10 p-2 text-mini leading-snug text-amber-700 dark:text-amber-400">
+              <ShieldAlert size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>
+                {tr('pair.machineTakeover', {
+                  epoch: String(r.machineEpoch ?? 0),
+                  from: channelHolderLabel(r) ?? tr('pair.machineTakeover.none'),
+                })}
+              </span>
             </div>
           )}
 
@@ -164,7 +208,7 @@ export function PairingApproval() {
               {tr('pair.deny')}
             </button>
             <button
-              disabled={inCorso === r.id}
+              disabled={inCorso === r.id || (!!r.machineId && !loopback)}
               onClick={() => void rispondi(r.id, true, { mine: true })}
               className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-compact font-medium text-white hover:opacity-90 disabled:opacity-50"
               data-testid="pair-approve-owner"
@@ -173,78 +217,96 @@ export function PairingApproval() {
             </button>
           </div>
 
+          {/* The channel this card is about to hand over can only change hands
+              from a human sitting at THIS computer — the server itself
+              refuses the call otherwise (MACHINE-01). Say so instead of
+              letting the person tap a button that does nothing. */}
+          {r.machineId && !loopback && (
+            <p className="mt-1.5 text-mini leading-snug text-app-text-muted">
+              {tr('pair.machineLocalOnly')}
+            </p>
+          )}
+
           {/* A SCREEN is the third answer, and an explicit one: the monitor of a machine
               that takes the load shows the load page, read-only, with no person behind it.
               Never the default, never inferred: only this button writes it. */}
-          <button
-            disabled={inCorso === r.id}
-            onClick={() => void rispondi(r.id, true, { screen: true })}
-            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
-            title={tr('pair.screenBlurb')}
-            data-testid="pair-approve-screen"
-          >
-            <Monitor size={13} aria-hidden="true" />{tr('pair.screen')}
-          </button>
+          {/* A node pairing is always owner-or-nothing (the channel transfer
+              only fires for that role): the screen and "someone else" paths
+              below answer a question — whose device, or what kind — that a
+              server asking for a channel never raises. */}
+          {!r.machineId && (
+            <>
+              <button
+                disabled={inCorso === r.id}
+                onClick={() => void rispondi(r.id, true, { screen: true })}
+                className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
+                title={tr('pair.screenBlurb')}
+                data-testid="pair-approve-screen"
+              >
+                <Monitor size={13} aria-hidden="true" />{tr('pair.screen')}
+              </button>
 
-          {/* The exact twin of the defect in `DevicesSection`: with the state
-              at null and a missing `r.id` the comparison is true and the line
-              below dereferences it. Check the object first, then the id. */}
-          {altrui && altrui.id === r.id ? (
-            <div className="mt-2 space-y-1.5">
-              {altrui.create ? (
-                <input
-                  autoFocus
-                  value={altrui.name}
-                  onChange={(event) => setAltrui({ ...altrui, name: event.target.value })}
-                  onKeyDown={(event) => { if (event.key === 'Escape') setAltrui(null); }}
-                  placeholder={tr('pair.newPersonName')}
-                  aria-label={tr('pair.personName')}
-                  className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
-                />
+              {/* The exact twin of the defect in `DevicesSection`: with the state
+                  at null and a missing `r.id` the comparison is true and the line
+                  below dereferences it. Check the object first, then the id. */}
+              {altrui && altrui.id === r.id ? (
+                <div className="mt-2 space-y-1.5">
+                  {altrui.create ? (
+                    <input
+                      autoFocus
+                      value={altrui.name}
+                      onChange={(event) => setAltrui({ ...altrui, name: event.target.value })}
+                      onKeyDown={(event) => { if (event.key === 'Escape') setAltrui(null); }}
+                      placeholder={tr('pair.newPersonName')}
+                      aria-label={tr('pair.personName')}
+                      className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
+                    />
+                  ) : (
+                    <select
+                      autoFocus
+                      value={altrui.personId}
+                      onChange={(event) => setAltrui({ ...altrui, personId: event.target.value })}
+                      aria-label={tr('pair.choosePerson')}
+                      className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
+                    >
+                      {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                    </select>
+                  )}
+                  <div className="flex flex-wrap justify-between gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAltrui({ ...altrui, create: !altrui.create, name: '' })}
+                      className="rounded px-2 py-1 text-mini text-app-text-secondary hover:bg-app-bg"
+                    >
+                      {altrui.create ? tr('pair.chooseExisting') : tr('pair.createPerson')}
+                    </button>
+                    <button
+                      disabled={inCorso === r.id || (altrui.create ? !altrui.name.trim() : !altrui.personId)}
+                      onClick={() => {
+                        void rispondi(r.id, true, altrui.create ? { personName: altrui.name } : { personId: altrui.personId });
+                        setAltrui(null);
+                      }}
+                      className="rounded-lg border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
+                      data-testid="pair-approve-guest"
+                    >
+                      {tr('pair.approve')}
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <select
-                  autoFocus
-                  value={altrui.personId}
-                  onChange={(event) => setAltrui({ ...altrui, personId: event.target.value })}
-                  aria-label={tr('pair.choosePerson')}
-                  className="w-full rounded-lg border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-primary"
+                <button
+                  disabled={inCorso === r.id}
+                  onClick={() => setAltrui({ id: r.id, personId: people[0]?.id ?? '', create: people.length === 0, name: '' })}
+                  className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
                 >
-                  {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-                </select>
+                  {tr('pair.someoneElse')}
+                </button>
               )}
-              <div className="flex flex-wrap justify-between gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setAltrui({ ...altrui, create: !altrui.create, name: '' })}
-                  className="rounded px-2 py-1 text-mini text-app-text-secondary hover:bg-app-bg"
-                >
-                  {altrui.create ? tr('pair.chooseExisting') : tr('pair.createPerson')}
-                </button>
-                <button
-                  disabled={inCorso === r.id || (altrui.create ? !altrui.name.trim() : !altrui.personId)}
-                  onClick={() => {
-                    void rispondi(r.id, true, altrui.create ? { personName: altrui.name } : { personId: altrui.personId });
-                    setAltrui(null);
-                  }}
-                  className="rounded-lg border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-bg disabled:opacity-50"
-                  data-testid="pair-approve-guest"
-                >
-                  {tr('pair.approve')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              disabled={inCorso === r.id}
-              onClick={() => setAltrui({ id: r.id, personId: people[0]?.id ?? '', create: people.length === 0, name: '' })}
-              className="mt-2 w-full rounded-lg border border-app-border px-3 py-1.5 text-compact text-app-text-secondary hover:bg-app-bg disabled:opacity-50"
-            >
-              {tr('pair.someoneElse')}
-            </button>
+              <p className="mt-1.5 text-mini leading-snug text-app-text-muted">
+                {tr('pair.guestBlurb')}
+              </p>
+            </>
           )}
-          <p className="mt-1.5 text-mini leading-snug text-app-text-muted">
-            {tr('pair.guestBlurb')}
-          </p>
         </div>
       ))}
     </div>

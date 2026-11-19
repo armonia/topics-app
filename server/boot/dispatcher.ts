@@ -6,6 +6,7 @@ import { existsSync, mkdirSync } from "fs";
 import { countAttachedTerminalSessions } from "../routes/terminal";
 import { createAgentWorktree, worktreeReadyMs } from "../services/worktree-for-agent";
 import { createTaskDispatcher } from "../services/task-dispatcher";
+import { dispatcherLogLine } from "../services/task-dispatcher-support";
 import { budgetSample, computeDispatchCapacity } from "../services/dispatch-capacity";
 import { createDispatchResourceBlockFromInputs } from "../services/dispatch-memory-inputs";
 import { fleetLoadSync, fleetSessionCoreUnits } from "../lib/fleet-usage";
@@ -33,10 +34,12 @@ import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-ove
 import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
+import { isThisServerPrimary } from "../lib/primary-role";
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc } = scope;
   const taskDispatcher = createTaskDispatcher({
+    isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
     captureDelivery: (taskId) => late.capturaConsegna ? late.capturaConsegna(taskId) : Promise.resolve(false),
     measureDelivery: (taskId) => late.misuraConsegnaNodo ? late.misuraConsegnaNodo(taskId) : Promise.resolve(),
@@ -63,7 +66,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy like the `await import` of the same module at boot: static, it would move the snapshot manager (and the provider registry it imports) up the boot's module order
       snapshot: () => (require("../providers/snapshot-manager") as typeof import("../providers/snapshot-manager")).getSnapshotManager().getSnapshot(),
       getProvider: tryGetProvider,
-      log: (message) => console.log(`[dispatcher] ${message}`),
+      log: (message) => console.log(dispatcherLogLine(message)),
     }),
     setTopicRouting: (id, topicsRouting) => {
       const topic = ctx.getTopicById(id);
@@ -170,7 +173,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
             // Slug is UNIQUE; a same-named project at another path gets a suffix.
             if (ctx.projectStore.getBySlug(slug)) slug = `${slug}-${Date.now().toString(36)}`.slice(0, 64);
             storeId = ctx.projectStore.create({ name, slug, path: c.path }).id;
-            console.log(`[dispatcher] auto-registered project "${name}" (${c.path}) for worktree dispatch`);
+            console.log(dispatcherLogLine(`auto-registered project "${name}" (${c.path}) for worktree dispatch`));
           }
         } catch (err) {
           console.error(`[dispatcher] project auto-register failed for ${c.path}`, err);
@@ -468,7 +471,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   });
   late.taskDispatcher = taskDispatcher;
 
-  const scheduledCardsTimer = setInterval(tickScheduledCards, 15_000);
+  const scheduledCardsTimer = setInterval(() => { if (isThisServerPrimary()) tickScheduledCards(); }, 15_000);
 
   return { scheduledCardsTimer, taskDispatcher };
 }
