@@ -182,7 +182,7 @@ async function api<T>(s: ServerUnderTest, method: string, path: string, body?: u
  * as a person clicking the card would. Returns the status of the request (a
  * replaced primary is refused at the door) and the device id it was given.
  */
-async function pairDeclaring(target: ServerUnderTest, declared: { machineId: string; epoch?: number }): Promise<{ status: number; deviceId: string | null }> {
+async function pairAsMachine(target: ServerUnderTest, declared: { machineId: string; epoch?: number }): Promise<{ status: number; deviceId: string | null }> {
   const tunnel = `http://127.0.0.1:${target.tunnelHttpPort}`;
   const headers: Record<string, string> = { [MACHINE_HEADER]: declared.machineId };
   if (declared.epoch !== undefined) headers[EPOCH_HEADER] = String(declared.epoch);
@@ -508,11 +508,11 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
       const before = channelOf(serverB);
       expect(before?.channel_machine_id, "B's channel is A's before anybody else asks").toBe(machineA);
 
-      const lower = await pairDeclaring(serverB, { machineId: ghost, epoch: 7 });
+      const lower = await pairAsMachine(serverB, { machineId: ghost, epoch: 7 });
       expect(lower, "epoch 7 is below B's 8: refused at the door, never approved").toEqual({ status: 409, deviceId: null });
 
       for (const epoch of [undefined, 8]) {
-        const asked = await pairDeclaring(serverB, { machineId: ghost, epoch });
+        const asked = await pairAsMachine(serverB, { machineId: ghost, epoch });
         expect(asked.deviceId, `the pairing declaring epoch ${epoch ?? "none"} was approved`).not.toBeNull();
         expect(channelOf(serverB), `epoch ${epoch ?? "none"} left B's channel alone`).toEqual(before);
       }
@@ -520,18 +520,18 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     }, 60_000);
 
     test("an epoch above B's takes the channel, and the machine holding it keeps it when it pairs again", async () => {
-      const taken = await pairDeclaring(serverB, { machineId: ghost, epoch: 9 });
+      const taken = await pairAsMachine(serverB, { machineId: ghost, epoch: 9 });
       expect(channelOf(serverB), "epoch 9 is above B's 8: the channel changed hands").toEqual({ channel_device_id: taken.deviceId, channel_machine_id: ghost });
       expect(primaryRow(serverB), "a pairing records a channel, it never moves the epoch by itself").toMatchObject({ primary_machine_id: machineA, epoch: 8 });
 
       // The same machine pairs a second device (its token was revoked, say) and
       // declares nothing above B's epoch: it keeps the channel it already holds.
-      const again = await pairDeclaring(serverB, { machineId: ghost, epoch: 8 });
+      const again = await pairAsMachine(serverB, { machineId: ghost, epoch: 8 });
       expect(channelOf(serverB), "the machine that holds the channel keeps it").toEqual({ channel_device_id: again.deviceId, channel_machine_id: ghost });
     }, 60_000);
 
     test("the primary B still obeys reclaims its channel without a higher epoch", async () => {
-      const reclaimed = await pairDeclaring(serverB, { machineId: machineA, epoch: 8 });
+      const reclaimed = await pairAsMachine(serverB, { machineId: machineA, epoch: 8 });
       expect(channelOf(serverB), "A is the primary B recognizes: its pairing restores its own channel").toEqual({ channel_device_id: reclaimed.deviceId, channel_machine_id: machineA });
       expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
     }, 60_000);
