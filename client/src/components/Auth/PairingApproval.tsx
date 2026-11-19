@@ -37,11 +37,21 @@ interface Richiesta {
   /**
    * Set only when a Topics server, not a phone or a browser, is asking to
    * pair as a NODE: approving it hands this node's channel to that machine.
-   * `currentPrimaryMachineId` is who holds it today (null for nobody yet).
+   * `currentPrimaryMachineId` is who holds it today (null for nobody yet),
+   * and `currentPrimaryMachineName` the name a person reads for it (the
+   * machine's name or hostname); an older server sends no name.
    */
   machineId?: string | null;
   machineEpoch?: number | null;
   currentPrimaryMachineId?: string | null;
+  currentPrimaryMachineName?: string | null;
+}
+
+/** Who loses the channel, in words: the machine's name, the short id only when there is none. */
+function channelHolderLabel(r: Pick<Richiesta, 'currentPrimaryMachineId' | 'currentPrimaryMachineName'>): string | null {
+  const name = r.currentPrimaryMachineName?.trim();
+  if (name) return name;
+  return r.currentPrimaryMachineId ? r.currentPrimaryMachineId.slice(0, 8) : null;
 }
 
 export function PairingApproval() {
@@ -169,7 +179,7 @@ export function PairingApproval() {
               <span>
                 {tr('pair.machineTakeover', {
                   epoch: String(r.machineEpoch ?? 0),
-                  from: r.currentPrimaryMachineId ?? tr('pair.machineTakeover.none'),
+                  from: channelHolderLabel(r) ?? tr('pair.machineTakeover.none'),
                 })}
               </span>
             </div>
