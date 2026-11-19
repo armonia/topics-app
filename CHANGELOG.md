@@ -2,10 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.53 — 2026-11-19
+
+### Sotto il cofano
+- Una card che incontra il limite del piano con il reset dichiarato aspetta, e il muro è solo della board (#1360)
+- topics/furtive-dahlia (card 8f2d0c9f) (#1362)
+
 ## 2.4.52 — 2026-11-19
 
 ### Sotto il cofano
 - Name the pairing e2e fixture in plain English
+- a secondary server still works the node-run mirror cards from its primary
+- Mirror cards: tests that pin the restart blocks, and reserve the node-run key prefix
 - Give node pairing credentials their own scope instead of owner (#1364)
 
 ## 2.4.51 — 2026-11-19

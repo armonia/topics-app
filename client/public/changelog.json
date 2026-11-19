@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.53",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card che incontra il limite del piano con il reset dichiarato aspetta, e il muro è solo della board (#1360)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/furtive-dahlia (card 8f2d0c9f) (#1362)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.52",
     "date": "2026-11-19",
     "sections": {
@@ -9,6 +31,17 @@
       "internal": [
         {
           "it": "Name the pairing e2e fixture in plain English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a secondary server still works the node-run mirror cards from its primary",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Mirror cards: tests that pin the restart blocks, and reserve the node-run key prefix",
           "en": "",
           "scope": null
         },
