@@ -504,6 +504,41 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     /** A machine id nobody runs: what a pairing declares is a declaration, not a proof. */
     const ghost = crypto.randomUUID();
 
+    test("a ghost pairing approved through the tunnel with an owner cookie is refused: the channel stays put (MACHINE-01)", async () => {
+      const before = channelOf(serverB);
+      expect(before?.channel_machine_id, "B's channel is A's before the ghost shows up").toBe(machineA);
+
+      // An owner device paired through the tunnel: the cookie it collects is
+      // exactly what a secondary server, already paired as owner, carries
+      // back through the tunnel too — the door this guard closes.
+      const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+      const asked = await (await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST" })).json() as { requestId: string; claim: string };
+      await api(serverB, "POST", "/api/auth/pair/approve", { requestId: asked.requestId });
+      const collected = await fetch(`${tunnel}/api/auth/pair/status?requestId=${asked.requestId}&claim=${asked.claim}`);
+      const ownerCookie = (collected.headers.get("set-cookie") ?? "").split(";")[0]!;
+      expect(ownerCookie, "the device received its owner session").toContain("=");
+
+      // The ghost declares a machine id and an epoch far above B's current one.
+      const ghostId = crypto.randomUUID();
+      const reqRes = await fetch(`${tunnel}/api/auth/pair/request`, {
+        method: "POST",
+        headers: { [MACHINE_HEADER]: ghostId, [EPOCH_HEADER]: "50" },
+      });
+      expect(reqRes.ok).toBe(true);
+      const { requestId } = await reqRes.json() as { requestId: string };
+
+      // Approved through the tunnel, with a real owner cookie: refused at the door.
+      const approveRes = await fetch(`${tunnel}/api/auth/pair/approve`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: ownerCookie },
+        body: JSON.stringify({ requestId }),
+      });
+      expect({ status: approveRes.status, body: await approveRes.json() }, "a tunnel call, even with an owner cookie, is not a local session")
+        .toEqual({ status: 403, body: { error: "machine_pairing_requires_local_session" } });
+      expect(channelOf(serverB), "the ghost's approval through the tunnel changed nothing").toEqual(before);
+      expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+    }, 60_000);
+
     test("no epoch, a lower one or an equal one takes nothing; a replaced primary cannot even ask", async () => {
       const before = channelOf(serverB);
       expect(before?.channel_machine_id, "B's channel is A's before anybody else asks").toBe(machineA);

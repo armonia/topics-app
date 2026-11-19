@@ -504,6 +504,8 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       ctx.broadcast?.({
         type: "auth:pair-requested", requestId: id, code: entry.code, name, ip,
         from: provenienzaDi(ip),
+        machineId: entry.machineId, machineEpoch: entry.machineEpoch,
+        currentPrimaryMachineId: entry.machineId ? (getPrimaryRole()?.channel()?.machineId ?? null) : null,
       });
       return json({ requestId: id, code: entry.code, claim: entry.claim, name, expiresInMs: PAIRING_CODE_TTL_MS });
     }
@@ -537,14 +539,18 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
     // ── Da qui in giù serve già un'identità: il gate l'ha imposta a monte.
 
     if (method === "GET" && pathname === "/api/auth/pair/pending") {
+      // The machine currently holding this node's channel, so the card can
+      // say WHO is being replaced — "nobody" is a fact too, not a blank.
+      const holder = getPrimaryRole()?.channel()?.machineId ?? null;
       return json({
         requests: [...pending.values()]
           .filter((p) => p.state === "pending")
           // The same shape as the frame, and that is the point: this route
           // rebuilds the card when the window reopens, so what it shows must
           // match what arrived live.
-          .map(({ id, code, name, ip: da, createdAt }) => ({
+          .map(({ id, code, name, ip: da, createdAt, machineId, machineEpoch }) => ({
             id, code, name, ip: da, createdAt, from: provenienzaDi(da),
+            machineId, machineEpoch, currentPrimaryMachineId: machineId ? holder : null,
           })),
       });
     }
@@ -555,6 +561,20 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       } | null;
       const entry = pending.get(body?.requestId ?? "");
       if (!entry) return json({ error: "pairing_expired" }, 404);
+
+      // ── A pairing that declares a machine id or an epoch hands over this
+      // node's CHANNEL — which primary it listens to from now on — and that
+      // is a decision only a human sitting at THIS computer can make. Any
+      // identity reached through the tunnel carries a cookie that proves
+      // nothing about who is holding the mouse: a secondary server already
+      // paired as owner has one too, and the ghost machine takeover this
+      // guards against used exactly that door. `loopback` is the request's
+      // own transport, computed above the same way the access gate computes
+      // it: a tunnel hop or a remote peer is never "local", no matter whose
+      // cookie it carries.
+      if (!pathname.endsWith("/deny") && (entry.machineId !== null || entry.machineEpoch !== null) && !loopback) {
+        return json({ error: "machine_pairing_requires_local_session" }, 403);
+      }
 
       if (pathname.endsWith("/deny")) {
         entry.state = "denied";
