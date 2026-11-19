@@ -82,6 +82,14 @@ export function SubAgentResultView({ card }: { card: SubagentResultCard }) {
 /** A row of the chat that carries sub-agent results: one card each, no bubble. */
 export function SubAgentResultRow({ messageId, block }: { messageId?: string; block: SubagentResultBlock }) {
   const tr = useT();
+  // The late wake of a provider hold: its cards are already above, written when the results came.
+  if (block.shown) {
+    return (
+      <div data-testid="subagent-result-row" data-shown="true" data-message-id={messageId} className="my-1 px-2 text-mini text-app-text-tertiary">
+        {tr('chat.subagent.shownAfterHold', { names: block.results.map((r) => r.name).join(', ') })}
+      </div>
+    );
+  }
   return (
     <div data-testid="subagent-result-row" data-message-id={messageId} title={tr('chat.subagent.rowTitle')} className="my-1 space-y-1 px-2">
       {block.results.map((card) => <SubAgentResultView key={`${card.agentId}:${card.turn}:${card.status}`} card={card} />)}

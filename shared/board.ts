@@ -1835,6 +1835,13 @@ export interface CheckRun {
    * "e2e red on the pull request CI" would be the wrong sentence for it.
    */
   ciRunRed?: string;
+  /**
+   * A NOT MEASURED CI row whose cause passes by itself: no verdict before the
+   * deadline, GitHub reads failing, a push or a draft refused by the network.
+   * The same commit measured again can give a verdict, so the delivery waits
+   * again instead of going back to its agent (`ciRemeasurable` in ci-evidence.ts).
+   */
+  transient?: boolean;
 }
 
 /** Config di dispatch per board (riga `board_settings`). */

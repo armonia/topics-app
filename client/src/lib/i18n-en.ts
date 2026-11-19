@@ -312,6 +312,7 @@ const EN = {
   'subagent.waiting': '{name} · waiting for its prompt (open)',
   'subagent.busy': '{name} · working (open)',
   'subagent.open': '{name} · open',
+  'subagent.awaiting': '{name} · turn over, waiting for its own sub-agents or commands (open)',
   'subagent.ended': '{name} · ended (open)',
   'subagent.dismiss': 'Remove {name} from the list',
   'subagent.strip': 'Sub-agents',
