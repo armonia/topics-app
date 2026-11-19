@@ -145,6 +145,14 @@ describe('commands only on the Jarvis jobs', () => {
     expect(worded.find((r) => r.key === 'cron:job-docs')!.when).toBe(merged.find((r) => r.key === 'cron:job-docs')!.when);
   });
 
+  test('a one-shot job is an ordinary task: no row, switched on or off', () => {
+    const once = { schedule: { kind: 'at', at: '2026-11-06T09:00:00Z' }, nextRunAt: null };
+    const withOnce = [...jobs, { id: 'job-once', name: 'Once', enabled: true, ...once }, { id: 'job-once-off', name: 'Once off', enabled: false, ...once }];
+    const merged = withCronJobs(rows, withOnce);
+    expect(merged.some((r) => r.jobId === 'job-once' || r.jobId === 'job-once-off')).toBe(false);
+    expect(merged.length).toBe(withCronJobs(rows, jobs).length);
+  });
+
   test('gateway down: no list, no command anywhere', () => {
     expect(readCronJobs({ jobs: [], warning: 'Gateway error' })).toEqual([]);
     expect(withCronJobs(rows, null).filter(hasCommands)).toEqual([]);
