@@ -59,7 +59,7 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
       ...base, ...extra,
     } as Parameters<typeof createTasksRouter>[2]);
     const router = boot();
-    const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "consegna" }))!.json();
+    const task = await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "consegna", allow_duplicate: true }))!.json();
     db.prepare("UPDATE tasks SET status = 'in_progress' WHERE id = ?").run(task.id);
     await call(router, "POST", `/api/sessions/s1/tasks/${task.id}/comments`, { content: "fatto, guarda demo/" });
     await call(router, "PATCH", `/api/boards/${task.projectId}/settings`, { reviewChecks: checks });
