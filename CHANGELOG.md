@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.54 — 2026-11-19
+
+### Sotto il cofano
+- Narrow machine-like owner credentials to node by traces, not by name (#1367)
+
 ## 2.4.53 — 2026-11-19
 
 ### Sotto il cofano
