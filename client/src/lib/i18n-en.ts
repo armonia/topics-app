@@ -436,9 +436,6 @@ const EN = {
   'cmd.kind.skill': 'the skill',
   'cmd.kind.command': 'the command',
   'cmd.currentFile': 'Current content of the /{name} file, not a copy of when it ran',
-  'window.openOther': 'Open the other window',
-  'window.openWith': 'Open the window with {what}',
-  'window.elsewhere': 'In another window',
   'turn.waitingYou': 'The assistant is waiting for your answer',
   'turn.slow': 'The stream is slow, the provider is still connected',
   'turn.retrying': 'The provider failed temporarily, trying again ({n}/{max})',
@@ -2968,6 +2965,8 @@ const EN = {
   'topic.serverOn': 'Server running: {where}. It stays up by itself, the chat is free',
   'topic.serverOnLan': 'Server running and visible on the LAN: {where}. Anyone on the same network can open it',
   'topic.openElsewhere': 'Open in another window',
+  'topic.elsewhereUnreachable': 'The window holding this chat cannot be reached from here',
+  'topic.openHere': 'Open here',
   // ── Sharing.
   'share.button': 'Share',
   'share.sharedWith': 'Shared with {n}',
