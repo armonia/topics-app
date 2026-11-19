@@ -346,6 +346,8 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
         result,
         writeRow: () => writeResultRow(info),
         settle: () => info.settle?.(),
+        ...(info.rowWritten ? { rowWritten: true } : {}),
+        noteRowWritten: () => info.markRowWritten?.(),
       });
       return;
     }
