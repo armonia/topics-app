@@ -21,7 +21,7 @@
  */
 
 import { commentAuthorLabel } from './comment-author';
-import { TASK_STATUSES, isThreadSpeech, parseQuestionBlock, questionAsksHuman, type TaskStatus } from './board';
+import { LAND_ACTION_LABEL, PLAN_REVISE_LABEL, TASK_STATUSES, isThreadSpeech, normalizeActionLabel, parseQuestionBlock, questionAsksHuman, type TaskStatus } from './board';
 
 export interface WorkflowColumn {
   /** Stable id: equal to the base status for the plain columns. */
@@ -213,7 +213,56 @@ export function agentAskInThread(comments: readonly { author?: string | null; co
     if (who === 'system' || who === 'dispatcher' || who === 'verifier') continue;
     if (who !== 'agent') return null;
     const q = parseQuestionBlock(c.content);
-    return q && questionAsksHuman(q) ? q.question : null;
+    return q && questionAsksHuman(q) && !isApprovalOnly(q) ? q.question : null;
   }
   return null;
+}
+
+/**
+ * A QUESTION WHOSE ONLY MEANING IS "DO YOU APPROVE?" IS NOT A QUESTION.
+ *
+ * Agents close almost every delivery with an "ok?": 684 fences offered
+ * `Landa su main` in two weeks, and the variants the exact match misses keep a
+ * green technical card waiting for a person who has nothing to decide, since
+ * "land it, or tell me what to change" is what review offers anyway. Two shapes
+ * count as approval only:
+ *   - every option is the land action, marked or not ("Landa su main
+ *     (consigliata)", "Landa su main a CI verde"), or its twin "send it back"
+ *     (`Da rivedere`, "cosa cambiare");
+ *   - no option (or a `human_ask`), and the WHOLE text is approval words ("Ok?",
+ *     "Landa su main (consigliata) o cosa cambiare", "Ok a landare a CI
+ *     verde?").
+ * A text with anything else in it stays a question, however it ends. Measured
+ * on the cards the log named as blocked by a question (25f0e2a5, b2b33bf0,
+ * 48588f6e): each carried a real doubt before its closing "ok?" (ci.yml
+ * inside the PR, what "forbidden" means, a script that measures something other
+ * than the brief), so a reading that kept only the last sentence would have
+ * landed three decisions nobody took. What only a person can judge does not
+ * rest on this reading either: the interface is a person's by its paths, and
+ * money, public text and real people's data by `human_ask`. With options, the
+ * options decide: an agent that offers only "land it"
+ * and "send it back" has offered what review already offers, whatever its
+ * summary says above them; a real doubt carries an option of its own or a
+ * `human_ask`. The list is small on purpose: a missed courtesy costs a person's
+ * click, a swallowed question costs a land nobody wanted.
+ */
+const APPROVAL_WORDS = new Set(normalizeActionLabel(
+  'ok okay va bene vanno cosi così posso landare landa landala landarla su main a ci verde consigliata consigliato recommended ' +
+  'rispondi oppure o dimmi dimmelo cosa cambiare approvi approva approvo procedo procedere ti tutto il la lo',
+).split(' '));
+const LAND = normalizeActionLabel(LAND_ACTION_LABEL);
+const SEND_BACK = normalizeActionLabel(PLAN_REVISE_LABEL);
+
+/** The text asks nothing but "do you approve?": every word is an approval word (the rule above, for a text with no options). */
+export function asksOnlyApproval(text: string): boolean {
+  const words = normalizeActionLabel(text).split(' ').filter(Boolean);
+  return words.length > 0 && words.every((w) => APPROVAL_WORDS.has(w));
+}
+
+export function isApprovalOnly(q: { question?: string; options: readonly string[] }): boolean {
+  if (q.options.length === 0) return asksOnlyApproval(q.question ?? '');
+  return q.options.every((o) => {
+    const n = normalizeActionLabel(o);
+    return n === SEND_BACK || ((n.startsWith(LAND) || n.includes('cosa cambiare')) && asksOnlyApproval(o));
+  });
 }

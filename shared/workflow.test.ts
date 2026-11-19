@@ -9,9 +9,12 @@ import {
   MAX_PERSON_PATHS,
   STAGE_CI,
   WORKFLOW_COLUMNS,
+  agentAskInThread,
+  asksOnlyApproval,
   awaitsHuman,
   awaitsHumanSql,
   columnOfTask,
+  isApprovalOnly,
   parseCiPhase,
   parsePersonPaths,
   personPathsFromText,
@@ -95,3 +98,57 @@ describe("person paths as text and as data", () => {
   });
 });
 
+
+/**
+ * "Do you approve?" is not a question: the texts are the agents' own, copied from
+ * the board's database (cards named in the comments).
+ */
+describe("isApprovalOnly / asksOnlyApproval", () => {
+  const q = (question: string, ...options: string[]) => ({ question, options });
+
+  test.each([
+    // 0d6384ff, 17/11: the land action marked as the pick, the exact match missed it.
+    ["the land action with a suffix", q("I quattro bottoni ora dicono ciò che fanno?", "Landa su main (consigliata)")],
+    ["the land action at green CI", q("Fatto.", "Landa su main a CI verde")],
+    ["land or send back (f34ae59e)", q("Test di regressione aggiunto, tutti i cancelli verdi.", "Landa su main (consigliata)", "Da rivedere")],
+    ["a bare ok", q("Ok?")],
+    ["a bare land-or-change", q("Landa su main (consigliata) o cosa cambiare?")],
+    ["ok to land", q("Ok a landare a CI verde?")],
+  ])("%s is approval only", (_n, block) => {
+    expect(isApprovalOnly(block)).toBe(true);
+  });
+
+  test.each([
+    // 0d6384ff: an option the board cannot execute is a choice for the person.
+    ["a second road", q("Come procedo?", "Landa su main", "Prima lancia l'e2e sul PC con pw-remote e mandami gli screenshot")],
+    // 2fbdd455: a pick between two cards.
+    ["a pick between cards", q("Landa su main, oppure dammi un parere?", "Landa su main (consigliata)", "Prima decido su c325cd9a")],
+    // 0d6384ff, 13/11: a summary with "Ok, o cosa cambiare?" at the end still names what the person must look at.
+    ["a summary ending in ok-or-change", q("Cosa vedrà Attilio: Approva su ramo non unito → riga «usa Landa su main». Ok, o cosa cambiare?")],
+    ["an option with a condition of its own", q("Fatto.", "Landa su main se la PR #12 è unita")],
+  ])("%s is a question", (_n, block) => {
+    expect(isApprovalOnly(block)).toBe(false);
+  });
+
+  test.each([
+    // The `human_ask` left on 25f0e2a5, b2b33bf0 and 48588f6e: each a real doubt, whatever its tail.
+    "Ho toccato anche .github/workflows/ci.yml (runner a ubuntu-24.04) perché la CI era rotta per tutti: ti va bene dentro questa PR?",
+    "Conferma la definizione di «vietato»: slots 0, oppure nodo offline senza hook di accensione (il tetto cloud non è un campo di machines).",
+    "Lo script confronta gli errori TS 5 vs TS 7, non le versioni nei package.json come da brief. Va bene così?",
+    "Guarda l'anteprima prima/dopo dei bottoni: dicono ora ciò che fanno? Rispondi «ok» o cosa cambiare.",
+  ])("a human_ask with a doubt in it asks: %s", (text) => {
+    expect(asksOnlyApproval(text)).toBe(false);
+  });
+
+  test("a human_ask of approval words only does not ask", () => {
+    expect(asksOnlyApproval("Landa su main a CI verde (consigliata)?")).toBe(true);
+    expect(asksOnlyApproval("Va bene così? Rispondi «ok» o dimmi cosa cambiare.")).toBe(true);
+    expect(asksOnlyApproval("")).toBe(false);
+  });
+
+  test("agentAskInThread reads an approval-only fence as a delivery", () => {
+    const fence = (body: string) => [{ author: "agent:t1", kind: "comment", content: "```question\n" + body + "\n```" }];
+    expect(agentAskInThread(fence("Fatto, barra verde.\n- Landa su main (consigliata)\n- Da rivedere"))).toBeNull();
+    expect(agentAskInThread(fence("Come procedo?\n- Landa su main\n- Lancio io l'e2e sul PC"))).toBe("Come procedo?");
+  });
+});
