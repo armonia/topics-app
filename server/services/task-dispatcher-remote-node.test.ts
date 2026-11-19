@@ -396,6 +396,39 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     wakeBreaker.success(MACHINE);
   });
 
+  it("breaker open: the hook does not run and the card waits until the breaker closes", async () => {
+    // 12-14/11: the note said "no more cards until 01:32" and the card came back 5 minutes later, 542 times.
+    wakeBreaker.success(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    const until = wakeBreaker.openUntil(MACHINE)!;
+    try {
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.calls).toEqual([]);
+      const t = h.task();
+      expect(t.status).toBe("todo");
+      expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThanOrEqual(until - 60_000);
+    } finally { wakeBreaker.success(MACHINE); }
+  });
+
+  it("the veto that opens the breaker defers the card until it closes, not the fixed 5 minutes", async () => {
+    wakeBreaker.success(MACHINE);
+    wakeBreaker.failure(MACHINE);
+    try {
+      const hook = hookFake({ ok: false, reason: "il nodo non si accende" });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(1);
+      expect(wakeBreaker.isOpen(MACHINE)).toBe(true);
+      expect(Date.parse(h.task().dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
+    } finally { wakeBreaker.success(MACHINE); }
+  });
+
   it("l'hook gira prima di ogni chiamata al nodo, anche la cancellazione della corsa vecchia", async () => {
     // A PC that sleeps cannot answer the cancel either: the hook that wakes it
     // has to come first, then the cancel of the buried run, then the new run.

@@ -365,9 +365,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * in `dispatch_error`, because `deriveQueueReason` matches a word and not the
    * prose the deferral leaves there.
    */
-  function deferForSilentNode(task: Task, why: string): void {
+  function deferForSilentNode(task: Task, why: string, untilMs?: number | null): void {
     try {
-      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES, "machine");
+      // With the wake breaker open the card waits until it closes, not the fixed 5 minutes:
+      // the doubling window (15 min … 4 h) was announced on the card and never applied to it.
+      const minutes = untilMs ? Math.max(NODE_RETRY_MINUTES, Math.ceil((untilMs - Date.now()) / 60_000)) : NODE_RETRY_MINUTES;
+      const after = host.deferWait(task.id, why, minutes, "machine");
       // The sentinel goes ONLY on a card that is still waiting in the queue.
       // Past its own cap the wait parks the card and announces the park with
       // its own chip (`waited_out`) and note: overwriting that would hide "the
@@ -418,6 +421,16 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         task,
         `il nodo «${name}» non risponde` + (baseUrl ? " (nessun accoppiamento valido)" : " (nessun indirizzo noto)"),
       );
+      return;
+    }
+    // THE BREAKER IS READ BEFORE THE HOOK. An open breaker means recent runs could not start
+    // there, online heartbeat or not: running the hook again only adds one more failure and one
+    // more note. The card waits until the breaker closes (the claim already tried to move it to
+    // another machine through `machineForbidden`). Fixed reason, no clock in it: the wait series
+    // counts it as the same wait.
+    const blockedUntil = wakeBreaker.openUntil(machineId);
+    if (blockedUntil) {
+      deferForSilentNode(task, `il nodo «${name}» non si sveglia da più tentativi`, blockedUntil);
       return;
     }
     // The node resolves the project by its git ORIGIN, never by id or path:
@@ -516,7 +529,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
               content: `«${name}» non si sveglia da più tentativi: fino alle ${new Date(until).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} non gli mando altre card (allow-italian: user-facing note).` });
           } catch { /* the note never blocks the deferral */ }
         }
-        deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`);
+        deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`, until);
         return;
       }
       // THE OLD RUN DIES BEFORE A NEW ONE IS BORN. A run this board buried may
