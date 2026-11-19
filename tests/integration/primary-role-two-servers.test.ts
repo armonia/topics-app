@@ -62,6 +62,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSy
 import { join } from "node:path";
 import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
 const MACHINE_HEADER = "x-topics-machine-id";
@@ -551,7 +552,7 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     const repo = join(serverB.root, "projects", "node-scope");
     mkdirSync(repo, { recursive: true });
     for (const args of [["init", "-q"], ["remote", "add", "origin", origin]]) {
-      expect(Bun.spawnSync(["git", ...args], { cwd: repo }).exitCode).toBe(0);
+      expect(Bun.spawnSync(["git", ...args], { cwd: repo, env: gitEnv() }).exitCode).toBe(0);
     }
     await api(serverB, "POST", "/api/projects", { name: "node-scope", path: realpathSync(repo) });
     const created = await fetch(`${tunnel}/api/nodes/runs`, {
