@@ -35,7 +35,7 @@ for (const width of [375, 1440]) {
       if (!box0 || box0.width <= 0 || box0.x + box0.width <= 0) await page.keyboard.press("ControlOrMeta+b");
       const ago = page.getByTestId("finished-ago").first();
       await expect(ago).toBeVisible({ timeout: 20_000 });
-      await expect(ago).toContainText("ago");
+      await expect(ago).toHaveText(/^ · \d+\w+ (ago|fa)$/);
       const box = await ago.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.width).toBeGreaterThan(0);
