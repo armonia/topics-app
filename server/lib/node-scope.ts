@@ -76,17 +76,68 @@ export function isNodeDevice(db: Db, deviceId: string): boolean {
   }
 }
 
-export function markNodeDevice(db: Db, deviceId: string, machineId: string | null, now = Date.now()): void {
-  db.query("INSERT OR IGNORE INTO node_devices (device_id, machine_id, created_at) VALUES (?, ?, ?)").run(deviceId, machineId, now);
+/**
+ * How a device came to be a node credential: `paired` by a pairing this server
+ * approved after the node scope existed, `migrated` by the migration (a machine
+ * credential paired before it), `learned` by the gate (an owner credential that
+ * called the run routes as a Topics server, which can only narrow it). The last
+ * two predate the channel, which is why they may still drive runs on a node
+ * that has none.
+ */
+export type NodeDeviceOrigin = "paired" | "migrated" | "learned";
+
+export function markNodeDevice(db: Db, deviceId: string, machineId: string | null, origin: NodeDeviceOrigin, now = Date.now()): void {
+  db.query("INSERT OR IGNORE INTO node_devices (device_id, machine_id, created_at, origin) VALUES (?, ?, ?, ?)").run(deviceId, machineId, now, origin);
 }
 
 /**
- * The second half of the migration. A machine credential paired before the
- * node scope existed left no trace saying it was one, unless it holds the
- * channel (which the SQL migration reads). It shows itself the first time it
- * does what only a primary does: a Topics server calling the node's run
- * routes. Marking it narrows what it can do and nothing else, and everything
- * it was doing stays inside the allowlist, so the fleet keeps working.
+ * May this node credential create, read and cancel runs here? Being a node is
+ * not enough: every server that pairs this one gets a node credential, and a
+ * run is a card that starts in `bypassPermissions`, so a run from anyone but
+ * the primary is execution again. With a channel, only its device. Without one
+ * (a node paired before the channel was recorded), the credentials that predate
+ * the node scope, or the one machine credential when it is the only one.
+ */
+export function mayDriveNodeRuns(db: Db, deviceId: string): boolean {
+  const channel = db.query("SELECT channel_device_id FROM primary_state WHERE id = 1").get() as { channel_device_id: string | null } | null;
+  if (channel?.channel_device_id) return channel.channel_device_id === deviceId;
+  const live = db.query(`SELECT n.device_id, n.origin FROM node_devices n JOIN devices d ON d.id = n.device_id
+      WHERE d.revoked_at IS NULL`).all() as { device_id: string; origin: string }[];
+  const own = live.find((n) => n.device_id === deviceId);
+  if (!own) return false;
+  return own.origin !== "paired" || live.length === 1;
+}
+
+/** Remember which credential created a run, so only it reads, bundles and cancels it. */
+export function recordNodeRunCaller(db: Db, taskId: string, deviceId: string, now = Date.now()): void {
+  const machine = db.query("SELECT machine_id FROM node_devices WHERE device_id = ?").get(deviceId) as { machine_id: string | null } | null;
+  db.query("INSERT OR REPLACE INTO node_run_callers (task_id, device_id, machine_id, created_at) VALUES (?, ?, ?, ?)")
+    .run(taskId, deviceId, machine?.machine_id ?? null, now);
+}
+
+/**
+ * Is this task a run the caller may touch? Only a mirror (`node-run:`), never a
+ * card of this board, and only one this caller created: the same device, or the
+ * same machine paired again under a new device. A run created before callers
+ * were recorded belongs to whoever may drive runs at all.
+ */
+export function ownsNodeRun(db: Db, taskId: string, deviceId: string, runKeyPrefix: string): boolean {
+  const task = db.query("SELECT claude_task_id FROM tasks WHERE id = ?").get(taskId) as { claude_task_id: string | null } | null;
+  if (!task?.claude_task_id?.startsWith(runKeyPrefix)) return false;
+  const caller = db.query("SELECT device_id, machine_id FROM node_run_callers WHERE task_id = ?").get(taskId) as
+    { device_id: string; machine_id: string | null } | null;
+  if (!caller || caller.device_id === deviceId) return true;
+  const mine = db.query("SELECT machine_id FROM node_devices WHERE device_id = ?").get(deviceId) as { machine_id: string | null } | null;
+  return caller.machine_id !== null && mine?.machine_id === caller.machine_id;
+}
+
+/**
+ * The runtime half of the migration, and it can only narrow. The migration
+ * marks every machine credential the database can tell apart (`origin =
+ * 'migrated'`); one it missed, an owner credential a person renamed, shows
+ * itself the first time a Topics server calls the run routes with it, and is
+ * marked then. A credential without that user agent is never kept owner by it:
+ * the user agent decides nothing but a downgrade.
  */
 export function shouldLearnNodeDevice(pathname: string, ua: string | null): boolean {
   return pathname.startsWith("/api/nodes/runs") && isTopicsServerAgent(ua);

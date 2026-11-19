@@ -644,7 +644,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       if (screen) db.query("INSERT INTO screen_devices (device_id, created_at) VALUES (?, ?)").run(deviceId, now);
       // A server pairing this one as its node gets the fleet's routes, never an owner's session:
       // with that, through the tunnel, it could run a command here and approve from loopback.
-      if (entry.machine) markNodeDevice(db, deviceId, entry.machineId, now);
+      if (entry.machine) markNodeDevice(db, deviceId, entry.machineId, "paired", now);
       if (pers.personId) {
         try {
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);

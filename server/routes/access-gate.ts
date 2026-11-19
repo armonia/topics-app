@@ -109,7 +109,7 @@ export function createAccessGate(scope: Pick<AfterHttp, "corsAllowOrigin" | "ctx
               // A machine credential paired before the node scope existed is marked the first
               // time it calls the run routes as a Topics server (`shouldLearnNodeDevice`).
               if (io && !io.node && device && shouldLearnNodeDevice(pathname, req.headers.get("user-agent"))) {
-                markNodeDevice(ctx.db, device.id, null);
+                markNodeDevice(ctx.db, device.id, null, "learned");
                 io.node = true;
                 console.log(`[auth] device ${device.id} called the node routes as a Topics server: it is a node credential from now on`);
               }
