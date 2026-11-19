@@ -148,12 +148,29 @@ function targetAllowed(target: string, scope?: TurnScope): boolean {
  * An rm whose targets all sit under a temp root, the turn's own temp folder,
  * or files the turn created, only removes what the turn owns, so it passes.
  */
+function rmTargets(args: string[]): string[] {
+  const targets: string[] = [];
+  let afterDashes = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (!a) continue;
+    // A redirection is not a target: `rm -f /tmp/x 2>/dev/null`, `rm -f /tmp/x > /dev/null`.
+    if (/^\d*>>?$/.test(a)) { i++; continue; }
+    if (/^\d*>>?\S/.test(a)) continue;
+    if (!afterDashes && a === "--") { afterDashes = true; continue; }
+    if (!afterDashes && a.startsWith("-")) continue;
+    // Single quotes keep `$TMPDIR` literal, so it is a relative path, not the temp root.
+    targets.push(a.replace(/^(["']?)\$\{?(?:TMPDIR|TMP)\}?(?=\/|["']?$)/, (m, q: string) => (q === "'" ? m : `${q}/tmp`)));
+  }
+  return targets;
+}
+
 function rmReason(segment: string, scope?: TurnScope): string | null {
   const forced = RM_FORCED.test(segment);
   const root = RM_ROOT.test(segment);
   if (!forced && !root) return null;
   const args = segment.slice(segment.search(/\brm\b/)).split(/\s+/).slice(1);
-  const targets = args.filter((a) => !a.startsWith("-"));
+  const targets = rmTargets(args);
   const unquoted = targets.map((t) => t.replace(/^["']|["']$/g, ""));
   const allOwned = unquoted.length > 0 && unquoted.every((t) => targetAllowed(t, scope));
   if (allOwned) return null;
