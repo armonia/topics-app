@@ -33,6 +33,21 @@ export function parseProcNetDev(text: string): { rx: number; tx: number } | null
 }
 
 /**
+ * Memory in use of a node that cannot read its own, from its process list (`machine-readout`): the memory of
+ * every process over the machine total. Under-counts the kernel and its caches, but it is a real reading, not a gap.
+ */
+export function memPctFromReadout(readout: { memTotalMB?: number | null; procs?: Array<{ memMB: number }>; rest?: { memMB: number } } | null): number | null {
+  const total = readout?.memTotalMB;
+  if (!readout || typeof total !== "number" || total <= 0 || !Array.isArray(readout.procs)) return null;
+  // The readout is JSON from another node: keep only entries whose memMB is a finite number.
+  const values = [...readout.procs, readout.rest].map((p) => (p as { memMB?: unknown } | null | undefined)?.memMB);
+  const numeric = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (numeric.length === 0) return null;
+  const usedMB = numeric.reduce((sum, v) => sum + v, 0);
+  return Math.min(100, Math.round((usedMB / total) * 1000) / 10);
+}
+
+/**
  * Memory in use, in percent, from a `/proc/meminfo` text: what the machine cannot give back without
  * swapping is total minus `MemAvailable` (the kernel's own estimate, cache already counted as free).
  * `null` when either line is missing: not measured, never 0.
