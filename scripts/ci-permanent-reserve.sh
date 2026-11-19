@@ -68,11 +68,16 @@ drop_stale() {  # bookings of runs that are over
 # (not created yet) keeps its booking. Only the exact label counts: the shard runners'
 # `pn-<run>-<n>` judged by the finished `-prep` job would be dropped in the seconds
 # between the end of prepare-e2e and the creation of the shards, stranding them on a
-# label nobody serves.
+# label nobody serves. A prep job that ended without success means the shards will never
+# be created (skipped shards list no label), so then the shard booking is over too.
 run_done_with() {  # <run id> <booking label>
   gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" '
     [.jobs[]? | select(any(.labels[]?; . == $l))] as $j
-    | ($j | length) > 0 and all($j[]; .status == "completed")' >/dev/null 2>&1
+    | [.jobs[]? | select(any(.labels[]?; . == ($l + "-prep")))] as $p
+    | (($j | length) > 0 and all($j[]; .status == "completed"))
+      or (($j | length) == 0 and ($p | length) > 0
+          and all($p[]; .status == "completed"
+               and (.conclusion | IN("failure", "cancelled", "skipped", "timed_out"))))' >/dev/null 2>&1
 }
 
 reserve() {
