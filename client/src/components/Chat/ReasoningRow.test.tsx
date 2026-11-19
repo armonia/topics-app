@@ -32,6 +32,22 @@ describe('ReasoningRow across partial and final', () => {
       expect(row).toBeLessThan(html.indexOf('The answer'));
     }
   });
+  test('the blank lines the model ends its thinking with leave no empty space under the text', () => {
+    // Every summarized thinking block arrives ending in "\n\n"; under
+    // white-space: pre-wrap those are two empty lines at the bottom of the body.
+    // Still thinking (no answer yet), so the body is open.
+    const html = renderToStaticMarkup(
+      <MessageContent
+        role="assistant"
+        content=""
+        partial
+        blocks={[{ kind: 'thinking', text: 'Checking the test first.\n\n' }]}
+        messageId="m-trail"
+      />,
+    );
+    expect(html).toContain('data-testid="reasoning-body"');
+    expect(html).toMatch(/Checking the test first\.<\/div>/);
+  });
   test('a final message with no reasoning draws no row', () => {
     expect(render(false, '')).not.toContain('reasoning-row');
   });

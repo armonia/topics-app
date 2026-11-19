@@ -115,7 +115,9 @@ export function ReasoningRow({ content, partial, defaultCollapsed = true, messag
           data-translated={hasTranslation && !showOriginal ? 'true' : undefined}
           className={`text-compact text-app-text-muted whitespace-pre-wrap break-words leading-relaxed border-l-2 border-app-border pl-3 overflow-auto ${live && pressed === null ? 'max-h-32' : 'max-h-96'}`}
         >
-          {hasTranslation && !showOriginal ? translated.text : content}
+          {/* Summarized thinking always ends in blank lines; under pre-wrap
+              they would draw empty space below the last sentence. */}
+          {(hasTranslation && !showOriginal ? translated.text : content).trimEnd()}
         </div>
       </DisclosureBody>
     </div>

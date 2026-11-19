@@ -1,10 +1,11 @@
 /**
  * The landing audit and the sweep of lands left behind.
  */
-import { providerHold } from "../lib/provider-hold";
+import { onProviderHold, providerHold } from "../lib/provider-hold";
 import { releaseCodexHoldIfLoginChanged } from "../lib/codex-login-watch";
 import { getAccessToken } from "../providers/native/auth";
-import { releaseHoldIfFreed } from "../providers/native/usage-window";
+import { releaseHoldIfEngineFree, releaseHoldIfFreed } from "../providers/native/usage-window";
+import { engineHasFreeAccount } from "../providers/native/base-url";
 import { existsSync } from "fs";
 import { projectIdForPath } from "../services/tasks";
 import { mainPushGit, sweepUnpushedMains } from "../services/main-on-origin";
@@ -18,6 +19,11 @@ export function bootDeliveryAudit(scope: AfterReattach) {
     const t = setTimeout(() => {
       void (async () => {
         try {
+          // The account engine first: the usage endpoint reads one account,
+          // and on 18/11 it answered 429 for hours while the hold sat on.
+          if (providerHold() && await releaseHoldIfEngineFree(engineHasFreeAccount)) {
+            console.log("[provider-hold] lifted: the account engine has an account that can serve");
+          }
           if (providerHold()) {
             const token = await getAccessToken();
             if (token && await releaseHoldIfFreed(token)) {
@@ -38,6 +44,22 @@ export function bootDeliveryAudit(scope: AfterReattach) {
   }
 
   scheduleHoldRecheck();
+
+  // A plan hold just set is asked to the account engine at once, not at the
+  // next 90 s tick: a hold read off one spent account would otherwise stop
+  // the dispatcher and the wakes for that long every time it comes back.
+  let engineCheckQueued = false;
+  onProviderHold((hold) => {
+    if (!hold || hold.window === "api-down" || engineCheckQueued) return;
+    engineCheckQueued = true;
+    const t = setTimeout(() => {
+      engineCheckQueued = false;
+      void releaseHoldIfEngineFree(engineHasFreeAccount)
+        .then((lifted) => { if (lifted) console.log("[provider-hold] lifted at once: the account engine has an account that can serve"); })
+        .catch((err) => console.error("[provider-hold] engine check failed", err));
+    }, 5_000);
+    t.unref?.();
+  });
 
 
   // ── Worktree GC — origin fix for worktree pile-up ──────────────────────────
