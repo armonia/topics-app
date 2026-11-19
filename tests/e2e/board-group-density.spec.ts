@@ -206,7 +206,11 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
-    await page.getByTestId("board-detail-slider").focus();
+    // After a reload the slider can be drawn one stop short (no Plan yet, `mode` still
+    // settling): End then lands on the kanban. Wait for the Plan stop before pressing it.
+    const slider = page.getByTestId("board-detail-slider");
+    await expect(slider.locator('[data-level="plan"]')).toHaveCount(1);
+    await slider.focus();
     await page.keyboard.press("End");
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible({ timeout: 15000 });
