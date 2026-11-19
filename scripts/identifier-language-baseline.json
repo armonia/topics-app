@@ -2009,9 +2009,6 @@
     "scripts/check-nul-bytes.ts": [
       "buf"
     ],
-    "scripts/check-push-clean.ts": [
-      "stdin"
-    ],
     "scripts/check-ref-callbacks.ts": [
       "chiamati",
       "corpo",
@@ -3551,9 +3548,7 @@
       "vicina"
     ],
     "server/providers/claude-code.ts": [
-      "ClaudeCliCompat",
-      "DEFAULT_ONESHOT_MODEL",
-      "oneshotKey"
+      "ClaudeCliCompat"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -3562,10 +3557,6 @@
       "agente",
       "lista",
       "spento"
-    ],
-    "server/providers/claude/args.ts": [
-      "ClaudeOneshotArgsOptions",
-      "buildClaudeOneshotArgs"
     ],
     "server/providers/claude/cli-compat.ts": [
       "ClaudeCliCompat",
@@ -3599,9 +3590,6 @@
       "errObj",
       "obj",
       "stderrBuf"
-    ],
-    "server/providers/codex/args.ts": [
-      "buildCodexOneshotArgs"
     ],
     "server/providers/default-preference-acp.test.ts": [
       "FAKE_ACP"
