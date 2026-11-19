@@ -40,9 +40,11 @@ export interface PrimaryRole {
   rejectStale(req: Request): Response | null;
   /**
    * Adopt the higher epoch a request declares, with the machine id it names.
-   * Call it ONLY after the caller was authenticated (node token, machine token):
-   * otherwise any anonymous request could turn this server into a secondary.
-   * The id must be a machine this server knows. Returns true when adopted.
+   * Call it ONLY after the caller was authenticated as an owner (the primary's
+   * node session): otherwise any anonymous request could turn this server into
+   * a secondary. The id must be a machine this server knows, the epoch at most
+   * one above ours, and every adoption writes a `[primary]` log line. Returns
+   * true when adopted.
    */
   adoptFrom(req: Request, isKnownMachine: (machineId: string) => boolean): boolean;
   /** Headers an outgoing call from the primary carries: its epoch and machine id. Empty until a primary was chosen. */
@@ -139,8 +141,10 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       if (next.epoch === current.epoch && current.primaryMachineId !== null && current.primaryMachineId !== next.primaryMachineId) {
         throw new Error(`epoch ${next.epoch} already belongs to another primary`);
       }
-      current = { primaryMachineId: next.primaryMachineId, epoch: next.epoch, since: now() };
-      persist(current);
+      const chosen = { primaryMachineId: next.primaryMachineId, epoch: next.epoch, since: now() };
+      // Persist first: a write that fails leaves the role it had, in memory too.
+      persist(chosen);
+      current = chosen;
       return { ...current };
     },
     rejectStale(req) {
@@ -153,8 +157,15 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       if (presented === null || presented <= current.epoch) return false;
       const id = req.headers.get(PRIMARY_ID_HEADER)?.trim();
       if (!id || !isKnownMachine(id)) return false;
+      // One switch at a time: an epoch far ahead is a forged or broken caller, not a primary.
+      if (presented > current.epoch + 1) {
+        log(`[primary] epoch ${presented} from ${id} not adopted: more than one above the current ${current.epoch}`);
+        return false;
+      }
       try {
+        const from = current.epoch;
         role.adopt({ primaryMachineId: id, epoch: presented });
+        log(`[primary] adopted epoch ${presented} from ${id} (was ${from}): this server is ${role.isPrimary() ? "the primary" : "a secondary"}`);
         return true;
       } catch (err) {
         log(`[primary] epoch ${presented} from ${id} not adopted: ${err instanceof Error ? err.message : String(err)}`);

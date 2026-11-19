@@ -37,7 +37,6 @@ import { resolveAgentRuntime } from "../services/app-settings";
 import { createWorktreeGcRunner } from "../services/worktree-gc-runner";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
-import { getPrimaryRole } from "../lib/primary-role";
 import { createNodeBranchPlanter } from "../services/node-branch-plant";
 import { projectPathOfAnyId } from "../lib/project-identity";
 import { CloudApi } from "../providers/claude-cloud/api";
@@ -294,7 +293,6 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     version: SERVER_VERSION,
     hostname: osHostname(),
-    extraHeaders: () => getPrimaryRole()?.outgoingHeaders() ?? {},
   });
 
   // A card carries its BOARD id, the store wants the UUID: resolve either.

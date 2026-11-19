@@ -178,32 +178,61 @@ describe("primary role", () => {
   });
 
 
-  test("an unauthenticated request with a higher epoch changes nothing; only a token holder naming a known machine is adopted", async () => {
+  test("the model proxy never adopts: no token, a fake token or a valid node token with a huge epoch leave the role as it was", async () => {
     const f = fixture("m-local");
     const role = f.make();
     role.adopt({ primaryMachineId: "m-local", epoch: 2 });
     const token = mintModelToken(f.dir, "m-node");
     const handler = createModelProxyHandler({
       stateDir: f.dir,
-      machineExists: (id) => id === "m-node" || id === "m-other",
+      machineExists: (id) => id === "m-node",
       getAccessToken: async () => null,
       recoverAfter401: async () => null,
       rejectStale: (r) => role.rejectStale(r),
-      adoptEpoch: (r) => { role.adoptFrom(r, (id) => id === "m-other"); },
+      log: () => {},
     });
-    const claim = (headers: Record<string, string>) => handler(new Request("http://x/v1/messages", {
-      method: "POST", headers: { [PRIMARY_EPOCH_HEADER]: "99", [PRIMARY_ID_HEADER]: "m-other", ...headers }, body: "{}",
+    const claim = (headers: Record<string, string>) => handler(new Request("http://x/v1/messages/count_tokens", {
+      method: "POST", headers: { [PRIMARY_EPOCH_HEADER]: "9007199254740991", [PRIMARY_ID_HEADER]: "m-node", ...headers }, body: "{}",
     }));
     expect((await claim({})).status).toBe(401);
-    expect(role.state(), "no token: still the primary at epoch 2").toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
+    expect((await claim({ authorization: "Bearer tmt_forged" })).status).toBe(401);
+    // The node's own token: authenticated, and still no adoption.
+    expect((await claim({ authorization: `Bearer ${token}` })).status).not.toBe(401);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
     expect(role.isPrimary()).toBe(true);
-    // A valid token naming a machine nobody knows: still nothing.
-    await handler(new Request("http://x/v1/messages", {
-      method: "POST", headers: { authorization: `Bearer ${token}`, [PRIMARY_EPOCH_HEADER]: "99", [PRIMARY_ID_HEADER]: "m-ghost" }, body: "{}",
-    }));
-    expect(role.epoch()).toBe(2);
-    await claim({ authorization: `Bearer ${token}` });
-    expect(role.state()).toMatchObject({ primaryMachineId: "m-other", epoch: 99 });
+    expect(JSON.parse(readFileSync(f.stateFile, "utf-8"))).toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
+    f.done();
+  });
+
+  test("an adopted epoch is at most one above the current, and every adoption is logged", () => {
+    const f = fixture("m-local");
+    const lines: string[] = [];
+    const role = createPrimaryRole({ db: f.db, stateFile: f.stateFile, localMachineId: () => "m-local", log: (l) => lines.push(l) });
+    role.adopt({ primaryMachineId: "m-local", epoch: 2 });
+    const from = (epoch: string) => new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: epoch, [PRIMARY_ID_HEADER]: "m-other" } });
+    expect(role.adoptFrom(from("9007199254740991"), (id) => id === "m-other")).toBe(false);
+    expect(role.adoptFrom(from("4"), (id) => id === "m-other")).toBe(false);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
+    expect(role.adoptFrom(from("3"), (id) => id === "m-other")).toBe(true);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-other", epoch: 3 });
+    expect(lines.filter((l) => l.startsWith("[primary]"))).toHaveLength(3);
+    expect(lines.at(-1)).toContain("adopted epoch 3 from m-other");
+    f.done();
+  });
+
+  test("a failed write leaves the role unchanged in memory too", () => {
+    const f = fixture("m-local");
+    const blocker = join(f.dir, "not-a-folder");
+    writeFileSync(blocker, "");
+    const lines: string[] = [];
+    const role = createPrimaryRole({ db: f.db, stateFile: join(blocker, "primary-state.json"), localMachineId: () => "m-local", log: (l) => lines.push(l) });
+    expect(() => role.adopt({ primaryMachineId: "m-local", epoch: 1 })).toThrow();
+    expect(role.state()).toMatchObject({ primaryMachineId: null, epoch: 0 });
+    const from = new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: "1", [PRIMARY_ID_HEADER]: "m-other" } });
+    expect(role.adoptFrom(from, (id) => id === "m-other")).toBe(false);
+    expect(lines.join(" ")).toContain("not adopted");
+    expect(role.state()).toMatchObject({ primaryMachineId: null, epoch: 0 });
+    expect(role.isPrimary(), "a write that failed must not turn this server into a secondary").toBe(true);
     f.done();
   });
 

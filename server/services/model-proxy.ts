@@ -116,10 +116,12 @@ export interface ModelProxyDeps {
   fetch?: typeof fetch;
   log?: (line: string) => void;
   maxBodyBytes?: number;
-  /** A 409 for a caller that carries a lower primary epoch than ours; null lets the request through. */
+  /**
+   * A 409 for a caller that carries a lower primary epoch than ours; null lets the request through.
+   * The proxy never ADOPTS an epoch: its callers are nodes, and a node token must not be able to
+   * name a new primary (the CLI behind it never sends the header anyway).
+   */
   rejectStale?: (req: Request) => Response | null;
-  /** Called only once the machine token is valid: a higher epoch from an anonymous caller must change nothing. */
-  adoptEpoch?: (req: Request) => void;
 }
 
 type ErrorType =
@@ -213,7 +215,6 @@ export function createModelProxyHandler(deps: ModelProxyDeps): (req: Request) =>
     if (!machineId || !deps.machineExists(machineId)) {
       return apiError(401, "authentication_error", "Invalid or missing model token");
     }
-    deps.adoptEpoch?.(req);
 
     const started = Date.now();
     const body = await readCapped(req, cap);
