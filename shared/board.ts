@@ -208,12 +208,12 @@ export const PREVIEW_CARD_MAX_RATIO = 0.7;
  * (`missingReviewCardFields`), so no prose parser has to guess.
  */
 export const REVIEW_CARD_FIELDS = [
-  "**Cosa e perché**",
-  "**Prova**",
-  "**Come verificarlo tu**",
-  "**Rischio e come si annulla**",
-  "**Decisione**",
-] as const; // allow-italian: reviewer-facing headings matched verbatim
+  "**Cosa e perché**", // allow-italian: heading matched verbatim
+  "**Prova**", // allow-italian: heading matched verbatim
+  "**Come verificarlo tu**", // allow-italian: heading matched verbatim
+  "**Rischio e come si annulla**", // allow-italian: heading matched verbatim
+  "**Decisione**", // allow-italian: heading matched verbatim
+] as const;
 
 export const REVIEW_CARD_RULE =
   `THE DELIVERY SUMMARY IS THE REVIEW CARD. The \`summary\` you send with status="review" must let the reviewer decide from the card alone, without opening the diff, the thread or the PR. Write it in the reviewer's words, no jargon, as five short lines, each starting with its bold heading verbatim and in this order: ${REVIEW_CARD_FIELDS[0]} (1-2 sentences: what changes for the person and why) · ${REVIEW_CARD_FIELDS[1]} (command and exit code, CI link, screenshot or video already attached) · ${REVIEW_CARD_FIELDS[2]} (one gesture, when it takes the human eye; otherwise say none is needed) · ${REVIEW_CARD_FIELDS[3]} (what could break and how to undo it: plain revert, migration, setting) · ${REVIEW_CARD_FIELDS[4]} (one line, your pick first; or "nessuna: atterra da sola" when the card is technical). A missing heading gets a warning note on the thread, to fix at the next delivery.`; // allow-italian: the headings are quoted verbatim
