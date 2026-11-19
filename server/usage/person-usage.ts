@@ -78,8 +78,11 @@ export interface Call {
   points?: number;
 }
 
+/** Anything with a timestamp, a weight and a point total to fill in — what `splitPoints` needs and no more, so a caller with its own call shape (`project-quota.ts`) does not have to carry `Call`'s person-specific fields. */
+export interface WeighedCall { ts: number; weight: number; points?: number }
+
 /** Splits each hour's points across that hour's calls, by weight. */
-export function splitPoints(calls: Call[], points: Map<number, number>): Call[] {
+export function splitPoints<T extends WeighedCall>(calls: T[], points: Map<number, number>): T[] {
   const w = new Map<number, number>();
   for (const c of calls) { const h = Math.floor(c.ts / HOUR_MS); w.set(h, (w.get(h) ?? 0) + c.weight); }
   for (const c of calls) {

@@ -152,3 +152,32 @@ export interface SessionUsageResponse {
   source: 'native-runtime';
   absentMeansUnmeasured: true;
 }
+
+/**
+ * One project's share of the weekly Claude quota (limiti-consumo-progetto [allow-italian: openspec change name],
+ * USAGE-28): 100 points = one whole account for one week, the same unit
+ * `server/usage/person-usage.ts` reports per person, grouped by project
+ * instead.
+ */
+export interface ProjectQuotaRow {
+  /** `projectIdForPath(path)` of the project's own folder (a worktree folds onto it). `null` = outside any project. */
+  projectId: string | null;
+  /** The folder a `null` id's calls still carried, when there was one but it matched no known project — absent for the true "outside projects" bucket. */
+  projectPath: string | null;
+  points24h: number | null;
+  points7d: number | null;
+  weighted24h: number;
+  weighted7d: number;
+}
+
+export interface ProjectQuotaResult {
+  /** `false` when there is no quota history file at all: points are null everywhere, only weighted tokens are real. */
+  quotaHistory: boolean;
+  /** Sorted by `points7d` (or `weighted7d` without history), descending. */
+  projects: ProjectQuotaRow[];
+}
+
+/** What `GET /api/usage/projects/quota` answers. */
+export interface ProjectQuotaResponse extends ProjectQuotaResult {
+  cachedAt: string;
+}

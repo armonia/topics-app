@@ -75,6 +75,7 @@ import { SpaceGroupCard } from './SpaceGroups';
 import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
 import { useArchivedSidebarPages } from './useArchivedSidebarPages';
+import { ProjectQuotaMenu } from './ProjectQuotaMenu';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
@@ -2463,6 +2464,7 @@ export function TopicTree({
             </button>
           )}
           {hubPresent && <Suspense fallback={null}><ProjectHubMenu projectPath={projectContextMenu.projectPath} onClose={() => setProjectContextMenu(null)} /></Suspense>}
+          <ProjectQuotaMenu projectPath={projectContextMenu.projectPath} />
         </ContextMenuPortal>
       )}
 

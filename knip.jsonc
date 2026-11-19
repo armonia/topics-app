@@ -114,6 +114,11 @@
         // of the browser tree with only an agent using it and again with a
         // person watching. Run by hand, imported by nobody.
         "scripts/browser-qos-probe.ts!",
+        // `bun scripts/project-quota-check.ts --since <ISO> --until <ISO> [--db PATH]`
+        // - limiti-consumo-progetto's probe: a project's share of the weekly
+        // Claude quota over one past window, read-only, run by hand against a
+        // COPY of the database. Imported by nobody.
+        "scripts/project-quota-check.ts!",
         // `bun run scripts/terminal-attach-latency.ts` - how long a terminal
         // pane stays mute after a reload (socket open, `replay-end`, and the
         // server's roster warming window). Run by hand against its own server

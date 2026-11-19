@@ -24,7 +24,12 @@ import { getSessionConsumption } from "../services/session-consumption-wiring";
 import type { SessionUsageResponse } from "../../shared/usage-shapes";
 import type { Database } from "bun:sqlite";
 import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
+import { projectQuota } from "../usage/project-quota";
+import type { ProjectQuotaResponse, ProjectQuotaResult } from "../../shared/usage-shapes";
 import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
+
+/** limiti-consumo-progetto (allow-italian: openspec change name): a transcript scan is costly enough that every reader shares one 5-minute reading. */
+const PROJECT_QUOTA_TTL_MS = 5 * 60_000;
 
 /**
  * The per-project aggregate is a GROUP BY over the whole `messages` table, and
@@ -46,6 +51,7 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
 
   let cached: { at: number; days: number | null; data: ProjectUsageResult } | null = null;
   let peopleCache: { at: number; days: number; data: Computed } | null = null;
+  let projectQuotaCache: { at: number; data: ProjectQuotaResult } | null = null;
 
   return async function usageRouter(
     _req: Request,
@@ -170,6 +176,24 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       } catch (err) {
         console.error("[Usage] record insert failed:", err);
         return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to store usage record");
+      }
+    }
+
+    // GET /api/usage/projects/quota: every project's share of the weekly Claude
+    // quota (limiti-consumo-progetto [allow-italian: openspec change name], USAGE-28), not to be confused with
+    // `/api/usage/projects` (`projectUsage`, dollar/token cost. A different
+    // question, see the header of this file).
+    if (method === "GET" && pathname === "/api/usage/projects/quota") {
+      try {
+        const now = Date.now();
+        if (!projectQuotaCache || now - projectQuotaCache.at >= PROJECT_QUOTA_TTL_MS) {
+          projectQuotaCache = { at: now, data: projectQuota(db, { now }) };
+        }
+        const body: ProjectQuotaResponse = { cachedAt: new Date(projectQuotaCache.at).toISOString(), ...projectQuotaCache.data };
+        return json(body);
+      } catch (err) {
+        console.error("[Usage] project quota failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to compute project quota");
       }
     }
 

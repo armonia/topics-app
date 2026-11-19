@@ -7,7 +7,14 @@ import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
+import { runProjectQuotaPauseSweep } from "../services/project-quota-sweep";
+import { parseOwnerAlertCommand, pauseAlertText, sendOwnerAlert } from "../services/project-pause-alerts";
+import { effectiveLimit, readProjectQuotaRow } from "../services/project-pause";
 import type { AfterRelay } from "./scope";
+
+/** USAGE-29: the only place that recomputes live quota points and opens a pause. */
+const PROJECT_QUOTA_SWEEP_EVERY_MS = 5 * 60_000;
+const PROJECT_QUOTA_SWEEP_DELAY_MS = 30_000;
 
 export function bootPostListen(scope: AfterRelay) {
   const { PORT, browserService, ctx, server, tlsCert, useTls } = scope;
@@ -156,4 +163,18 @@ export function bootPostListen(scope: AfterRelay) {
 
   // Machines' health for the tray: security probes, CPU and memory, cards of today.
   startMachineHealth(ctx);
+
+  // The project quota's periodic opener (USAGE-29): every per-tick gate reads
+  // only what this writes, so nothing else in the server ever re-scans
+  // transcripts to decide whether a project is paused.
+  const ownerAlertArgv = parseOwnerAlertCommand();
+  const onPauseOpened = (projectId: string, points24h: number | null, projectPath: string | null) => {
+    const link = `${proto}://localhost:${server.port ?? PORT}/?project=${encodeURIComponent(projectId)}`;
+    const limit = effectiveLimit(readProjectQuotaRow(ctx.db, projectId));
+    sendOwnerAlert(ownerAlertArgv, pauseAlertText({ projectName: projectPath ?? projectId, points24h, limit, link }));
+  };
+  setTimeout(() => {
+    runProjectQuotaPauseSweep(ctx.db, { onPauseOpened });
+    setInterval(() => runProjectQuotaPauseSweep(ctx.db, { onPauseOpened }), PROJECT_QUOTA_SWEEP_EVERY_MS).unref?.();
+  }, PROJECT_QUOTA_SWEEP_DELAY_MS).unref?.();
 }

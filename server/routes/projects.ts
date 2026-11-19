@@ -37,6 +37,31 @@ import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { projectIdOfFolder, projectQuota } from "../usage/project-quota";
+import { effectiveLimit, projectPauseInfo, readProjectQuotaRow, setProjectLimit, continueProject, pauseUntilTomorrow } from "../services/project-pause";
+import type { Database } from "bun:sqlite";
+import type { AppContext as AppContextType } from "../types";
+
+/** The steps the project menu's "Limite nelle 24 ore" segmented control offers. allow-italian: UI label quoted for context */
+export const QUOTA_LIMIT_CHOICES = [5, 10, 15, 20, 30];
+
+/**
+ * The project's CURRENT last-24h points, for the two confirmation routes —
+ * computed live (a button click, not a poll) rather than through the
+ * route-level 5-minute cache `routes/usage.ts` keeps for its own polled GET.
+ */
+function currentPoints24h(db: Database, projectId: string): number | null {
+  try {
+    const row = projectQuota(db).projects.find((p) => p.projectId === projectId);
+    return row?.points24h ?? null;
+  } catch { return null; }
+}
+
+/** `project:quota` to everyone (no path/name in the payload: safe for `broadcastToAll`, same as `project:deleted`). */
+function broadcastQuotaState(ctx: AppContextType, projectId: string, points24h: number | null): void {
+  const info = projectPauseInfo(ctx.db, projectId, points24h);
+  ctx.broadcastToAll({ type: "project:quota", projectId, paused: info.paused, reason: info.reason, limit: info.limit, points24h: info.points24h });
+}
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -57,7 +82,7 @@ let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null
 const ICON_VERSIONS_MAX_PATHS = 512;
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
+  const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
 
   /**
    * La riga intera esce SOLO verso chi la vede: `broadcastProject` chiede
@@ -337,6 +362,57 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         ),
       );
       return json({ target });
+    }
+
+    // GET /api/projects/quota-limit?path=<abs>: the project's own 24h quota
+    // limit (limiti-consumo-progetto, USAGE-29). allow-italian: openspec change name
+    // `null` = "Nessuno" (no limit); no row at all reads as the default (10). allow-italian: UI choice label
+    if (method === "GET" && pathname === "/api/projects/quota-limit") {
+      const raw = url.searchParams.get("path");
+      if (!raw) return errorResponse(400, "path required");
+      const projectId = projectIdOfFolder(db, raw);
+      return json({ limit: effectiveLimit(readProjectQuotaRow(db, projectId)) });
+    }
+
+    // POST /api/projects/quota-limit {path, limit}: writes the choice from the
+    // project's menu. `limit: null` clears it ("Nessuno"). allow-italian: UI choice label
+    if (method === "POST" && pathname === "/api/projects/quota-limit") {
+      const body = await readJSON(req);
+      if (!body || typeof body.path !== "string" || !body.path) return errorResponse(400, "path required");
+      const limit = body.limit;
+      if (limit !== null && !QUOTA_LIMIT_CHOICES.includes(limit as number)) {
+        return errorResponse(400, `limit must be null or one of ${QUOTA_LIMIT_CHOICES.join(", ")}`);
+      }
+      const projectId = projectIdOfFolder(db, body.path);
+      setProjectLimit(db, projectId, limit as number | null);
+      return json({ limit: effectiveLimit(readProjectQuotaRow(db, projectId)) });
+    }
+
+    // POST /api/projects/:id/quota/continue — "Continua": unblocks the whole
+    // project, everywhere, for CONTINUE_GRACE_PCT more points
+    // (limiti-consumo-progetto, USAGE-30). allow-italian: openspec change name
+    // `:id` is the project's quota id
+    // (`projectIdForPath`, the same one `tasks.project_id` carries), not the
+    // `projects` table's own UUID: most projects never get a `projects` row at all.
+    {
+      const params = matchRoute(pathname, "/api/projects/:id/quota/continue");
+      if (params && method === "POST") {
+        const points = currentPoints24h(db, params.id);
+        continueProject(db, params.id, points);
+        broadcastQuotaState(ctx, params.id, points);
+        return json({ paused: false });
+      }
+    }
+
+    // POST /api/projects/:id/quota/hold — "Pausa fino a domani": holds the
+    // project regardless of points until local midnight.
+    {
+      const params = matchRoute(pathname, "/api/projects/:id/quota/hold");
+      if (params && method === "POST") {
+        pauseUntilTomorrow(db, params.id);
+        broadcastQuotaState(ctx, params.id, currentPoints24h(db, params.id));
+        return json({ paused: true });
+      }
     }
 
     // POST /api/projects

@@ -23,6 +23,8 @@ import { childRuntimeFor, engineLaunchOf, liveNativeChildren, moveCliChildToEngi
 import { FOREGROUND_WAIT_MS, bootChildSweep, childPhase, holdForeground, noteChildSeeded, noteChildSteered, chatParentModel, parentTranscriptModel, readAgentOutput, releaseForeground, startChildWatch, subagentLimitRefusal, waitForegroundLeg } from "../lib/subagent-runtime";
 import { promptAsPaste } from "../lib/subagent-seed";
 import { boardSpawnRefusal } from "../services/agent-census";
+import { projectIsPaused } from "../services/project-pause";
+import { projectIdOfFolder } from "../usage/project-quota";
 import { resolveClaudeEffort, topicEffortFor } from "../lib/topics-agent-prompt";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { createAgentWorktree, resolveAgentProject, worktreeReadyMs } from "../services/worktree-for-agent";
@@ -710,6 +712,15 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
         // `$HOME` for every chat: 55 children out of 55 spawned without `cwd`
         // landed there, projects and card worktrees included.
         let cwd = typeof body.cwd === "string" && body.cwd ? body.cwd : (parent?.cwd || topicCwd || process.env.HOME || "/");
+        // PROJECT QUOTA BRAKE (limiti-consumo-progetto, USAGE-29), before any // allow-italian: openspec change name
+        // worktree or process is paid for. Fail-open: a resolution error never
+        // blocks a spawn, it only means this one gate could not answer.
+        try {
+          const projectId = projectIdOfFolder(getDatabase(), cwd);
+          if (projectIsPaused(getDatabase(), projectId)) {
+            return errorResponse(429, "In pausa: limite del progetto");
+          }
+        } catch { /* fail open */ }
         // Model, profile and effort (SUBAGENT-08/09/10), refused BEFORE any
         // process or worktree exists. The profiles are those of the directory
         // the child is asked to start from; an isolated child's worktree is a
