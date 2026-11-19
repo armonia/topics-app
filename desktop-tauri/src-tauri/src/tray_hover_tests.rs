@@ -2,7 +2,7 @@ use super::*;
 
 fn zone() -> HoverZone {
     let points = (0..5).map(|i| HoverPoint { x: 100.0 + i as f32 * 50.0, label: format!("p{i}") }).collect();
-    HoverZone { x: 100.0, y: 60.0, w: 200.0, h: 34.0, points }
+    HoverZone { x: 100.0, y: 60.0, w: 200.0, h: 34.0, points, reach: None }
 }
 
 fn width(s: &str) -> f32 {

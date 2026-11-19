@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { isAbsolute } from "node:path";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead, clampInt, MACHINE_RETRY_BASE_MS, MACHINE_RETRY_CAP, GLOBAL_SETTINGS_KEY } from "./shared";
@@ -431,7 +432,9 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           // A WARNING, never a refusal: the card still reaches review, and the
           // agent reads the note at its next turn. Fixed headings matched by
           // exact text (`REVIEW_CARD_RULE`), so there is no prose to misread.
-          const missing = missingReviewCardFields(summary);
+          // Root cards only: a subtask's summary is read by its parent agent,
+          // never by the person, the same scope as the stage move above.
+          const missing = row.parent_task_id ? [] : missingReviewCardFields(summary);
           if (missing.length) {
             try {
               this.addComment({
@@ -490,7 +493,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         const p = (patch.previewImage ?? "").trim();
         // Path assoluto su disco, mai un URL: il client lo rende via
         // /api/media (allowlist-gated). Empty clears.
-        if (p && !p.startsWith("/")) {
+        if (p && !isAbsolute(p)) {
           throw new TaskServiceError("invalid_input", "preview_image must be an absolute file path");
         }
         put("preview_image", p || null);

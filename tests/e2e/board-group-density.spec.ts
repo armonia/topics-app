@@ -206,7 +206,11 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(page.locator(`[data-testid="board-lane"][data-project-id="${ID_B}"]`)).toHaveAttribute("data-collapsed", "true");
 
     // ── 6. The Plan: same fold, same compact card ─────────────────────────
-    await page.getByTestId("board-detail-slider").focus();
+    // After a reload the slider can be drawn one stop short (no Plan yet, `mode` still
+    // settling): End then lands on the kanban. Wait for the Plan stop before pressing it.
+    const slider = page.getByTestId("board-detail-slider");
+    await expect(slider.locator('[data-level="plan"]')).toHaveCount(1);
+    await slider.focus();
     await page.keyboard.press("End");
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible({ timeout: 15000 });
@@ -218,9 +222,11 @@ test.describe("Board per progetto e card compatte", () => {
     await expect(planCard.getByTestId("card-open-session")).toBeVisible();
     // Every root card in the Plan carries its status sign: no column says it there.
     // A working card draws the loader: a span wrapping the canvas, not a bare canvas.
+    // Counted as `span > canvas`: Playwright's engine resolves the relative
+    // `:has(> canvas)` to nothing, so the loader row never matched.
     const planRows = tileA.locator('[data-testid="plan-card"][data-board-card]');
     await expect(planRows).toHaveCount(2);
-    for (const row of await planRows.all()) await expect(row.locator(":scope > svg, :scope > [data-spinner], :scope > span:has(> canvas)")).toHaveCount(1);
+    for (const row of await planRows.all()) await expect(row.locator(":scope > svg, :scope > [data-spinner], :scope > span > canvas")).toHaveCount(1);
     // Same order as the lanes, for the two projects of this test.
     const tileOrder = await plan.getByTestId("plan-project").evaluateAll((els) => els.map((e) => e.getAttribute("data-project-id")));
     const pick = (ids: (string | null)[]) => ids.filter((id) => id === ID_A || id === ID_B);

@@ -338,6 +338,16 @@ export function addPendingResult(db: Db, id: string, result: SubAgentResult): vo
   announceChildChange(db, id);
 }
 
+/** The pending result's card reached the parent chat as a row; only the parent's turn is still owed. */
+export function markPendingResultRowWritten(db: Db, id: string, turn: number, status: string): void {
+  attempt(undefined, () => {
+    const all = pendingResultsOf(db, id);
+    if (!all.some((r) => r.turn === turn && r.status === status)) return;
+    const next = all.map((r) => (r.turn === turn && r.status === status ? { ...r, rowWritten: true as const } : r));
+    db.run("UPDATE subagents SET pending_results = ? WHERE id = ?", [JSON.stringify(next), id]);
+  });
+}
+
 export function clearPendingResult(db: Db, id: string, turn: number, status: string): void {
   attempt(undefined, () => {
     const rest = pendingResultsOf(db, id).filter((r) => !(r.turn === turn && r.status === status));

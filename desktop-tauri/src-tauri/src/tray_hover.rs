@@ -20,6 +20,9 @@ pub struct HoverZone {
     pub w: f32,
     pub h: f32,
     pub points: Vec<HoverPoint>,
+    /// A line inside a row of text answers only a little above and below itself (the rows around it have their
+    /// own words and their own lines); a chart of its own reaches its title row and its axis.
+    pub reach: Option<f32>,
 }
 
 /// The hover reaches this far above the plot (its title row) and below it (its time axis).
@@ -35,7 +38,8 @@ impl HoverZone {
     /// The reading under the point `(px, py)` of the card: the nearest one across, when the point is over the plot
     /// (or its title row and axis) and not further than a reading's slot from either end.
     pub fn at(&self, px: f32, py: f32) -> Option<&HoverPoint> {
-        if self.points.is_empty() || py < self.y - REACH_UP || py > self.y + self.h + REACH_DOWN {
+        let (up, down) = self.reach.map_or((REACH_UP, REACH_DOWN), |r| (r, r));
+        if self.points.is_empty() || py < self.y - up || py > self.y + self.h + down {
             return None;
         }
         let slot = if self.points.len() > 1 { self.w / (self.points.len() - 1) as f32 } else { self.w };
