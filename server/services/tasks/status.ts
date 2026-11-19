@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { isAbsolute } from "node:path";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead, clampInt, MACHINE_RETRY_BASE_MS, MACHINE_RETRY_CAP, GLOBAL_SETTINGS_KEY } from "./shared";
@@ -492,7 +493,7 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         const p = (patch.previewImage ?? "").trim();
         // Path assoluto su disco, mai un URL: il client lo rende via
         // /api/media (allowlist-gated). Empty clears.
-        if (p && !p.startsWith("/")) {
+        if (p && !isAbsolute(p)) {
           throw new TaskServiceError("invalid_input", "preview_image must be an absolute file path");
         }
         put("preview_image", p || null);

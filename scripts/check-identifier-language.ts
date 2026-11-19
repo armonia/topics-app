@@ -100,6 +100,9 @@ export const PROJECT_WORDS = new Set([
   // earlier, remeasurable: plain English the dictionary lacks, in the CI phase of the board (`supersedeEarlierRounds` in `server/services/ci-supersede.ts`,
   // `ciRemeasurable` in `server/services/ci-evidence.ts`: a run with no verdict that is measured again).
   "earlier", "remeasurable",
+  // stdin, oneshot: the standard input stream of a spawned CLI, and the one-shot `complete()` path of the Claude
+  // provider, which spawns the CLI once per completion (`server/providers/claude/cli-launch.ts`).
+  "stdin", "oneshot",
   // hetzner, uptime, reboot: the hosting provider the first machine adapter talks to, and two terms of server operations (`server/services/machine-providers.ts`, card 672744e2).
   "hetzner", "uptime", "reboot",
   // UI layer (card e12b765a): plain English the dictionary lacks, and the names of the example organization's documents.

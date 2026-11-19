@@ -87,4 +87,34 @@ describe("lo slot remoto non resta zombie", () => {
     expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
     expect(h.task().status).toBe("in_progress");
   });
+
+  it("a card the SERVER cut before its run existed (no open run, interrupted_at after entering in progress) goes back to the queue and launches", async () => {
+    const h = harness();
+    h.seed();
+    h.db.run(
+      "UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, in_progress_at = '2026-11-17T04:36:29.591Z', interrupted_at = '2026-11-17T04:37:06.055Z', interrupted_by = 'SIGTERM' WHERE id = ?",
+      [TASK],
+    );
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    await dispatch(h2);
+
+    expect(h2.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+
+  it("a stale interrupted_at from BEFORE the last entry in progress does not count: the hand-dragged card stays put", async () => {
+    const h = harness();
+    h.seed();
+    h.db.run(
+      "UPDATE tasks SET status = 'in_progress', dispatch_state = 'working', in_progress_at = '2026-11-18T10:00:00.000Z', interrupted_at = '2026-11-17T04:37:06.055Z' WHERE id = ?",
+      [TASK],
+    );
+    const h2 = harness({}, { svc: h.svc });
+    await h2.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+    await dispatch(h2);
+
+    expect(h2.calls.filter((c) => c === "create" || c.startsWith("cancel"))).toEqual([]);
+  });
 });
