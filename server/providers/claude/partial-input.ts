@@ -31,7 +31,7 @@ export type SessionKeyOf = (pp: PersistentProcess) => string | null;
  * reasoning block are surfaced (no text), so the UI can show it live. Sidechain (sub-agent) partials
  * are skipped: child tools aggregate from the sidechain's own snapshots.
  */
-export function handlePartialStreamEvent(pp: PersistentProcess, event: any, handler: StreamHandler | null, sessionKeyOf: SessionKeyOf): void {
+export function handlePartialStreamEvent(pp: PersistentProcess, event: unknown, handler: StreamHandler | null, sessionKeyOf: SessionKeyOf): void {
   // The wire shape (`stream_event` → `content_block_*`) is decoded by
   // `claude/events.ts`: what is left here is applying it to the process state.
   const partial = decodePartialStreamEvent(event);
