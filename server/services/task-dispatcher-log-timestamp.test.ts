@@ -16,7 +16,7 @@ import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schem
 
 const ISO_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \[dispatcher\] /;
 
-function dispatcherWithoutLogDep() {
+function dispatcherWithoutLogDependency() {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
   db.run(TASKS_DDL);
@@ -37,7 +37,7 @@ afterEach(() => { spy.mockRestore(); });
 
 describe("dispatcher log timestamp", () => {
   it("the default sink writes an ISO timestamp before the existing prefix", () => {
-    dispatcherWithoutLogDep().drain("test");
+    dispatcherWithoutLogDependency().drain("test");
     const line = spy.mock.calls[0]?.[0] as string;
     expect(line).toMatch(ISO_PREFIX);
     expect(line).toContain("drain: nessun turno nuovo fino al riavvio (test)");
