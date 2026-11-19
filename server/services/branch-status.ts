@@ -354,7 +354,22 @@ export async function branchContentWasOnMain(
   const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", base, branch], runGit))
     .split("\0")
     .filter((p) => p.length > 0);
-  if (changed.length === 0) return false;
+  if (changed.length === 0) {
+    // Nessun file cambiato rispetto al punto di fork: o il ramo non ha mai
+    // portato niente, o ha già riportato dentro di sé tutto ciò che la card
+    // aveva fatto (il lavoro è entrato in main con uno squash, poi il land ha
+    // fuso `origin/main` nel ramo: l'albero del ramo è tornato quello del fork).
+    // Una fusione del ramo in `mainRef` non cambierebbe niente, quindi non c'è
+    // niente da perdere. La lista vuota da sola NON lo prova (git in errore
+    // restituisce vuoto): lo prova l'uguaglianza dei due alberi, con entrambi
+    // gli id letti e non vuoti; ogni altro esito resta «non lo so».
+    const [baseTree, branchTree] = await Promise.all([
+      gitOut(repoPath, ["rev-parse", `${base}^{tree}`], runGit),
+      gitOut(repoPath, ["rev-parse", `${branch}^{tree}`], runGit),
+    ]);
+    const a = baseTree.trim();
+    return /^[0-9a-f]{40,64}$/.test(a) && a === branchTree.trim();
+  }
   const literal = changed.map((p) => `:(literal)${p}`);
   // Only main's own line after the fork, and only commits that touched those files: the
   // content can only have become equal at one of them.

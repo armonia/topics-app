@@ -23,7 +23,8 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, isAbsolute, join, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
@@ -35,10 +36,69 @@ export interface ProjectCandidate {
   projectStoreId: string | null;
 }
 
-/** Pure: find the candidate whose path re-hashes to `projectId`. */
-export function resolveProjectPath(projectId: string, candidates: ProjectCandidate[]): ProjectCandidate | null {
+/**
+ * Gli altri indirizzi sotto cui lo STESSO progetto è stato conosciuto: i rimandi
+ * (symlink) che uno spostamento lascia al vecchio posto.
+ *
+ * L'id di board è l'hash del percorso intero, quindi spostare una cartella cambia
+ * l'id che si ricava da lei: le card scritte prima restano con l'id del vecchio
+ * indirizzo e nessun candidato lo reinverte più (19/11: il riordino di
+ * ~/Projects ha lasciato la board di topics-app senza checkout, e il land
+ * rimandava ogni card in review). Chi sposta una cartella lascia di norma un
+ * rimando al vecchio posto, nello stesso albero: si cercano i rimandi che
+ * puntano al progetto nelle due cartelle sopra di lui, mai più in alto della home.
+ * Il risultato comprende anche il percorso reale, se il candidato è lui stesso un
+ * rimando. `makeSymlinkAliasFinder` tiene a memoria gli elenchi di cartella per la
+ * durata di una sola risoluzione.
+ */
+export function makeSymlinkAliasFinder(home = homedir()): (path: string) => string[] {
+  const listings = new Map<string, Array<{ link: string; real: string }>>();
+  const linksIn = (dir: string) => {
+    let hit = listings.get(dir);
+    if (hit) return hit;
+    hit = [];
+    try {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (!e.isSymbolicLink()) continue;
+        const link = join(dir, e.name);
+        try { hit.push({ link, real: realpathSync(link) }); } catch { /* rimando rotto */ }
+      }
+    } catch { /* cartella illeggibile o sparita */ }
+    listings.set(dir, hit);
+    return hit;
+  };
+  return (path) => {
+    let real: string;
+    try { real = realpathSync(path); } catch { return []; }
+    const out = new Set<string>();
+    if (real !== path) out.add(real);
+    let dir = dirname(real);
+    for (let level = 0; level < 2; level++) {
+      // Fermarsi alla home: sopra non ci sono i progetti di nessuno.
+      if (dir === home || dir === dirname(dir) || !isInsideDir(dir, home)) break;
+      for (const l of linksIn(dir)) if (l.real === real) out.add(l.link);
+      dir = dirname(dir);
+    }
+    return [...out];
+  };
+}
+
+/**
+ * Pure (a parte i rimandi, iniettabili): find the candidate whose path re-hashes
+ * to `projectId`. Se nessun percorso combacia, si riprova con gli altri indirizzi
+ * dello stesso progetto (`aliasPathsOf`): una card di prima di uno spostamento
+ * deve trovare il checkout dov'è adesso.
+ */
+export function resolveProjectPath(
+  projectId: string,
+  candidates: ProjectCandidate[],
+  aliasPathsOf: (path: string) => string[] = makeSymlinkAliasFinder(),
+): ProjectCandidate | null {
   for (const c of candidates) {
     if (projectIdForPath(c.path) === projectId) return c;
+  }
+  for (const c of candidates) {
+    if (aliasPathsOf(c.path).some((alias) => projectIdForPath(alias) === projectId)) return c;
   }
   return null;
 }

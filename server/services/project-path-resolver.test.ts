@@ -2,10 +2,10 @@
  * @covers PROJECT-06
  */
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
+import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, makeSymlinkAliasFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
 
@@ -254,5 +254,53 @@ describe("newProjectParentDir", () => {
       withDisk,
     )).toBe("/Users/x/lab");
     expect(newProjectParentDir(["/x/ghost/a", "/x/ghost/b"], withDisk)).toBe(deps.workspaceDir);
+  });
+});
+
+describe("resolveProjectPath dopo uno spostamento", () => {
+  // Il riordino di ~/Projects (19/11) ha spostato le cartelle lasciando un rimando
+  // al vecchio posto: le card scritte prima portano l'id del vecchio indirizzo.
+  function moved() {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "moved-home-")));
+    const oldPath = join(home, "Projects", "app");
+    const newPath = join(home, "Projects", "Topics", "app");
+    mkdirSync(newPath, { recursive: true });
+    symlinkSync(newPath, oldPath);
+    return { home, oldPath, newPath, candidates: [{ path: newPath, projectStoreId: "uuid-app" }] as ProjectCandidate[] };
+  }
+
+  it("l'id del vecchio indirizzo trova il checkout dove sta adesso", () => {
+    const { home, oldPath, newPath, candidates } = moved();
+    const found = resolveProjectPath(projectIdForPath(oldPath), candidates, makeSymlinkAliasFinder(home));
+    expect(found?.path).toBe(newPath);
+    expect(found?.projectStoreId).toBe("uuid-app");
+  });
+
+  it("senza rimandi un id che non combacia resta senza checkout", () => {
+    const { home, candidates } = moved();
+    expect(resolveProjectPath(projectIdForPath(join(home, "Projects", "altro")), candidates, makeSymlinkAliasFinder(home))).toBeNull();
+  });
+
+  it("un rimando verso un'ALTRA cartella non fa da alias", () => {
+    const { home, candidates } = moved();
+    const elsewhere = join(home, "Projects", "Topics", "altro");
+    mkdirSync(elsewhere, { recursive: true });
+    const stray = join(home, "Projects", "stray");
+    symlinkSync(elsewhere, stray);
+    expect(resolveProjectPath(projectIdForPath(stray), candidates, makeSymlinkAliasFinder(home))).toBeNull();
+  });
+
+  it("il candidato che è lui un rimando risponde anche all'id del percorso reale", () => {
+    const { home, oldPath, newPath } = moved();
+    const found = resolveProjectPath(projectIdForPath(newPath), [{ path: oldPath, projectStoreId: null }], makeSymlinkAliasFinder(home));
+    expect(found?.path).toBe(oldPath);
+  });
+
+  it("non cerca sopra la home", () => {
+    const { home, newPath, candidates } = moved();
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "moved-out-")));
+    const link = join(outside, "app");
+    symlinkSync(newPath, link);
+    expect(resolveProjectPath(projectIdForPath(link), candidates, makeSymlinkAliasFinder(home))).toBeNull();
   });
 });
