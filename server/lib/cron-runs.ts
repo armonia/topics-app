@@ -78,7 +78,7 @@ export async function syncCronRuns(db: Database, cli: CronCli): Promise<{ ok: tr
 
 /**
  * Recent runs with the tokens of the chat turns they started. Agent jobs run as turns whose
- * session key carries the job id, so tokens are summed from `usage_records` inside the run window;
+ * topic carries the job name, so tokens are summed from its messages inside the run window;
  * command jobs have none and read 0.
  */
 interface CronRunDbRow {
@@ -92,16 +92,19 @@ export function listCronRuns(db: Database, opts: { jobId?: string | null; limit?
     `SELECT job_id, job_name, run_at, ended_at, duration_ms, status, error, output FROM cron_runs
      WHERE (?1 IS NULL OR job_id = ?1) ORDER BY run_at DESC LIMIT ?2`,
   ).all(opts.jobId ?? null, limit) as CronRunDbRow[];
-  // Per run, not one big join: the time index narrows each lookup to the run window.
+  // Per run, not one big join. A scheduler agent turn runs in a topic named after the job, and the
+  // tokens live on that topic's assistant messages (not in `usage_records`, which holds side calls).
   const tokens = db.query(
-    `SELECT COALESCE(SUM(input_tokens), 0) AS i, COALESCE(SUM(output_tokens), 0) AS o, SUM(cost_usd) AS c
-     FROM usage_records WHERE timestamp BETWEEN ?1 AND ?2 AND instr(session_key, ?3) > 0`,
+    `SELECT COALESCE(SUM(m.usage_prompt_tokens), 0) AS i, COALESCE(SUM(m.usage_completion_tokens), 0) AS o, SUM(m.cost_cents) AS c
+     FROM topics t JOIN messages m ON m.session_key = t.session_key
+     WHERE t.name = ?3 AND m.role = 'assistant'
+       AND CAST(strftime('%s', m.timestamp) AS INTEGER) * 1000 BETWEEN ?1 AND ?2`,
   );
   return runs.map((r) => {
-    const t = tokens.get(r.run_at, (r.ended_at ?? r.run_at) + 60_000, r.job_id) as { i: number; o: number; c: number | null };
+    const t = tokens.get(r.run_at - 1000, (r.ended_at ?? r.run_at) + 60_000, r.job_name) as { i: number; o: number; c: number | null };
     return {
       jobId: r.job_id, jobName: r.job_name, runAt: r.run_at, endedAt: r.ended_at, durationMs: r.duration_ms,
-      status: r.status, error: r.error, output: r.output, inputTokens: t.i, outputTokens: t.o, costUsd: t.c,
+      status: r.status, error: r.error, output: r.output, inputTokens: t.i, outputTokens: t.o, costUsd: t.c === null ? null : t.c / 100,
     };
   });
 }

@@ -12,7 +12,8 @@ function freshDb() {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE cron_runs (job_id TEXT NOT NULL, job_name TEXT NOT NULL, run_at INTEGER NOT NULL, ended_at INTEGER, duration_ms INTEGER,
     status TEXT NOT NULL, error TEXT, output TEXT, PRIMARY KEY (job_id, run_at))`);
-  db.run(`CREATE TABLE usage_records (id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, session_key TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL)`);
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT NOT NULL, session_key TEXT NOT NULL)`);
+  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT NOT NULL, role TEXT NOT NULL, timestamp TEXT NOT NULL, usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER, cost_cents REAL)`);
   return db;
 }
 
@@ -52,8 +53,11 @@ describe("listCronRuns", () => {
   test("keeps the error and sums the tokens inside the run window only", async () => {
     const db = freshDb();
     await syncCronRuns(db, cliFor(3000000, runs(3000000, 1000)).cli).then(() => {});
-    db.run(`INSERT INTO usage_records VALUES ('a', 3000100, 'cron:agentjob', 10, 5, 0.5), ('b', 3000200, 'cron:agentjob', 1, 1, NULL),
-      ('c', 9000000, 'cron:agentjob', 99, 99, 9), ('d', 3000100, 'cron:other', 77, 77, 7)`);
+    const iso = (ms: number) => new Date(ms).toISOString();
+    db.run(`INSERT INTO topics VALUES ('t1', 'Agent job', 'topic:t1'), ('t2', 'Other job', 'topic:t2')`);
+    db.run(`INSERT INTO messages VALUES ('a', 'topic:t1', 'assistant', '${iso(3000100)}', 10, 5, 50), ('b', 'topic:t1', 'assistant', '${iso(3000200)}', 1, 1, NULL),
+      ('c', 'topic:t1', 'assistant', '${iso(9000000)}', 99, 99, 900), ('d', 'topic:t2', 'assistant', '${iso(3000100)}', 77, 77, 700),
+      ('e', 'topic:t1', 'user', '${iso(3000100)}', 55, 55, 500)`);
     const [latest, failed] = listCronRuns(db);
     expect(latest).toMatchObject({ runAt: 3000000, status: "ok", inputTokens: 11, outputTokens: 6, costUsd: 0.5 });
     expect(failed).toMatchObject({ runAt: 1000, status: "error", error: "boom", inputTokens: 0 });
