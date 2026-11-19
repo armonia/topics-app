@@ -12,85 +12,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { join } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { codexForkOf } from "./codex/fork";
 import { insertChatFork, readForkOrigin } from "../lib/chat-fork-store";
-import { insertSubagent } from "../lib/subagent-store";
 import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
 import { aggregateTouchedFiles } from "../lib/topic-changes";
 import type { ToolCall } from "../../shared/types";
 import { classifyToolAction, isCommandCall } from "../../shared/agent-action";
-import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
-
-interface RecordedHandler extends StreamHandler {
-  text: { delta: string; full: string }[];
-  tools: { type: "start" | "update" | "result"; id: string; payload: string | ToolArgs | undefined; error?: boolean }[];
-  toolNames: { id: string; name: string }[];
-  executing: string[];
-  activity: string[];
-  errors: string[];
-  done: { usage?: ProviderUsage; result?: string }[];
-  aborted: { usage?: ProviderUsage; result?: string }[];
-  context: { tokens: number; model?: string; windowTokens?: number }[];
-}
-
-function makeHandler(): RecordedHandler {
-  const h = {
-    text: [],
-    tools: [],
-    toolNames: [],
-    executing: [],
-    activity: [],
-    errors: [],
-    done: [],
-    aborted: [],
-    context: [],
-  } as unknown as RecordedHandler;
-  h.onContextSize = (tokens, model, windowTokens) => { h.context.push({ tokens, model, windowTokens }); };
-  h.onTextDelta = (text, fullText) => { h.text.push({ delta: text, full: fullText }); };
-  h.onToolStart = (id, name, args) => { h.toolNames.push({ id, name }); h.tools.push({ type: "start", id, payload: args }); };
-  h.onToolExecStart = (id) => { h.executing.push(id); };
-  h.onToolActivity = (id) => { h.activity.push(id); };
-  h.onToolUpdate = (id, partial) => { h.tools.push({ type: "update", id, payload: partial }); };
-  h.onToolResult = (id, result, error) => { h.tools.push({ type: "result", id, payload: result, ...(error ? { error } : {}) }); };
-  h.onError = (err) => { h.errors.push(err); };
-  h.onDone = (msg) => { h.done.push({ usage: msg?.usage, result: msg?.result }); };
-  h.onAborted = (msg) => { h.aborted.push({ usage: msg?.usage, result: msg?.result }); };
-  return h;
-}
-
-/**
- * Push an event through `routeCodexEvent` for a synthetic session. The
- * provider's session state needs to exist for tool tracking, so we seed it
- * via the same internal map. Using `as any` keeps the test focused on
- * behavior rather than re-exporting internals.
- */
-function pushEvent(
-  provider: CodexProvider,
-  sessionKey: string,
-  event: Record<string, unknown>,
-  handler: StreamHandler,
-  fullText = "",
-): string | null {
-  const p = provider as unknown as {
-    sessionState: Map<string, {
-      aborted: boolean;
-      usage?: ProviderUsage;
-      startedAt: number;
-      runningTools: Map<string, { toolCallId: string; partial: string }>;
-    }>;
-    routeCodexEvent: (sessionKey: string, event: Record<string, unknown>, handler: StreamHandler, fullText: string) => string | null;
-  };
-  if (!p.sessionState.has(sessionKey)) {
-    p.sessionState.set(sessionKey, {
-      aborted: false,
-      startedAt: Date.now(),
-      runningTools: new Map(),
-    });
-  }
-  return p.routeCodexEvent(sessionKey, event, handler, fullText);
-}
+import type { ProviderUsage } from "./types";
+import { makeHandler, pushEvent } from "./codex-test-helpers";
 
 describe("extractCodexUsage", () => {
   test("returns null when no usage fields are present", () => {
@@ -351,49 +282,6 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-ok", payload: '{"content":[{"type":"text","text":"task updated"}],"isError":false}' });
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-fail", payload: '{"message":"conflict"}', error: true });
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-tool-error", payload: '{"content":[{"type":"text","text":"task is locked"}],"isError":true}', error: true });
-  });
-
-  describe("an MCP ask_user_question — a spawn_agent child's panel never surfaces", () => {
-    let tempRoot = "";
-
-    beforeAll(() => {
-      tempRoot = mkdtempSync(join(tmpdir(), "codex-ask-user-"));
-      initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
-    });
-
-    afterAll(() => {
-      try { closeDatabase(); } catch { /* setup may have failed before opening it */ }
-      try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch { /* Windows may hold the temp dir briefly */ }
-    });
-
-    test("a CLI child's ask_user_question never reaches onUserInputRequired", () => {
-      insertSubagent(getDatabase(), {
-        id: "codex-child-ask-1", parentSessionKey: "topic:parent", name: "scout", model: "sonnet", agentType: "scout",
-        effort: "low", promptSnippet: "look", cwd: tempRoot, branch: null, claudeSessionId: "codex-child-ask-1",
-        createdAt: new Date().toISOString(),
-      });
-      const provider = new CodexProvider({ type: "codex" });
-      const h = makeHandler();
-      let fired = false;
-      h.onUserInputRequired = () => { fired = true; };
-      pushEvent(provider, "codex-child-ask-1", {
-        type: "item.started",
-        item: { type: "mcp_tool_call", id: "ask-1", server: "topics", tool: "ask_user_question", arguments: { questions: [{ question: "q", options: [{ label: "a" }, { label: "b" }] }] } },
-      }, h);
-      expect(fired).toBe(false);
-    });
-
-    test("a person's chat still gets the panel", () => {
-      const provider = new CodexProvider({ type: "codex" });
-      const h = makeHandler();
-      let fired = false;
-      h.onUserInputRequired = () => { fired = true; };
-      pushEvent(provider, "topic:a-real-chat", {
-        type: "item.started",
-        item: { type: "mcp_tool_call", id: "ask-2", server: "topics", tool: "ask_user_question", arguments: { questions: [{ question: "q", options: [{ label: "a" }, { label: "b" }] }] } },
-      }, h);
-      expect(fired).toBe(true);
-    });
   });
 
   test("the watchdog sees only the provider-owned child that has not exited", () => {
