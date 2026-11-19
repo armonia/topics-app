@@ -1566,6 +1566,7 @@ const EN = {
   'board.settings.needsWorktree': '«Parallel attempts» and «Merge into main» need the worktree: turn it on above.',
   'board.settings.fanoutWarn': 'Each task in Todo starts {n} times and takes {n} slots of the cap: the token bill multiplies by {n}.',
   'board.settings.notRepoWarn': 'This project is not a git repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or initialize a repo in the project folder.',
+  'board.settings.nestedWorktreeWarn': 'This project folder is already a worktree of another repo: with «isolated worktree» on, every task will be blocked. Turn it off to run in-place, or point the project at the original repo.',
   'board.settings.autoMerge': 'Merge into main when a card reaches Done',
   'board.settings.autoMergeTitle': "When a card carrying a delivery branch enters Done (dragged, moved from the menu, or closed by the system), merges its branch into main in the primary checkout. Clean merge → lands locally (no push); conflict → sends it back to the task's agent; dirty checkout or not on main → skips with a comment. Off: the card closes and a note in the thread says where the work stayed. Approve never merges either way: the \"Landa su main\" button is what does that. Requires the worktree active.",
   'board.settings.fullMcp': 'Full Fleet MCP for the agents',

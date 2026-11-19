@@ -1735,6 +1735,7 @@ const IT: Dict = {
   'board.settings.needsWorktree': '«Tentativi in parallelo» e «Fondi su main» richiedono il worktree: accendilo qui sopra.',
   'board.settings.fanoutWarn': 'Ogni task in Todo parte {n} volte e occupa {n} slot del tetto: il conto dei token si moltiplica per {n}.',
   'board.settings.notRepoWarn': 'Questo progetto non è un repo git: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure inizializza un repo nella cartella del progetto.',
+  'board.settings.nestedWorktreeWarn': 'La cartella di questo progetto è già un worktree di un altro repo: con «worktree isolato» acceso ogni task verrà bloccato. Spegnilo per eseguire in-place, oppure punta il progetto al repo originale.',
   // No longer "su Approva": Approve does not merge, and must not. The merge is
   // decoupled from acceptance (server/routes/tasks.ts, "approve decoupled from
   // landing"), so this switch has exactly one automatic effect left, entering
