@@ -575,4 +575,3 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
   return { saveLocalMessages, appendLocalMessage, appendImportedMessages, createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage, finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields };
 }
 
-export type MessageThreadWrites = ReturnType<typeof createMessageThreadWrites>;

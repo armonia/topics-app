@@ -230,4 +230,3 @@ export function createMessageBranches({ db, stmts, rowToMessage, metaParams }: {
   return { getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage, deleteMessageSubtree, discardIfEmptyTurn, switchActiveBranch, getSiblingMessages };
 }
 
-export type MessageBranches = ReturnType<typeof createMessageBranches>;

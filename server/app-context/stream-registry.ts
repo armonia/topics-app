@@ -229,4 +229,3 @@ export function createStreamRegistry({ db, activeStreams, turnLedger }: { db: Da
   return { startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming };
 }
 
-export type StreamRegistry = ReturnType<typeof createStreamRegistry>;
