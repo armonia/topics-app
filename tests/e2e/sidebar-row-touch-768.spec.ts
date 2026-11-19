@@ -1,6 +1,8 @@
 /**
  * Sidebar rows answer to a 44px target under a finger at 375 and at 768
  * (card 5df83d1f). 768 is `md:`, where rows used to drop to 34px.
+ *
+ * @covers SIDETOUCH-01
  */
 import { test, expect } from "@playwright/test";
 import { E2E_BASE } from "./helpers/test-server";
