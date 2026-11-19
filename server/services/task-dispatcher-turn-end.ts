@@ -246,7 +246,7 @@ export function createTurnEnd(ctx: DispatcherCtx) {
         // backlog, where nobody takes it up again (19/11, card 8f2d0c9f, reserve stop).
         if (end.end === "error") {
           const wall = holdFromDeclaredReset(end.detail);
-          // Il muro è della board, non delle chat: la riserva resta a chi può confermarla (BOARD_HOLD_KEY).
+          // The wall belongs to the board, not to chats: the reserve stays with whoever can confirm it (BOARD_HOLD_KEY).
           if (wall) { setProviderHold({ ...wall, provider: BOARD_HOLD_KEY }); free = true; }
         }
         // `process-died` arriva come `error` ma NON si perdona: è la rete di

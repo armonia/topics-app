@@ -896,10 +896,10 @@ describe("task-dispatcher", () => {
   });
 
   it("un errore che dichiara il reset del piano mette la card in ATTESA fino a quell'ora: niente tentativi, niente backlog", async () => {
-    // 19/11, card 8f2d0c9f: il motore degli account rispondeva «Only the reserve is
-    // left ... (resets_at: ...)», il turno finiva `provider-error`, quattro giri a
-    // vuoto e la card in backlog, dove nessuno la riprende. Qui sei turni di fila
-    // contro lo stesso muro con tetto 3: la card resta in coda, con l'ora.
+    // 19/11, card 8f2d0c9f: the account engine answered «Only the reserve is
+    // left ... (resets_at: ...)», the turn ended `provider-error`, four empty
+    // rounds and the card in backlog, where nobody picks it up. Here six turns in a row
+    // against the same wall with cap 3: the card stays queued, with the hour.
     const h = harness({ retryBackoffMs: 20 });
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
     seedTask(h.db, { id: "t1", status: "todo" });
@@ -922,14 +922,14 @@ describe("task-dispatcher", () => {
       const hold = providerHold(Date.now(), BOARD_HOLD_KEY);
       expect(hold?.untilMs).toBeGreaterThan(Date.now() + 3_000_000);
       expect(hold?.untilMs).toBeLessThanOrEqual(resetAt);
-      // La board lo vede (chip «Frenato»)...
+      // The board sees it (the «Frenato» chip)...
       expect(dispatchBrakes().some((b) => b.provider === "claude" && b.untilMs === hold!.untilMs)).toBe(true);
-      // ...ma una chat dal vivo NO: la riserva è di Attilio, che può confermarla dal bottone. Ciò che
-      // consulta il muro del provider per le chat (invio, risveglio, ripresa, banner) legge la chiave
-      // «claude» e la trova libera, quindi il turno parte e arriva lo stop con «Continua sulla riserva».
+      // ...but a live chat does NOT: the reserve is Attilio's, who can confirm it from the button. What
+      // reads the provider wall for chats (send, wake, resume, banner) looks at the «claude» key and
+      // finds it free, so the turn starts and the stop arrives with the continue-on-reserve button.
       expect(providerHold()).toBeNull();
       expect(isProviderHeld("claude-code")).toBe(false);
-      // Dopo il backoff NON riparte: aspetta l'ora del reset.
+      // After the backoff it does NOT restart: it waits for the reset hour.
       await new Promise((r) => setTimeout(r, 60));
       await flush();
       expect(h.turns.length).toBe(1);
