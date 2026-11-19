@@ -30,7 +30,7 @@ import {
   READ_ONLY_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PARKED_WAITED_OUT, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, TASK_STATUSES } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE, TASK_STATUSES } from "../../shared/board";
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
@@ -393,7 +393,7 @@ const TOOLS = [
         summary: {
           type: "string",
           description:
-            "THE DELIVERY, in words — REQUIRED with status='review'. 1-2 sentences for the person who opens the card: what you did IN THIS TURN and where to look (a page, a file, a test). Even \"nothing new\" is a valid delivery when you say why. This is the line the card shows: it is not the chronicle of your commits, and the chronicle does not replace it — put that in comment_task if it is worth keeping.",
+            `THE DELIVERY, in words — REQUIRED with status='review'. Even "nothing new" is a valid delivery when you say why, in the same five fields. It is not the chronicle of your commits — put that in comment_task if it is worth keeping. ${REVIEW_CARD_RULE}`,
         },
         priority: { type: "number", description: "0–4." },
         assignee: { type: "string", description: "Agent/person to assign." },
