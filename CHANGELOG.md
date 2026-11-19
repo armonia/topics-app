@@ -2,6 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.48 — 2026-11-19
+
+### Sotto il cofano
+- provider-hold: lift a plan hold when the account engine has a free account
+- provider-hold: ask the engine's selector, lift only the hold asked about, no re-arm flap
+- provider-hold: the anti re-arm covers only the very wall lifted, and asks the engine again
+- engine-free-account declares what it covers; English-only comment wording
+- provider-hold: re-arm probe covers earlier resets of the same window, and a stale probe re-arms nothing
+
+## 2.4.47 — 2026-11-18
+
+### Sotto il cofano
+- Thinking body: no empty space under the last sentence (#1282)
+- Client nested in a Topics pane no longer drives the real app (#1285)
+- fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)
+
 ## 2.4.46 — 2026-11-18
 
 ### Sotto il cofano

@@ -151,6 +151,8 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
 
   async function work(sessionKey: string): Promise<void> {
     await sleep(debounceMs);
+    // One log line per wait on a hold, not one per poll.
+    let saidWaiting = false;
     for (;;) {
       if (deps.isBusy(sessionKey)) { await sleep(pollMs); continue; }
       // The parent's own stop wakes nobody (`resultWakesParent`), but it waited
@@ -172,7 +174,17 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
         asRows(refused);
       }
       if (!pending.get(sessionKey)?.length) return;
-      if (verdicts.some((v) => v === "wait")) { await sleep(pollMs); continue; }
+      if (verdicts.some((v) => v === "wait")) {
+        // A wait used to be silent: on 18/11 three parents sat on eleven
+        // results for hours behind a hold and the log said nothing.
+        if (!saidWaiting) {
+          saidWaiting = true;
+          deps.log?.(`${sessionKey}: the topic's provider is held, ${pending.get(sessionKey)?.length ?? 0} result(s) wait for the hold to lift`);
+        }
+        await sleep(pollMs);
+        continue;
+      }
+      saidWaiting = false;
       const batch = pending.get(sessionKey)?.splice(0) ?? [];
       if (!batch.length) return;
       const results = batch.map((r) => r.result);

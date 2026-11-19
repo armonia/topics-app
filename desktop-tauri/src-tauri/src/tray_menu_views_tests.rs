@@ -354,3 +354,65 @@ fn a_note_at_the_edge_of_an_account_card_is_never_cut_while_a_smaller_form_fits(
     // nothing to cut when there is room for the time alone, and a note with no arrow never draws one
     assert!(!fit_note("14/12", 200.0, false, 10.0).2);
 }
+
+// ---- account cards: the provider next to the email, and the hub's sentence for a missing 5 hour reading
+
+const HUB_ACCOUNTS: &str = r#"{"accounts":[
+ {"provider":"claude","providerName":"Claude","email":"a@example.org","used":14,"state":{"text":"in ritmo","tone":"ok"},
+  "fiveHour":{"state":"none","say":"nessun limite a 5 ore"},"windows":[{"key":"week","label":"7 g","used":14,"tone":"ok"}]},
+ {"provider":"codex","providerName":"Codex","email":"a@example.org","used":16,"state":{"text":"in ritmo","tone":"ok"},
+  "fiveHour":{"state":"ok","say":null},"windows":[{"key":"5h","label":"5 h","used":0,"tone":"ok"},{"key":"week","label":"7 g","used":16,"tone":"ok"}]},
+ {"provider":"muse","providerName":"Muse","name":"Muse","used":69,"state":{"text":"in ritmo","tone":"ok"},
+  "fiveHour":{"state":"unread","say":"da leggere"},"windows":[{"key":"week","label":"7 g","used":69,"tone":"ok"}]}]}"#;
+
+#[test]
+fn an_account_card_carries_its_provider_name_and_the_hubs_sentence_only_when_there_is_no_reading() {
+    let q = quota_cards(HUB_ACCOUNTS);
+    let by = |p: &str| q.iter().find(|c| c.provider == p).unwrap().clone();
+    assert_eq!(by("claude").provider_name, "Claude");
+    assert_eq!(by("claude").five_say, "nessun limite a 5 ore");
+    assert_eq!(by("codex").five_say, "", "a read window has nothing to say");
+    assert_eq!(by("muse").five_say, "da leggere");
+}
+
+// the widths come from CoreText: the estimate used where there is none is wider
+#[cfg(target_os = "macos")]
+#[test]
+fn a_long_address_and_its_provider_share_the_room_of_a_card_whole() {
+    let card_room = (MENU_W - 2.0 * PAD - 8.0 * 2.0) / 3.0 - 18.0 - 18.0;
+    let real = who_line("abcd@example.org", "Claude", card_room);
+    assert_eq!(real.who, "abcd@example.org", "{real:?}");
+}
+
+#[test]
+fn the_provider_follows_the_email_unless_it_is_the_name_already() {
+    let room = 127.0;
+    let codex = who_line("b@example.org", "Codex", room);
+    assert_eq!(codex.suffix, " · Codex");
+    let claude = who_line("b@example.org", "Claude", room);
+    assert_ne!(codex.suffix, claude.suffix, "two cards with one email tell each other apart");
+    assert!(who_line("Muse", "Muse", room).suffix.is_empty(), "a Muse account is already called Muse");
+    assert!(who_line("a@example.org", "", room).suffix.is_empty());
+    // the email gives way, the provider stays: size first, then the cut
+    let tight = who_line("abcdefghijklmnopqrstu@example.org", "Claude", 100.0);
+    assert_eq!(tight.suffix, " · Claude");
+    assert!(tight.size <= 9.0 && tight.who.ends_with('…'), "{tight:?}");
+    let wide = who_line("a@example.org", "Claude", 300.0);
+    assert_eq!((wide.who.as_str(), wide.size), ("a@example.org", 11.5));
+}
+
+#[test]
+fn a_five_hour_row_without_a_reading_says_why_in_place_of_the_dash() {
+    let p = Palette::new(true);
+    let q = quota_cards(HUB_ACCOUNTS);
+    let claude = q.iter().find(|c| c.provider == "claude").unwrap().clone();
+    let silent = QuotaCard { five_say: String::new(), ..claude.clone() };
+    let px = |c: &QuotaCard| draw_quota_panel(std::slice::from_ref(c), p).unwrap().cv.px;
+    assert_ne!(px(&claude), px(&silent), "the sentence is drawn where the dash was");
+    // a card that has the percentage ignores the sentence: the 5 hour reading wins
+    let read = QuotaCard { five_hour: Some(Meter { label: "5 ore".into(), used: 30.0, ..Default::default() }), ..claude };
+    assert_eq!(px(&read), px(&QuotaCard { five_say: String::new(), ..read.clone() }));
+    // the sentence fits its room or shrinks: never wider than the line
+    let (t, size) = say_fit("nessun limite a 5 ore", 60.0);
+    assert!(Pic::text_w(Face::SansRegular, &t, size) <= 60.5 && size <= 10.0, "{t} {size}");
+}
