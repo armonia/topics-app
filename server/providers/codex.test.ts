@@ -12,10 +12,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { codexForkOf } from "./codex/fork";
 import { insertChatFork, readForkOrigin } from "../lib/chat-fork-store";
+import { insertSubagent } from "../lib/subagent-store";
 import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
 import { aggregateTouchedFiles } from "../lib/topic-changes";
 import type { ToolCall } from "../../shared/types";
@@ -350,6 +351,49 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-ok", payload: '{"content":[{"type":"text","text":"task updated"}],"isError":false}' });
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-fail", payload: '{"message":"conflict"}', error: true });
     expect(h.tools).toContainEqual({ type: "result", id: "mcp-tool-error", payload: '{"content":[{"type":"text","text":"task is locked"}],"isError":true}', error: true });
+  });
+
+  describe("an MCP ask_user_question — a spawn_agent child's panel never surfaces", () => {
+    let tempRoot = "";
+
+    beforeAll(() => {
+      tempRoot = mkdtempSync(join(tmpdir(), "codex-ask-user-"));
+      initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+    });
+
+    afterAll(() => {
+      try { closeDatabase(); } catch { /* setup may have failed before opening it */ }
+      rmSync(tempRoot, { recursive: true, force: true });
+    });
+
+    test("a CLI child's ask_user_question never reaches onUserInputRequired", () => {
+      insertSubagent(getDatabase(), {
+        id: "codex-child-ask-1", parentSessionKey: "topic:parent", name: "scout", model: "sonnet", agentType: "scout",
+        effort: "low", promptSnippet: "look", cwd: tempRoot, branch: null, claudeSessionId: "codex-child-ask-1",
+        createdAt: new Date().toISOString(),
+      });
+      const provider = new CodexProvider({ type: "codex" });
+      const h = makeHandler();
+      let fired = false;
+      h.onUserInputRequired = () => { fired = true; };
+      pushEvent(provider, "codex-child-ask-1", {
+        type: "item.started",
+        item: { type: "mcp_tool_call", id: "ask-1", server: "topics", tool: "ask_user_question", arguments: { questions: [{ question: "q", options: [{ label: "a" }, { label: "b" }] }] } },
+      }, h);
+      expect(fired).toBe(false);
+    });
+
+    test("a person's chat still gets the panel", () => {
+      const provider = new CodexProvider({ type: "codex" });
+      const h = makeHandler();
+      let fired = false;
+      h.onUserInputRequired = () => { fired = true; };
+      pushEvent(provider, "topic:a-real-chat", {
+        type: "item.started",
+        item: { type: "mcp_tool_call", id: "ask-2", server: "topics", tool: "ask_user_question", arguments: { questions: [{ question: "q", options: [{ label: "a" }, { label: "b" }] }] } },
+      }, h);
+      expect(fired).toBe(true);
+    });
   });
 
   test("the watchdog sees only the provider-owned child that has not exited", () => {
