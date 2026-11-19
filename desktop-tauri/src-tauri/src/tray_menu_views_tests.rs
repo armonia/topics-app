@@ -416,3 +416,21 @@ fn a_five_hour_row_without_a_reading_says_why_in_place_of_the_dash() {
     let (t, size) = say_fit("nessun limite a 5 ore", 60.0);
     assert!(Pic::text_w(Face::SansRegular, &t, size) <= 60.5 && size <= 10.0, "{t} {size}");
 }
+
+#[test]
+fn a_meter_with_no_reading_is_its_line_alone_and_the_card_is_shorter() {
+    let p = Palette::new(false);
+    let q = quota_cards(HUB_ACCOUNTS);
+    let claude = q.iter().find(|c| c.provider == "claude").unwrap().clone();
+    let codex = q.iter().find(|c| c.provider == "codex").unwrap().clone();
+    let h = |c: &QuotaCard| draw_quota_panel(std::slice::from_ref(c), p).unwrap().h;
+    // claude: no 5 hour reading, a week; codex: both read. No minor rows on either: the gap is the missing bar's room
+    assert!(claude.five_hour.is_none() && codex.five_hour.is_some());
+    assert!(h(&claude) <= h(&codex) - 9.0, "{} vs {}", h(&claude), h(&codex));
+    // neither window read: both lines alone
+    let neither = QuotaCard { week: None, ..claude.clone() };
+    assert!(h(&neither) <= h(&claude) - 9.0, "{} vs {}", h(&neither), h(&claude));
+    // the same account with a 5 hour reading is as tall as the codex one: the bar's room comes back with the value
+    let read = QuotaCard { five_hour: Some(Meter { label: "5 ore".into(), used: 0.0, ..Default::default() }), ..claude };
+    assert_eq!(h(&read), h(&codex));
+}

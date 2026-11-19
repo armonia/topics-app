@@ -122,7 +122,9 @@ export type SubAgentReason =
   | { code: 'swept' }
   /** The machine cut the turn (stall judge, watchdog, wall clock, superseded); `detail` is the cause. */
   | { code: 'machine-cut'; detail: string }
-  | { code: 'terminal-lost' };
+  | { code: 'terminal-lost' }
+  /** Its turn was over but its own work (a grandchild, a command) gave no news for too long; `detail` says what it waited for. */
+  | { code: 'wait-expired'; detail: string };
 
 /** The result of one turn of one child, as it is delivered (SUBAGENT-11). */
 export interface SubAgentResult extends SubAgentOutcome {
@@ -143,6 +145,13 @@ export interface SubAgentResult extends SubAgentOutcome {
    * report never wakes the parent (`resultWakesParent`).
    */
   stoppedByParent?: true;
+  /**
+   * Its card is already a row of the parent chat: a provider hold kept the
+   * parent's turn back, not the result (`services/subagent-wake.ts`). Kept on
+   * the durable copy, so a restart during the hold wakes the parent without
+   * writing the card a second time.
+   */
+  rowWritten?: true;
 }
 
 /** How long a seeded prompt may take to appear in the transcript before the turn is `undelivered`. */
