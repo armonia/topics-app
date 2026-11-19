@@ -20,7 +20,7 @@
  * @covers MACHINE-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Page, TestInfo } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 import { E2E_BASE } from "./helpers/test-server";
@@ -33,6 +33,17 @@ const SHOTS = `${homedir()}/.topics/media/pairing-card`;
 const MACHINE_NAME = "Studio Mac";
 const MACHINE_HEADER = "x-topics-machine-id";
 const EPOCH_HEADER = "x-topics-primary-epoch";
+
+/**
+ * The shots also ride on the test's attachments: on a CI runner the media
+ * folder is thrown away with the machine, while the attachments travel in the
+ * trace the delivery workflow uploads, at full resolution.
+ */
+async function attachShots(testInfo: TestInfo, state: "before" | "after", width: number): Promise<void> {
+  for (const file of [`${state}-${width}.png`, `${state}-card-${width}.png`]) {
+    await testInfo.attach(file, { path: `${SHOTS}/${file}`, contentType: "image/png" });
+  }
+}
 
 /**
  * The node's channel held by a real machine row, and a ghost server asking to
@@ -88,7 +99,7 @@ test.afterAll(async ({ request }) => {
 });
 
 for (const [width, height] of [[375, 812], [1440, 900]] as const) {
-  test(`before: without the name the card can only show a short id, at ${width}px`, async ({ page }) => {
+  test(`before: without the name the card can only show a short id, at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height });
     const card = await openCard(page, true);
     await expect(card).toContainText(seeded!.machineId.slice(0, 8));
@@ -99,9 +110,10 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
     // sits on a phone against a desktop.
     await page.screenshot({ path: `${SHOTS}/before-${width}.png` });
     await card.screenshot({ path: `${SHOTS}/before-card-${width}.png` });
+    await attachShots(testInfo, `before`, width);
   });
 
-  test(`after: the card names the epoch and the machine that loses the channel, at ${width}px`, async ({ page }) => {
+  test(`after: the card names the epoch and the machine that loses the channel, at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height });
     const card = await openCard(page, false);
     await expect(card).toContainText(/epoc[ah] 50/i);
@@ -110,6 +122,7 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
     mkdirSync(SHOTS, { recursive: true });
     await page.screenshot({ path: `${SHOTS}/after-${width}.png` });
     await card.screenshot({ path: `${SHOTS}/after-card-${width}.png` });
+    await attachShots(testInfo, `after`, width);
     // A wider frame around the card, for the board's own preview: the card is
     // taller than it is wide, and a board thumbnail crops the bottom off.
     const box = await card.boundingBox();
