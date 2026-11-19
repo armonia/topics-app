@@ -243,8 +243,8 @@ export function agentAskInThread(comments: readonly { author?: string | null; co
  * options decide only together with the text: options that are only "land it"
  * and "send it back" are approval when the text above them is a report (no
  * "?") or every sentence ending in "?" is approval words. A real question above
- * them ("La conservazione passa da 30 a 90 giorni: approvi questa scelta?",
- * "i testi del riassunto ... vanno bene?") keeps it a question: the land
+ * them (a product choice such as moving a retention from 30 to 90 days, or
+ * "are the summary texts fine?") keeps it a question: the land
  * buttons would otherwise land a product choice nobody took. The list is small on purpose: a missed courtesy costs a person's
  * click, a swallowed question costs a land nobody wanted.
  */
