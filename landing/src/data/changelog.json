@@ -1,5 +1,64 @@
 [
   {
+    "version": "2.4.49",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [
+        {
+          "text": "delivery summary is the review card, five fixed fields (#1297)",
+          "scope": "board"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "the re-measure drops the verdict the gate still retains for that commit",
+          "scope": "review-sweep"
+        },
+        {
+          "text": "keep task/orchestrator drawer opaque under native-frost below 1024px",
+          "scope": "ui"
+        },
+        {
+          "text": "scheda del task trasparente sulla Board stretta (#1292)",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.48",
+    "date": "2026-11-18",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a round without a CI verdict is measured again, and a new round closes the card's earlier PRs",
+          "scope": "ci-phase"
+        },
+        {
+          "text": "a review card with no verdict on its commit is measured, a green one in conflict goes back",
+          "scope": "review-sweep"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.41",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "un turno di chat non promuove card che la chat ha aperto per sé (#1230)",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.40",
     "date": "2026-11-17",
     "sections": {

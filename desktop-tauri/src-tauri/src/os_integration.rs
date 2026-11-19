@@ -592,8 +592,13 @@ pub(crate) fn set_app_status(
         // The agents by state replace the single number on the strip, on its left.
         tray_poller::set_agents(agents.unwrap_or_default());
         tray_poller::set_action(action.as_deref().and_then(tray_poller::AgentAction::from_wire));
+        // Badge, title and tooltip depend only on `count`: a push that only moves the
+        // action (every ~700 ms while agents work) must not write to the status button,
+        // least of all while its menu is open (`tray_tracking`).
+        static CHROME_COUNT: tray_tracking::LastWritten<u32> = tray_tracking::LastWritten::new();
+        let chrome_changed = CHROME_COUNT.changed(count);
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
-        if let Some(win) = app.get_window("main") {
+        if let (true, Some(win)) = (chrome_changed, app.get_window("main")) {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
         }
         // Menu-bar tray: glyph + tooltip + the clickable attention rows.
@@ -618,14 +623,13 @@ pub(crate) fn set_app_status(
             }
 
             // No number next to the strip: the glyph group on its left says it by state.
-            let title: Option<String> = None;
-            let tip = if count > 0 {
-                format!("Topics — {count} in attesa")
-            } else {
-                "Topics".to_string()
-            };
-            let _ = tray.set_title(title);
-            let _ = tray.set_tooltip(Some(tip));
+            if chrome_changed {
+                let tip = if count > 0 { format!("Topics — {count} in attesa") } else { "Topics".to_string() };
+                tray_tracking::defer("chrome", move || {
+                    let _ = tray.set_title(None::<String>);
+                    let _ = tray.set_tooltip(Some(tip));
+                });
+            }
         }
         Ok(())
     });
@@ -666,8 +670,8 @@ fn hub_leaf(app: &tauri::AppHandle, node: &tray_menu::Node, prefix: &str) -> Opt
             (tray_label(label), if id.is_empty() { format!("note:{label}") } else { id.clone() }, *enabled, &[])
         }
         tray_menu::Node::Sub { label, children } => (tray_label(label), String::new(), true, children),
-        tray_menu::Node::Card { key, png, w, h, children } => {
-            (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
+        tray_menu::Node::Card { key, png, w, h, hover, children } => {
+            (tray_menu_native::register_card(key, png, *w, *h, hover), format!("card:{key}"), false, children)
         }
         tray_menu::Node::Row { id, cells, header, table, look, children } => {
             let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

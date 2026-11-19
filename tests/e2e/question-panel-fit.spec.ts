@@ -101,6 +101,37 @@ async function verticalRoom(form: Locator): Promise<Room> {
   });
 }
 
+interface TopClearance { headerTop: number; barBottom: number; paneTop: number; formHeight: number }
+
+/**
+ * Anchors the chat at the bottom (where a fresh question always sits) and reads
+ * where the panel's top lands against the bar that overlays the pane's top edge.
+ * The transcript scrolls under that bar, so a panel as tall as the whole pane
+ * would start under it and its header would be covered.
+ */
+async function topClearance(form: Locator): Promise<TopClearance> {
+  return form.evaluate(async (el) => {
+    const pane = el.closest<HTMLElement>("[data-chat-topic-id]")!;
+    const scroller = el.closest<HTMLElement>("[data-virtuoso-scroller]")!;
+    scroller.scrollTop = scroller.scrollHeight;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    scroller.scrollTop = scroller.scrollHeight;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const p = pane.getBoundingClientRect();
+    // Bars that sit over this pane's top edge: same columns, starting at its top.
+    const bars = Array.from(document.querySelectorAll<HTMLElement>(".pane-chrome-bar"))
+      .map((b) => b.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.left < p.right && r.right > p.left && r.top <= p.top + 1 && r.bottom > p.top);
+    const header = (el.firstElementChild as HTMLElement).getBoundingClientRect();
+    return {
+      headerTop: Math.round(header.top),
+      barBottom: Math.round(Math.max(p.top, ...bars.map((r) => r.bottom))),
+      paneTop: Math.round(p.top),
+      formHeight: Math.round(el.getBoundingClientRect().height),
+    };
+  });
+}
+
 async function shot(page: Page, name: string) {
   if (!SHOT_DIR) return;
   mkdirSync(SHOT_DIR, { recursive: true });
@@ -178,6 +209,7 @@ test.describe("Pannello delle domande dentro la pane", () => {
         await composer.fill("una bozza che tiene il composer aperto e alto\ncon due righe");
 
         await forms.first().scrollIntoViewIfNeeded();
+        await topClearance(forms.first());
         await shot(page, `${c.w}-${c.splits + 1}pane`);
 
         const count = await forms.count();
@@ -193,6 +225,11 @@ test.describe("Pannello delle domande dentro la pane", () => {
           const v = await verticalRoom(form);
           expect(v.formHeight, `larghezza ${c.w}, pane ${i + 1}/${count}: pannello alto ${v.formHeight}px in ${v.room}px di pane`).toBeLessThanOrEqual(v.room);
           expect(v.actionsInside, `larghezza ${c.w}, pane ${i + 1}/${count}: pulsanti fuori dalla pane`).toBe(true);
+          // Top edge: with the chat anchored at the bottom the panel's header sits
+          // below the bar over the pane, with a little air, inside the visible part.
+          const t = await topClearance(form);
+          expect(t.headerTop, `larghezza ${c.w}, pane ${i + 1}/${count}: intestazione a ${t.headerTop}px, barra fino a ${t.barBottom}px`).toBeGreaterThanOrEqual(t.barBottom + 8);
+          expect(t.headerTop, `larghezza ${c.w}: intestazione sopra la pane`).toBeGreaterThanOrEqual(t.paneTop);
         }
       }
     });

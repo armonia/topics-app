@@ -2,6 +2,7 @@
  * Landing a task on main: the queue, the auto lander, the land itself, deploy and publish.
  */
 import { isAgentWorking } from "../../shared/board";
+import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
@@ -14,6 +15,7 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
+import { createReviewSweep } from "./tasks-review-sweep";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -33,6 +35,31 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const sweepRemoteDelivery: TasksLate["sweepRemoteDelivery"] = (...args) => late.sweepRemoteDelivery(...args);
   const capturaConsegna: TasksLate["capturaConsegna"] = (...args) => late.capturaConsegna(...args);
   const runChecksGate: TasksLate["runChecksGate"] = (...args) => late.runChecksGate(...args);
+
+  /**
+   * Sends a card the land pulled back (conflict, failed land) to whoever has to redo the work.
+   * With a bound session that session resumes. Without one (a card running on a node has no
+   * `assigned_topic_id`, and neither does a session released by a restart) `resume` returns
+   * silently: the card stayed `in_progress` with nobody on it and held the node slot forever
+   * (card f4dbe271, 17-19/11: the model-proxy token rotation waited two days for a "busy" slot).
+   * So it goes back to the queue, where the dispatcher launches it again with the thread.
+   */
+
+  function sendBackAfterLand(projectId: string, taskId: string, message: string): void {
+    if (!dispatcher) return;
+    const cur = svc.get(taskId, { projectId })?.task;
+    if (cur && cur.status === "in_progress" && !cur.assignedTopicId) {
+      try {
+        const queued = svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" } });
+        // The hand-off to the agent travels in the thread: a fresh session has nothing else to read.
+        try { svc.addComment({ taskId, author: "system", kind: "service", content: `${message}\n\n${FRESH_SESSION_NOTE}` }); } catch { /* the requeue is what matters */ }
+        broadcastToAll({ type: "task:updated", projectId, task: queued });
+        if (queued.status === "todo") dispatcher.onEnterTodo(projectId, taskId);
+        return;
+      } catch (err) { console.warn(`[land] ${taskId} non rimessa in coda dopo il ritiro:`, err); }
+    }
+    dispatcher.resume(taskId, message).catch((err) => console.warn(`[Tasks] resume after land retreat failed for ${taskId}:`, err));
+  }
 
   /**
    * Taglia il turno VIVO di una card: ferma il processo dell'agente e chiude i
@@ -222,6 +249,12 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   });
   const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
+  const reviewSweep = createReviewSweep({
+    svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
+    bounceWithReason: ciPhase.bounceWithReason, reviewPrMergeable: opts?.reviewPrMergeable,
+  });
+  const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
+
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
@@ -230,7 +263,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
-      if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
+      if (t.checksState === "fail") {
+        if (await bounceRed(t.projectId, t.id)) continue;
+        // A red that is not about the delivered commit is history: the commit itself gets measured below.
+        if (!unmeasuredInReview(t)) continue;
+      }
+      // One card at a time, in the background: a measure lasts as long as its CI.
+      if (unmeasuredInReview(t)) {
+        if (!reviewSweep.measuring() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
+          void remeasureInReview(t).catch((err) => console.warn(`[review-sweep] ${t.id.slice(0, 8)}: misura fallita:`, err));
+        }
+        continue;
+      }
+      if (t.checksState === "pass" && !cardTurnIsLive(t) && await probeConflict(t)) continue;
       // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
       // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.
       if (t.landIntent === "human") {
@@ -693,12 +738,12 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
               ? `Il ramo era indietro di ${rc.behind} commit su main e riportare main dentro il ramo ha fatto conflitto su ${files.length} file: ${elenco}. Non ho landato niente. Rimando all'agent per riconciliare.`
               : "Merge automatico in conflitto con main. Rimando all'agent per risolvere.",
           });
-          dispatcher?.resume(
-            taskId,
+          sendBackAfterLand(
+            projectId, taskId,
             rc
               ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
               : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
-          ).catch((err) => console.warn(`[Tasks] resume after merge-conflict failed for ${taskId}:`, err));
+          );
         }
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main. Risolvi e rilancia "Landa su main".` });
@@ -748,8 +793,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
             });
           } catch (err) { console.warn(`[land] impossibile spostare ${taskId} dopo il land fallito:`, err); }
           if (fall.resume) {
-            dispatcher?.resume(taskId, fall.resume)
-              .catch((err) => console.warn(`[Tasks] resume after failed land for ${taskId}:`, err));
+            sendBackAfterLand(projectId, taskId, fall.resume);
           }
         }
       }

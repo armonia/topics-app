@@ -19,7 +19,7 @@ fn target(rev: &str, at: i64, error: &str, private: &str, reason: &str) -> Strin
 fn memories_and_rules_aligned_say_the_hour_of_the_copy() {
     let s = sync(&target("r2", NOW - 3600, "null", "open", "null"));
     let r = sync_row(&s, "m1", OFF).unwrap();
-    assert_eq!((r.label.as_str(), r.text.as_str(), r.level), ("Memorie e regole", "allineate alle 08:00", 0));
+    assert_eq!((r.label.as_str(), r.text.as_str(), r.level), ("Memorie e regole", "salvate alle 08:00", 0));
 }
 
 #[test]
@@ -39,17 +39,20 @@ fn memories_and_rules_behind_say_how_late_and_judge_by_the_lag() {
 #[test]
 fn a_closed_private_store_is_worth_a_look_and_a_skipped_one_says_why() {
     let closed = sync_row(&sync(&target("r2", NOW, "null", "closed", "null")), "m1", OFF).unwrap();
-    assert_eq!((closed.text.as_str(), closed.level), ("allineate alle 09:00 · privato chiuso", 1));
+    assert_eq!((closed.text.as_str(), closed.level), ("salvate alle 09:00 · privato chiuso", 1));
     let skipped = sync_row(&sync(&target("r2", NOW, "null", "skipped", r#""chiave assente""#)), "m1", OFF).unwrap();
-    assert_eq!((skipped.text.as_str(), skipped.level), ("allineate alle 09:00 · privato non copiato: chiave assente", 0));
+    assert_eq!((skipped.text.as_str(), skipped.level), ("salvate alle 09:00 · privato non copiato: chiave assente", 0));
     let off = sync_row(&sync(&target("r2", NOW, "null", "off", "null")), "m1", OFF).unwrap();
-    assert_eq!(off.text, "allineate alle 09:00");
+    assert_eq!(off.text, "salvate alle 09:00");
 }
 
 #[test]
 fn a_sync_error_is_a_problem_and_a_machine_the_file_does_not_know_has_no_row() {
     let r = sync_row(&sync(&target("r2", NOW, r#""rsync: connessione rifiutata""#, "open", "null")), "m1", OFF).unwrap();
     assert_eq!((r.text.as_str(), r.level), ("rsync: connessione rifiutata", 2));
+    // an unreachable node says so in a few words: the transport's message and the closed private part are not repeated
+    let down = sync_row(&sync(&target("r2", NOW, r#""nodo non raggiungibile: Connection timed out during banner exchange""#, "closed", r#""nodo non raggiungibile""#)), "m1", OFF).unwrap();
+    assert_eq!((down.text.as_str(), down.level), ("nodo non raggiungibile", 2));
     assert!(sync_row(&sync(&target("r2", NOW, "null", "open", "null")), "other", OFF).is_none());
     assert!(parse_sync("not json").is_none() && parse_sync("{}").is_none());
 }
@@ -100,9 +103,9 @@ fn security_fine_says_a_posto() {
 #[test]
 fn security_warn_and_problem_carry_the_detail_of_the_worst_check() {
     let warn = r#"[{"key":"updates","status":"warn","detail":"3 aggiornamenti da installare"},{"key":"disk","status":"ok","detail":"cifrato"}]"#;
-    assert_eq!(security("warn", warn, NOW, NOW), row("Sicurezza", "da guardare: 3 aggiornamenti da installare", 1));
+    assert_eq!(security("warn", warn, NOW, NOW), row("Sicurezza", "da guardare · 3 aggiornamenti da installare", 1));
     let bad = r#"[{"key":"updates","status":"warn","detail":"3 aggiornamenti"},{"key":"disk","status":"problem","detail":"disco non cifrato"},{"key":"access","status":"problem","detail":"secondo problema"}]"#;
-    assert_eq!(security("problem", bad, NOW, NOW), row("Sicurezza", "problema: disco non cifrato", 2));
+    assert_eq!(security("problem", bad, NOW, NOW), row("Sicurezza", "problema · disco non cifrato", 2));
     // a status that disagrees with its checks never hides the worse one
     assert_eq!(security("ok", bad, NOW, NOW).level, 2);
 }
@@ -119,7 +122,7 @@ fn security_from_an_old_file_says_how_old_and_never_a_posto() {
 fn security_never_checked_says_so() {
     let h = parse_health(&health_body(NOW, "ok", CHECKS_OK)).unwrap();
     let r = security_row(&h, &h.machines[1], NOW);
-    assert_eq!((r.text.as_str(), r.level), ("da guardare: non ancora controllata", 1));
+    assert_eq!((r.text.as_str(), r.level), ("non ancora controllata", 1));
 }
 
 #[test]
@@ -163,11 +166,11 @@ fn the_spend_of_the_month_is_read_in_day_order_and_none_without_a_day() {
 fn saved_memories_of_the_mac_are_a_row_with_the_hour() {
     let body = |last_ok: &str, err: &str, rc: &str| format!(r#"{{"last_ok":{last_ok},"last_rc":{rc},"last_error":{err},"runs":[{{"at":{NOW},"ok":true}}],"parts":[]}}"#);
     let ok = memory_sync_row(&body(&(NOW - 3600).to_string(), "null", "0"), NOW, OFF).unwrap();
-    assert_eq!((ok.label.as_str(), ok.text.as_str(), ok.level), ("Memorie salvate", "08:00", 0));
+    assert_eq!((ok.label.as_str(), ok.text.as_str(), ok.level), ("Memorie e regole", "salvate alle 08:00", 0));
     let yesterday = memory_sync_row(&body(&(NOW - 20 * 3600).to_string(), "null", "0"), NOW, OFF).unwrap();
-    assert_eq!((yesterday.text.as_str(), yesterday.level), ("ieri 13:00", 0));
+    assert_eq!((yesterday.text.as_str(), yesterday.level), ("salvate ieri alle 13:00", 0));
     let stale = memory_sync_row(&body(&(NOW - 27 * 3600).to_string(), "null", "0"), NOW, OFF).unwrap();
-    assert_eq!((stale.text.as_str(), stale.level), ("ieri 06:00 · oltre 26 ore fa", 1));
+    assert_eq!((stale.text.as_str(), stale.level), ("salvate ieri alle 06:00 · oltre 26 ore fa", 1));
     assert_eq!(memory_sync_row(&body("null", "null", "null"), NOW, OFF).unwrap().level, 1);
     let failed = memory_sync_row(&body(&(NOW - 3600).to_string(), "\"git push rifiutato\"", "1"), NOW, OFF).unwrap();
     assert_eq!(failed.level, 2);
@@ -190,8 +193,23 @@ fn saved_memories_are_no_row_without_a_valid_answer() {
 #[test]
 fn a_private_reason_that_already_says_privato_is_not_said_twice() {
     let r = sync_row(&sync(&target("r2", NOW, "null", "skipped", r#""privato non copiato: disco non cifrato""#)), "m1", OFF).unwrap();
-    assert_eq!(r.text, "allineate alle 09:00 · privato non copiato: disco non cifrato");
+    assert_eq!(r.text, "salvate alle 09:00 · privato non copiato: disco non cifrato");
     // the writer's technical aside in brackets is left out: the line has to fit the card
     let long = sync_row(&sync(&target("r2", NOW, "null", "skipped", r#""privato non copiato: disco non cifrato (BitLocker spento su C:)""#)), "m1", OFF).unwrap();
-    assert_eq!(long.text, "allineate alle 09:00 · privato non copiato: disco non cifrato");
+    assert_eq!(long.text, "salvate alle 09:00 · privato non copiato: disco non cifrato");
+}
+
+#[test]
+fn the_security_row_is_a_short_state_then_the_first_clause_of_the_worst_check() {
+    let long = r#"[{"key":"updates","status":"warn","detail":"1 aggiornamento in attesa da 7 giorni, riavvio necessario per installarlo e altro ancora che non serve"}]"#;
+    let r = security("warn", long, NOW, NOW);
+    assert_eq!(r.text, "da guardare · 1 aggiornamento in attesa da 7 giorni");
+    assert!(r.text.chars().count() <= 14 + 56 + 1, "one line: {}", r.text);
+}
+
+#[test]
+fn a_check_line_does_not_say_its_name_twice() {
+    let h = parse_health(&health_body(NOW, "ok", r#"[{"key":"disk","status":"ok","detail":"Disco cifrato (FileVault acceso)"}]"#)).unwrap();
+    let lines = check_lines(&h.machines[0]);
+    assert_eq!(lines[0].2, "a posto · FileVault acceso");
 }

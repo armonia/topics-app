@@ -898,13 +898,32 @@ function ciRedWhy(row: CheckRun): string {
   return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
 }
 
+/**
+ * The row a red verdict is named after: the first REAL red, else the first row
+ * that is not green.
+ *
+ * It was the first row that is not green, and the CI rows put that one first
+ * when the round stops at a red: `unit-ci` comes before `e2e-ci` and is closed
+ * NOT MEASURED with "the round stopped at the first red (e2e-ci)". The card
+ * then went back to its agent saying «NON MISURATI ... Non e' un rosso del
+ * codice» with the log of the row that measured nothing, while the red that
+ * sent it back was two lines below without its log (348dc136 on 18/11/2026,
+ * 98867792 on 17/11/2026).
+ */
+function headlineFailure(runs: CheckRun[]): CheckRun | undefined {
+  return runs.find((r) => !r.ok && !r.notMeasured && !r.timedOut) ?? runs.find((r) => !r.ok);
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
-  const failed = runs.find((r) => !r.ok);
+  const failed = headlineFailure(runs);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
   // The run time is the command's own; the queue for a gate slot is named
   // apart, so a slow verdict points at the machine and not at the code.
   const line = (r: CheckRun) => {
+    // SKIPPED is not a measured pass: a time next to it would claim a run
+    // that never happened (`ciSkipped`, no commit of its own beyond main).
+    if (r.skipped) return `⤳ \`${r.name}\` (saltato: nessun commit proprio)`;
     const queued = r.queuedMs ?? 0;
     const run = fmtMs(Math.max(0, r.ms - queued));
     const parts = [run];
@@ -965,9 +984,14 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
  * formatChecksComment so it can act on the failure.
  */
 export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: string | null }): string {
-  const failed = runs.find((run) => !run.ok);
+  const failed = headlineFailure(runs);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
-  if (!failed) return `Checks pre-review verdi${where}.`;
+  if (!failed) {
+    const skipped = runs.filter((r) => r.skipped).map((r) => r.name);
+    return skipped.length
+      ? `Checks pre-review verdi${where} (saltati: ${skipped.join(", ")}, nessun commit proprio).`
+      : `Checks pre-review verdi${where}.`;
+  }
   const position = runs.indexOf(failed) + 1;
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
   const ci = isCiEvidenceCheck(failed);

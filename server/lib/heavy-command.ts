@@ -18,7 +18,7 @@ const HEAVY: RegExp[] = [
   new RegExp(`${PKG}(test|e2e|build|typecheck|type-check|lint|knip|check:deadcode)([:\\s;&|)\`]|$)`),
   /(^|[\s;&|(])spec-flow\s/,
   /pytest/,
-  /cargo\s+(test|build|check|clippy)/,
+  /cargo(\s+\+\S+)?\s+(tauri\s+)?(test|nextest|build|check|clippy|run|bench|install)/,
   /go\s+test/,
   new RegExp(String.raw`(^|[^\w-])(astro|vite|next|nuxt)\s+build${END}`),
   new RegExp(String.raw`(^|[^\w.-])(tsc|tsgo|eslint|knip|ffmpeg)${END}`),

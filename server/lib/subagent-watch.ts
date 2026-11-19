@@ -331,8 +331,12 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     if (!info.parentSessionKey.startsWith("topic:")) return;
     const result = subAgentResultOf(info);
     const key = resultKey(result);
-    if (deliveredExits.has(key)) { info.settle?.(); return; }
-    deliveredExits.add(key);
+    // With a wake wired, the wake itself ignores a result already on its way
+    // (so the runtime's stale sweep can ask again); without one this set dedupes.
+    if (!deps.requestWake) {
+      if (deliveredExits.has(key)) { info.settle?.(); return; }
+      deliveredExits.add(key);
+    }
     if (!deps.getTopicBySessionKey(info.parentSessionKey)) { info.settle?.(); return; }
     // With the wake (choice 3) the result waits for the parent's open turn to
     // end and then starts a turn of its own. It is not lost meanwhile: the
@@ -346,6 +350,8 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
         result,
         writeRow: () => writeResultRow(info),
         settle: () => info.settle?.(),
+        ...(info.rowWritten ? { rowWritten: true } : {}),
+        noteRowWritten: () => info.markRowWritten?.(),
       });
       return;
     }

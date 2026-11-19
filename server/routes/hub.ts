@@ -24,6 +24,7 @@
  */
 import type { AppContext, RouteHandler } from "../types";
 import { aggregateProxyUsage, localMidnight, proxyUsageCsv } from "../usage/proxy-usage";
+import { readQuotaReadings } from "../usage/quota-readings";
 import { parseUsageDays, parseUsageFilter, type HubUsageDays } from "../../shared/hub-usage";
 
 export const HUB_DEFAULT_URL = "http://127.0.0.1:3360";
@@ -124,6 +125,10 @@ export function createHubRouter(ctx: Pick<AppContext, "json">, deps: HubBridgeDe
     if (pathname === "/api/hub-live" && method === "GET") {
       if (!deps.live) return json({ error: "hub live data not available on this server" }, 503);
       return json(await deps.live.snapshot());
+    }
+    if (pathname === "/api/quota-readings" && method === "GET") {
+      const readings = readQuotaReadings();
+      return readings ? json({ readings }) : json({ error: "no quota history on this machine" }, 404);
     }
     if (pathname === "/api/hub-usage" && method === "GET") return hubUsage(url, false);
     if (pathname === "/api/hub-usage.csv" && method === "GET") return hubUsage(url, true);

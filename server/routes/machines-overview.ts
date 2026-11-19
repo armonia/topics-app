@@ -16,6 +16,10 @@ import type { MachineMetrics, MachineOverview, MachineOverviewRow, MachineSample
 import { readLocalMetrics } from "../lib/machine-metrics";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
+import { readMachineAgents } from "../services/machine-agents";
+import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "../lib/parked-asks";
+import { pendingAskKeys } from "../lib/ask-user-bridge";
+import { decodeCol } from "../../shared/message-blob";
 import { createProviderRegistry, matchServer, writeProviderToken, type ProviderRegistry } from "../services/machine-providers";
 
 /** Global IPv4 addresses bound to this machine's interfaces: what a provider lists as the server's address. */
@@ -89,10 +93,39 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
     return list;
   }
 
+  /** Scanning two days of messages for open questions is not free: tray windows share one scan. */
+  let parkedCache: { at: number; keys: string[] } | null = null;
+  function parkedChats(): string[] {
+    if (parkedCache && now() - parkedCache.at < REMOTE_TTL_MS) return parkedCache.keys;
+    let keys: string[] = [];
+    try { keys = chatsParkedOnQuestion(ctx.db, decodeCol, { now: now(), ttlMs: PARKED_ASK_HOLD_MS, fastPathKeys: pendingAskKeys() }); } catch { /* no reading, no waiting chats */ }
+    parkedCache = { at: now(), keys };
+    return keys;
+  }
+
+  function agentsByMachine(localId: string | null, machines: Array<{ id: string; baseUrl?: string | null }>) {
+    try {
+      const openChats = new Map<string, number | null>();
+      for (const s of ctx.turnLedger?.snapshot().open ?? []) {
+        const startedAt = Date.parse(ctx.activeStreams.get(s.sessionKey)?.startedAt ?? "");
+        openChats.set(s.sessionKey, Number.isFinite(startedAt) ? startedAt : null);
+      }
+      return readMachineAgents({
+        db: ctx.db, machines: machines.map((m) => ({ id: m.id, baseUrl: m.baseUrl || null })),
+        localId, openChats, parkedChats: parkedChats(), now: now(),
+      });
+    } catch {
+      // The agents are an extra on the row: a failed read must not take the gauges down with it.
+      return new Map<string, import("../../shared/machine-overview").MachineAgents>();
+    }
+  }
+
   async function overview(): Promise<MachineOverview> {
     const local = (() => { try { return machineStore.upsertLocal(); } catch { return null; } })();
     const { servers, errors } = await registry.servers();
-    const rows = await Promise.all(machineStore.list().map(async (m): Promise<MachineOverviewRow> => {
+    const machinesNow = machineStore.list();
+    const agents = agentsByMachine(local?.id ?? null, machinesNow);
+    const rows = await Promise.all(machinesNow.map(async (m): Promise<MachineOverviewRow> => {
       const isLocal = m.id === local?.id;
       let metrics: MachineMetrics | null = null;
       let reason: string | null = null;
@@ -115,6 +148,7 @@ export function createMachinesOverviewRoute(ctx: AppContext, opts: { registry?: 
         metrics,
         history: record(m.id, metrics),
         provider: server?.facts ?? null,
+        ...(agents.get(m.id) ? { agents: agents.get(m.id) } : {}),
         providerError: !server && Object.keys(errors).length > 0 && !isLocal ? Object.values(errors)[0] : adapterId && errors[adapterId] ? errors[adapterId] : null,
         at: now(),
       };

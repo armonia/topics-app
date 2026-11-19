@@ -29,7 +29,7 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { Topic, ClaudeSessionPhase, ClaudeSessionState, AttentionTier, PhaseTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
-import { mergeBackgroundWork, type TopicBackgroundWork } from './backgroundWork';
+import { mergeBackgroundWork, waitingOnOf, type TopicBackgroundWork, type WaitingOn } from './backgroundWork';
 import { SEEN_DWELL_MS as SHARED_SEEN_DWELL_MS, type AttentionTask } from '../../../shared/attention';
 import { attentionOf, useAttentionRows, useAttentionStore, useTerminalAttention, useTopicAttention, type AttentionRows } from './attention';
 import { projectAttention, projectWorkingCount } from './attentionRollups';
@@ -821,6 +821,22 @@ export function useTopicInProgress(topicId: string | undefined): boolean {
  */
 export function useTopicBackgroundTasks(topicId: string | undefined): readonly AttentionTask[] {
   return useAttentionStore((s) => (topicId ? s.rows.get(`topic:${topicId}`)?.background : undefined)) ?? NO_TASKS;
+}
+
+/**
+ * What a chat with NO turn open is waiting on, or null: a turn open (loading,
+ * or parked on a question, which the amber glyph says) is not a wait on work.
+ * The tab and the sidebar row read it to say «waiting for a sub-agent / a
+ * process» instead of drawing the ring of a chat that is writing (BGVIS-10).
+ * A string or null, so a poll that changes nothing re-renders nobody.
+ */
+export function useTopicWaitingOn(topicId: string | undefined): WaitingOn | null {
+  const loading = useTopicLoading(topicId);
+  const waiting = useAttentionStore((s) => {
+    const row = topicId ? s.rows.get(`topic:${topicId}`) : undefined;
+    return row?.state === 'working' ? waitingOnOf(row.background) : null;
+  });
+  return loading ? null : waiting;
 }
 
 export function useTerminalBackgroundTasks(sessionId: string | undefined): readonly AttentionTask[] {

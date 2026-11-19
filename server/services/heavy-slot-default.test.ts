@@ -75,6 +75,8 @@ describe("acquireHeavySlotForCommand", () => {
 describe("isHeavyCommand", () => {
   test("suites, type checks and lint are heavy; ls and git status are not", () => {
     for (const c of ["bun run typecheck", "bun test server/x.test.ts", "npx tsc --noEmit", "eslint .", "cargo test"]) expect(isHeavyCommand(c)).toBe(true);
+    for (const c of ["cargo tauri build", "cargo run --release", "cargo nextest run", "cargo +nightly build"]) expect(isHeavyCommand(c)).toBe(true);
+    expect(isHeavyCommand("cargo fmt")).toBe(false);
     for (const c of ["ls -la", "git status", "tsc --lsp", "cat package.json"]) expect(isHeavyCommand(c)).toBe(false);
   });
 });
