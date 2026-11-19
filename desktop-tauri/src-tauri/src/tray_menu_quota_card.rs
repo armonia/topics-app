@@ -156,13 +156,20 @@ const Q_COLS: usize = 3;
 const Q_GAP: f32 = 8.0;
 const Q_INSET: f32 = 9.0;
 const METER_H: f32 = 27.0;
+/// A meter with no reading is its line alone: a grey bar under «nessun limite» or a dash would only be height.
+const METER_LINE_H: f32 = 17.0;
 const MINOR_H: f32 = 16.0;
 /// Where a card's values begin, from the card's inner left edge: the minor rows' values and the meters' percentages.
 const VALUE_COL: f32 = 56.0;
 
+/// The height a meter takes: the line and its bar when it is read, the line alone when it is not.
+fn meter_h(m: &Option<Meter>) -> f32 {
+    if m.is_some() { METER_H } else { METER_LINE_H }
+}
+
 fn quota_card_h(c: &QuotaCard) -> f32 {
     let n = c.minors.len() as f32;
-    Q_INSET + 16.0 + 4.0 + 20.0 + 6.0 + 2.0 * METER_H + 5.0 + if n > 0.0 { 8.0 + n * MINOR_H } else { 0.0 } + Q_INSET - 2.0
+    Q_INSET + 16.0 + 4.0 + 20.0 + 6.0 + meter_h(&c.five_hour) + 5.0 + meter_h(&c.week) + if n > 0.0 { 8.0 + n * MINOR_H } else { 0.0 } + Q_INSET - 2.0
 }
 
 /// The account's line: the email at `size` and, after it, the provider in a smaller regular face. The provider is
@@ -233,8 +240,9 @@ fn draw_meter(pic: &mut Pic, m: &Option<Meter>, say: &str, label: &str, x: f32, 
             pic.mask(x + w - rw - 12.0, l1 - 9.0, 9.0, &mask, p.fg, p.dim);
         }
     }
-    let c = m.as_ref().map_or(p.fg, |m| tone(m.level));
-    pic.bar(x, y + 22.0, w, used, m.as_ref().and_then(|m| m.mark), c, p);
+    if let Some(m) = m {
+        pic.bar(x, y + 22.0, w, used, m.mark, tone(m.level), p);
+    }
 }
 
 /// How a note at the right edge of a card row is set in `room`: the whole text at `base` with its refresh arrow
@@ -339,11 +347,11 @@ fn draw_quota_card(pic: &mut Pic, c: &QuotaCard, who_cap: f32, x: f32, y: f32, w
     draw_state(pic, &c.state, tx, ix + iw, sy + 15.0, st);
     let my = sy + 20.0 + 6.0;
     draw_meter(pic, &c.five_hour, &c.five_say, "5 ore", ix, my, iw, p);
-    draw_meter(pic, &c.week, "", "7 giorni", ix, my + METER_H + 5.0, iw, p);
+    draw_meter(pic, &c.week, "", "7 giorni", ix, my + meter_h(&c.five_hour) + 5.0, iw, p);
     if c.minors.is_empty() {
         return;
     }
-    let mut yy = my + 2.0 * METER_H + 5.0 + 8.0;
+    let mut yy = my + meter_h(&c.five_hour) + 5.0 + meter_h(&c.week) + 8.0;
     pic.hline(ix, yy - 4.0, iw, p.fg, 0.14);
     for m in &c.minors {
         let base = yy + 11.0;
