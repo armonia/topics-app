@@ -1282,7 +1282,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
     // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
     // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
-    if (!svc.nodeRunIsOpen(task.id)) return false;
+    if (!svc.nodeRunIsOpen(task.id)) {
+      // With no open run a card is either dragged to In Progress by hand (not an orphan: leave
+      // it) or CUT BY THE SERVER while the launch had not created the run yet. The two differ by
+      // the cut: `interrupted_at`, written by the shutdown, is later than the entry into
+      // in-progress. Left alone, the second stayed in_progress forever with the node slot
+      // counted as busy (f4dbe271, 17/11: the token rotation waited two days).
+      const cut = task.interruptedAt, since = task.inProgressAt;
+      if (!cut || !since || cut < since) return false;
+    }
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
