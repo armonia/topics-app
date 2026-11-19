@@ -28,6 +28,7 @@ const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/providers/acp.ts", snippet: "spawn(bin", why: "an agent turn (ACP)" },
   { file: "server/providers/codex.ts", snippet: "spawn(bin, args", why: "an agent turn (Codex)" },
   { file: "server/providers/claude-code.ts", snippet: "spawn(resolveCliPath()", why: "an agent turn (CLI)" },
+  { file: "server/providers/claude/cli-launch.ts", snippet: "spawn(resolveCliPath()", why: "the one-shot completion: killed by its own timer at the caller's `timeoutMs` (30 min at most)" },
   { file: "server/providers/native/tools.ts", snippet: "spawn(argv[0]!", why: "an agent's command: the caller has its cap and its abort" },
   { file: "server/providers/native/mcp-client.ts", snippet: "spawn(this.command", why: "an MCP server: lives as long as the session" },
   { file: "server/ai-bridge.mjs", snippet: "spawn(cliPath", why: "the AI bridge: a long-lived child by design" },
