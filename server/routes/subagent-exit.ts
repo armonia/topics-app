@@ -35,6 +35,10 @@ export interface SubAgentExitInfo {
    * copy kept on the child's `subagents` row until then can go.
    */
   settle?: () => void;
+  /** The card is already a row of the parent chat (`SubAgentResult.rowWritten`). */
+  rowWritten?: boolean;
+  /** Record on the durable copy that the card is a row now: only the parent's turn is still owed. */
+  markRowWritten?: () => void;
 }
 
 /** The result a report carries, whatever optional fields its caller filled. */
@@ -82,6 +86,7 @@ const WORDS = {
         case 'machine-cut': return `fermato dal sistema (${r.detail})`;
         case 'swept': return "ritirato perché chi l'ha lanciato non lavora più";
         case 'terminal-lost': return 'il suo terminale non è sopravvissuto al riavvio';
+        case 'wait-expired': return `chiuso dopo l'attesa senza notizie (${r.detail})`;
       }
     },
   },
@@ -110,6 +115,7 @@ const WORDS = {
         case 'machine-cut': return `stopped by the system (${r.detail})`;
         case 'swept': return 'retired because its parent is no longer working';
         case 'terminal-lost': return 'its terminal did not survive the restart';
+        case 'wait-expired': return `closed after waiting with no news (${r.detail})`;
       }
     },
   },
