@@ -1283,11 +1283,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
     // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
     if (!svc.nodeRunIsOpen(task.id)) {
-      // Senza corsa aperta una card e' o trascinata a mano in In Progress (non e' un'orfana: via)
-      // o TAGLIATA DAL SERVER mentre il lancio non aveva ancora creato la corsa. Le due si
-      // distinguono dal taglio: `interrupted_at`, scritto dallo spegnimento, e posteriore
-      // all'ingresso in corso. Lasciata li' la seconda restava in_progress per sempre con il
-      // posto del nodo "occupato" (f4dbe271, 17/11: il cambio token del proxy aspettò due giorni).
+      // With no open run a card is either dragged to In Progress by hand (not an orphan: leave
+      // it) or CUT BY THE SERVER while the launch had not created the run yet. The two differ by
+      // the cut: `interrupted_at`, written by the shutdown, is later than the entry into
+      // in-progress. Left alone, the second stayed in_progress forever with the node slot
+      // counted as busy (f4dbe271, 17/11: the token rotation waited two days).
       const cut = task.interruptedAt, since = task.inProgressAt;
       if (!cut || !since || cut < since) return false;
     }

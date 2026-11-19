@@ -36,20 +36,21 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   const runChecksGate: TasksLate["runChecksGate"] = (...args) => late.runChecksGate(...args);
 
   /**
-   * Rimanda una card ritirata dal land (conflitto, land fallito) a chi deve rifare il lavoro.
-   * Con una sessione legata si riprende quella. Senza (una card che gira su un nodo non ha
-   * `assigned_topic_id`, e nemmeno una sessione liberata da un riavvio) `resume` ritorna in
-   * silenzio: la card restava `in_progress` senza nessuno sopra, occupando per sempre il posto
-   * del nodo (card f4dbe271, 17-19/11: il cambio del token del proxy aspettava un posto "occupato").
-   * Quindi di nuovo in coda, dove il dispatcher la lancia da capo con il thread.
+   * Sends a card the land pulled back (conflict, failed land) to whoever has to redo the work.
+   * With a bound session that session resumes. Without one (a card running on a node has no
+   * `assigned_topic_id`, and neither does a session released by a restart) `resume` returns
+   * silently: the card stayed `in_progress` with nobody on it and held the node slot forever
+   * (card f4dbe271, 17-19/11: the model-proxy token rotation waited two days for a "busy" slot).
+   * So it goes back to the queue, where the dispatcher launches it again with the thread.
    */
+
   function sendBackAfterLand(projectId: string, taskId: string, message: string): void {
     if (!dispatcher) return;
     const cur = svc.get(taskId, { projectId })?.task;
     if (cur && cur.status === "in_progress" && !cur.assignedTopicId) {
       try {
         const queued = svc.update({ taskId, actor: "human", by: "system", projectId, patch: { status: "todo" } });
-        // La consegna all'agente viaggia nel thread: una sessione nuova non ha altro da leggere.
+        // The hand-off to the agent travels in the thread: a fresh session has nothing else to read.
         try { svc.addComment({ taskId, author: "system", kind: "service", content: `${message}\n\n${FRESH_SESSION_NOTE}` }); } catch { /* the requeue is what matters */ }
         broadcastToAll({ type: "task:updated", projectId, task: queued });
         if (queued.status === "todo") dispatcher.onEnterTodo(projectId, taskId);

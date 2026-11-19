@@ -143,10 +143,11 @@ describe("il riallineamento prima del land finisce nel thread", () => {
   });
 
   /**
-   * Una card che gira su un nodo non ha `assigned_topic_id`: `resume` ritorna in silenzio e la
-   * card restava `in_progress` senza nessuno sopra, a occupare il posto del nodo (f4dbe271:
-   * il cambio token del proxy dei modelli aspettò due giorni un posto "occupato").
+   * A card running on a node has no `assigned_topic_id`: `resume` returned silently and the
+   * card stayed `in_progress` with nobody on it, holding the node slot (f4dbe271: the
+   * model-proxy token rotation waited two days for a "busy" slot).
    */
+
   test("conflitto su una card senza sessione legata: torna in coda col thread, non resta in corso", async () => {
     const d = freshDb(); const b: any[] = []; const r: string[] = []; const entered: string[] = [];
     const dispatcher = {
@@ -171,7 +172,7 @@ describe("il riallineamento prima del land finisce nel thread", () => {
     expect(after.task.status).toBe("todo");
     expect(entered).toEqual([t.id]);
     expect(r).toHaveLength(0);
-    // La consegna all'agente (i file, git merge main) sta nel thread: la sessione nuova non ha altro.
+    // The hand-off (the files, git merge main) is in the thread: the fresh session has nothing else.
     const thread = after.comments.map((c) => c.content).join("\n");
     expect(thread).toContain("git merge main");
     expect(thread).toContain("server/db.ts");
