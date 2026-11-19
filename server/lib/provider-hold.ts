@@ -33,6 +33,14 @@ export type { PlanUsage, ProviderHold, UsageWindowKind };
  * the Claude account, so their calls stay unchanged by this being a map.
  */
 const DEFAULT_KEY = "claude";
+/**
+ * THE WALL ONLY THE BOARD OBEYS. An error that declares its reset while Claude's
+ * accounts are spent but the reserve is left (`holdFromDeclaredReset`) keeps the
+ * dispatcher's cards waiting for the reset, and nothing else: the reserve is the
+ * person's, who may confirm it from a live chat, so no chat, wake, resend or
+ * banner reads this key. Same device as `CLOUD_HOLD_KEY`: a key of its own.
+ */
+export const BOARD_HOLD_KEY = "claude-board";
 const holds = new Map<string, ProviderHold>();
 /** Fires on the Claude hold only: it is the one the status-bar banner and the
  *  resume sweep were built to show. A held Codex is read by the dispatcher
@@ -395,7 +403,7 @@ export function resetClaudeEarlyStopLift(): void {
 export function dispatchBrakes(nowMs: number = Date.now()): DispatchBrake[] {
   const out: DispatchBrake[] = [];
   const usage = planUsage(nowMs);
-  const claude = providerHold(nowMs, DEFAULT_KEY);
+  const claude = providerHold(nowMs, DEFAULT_KEY) ?? providerHold(nowMs, BOARD_HOLD_KEY);
   if (claude) {
     const read = claude.window === "five_hour" ? usage?.fiveHour : claude.window === "seven_day" ? usage?.sevenDay : null;
     out.push({ provider: "claude", window: claude.window, utilization: read?.utilization ?? null, untilMs: claude.window === "api-down" ? null : claude.untilMs });

@@ -30,7 +30,7 @@ function asFloor(reason: string | null): ResourceFloorVerdict {
 
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
-import { clearProviderHold, providerHold } from "../lib/provider-hold";
+import { BOARD_HOLD_KEY, clearProviderHold, dispatchBrakes, isProviderHeld, providerHold } from "../lib/provider-hold";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -904,6 +904,7 @@ describe("task-dispatcher", () => {
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
     seedTask(h.db, { id: "t1", status: "todo" });
     clearProviderHold();
+    clearProviderHold(BOARD_HOLD_KEY);
     try {
       await h.dispatcher.tick(PID);
       await flush();
@@ -918,15 +919,23 @@ describe("task-dispatcher", () => {
       expect(h.task("t1")!.status).not.toBe("backlog");
       expect(h.task("t1")!.dispatchState).not.toBe("failed");
       expect(h.task("t1")!.dispatchAttempts ?? 0).toBe(1);
-      const hold = providerHold();
+      const hold = providerHold(Date.now(), BOARD_HOLD_KEY);
       expect(hold?.untilMs).toBeGreaterThan(Date.now() + 3_000_000);
       expect(hold?.untilMs).toBeLessThanOrEqual(resetAt);
+      // La board lo vede (chip «Frenato»)...
+      expect(dispatchBrakes().some((b) => b.provider === "claude" && b.untilMs === hold!.untilMs)).toBe(true);
+      // ...ma una chat dal vivo NO: la riserva è di Attilio, che può confermarla dal bottone. Ciò che
+      // consulta il muro del provider per le chat (invio, risveglio, ripresa, banner) legge la chiave
+      // «claude» e la trova libera, quindi il turno parte e arriva lo stop con «Continua sulla riserva».
+      expect(providerHold()).toBeNull();
+      expect(isProviderHeld("claude-code")).toBe(false);
       // Dopo il backoff NON riparte: aspetta l'ora del reset.
       await new Promise((r) => setTimeout(r, 60));
       await flush();
       expect(h.turns.length).toBe(1);
     } finally {
       clearProviderHold();
+      clearProviderHold(BOARD_HOLD_KEY);
     }
   });
 

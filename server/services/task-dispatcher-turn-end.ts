@@ -4,7 +4,7 @@
  * One reconciliation: requeue, park, hand to review or wait for a command, and
  * the review chip that goes with it.
  */
-import { setProviderHold, holdFromDeclaredReset } from "../lib/provider-hold";
+import { BOARD_HOLD_KEY, setProviderHold, holdFromDeclaredReset } from "../lib/provider-hold";
 import { isAgentAuthor } from "../../shared/comment-author";
 import { awaitsHuman } from "../../shared/workflow";
 import { commentAsksHuman, type Task } from "./tasks";
@@ -246,7 +246,8 @@ export function createTurnEnd(ctx: DispatcherCtx) {
         // backlog, where nobody takes it up again (19/11, card 8f2d0c9f, reserve stop).
         if (end.end === "error") {
           const wall = holdFromDeclaredReset(end.detail);
-          if (wall) { setProviderHold(wall); free = true; }
+          // Il muro è della board, non delle chat: la riserva resta a chi può confermarla (BOARD_HOLD_KEY).
+          if (wall) { setProviderHold({ ...wall, provider: BOARD_HOLD_KEY }); free = true; }
         }
         // `process-died` arriva come `error` ma NON si perdona: è la rete di
         // sicurezza sulla liveness, cioè l'unico freno contro una sessione
