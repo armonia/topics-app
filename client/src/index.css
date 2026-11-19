@@ -4178,6 +4178,22 @@ html.native-frost [role="region"][aria-label$=" panel"],
 html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
   background-color: transparent !important;
 }
+/* A SHEET IS NOT A PANE. Below `lg` the board's task drawer and the
+ * coordinator's drawer are full-screen overlays (`absolute inset-0`) laid ON the
+ * columns. The frost rule above makes `.pane-frost` transparent so a pane lets
+ * the native glass through, but an overlay has no glass under it: it has the
+ * board's cards, and they read mixed with the drawer's text (seen in a 525 px
+ * WKWebView pane, ground `rgba(0, 0, 0, 0)`). From `lg` up the drawer is an
+ * in-flow sibling of the columns and the frost is right, so this stops at the
+ * breakpoint (Tailwind's `lg`, 1024 px).
+ * `--bg-surface`, not `--bg`: it is the pane's own colour and the frost never
+ * rewrites it (only `--bg` becomes a veil). (0,3,1) beats the rule above
+ * (0,2,1) with both `!important`. */
+@media (max-width: 1023.98px) {
+  html.native-frost .pane-frost.pane-sheet {
+    background-color: var(--bg-surface) !important;
+  }
+}
 
 /* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
