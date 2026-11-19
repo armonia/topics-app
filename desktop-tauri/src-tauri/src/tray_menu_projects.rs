@@ -93,12 +93,13 @@ fn last_seen_at(p: &Value) -> Option<i64> {
 }
 
 /// The state cell: how many agents work (with the icon), or how long the project has been still.
-fn state_cell(p: &Value, now_ms: i64) -> String {
+fn state_cell(p: &Value, now_ms: i64, uniform_brake: bool) -> String {
     if working(p) {
         return format!("▸ {}", agent_count(p));
     }
     if s(p, "state") == "frenato" {
-        return "⏸ frenato".into();
+        // every quiet project braked: the header says it once, the rows keep only the sign
+        return if uniform_brake { "⏸".into() } else { "⏸ frenato".into() };
     }
     if s(p, "state") == "in coda" {
         return "⏱ coda".into();
@@ -322,10 +323,22 @@ pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: 
     let busy = rows.iter().filter(|p| working(p)).count();
     let agents: usize = rows.iter().map(|p| agent_count(p)).sum();
     // the small grey line under the header is the header's own second line, as in the original tray
-    let summary = if agents == 0 { "nessun lavoro in corso · consumo in % della settimana".to_string() } else { format!("{agents} lavori in corso in {busy} su {} · consumo in % della settimana", rows.len()) };
+    // all the projects that do not work are braked: said once in the header, not on every row
+    let idle: Vec<&&Value> = rows.iter().filter(|p| !working(p)).collect();
+    let uniform_brake = idle.len() >= 2 && idle.iter().all(|p| s(p, "state") == "frenato");
+    let braked = if uniform_brake { format!(" · {} frenati dal limite del piano", idle.len()) } else { String::new() };
+    let tail = "token della settimana: % dell'abbonamento";
+    let summary = if agents == 0 { format!("nessun lavoro in corso{braked} · {tail}") } else { format!("{agents} {} in {busy} {} su {}{braked} · {tail}", if agents == 1 { "lavoro in corso" } else { "lavori in corso" }, if busy == 1 { "progetto" } else { "progetti" }, rows.len()) };
     let mut head = ["PROGETTI", "Claude", "Codex", "Muse", "ritmo/h", "stato"].map(String::from).to_vec();
+    // a rate column with no rate in any row has nothing to head
+    if !rows.iter().any(|p| agents_of(p).iter().any(|a| a.get("use").map_or(0.0, |u| n(u, "hourTokens")) > 0.0)) {
+        head[4].clear();
+    }
     head.push(second_line(summary));
     let mut out = vec![head_row(Table::Projects, head)];
+    // the arrow of a priority pushes a name right: when any row has one, the others keep its place empty
+    let any_arrow = rows.iter().any(|p| priority_of(p) != Priority::Normal);
+    // an idle project has no hourly rate: a dash on every such row says nothing, the column keeps only real rates
     for p in rows {
         let hour: f64 = agents_of(p).iter().map(|a| a.get("use").map_or(0.0, |u| n(u, "hourTokens"))).sum();
         let pct = |k: &str| if n(p, k) > 0.0 { comma(n(p, k), 1) } else { "–".into() };
@@ -342,10 +355,10 @@ pub(crate) fn project_table(live: &Option<String>, heavy: &Option<String>, now: 
             project_icon_spec(p),
             Node::Row {
                 id: String::new(),
-                cells: vec![cell(shown_name(p)), pct("claude"), pct("codex"), pct("muse"), if hour > 0.0 { tokens_short(hour) } else { "–".into() }, state_cell(p, now_ms)],
+                cells: vec![cell(shown_name(p)), pct("claude"), pct("codex"), pct("muse"), if hour > 0.0 { tokens_short(hour) } else { String::new() }, state_cell(p, now_ms, uniform_brake)],
                 header: false,
                 table: Table::Projects,
-                look: Look { bold: working(p), priority: priority_of(p) },
+                look: Look { bold: working(p), priority: priority_of(p), arrow_slot: any_arrow && priority_of(p) == Priority::Normal },
                 children: kids,
             },
         ));

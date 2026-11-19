@@ -44,9 +44,9 @@ fn the_server_card_links_to_its_machine_through_the_pool_seat() {
     let e = data().extras(&server(), &detail(), NOW, OFF);
     let labels: Vec<&str> = e.rows.iter().map(|r| r.label.as_str()).collect();
     assert_eq!(labels, ["Memorie e regole", "Codice", "Sicurezza"]);
-    assert_eq!(e.rows[0].text, "allineate alle 08:50 · privato chiuso");
+    assert_eq!(e.rows[0].text, "salvate alle 08:50 · privato chiuso");
     assert_eq!(e.rows[1].text, "indietro da 2 ore");
-    assert_eq!(e.rows[2].text, "da guardare: 5 aggiornamenti");
+    assert_eq!(e.rows[2].text, "da guardare · 5 aggiornamenti");
     assert_eq!(e.cards_total(), Some(6));
     assert_eq!(e.checks.len(), 4);
     assert_eq!(e.lag.len(), 24);
@@ -57,14 +57,14 @@ fn the_mac_has_its_saved_memories_and_security_but_no_code_or_sync_row() {
     let snap = Snapshot { health: Some(health_with_server()), memory_sync: Some(format!(r#"{{"last_ok":{},"runs":[],"parts":[]}}"#, NOW - 3600)), memory_sync_set: true, pool: Some(POOL.into()), ..Default::default() };
     let e = NodeData::from_snapshot(&snap, NOW, OFF).extras(&mac(), &[], NOW, OFF);
     let rows: Vec<(String, String)> = e.rows.iter().map(|r| (r.label.clone(), r.text.clone())).collect();
-    assert_eq!(rows, [("Memorie salvate".to_string(), "08:00".to_string()), ("Sicurezza".to_string(), "a posto".to_string())]);
+    assert_eq!(rows, [("Memorie e regole".to_string(), "salvate alle 08:00".to_string()), ("Sicurezza".to_string(), "a posto".to_string())]);
     assert!(e.spend.is_none(), "the spend is the server's");
 }
 
 #[test]
 fn no_files_no_rows_and_no_charts() {
     let e = NodeData::from_snapshot(&Snapshot::default(), NOW, OFF).extras(&server(), &[], NOW, OFF);
-    assert_eq!(e, NodeExtras { now: NOW, ..Default::default() });
+    assert_eq!(e, NodeExtras { now: NOW, offset: OFF, ..Default::default() });
     assert_eq!(e.block_h(), 0.0);
     let p = Palette::new(false);
     assert!(hours_card(&e, p).is_none() && lag_card(&e, p).is_none() && spend_card(&e, p).is_none());
@@ -94,7 +94,7 @@ fn a_pc_the_sync_file_names_is_found_by_its_name_when_no_id_matches() {
     let d = NodeData::from_snapshot(&Snapshot { harness_sync: Some(body), ..Default::default() }, NOW, OFF);
     let pc = MachineCard { id: "pc".into(), name: "PC Windows".into(), ..Default::default() };
     let e = d.extras(&pc, &[], NOW, OFF);
-    assert_eq!(e.rows[0].text, "allineate alle 08:55 · privato non copiato: disco non cifrato");
+    assert_eq!(e.rows[0].text, "salvate alle 08:55 · privato non copiato: disco non cifrato");
     assert_eq!(e.lag.len(), 2);
     // this computer is never matched by name
     assert!(d.extras(&MachineCard { local: true, ..pc }, &[], NOW, OFF).rows.is_empty());
@@ -108,7 +108,9 @@ fn cpu_and_memory_lines_need_two_readings_and_the_card_total_needs_a_count() {
     assert_eq!(e.panels(), 1);
     e.cards_hours = vec![0; 24];
     assert_eq!(e.cards_total(), Some(0));
-    assert_eq!(e.panels(), 2, "zero cards today is a number, not a missing chart");
+    assert_eq!(e.panels(), 1, "zero cards today takes no panel: a big «0» for an empty figure is the space of a number that matters");
+    e.cards_hours[9] = 3;
+    assert_eq!(e.panels(), 2);
 }
 
 fn card_h(e: &NodeExtras, dark: bool) -> f32 {
@@ -276,4 +278,120 @@ fn tray_nodes_v2_fixture_images() {
             }
         }
     }
+}
+
+// ---- layout rules (card tray-impaginazione-compatta)
+
+#[test]
+fn a_young_history_fills_the_axis_and_the_title_says_how_far_it_reaches() {
+    let mut v = vec![None; 211];
+    v.extend((0..77).map(|i| Some(40.0 + i as f64 % 7.0)));
+    let (part, _first, secs) = covered(&v, 300);
+    assert_eq!((part.len(), secs), (77, 77 * 300), "the empty start of the day is not part of the axis");
+    assert!(part[0].is_some(), "the line starts on a reading");
+    assert_eq!(window_title("CPU", secs), "CPU · 6 ore");
+    assert_eq!(window_title("Memoria", 288 * 300), "Memoria · 24 h");
+    assert_eq!(window_title("CPU", 23 * 3600), "CPU · 24 h");
+}
+
+#[test]
+fn the_spend_of_the_chart_is_the_one_the_card_says() {
+    let d = NodeData { pool: crate::tray_nodes::parse_pool(POOL), spend: crate::tray_node_health::parse_spend(POOL), ..Default::default() };
+    let card = MachineCard { id: "hetzner".into(), name: "Server".into(), metrics: vec![crate::tray_menu_views::Metric { key: "spend".into(), name: "Spesa".into(), value: "8,44/60 €".into(), pct: Some(14), ..Default::default() }], ..Default::default() };
+    assert_eq!(d.extras(&card, &[], NOW, OFF).spend_say.as_deref(), Some("8,44/60 €"));
+    // with no spend on the card the chart keeps the log's own total
+    assert_eq!(d.extras(&MachineCard { metrics: Vec::new(), ..card }, &[], NOW, OFF).spend_say, None);
+}
+
+#[test]
+fn the_memory_row_is_called_and_worded_the_same_on_every_node() {
+    let mac = crate::tray_menu_memory_sync::memory_sync_row(r#"{"runs":[{"at":1799990000,"ok":true}],"parts":[],"last_ok":1799990000}"#, 1_799_990_100, 0).unwrap();
+    let remote = StatusRow { label: crate::tray_node_health::MEMORY_LABEL.into(), text: crate::tray_node_health::saved_text("03:01"), level: 0 };
+    assert_eq!(mac.label, remote.label);
+    assert!(mac.text.starts_with("salvate alle ") && remote.text == "salvate alle 03:01", "{} / {}", mac.text, remote.text);
+    assert_eq!(crate::tray_node_health::saved_text("ieri 03:01"), "salvate ieri alle 03:01");
+    assert_eq!(crate::tray_node_health::saved_text("3 giorni fa"), "salvate 3 giorni fa");
+}
+
+#[test]
+fn every_status_row_of_a_card_fits_its_line_whole() {
+    // the longest sentences the rows say, against the width from the text column to the right margin
+    let room = RIGHT - (X0 + 14.0 + LABEL_W);
+    for text in ["salvate alle 22:21 · privato non copiato: disco non cifrato", "da guardare · 1 aggiornamento in attesa da 7 giorni", "problema · Antivirus e accessi falliti", "salvate ieri alle 03:01 · oltre 26 ore fa"] {
+        assert!(Pic::text_w(Face::SansRegular, text, 10.5) <= room, "«{text}» does not fit in {room} pt");
+    }
+}
+
+// ---- holes in a chart: a hole is a hole, never a stroke or a comb
+
+fn s(v: &[Option<f64>]) -> Vec<(usize, usize)> {
+    stretches(v)
+}
+
+#[test]
+fn a_hole_of_two_or_more_readings_breaks_the_line_and_one_skipped_reading_does_not() {
+    let (a, n) = (Some(10.0), None);
+    assert_eq!(s(&[a, a, a, a]), [(0, 3)]);
+    assert_eq!(s(&[a, a, n, a, a]), [(0, 4)], "one skipped round is crossed");
+    assert_eq!(s(&[a, a, n, n, a, a]), [(0, 1), (4, 5)], "two in a row are a hole");
+    assert_eq!(holes(&[a, a, n, n, a, a]), [(2, 3)]);
+    assert_eq!(holes(&[n, n, a, a]), [(0, 1)], "no readings yet at the start");
+    assert_eq!(holes(&[a, a, n, n, n]), [(2, 4)], "nothing read lately");
+    assert!(holes(&[a, n, a, a]).is_empty());
+}
+
+#[test]
+fn a_reading_every_other_slot_is_dots_between_bands_not_a_comb_of_strokes() {
+    // alternating readings: no segment may join two of them
+    let v: Vec<Option<f64>> = (0..12).map(|i| if i % 3 == 0 { Some(5.0 + i as f64) } else { None }).collect();
+    assert_eq!(s(&v), [(0, 0), (3, 3), (6, 6), (9, 9)]);
+    let mut pic = Pic::new(300.0, 80.0);
+    pct_line(&mut pic, (10.0, 10.0, 200.0, 30.0), &v, Palette::new(false), &|i, val| format!("{i}:{val:?}"));
+    // every slot answers to the mouse, with its own words, readings or not
+    assert_eq!(pic.hover.len(), 1);
+    assert_eq!(pic.hover[0].points.len(), 12);
+    assert_eq!(pic.hover[0].points[1].label, "1:None");
+}
+
+// ---- the mouse over a chart says the time and the value of the point under it
+
+#[test]
+fn a_cpu_point_says_its_clock_and_its_value_and_a_missing_one_says_nothing_was_read() {
+    let mut e = data().extras(&server(), &detail(), NOW, OFF);
+    e.from_s = 1_800_000_000 - 1_800_000_000 % 86_400 + 12 * 3600; // 12:00 UTC = 13:00 in the zone
+    e.step_s = 300;
+    assert_eq!(pct_say(&e, 0, 0, Some(61.6)), "13:00 · 62%");
+    assert_eq!(pct_say(&e, 2, 1, Some(5.0)), "13:15 · 5%", "the slice starts two readings after the file's first");
+    assert_eq!(pct_say(&e, 0, 12, None), "14:00 · nessuna lettura");
+    e.from_s = 0;
+    assert_eq!(pct_say(&e, 0, 0, Some(40.0)), "40%", "a file with no start time says only the value");
+}
+
+#[test]
+fn the_cpu_chart_hands_the_menu_one_zone_and_the_hours_card_one_per_hour() {
+    let e = data().extras(&server(), &detail(), NOW, OFF);
+    let mut card = Pic::new(540.0, 200.0);
+    draw_block(&mut card, &e, 0.0, Palette::new(false));
+    assert!(card.hover.len() >= 2, "CPU and memory: {}", card.hover.len());
+    let hours = hours_card(&e, Palette::new(false)).unwrap();
+    assert_eq!(hours.hover[0].points.len(), 24);
+    assert_eq!(hours.hover[0].points[9].label, "09:00-10:00 · 3 card");
+    assert_eq!(hours.hover[0].points[10].label, "10:00-11:00 · 1 card");
+    assert_eq!(hours.hover[0].points[0].label, "00:00-01:00 · nessuna card");
+    assert_eq!(hours.hover[0].points[23].label, "23:00-00:00 · nessuna card");
+    // the cursor over the ninth bar finds that bar
+    let z = &hours.hover[0];
+    assert_eq!(z.at(z.points[9].x, z.y + 5.0).unwrap().label, "09:00-10:00 · 3 card");
+}
+
+#[test]
+fn the_lag_and_the_spend_charts_say_their_point() {
+    let e = data().extras(&server(), &detail(), NOW, OFF);
+    let lag = lag_card(&e, Palette::new(false)).unwrap();
+    assert!(lag.hover[0].points.iter().any(|p| p.label.ends_with("in pari")), "{:?}", lag.hover[0].points);
+    assert!(lag.hover[0].points.iter().any(|p| p.label.contains("indietro di")));
+    let spend = spend_card(&e, Palette::new(false)).unwrap();
+    let labels: Vec<&str> = spend.hover[0].points.iter().map(|p| p.label.as_str()).collect();
+    // 2027-01-01 is a Friday
+    assert_eq!(labels, ["ven 1 · 1,00 €", "sab 2 · 3,50 €", "dom 3 · 0,00 €"]);
 }

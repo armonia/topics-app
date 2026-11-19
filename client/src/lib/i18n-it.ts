@@ -1505,6 +1505,7 @@ const IT: Dict = {
   // them apart in amber; the drawer painted this one red.
   'board.task.checks.unknown': 'Checks NON MISURATI',
   'board.task.checks.notMeasured': 'non misurato',
+  'board.task.checks.skipped': 'saltato, nessun commit proprio',
   'board.task.checks.ciPr': 'pull request',
   'board.task.checks.ciRun': 'run della CI',
   // The hint is split in two because the send-back word goes in the middle, in
@@ -3040,6 +3041,10 @@ const IT: Dict = {
   'usage.people.noRequest': '(senza testo)',
   'usage.people.noAuthor': 'senza autore',
   'usage.people.moreRequests': '… e altre {n} richieste, più piccole',
+  'usage.people.readError': 'Non riesco a leggere i consumi: riprovo tra un minuto.',
+  'usage.people.mergeInto': "Unisci {name} a un'altra persona",
+  'usage.people.mergeHeading': '{name} è la stessa persona di:',
+  'usage.people.mergeError': 'Unione non riuscita: {reason}',
   'perf.q1': 'Va veloce?',
   'perf.q2': 'Quanto costa?',
   'perf.fpsAvg': 'fps · media {n}',

@@ -55,6 +55,14 @@ describe("spawnCapped", () => {
 });
 
 describe("awaitCiEvidence with the e2e row", () => {
+  test("a draft refused for having no diff against the remote base is skipped, not NOT MEASURED", async () => {
+    const { port, calls } = fakePort({ draftPullRequest: async () => ({ ok: false, error: "No commits between main and topics/x" }) });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(row.notMeasured).toBeFalsy();
+    expect(row.skipped).toBe(true);
+    expect(calls.runs).toBe(0);
+  });
+
   test("a gh auth error on the pull request is NOT MEASURED at once, without polling", async () => {
     const { port, calls } = fakePort({ draftPullRequest: async () => ({ ok: false, error: "gh: not logged in" }) });
     const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });

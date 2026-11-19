@@ -74,11 +74,14 @@ export function ChecksSection({ task }: { task: BoardTask }) {
   const at = when ? ` ${tr('board.task.checks.at', { t: when })}` : '';
 
   if (task.checksState === 'pass') {
+    // A skipped row measured nothing: its name alone would read as a real
+    // pass, the same lie this file's own docstring warns against above.
+    const label = (r: CheckRun) => (r.skipped ? `${r.name} (${tr('board.task.checks.skipped')})` : r.name);
     return (
       <div className="flex items-center gap-1.5 rounded bg-emerald-500/10 px-2 py-1.5 text-mini text-emerald-200">
         <Check className="h-3 w-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.pass')}{at}{runs.length ? `: ${runs.map((r) => r.name).join(', ')}` : ''}
+          {tr('board.task.checks.pass')}{at}{runs.length ? `: ${runs.map(label).join(', ')}` : ''}
         </span>
       </div>
     );

@@ -3,6 +3,7 @@ import type { WSMessage } from '../types';
 import { normalizePinKey } from '../state/pane/adapters';
 import { mergePinnedLayout, placePinnedTile, reconcilePinnedLayout, type PinnedDropTarget, type PinnedRow } from '../components/Sidebar/pinnedLayout';
 import { apiFetch } from '../lib/shell/net';
+import { isNestedInTopicsPane } from '../lib/shell/nestedPane';
 
 /** Dove una cosa trascinata da fuori viene posata. Ri-esportato da qui perché è
  *  questo hook a offrire l'operazione (`pinAt`) che lo consuma. */
@@ -252,6 +253,9 @@ function loadFromStorage(): SidebarState {
 }
 
 function saveToStorage(state: SidebarState): void {
+  // Nested in a Topics pane: same-origin pages would hand this to the real app
+  // through the `storage` listener below.
+  if (isNestedInTopicsPane()) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch { /* local mirror; the server copy is authoritative */ }
@@ -368,6 +372,8 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
    * c'è anche la disposizione delle tessere, cioè lavoro manuale.
    */
   const publish = useCallback(async (initial: SidebarState): Promise<void> => {
+    // Mirror mode: the sidebar layout (view, pins) is window state, not a setting.
+    if (isNestedInTopicsPane()) return;
     let next = initial;
     // Un ciclo e non una ricorsione: il retry è lo STESSO tentativo su una base
     // più recente, e scritto così il tetto dei giri è in vista invece di essere
