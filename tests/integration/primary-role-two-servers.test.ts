@@ -462,6 +462,32 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
     // The memory-held card is still the waiter it was: nothing claimed it and nothing cleared it.
     expect(await view(held)).toMatchObject({ status: "todo", dispatchState: "queued", dispatchError: "waiting-memory" });
   }, 120_000);
+
+  test("B still works the mirror card its primary sends, and still leaves a normal card of its own board alone", async () => {
+    // A board whose repository has an origin: `/api/nodes/runs` finds its project by that remote.
+    const name = "mirror-board";
+    const dir = join(serverB.root, "projects", name);
+    mkdirSync(dir, { recursive: true });
+    for (const args of [["init", "-q", "-b", "main"], ["remote", "add", "origin", "https://example.test/acme/mirror-repo.git"]]) {
+      expect(Bun.spawnSync(["git", ...args], { cwd: dir, env: process.env }).exitCode).toBe(0);
+    }
+    await autoDispatchBoard(serverB, name);
+    const run = await api<{ runId: string; projectId: string }>(serverB, "POST", "/api/nodes/runs", {
+      originTaskId: "origin-mirror-1", originUrl: "https://example.test/acme/mirror-repo.git", text: "mirror card from the primary",
+    });
+    // The mirror lands on the board keyed by the repository path: switch dispatch on there, then give the card the todo go-ahead again.
+    const board = run.projectId;
+    await api(serverB, "PATCH", `/api/boards/${board}/settings`, { autoDispatch: true, dispatchUseWorktree: false });
+    const normal = await createCard(serverB, board, { text: "normal card of the secondary board", status: "todo" });
+    const mirrorCard = { id: run.runId, projectId: board } as TaskView;
+    await api(serverB, "PATCH", `/api/boards/${board}/tasks/${run.runId}`, { status: "backlog" });
+    await api(serverB, "PATCH", `/api/boards/${board}/tasks/${run.runId}`, { status: "todo" });
+    // The bench has no coding model: a mirror the dispatcher picked up comes back parked, one nobody picked up stays in todo.
+    const until = Date.now() + QUIET_WINDOW_MS;
+    while (Date.now() < until && !claimed(await readCard(serverB, mirrorCard))) await Bun.sleep(500);
+    expect(claimed(await readCard(serverB, mirrorCard)), `the mirror card left todo\n${logOf(serverB)}`).toBe(true);
+    expect(claimed(await readCard(serverB, normal)), "the normal card did not").toBe(false);
+  }, 120_000);
 });
 
 describe("D, a third server that is not the fleet's primary, cannot steal B's channel from A (MACHINE-01)", () => {

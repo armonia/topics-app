@@ -90,6 +90,15 @@ import type { TasksRouterOpts } from "./tasks-opts";
 import { gitRunner, runGitCap } from "./tasks-git";
 import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
+import { MIRROR_KEY_PREFIX } from "../services/task-dispatcher-support";
+
+/** The mirror-card sign is reserved: only the node-run handoff may mint it, never a caller-chosen key. */
+function reservedKeyRejection(body: { idempotency_key?: unknown } | null): { error: string; code: string } | null {
+  if (typeof body?.idempotency_key === "string" && body.idempotency_key.startsWith(MIRROR_KEY_PREFIX)) {
+    return { error: `idempotency_key may not start with "${MIRROR_KEY_PREFIX}": that prefix is reserved for node runs`, code: "reserved_idempotency_key" };
+  }
+  return null;
+}
 
 // These moved to sibling modules; this path stays their public home.
 /**
@@ -1013,6 +1022,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             "bar", "source", "createdSource", "created_source", "origin_topic_id", "originTopicId", "createdBy", "created_by"],
         );
         if (unexpected) return unexpected;
+        const reservedKey = reservedKeyRejection(body);
+        if (reservedKey) return json(reservedKey, 400);
         if (typeof body?.board_id !== "string" || !body.board_id.trim()) {
           return json({ error: "board_id is required", code: "invalid_input" }, 400);
         }
@@ -1170,6 +1181,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
+        const reservedKey = reservedKeyRejection(body);
+        if (reservedKey) return json(reservedKey, 400);
         // Il cancello contro la 321esima card. In 24h gli agenti ne hanno
         // aperte 320 contro le 45 dell'umano, e il modo in cui il backlog
         // cresce non è che qualcuno chiuda male: è che nessuno CERCA prima di

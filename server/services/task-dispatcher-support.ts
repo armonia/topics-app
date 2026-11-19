@@ -10,6 +10,13 @@ import { hasCommandShell } from "../lib/command-process";
 
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
+/** A mirror card: the local copy of a run another server (the primary) handed to this node. */
+export const MIRROR_KEY_PREFIX = "node-run:";
+
+export function isMirrorCard(t: { claudeTaskId?: string | null } | null | undefined): boolean {
+  return !!t?.claudeTaskId?.startsWith(MIRROR_KEY_PREFIX);
+}
+
 export const DEFAULT_RETRY_CAP = 2;
 export const WAITING_MEMORY = "waiting-memory" as const;
 
