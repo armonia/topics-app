@@ -12,7 +12,8 @@ function freshDb() {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE cron_runs (job_id TEXT NOT NULL, job_name TEXT NOT NULL, run_at INTEGER NOT NULL, ended_at INTEGER, duration_ms INTEGER,
     status TEXT NOT NULL, error TEXT, output TEXT, PRIMARY KEY (job_id, run_at))`);
-  db.run(`CREATE TABLE usage_records (id TEXT PRIMARY KEY, timestamp INTEGER NOT NULL, session_key TEXT NOT NULL, input_tokens INTEGER, output_tokens INTEGER, cost_usd REAL)`);
+  db.run(`CREATE TABLE topics (session_key TEXT PRIMARY KEY, name TEXT)`);
+  db.run(`CREATE TABLE messages (id INTEGER PRIMARY KEY, session_key TEXT, role TEXT, timestamp TEXT, usage_prompt_tokens INTEGER, usage_completion_tokens INTEGER, cost_cents INTEGER)`);
   return db;
 }
 
@@ -52,8 +53,14 @@ describe("listCronRuns", () => {
   test("keeps the error and sums the tokens inside the run window only", async () => {
     const db = freshDb();
     await syncCronRuns(db, cliFor(3000000, runs(3000000, 1000)).cli).then(() => {});
-    db.run(`INSERT INTO usage_records VALUES ('a', 3000100, 'cron:agentjob', 10, 5, 0.5), ('b', 3000200, 'cron:agentjob', 1, 1, NULL),
-      ('c', 9000000, 'cron:agentjob', 99, 99, 9), ('d', 3000100, 'cron:other', 77, 77, 7)`);
+    db.run(`INSERT INTO topics VALUES ('topic:1', 'Agent job'), ('topic:2', 'Other job')`);
+    const at = (ms: number) => new Date(ms).toISOString();
+    const ins = db.query(`INSERT INTO messages (session_key, role, timestamp, usage_prompt_tokens, usage_completion_tokens, cost_cents) VALUES (?, ?, ?, ?, ?, ?)`);
+    ins.run("topic:1", "assistant", at(3000100), 10, 5, 50);
+    ins.run("topic:1", "assistant", at(3000200), 1, 1, null);
+    ins.run("topic:1", "user", at(3000150), 500, 500, 500);
+    ins.run("topic:1", "assistant", at(9000000), 99, 99, 900);
+    ins.run("topic:2", "assistant", at(3000100), 77, 77, 700);
     const [latest, failed] = listCronRuns(db);
     expect(latest).toMatchObject({ runAt: 3000000, status: "ok", inputTokens: 11, outputTokens: 6, costUsd: 0.5 });
     expect(failed).toMatchObject({ runAt: 1000, status: "error", error: "boom", inputTokens: 0 });
