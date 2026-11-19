@@ -1,33 +1,33 @@
 /**
- * Chi può fare cosa, per il runtime nativo.
+ * Who can do what, for the native runtime.
  *
- * IL BUCO CHE CHIUDE. Il runtime nativo esegue i tool DA SÉ: non c'è una CLI in
- * mezzo che applichi le sue regole, quindi le regole sono queste e nient'altro.
- * Al primo giro `bash` e `write_file` eseguivano e basta — su una macchina
- * vera, con agenti dispacciati che girano da soli, è la lacuna che fa danno.
+ * THE GAP IT CLOSES. The native runtime runs the tools ITSELF: there is no CLI
+ * in between applying its own rules, so the rules are these and nothing else.
+ * At first `bash` and `write_file` just executed, and on a real machine, with
+ * dispatched agents running on their own, that is the gap that does damage.
  *
- * NON È UNA SANDBOX, e va detto subito perché la differenza conta: un comando
- * shell può sempre uscire da qualunque perimetro (`ssh`, `curl | sh`, un
- * interprete). Qui si decide COSA L'AGENTE PUÒ CHIEDERE, non cosa il sistema
- * operativo gli lascia fare. Serve a fermare l'errore e l'iniziativa infelice,
- * non un avversario.
+ * IT IS NOT A SANDBOX, and that is worth saying up front because the difference
+ * matters: a shell command can always get out of any perimeter (`ssh`,
+ * `curl | sh`, an interpreter). What is decided here is WHAT THE AGENT MAY ASK
+ * FOR, not what the operating system lets it do. It stops mistakes and
+ * unfortunate initiative, not an adversary.
  *
- * I LIVELLI SONO QUELLI CHE TOPICS HA GIÀ (`AutonomyLevel`, sul topic), perché
- * un secondo sistema di permessi accanto al primo è il modo sicuro di averne
- * zero funzionanti:
+ * THE LEVELS ARE THE ONES TOPICS ALREADY HAS (`AutonomyLevel`, on the topic),
+ * because a second permission system next to the first is the sure way to end
+ * up with zero working ones:
  *
- *   • `ask`        — propone e non tocca: lettura sì, scrittura ed esecuzione
- *                    no. È il «plan mode» delle CLI, tradotto qui.
- *   • `auto-apply` — lavora nel progetto: legge, scrive, esegue. Fuori dal
- *                    perimetro non va (ci pensa già `tools.ts`), e i comandi
- *                    DISTRUTTIVI restano fuori.
- *   • `yolo`       — tutto, ed è una scelta esplicita di chi la mette.
+ *   - `ask`        - proposes and does not touch: reading yes, writing and
+ *                    executing no. It is the CLIs' "plan mode", translated.
+ *   - `auto-apply` - works in the project: reads, writes, executes. Outside the
+ *                    perimeter it does not go (`tools.ts` already handles that),
+ *                    and DESTRUCTIVE commands stay out.
+ *   - `yolo`       - everything, and it is an explicit choice by whoever sets it.
  *
- * IL DEFAULT È `auto-apply`, non `yolo`. Le CLI storicamente partivano in
- * `bypassPermissions` e Topics ne ha ereditato il default per non zittire le
- * chat esistenti; ma quel default descriveva un programma altrui, mentre qui
- * l'esecuzione è nostra e la scelta pure. Un agente che non ha mai visto una
- * riga di configurazione non deve poter lanciare `rm -rf`.
+ * THE DEFAULT IS `auto-apply`, not `yolo`. The CLIs historically started in
+ * `bypassPermissions` and Topics inherited that default so as not to silence
+ * existing chats; but that default described somebody else's program, whereas
+ * here execution is ours and so is the choice. An agent that never saw a line
+ * of configuration must not be able to run `rm -rf`.
  */
 
 import { isAbsolute, relative, resolve } from "path";
