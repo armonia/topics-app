@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.51",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote children: gh's login is a mac-only resource too (SUBAGENT-28) (#1353)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.50",
     "date": "2026-11-19",
     "sections": {
@@ -15,6 +31,11 @@
         },
         {
           "it": "release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remote children: gh's login is a mac-only resource too (SUBAGENT-28)",
           "en": "",
           "scope": null
         }

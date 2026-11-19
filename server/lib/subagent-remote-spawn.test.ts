@@ -161,7 +161,12 @@ describe("macOnlyResourceOf", () => {
     expect(macOnlyResourceOf("ask Jarvis to send it on WhatsApp", null)).toBe("jarvis");
     expect(macOnlyResourceOf("read the tmux pane of the build", null)).toBe("session");
     expect(macOnlyResourceOf("edit ~/.claude/settings.json", null)).toBe("macos");
+    expect(macOnlyResourceOf("collect the red checks with gh pr checks on #1315", null)).toBe("gh");
     expect(macOnlyResourceOf("refactor server/lib/foo.ts and add a test", null)).toBeNull();
+  });
+
+  it("does not trip on an ordinary CI/PR mention with no gh command", () => {
+    expect(macOnlyResourceOf("fix the failing CI check on this PR", null)).toBeNull();
   });
 });
 
