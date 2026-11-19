@@ -45,6 +45,12 @@
  *      it, a SECONDARY that knows a later epoch declares nothing at pairing,
  *      and D, once chosen primary at a higher epoch with A gone, pairs B, takes
  *      the channel, is adopted, and makes A's epoch stale.
+ *   8. A pairing server collects a NODE credential, not an owner's (card
+ *      a97724c1): D's cookie, through B's tunnel, is refused commands, topics,
+ *      pairing approval, settings and devices, and B's channel does not move;
+ *      A's cookie still reaches every route a primary calls on its node and
+ *      starts a run there; a phone paired on B stays owner; a machine
+ *      credential from before the node scope is marked at its first run call.
  *
  * @covers MACHINE-01
  */
@@ -227,6 +233,14 @@ async function waitClaimed(s: ServerUnderTest, card: TaskView): Promise<TaskView
     await Bun.sleep(500);
   }
   throw new Error(`${s.name} never claimed card ${card.id}: ${JSON.stringify(last)}\n${logOf(s)}`);
+}
+
+/** The cookie a server keeps for one of its nodes, read from the token file its pairing wrote. */
+function nodeCookie(s: ServerUnderTest, machineId: string): string {
+  for (const file of new Bun.Glob(`**/nodes/${machineId}.token`).scanSync({ cwd: s.root, dot: true })) {
+    return `topics_device=${readFileSync(join(s.root, file), "utf8").trim()}`;
+  }
+  throw new Error(`${s.name} holds no token for node ${machineId}`);
 }
 
 function withDb<T>(s: ServerUnderTest, fn: (db: Database) => T): T {
@@ -450,6 +464,8 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
 describe("D, a third server that is not the fleet's primary, cannot steal B's channel from A (MACHINE-01)", () => {
   const serverD = makeServer("d");
   let machineD = "";
+  /** B's row on D, written by D's pairing. */
+  let nodeBOnD = "";
 
   test("D pairs B after A: the channel on B stays A's device, not D's", async () => {
     await boot(serverD);
@@ -463,10 +479,135 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     const { requests } = await api<{ requests: { id: string }[] }>(serverB, "GET", "/api/auth/pair/pending");
     expect(requests).toHaveLength(1);
     await api(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
-    const paired = await api<{ state: string }>(serverD, "GET", `/api/machines/pair/${opened.pairingId}`);
+    const paired = await api<{ state: string; machine?: { id: string } }>(serverD, "GET", `/api/machines/pair/${opened.pairingId}`);
     expect(paired.state).toBe("approved");
+    nodeBOnD = paired.machine!.id;
 
     expect(channelOf(serverB), "D's pairing left B's channel exactly as it was").toEqual(before);
+  }, 60_000);
+
+  /**
+   * The credential a server collects by pairing a node is a NODE credential,
+   * not an owner's (card a97724c1). With an owner's, D could ask B to run a
+   * command through the tunnel, and that command, running on B, is on
+   * loopback: the one transport `pair/approve` trusts to hand the channel over.
+   */
+  test("(a) D's node cookie, through B's tunnel, gets 403 on commands, topics, pairing approval, settings and devices; the channel stays A's", async () => {
+    const before = channelOf(serverB);
+    const cookie = nodeCookie(serverD, nodeBOnD);
+    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+    const asD = (method: string, path: string, body?: unknown) =>
+      status(`${tunnel}${path}`, undefined, {
+        method,
+        headers: { cookie, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+
+    // The ghost's request, declaring a machine id and an epoch far above B's.
+    const ghost = await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST", headers: { [MACHINE_HEADER]: crypto.randomUUID(), [EPOCH_HEADER]: "50" } });
+    const { requestId } = await ghost.json() as { requestId: string };
+
+    const refused: Array<[string, string, unknown?]> = [
+      ["POST", "/api/sessions/any-session/commands/run", { command: `curl -X POST http://127.0.0.1:${serverB.port}/api/auth/pair/approve` }],
+      ["POST", "/api/topics", { name: "from a node credential" }],
+      ["POST", "/api/auth/pair/approve", { requestId }],
+      ["GET", "/api/auth/pair/pending"],
+      ["PATCH", "/api/settings", { theme: "dark" }],
+      ["GET", "/api/auth/devices"],
+      ["POST", "/api/terminal/sessions", { cwd: "/" }],
+    ];
+    for (const [method, path, body] of refused) {
+      expect(await asD(method, path, body), `${method} ${path} with D's node cookie`).toEqual({ status: 403, code: "node_scope" });
+    }
+    const session = await (await fetch(`${tunnel}/api/auth/session`, { headers: { cookie } })).json() as { paired: boolean; role: string };
+    expect(session, "B tells D what it is").toMatchObject({ paired: true, role: "node" });
+    expect(channelOf(serverB), "nothing D tried moved B's channel").toEqual(before);
+    expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
+    await api(serverB, "POST", "/api/auth/pair/deny", { requestId });
+  }, 60_000);
+
+  test("(b) A's node cookie still reaches every route a primary calls on its node, and A runs a card on B", async () => {
+    const cookie = nodeCookie(serverA, nodeBOnA);
+    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+    const asA = (method: string, path: string, body?: unknown) =>
+      status(`${tunnel}${path}`, "2", {
+        method,
+        headers: { cookie, "user-agent": "Topics/test (a)", ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const session = await (await fetch(`${tunnel}/api/auth/session`, { headers: { cookie } })).json() as { role: string };
+    expect(session.role, "the primary's credential is a node credential too").toBe("node");
+
+    for (const path of ["/api/providers/snapshot", "/api/system/machine-metrics", "/api/system/machine-security", "/api/system/machine-readout"]) {
+      expect((await asA("GET", path)).status, `GET ${path}`).toBe(200);
+    }
+    // The heartbeat probe: a run that does not exist, answered by the route and not by the gate.
+    expect((await asA("GET", "/api/nodes/runs/__probe__")).code).not.toBe("node_scope");
+
+    // A card the primary sends: a repository on B whose origin matches the card's.
+    const origin = "https://example.test/fleet/node-scope.git";
+    const repo = join(serverB.root, "projects", "node-scope");
+    mkdirSync(repo, { recursive: true });
+    for (const args of [["init", "-q"], ["remote", "add", "origin", origin]]) {
+      expect(Bun.spawnSync(["git", ...args], { cwd: repo }).exitCode).toBe(0);
+    }
+    await api(serverB, "POST", "/api/projects", { name: "node-scope", path: realpathSync(repo) });
+    const created = await fetch(`${tunnel}/api/nodes/runs`, {
+      method: "POST",
+      headers: { cookie, "user-agent": "Topics/test (a)", "content-type": "application/json", [EPOCH_HEADER]: "2" },
+      body: JSON.stringify({ originTaskId: crypto.randomUUID(), text: "A card the primary runs on its node", originUrl: origin }),
+    });
+    const run = await created.json() as { runId?: string };
+    expect(typeof run.runId, `POST /api/nodes/runs answered ${created.status}: ${JSON.stringify(run)}`).toBe("string");
+    expect((await asA("GET", `/api/nodes/runs/${run.runId}`)).status, "A reads its run").toBe(200);
+    expect((await asA("DELETE", `/api/nodes/runs/${run.runId}`)).code, "A cancels its run").not.toBe("node_scope");
+    // And the primary's credential is confined like D's: no command on its node.
+    expect(await asA("POST", "/api/sessions/any-session/commands/run", { command: "true" })).toEqual({ status: 403, code: "node_scope" });
+  }, 60_000);
+
+  test("(c) a phone paired on B stays owner: it creates a topic, reaches commands/run and the device list, and sees the servers as nodes", async () => {
+    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+    const phone = { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)" };
+    const asked = await (await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST", headers: phone })).json() as { requestId: string; claim: string };
+    const approved = await api<{ role: string }>(serverB, "POST", "/api/auth/pair/approve", { requestId: asked.requestId });
+    expect(approved.role).toBe("owner");
+    const collected = await fetch(`${tunnel}/api/auth/pair/status?requestId=${asked.requestId}&claim=${asked.claim}`, { headers: phone });
+    const cookie = (collected.headers.get("set-cookie") ?? "").split(";")[0]!;
+    const asPhone = (method: string, path: string, body?: unknown) => fetch(`${tunnel}${path}`, {
+      method,
+      headers: { cookie, ...phone, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    expect((await (await asPhone("GET", "/api/auth/session")).json() as { role: string }).role).toBe("owner");
+    const topic = await asPhone("POST", "/api/topics", { name: "from the phone" });
+    expect(topic.status, await topic.clone().text()).toBeLessThan(300);
+    // Past the gate: the route itself answers, and an empty command is its 400.
+    expect((await asPhone("POST", "/api/sessions/any-session/commands/run", {})).status).toBe(400);
+    const devices = await asPhone("GET", "/api/auth/devices");
+    expect(devices.status).toBe(200);
+    const roles = ((await devices.json()) as { devices: { role: string }[] }).devices.map((d) => d.role);
+    expect(roles.filter((r) => r === "node").length, "A's and D's credentials are listed as nodes").toBeGreaterThanOrEqual(2);
+    // And a machine takeover is still a local decision, as before.
+    const ghost = await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST", headers: { [MACHINE_HEADER]: crypto.randomUUID(), [EPOCH_HEADER]: "50" } });
+    const { requestId } = await ghost.json() as { requestId: string };
+    const approve = await asPhone("POST", "/api/auth/pair/approve", { requestId });
+    expect({ status: approve.status, body: await approve.json() }).toEqual({ status: 403, body: { error: "machine_pairing_requires_local_session" } });
+    await api(serverB, "POST", "/api/auth/pair/deny", { requestId });
+  }, 60_000);
+
+  test("a machine credential paired before the node scope existed becomes one the first time it calls the run routes", async () => {
+    const cookie = nodeCookie(serverA, nodeBOnA);
+    const deviceId = channelOf(serverB)!.channel_device_id!;
+    // What a node migrated from an older version looks like: A's device with no mark.
+    withDb(serverB, (db) => db.run("DELETE FROM node_devices WHERE device_id = ?", [deviceId]));
+    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+    const roleOf = async () => ((await (await fetch(`${tunnel}/api/auth/session`, { headers: { cookie } })).json()) as { role: string }).role;
+    expect(await roleOf()).toBe("owner");
+    // A's next heartbeat probe, as its node client sends it.
+    await fetch(`${tunnel}/api/nodes/runs/__probe__`, { headers: { cookie, "user-agent": "Topics/test (a)" } });
+    expect(await roleOf()).toBe("node");
+    expect(logOf(serverB)).toContain(`device ${deviceId} called the node routes as a Topics server`);
   }, 60_000);
 
   test("A restarted at a higher epoch is still adopted by B", async () => {
