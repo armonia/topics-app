@@ -364,9 +364,20 @@ export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {
   });
 }
 
-/** A result of one of this parent's children is still on its way to the chat. */
+/**
+ * A result of one of this parent's children is still on its way to the chat.
+ * `stopped` and `lost` are excluded: a `stop_agent` on a child whose earlier
+ * result never settled (its wake stuck behind a busy or held parent) left the
+ * "about to resume" line lit forever, long after `list_agents` already called
+ * the child gone. A result of a child that will
+ * never run again is abandoned, not awaited: it still reaches the chat as a
+ * plain row once the parent is free (`resultWakesParent`), it just stops
+ * counting as work in progress.
+ */
 export function parentHasPendingResults(db: Db, parentSessionKey: string): boolean {
-  return attempt(false, () => !!db.query("SELECT 1 FROM subagents WHERE parent_session_key = ? AND pending_results IS NOT NULL LIMIT 1").get(parentSessionKey));
+  return attempt(false, () => !!db.query(
+    "SELECT 1 FROM subagents WHERE parent_session_key = ? AND pending_results IS NOT NULL AND state NOT IN ('stopped', 'lost') LIMIT 1",
+  ).get(parentSessionKey));
 }
 
 /** Every result a restart found still owed to a parent chat. */

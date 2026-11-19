@@ -73,12 +73,25 @@ const RELEASE_BRANCH = "main";
 const BUMP_PREFIX = "chore(release):";
 
 /**
- * The only file that may lie between the measured commit and the published
- * one: the e2e shard durations the nightly writes. Only the test tooling reads
- * it (`e2e-plan-shards.ts`, `e2e-shards.sh`, `test-unit-shards.ts`), so the app
+ * The only files that may lie between the measured commit and the published
+ * one: the e2e shard durations and the mutation baseline, both written by the
+ * nightly. Only the test tooling reads them (`e2e-plan-shards.ts`,
+ * `e2e-shards.sh`, `test-unit-shards.ts`, `check-mutation.ts`), so the app
  * built from the tip is the app the CI measured.
  */
-const TEST_ONLY_FILES = new Set(["scripts/e2e-durations.json"]);
+const TEST_ONLY_FILES = new Set([
+  "scripts/e2e-durations.json",
+  // The mutation job (nightly, on main) raises the baseline with a commit of
+  // its own. Only `check:mutation` reads it, never the app. Pushed with the
+  // GITHUB_TOKEN it starts no CI, so without this the tip had no verdict for
+  // ever: 19/11/2026, v2.4.48 stayed the last release for hours.
+  "spec-flow.mutation-baseline.json",
+]);
+// TRAP, hit on 19/11/2026: GitHub skips the CI of ANY commit whose message holds
+// the words "skip ci" in brackets, and a squash merge takes its title from the
+// PR. A PR that talks about that marker in its title lands on main with no run,
+// becomes the tip, and parks the release until somebody else merges. Describe
+// it, never spell it, in a PR title.
 
 /**
  * The whole gate. Pure on purpose: the workflow gathers the facts, this decides.
