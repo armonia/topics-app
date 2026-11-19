@@ -2,7 +2,89 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.48 — 2026-11-19
+## 2.4.49 — 2026-11-19
+
+### Novità
+- **board** · delivery summary is the review card, five fixed fields (#1297)
+
+### Correzioni
+- **review-sweep** · the re-measure drops the verdict the gate still retains for that commit
+- **ui** · keep task/orchestrator drawer opaque under native-frost below 1024px
+- scheda del task trasparente sulla Board stretta (#1292)
+
+### Sotto il cofano
+- Card su un nodo senza corsa: tornano in coda invece di restare in corso per sempre
+- **delivery-survives-reload** · the second card of the same test is not a duplicate of the first
+- Primary role, proven on two real servers: the secondary claims no card by any road, and a stale epoch is refused on every door
+- accept Windows absolute paths for previews and comment media
+- Comments in English (check:comment-language)
+- **delivery-survives-reload** · mark the quoted Italian log line, the comment-language gate counted it as new Italian
+- Primary epoch: a higher epoch is adopted only after the caller is authenticated and names a known machine; a state file that cannot be written no longer stops the boot
+- **red-bounce** · wait for the bounce, not for a red row that the bounce erases
+- Two-server test: an anonymous caller on an exempt nodes path adopts nothing either
+- **delivery-survives-reload** · cover the route's call to supersedeEarlierRounds
+- review card: the envelope gate knows the five headings by name, and a subtask gets no review-card warning
+- **gates** · allow the two words the CI phase names use, check:identifier-language failed the PR
+- Primary epoch: the model proxy never adopts, an adopted epoch is at most one above and logged, a failed write leaves the role unchanged; the node client sends the epoch from one place and a real pairing proves the node adopts it
+- Two-server test: the anonymous claim declares the next epoch, so the one-step ceiling cannot hide an adoption before authentication
+- storia di CPU e memoria in linea nella riga, card del giorno come riga di stato, barre senza valore tolte (#1294)
+- Primary epoch: a node records the primary that paired it, and only that device carries a higher epoch in, under the machine id declared at pairing; no ceiling, no id from a header, loopback adopts nothing
+- count the Plan loader as span > canvas, the relative :has never matched (#1299)
+- **mcp** · pin the tool surface every profile sees in a golden file
+- **mcp** · split topics-mcp-server.ts into one module per tool family
+- **gates** · record the moved MCP comments and the cured server file
+- **gates** · move the MCP server's non-English names with their code
+- **claude-code** · characterize the one-shot complete() path before moving it
+- **claude-code** · move process record, CLI launch and partial input out of the provider
+- **claude-code** · type the moved partial-input event as unknown
+- identifier-language: stdin and oneshot are project words (the one-shot complete() path moved to claude/cli-launch.ts)
+- identifier-language: baseline down after the oneshot words joined the project list
+- an open wake breaker forbids the node even when online, and the card waits until it closes
+- Price a worktree card by where its board runs the checks: CI-only boards pay the agent, not the 4 GB list
+- prefix every stdout log line with an ISO timestamp
+- Spec KANBAN-118: dispatcher log lines carry their time; the timestamp test names it
+- finished chats show '· 34m fa' after the preview line
+- Retrigger CI after a cancelled runner
+- finished-ago outside the truncating span, i18n, e2e at 375 and 1440
+- Declare the spec requirement covered by the finished-ago e2e
+- finished-ago e2e: drive a real finished turn with a long last message
+- Primary epoch: the guard lives inside createNodesRouter, so the route-shadowing gate still finds the nodes router factory
+- un messaggio rifiutato da un turno già chiuso esce dalla coda da solo (#1287)
+- finished-ago e2e: accept the app language of the receipt
+- Sub-agents: a finished child no longer looks at work, its result reaches the parent during a provider hold (#1306)
+- Primary epoch: the nodes gate is one call into primary-role, so server/routes/nodes.ts stays within the 800-line bloat threshold
+- **utils** · pin the app context members and a message round trip
+- **utils** · move the message and stream helpers of createAppContext into server/app-context
+- **gates** · record the moved utils comments, names and size
+- **utils** · drop the imports that moved with the app-context modules
+- **utils** · stop exporting the app-context types nobody imports
+- **review-sweep** · move the review re-measure and conflict probe out of tasks-land.ts
+- topics/ivory-desert (card 7526e05d) (#1322)
+- Timestamp test: spell the helper name in full, the identifier gate rejects 'dep'
+- auto-land: a technical card stops waiting for a person on two false blocks
+- auto-land: land/send-back buttons are approval only when every question above them is approval words
+- **landing-files** · pin the scripts/*.json anchors so the mutation ratchet holds
+- English paraphrase in the approval-only comment
+- autoland-stats: mark the matched Italian status text
+- mark the approval word list as data the agents write
+- Card preview: the isolated server no longer inherits the live server's ports
+- Card preview: drop every TOPICS_* setting of the live server, not just its ports
+- Only the chosen primary can write a node's pairing channel
+- A pairing takes a node's channel only with an epoch above the node's
+- topics/prompt-pyre (card e830b367) (#1312)
+- Rename the integration pairing helper to an English name
+- topics/honest-hawk (card 0f8f8b9b) (#1336)
+- baseline follows the scores that rose tonight
+- release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)
+- Fix race in the group-TERM drain test (143 instead of 0) (#1342)
+- Boot sweep keeps recently archived chats in scope so tools orphaned at archive time get closed (#1337)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-19 [skip ci]
+
+## 2.4.48 — 2026-11-18
+
+### Correzioni
+- **ci-phase** · a round without a CI verdict is measured again, and a new round closes the card's earlier PRs
+- **review-sweep** · a review card with no verdict on its commit is measured, a green one in conflict goes back
 
 ### Sotto il cofano
 - provider-hold: lift a plan hold when the account engine has a free account
@@ -10,6 +92,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - provider-hold: the anti re-arm covers only the very wall lifted, and asks the engine again
 - engine-free-account declares what it covers; English-only comment wording
 - provider-hold: re-arm probe covers earlier resets of the same window, and a stale probe re-arms nothing
+- Primary epoch: the primary sends its epoch to nodes and the receiver adopts the higher one; the gate sits inside the dispatcher tick; empty header means not declared
 
 ## 2.4.47 — 2026-11-18
 
@@ -44,6 +127,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Manifest delle migration riallineato dopo il merge di main
 - numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
 - ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
+- Primary role and epoch: a non-primary server keeps dispatcher, scheduled cards and hub off; nodes, model proxy and tunnel refuse a lower epoch
 - la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper
 - il test della riga delle fasce misura con i font del Mac
 - consumo per progetto con conto giusto, avviso sul telefono e freno al budget
@@ -184,6 +268,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
 - Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
 - un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- heavy-command: cargo tauri build/run/nextest/bench and +toolchain forms enter the heavy-slot line (card 70eca86c)
 - Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
 - toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
 - il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
