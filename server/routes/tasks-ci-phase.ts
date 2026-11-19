@@ -94,6 +94,19 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   /**
+   * A card in review that cannot land as it stands (its pull request conflicts
+   * with main) goes back to its agent with `why`, on the same round count as a
+   * red. `true` = the card left review.
+   */
+  function bounceWithReason(projectId: string, taskId: string, why: string): boolean {
+    const got = deps.svc.get(taskId, { projectId });
+    if (!got || got.task.status !== "review" || (got.task.humanAsk ?? "").trim() || deps.cardTurnIsLive(got.task)) return false;
+    const done = bouncesSinceHuman(got.comments);
+    if (done >= MAX_AUTO_BOUNCES) return false;
+    return sendBackToAgent(projectId, taskId, redBounceMessage(done + 1, why));
+  }
+
+  /**
    * The moves a person's reject makes, made by the system: the review
    * decision, then the resume of the bound session, or the queue when nobody
    * is bound (a node delivery, a released binding). `land_intent` survives it.
@@ -588,7 +601,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
   }
 
   return {
-    bounceRed, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase, boardCiMode, landThenMeasure, resumeAfterMeasures, watchMain, watchMainAll, sweepAfterLand,
+    bounceRed, bounceWithReason, enterCiPhase, afterDelivery, returnToCiPhase, boardHasCiPhase, boardCiMode, landThenMeasure, resumeAfterMeasures, watchMain, watchMainAll, sweepAfterLand,
     pending: (projectId: string) => integration.pending(projectId),
     pendingAfter: (projectId: string) => afterQueue.pending(projectId),
     idleAfter: (projectId: string) => afterQueue.idle(projectId),

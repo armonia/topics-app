@@ -12,6 +12,7 @@ import { resolvePrincipals } from "../lib/principals";
 import { privacyPersona } from "../lib/follows";
 import { isResourceType, type ResourceType } from "../lib/grants";
 import { valutaQuota } from "../lib/pairing-quota";
+import { getPrimaryRole, PAIRING_MACHINE_HEADER, PRIMARY_EPOCH_HEADER } from "../lib/primary-role";
 import { nuovaChiave } from "../../shared/relay-crypto";
 import {
   grantedByType, subjectsOf, subjectsViaContainer, putGrant, dropGrant, levelFor,
@@ -76,6 +77,10 @@ interface PendingPairing {
   state: "pending" | "approved" | "denied";
   /** Valorizzato solo dopo l'approvazione, e consegnato UNA volta sola. */
   token: string | null;
+  /** The machine id a Topics server declared when asking to pair this one as its node; null for a phone or a browser. */
+  machineId: string | null;
+  /** The primary epoch that server declared, if any: a secondary declares none, and only a higher one takes the channel over. */
+  machineEpoch: number | null;
 }
 
 const pending = new Map<string, PendingPairing>();
@@ -457,8 +462,12 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       }
       const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
       const id = crypto.randomUUID();
+      const declaredMachine = req.headers.get(PAIRING_MACHINE_HEADER)?.trim() ?? "";
+      const declaredEpoch = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim() ?? "";
       const entry: PendingPairing = {
         id, code: mintPairingCode(), name, ip, createdAt: now, state: "pending", token: null,
+        machineId: /^[\w-]{1,128}$/.test(declaredMachine) ? declaredMachine : null,
+        machineEpoch: /^\d{1,15}$/.test(declaredEpoch) ? Number(declaredEpoch) : null,
         // 256 bit: non è un codice da leggere ad alta voce, è un segreto da
         // rimandare indietro.
         claim: crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, ""),
@@ -584,6 +593,10 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         try {
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);
         } catch { /* schema più vecchio della 084 */ }
+      }
+      // A server approved as owner becomes the primary channel: only its device can carry a higher epoch in.
+      if (entry.machineId && role === "owner" && !screen) {
+        getPrimaryRole()?.recordChannel({ deviceId, machineId: entry.machineId, epoch: entry.machineEpoch });
       }
       entry.state = "approved";
       entry.token = token;

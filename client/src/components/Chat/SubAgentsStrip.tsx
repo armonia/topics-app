@@ -1,5 +1,5 @@
 import { memo, useState, type MouseEvent } from 'react';
-import { AlarmClock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
+import { AlarmClock, Clock, ExternalLink, Server, Square, SquareTerminal, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { scriptsApi } from '../../lib/api';
 import { useToast } from '../Shared/Toast';
@@ -93,6 +93,7 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
   const terminalAction = useTerminalAction(row.runtime === 'cli' ? id : undefined);
   const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
+    : state === 'awaiting' ? tr('subagent.awaiting', { name })
     : tr('subagent.ended', { name });
   const open = (e: MouseEvent) => {
     e.stopPropagation();
@@ -103,7 +104,10 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
       window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
     }
   };
-  const preview = state === 'ended' ? row.preview || tr('livework.finished') : row.preview;
+  // A child waiting on its own work says so: its last line is the report it already gave.
+  const preview = state === 'ended' ? row.preview || tr('livework.finished')
+    : state === 'awaiting' ? tr('livework.awaiting')
+    : row.preview;
   return (
     <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
@@ -111,7 +115,10 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
           ? <SparkLoader size={12} activity={loaderActivityForAction(chatAction ?? terminalAction) ?? 'think'} className="flex-shrink-0" />
           : state === 'waiting'
             ? <STATUS_ICON.wait size={11} aria-hidden="true" className={`${STATUS_INK.wait} flex-shrink-0`} />
-            : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
+            // Not the amber «your turn» mark: nobody has to act, its own work will wake it.
+            : state === 'awaiting'
+              ? <Clock size={11} aria-hidden="true" className="flex-shrink-0 text-app-text-muted" />
+              : <STATUS_ICON.ok size={11} aria-hidden="true" className={`${STATUS_INK.ok} flex-shrink-0`} />}
         <span className={`max-w-[40%] flex-shrink-0 truncate ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}>{name}</span>
         {preview && <span data-testid="live-work-preview" className="min-w-0 flex-1 truncate text-app-text-tertiary">{preview}</span>}
         {state !== 'ended' && <WorkMeter startedAt={row.startedAt} estimateMs={row.estimateMs} estimateHistoryMs={row.estimateHistoryMs} weight={row.weight} className="ml-auto" />}

@@ -338,5 +338,18 @@ export interface TasksRouterOpts {
     /** The links of the wait, as soon as they exist: they go on the card. */
     onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
   }) => Promise<CheckRun[]>;
+  /**
+   * Closes the card's open pull requests on a branch other than the one this
+   * round's checkout is on (`supersedeEarlierRounds` in ci-supersede.ts),
+   * called once at the start of every round that declares CI rows.
+   * Housekeeping: never awaited by the round, never allowed to throw into it.
+   */
+  supersedeEarlierRounds?: (input: { cwd: string; taskId: string }) => Promise<unknown>;
+  /**
+   * GitHub's `mergeable` for the open pull request whose head is `branch`
+   * (`CONFLICTING`, `MERGEABLE`, `UNKNOWN`), or null when there is none or the
+   * read failed. Read by the review sweep for green cards waiting on a person.
+   */
+  reviewPrMergeable?: (taskId: string, branch: string) => Promise<string | null>;
 }
 
