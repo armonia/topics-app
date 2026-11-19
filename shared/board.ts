@@ -201,6 +201,29 @@ export const PREVIEW_CARD_MAX_RATIO = 0.7;
 
 
 /**
+ * The five headings of a delivery summary, in the order the reviewer reads them.
+ * A card left in review must be decidable from the card alone, without opening
+ * the diff, the thread or the PR. The headings are written in the reviewer's
+ * language and are FIXED on purpose: the server recognises them by exact text
+ * (`missingReviewCardFields`), so no prose parser has to guess.
+ */
+export const REVIEW_CARD_FIELDS = [
+  "**Cosa e perché**",
+  "**Prova**",
+  "**Come verificarlo tu**",
+  "**Rischio e come si annulla**",
+  "**Decisione**",
+] as const; // allow-italian: reviewer-facing headings matched verbatim
+
+export const REVIEW_CARD_RULE =
+  `THE DELIVERY SUMMARY IS THE REVIEW CARD. The \`summary\` you send with status="review" must let the reviewer decide from the card alone, without opening the diff, the thread or the PR. Write it in the reviewer's words, no jargon, as five short lines, each starting with its bold heading verbatim and in this order: ${REVIEW_CARD_FIELDS[0]} (1-2 sentences: what changes for the person and why) · ${REVIEW_CARD_FIELDS[1]} (command and exit code, CI link, screenshot or video already attached) · ${REVIEW_CARD_FIELDS[2]} (one gesture, when it takes the human eye; otherwise say none is needed) · ${REVIEW_CARD_FIELDS[3]} (what could break and how to undo it: plain revert, migration, setting) · ${REVIEW_CARD_FIELDS[4]} (one line, your pick first; or "nessuna: atterra da sola" when the card is technical). A missing heading gets a warning note on the thread, to fix at the next delivery.`; // allow-italian: the headings are quoted verbatim
+
+/** Headings of `REVIEW_CARD_FIELDS` the text does not contain, in order. */
+export function missingReviewCardFields(text: string): string[] {
+  return REVIEW_CARD_FIELDS.filter((h) => !text.includes(h));
+}
+
+/**
  * Come si sceglie l'anteprima di una consegna. **Questa stringa è la copia
  * canonica**: la citano l'envelope di kickoff, quello di resume, la descrizione
  * di `preview_image` nello schema del tool MCP, il braccio `board-sim` del
