@@ -83,6 +83,16 @@ describe("autoLandVerdict", () => {
     expect(verdict(card(), BOARD, [delivery]).ok).toBe(true);
   });
 
+  // 0d6384ff, 17/11: "Landa su main (consigliata)" is the land action with a courtesy, not a choice.
+  test("a fence or a human_ask that only asks 'ok?' is a delivery; one with a doubt in it is a question", () => {
+    const courtesy = { author: "agent:t1", kind: "comment", content: "```question\nBarra verde.\n- Landa su main (consigliata)\n- Da rivedere\n```" };
+    expect(verdict(card(), BOARD, [courtesy]).ok).toBe(true);
+    expect(verdict(card({ humanAsk: "Landa su main a CI verde (consigliata)?" })).ok).toBe(true);
+    // 25f0e2a5, 15/11: the ask left by the round before the red bounce.
+    const doubt = "Ho toccato anche .github/workflows/ci.yml (runner a ubuntu-24.04) perché la CI era rotta per tutti: ti va bene dentro questa PR?";
+    expect(verdict(card({ humanAsk: doubt }))).toEqual({ ok: false, reason: "the card asks the person something" });
+  });
+
   test("open steps keep the parent in review", () => {
     expect(verdict(card({ subtaskCount: 3, subtaskDoneCount: 2 })).ok).toBe(false);
   });
