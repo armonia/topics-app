@@ -6,13 +6,10 @@ import { join, resolve, extname } from "path";
 import type { ServerWebSocket } from "bun";
 import { clientReceivesTopicDelta } from "./lib/ws-topic-routing";
 import { OUTBOUND_FRAME_CLASSES } from "../shared/ws-outbound";
-import { warnThrottled } from "./lib/warn-throttled";
 import { createStreamActionFeed } from "./lib/stream-action-feed";
-import { isReusableHeadstone } from "./lib/empty-turn-headstone";
-import { NOT_STEERED_ROW } from "./lib/steered-row";
 import type {
-  WSData, GuestBroadcastFilter, StoredMessage, ReattachedPartial, ToolCall, Topic, TopicsData, TopicsFilter, UnreadData,
-  ActiveStream, ErrorResponseOptions, AppContext, Project, ThreadLoadOpts, ContentBlock, ThreadSkeletonNode,
+  WSData, GuestBroadcastFilter, Topic, TopicsData, TopicsFilter, UnreadData,
+  ActiveStream, ErrorResponseOptions, AppContext, Project,
 } from "./types";
 import { initDatabase } from "./db";
 import { isGuestSocketData } from "./lib/grants";
@@ -22,9 +19,6 @@ import {
 } from "./lib/project-visibility";
 import { readMutedProjects } from "./lib/muted-projects";
 import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
-import { decodeCol, encodeCol } from "../shared/message-blob";
-import { walkActiveThread, type SkeletonRow } from "./lib/thread-skeleton";
-import { CONTEXT_PREFIX, hasMachineMark } from "../shared/prompt-number";
 import { observeCardFrame, type CardFrame } from "./services/card-outcome-wake";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
@@ -43,22 +37,13 @@ import { createWorktreeStore } from "./services/worktree-store";
 import { createWorktreeManager, type WorktreeManagerGcDeps } from "./services/worktree-manager";
 import { defaultLifecycleHooks } from "./services/lifecycle-hooks";
 import { createMachineStore } from "./services/machine-store";
-import { parseToolCallDetail, knownDetailTypes } from "../shared/tool-call-detail";
-import { blocksForDisk, toolCallsColumnForRow, toolCallsForDisk } from "../shared/lean-tool-call";
-import { blocksColumn, restoreFromStore, writeSplitRow, type BlocksColumn } from "./lib/tool-output-store";
 import { sendWsFrame } from "./lib/ws-send";
-import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
-import { releaseHumanHold } from "./lib/human-hold";
-import { closeWatchesOfSession } from "./lib/process-wait";
 import { createTurnLedger } from "./lib/turn-ledger";
-import { announceTurnEnded } from "./lib/turn-ended";
-import { isAwaitingHuman, type ToolCallDetail } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
 import { withMediaSizes } from "./lib/media-size";
 import { httpLogLine } from "./lib/http-log";
-import { keepFirstTimes } from "./lib/tool-call-times";
 import {
   listGlobalOrchestratorTopicIds,
   presentGlobalOrchestratorTopic,
