@@ -12,6 +12,9 @@ export function createTick(ctx: DispatcherCtx) {
   const { capHeldNoted, clock, deps, evaluateNight, externallyHeldNoted, floorBlockSent, floorHeldNoted, graceTimers, heavyHeldNoted, heavyHoldSince, inFlight, log, memoryHeldCards, noCheckExemptions, planHeldNoted, shared } = ctx.core;
 
   async function tick(projectId: string): Promise<void> {
+    // The one gate for a non-primary server: grace timers, blocker events and the
+    // manual start all end up here, so no caller can claim a card around it.
+    if (deps.isActive?.() === false) return;
     try { await dispatchTick(projectId); }
     finally { ctx.queue.notifyMemoryQueue(); }
   }

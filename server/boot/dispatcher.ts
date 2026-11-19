@@ -34,10 +34,12 @@ import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-ove
 import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
+import { isThisServerPrimary } from "../lib/primary-role";
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc } = scope;
   const taskDispatcher = createTaskDispatcher({
+    isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
     captureDelivery: (taskId) => late.capturaConsegna ? late.capturaConsegna(taskId) : Promise.resolve(false),
     measureDelivery: (taskId) => late.misuraConsegnaNodo ? late.misuraConsegnaNodo(taskId) : Promise.resolve(),
@@ -469,7 +471,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   });
   late.taskDispatcher = taskDispatcher;
 
-  const scheduledCardsTimer = setInterval(tickScheduledCards, 15_000);
+  const scheduledCardsTimer = setInterval(() => { if (isThisServerPrimary()) tickScheduledCards(); }, 15_000);
 
   return { scheduledCardsTimer, taskDispatcher };
 }
