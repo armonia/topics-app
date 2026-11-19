@@ -87,6 +87,11 @@ const TEST_ONLY_FILES = new Set([
   // ever: 19/11/2026, v2.4.48 stayed the last release for hours.
   "spec-flow.mutation-baseline.json",
 ]);
+// TRAP, hit on 19/11/2026: GitHub skips the CI of ANY commit whose message holds
+// the words "skip ci" in brackets, and a squash merge takes its title from the
+// PR. A PR that talks about that marker in its title lands on main with no run,
+// becomes the tip, and parks the release until somebody else merges. Describe
+// it, never spell it, in a PR title.
 
 /**
  * The whole gate. Pure on purpose: the workflow gathers the facts, this decides.

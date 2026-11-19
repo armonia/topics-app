@@ -1,5 +1,118 @@
 [
   {
+    "version": "2.4.54",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Narrow machine-like owner credentials to node by traces, not by name (#1367)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.53",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card che incontra il limite del piano con il reset dichiarato aspetta, e il muro è solo della board (#1360)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/furtive-dahlia (card 8f2d0c9f) (#1362)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.52",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Name the pairing e2e fixture in plain English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a secondary server still works the node-run mirror cards from its primary",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Mirror cards: tests that pin the restart blocks, and reserve the node-run key prefix",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Give node pairing credentials their own scope instead of owner (#1364)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.51",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Remote children: gh's login is a mac-only resource too (SUBAGENT-28) (#1353)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.50",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "la prenotazione degli shard non si perde fra prepare-e2e e la partenza degli shard (#1315)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remote children: gh's login is a mac-only resource too (SUBAGENT-28)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.49",
     "date": "2026-11-19",
     "sections": {
@@ -371,15 +484,31 @@
           "breaking": false
         },
         {
+          "it": "Require a local loopback session to approve a machine/node pairing",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "baseline follows the scores that rose tonight",
           "en": "",
           "scope": null,
           "breaking": false
         },
         {
+          "it": "Verify the local-session pairing guard with a real integration test",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "una card parcheggiata dal nodo sblocca il pin se ce l'aveva messa l'overflow",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Fix race in the group-TERM drain test (143 instead of 0) (#1342)",
@@ -396,6 +525,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Show the before/after of the node-takeover approval card in an e2e spec",
+          "en": "",
+          "scope": null
         }
       ]
     }
