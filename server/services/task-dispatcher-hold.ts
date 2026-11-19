@@ -7,7 +7,7 @@
 import { type Task } from "./tasks";
 import { effectiveTopicsRouting, taskModelSelection } from "../../shared/task-coding-models";
 import { WorktreeRefusalError } from "./worktree-manager";
-import { providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
+import { BOARD_HOLD_KEY, providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { CHIP_QUEUED } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
@@ -30,7 +30,7 @@ export function createProviderHold(ctx: DispatcherCtx) {
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
   function taskPlanWait(task: Task, model?: string | null, starting = false, quiet = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string; provider: "claude" | "codex" } | null {
-    const claudeHold = providerHold();
+    const claudeHold = providerHold() ?? providerHold(Date.now(), BOARD_HOLD_KEY);
     const codexHold = providerHold(Date.now(), "codex");
     // The early stop at PLAN_DISPATCH_HOLD_AT, unless a person lifted it for this window.
     const window = starting ? claudeEarlyStop() : null;

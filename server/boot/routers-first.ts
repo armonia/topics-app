@@ -24,6 +24,7 @@ import { createContextRouter } from "../routes/context";
 import { createUsageRouter } from "../routes/usage";
 import { createHubRouter, upstreamBase, HUB_DEFAULT_URL } from "../routes/hub";
 import { createHubLive } from "../lib/hub-live";
+import { isThisServerPrimary } from "../lib/primary-role";
 import { createTerminalRouter, setTerminalBrowserCloser, retireTerminalSession } from "../routes/terminal";
 import { createStatusRouter } from "../routes/status";
 import { createMemoryRouter } from "../routes/memory";
@@ -170,7 +171,9 @@ export function bootRoutersFirst(scope: AfterTracker) {
   const hubLive = createHubLive({
     base: () => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL),
     broadcast: (frame) => broadcastToAll(frame),
-    hasClients: () => wsClients.size > 0,
+    // Only the primary reads the usage hub on its timer. Asked on every beat, not once at boot:
+    // a node adopts a new primary's epoch while it runs.
+    hasClients: () => wsClients.size > 0 && isThisServerPrimary(),
   });
 
   hubLive.start();

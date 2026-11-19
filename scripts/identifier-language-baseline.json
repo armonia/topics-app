@@ -2009,9 +2009,6 @@
     "scripts/check-nul-bytes.ts": [
       "buf"
     ],
-    "scripts/check-push-clean.ts": [
-      "stdin"
-    ],
     "scripts/check-ref-callbacks.ts": [
       "chiamati",
       "corpo",
@@ -2429,6 +2426,19 @@
       "pezzi",
       "riga",
       "totale"
+    ],
+    "server/app-context/app-statements.ts": [
+      "stmts"
+    ],
+    "server/app-context/message-branches.ts": [
+      "deleteMessageSubtree",
+      "subtree"
+    ],
+    "server/app-context/message-thread-writes.ts": [
+      "riusabile"
+    ],
+    "server/app-context/stream-registry.ts": [
+      "eraPermesso"
     ],
     "server/boot-orphan-scan.test.ts": [
       "inCorso",
@@ -3436,6 +3446,19 @@
       "verdetto",
       "verdettoDaApporre"
     ],
+    "server/mcp/agent-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/board-tools.ts": [
+      "anteprima"
+    ],
+    "server/mcp/chat-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/tool-catalog.ts": [
+      "MODIFICA",
+      "SOLA_LETTURA"
+    ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
       "dec"
@@ -3447,12 +3470,6 @@
       "gambe",
       "invisibile",
       "subito"
-    ],
-    "server/mcp/topics-mcp-server.ts": [
-      "MODIFICA",
-      "SOLA_LETTURA",
-      "anteprima",
-      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
@@ -3551,9 +3568,7 @@
       "vicina"
     ],
     "server/providers/claude-code.ts": [
-      "ClaudeCliCompat",
-      "DEFAULT_ONESHOT_MODEL",
-      "oneshotKey"
+      "ClaudeCliCompat"
     ],
     "server/providers/claude-models.ts": [
       "buf"
@@ -3562,10 +3577,6 @@
       "agente",
       "lista",
       "spento"
-    ],
-    "server/providers/claude/args.ts": [
-      "ClaudeOneshotArgsOptions",
-      "buildClaudeOneshotArgs"
     ],
     "server/providers/claude/cli-compat.ts": [
       "ClaudeCliCompat",
@@ -3599,9 +3610,6 @@
       "errObj",
       "obj",
       "stderrBuf"
-    ],
-    "server/providers/codex/args.ts": [
-      "buildCodexOneshotArgs"
     ],
     "server/providers/default-preference-acp.test.ts": [
       "FAKE_ACP"
@@ -5110,14 +5118,9 @@
       "arr",
       "chiave",
       "chiuse",
-      "deleteMessageSubtree",
-      "eraPermesso",
       "fresche",
       "osservatori",
-      "riusabile",
-      "serializzati",
-      "stmts",
-      "subtree"
+      "serializzati"
     ],
     "server/utils/executable.ts": [
       "semver"

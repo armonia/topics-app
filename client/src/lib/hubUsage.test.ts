@@ -146,15 +146,19 @@ describe('HUBBR-12: the hub half of the Dashboard', () => {
       { name: 'p2', label: 'riserva@example.com', rateLimits: { sevenD: { utilization: 0.47, reset: NOW / 1000 + 86_400 } } },
       { name: 'p3', label: 'muto@example.com', rateLimits: {} },
     ] };
-    const rows = accountShares(profiles, usage(), NOW);
+    const rows = accountShares(profiles, usage(), null, NOW);
     expect(rows.map((r) => [r.label, r.inUse, r.share, r.week?.pct ?? null])).toEqual([
       ['lavoro@example.com', true, 75, 84],
       ['riserva@example.com', false, 25, 47],
       ['muto@example.com', false, null, null],
     ]);
     expect(rows[0]).toMatchObject({ tokens: 750, listUsd: 75, requests: 6, removed: false });
+    // The quota history (the hub's pacing source) wins over the proxy's number where it has a reading.
+    const read = accountShares(profiles, usage(), [{ provider: 'claude', account: 'lavoro@example.com', week: { pct: 86.2, t: 1 }, fiveH: null }], NOW);
+    expect(read.map((r) => r.week?.pct ?? null)).toEqual([86, 47, null]);
+    expect(read[0].fiveH?.pct).toBe(41);
     // An account the window's rows name and the proxy no longer has: kept, said removed, so the shares add up.
-    const gone = accountShares({ profiles: profiles.profiles.slice(0, 1) }, usage(), NOW);
+    const gone = accountShares({ profiles: profiles.profiles.slice(0, 1) }, usage(), null, NOW);
     expect(gone.map((r) => [r.label, r.removed, r.share])).toEqual([['lavoro@example.com', false, 75], ['riserva@example.com', true, 25]]);
   });
 

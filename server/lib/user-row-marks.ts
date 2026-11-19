@@ -49,6 +49,8 @@ export interface UserRowOrigin {
   processExit?: unknown;
   /** The sub-agent results this row wakes the chat with (`services/subagent-wake.ts`). */
   subagentResults?: unknown;
+  /** Those cards are rows of the chat already (written during a provider hold): this row only wakes it. */
+  subagentResultsShown?: unknown;
 }
 
 const SUBAGENT_STATUSES = new Set(["completed", "failed", "stopped", "undelivered", "lost"]);
@@ -97,7 +99,7 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
     });
   }
   const cards = subagentCards(origin.subagentResults);
-  if (cards.length) blocks.push({ kind: "subagent-result", results: cards });
+  if (cards.length) blocks.push(origin.subagentResultsShown === true ? { kind: "subagent-result", results: cards, shown: true } : { kind: "subagent-result", results: cards });
   // A row that says who wrote it keeps its own word: a real dispatch carries
   // its own ids. Only a bare resend takes the marks of the row it repeats.
   if (!blocks.length && origin.repeats) {

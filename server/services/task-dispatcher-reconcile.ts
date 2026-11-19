@@ -6,7 +6,7 @@
 import { type Task } from "./tasks";
 import { logActivity } from "../db/activity-log";
 import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
-import { BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES } from "./task-dispatcher-support";
+import { isMirrorCard, BOOT_QUEUED_NOTE, rotateFrom, CHIP_QUEUED, CHIP_WORKING, LIVENESS_DEAD_SWEEPS, RECOVERABLE_DISPATCH_STATES } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createReconcile(ctx: DispatcherCtx) {
@@ -142,6 +142,7 @@ export function createReconcile(ctx: DispatcherCtx) {
     let running: Task[] = [];
     try { running = deps.svc.list({ scope: "all", status: "in_progress" }); }
     catch (err) { log("reconcile list failed", err); }
+    if (deps.isActive?.() === false) running = running.filter(isMirrorCard);
     // IL RECUPERO ARRIVA NEL LOG. Il 18/08 il server ha ripreso 303 card e
     // `grep 'Server ripartito' topics-server.log` ne trovava ZERO: le note
     // andavano solo in `task_comments`, quindi per sapere quante card aveva
