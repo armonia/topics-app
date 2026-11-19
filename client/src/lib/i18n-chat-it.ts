@@ -273,6 +273,10 @@ const CHAT_IT: Dict = {
   'processlog.fetchFailed': 'Lettura del log non riuscita',
   'processlog.readError': 'Errore: {error}',
   'processlog.stopFailed': 'Stop non riuscito: il processo è ancora in corso',
+  'reasoning.showOriginal': 'Originale',
+  'reasoning.showTranslated': 'Tradotto',
+  'reasoning.showOriginalTitle': 'Mostra il testo originale del ragionamento',
+  'reasoning.showTranslatedTitle': 'Mostra la traduzione del ragionamento',
   ...VIEWS_IT,
 };
 

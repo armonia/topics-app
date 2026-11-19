@@ -730,6 +730,10 @@ export async function awaitCiEvidence(
     `board: ${branch.value} ${cardTag(input.taskId)}`,
     `Draft opened by the Topics board for commit ${sha.slice(0, 8)} of card ${input.taskId.slice(0, 8)}, ` +
       "to read the pull request CI (e2e jobs, unit tests). Not a request to merge: a person marks it ready when the card lands.");
+  // GitHub refuses a pull request with no diff against the remote base ("No commits
+  // between main and <branch>"): local `main` was behind, or the commits are already
+  // on the remote. Nothing for a CI run to measure, same outcome as no own commit.
+  if (!pr.ok && /no commits between/i.test(pr.error)) return skipped(NO_OWN_COMMIT);
   if (!pr.ok) return notMeasured(`cannot open or find the draft pull request: ${pr.error}`);
   await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
     .catch(() => undefined);

@@ -252,6 +252,10 @@ const CHAT_EN: Dict = {
   'processlog.fetchFailed': 'Failed to fetch output',
   'processlog.readError': 'Error: {error}',
   'processlog.stopFailed': 'Stop failed: the process is still running',
+  'reasoning.showOriginal': 'Original',
+  'reasoning.showTranslated': 'Translated',
+  'reasoning.showOriginalTitle': 'Show the reasoning in its original wording',
+  'reasoning.showTranslatedTitle': 'Show the translated reasoning',
   ...VIEWS_EN,
 };
 

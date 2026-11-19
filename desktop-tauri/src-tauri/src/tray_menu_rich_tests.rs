@@ -49,7 +49,7 @@ fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
     let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
     assert!(busy < idle && !t.contains("Gone"));
     assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | ▸ 1"), "{t}");
-    assert!(t.contains("Idle one | – | – | – | – | –"));
+    assert!(t.contains("Idle one | – | – | – |  | –"));
 }
 
 #[test]

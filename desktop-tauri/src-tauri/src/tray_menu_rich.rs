@@ -13,7 +13,7 @@ use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card_wi
 use serde_json::Value;
 
 fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Option<Node> {
-    Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
+    Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, hover: pic.hover.clone(), children })
 }
 
 /// How long a state lasted, in words: «21 h 40 min», «5 min».
