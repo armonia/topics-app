@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.52 — 2026-11-19
+
+### Sotto il cofano
+- Name the pairing e2e fixture in plain English
+- Give node pairing credentials their own scope instead of owner (#1364)
+
 ## 2.4.51 — 2026-11-19
 
 ### Sotto il cofano
@@ -86,12 +92,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/prompt-pyre (card e830b367) (#1312)
 - Rename the integration pairing helper to an English name
 - topics/honest-hawk (card 0f8f8b9b) (#1336)
+- Require a local loopback session to approve a machine/node pairing
 - baseline follows the scores that rose tonight
+- Verify the local-session pairing guard with a real integration test
 - release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)
 - una card parcheggiata dal nodo sblocca il pin se ce l'aveva messa l'overflow
 - Fix race in the group-TERM drain test (143 instead of 0) (#1342)
 - Boot sweep keeps recently archived chats in scope so tools orphaned at archive time get closed (#1337)
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-19 [skip ci]
+- Show the before/after of the node-takeover approval card in an e2e spec
 
 ## 2.4.48 — 2026-11-18
 
