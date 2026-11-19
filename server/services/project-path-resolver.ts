@@ -50,7 +50,7 @@ export interface ProjectCandidate {
  * the candidate is itself a symlink. Folder listings are memoised for the
  * duration of one resolution only.
  */
-export function makeSymlinkAliasFinder(home = homedir()): (path: string) => string[] {
+export function makeAliasPathFinder(home = homedir()): (path: string) => string[] {
   const listings = new Map<string, Array<{ link: string; real: string }>>();
   const linksIn = (dir: string) => {
     let hit = listings.get(dir);
@@ -91,7 +91,7 @@ export function makeSymlinkAliasFinder(home = homedir()): (path: string) => stri
 export function resolveProjectPath(
   projectId: string,
   candidates: ProjectCandidate[],
-  aliasPathsOf: (path: string) => string[] = makeSymlinkAliasFinder(),
+  aliasPathsOf: (path: string) => string[] = makeAliasPathFinder(),
 ): ProjectCandidate | null {
   for (const c of candidates) {
     if (projectIdForPath(c.path) === projectId) return c;

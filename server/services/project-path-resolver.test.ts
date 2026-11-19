@@ -5,7 +5,7 @@ import { describe, it, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, makeSymlinkAliasFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, makeAliasPathFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
 import type { ProjectStore } from "./project-store";
 
@@ -271,14 +271,14 @@ describe("resolveProjectPath after a move", () => {
 
   it("the id of the old address finds the checkout where it is now", () => {
     const { home, oldPath, newPath, candidates } = moved();
-    const found = resolveProjectPath(projectIdForPath(oldPath), candidates, makeSymlinkAliasFinder(home));
+    const found = resolveProjectPath(projectIdForPath(oldPath), candidates, makeAliasPathFinder(home));
     expect(found?.path).toBe(newPath);
     expect(found?.projectStoreId).toBe("uuid-app");
   });
 
   it("an id that matches nothing stays without a checkout", () => {
     const { home, candidates } = moved();
-    expect(resolveProjectPath(projectIdForPath(join(home, "Projects", "altro")), candidates, makeSymlinkAliasFinder(home))).toBeNull();
+    expect(resolveProjectPath(projectIdForPath(join(home, "Projects", "altro")), candidates, makeAliasPathFinder(home))).toBeNull();
   });
 
   it("a symlink to ANOTHER folder is not an alias", () => {
@@ -287,12 +287,12 @@ describe("resolveProjectPath after a move", () => {
     mkdirSync(elsewhere, { recursive: true });
     const stray = join(home, "Projects", "stray");
     symlinkSync(elsewhere, stray);
-    expect(resolveProjectPath(projectIdForPath(stray), candidates, makeSymlinkAliasFinder(home))).toBeNull();
+    expect(resolveProjectPath(projectIdForPath(stray), candidates, makeAliasPathFinder(home))).toBeNull();
   });
 
   it("a candidate that is itself a symlink also answers to the id of the real path", () => {
     const { home, oldPath, newPath } = moved();
-    const found = resolveProjectPath(projectIdForPath(newPath), [{ path: oldPath, projectStoreId: null }], makeSymlinkAliasFinder(home));
+    const found = resolveProjectPath(projectIdForPath(newPath), [{ path: oldPath, projectStoreId: null }], makeAliasPathFinder(home));
     expect(found?.path).toBe(oldPath);
   });
 
@@ -301,6 +301,6 @@ describe("resolveProjectPath after a move", () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "moved-out-")));
     const link = join(outside, "app");
     symlinkSync(newPath, link);
-    expect(resolveProjectPath(projectIdForPath(link), candidates, makeSymlinkAliasFinder(home))).toBeNull();
+    expect(resolveProjectPath(projectIdForPath(link), candidates, makeAliasPathFinder(home))).toBeNull();
   });
 });
