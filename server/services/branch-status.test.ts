@@ -452,7 +452,7 @@ describe("commitIsAncestor", () => {
   });
 });
 
-describe("branchContentWasOnMain: ramo che ha già ripreso tutto il suo lavoro da main", () => {
+describe("branchContentWasOnMain: branch that already took its work back from main", () => {
   let repo: string;
 
   beforeAll(() => {
@@ -462,18 +462,18 @@ describe("branchContentWasOnMain: ramo che ha già ripreso tutto il suo lavoro d
     git(repo, "config", "user.name", "t");
     writeFileSync(join(repo, "a.txt"), "base\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
-    // Il ramo della card cambia a.txt…
+    // The card branch changes a.txt…
     git(repo, "checkout", "-q", "-b", "topics/card");
     writeFileSync(join(repo, "a.txt"), "lavoro\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro della card");
-    // …main lo riceve con uno SQUASH (stesso contenuto, altro commit)…
+    // …main receives it with a SQUASH (same content, another commit)…
     git(repo, "checkout", "-q", "main");
     writeFileSync(join(repo, "a.txt"), "lavoro\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "squash della card (#1)");
-    // …il land riporta main dentro il ramo: l'albero del ramo diventa quello di main…
+    // …the land brings main into the branch: the branch tree becomes main's…
     git(repo, "checkout", "-q", "topics/card");
     git(repo, "merge", "-q", "--no-edit", "main");
-    // …e main va avanti su altro: la punta di main non è più quella del ramo.
+    // …and main moves on elsewhere: its tip is no longer the branch's.
     git(repo, "checkout", "-q", "main");
     writeFileSync(join(repo, "b.txt"), "altro\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "altro lavoro");
@@ -481,11 +481,11 @@ describe("branchContentWasOnMain: ramo che ha già ripreso tutto il suo lavoro d
 
   afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
 
-  test("nessuna differenza dal fork: il lavoro è già in main", async () => {
+  test("no difference from the fork: the work is already in main", async () => {
     expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(true);
   });
 
-  test("un ramo che porta ancora qualcosa di suo NON passa", async () => {
+  test("a branch that still carries something of its own does NOT pass", async () => {
     git(repo, "checkout", "-q", "topics/card");
     writeFileSync(join(repo, "c.txt"), "ancora mio\n");
     git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro non su main");
@@ -493,7 +493,7 @@ describe("branchContentWasOnMain: ramo che ha già ripreso tutto il suo lavoro d
     expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(false);
   });
 
-  test("git che non risponde (ramo inesistente) non vale «già su main»", async () => {
+  test("git that cannot answer (missing branch) is not \"already on main\"", async () => {
     expect(await branchContentWasOnMain(repo, "topics/non-esiste", "main")).toBe(false);
   });
 });

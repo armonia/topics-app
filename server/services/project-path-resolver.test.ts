@@ -257,9 +257,9 @@ describe("newProjectParentDir", () => {
   });
 });
 
-describe("resolveProjectPath dopo uno spostamento", () => {
-  // Il riordino di ~/Projects (19/11) ha spostato le cartelle lasciando un rimando
-  // al vecchio posto: le card scritte prima portano l'id del vecchio indirizzo.
+describe("resolveProjectPath after a move", () => {
+  // The 19/11 reshuffle of the projects folder moved directories and left a symlink
+  // at the old place: cards written before carry the id of the old address.
   function moved() {
     const home = realpathSync(mkdtempSync(join(tmpdir(), "moved-home-")));
     const oldPath = join(home, "Projects", "app");
@@ -269,19 +269,19 @@ describe("resolveProjectPath dopo uno spostamento", () => {
     return { home, oldPath, newPath, candidates: [{ path: newPath, projectStoreId: "uuid-app" }] as ProjectCandidate[] };
   }
 
-  it("l'id del vecchio indirizzo trova il checkout dove sta adesso", () => {
+  it("the id of the old address finds the checkout where it is now", () => {
     const { home, oldPath, newPath, candidates } = moved();
     const found = resolveProjectPath(projectIdForPath(oldPath), candidates, makeSymlinkAliasFinder(home));
     expect(found?.path).toBe(newPath);
     expect(found?.projectStoreId).toBe("uuid-app");
   });
 
-  it("senza rimandi un id che non combacia resta senza checkout", () => {
+  it("an id that matches nothing stays without a checkout", () => {
     const { home, candidates } = moved();
     expect(resolveProjectPath(projectIdForPath(join(home, "Projects", "altro")), candidates, makeSymlinkAliasFinder(home))).toBeNull();
   });
 
-  it("un rimando verso un'ALTRA cartella non fa da alias", () => {
+  it("a symlink to ANOTHER folder is not an alias", () => {
     const { home, candidates } = moved();
     const elsewhere = join(home, "Projects", "Topics", "altro");
     mkdirSync(elsewhere, { recursive: true });
@@ -290,13 +290,13 @@ describe("resolveProjectPath dopo uno spostamento", () => {
     expect(resolveProjectPath(projectIdForPath(stray), candidates, makeSymlinkAliasFinder(home))).toBeNull();
   });
 
-  it("il candidato che è lui un rimando risponde anche all'id del percorso reale", () => {
+  it("a candidate that is itself a symlink also answers to the id of the real path", () => {
     const { home, oldPath, newPath } = moved();
     const found = resolveProjectPath(projectIdForPath(newPath), [{ path: oldPath, projectStoreId: null }], makeSymlinkAliasFinder(home));
     expect(found?.path).toBe(oldPath);
   });
 
-  it("non cerca sopra la home", () => {
+  it("does not look above the home", () => {
     const { home, newPath, candidates } = moved();
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "moved-out-")));
     const link = join(outside, "app");

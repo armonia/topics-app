@@ -355,14 +355,13 @@ export async function branchContentWasOnMain(
     .split("\0")
     .filter((p) => p.length > 0);
   if (changed.length === 0) {
-    // Nessun file cambiato rispetto al punto di fork: o il ramo non ha mai
-    // portato niente, o ha già riportato dentro di sé tutto ciò che la card
-    // aveva fatto (il lavoro è entrato in main con uno squash, poi il land ha
-    // fuso `origin/main` nel ramo: l'albero del ramo è tornato quello del fork).
-    // Una fusione del ramo in `mainRef` non cambierebbe niente, quindi non c'è
-    // niente da perdere. La lista vuota da sola NON lo prova (git in errore
-    // restituisce vuoto): lo prova l'uguaglianza dei due alberi, con entrambi
-    // gli id letti e non vuoti; ogni altro esito resta «non lo so».
+    // No file changed since the fork point: either the branch never carried
+    // anything, or it already took back everything the card had done (the work
+    // reached main through a squash, then the land merged `origin/main` into the
+    // branch, so the branch tree is the fork tree again). Merging the branch into
+    // `mainRef` would change nothing, so there is nothing to lose. An empty list
+    // alone does NOT prove it (git in error returns empty): equal trees do, with
+    // both ids read and non-empty; any other outcome stays "don't know".
     const [baseTree, branchTree] = await Promise.all([
       gitOut(repoPath, ["rev-parse", `${base}^{tree}`], runGit),
       gitOut(repoPath, ["rev-parse", `${branch}^{tree}`], runGit),
