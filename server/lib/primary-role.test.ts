@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrimaryRole, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
+import { createPrimaryRole, PAIRING_MACHINE_HEADER, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
 import { createModelProxyHandler, mintModelToken } from "../services/model-proxy";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 
@@ -144,6 +144,57 @@ describe("primary role", () => {
     expect(oldPrimary.outgoingHeaders()).toEqual({});
     a.done();
     b.done();
+  });
+
+  test("a secondary sends no pairing header, and a channel already recorded refuses a different machine", () => {
+    const f = fixture("m-local");
+    const role = f.make();
+    // Nothing chosen yet: a virgin install is its own primary and can pair its first devices.
+    expect(role.pairingHeaders()).toEqual({ [PAIRING_MACHINE_HEADER]: "m-local" });
+    role.recordChannel({ deviceId: "dev-a", machineId: "m-a" });
+    expect(role.channel()).toEqual({ deviceId: "dev-a", machineId: "m-a" });
+    // Demoted to secondary: it must stop declaring itself at pairing, same as `outgoingHeaders`.
+    role.adopt({ primaryMachineId: "m-a", epoch: 5 });
+    expect(role.pairingHeaders()).toEqual({});
+    // Even if a secondary's declared id slipped through, the channel does not change hands
+    // for a machine that is not the one this server already recognizes as primary.
+    role.recordChannel({ deviceId: "dev-d", machineId: "m-d" });
+    expect(role.channel(), "the rogue pairing left the channel alone").toEqual({ deviceId: "dev-a", machineId: "m-a" });
+    // Same server, an epoch that is not above this one: still no takeover.
+    role.recordChannel({ deviceId: "dev-d2", machineId: "m-d", epoch: 5 });
+    expect(role.channel(), "an equal epoch takes nothing").toEqual({ deviceId: "dev-a", machineId: "m-a" });
+    // The real primary re-pairing (a new device row for the same machine) still wins.
+    role.recordChannel({ deviceId: "dev-a2", machineId: "m-a" });
+    expect(role.channel()).toEqual({ deviceId: "dev-a2", machineId: "m-a" });
+    f.done();
+  });
+
+  test("a primary chosen later takes the channel over with a higher epoch, and the chosen primary declares it at pairing", () => {
+    const f = fixture("m-local");
+    const role = f.make();
+    role.recordChannel({ deviceId: "dev-a", machineId: "m-a" });
+    role.adopt({ primaryMachineId: "m-a", epoch: 5 });
+    // The fleet replaced m-a with m-d at epoch 6, and m-d paired this node: the
+    // owner of this machine approved it, and the epoch says who is current.
+    role.recordChannel({ deviceId: "dev-d", machineId: "m-d", epoch: 6 });
+    expect(role.channel()).toEqual({ deviceId: "dev-d", machineId: "m-d" });
+    // Only the new channel's device moves the epoch, and under m-d's id.
+    const from = (epoch: number) => new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: String(epoch) } });
+    expect(role.adoptFrom(from(6), { deviceId: "dev-a" }), "the replaced primary is no longer the channel").toBe(false);
+    expect(role.adoptFrom(from(6), { deviceId: "dev-d" })).toBe(true);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-d", epoch: 6 });
+    // The machine that holds the channel keeps it when it pairs a new device, with no epoch to declare.
+    role.recordChannel({ deviceId: "dev-d2", machineId: "m-d" });
+    expect(role.channel()).toEqual({ deviceId: "dev-d2", machineId: "m-d" });
+    // A chosen primary declares both headers at pairing; a secondary declares neither.
+    const own = fixture("m-own");
+    const chosen = own.make();
+    chosen.adopt({ primaryMachineId: "m-own", epoch: 4 });
+    expect(chosen.pairingHeaders()).toEqual({ [PAIRING_MACHINE_HEADER]: "m-own", [PRIMARY_EPOCH_HEADER]: "4" });
+    chosen.adopt({ primaryMachineId: "m-other", epoch: 9 });
+    expect(chosen.pairingHeaders()).toEqual({});
+    own.done();
+    f.done();
   });
 
   test("the machine id is read once and a missing state folder is created", () => {
