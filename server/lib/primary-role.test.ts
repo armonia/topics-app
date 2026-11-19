@@ -103,18 +103,48 @@ describe("primary role", () => {
   });
 
   test("a dispatcher on a secondary server assigns no card of its own board, but works a mirror card", async () => {
-    const claimedIds: string[] = [];
+    const touched: string[] = [];
     const normal = { id: "t-normal", status: "todo", claudeTaskId: null } as never;
     const mirror = { id: "t-mirror", status: "todo", claudeTaskId: "node-run:origin-1" } as never;
-    const svc = new Proxy({}, { get: (_t, name) => name === "list" ? () => [normal, mirror] : () => { throw new Error("stop after the list"); } }) as never;
+    const svc = new Proxy({}, {
+      get: (_t, name) => name === "list"
+        ? () => [normal, mirror]
+        : name === "getBoardSettings"
+          ? () => ({ autoDispatch: true, dispatchPaused: false, nightMode: false, dispatchRetryCap: 3 })
+          : name === "isDispatchBlocked"
+            ? (id: string) => { touched.push(`blocked? ${id}`); return false; }
+            : (...args: unknown[]) => { touched.push(`${String(name)} ${JSON.stringify(args)}`); return []; },
+    }) as never;
     const dispatcher = createTaskDispatcher({
       svc, isActive: () => false,
-      resolveProject: () => null,
-      log: (m: string) => { if (m.includes("t-")) claimedIds.push(m); },
+      resolveProject: () => ({ path: "/tmp/x", projectStoreId: null }),
+      log: (m: string) => { touched.push(`log ${m}`); },
     } as never);
     await dispatcher.tick("p1").catch(() => {});
-    expect(claimedIds.every((m) => !m.includes("t-normal"))).toBe(true);
+    expect(touched.some((m) => m.includes("t-mirror")), "the mirror card is worked").toBe(true);
+    expect(touched.some((m) => m.includes("t-normal")), "the card of the own board is left alone").toBe(false);
   });
+  test("a secondary does not take back a card of its own board on restart, nor on a resume", async () => {
+    const touched: string[] = [];
+    const normal = { id: "t-normal", status: "in_progress", claudeTaskId: null, assignedTopicId: "topic-n" } as never;
+    const svc = new Proxy({}, {
+      get: (_t, name) => name === "list"
+        ? () => [normal]
+        : name === "get"
+          ? (id: string) => { touched.push(`get ${id}`); return { task: normal }; }
+          : (...args: unknown[]) => { touched.push(`${String(name)} ${JSON.stringify(args)}`); return []; },
+    }) as never;
+    const dispatcher = createTaskDispatcher({
+      svc, isActive: () => false,
+      resolveProject: () => ({ path: "/tmp/x", projectStoreId: null }),
+      log: (m: string) => { touched.push(`log ${m}`); },
+    } as never);
+    await dispatcher.reconcile({ reason: "boot" } as never).catch(() => {});
+    await dispatcher.resume("t-normal", "continue").catch(() => {});
+    const afterRead = touched.filter((m) => m.includes("t-normal") && !m.startsWith("get "));
+    expect(afterRead, "nothing is done to the card of the own board").toEqual([]);
+  });
+
   test("an empty or garbled epoch header means not declared, never 0", () => {
     const f = fixture();
     const role = f.make();
