@@ -282,7 +282,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       console.warn(`[review-sweep] ${t.id.slice(0, 8)}: nessun verdetto su ${t.deliveryCommit!.slice(0, 8)}, misuro la barra (${tries}/${REVIEW_REMEASURE_TRIES})`);
       let out: Awaited<ReturnType<typeof runChecksGate>> = null;
       for (let leg = 0; leg < 240; leg++) {
-        out = await runChecksGate(t.id, t.projectId, 60_000);
+        // The first leg drops the verdict the gate may still retain for this commit: it is the one being questioned.
+        out = await runChecksGate(t.id, t.projectId, 60_000, undefined, leg === 0);
         if (!out || !("pending" in out)) break;
       }
       // No worktree of its own (a planted branch, a reaped worktree): the throwaway checkout of the node lane.

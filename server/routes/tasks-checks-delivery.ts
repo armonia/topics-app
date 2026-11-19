@@ -423,7 +423,9 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // A delivery planted from another machine has no worktree of its own: the
     // meter (`node-delivery-meter.ts`) hands in a throwaway checkout instead.
     checkout?: () => Promise<{ cwd: string; commit: string | null } | null>,
+    fresh = false,
   ): Promise<ChecksLeg> {
+    if (fresh) checksGate.forget(taskId);
     const checkoutRef = checkout ?? (opts?.taskCheckoutRef ? () => opts!.taskCheckoutRef!(taskId) : null);
     if (!checkoutRef || !opts) return null;
     let checks: ReviewCheck[] = [];
