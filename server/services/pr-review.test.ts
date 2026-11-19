@@ -1,3 +1,8 @@
+/**
+ * Automatic review of newly opened pull requests: empty settings do nothing,
+ * a PR is launched once per head commit, state survives restarts.
+ * @covers PRREVIEW-01
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
