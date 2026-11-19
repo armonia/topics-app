@@ -16,6 +16,7 @@
 import fs from "fs";
 import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
+import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
 import { noteSubagentWaitChanged } from "./subagent-wait-events";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
@@ -389,8 +390,7 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();
-  pendingFirstSeen.clear();
-  lastStaleSweep = 0;
+  resetStaleSweep();
   for (const id of [...foregroundHolds.keys()]) {
     clearTimeout(foregroundHolds.get(id)!.timer);
     foregroundHolds.delete(id);
@@ -717,46 +717,13 @@ export async function waitForegroundLeg(agentId: string, legMs: number, signal?:
   return { status: 'done', result: got };
 }
 
-/** A result owed this long without settling is asked for again. */
-const STALE_RESULT_MS = 15 * 60_000;
-const STALE_SWEEP_MS = 60_000;
-const pendingFirstSeen = new Map<string, number>();
-let lastStaleSweep = 0;
-
-/**
- * Results that stay owed to a parent chat for 15 minutes are delivered again.
- * A wake that died with its card unwritten (a failed write, a lost queue entry)
- * left the child «about to resume» for good until the next restart. The wake
- * ignores a result still genuinely queued, so asking twice is harmless.
- */
-export function sweepStaleResults(now = Date.now()): number {
-  if (now - lastStaleSweep < STALE_SWEEP_MS) return 0;
-  lastStaleSweep = now;
-  const owed = new Set<string>();
-  let asked = 0;
-  for (const { row, results } of allPendingResults(getDatabase())) {
-    for (const r of results) {
-      const key = resultKey(r);
-      owed.add(key);
-      const since = pendingFirstSeen.get(key) ?? now;
-      pendingFirstSeen.set(key, since);
-      if (now - since < STALE_RESULT_MS) continue;
-      pendingFirstSeen.set(key, now);
-      deliverChildResult(r, null, row.parentSessionKey);
-      asked++;
-    }
-  }
-  for (const key of pendingFirstSeen.keys()) if (!owed.has(key)) pendingFirstSeen.delete(key);
-  return asked;
-}
-
 /** How often the live children's transcripts are looked at. */
 const CHILD_WATCH_MS = 2_000;
 let childWatchTimer: ReturnType<typeof setInterval> | null = null;
 /** Start the watch, once for the process however many routers there are. */
 export function startChildWatch(): void {
   if (childWatchTimer) return;
-  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(); }, CHILD_WATCH_MS);
+  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
   childWatchTimer.unref?.();
 }
 
