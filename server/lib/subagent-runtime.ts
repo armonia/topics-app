@@ -110,12 +110,7 @@ interface TranscriptCursor {
   partial: string;
   tally: TranscriptTally;
 }
-/**
- * The live state of a child as its strip and card show it (SUBAGENT-16).
- * `waiting-results`: a native child whose turn closed and was reported, kept
- * `running` only because its own work (a grandchild, a command) will wake it
- * again. No turn of its own is open: the strip must not draw it at work.
- */
+/** The live state of a child as its strip and card show it (SUBAGENT-16). `waiting-results`: turn reported, only its own work is running. */
 export type SubAgentPhase = 'waiting-prompt' | 'working' | 'waiting-results' | 'finished';
 const childRuntime = new Map<string, ChildRuntime>();
 /** Delivered results, per `resultKey`: the per-turn dedup of this process. */
@@ -259,8 +254,7 @@ function deliverChildResult(clean: SubAgentResult, exitCode: number | null, pare
       turn: clean.turn, model: clean.model, agentType: clean.agentType, durationMs: clean.durationMs, cwd: clean.cwd,
       ...(clean.stoppedByParent ? { stoppedByParent: true as const } : {}),
       settle: () => clearPendingResult(getDatabase(), clean.agentId, clean.turn, clean.status),
-      ...(clean.rowWritten ? { rowWritten: true } : {}),
-      markRowWritten: () => markPendingResultRowWritten(getDatabase(), clean.agentId, clean.turn, clean.status),
+      ...(clean.rowWritten ? { rowWritten: true } : {}), markRowWritten: () => markPendingResultRowWritten(getDatabase(), clean.agentId, clean.turn, clean.status),
     });
   } catch (err) {
     console.warn(`[Terminal] subAgentExitHandler failed for ${clean.agentId}:`, err);

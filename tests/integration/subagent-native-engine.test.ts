@@ -412,7 +412,10 @@ describe("a child that waits on its own work", () => {
       await new Promise((r) => setTimeout(r, 25));
     }
   }
-  const liveChild = async (id: string) => (await import("../../server/lib/native-subagents")).liveNativeChildren(ROOT_KEY).find((c) => c.agentId === id);
+  const liveChild = async (id: string) => {
+    const { liveNativeChildren } = await import("../../server/lib/native-subagents");
+    return liveNativeChildren(ROOT_KEY).find((c) => c.agentId === id);
+  };
 
   test("after its report it is `waiting-results`, not busy; before 6 h it stays running, after 6 h it is closed with a partial `wait-expired` result", async () => {
     hold("TASK-WAIT-BG");
