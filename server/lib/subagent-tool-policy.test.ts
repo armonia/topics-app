@@ -1,10 +1,13 @@
 /** @covers SUBAGENT-23 */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
-import { resolve } from "path";
-import { spawnedChildOf, toolAllowedByPolicy } from "./subagent-tool-policy";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "path";
+import { spawnedChildOf, toolAllowedByPolicy, isSpawnedChildSession } from "./subagent-tool-policy";
 import { insertSubagent } from "./subagent-store";
+import { closeDatabase, getDatabase, initDatabase } from "../db";
 
 describe("native sub-agent tool policy", () => {
   test("a child never sees ask_user_question, even when its profile grants it", () => {
@@ -52,5 +55,32 @@ describe("spawnedChildOf — the one choke point a CLI child shares with a nativ
   test("a person's chat or a dispatched board session is not a child", () => {
     const d = db();
     expect(spawnedChildOf(d, "topic:some-chat")).toBeNull();
+  });
+});
+
+describe("isSpawnedChildSession — the lazy-DB choke point the stream detectors share", () => {
+  let tempRoot = "";
+
+  beforeAll(() => {
+    tempRoot = mkdtempSync(join(tmpdir(), "subagent-tool-policy-"));
+    initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+  });
+
+  afterAll(() => {
+    try { closeDatabase(); } catch { /* setup may have failed before opening it */ }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("a CLI child's session is reported as a child, so its panel never surfaces", () => {
+    insertSubagent(getDatabase(), {
+      id: "cli-child-panel-1", parentSessionKey: "topic:parent", name: "scout", model: "sonnet", agentType: "scout",
+      effort: "low", promptSnippet: "look", cwd: tempRoot, branch: null, claudeSessionId: "sid-panel-1",
+      createdAt: new Date().toISOString(),
+    });
+    expect(isSpawnedChildSession("cli-child-panel-1")).toBe(true);
+  });
+
+  test("a person's chat is not a child", () => {
+    expect(isSpawnedChildSession("topic:not-a-child")).toBe(false);
   });
 });

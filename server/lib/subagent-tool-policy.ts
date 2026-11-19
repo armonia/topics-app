@@ -88,6 +88,26 @@ export function spawnedChildOf(db: Pick<Database, "query" | "run">, sessionKey: 
   return getSubagent(db, sessionKey) ?? getSubagentBySessionKey(db, sessionKey);
 }
 
+/**
+ * `spawnedChildOf`, lazy-DB: for the stream detectors that only hold a
+ * session key, same `require("../db")` as `nativeSubagentToolPolicy` (they
+ * run on the provider's hot path and must not import the database module at
+ * module load time). A spawned child's chat is hidden from whoever spawned
+ * it, so no question panel of any kind (`ask_user_question`, MCP elicitation)
+ * may ever surface there — `permission.ts` already refuses the rendezvous for
+ * the same reason, but the panel is broadcast from the stream BEFORE that
+ * refusal runs, so the choke point has to sit here too.
+ */
+export function isSpawnedChildSession(sessionKey: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- same lazy load as nativeSubagentToolPolicy
+    const { getDatabase } = require("../db");
+    return spawnedChildOf(getDatabase(), sessionKey) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Is this tool one the session may use, by its sub-agent policy? A non-child may use all. */
 export function toolAllowedByPolicy(policy: SubagentToolPolicy | null, name: string): boolean {
   if (!policy) return true;
