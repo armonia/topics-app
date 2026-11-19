@@ -2,7 +2,7 @@
  * Request guards of the tasks routes: attachments, session resolution, review and fan-out gates.
  */
 import { existsSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import { TASK_STATUSES, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX, isAgentAuthor } from "../../shared/comment-author";
 import { sessionProof } from "../lib/session-token";
@@ -39,7 +39,8 @@ export function createTasksGuards(core: TasksCore, late: TasksLate) {
   function filterMedia(raw: unknown): string[] | undefined {
     if (!Array.isArray(raw)) return undefined;
     return raw.filter((m): m is string => {
-      if (typeof m !== "string" || !m.startsWith("/")) return false;
+      // isAbsolute, not a leading "/": a Windows path (E:\...) is absolute too.
+      if (typeof m !== "string" || !isAbsolute(m)) return false;
       if (typeof isPathAllowed !== "function") return true; // test ctx without the helper
       try { return isPathAllowed(m); } catch { return false; }
     });
