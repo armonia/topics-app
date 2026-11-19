@@ -1281,6 +1281,12 @@ const authPairRequestedSchema = z.object({
   code: z.string(),
   name: z.string(),
   ip: z.nullable(z.string()),
+  /** A Topics server asking to pair as a NODE declares its machine id; a phone or a browser does not. */
+  machineId: z.optional(z.nullable(z.string())),
+  /** The primary epoch that server declared, when it did. */
+  machineEpoch: z.optional(z.nullable(z.number())),
+  /** The machine this node's channel currently belongs to, so the card can say who is being replaced. */
+  currentPrimaryMachineId: z.optional(z.nullable(z.string())),
 });
 
 /** La richiesta e' stata sciolta: serve a togliere il cartello da OGNI finestra
