@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.4.50",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "la prenotazione degli shard non si perde fra prepare-e2e e la partenza degli shard (#1315)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.49",
     "date": "2026-11-19",
     "sections": {
@@ -380,6 +402,12 @@
           "it": "release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "una card parcheggiata dal nodo sblocca il pin se ce l'aveva messa l'overflow",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Fix race in the group-TERM drain test (143 instead of 0) (#1342)",

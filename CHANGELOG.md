@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.50 — 2026-11-19
+
+### Sotto il cofano
+- la prenotazione degli shard non si perde fra prepare-e2e e la partenza degli shard (#1315)
+- release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)
+
 ## 2.4.49 — 2026-11-19
 
 ### Novità
@@ -76,6 +82,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/honest-hawk (card 0f8f8b9b) (#1336)
 - baseline follows the scores that rose tonight
 - release-gate: il baseline di mutation del notturno non ferma la release (commit con [skip ci], file ammesso tra misurato e punta) (#1345)
+- una card parcheggiata dal nodo sblocca il pin se ce l'aveva messa l'overflow
 - Fix race in the group-TERM drain test (143 instead of 0) (#1342)
 - Boot sweep keeps recently archived chats in scope so tools orphaned at archive time get closed (#1337)
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-19 [skip ci]
