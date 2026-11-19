@@ -68,7 +68,11 @@ describe("isSpawnedChildSession — the lazy-DB choke point the stream detectors
 
   afterAll(() => {
     try { closeDatabase(); } catch { /* setup may have failed before opening it */ }
-    rmSync(tempRoot, { recursive: true, force: true });
+    try {
+      rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    } catch {
+      // Windows can hold the temp dir open a moment longer; the OS temp cleaner reclaims it.
+    }
   });
 
   test("a CLI child's session is reported as a child, so its panel never surfaces", () => {

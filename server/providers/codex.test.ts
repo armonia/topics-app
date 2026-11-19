@@ -363,7 +363,7 @@ describe("routeCodexEvent — text + tool wiring", () => {
 
     afterAll(() => {
       try { closeDatabase(); } catch { /* setup may have failed before opening it */ }
-      rmSync(tempRoot, { recursive: true, force: true });
+      try { rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch { /* Windows may hold the temp dir briefly */ }
     });
 
     test("a CLI child's ask_user_question never reaches onUserInputRequired", () => {
@@ -714,7 +714,7 @@ describe("a Codex branch's fork, on disk", () => {
   afterAll(() => {
     try { closeDatabase(); } catch { /* cleanup */ }
     for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-    rmSync(root, { recursive: true, force: true });
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch { /* Windows may hold the temp dir briefly */ }
   });
 
   function branch(sk: string, parentAt: string | null): void {
