@@ -30,6 +30,20 @@ export function detailAtFraction(fraction: number, levels: readonly DetailLevel[
   return levels[i];
 }
 
+/** How much of each card is drawn, chosen apart from the layout. Same names as `BoardDensity`. */
+export const CARD_DETAIL_LEVELS = ['compact', 'full'] as const;
+export type CardDetail = (typeof CARD_DETAIL_LEVELS)[number];
+export const CARD_DETAIL_STORAGE_KEY = 'topics.board.cardDetail';
+
+export function parseCardDetail(raw: string | null): CardDetail {
+  return raw === 'compact' ? 'compact' : 'full';
+}
+
+export function readCardDetail(): CardDetail {
+  try { return parseCardDetail(localStorage.getItem(CARD_DETAIL_STORAGE_KEY)); }
+  catch { return 'full'; }
+}
+
 export interface ProjectCount { projectId: string; label: string; total: number; perColumn: number[] }
 
 /** Tasks grouped by project, one count per column, busiest project first. */

@@ -158,8 +158,7 @@ test.describe("Status colours on the Board, the plan and the Agents pane", () =>
 
       // ── Plan ─────────────────────────────────────────────────────────────
       // The plan is the last stop of the detail slider, on the global board only.
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
+      await page.getByTestId("board-layout-switch").locator("button").last().click();
       const plan = page.getByTestId("plan-view");
       await expect(plan).toBeVisible({ timeout: 15_000 });
       await expect(plan.locator(`[data-task-card="${needsInputTask}"]`)).toBeVisible();

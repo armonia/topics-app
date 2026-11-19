@@ -4,7 +4,7 @@
  * @covers KANBAN-108
  */
 import { describe, expect, test } from 'bun:test';
-import { countByProject, detailAtFraction, parseDetailLevel, stepDetail } from './detailLevel';
+import { parseCardDetail, countByProject, detailAtFraction, parseDetailLevel, stepDetail } from './detailLevel';
 
 describe('detail levels', () => {
   test('stored values from before the summary level still read back', () => {
@@ -31,5 +31,14 @@ describe('detail levels', () => {
   test('counts per project and column, busiest first', () => {
     const rows = countByProject([[{ projectId: 'a-1' }, { projectId: 'b-1' }], [{ projectId: 'b-1' }]]);
     expect(rows.map((r) => [r.label, r.total, r.perColumn])).toEqual([['b', 2, [1, 1]], ['a', 1, [1, 0]]]);
+  });
+});
+
+describe('card detail preference', () => {
+  test('only compact is stored as compact; anything else is the full card', () => {
+    expect(parseCardDetail('compact')).toBe('compact');
+    expect(parseCardDetail('full')).toBe('full');
+    expect(parseCardDetail('list')).toBe('full');
+    expect(parseCardDetail(null)).toBe('full');
   });
 });

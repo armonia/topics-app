@@ -29,7 +29,9 @@ const WIDTH_BLOCK = GEOMETRY.slice(GEOMETRY.indexOf('export const COLUMN_WIDTH')
 
 describe('il tasto della vista lista, accanto alla ricerca', () => {
   test('esiste, ed è un aria-pressed booleano su boardLayout', () => {
-    expect(PANE).toContain('<DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />');
+    expect(PANE).toContain('<LayoutSwitch value={detail} onChange={setDetail} levels={detailLevels} />');
+    expect(PANE).toContain('<DetailSlider value={cardDetail} onChange={setCardDetail} />');
+    expect(PANE).toContain('density={cardDetail}');
     expect(PANE).toContain("const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';");
   });
 

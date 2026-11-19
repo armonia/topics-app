@@ -1,24 +1,25 @@
 import { useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { DETAIL_LEVELS, detailAtFraction, stepDetail, type DetailLevel } from './detailLevel';
+import { CARD_DETAIL_LEVELS, type CardDetail } from './detailLevel';
 
 /**
- * A custom range input for the board's level of detail: a stop per level on a
- * track, a thumb that snaps to the nearest one while dragged, arrow keys,
- * and a click on a stop. Left is the least detail (projects and counts),
- * right is the most (the kanban).
+ * A custom range input for how much of each card is drawn, independent of the
+ * layout: a stop per level on a track, snapping to the nearest while dragged,
+ * arrow keys, and a click on a stop. Left is compact, right is the full card.
  */
-export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { value: DetailLevel; onChange: (next: DetailLevel) => void; levels?: readonly DetailLevel[] }) {
+export function DetailSlider({ value, onChange }: { value: CardDetail; onChange: (next: CardDetail) => void }) {
+  const levels = CARD_DETAIL_LEVELS;
   const tr = useT();
   const trackRef = useRef<HTMLDivElement>(null);
   const index = levels.indexOf(value);
   const last = levels.length - 1;
-  const levelText = tr(`board.toolbar.detail.${value}`);
+  const levelText = tr(`board.toolbar.cardDetail.${value}`);
 
   const fromPointer = (clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
-    onChange(detailAtFraction((clientX - rect.left) / rect.width, levels));
+    const fraction = (clientX - rect.left) / rect.width;
+    onChange(levels[Math.round(Math.min(1, Math.max(0, fraction)) * last)]);
   };
 
   return (
@@ -26,8 +27,8 @@ export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { valu
       ref={trackRef}
       role="slider"
       tabIndex={0}
-      data-testid="board-detail-slider"
-      aria-label={tr('board.toolbar.detail.label')}
+      data-testid="board-card-detail-slider"
+      aria-label={tr('board.toolbar.cardDetail.label')}
       aria-valuemin={0}
       aria-valuemax={last}
       aria-valuenow={index}
@@ -39,7 +40,7 @@ export function DetailSlider({ value, onChange, levels = DETAIL_LEVELS }: { valu
         const delta = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
         if (e.key === 'Home') { e.preventDefault(); onChange(levels[0]); }
         else if (e.key === 'End') { e.preventDefault(); onChange(levels[last]); }
-        else if (delta) { e.preventDefault(); onChange(stepDetail(value, delta, levels)); }
+        else if (delta) { e.preventDefault(); onChange(levels[Math.min(last, Math.max(0, index + delta))]); }
       }}
       className="relative mx-1 h-6 w-16 shrink-0 cursor-pointer touch-none select-none rounded outline-none focus-visible:ring-1 focus-visible:ring-primary coarse:h-11 coarse:w-24"
     >

@@ -51,9 +51,10 @@ import { laneDropId, type BoardLane } from './boardLanes';
 import { BoardViewToggles, ProjectLanes } from './ProjectLanes';
 import { useProjectLanes } from './useProjectLanes';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readDetailLevel, type DetailLevel } from './detailLevel';
+import { CARD_DETAIL_STORAGE_KEY, DETAIL_LEVELS, DETAIL_STORAGE_KEY, countByProject, readCardDetail, readDetailLevel, type DetailLevel } from './detailLevel';
 import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
 import { DetailSlider } from './DetailSlider';
+import { LayoutSwitch } from './LayoutSwitch';
 import { ProjectsSummary } from './ProjectsSummary';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
@@ -378,6 +379,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const detailLevels = useMemo(() => DETAIL_LEVELS.filter((l) => mode === 'all' || l !== 'plan'), [mode]);
   // One-click filter above the board, in AND with the search filters and with every view.
   const [quick, setQuick] = useState<QuickFilter | null>(null);
+  // How much of each card is drawn: its own preference, separate from the layout.
+  const [cardDetail, setCardDetail] = useState(readCardDetail);
+  useEffect(() => {
+    try { localStorage.setItem(CARD_DETAIL_STORAGE_KEY, cardDetail); } catch { /* private mode, best effort */ }
+  }, [cardDetail]);
   useEffect(() => {
     try { localStorage.setItem(DETAIL_STORAGE_KEY, storedDetail); } catch { /* private mode, best effort */ }
   }, [storedDetail]);
@@ -915,6 +921,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // In a lane the header already names the project: the eyebrow would repeat it on every card.
       showProject={mode === 'all' && !lane}
       layout={boardLayout}
+      density={cardDetail}
       viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.projectId}` : ''}`}
       cardError={cardError}
       onCardError={onCardError}
@@ -1178,7 +1185,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             button that swaps side-by-side columns for stacked sections (see
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
-        <DetailSlider value={detail} onChange={setDetail} levels={detailLevels} />
+        <LayoutSwitch value={detail} onChange={setDetail} levels={detailLevels} />
+        <DetailSlider value={cardDetail} onChange={setCardDetail} />
         <BoardViewToggles
           canGroup={mode === 'all'}
           groupBy={groupByPref} onGroupBy={setGroupByPref}

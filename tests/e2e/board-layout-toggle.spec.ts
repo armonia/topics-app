@@ -106,7 +106,7 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await page.goto("/");
     await openProjectBoard(page);
 
-    const toggle = page.getByTestId("board-detail-slider");
+    const layoutBtn = (level: string) => page.getByTestId(`board-layout-${level}`);
     const todoCol = page.getByTestId("kanban-column-todo");
     const backlogCol = page.getByTestId("kanban-column-backlog");
     const card = page.locator(`[data-task-card="${task.id}"]`);
@@ -114,11 +114,11 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     // ── 1. Kanban by default: every column is there, even the empty ones ────
     await expect(todoCol).toBeVisible({ timeout: 10000 });
     await expect(backlogCol).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await expect(layoutBtn("grid")).toHaveAttribute("aria-checked", "true");
 
     // ── 2. One click: the board becomes a list, empty columns vanish ────────
-    await toggle.press("ArrowLeft");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
+    await layoutBtn("list").click();
+    await expect(layoutBtn("list")).toHaveAttribute("aria-checked", "true");
     await expect(backlogCol).toHaveCount(0, { timeout: 10000 });
     await expect(todoCol).toBeVisible();
     await expect(todoCol.locator(`[data-task-card="${task.id}"]`)).toContainText(SOLA_CARD);
@@ -126,13 +126,13 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     // ── 3. Reload: list view was not just component state ───────────────────
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
-    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
+    await expect(layoutBtn("list")).toHaveAttribute("aria-checked", "true");
     await expect(backlogCol).toHaveCount(0, { timeout: 10000 });
     await expect(todoCol).toBeVisible();
 
     // ── 4. Back to kanban: the empty columns reappear ────────────────────────
-    await toggle.press("ArrowRight");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await layoutBtn("grid").click();
+    await expect(layoutBtn("grid")).toHaveAttribute("aria-checked", "true");
     await expect(backlogCol).toBeVisible({ timeout: 10000 });
     await expect(card).toBeVisible();
   });

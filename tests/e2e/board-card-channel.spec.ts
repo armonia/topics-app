@@ -197,8 +197,7 @@ test.describe("Canale sulla card", () => {
       await openProjectBoard(page);
       // Only the Plan view (all projects, last stop of the slider) draws the board's compact card.
       await page.getByText("Tutti i progetti", { exact: true }).click();
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
+      await page.getByTestId("board-layout-switch").locator("button").last().click();
       await expect(page.getByTestId("plan-view")).toBeVisible({ timeout: 15000 });
       const card = page.locator(`[data-task-card="${discordCard}"][data-density="compact"]`);
       await expect(card.getByTestId("card-channel")).toBeVisible();
