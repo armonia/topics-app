@@ -32,6 +32,7 @@ import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./help
 import { slackMs } from "../helpers/time-slack";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
+const ID_HEADER = "x-topics-primary-id";
 const STALE_CODE = "stale_primary_epoch";
 /** Longer than the dispatcher grace (6 s) and the scheduled-cards interval (15 s). */
 const QUIET_WINDOW_MS = 22_000;
@@ -250,6 +251,23 @@ describe("A is the primary at epoch 2, B is not", () => {
       expect((await call("2")).status, `${door} with epoch 2`).not.toBe(409);
       expect((await call()).status, `${door} without an epoch header`).not.toBe(409);
     }
+  }, 60_000);
+
+  test("an unauthenticated caller declaring epoch 99 changes nothing on A", async () => {
+    const claim = { [ID_HEADER]: machineA };
+    // From outside (the tunnel ports carry no owner session) and on the model proxy without a token.
+    const anonymous = [
+      status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "99", { headers: claim }),
+      status(`http://127.0.0.1:${serverA.tunnelHttpPort}/api/nodes/delegated-requests`, "99", { headers: claim }),
+      status(`http://127.0.0.1:${serverA.modelProxyPort}/v1/messages`, "99", { method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}" }),
+    ];
+    for (const res of await Promise.all(anonymous)) expect(res.status, "refused for lack of credentials").toBe(401);
+    // Had epoch 99 been adopted, epoch 2 would now be stale.
+    for (const [door, call] of Object.entries(doors(serverA))) {
+      expect((await call("2")).status, `${door} with epoch 2 after the anonymous claim`).not.toBe(409);
+    }
+    const row = withDb(serverA, (db) => db.query("SELECT epoch FROM primary_state WHERE id = 1").get() as { epoch: number });
+    expect(row.epoch).toBe(2);
   }, 60_000);
 
   test("A, the primary, still claims a todo card", async () => {

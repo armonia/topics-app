@@ -3,11 +3,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPrimaryRole, PRIMARY_EPOCH_HEADER, PRIMARY_ID_HEADER, STALE_EPOCH_CODE } from "./primary-role";
-import { createModelProxyHandler } from "../services/model-proxy";
+import { createModelProxyHandler, mintModelToken } from "../services/model-proxy";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 
 const migration = readFileSync(join(import.meta.dir, "../db/migrations/20261118110000-primary-state.sql"), "utf-8");
@@ -131,15 +131,17 @@ describe("primary role", () => {
     // The old primary calls the new one with its own epoch: refused.
     const fromOld = new Request("http://b/api/nodes/runs", { headers: oldPrimary.outgoingHeaders() });
     expect(newPrimary.rejectStale(fromOld)?.status).toBe(409);
-    // The new primary calls the old one: it adopts, becomes secondary, and refuses epoch 1 afterwards.
+    // The new primary calls the old one: once authenticated it adopts, becomes secondary, and refuses epoch 1 afterwards.
     const fromNew = new Request("http://a/api/nodes/runs", { headers: newPrimary.outgoingHeaders() });
     expect(oldPrimary.rejectStale(fromNew)).toBeNull();
+    expect(oldPrimary.epoch(), "the refusal check alone never adopts").toBe(1);
+    expect(oldPrimary.adoptFrom(fromNew, (id) => id === "m-b")).toBe(true);
     expect(oldPrimary.epoch()).toBe(2);
     expect(oldPrimary.isPrimary()).toBe(false);
     expect(oldPrimary.rejectStale(withEpoch(1))?.status).toBe(409);
     // A higher epoch without a machine id is not adopted.
     const anon = fixture("m-c").make();
-    anon.rejectStale(new Request("http://c/", { headers: { [PRIMARY_EPOCH_HEADER]: "9" } }));
+    expect(anon.adoptFrom(new Request("http://c/", { headers: { [PRIMARY_EPOCH_HEADER]: "9" } }), () => true)).toBe(false);
     expect(anon.epoch()).toBe(0);
     expect(newPrimary.outgoingHeaders()[PRIMARY_ID_HEADER]).toBe("m-b");
     a.done();
@@ -175,4 +177,54 @@ describe("primary role", () => {
     expect(touched.filter((n) => n === "getBoardSettings")).toHaveLength(1);
   });
 
+
+  test("an unauthenticated request with a higher epoch changes nothing; only a token holder naming a known machine is adopted", async () => {
+    const f = fixture("m-local");
+    const role = f.make();
+    role.adopt({ primaryMachineId: "m-local", epoch: 2 });
+    const token = mintModelToken(f.dir, "m-node");
+    const handler = createModelProxyHandler({
+      stateDir: f.dir,
+      machineExists: (id) => id === "m-node" || id === "m-other",
+      getAccessToken: async () => null,
+      recoverAfter401: async () => null,
+      rejectStale: (r) => role.rejectStale(r),
+      adoptEpoch: (r) => { role.adoptFrom(r, (id) => id === "m-other"); },
+    });
+    const claim = (headers: Record<string, string>) => handler(new Request("http://x/v1/messages", {
+      method: "POST", headers: { [PRIMARY_EPOCH_HEADER]: "99", [PRIMARY_ID_HEADER]: "m-other", ...headers }, body: "{}",
+    }));
+    expect((await claim({})).status).toBe(401);
+    expect(role.state(), "no token: still the primary at epoch 2").toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
+    expect(role.isPrimary()).toBe(true);
+    // A valid token naming a machine nobody knows: still nothing.
+    await handler(new Request("http://x/v1/messages", {
+      method: "POST", headers: { authorization: `Bearer ${token}`, [PRIMARY_EPOCH_HEADER]: "99", [PRIMARY_ID_HEADER]: "m-ghost" }, body: "{}",
+    }));
+    expect(role.epoch()).toBe(2);
+    await claim({ authorization: `Bearer ${token}` });
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-other", epoch: 99 });
+    f.done();
+  });
+
+  test("nothing chosen: boot writes no state file", () => {
+    const f = fixture();
+    f.make();
+    expect(existsSync(f.stateFile)).toBe(false);
+    f.done();
+  });
+
+  test("a state file that cannot be written does not stop the boot", () => {
+    const f = fixture();
+    f.db.query("UPDATE primary_state SET primary_machine_id = 'm-local', epoch = 3 WHERE id = 1").run();
+    // The state file's folder is a regular file: every write fails, as on a read-only or full disk.
+    const blocker = join(f.dir, "not-a-folder");
+    writeFileSync(blocker, "");
+    const lines: string[] = [];
+    const role = createPrimaryRole({ db: f.db, stateFile: join(blocker, "primary-state.json"), localMachineId: () => "m-local", log: (l) => lines.push(l) });
+    expect(role.isPrimary()).toBe(true);
+    expect(role.epoch()).toBe(3);
+    expect(lines.join(" ")).toContain("could not write the primary state");
+    f.done();
+  });
 });

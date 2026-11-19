@@ -34,10 +34,17 @@ export interface PrimaryRole {
   adopt(next: { primaryMachineId: string; epoch: number }): PrimaryState;
   /**
    * A 409 for a request carrying a lower epoch than ours, else null. An absent,
-   * empty or unparsable header means "not declared", never 0. A higher epoch with
-   * the sender's machine id is adopted, so from then on lower ones are refused.
+   * empty or unparsable header means "not declared", never 0. It never changes
+   * the state, so it may run before authentication.
    */
   rejectStale(req: Request): Response | null;
+  /**
+   * Adopt the higher epoch a request declares, with the machine id it names.
+   * Call it ONLY after the caller was authenticated (node token, machine token):
+   * otherwise any anonymous request could turn this server into a secondary.
+   * The id must be a machine this server knows. Returns true when adopted.
+   */
+  adoptFrom(req: Request, isKnownMachine: (machineId: string) => boolean): boolean;
   /** Headers an outgoing call from the primary carries: its epoch and machine id. Empty until a primary was chosen. */
   outgoingHeaders(): Record<string, string>;
 }
@@ -47,6 +54,7 @@ export interface PrimaryRoleDeps {
   stateFile: string;
   localMachineId: () => string;
   now?: () => string;
+  log?: (line: string) => void;
 }
 
 function readStateFile(file: string): PrimaryState | null {
@@ -76,6 +84,12 @@ function writeDb(db: Database, s: PrimaryState): void {
   ).run(s.primaryMachineId, s.epoch, s.since);
 }
 
+/** The epoch a request declares, or null when the header is absent, empty or not a whole number. */
+function declaredEpoch(req: Request): number | null {
+  const raw = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim();
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
 function staleResponse(current: number, presented: number): Response {
   return new Response(
     JSON.stringify({ code: STALE_EPOCH_CODE, error: "This primary was replaced by a newer epoch", epoch: current, presented }),
@@ -95,10 +109,23 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     writeDb(deps.db, s);
   };
 
+  const log = deps.log ?? ((line: string) => console.warn(line));
+
   const fromFile = readStateFile(deps.stateFile);
   const fromDb = readDb(deps.db);
   let current = fromFile && fromFile.epoch > fromDb.epoch ? fromFile : fromDb;
-  if (fromFile === null || fromFile.epoch !== current.epoch || fromDb.epoch !== current.epoch) persist(current);
+  // Nothing chosen yet: nothing to write. A repair that cannot be written is
+  // logged and the server boots with what it read; a full disk or a read-only
+  // folder must never stop the server.
+  const configured = current.epoch > 0 || current.primaryMachineId !== null;
+  const outOfStep = fromFile?.epoch !== current.epoch || fromDb.epoch !== current.epoch;
+  if (configured && outOfStep) {
+    try {
+      persist(current);
+    } catch (err) {
+      log(`[primary] could not write the primary state, booting with epoch ${current.epoch}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   const role: PrimaryRole = {
     state: () => ({ ...current }),
@@ -117,18 +144,22 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       return { ...current };
     },
     rejectStale(req) {
-      const raw = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim();
-      if (!raw || !/^\d+$/.test(raw)) return null;
-      const presented = Number(raw);
-      if (presented > current.epoch) {
-        const id = req.headers.get(PRIMARY_ID_HEADER)?.trim();
-        if (id) {
-          try { role.adopt({ primaryMachineId: id, epoch: presented }); } catch { /* keep the current role */ }
-        }
-        return null;
-      }
-      if (presented >= current.epoch) return null;
+      const presented = declaredEpoch(req);
+      if (presented === null || presented >= current.epoch) return null;
       return staleResponse(current.epoch, presented);
+    },
+    adoptFrom(req, isKnownMachine) {
+      const presented = declaredEpoch(req);
+      if (presented === null || presented <= current.epoch) return false;
+      const id = req.headers.get(PRIMARY_ID_HEADER)?.trim();
+      if (!id || !isKnownMachine(id)) return false;
+      try {
+        role.adopt({ primaryMachineId: id, epoch: presented });
+        return true;
+      } catch (err) {
+        log(`[primary] epoch ${presented} from ${id} not adopted: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
     },
     outgoingHeaders: (): Record<string, string> => (current.primaryMachineId && current.epoch > 0
       ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch), [PRIMARY_ID_HEADER]: current.primaryMachineId }

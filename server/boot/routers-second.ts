@@ -202,8 +202,18 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
   });
 
   // A call from a primary that was replaced (lower epoch) is refused before it touches a card.
-  const nodesRouter: RouteHandler = (req, url, pathname, method) =>
-    (pathname.startsWith("/api/nodes/") ? getPrimaryRole()?.rejectStale(req) : null) ?? nodesRouterInner(req, url, pathname, method);
+  // A higher epoch is adopted only from an OWNER the access gate already authenticated
+  // (the coordinator's node session) and only for a machine this server knows.
+  const nodesRouter: RouteHandler = (req, url, pathname, method) => {
+    if (!pathname.startsWith("/api/nodes/")) return nodesRouterInner(req, url, pathname, method);
+    const role = getPrimaryRole();
+    const stale = role?.rejectStale(req);
+    if (stale) return stale;
+    if (role && ctx.requestIdentity?.(req)?.role === "owner") {
+      role.adoptFrom(req, (machineId) => ctx.machineStore.get(machineId) !== null);
+    }
+    return nodesRouterInner(req, url, pathname, method);
+  };
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 

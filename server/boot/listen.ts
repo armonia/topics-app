@@ -206,6 +206,7 @@ export async function bootListen(scope: AfterFront) {
         getAccessToken,
         recoverAfter401,
         rejectStale: (req) => getPrimaryRole()?.rejectStale(req) ?? null,
+        adoptEpoch: (req) => { getPrimaryRole()?.adoptFrom(req, (machineId) => ctx.machineStore.get(machineId) !== null); },
       })
     : null;
 
