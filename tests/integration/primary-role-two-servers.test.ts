@@ -30,6 +30,13 @@
  * model, so a card the dispatcher claims comes back parked in backlog with the
  * "No eligible coding model" reason; a card nobody claimed stays in todo.
  *
+ *   6. A THIRD server D, not the fleet's primary, pairs B after A already did:
+ *      B's channel stays A's device, never D's (the defect this test guards:
+ *      "last pairing wins" let any server that paired a node steal its
+ *      channel). A, restarted at a higher epoch, is still adopted by B
+ *      through the unchanged channel. D, independently declaring an even
+ *      higher epoch, is never adopted, because it is not the channel's device.
+ *
  * @covers MACHINE-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -409,5 +416,51 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
     expect(summary).toEqual({ todo: false, blockerDone: false, manualStart: false, scheduledFired: false });
     // The memory-held card is still the waiter it was: nothing claimed it and nothing cleared it.
     expect(await view(held)).toMatchObject({ status: "todo", dispatchState: "queued", dispatchError: "waiting-memory" });
+  }, 120_000);
+});
+
+describe("D, a third server that is not the fleet's primary, cannot steal B's channel from A (MACHINE-01)", () => {
+  const serverD = makeServer("d");
+  let machineD = "";
+
+  test("D pairs B after A: the channel on B stays A's device, not D's", async () => {
+    await boot(serverD);
+    const { machines } = await api<{ machines: { id: string; baseUrl: string | null }[] }>(serverD, "GET", "/api/machines");
+    machineD = machines.filter((m) => m.baseUrl === null)[0]!.id;
+
+    const before = channelOf(serverB);
+    expect(before?.channel_machine_id, "B's channel is still A before D shows up").toBe(machineA);
+
+    const opened = await api<{ pairingId: string }>(serverD, "POST", "/api/machines/pair", { baseUrl: `http://127.0.0.1:${serverB.tunnelHttpPort}` });
+    const { requests } = await api<{ requests: { id: string }[] }>(serverB, "GET", "/api/auth/pair/pending");
+    expect(requests).toHaveLength(1);
+    await api(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
+    const paired = await api<{ state: string }>(serverD, "GET", `/api/machines/pair/${opened.pairingId}`);
+    expect(paired.state).toBe("approved");
+
+    expect(channelOf(serverB), "D's pairing left B's channel exactly as it was").toEqual(before);
+  }, 60_000);
+
+  test("A restarted at a higher epoch is still adopted by B", async () => {
+    await stop(serverA);
+    writePrimaryState(serverA, machineA, 8);
+    await boot(serverA);
+    const until = Date.now() + slackMs(45_000);
+    while (Date.now() < until && primaryRow(serverB).epoch !== 8) await Bun.sleep(500);
+    expect(primaryRow(serverB), `B adopted A's new epoch\n${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+  }, 120_000);
+
+  test("D, declaring a higher epoch on its own authority, is never adopted by B", async () => {
+    await stop(serverD);
+    // D now believes itself to be a primary at epoch 9 (a split-brain, or just
+    // a confused install): its own heartbeat to B will carry that epoch.
+    writePrimaryState(serverD, machineD, 9);
+    await boot(serverD);
+    await Bun.sleep(slackMs(QUIET_WINDOW_MS));
+    expect(primaryRow(serverB), `B ignored D, which is not its channel's device\n${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+    // A, the real primary, is still accepted on every door.
+    for (const [door, call] of Object.entries(doors(serverB))) {
+      expect((await call("8")).status, `${door} with A's epoch after D's attempt`).not.toBe(409);
+    }
   }, 120_000);
 });

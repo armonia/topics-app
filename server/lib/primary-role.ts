@@ -196,6 +196,14 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     },
     channel: () => readChannel(deps.db),
     recordChannel(next) {
+      // An existing channel changes hands only for the primary this server already
+      // recognizes: a secondary that slips its machine id through (it should not,
+      // see `pairingHeaders`) must not steal a channel that belongs to someone else.
+      const existing = readChannel(deps.db);
+      if (existing && existing.machineId !== next.machineId && current.primaryMachineId !== next.machineId) {
+        log(`[primary] pairing from ${next.machineId} ignored: the channel already belongs to ${existing.machineId}`);
+        return;
+      }
       deps.db.query("UPDATE primary_state SET channel_device_id = ?, channel_machine_id = ? WHERE id = 1").run(next.deviceId, next.machineId);
       log(`[primary] paired by machine ${next.machineId}: a higher epoch is now adopted only from its device ${next.deviceId}`);
     },
@@ -203,7 +211,12 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     outgoingHeaders: (): Record<string, string> => (current.epoch > 0 && current.primaryMachineId === localMachineId()
       ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch) }
       : {}),
-    pairingHeaders: (): Record<string, string> => ({ [PAIRING_MACHINE_HEADER]: localMachineId() }),
+    // Same criterion as `outgoingHeaders`, minus the epoch>0 guard: a virgin
+    // installation (no primary chosen yet) is its own primary and must still be
+    // able to pair its first devices and record itself as their channel.
+    pairingHeaders: (): Record<string, string> => (current.primaryMachineId === null || current.primaryMachineId === localMachineId()
+      ? { [PAIRING_MACHINE_HEADER]: localMachineId() }
+      : {}),
   };
   return role;
 }

@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrimaryRole, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
+import { createPrimaryRole, PAIRING_MACHINE_HEADER, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
 import { createModelProxyHandler, mintModelToken } from "../services/model-proxy";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 
@@ -144,6 +144,26 @@ describe("primary role", () => {
     expect(oldPrimary.outgoingHeaders()).toEqual({});
     a.done();
     b.done();
+  });
+
+  test("a secondary sends no pairing header, and a channel already recorded refuses a different machine", () => {
+    const f = fixture("m-local");
+    const role = f.make();
+    // Nothing chosen yet: a virgin install is its own primary and can pair its first devices.
+    expect(role.pairingHeaders()).toEqual({ [PAIRING_MACHINE_HEADER]: "m-local" });
+    role.recordChannel({ deviceId: "dev-a", machineId: "m-a" });
+    expect(role.channel()).toEqual({ deviceId: "dev-a", machineId: "m-a" });
+    // Demoted to secondary: it must stop declaring itself at pairing, same as `outgoingHeaders`.
+    role.adopt({ primaryMachineId: "m-a", epoch: 5 });
+    expect(role.pairingHeaders()).toEqual({});
+    // Even if a secondary's declared id slipped through, the channel does not change hands
+    // for a machine that is not the one this server already recognizes as primary.
+    role.recordChannel({ deviceId: "dev-d", machineId: "m-d" });
+    expect(role.channel(), "the rogue pairing left the channel alone").toEqual({ deviceId: "dev-a", machineId: "m-a" });
+    // The real primary re-pairing (a new device row for the same machine) still wins.
+    role.recordChannel({ deviceId: "dev-a2", machineId: "m-a" });
+    expect(role.channel()).toEqual({ deviceId: "dev-a2", machineId: "m-a" });
+    f.done();
   });
 
   test("the machine id is read once and a missing state folder is created", () => {
