@@ -43,7 +43,7 @@ function harness(over: Partial<SubagentWakeDeps> & { answers?: number[] } = {}) 
 }
 
 describe("subagent wake", () => {
-  test("a result asked for twice while queued wakes the parent once, and can be asked again once settled or failed", async () => {
+  test("a result asked for twice while queued wakes the parent once, and can be asked again once its row write failed", async () => {
     const h = harness();
     h.setBusy(true);
     h.ask(result());
@@ -61,6 +61,28 @@ describe("subagent wake", () => {
     h2.wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => rows.push("ok"), settle: () => {} });
     await h2.wake.idle();
     expect(rows).toEqual(["ok"]);
+  });
+
+  test("the route throwing does not discard the sweep's later re-ask", async () => {
+    let calls = 0;
+    const h = harness({ route: async () => { calls++; if (calls === 1) throw new Error("route down"); return new Response("data: [DONE]\n\n"); } });
+    h.ask(result());
+    await h.wake.idle();
+    expect(h.settled).toEqual([]);
+    h.ask(result());
+    await h.wake.idle();
+    expect(calls).toBe(2);
+    expect(h.settled).toEqual(["c1:1"]);
+  });
+
+  test("a result delivered whose durable clear failed is not woken twice by the sweep", async () => {
+    const h = harness();
+    h.ask(result());
+    await h.wake.idle();
+    // The settle callback swallows its own failure, so the pending copy stays and the sweep asks again.
+    h.ask(result());
+    await h.wake.idle();
+    expect(h.posted.length).toBe(1);
   });
 
   // The archive of a chat is judged against the launch each result answers: A
