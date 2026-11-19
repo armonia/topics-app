@@ -3436,6 +3436,19 @@
       "verdetto",
       "verdettoDaApporre"
     ],
+    "server/mcp/agent-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/board-tools.ts": [
+      "anteprima"
+    ],
+    "server/mcp/chat-tools.ts": [
+      "buf"
+    ],
+    "server/mcp/tool-catalog.ts": [
+      "MODIFICA",
+      "SOLA_LETTURA"
+    ],
     "server/mcp/topics-mcp-server.e2e.test.ts": [
       "buf",
       "dec"
@@ -3447,12 +3460,6 @@
       "gambe",
       "invisibile",
       "subito"
-    ],
-    "server/mcp/topics-mcp-server.ts": [
-      "MODIFICA",
-      "SOLA_LETTURA",
-      "anteprima",
-      "buf"
     ],
     "server/providers/acp-jcode-model.integration.test.ts": [
       "CHIESTI",
