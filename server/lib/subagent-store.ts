@@ -369,7 +369,7 @@ export function pendingResultsOf(db: Db, id: string): SubAgentResult[] {
  * `stopped` and `lost` are excluded: a `stop_agent` on a child whose earlier
  * result never settled (its wake stuck behind a busy or held parent) left the
  * "about to resume" line lit forever, long after `list_agents` already called
- * the child gone (`chat-indicator-dopo-stop`). A result of a child that will
+ * the child gone. A result of a child that will
  * never run again is abandoned, not awaited: it still reaches the chat as a
  * plain row once the parent is free (`resultWakesParent`), it just stops
  * counting as work in progress.
