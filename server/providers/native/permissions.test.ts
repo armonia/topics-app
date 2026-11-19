@@ -157,6 +157,12 @@ describe("RT-07: la cartella del turno e i file che ha creato", () => {
     expect(decide("bash", { command: "rm -rf /tmp/x /home/x 2>/dev/null" }, "auto-apply").allow).toBe(false);
   });
 
+  test("rm di '$TMPDIR/x' tra apici singoli resta bloccato: e' un percorso letterale", () => {
+    const scope = { cwd: "/home/user" };
+    expect(decide("bash", { command: "rm -rf '$TMPDIR/x'" }, "auto-apply", scope).allow).toBe(false);
+    expect(decide("bash", { command: 'rm -rf "$TMPDIR/x"' }, "auto-apply", scope).allow).toBe(true);
+  });
+
   test("rm su un file creato dal turno passa, su uno che non ha creato no", () => {
     const scope = { createdPaths: new Set(["/home/x/project/scratch.tmp"]) };
     expect(decide("bash", { command: "rm -f /home/x/project/scratch.tmp" }, "auto-apply", scope).allow).toBe(true);

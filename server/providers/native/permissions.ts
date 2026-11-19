@@ -159,7 +159,8 @@ function rmTargets(args: string[]): string[] {
     if (/^\d*>>?\S/.test(a)) continue;
     if (!afterDashes && a === "--") { afterDashes = true; continue; }
     if (!afterDashes && a.startsWith("-")) continue;
-    targets.push(a.replace(/^(["']?)\$\{?(?:TMPDIR|TMP)\}?(?=\/|["']?$)/, "$1/tmp"));
+    // Single quotes keep `$TMPDIR` literal, so it is a relative path, not the temp root.
+    targets.push(a.replace(/^(["']?)\$\{?(?:TMPDIR|TMP)\}?(?=\/|["']?$)/, (m, q: string) => (q === "'" ? m : `${q}/tmp`)));
   }
   return targets;
 }
