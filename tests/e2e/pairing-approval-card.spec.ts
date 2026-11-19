@@ -1,6 +1,6 @@
 /**
  * pairing-approval-card.spec.ts - what the approval card SAYS when a server asks
- * for this node's channel (card a237b001).
+ * for this node's channel (card cc704bfa).
  *
  * The cure has a visible half: a request that declares a machine id and an epoch
  * is not a phone asking for a device slot, it is a server asking to become this
@@ -25,7 +25,7 @@ hermetic(test);
 const SHOTS = `${homedir()}/.topics/media/pairing-card`;
 
 /** A node pairing request, shaped as the WebSocket hands it to the card. */
-const TAKEOVER_REQUEST = {
+const NODE_PRIMARY_REQUEST = {
   id: "pair-req-node",
   code: "4F2K9A",
   name: "Topics server",
@@ -37,7 +37,7 @@ const TAKEOVER_REQUEST = {
 };
 
 /** The same request as the card drew it before the cure: machine fields unknown. */
-const { machineId: _m, machineEpoch: _e, currentPrimaryMachineId: _c, ...LEGACY_REQUEST } = TAKEOVER_REQUEST;
+const { machineId: _m, machineEpoch: _e, currentPrimaryMachineId: _c, ...LEGACY_REQUEST } = NODE_PRIMARY_REQUEST;
 
 async function showRequest(page: Page, detail: Record<string, unknown>) {
   await page.route("**/api/auth/pair/pending", (route) => route.fulfill({ json: { requests: [] } }));
@@ -73,7 +73,7 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
 
   test(`the card names the epoch and who loses the channel, at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height });
-    const card = await showRequest(page, TAKEOVER_REQUEST);
+    const card = await showRequest(page, NODE_PRIMARY_REQUEST);
     // Epoch and the machine being replaced, in words, before any click.
     await expect(card).toContainText(/epoc[ah] 50/i);
     await expect(card).toContainText("node-a3c0");
