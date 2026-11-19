@@ -6,6 +6,10 @@ import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
 
+test.beforeEach(() => {
+  test.info().annotations.push({ type: "spec", description: "CHAT-06" });
+});
+
 // A finished chat's row ends with "· 34m ago". The receipt lives outside the
 // truncating span of the preview, so a very long last message must not push it
 // out of view, on a phone and on a desktop.
