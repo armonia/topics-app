@@ -716,18 +716,18 @@ test.describe.serial("Coda dei messaggi", () => {
   });
 
   /**
-   * IL RIFIUTO ARRIVA DOPO LA FINE DEL TURNO CHE LO HA RIFIUTATO.
+   * THE REFUSAL ARRIVES AFTER THE TURN THAT REFUSED IT HAS ENDED.
    *
-   * Il 409 viaggia: il turno che lo ha dato può finire mentre la risposta è in
-   * strada. La sua chiusura (`turn:state`, `open:false`) arriva qui con la coda
-   * ancora VUOTA (il messaggio è in volo), il drain parte su niente, e un attimo
-   * dopo il messaggio rientra in coda ad aspettare una parola già detta. Restava
-   * lì, senza risposta in chat, finché la persona non riscriveva: il «Jarvis tace,
-   * scrivo “?”» di otto thread (card e73d7a2d).
+   * The 409 travels: the turn that issued it can finish while the response is
+   * still on the wire. Its close (`turn:state`, `open:false`) lands here with the
+   * queue still EMPTY (the message is in flight), the drain runs on nothing, and a
+   * moment later the message re-enters the queue waiting for a word already said.
+   * It sat there, unanswered in the chat, until the person typed again: the
+   * "Jarvis is silent, I write '?'" of eight threads (card e73d7a2d).
    *
-   * Qui la chiusura è mandata PRIMA del 409 e il 409 nomina il turno già chiuso:
-   * il messaggio deve ripartire da solo, una volta sola. È il caso che il test
-   * sopra non copre (lì il 409 arriva prima della fine).
+   * Here the close is sent BEFORE the 409 and the 409 names the already-closed
+   * turn: the message must restart by itself, exactly once. It is the case the
+   * test above does not cover (there the 409 arrives before the end).
    */
   test("409 che arriva dopo la fine del turno che lo ha dato: il messaggio riparte da solo", async ({ page, chatPage }) => {
     let inject: ((data: string) => void) | null = null;
@@ -747,8 +747,8 @@ test.describe.serial("Coda dei messaggi", () => {
       sent.push(body?.messages?.[body.messages.length - 1]?.content ?? "");
       if (occupata) {
         occupata = false;
-        // Il turno 7 dell'altro finisce MENTRE il rifiuto è in strada: la chiusura
-        // (asOf 2) arriva prima della risposta, che porta la fotografia di prima (asOf 1, aperto).
+        // The other turn 7 ends WHILE the refusal is on the wire: the close
+        // (asOf 2) arrives before the response, which carries the earlier snapshot (asOf 1, open).
         inject!(JSON.stringify({ type: "turn:state", sessionKey, boot: BOOT, asOf: 2, turnId: 7, open: false }));
         await new Promise((r) => setTimeout(r, 400));
         return route.fulfill({
@@ -778,7 +778,7 @@ test.describe.serial("Coda dei messaggi", () => {
     await chatPage.messageInput.fill(TESTO);
     await chatPage.messageInput.press("Enter");
 
-    // IL PUNTO: nessuna fine di turno arriverà più, eppure riparte da solo, una volta sola.
+    // THE POINT: no turn end will ever arrive, yet it restarts by itself, exactly once.
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual([TESTO, TESTO]);
     await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
