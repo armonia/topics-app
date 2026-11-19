@@ -7,7 +7,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createFileTreeSlowLogger, walkFileTree, type FileNode } from "./file-tree";
+import { createFileTreeSlowLogger, walkFileTree, walkFileTreeJs, type FileNode } from "./file-tree";
 import { makeFakeHome } from "./protected-app-data.fixture";
 
 const root = mkdtempSync(join(tmpdir(), "file-tree-"));
@@ -89,7 +89,7 @@ describe("walkFileTree hands the event loop back while it walks", () => {
     let on = true;
     const spin = (): void => { turns++; if (on) setImmediate(spin); };
     setImmediate(spin);
-    const tree = await walkFileTree(root, 2);
+    const tree = await walkFileTreeJs(root, 2); // the JS walk: the native one runs off the loop and its turn count depends on the machine
     on = false;
     rmSync(root, { recursive: true, force: true });
     expect(tree).toHaveLength(12);
