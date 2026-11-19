@@ -146,6 +146,17 @@ describe("RT-07: la cartella del turno e i file che ha creato", () => {
     expect(decide("bash", { command: "rm -rf /home/x/project" }, "auto-apply", scope).allow).toBe(false);
   });
 
+  test("rm di /tmp con redirezioni, `--` e $TMPDIR passa ancora", () => {
+    for (const command of [
+      "rm -rf /tmp/x 2>/dev/null",
+      "rm -f /tmp/x > /dev/null",
+      "rm -rf -- /tmp/x/",
+      "rm -rf $TMPDIR/scratch",
+    ]) expect(decide("bash", { command }, "auto-apply").allow).toBe(true);
+    expect(decide("bash", { command: "rm -rf /home/x 2>/dev/null" }, "auto-apply").allow).toBe(false);
+    expect(decide("bash", { command: "rm -rf /tmp/x /home/x 2>/dev/null" }, "auto-apply").allow).toBe(false);
+  });
+
   test("rm su un file creato dal turno passa, su uno che non ha creato no", () => {
     const scope = { createdPaths: new Set(["/home/x/project/scratch.tmp"]) };
     expect(decide("bash", { command: "rm -f /home/x/project/scratch.tmp" }, "auto-apply", scope).allow).toBe(true);
