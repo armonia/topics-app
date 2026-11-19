@@ -262,6 +262,11 @@ describe("A is the primary at epoch 2, B is not", () => {
       status(`http://127.0.0.1:${serverA.modelProxyPort}/v1/messages`, "99", { method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}" }),
     ];
     for (const res of await Promise.all(anonymous)) expect(res.status, "refused for lack of credentials").toBe(401);
+    // A path the access gate lets through with no identity reaches the nodes router: still no adoption.
+    const exempt = await status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "99", {
+      method: "POST", headers: { ...claim, "content-type": "application/json" }, body: "{}",
+    });
+    expect(exempt.status).not.toBe(409);
     // Had epoch 99 been adopted, epoch 2 would now be stale.
     for (const [door, call] of Object.entries(doors(serverA))) {
       expect((await call("2")).status, `${door} with epoch 2 after the anonymous claim`).not.toBe(409);
