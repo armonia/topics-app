@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Per-tool detail cards.
  *
  * One component per `ToolCallDetail.type`. The parent <ToolCallRow> already
@@ -16,18 +16,18 @@
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { startVisibleInterval } from '../../state/documentVisibility';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CircleCheck, CircleDot, Circle, Check, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { SpawnAgentCard } from './SubAgentResultCard';
 import { TaskToolCard } from './TaskToolCard';
-import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from './ToolCardsFleet';
 import { ViewBlock } from '../Views/ViewBlock';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
-import { detectResultSyntax, highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
+import { detectResultSyntax, langFromPath } from '../../lib/syntaxHighlight';
+import { HighlightedPre } from './HighlightedPre';
 import { clampBody, formatBytes } from './clampBody';
 import { useFindExpandsClamp } from '../../state/chatFindFocus';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -39,37 +39,6 @@ import { LaunchedProcessTail, LiveShellTail } from './LiveShellTail';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { liveShellTail } from './runningShellTail';
 import { subAgentBodyDescription } from './toolDetail';
-
-/**
- * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
- * only wraps tokens in class-only <span>s, so the injected HTML is safe by
- * construction (same posture as MessageContent's CodeBlock). Until the
- * tokenizers land — or for unknown languages / oversize payloads — it renders
- * the plain text exactly like the previous raw <pre>.
- */
-function HighlightedPre({ code, lang, className, testId, prefix }: {
-  code: string; lang: string; className: string; testId?: string;
-  /** Literal chrome rendered before the code, outside highlighting ("$ "). */
-  prefix?: ReactNode;
-}) {
-  // Third argument = same getter: nothing changes in the browser, and the
-  // static render of unit tests (renderToStaticMarkup) stops throwing here.
-  const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady, highlighterReady);
-  const html = useMemo(
-    () => (lang ? highlightCode(code, lang) : null),
-    // `ready` re-runs the memo once the lazy tokenizers land.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [code, lang, ready],
-  );
-  return (
-    // `tool-card-code` scopes the theme-aware hljs palette (index.css) —
-    // tool card surfaces follow the app theme, unlike always-dark fences.
-    <pre data-testid={testId} className={`tool-card-code ${className}`}>
-      {prefix}
-      {html ? <code dangerouslySetInnerHTML={{ __html: html }} /> : code}
-    </pre>
-  );
-}
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 
