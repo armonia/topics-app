@@ -5591,3 +5591,11 @@ A card's `stayLocal` pin with no `stayLocalUntil` SHALL be decided at boot by a 
 #### Scenario: a repeated sweep
 - **WHEN** the sweep runs a second time over a card it already decided
 - **THEN** it SHALL write nothing further
+
+### Requirement: KANBAN-118 - Every dispatcher log line carries its time
+
+Every line the dispatcher writes to the server's standard output or error SHALL start with an ISO-8601 timestamp, before the `[dispatcher]` prefix, so a wait (a held card, a card waiting for memory, a node that does not wake) can be dated from the log alone. The rest of the line SHALL keep its format.
+
+#### Scenario: a dispatcher line in the server log
+- **WHEN** the dispatcher logs a message with no injected logger
+- **THEN** the written line SHALL match `<ISO timestamp> [dispatcher] <message>`

@@ -3,6 +3,8 @@
  * The server log has no timestamps of its own, so a wait ("held", "waiting
  * for memory") could not be dated afterwards. Reached through `drain`, a public
  * door that logs with no deps.log: the default sink is the one under test.
+ *
+ * @covers KANBAN-118
  */
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { Database } from "bun:sqlite";
