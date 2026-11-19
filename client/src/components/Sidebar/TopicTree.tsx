@@ -75,6 +75,8 @@ import { SpaceGroupCard } from './SpaceGroups';
 import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 import { useSidebarRowFlip } from './useSidebarRowFlip';
 import { useArchivedSidebarPages } from './useArchivedSidebarPages';
+import { ProjectQuotaMenu } from './ProjectQuotaMenu';
+import { ProjectQuotaMeter } from './ProjectQuotaMeter';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono: il tier
@@ -1524,6 +1526,8 @@ export function TopicTree({
               must not be read as the grey "agg. X fa" in the trailing rail,
               which is a receipt. */}
           {!isExpanded && <ProjectElapsed projectPath={pp} onFill={projOnFill} />}
+          {/* The 24h quota meter stays on the row open or shut: it is a budget, not an activity. */}
+          <ProjectQuotaMeter projectPath={pp} onFill={projOnFill} />
           {hubPresent && <Suspense fallback={null}><ProjectHubMark projectPath={pp} expanded={isExpanded} onFill={projOnFill} /></Suspense>}
           <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
             {/* Pin glyph — trailing rail, before the badge (same fixed
@@ -2463,6 +2467,7 @@ export function TopicTree({
             </button>
           )}
           {hubPresent && <Suspense fallback={null}><ProjectHubMenu projectPath={projectContextMenu.projectPath} onClose={() => setProjectContextMenu(null)} /></Suspense>}
+          <ProjectQuotaMenu projectPath={projectContextMenu.projectPath} />
         </ContextMenuPortal>
       )}
 
