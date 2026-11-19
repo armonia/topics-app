@@ -2,11 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.51 — 2026-11-19
+
+### Sotto il cofano
+- Remote children: gh's login is a mac-only resource too (SUBAGENT-28) (#1353)
+
 ## 2.4.50 — 2026-11-19
 
 ### Sotto il cofano
 - la prenotazione degli shard non si perde fra prepare-e2e e la partenza degli shard (#1315)
 - release-gate: nota sulla trappola del marcatore che salta la CI nel titolo di una PR (#1346)
+- Remote children: gh's login is a mac-only resource too (SUBAGENT-28)
 
 ## 2.4.49 — 2026-11-19
 
