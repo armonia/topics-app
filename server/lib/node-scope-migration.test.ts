@@ -4,7 +4,9 @@ import { Database } from "bun:sqlite";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isNodeDevice, markNodeDevice, mayDriveNodeRuns, ownsNodeRun, recordNodeRunCaller } from "./node-scope";
+import { isNodeDevice, markNodeDevice, mayDriveNodeRuns, ownsNodeRun, recordNodeRunCaller, restrictMachineLikeDevices, serverAgentHost } from "./node-scope";
+import { MIGRATION_STEPS } from "../db/migration-steps";
+import { deviceNameFromUserAgent } from "../routes/auth";
 import { hashToken } from "./device-auth";
 import { resolveIdentity } from "./identity";
 import { TASKS_DDL } from "../db/test-schema";
@@ -139,6 +141,59 @@ describe("migration 20261119100000-node-devices on a synthetic database", () => 
     schema(db);
     db.exec(sql(NODE_DEVICES));
     expect(db.query("SELECT COUNT(*) AS n FROM node_devices").get()).toEqual({ n: 0 });
+    db.close();
+  });
+});
+
+describe("migration 20261119214119-node-devices-by-traces: the trace of a person decides, never the name", () => {
+  const BY_TRACES = "20261119214119-node-devices-by-traces.sql";
+  /** The name the server stores at pairing, computed as `/api/auth/pair/request` does. */
+  const nameFor = (ua: string | null) => serverAgentHost(ua) ?? deviceNameFromUserAgent(ua);
+
+  function tracesDb(): Database {
+    const db = new Database(":memory:");
+    schema(db);
+    db.exec(sql(NODE_DEVICES));
+    db.run("INSERT INTO people (id, display_name, created_at, updated_at) VALUES ('owner', 'Owner', 1, 1)");
+    const add = (id: string, ua: string | null) =>
+      db.query("INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role, person_id) VALUES (?, ?, ?, 1, 1, NULL, NULL, 'owner', 'owner')").run(id, nameFor(ua), hashToken(`t-${id}`));
+    add("linux-server", "Topics/1.0 (linux-worker)");
+    add("windows-server", "Topics/1.0 (WINDOWS-PC)");
+    add("curl-no-traces", "curl/8.4.0");
+    add("curl-with-message", "curl/8.4.0");
+    add("phone", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)");
+    add("browser", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)");
+    db.run("INSERT INTO messages (id, author_device_id) VALUES ('m-1', 'curl-with-message')");
+    db.run("INSERT INTO messages (id, author_device_id) VALUES ('m-2', 'browser')");
+    db.run("INSERT INTO push_subscriptions (endpoint, auth_device_id) VALUES ('https://push.test/1', 'phone')");
+    return db;
+  }
+
+  const nodes = (db: Database) => (db.query("SELECT device_id FROM node_devices ORDER BY device_id").all() as Array<{ device_id: string }>).map((r) => r.device_id);
+
+  test("servers named like a platform and a bare curl become node, a phone and a browser with a trace stay owner", () => {
+    const db = tracesDb();
+    // The names are what the pairing wrote: hosts for servers, the platform fallback for curl.
+    expect(db.query("SELECT name FROM devices WHERE id = 'curl-no-traces'").get()).toEqual({ name: deviceNameFromUserAgent("curl/8.4.0") });
+    db.exec(sql(BY_TRACES));
+    const logged: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => { logged.push(line); };
+    try { MIGRATION_STEPS[BY_TRACES]!(db); } finally { console.log = log; }
+    expect(nodes(db)).toEqual(["curl-no-traces", "linux-server", "windows-server"]);
+    expect(logged).toHaveLength(3);
+    expect(logged.join(" ")).toContain("linux-server");
+    for (const t of ["t-linux-server", "t-windows-server", "t-curl-no-traces"]) expect(resolveIdentity(db, cookie(t), false).node, t).toBe(true);
+    for (const t of ["t-curl-with-message", "t-phone", "t-browser"]) expect(resolveIdentity(db, cookie(t), false).node, t).toBe(false);
+    db.close();
+  });
+
+  test("it runs again without narrowing anything more, and leaves a credential already marked as it was", () => {
+    const db = tracesDb();
+    markNodeDevice(db, "linux-server", "machine-linux", "paired");
+    expect(restrictMachineLikeDevices(db).map((d) => d.id).sort()).toEqual(["curl-no-traces", "windows-server"]);
+    expect(restrictMachineLikeDevices(db)).toEqual([]);
+    expect(db.query("SELECT machine_id, origin FROM node_devices WHERE device_id = 'linux-server'").get()).toEqual({ machine_id: "machine-linux", origin: "paired" });
     db.close();
   });
 });
