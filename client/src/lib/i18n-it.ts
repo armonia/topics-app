@@ -273,6 +273,7 @@ const IT: Dict = {
   'topic.waitLine.process': 'Aspetta un processo',
   'topic.waitLine.job': 'Aspetta un lavoro in background',
   'topic.waitLine.resuming': 'Sta per riprendere',
+  'topic.finishedAgo': '{time} fa',
   'topic.waitingOnSubagent': 'Il turno è finito: aspetta un sottoagente. Si rimette a scrivere quando risponde. La chat è libera, puoi scrivere',
   'topic.waitingOnProcess': 'Il turno è finito: aspetta un processo in background. Si rimette a scrivere quando finisce. La chat è libera, puoi scrivere',
   'topic.backgroundResuming': 'Il lavoro in background ha risposto e la chat sta per riprendere. Intanto è libera, puoi scrivere',

@@ -269,6 +269,7 @@ const EN = {
   'topic.waitLine.process': 'Waiting for a process',
   'topic.waitLine.job': 'Waiting for a background job',
   'topic.waitLine.resuming': 'About to resume',
+  'topic.finishedAgo': '{time} ago',
   'topic.waitingOnSubagent': 'The turn is over: waiting for a sub-agent. It starts writing again when it answers. The chat is free, you can write',
   'topic.waitingOnProcess': 'The turn is over: waiting for a background process. It starts writing again when it ends. The chat is free, you can write',
   'topic.backgroundResuming': 'The background work reported back and the chat is about to resume. It is free meanwhile, you can write',

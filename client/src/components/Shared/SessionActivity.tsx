@@ -227,23 +227,26 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
   // un'icona — su una riga da 11px un glifo in più è rumore — e non un colore,
   // perché il colore da solo non dice chi ha parlato.
   const tone = onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary';
+  // The receipt sits OUTSIDE the truncating span: inside it a long last message
+  // would ellipsize the time away. The text shrinks, the time never does.
   return (
-    <span
-      className={`truncate-tight text-mini ${tone} ${className}`}
-      title={preview.text}
-      // Ancora per l'e2e: il testo dell'anteprima è quello dell'ultimo
-      // messaggio, quindi non è cercabile per stringa senza inseguire il seed.
-      data-testid="topic-preview"
-    >
-      {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
-      {preview.text}
+    <span className={`flex min-w-0 items-baseline text-mini ${tone} ${className}`}>
+      <span
+        className="truncate-tight min-w-0"
+        title={preview.text}
+        // E2E anchor: the preview text is the last message, so it cannot be found by string.
+        data-testid="topic-preview"
+      >
+        {preview.role === 'user' && <span className="opacity-70">Tu: </span>}
+        {preview.text}
+      </span>
       <FinishedAgo topicId={topicId} />
     </span>
   );
 }
 
 /**
- * The receipt of a finished chat ("· 34m fa") at the tail of its preview line.
+ * The receipt of a finished chat ("· 34m ago") at the tail of its preview line.
  * Split into its own component so the shared 10s clock is subscribed only by
  * rows that actually have a last-activity time to age.
  */
@@ -255,9 +258,10 @@ function FinishedAgo({ topicId }: { topicId: string | undefined }) {
 
 function FinishedAgoText({ at }: { at: number }) {
   const now = useSharedNow();
+  const tr = useT();
   const label = formatElapsedShort(Math.max(0, now - at));
   if (!label) return null;
-  return <span data-testid="finished-ago">{` · ${label} fa`}</span>;
+  return <span className="shrink-0 whitespace-pre" data-testid="finished-ago">{` · ${tr('topic.finishedAgo', { time: label })}`}</span>;
 }
 
 /**
