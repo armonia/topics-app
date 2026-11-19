@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrimaryRole, PRIMARY_EPOCH_HEADER, PRIMARY_ID_HEADER, STALE_EPOCH_CODE } from "./primary-role";
+import { createPrimaryRole, PRIMARY_EPOCH_HEADER, STALE_EPOCH_CODE } from "./primary-role";
 import { createModelProxyHandler, mintModelToken } from "../services/model-proxy";
 import { createTaskDispatcher } from "../services/task-dispatcher";
 
@@ -131,19 +131,17 @@ describe("primary role", () => {
     // The old primary calls the new one with its own epoch: refused.
     const fromOld = new Request("http://b/api/nodes/runs", { headers: oldPrimary.outgoingHeaders() });
     expect(newPrimary.rejectStale(fromOld)?.status).toBe(409);
-    // The new primary calls the old one: once authenticated it adopts, becomes secondary, and refuses epoch 1 afterwards.
+    // The new primary paired the old one: its device there is the channel.
+    oldPrimary.recordChannel({ deviceId: "dev-b", machineId: "m-b" });
     const fromNew = new Request("http://a/api/nodes/runs", { headers: newPrimary.outgoingHeaders() });
     expect(oldPrimary.rejectStale(fromNew)).toBeNull();
     expect(oldPrimary.epoch(), "the refusal check alone never adopts").toBe(1);
-    expect(oldPrimary.adoptFrom(fromNew, (id) => id === "m-b")).toBe(true);
-    expect(oldPrimary.epoch()).toBe(2);
+    expect(oldPrimary.adoptFrom(fromNew, { deviceId: "dev-b" })).toBe(true);
+    expect(oldPrimary.state()).toMatchObject({ primaryMachineId: "m-b", epoch: 2 });
     expect(oldPrimary.isPrimary()).toBe(false);
     expect(oldPrimary.rejectStale(withEpoch(1))?.status).toBe(409);
-    // A higher epoch without a machine id is not adopted.
-    const anon = fixture("m-c").make();
-    expect(anon.adoptFrom(new Request("http://c/", { headers: { [PRIMARY_EPOCH_HEADER]: "9" } }), () => true)).toBe(false);
-    expect(anon.epoch()).toBe(0);
-    expect(newPrimary.outgoingHeaders()[PRIMARY_ID_HEADER]).toBe("m-b");
+    // A server that is no longer the primary stops sending its epoch.
+    expect(oldPrimary.outgoingHeaders()).toEqual({});
     a.done();
     b.done();
   });
@@ -192,7 +190,7 @@ describe("primary role", () => {
       log: () => {},
     });
     const claim = (headers: Record<string, string>) => handler(new Request("http://x/v1/messages/count_tokens", {
-      method: "POST", headers: { [PRIMARY_EPOCH_HEADER]: "9007199254740991", [PRIMARY_ID_HEADER]: "m-node", ...headers }, body: "{}",
+      method: "POST", headers: { [PRIMARY_EPOCH_HEADER]: "9007199254740991", ...headers }, body: "{}",
     }));
     expect((await claim({})).status).toBe(401);
     expect((await claim({ authorization: "Bearer tmt_forged" })).status).toBe(401);
@@ -204,19 +202,27 @@ describe("primary role", () => {
     f.done();
   });
 
-  test("an adopted epoch is at most one above the current, and every adoption is logged", () => {
-    const f = fixture("m-local");
+  test("only the channel device adopts, any higher epoch, under the channel's machine id, and every adoption is logged", () => {
+    const f = fixture("m-node");
     const lines: string[] = [];
-    const role = createPrimaryRole({ db: f.db, stateFile: f.stateFile, localMachineId: () => "m-local", log: (l) => lines.push(l) });
-    role.adopt({ primaryMachineId: "m-local", epoch: 2 });
-    const from = (epoch: string) => new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: epoch, [PRIMARY_ID_HEADER]: "m-other" } });
-    expect(role.adoptFrom(from("9007199254740991"), (id) => id === "m-other")).toBe(false);
-    expect(role.adoptFrom(from("4"), (id) => id === "m-other")).toBe(false);
-    expect(role.state()).toMatchObject({ primaryMachineId: "m-local", epoch: 2 });
-    expect(role.adoptFrom(from("3"), (id) => id === "m-other")).toBe(true);
-    expect(role.state()).toMatchObject({ primaryMachineId: "m-other", epoch: 3 });
-    expect(lines.filter((l) => l.startsWith("[primary]"))).toHaveLength(3);
-    expect(lines.at(-1)).toContain("adopted epoch 3 from m-other");
+    const role = createPrimaryRole({ db: f.db, stateFile: f.stateFile, localMachineId: () => "m-node", log: (l) => lines.push(l) });
+    const from = (epoch: string) => new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: epoch } });
+    // No channel yet: nobody adopts, not even an authenticated device.
+    expect(role.adoptFrom(from("2"), { deviceId: "dev-a" })).toBe(false);
+    role.recordChannel({ deviceId: "dev-a", machineId: "m-a" });
+    // Loopback (no device), anonymous and another device: nothing moves.
+    expect(role.adoptFrom(from("2"), { deviceId: null })).toBe(false);
+    expect(role.adoptFrom(from("2"), null)).toBe(false);
+    expect(role.adoptFrom(from("2"), { deviceId: "dev-other" })).toBe(false);
+    expect(role.state()).toMatchObject({ primaryMachineId: null, epoch: 0 });
+    // The channel: a node at 0 adopts 2 directly, with no ceiling.
+    expect(role.adoptFrom(from("2"), { deviceId: "dev-a" })).toBe(true);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-a", epoch: 2 });
+    expect(role.adoptFrom(from("40"), { deviceId: "dev-a" })).toBe(true);
+    expect(role.state()).toMatchObject({ primaryMachineId: "m-a", epoch: 40 });
+    expect(role.isPrimary()).toBe(false);
+    expect(lines.filter((l) => l.startsWith("[primary] adopted"))).toHaveLength(2);
+    expect(lines.at(-1)).toContain("adopted epoch 40 from m-a");
     f.done();
   });
 
@@ -228,8 +234,9 @@ describe("primary role", () => {
     const role = createPrimaryRole({ db: f.db, stateFile: join(blocker, "primary-state.json"), localMachineId: () => "m-local", log: (l) => lines.push(l) });
     expect(() => role.adopt({ primaryMachineId: "m-local", epoch: 1 })).toThrow();
     expect(role.state()).toMatchObject({ primaryMachineId: null, epoch: 0 });
-    const from = new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: "1", [PRIMARY_ID_HEADER]: "m-other" } });
-    expect(role.adoptFrom(from, (id) => id === "m-other")).toBe(false);
+    role.recordChannel({ deviceId: "dev-other", machineId: "m-other" });
+    const from = new Request("http://x/api/nodes/runs", { headers: { [PRIMARY_EPOCH_HEADER]: "1" } });
+    expect(role.adoptFrom(from, { deviceId: "dev-other" })).toBe(false);
     expect(lines.join(" ")).toContain("not adopted");
     expect(role.state()).toMatchObject({ primaryMachineId: null, epoch: 0 });
     expect(role.isPrimary(), "a write that failed must not turn this server into a secondary").toBe(true);

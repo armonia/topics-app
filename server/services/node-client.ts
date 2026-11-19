@@ -370,7 +370,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     async pairRequest(baseUrl) {
       const out = await callJson<Partial<PairRequestResult>>(
         `${baseUrl}/api/auth/pair/request`,
-        { method: "POST", headers: headersFor(null) },
+        // The node records this machine as the primary that paired it (its channel).
+        { method: "POST", headers: headersFor(null, getPrimaryRole()?.pairingHeaders()) },
         "pair request",
       );
       if (typeof out.requestId !== "string" || typeof out.claim !== "string" || typeof out.code !== "string") {

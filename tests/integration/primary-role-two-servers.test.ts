@@ -12,13 +12,15 @@
  *   2. A is the primary at epoch 2 (its own machine id, read from its first
  *      boot). A refuses epoch 1 with `stale_primary_epoch` on the same four
  *      doors, and lets epoch 2 or no header through. A still claims cards.
- *   3. B boots with the primary set to A's machine id at epoch 1, so B is not
- *      the primary. A pairs B as a node through the real pairing routes, over
- *      B's tunnel port (where the node session cookie is what authenticates),
- *      and A's heartbeat probe reaches B carrying epoch 2: B adopts it.
- *   4. B, now an authenticated node holding a model token, declares a huge
- *      epoch and its own id on A's model proxy: A changes nothing and keeps
- *      claiming cards. The proxy refuses a stale epoch but never adopts one.
+ *   3. B boots virgin (epoch 0, no primary). A pairs B as a node through the
+ *      real pairing routes, over B's tunnel port (where the node session
+ *      cookie is what authenticates): the request declares A's machine id and
+ *      B records it as its channel. A's heartbeat probe reaches B carrying
+ *      epoch 2, and B adopts {A, 2}: nothing is planted by hand.
+ *   4. Nobody else moves an epoch: loopback calls on A and on B, a second
+ *      owner device paired on B, and B as a node holding a model token on A's
+ *      proxy all declare higher epochs and change nothing. A keeps claiming
+ *      cards. The proxy refuses a stale epoch but never adopts one.
  *   5. Within a window longer than the grace timer and the scheduled-cards
  *      interval, B claims no card: not a todo card, not the card whose
  *      blocker is moved to done, not a memory-held card started by hand, and
@@ -38,7 +40,6 @@ import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./help
 import { slackMs } from "../helpers/time-slack";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
-const ID_HEADER = "x-topics-primary-id";
 const STALE_CODE = "stale_primary_epoch";
 /** Longer than the dispatcher grace (6 s) and the scheduled-cards interval (15 s). */
 const QUIET_WINDOW_MS = 22_000;
@@ -140,6 +141,10 @@ function writePrimaryState(s: ServerUnderTest, primaryMachineId: string, epoch: 
 
 function primaryRow(s: ServerUnderTest): { primary_machine_id: string | null; epoch: number } {
   return withDb(s, (db) => db.query("SELECT primary_machine_id, epoch FROM primary_state WHERE id = 1").get() as { primary_machine_id: string | null; epoch: number });
+}
+
+function channelOf(s: ServerUnderTest): { channel_device_id: string | null; channel_machine_id: string | null } | null {
+  return withDb(s, (db) => db.query("SELECT channel_device_id, channel_machine_id FROM primary_state WHERE id = 1").get() as { channel_device_id: string | null; channel_machine_id: string | null } | null);
 }
 
 async function api<T>(s: ServerUnderTest, method: string, path: string, body?: unknown): Promise<T> {
@@ -252,8 +257,9 @@ describe("A is the primary at epoch 2, B is not", () => {
   beforeAll(async () => {
     if (!machineA) throw new Error("the first boot of A did not record its machine id");
     writePrimaryState(serverA, machineA, 2);
-    writePrimaryState(serverB, machineA, 1);
+    // B is a virgin node: no primary chosen, epoch 0, until the pairing teaches it.
     await Promise.all([boot(serverA), boot(serverB)]);
+    expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: null, epoch: 0 });
   }, 200_000);
 
   test("A refuses epoch 1 with stale_primary_epoch on nodes, model proxy and both tunnel ports; epoch 2 and no header pass", async () => {
@@ -266,8 +272,8 @@ describe("A is the primary at epoch 2, B is not", () => {
   }, 60_000);
 
   test("an unauthenticated caller declaring the next epoch changes nothing on A", async () => {
-    const claim = { [ID_HEADER]: machineA };
-    // Epoch 3, one above A: it passes the one-step ceiling, so only authentication stops it.
+    const claim = {};
+    // Epoch 3, one above A: only authentication stops it.
     // From outside (the tunnel ports carry no owner session) and on the model proxy without a token.
     const anonymous = [
       status(`http://127.0.0.1:${serverA.tunnelPort}/api/nodes/delegated-requests`, "3", { headers: claim }),
@@ -288,25 +294,18 @@ describe("A is the primary at epoch 2, B is not", () => {
     expect(row.epoch).toBe(2);
   }, 60_000);
 
-  test("A pairs B as a node and its heartbeat call carries epoch 2: B, authenticated by the node session, adopts it", async () => {
-    // B knows A's machine: adoption names only a machine the receiver already has a row for.
-    const stamp = new Date().toISOString();
-    withDb(serverB, (db) => db.run(
-      "INSERT INTO machines (id, name, hostname, arch, platform, daemon_version, last_heartbeat_at, last_seen_at, created_at, updated_at) VALUES (?, 'primary a', 'primary-a.test', 'x64', 'test', '0.0.0', ?, ?, ?, ?)",
-      [machineA, stamp, stamp, stamp, stamp],
-    ));
-    expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 1 });
-
+  test("A pairs virgin B as a node: B records A as its channel and adopts epoch 2 from A's heartbeat", async () => {
     // The real pairing: A asks through B's tunnel port, B's owner approves, A collects the node session.
     const opened = await api<{ pairingId: string }>(serverA, "POST", "/api/machines/pair", { baseUrl: `http://127.0.0.1:${serverB.tunnelHttpPort}` });
     const { requests } = await api<{ requests: { id: string }[] }>(serverB, "GET", "/api/auth/pair/pending");
     expect(requests).toHaveLength(1);
-    await api(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
+    const approved = await api<{ deviceId: string }>(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
     const paired = await api<{ state: string; machine?: { id: string } }>(serverA, "GET", `/api/machines/pair/${opened.pairingId}`);
     expect(paired.state).toBe("approved");
     nodeBOnA = paired.machine!.id;
+    expect(channelOf(serverB), "the pairing recorded A as B's channel").toEqual({ channel_device_id: approved.deviceId, channel_machine_id: machineA });
 
-    // The heartbeat probe calls B's /api/nodes/* every 30 s with A's epoch headers.
+    // The heartbeat probe calls B's /api/nodes/* every 30 s with A's epoch header.
     const until = Date.now() + slackMs(45_000);
     while (Date.now() < until && primaryRow(serverB).epoch !== 2) await Bun.sleep(500);
     expect(primaryRow(serverB), `B adopted the epoch A sent
@@ -316,14 +315,35 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
     expect(primaryRow(serverA)).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
   }, 120_000);
 
+  test("loopback on A and on B, and a second owner device on B, declare higher epochs and move nothing", async () => {
+    for (let i = 0; i < 20; i++) {
+      expect((await status(`${base(serverA)}/api/nodes/delegated-requests`, String(3 + i))).status).not.toBe(409);
+      expect((await status(`${base(serverB)}/api/nodes/delegated-requests`, String(3 + i))).status).not.toBe(409);
+    }
+    // A second device paired on B as owner (a phone, a browser): authenticated, and not the channel.
+    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
+    const asked = await (await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST" })).json() as { requestId: string; claim: string };
+    await api(serverB, "POST", "/api/auth/pair/approve", { requestId: asked.requestId });
+    const collected = await fetch(`${tunnel}/api/auth/pair/status?requestId=${asked.requestId}&claim=${asked.claim}`);
+    const cookie = (collected.headers.get("set-cookie") ?? "").split(";")[0]!;
+    expect(cookie, "the second device received its session").toContain("=");
+    for (const epoch of ["3", "99"]) {
+      const res = await status(`${tunnel}/api/nodes/delegated-requests`, epoch, { headers: { cookie } });
+      expect(res.status, "the device is authenticated").not.toBe(401);
+    }
+    expect(primaryRow(serverA)).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
+    expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
+    expect(channelOf(serverB)?.channel_machine_id, "a pairing that declares no machine leaves the channel alone").toBe(machineA);
+  }, 60_000);
+
   test("a paired node with a valid model token declaring a huge epoch on the proxy changes nothing on A", async () => {
     if (!nodeBOnA) throw new Error("the pairing test did not record B's machine id on A");
     const { token } = await api<{ token: string }>(serverA, "POST", `/api/machines/${nodeBOnA}/model-token`);
-    // A huge epoch, and the next one: the second would pass the one-step ceiling, so only "the proxy never adopts" stops it.
+    // A huge epoch, and the next one: only "the proxy never adopts" stops either.
     for (const epoch of [String(Number.MAX_SAFE_INTEGER), "3"]) {
       const res = await status(`http://127.0.0.1:${serverA.modelProxyPort}/v1/messages/count_tokens`, epoch, {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, [ID_HEADER]: nodeBOnA, "content-type": "application/json" },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         body: JSON.stringify({ model: "claude-test", messages: [] }),
       });
       expect(res.status, `epoch ${epoch}: the token is valid, the proxy let the caller in`).not.toBe(401);

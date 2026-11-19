@@ -9,6 +9,12 @@
  * The choice is a machine id (`machines.id`), never a name. It lives in the DB
  * AND in a state file written FIRST: the file survives a DB that is swapped or
  * restored, and at boot the higher epoch of the two wins.
+ *
+ * A node learns a higher epoch from ONE caller only: the primary that paired
+ * it. The pairing request declares that machine's id, and the approval records
+ * it next to the device row it creates (the channel). Machine ids are UUIDs
+ * minted by each DB, so the id the node stores is the one declared at pairing,
+ * and an adoption names that id, never one read from the request.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -16,13 +22,20 @@ import type { Database } from "bun:sqlite";
 import { writeFileAtomic } from "./atomic-write";
 
 export const PRIMARY_EPOCH_HEADER = "x-topics-primary-epoch";
-export const PRIMARY_ID_HEADER = "x-topics-primary-id";
+/** Sent with a pairing request: the machine id of the server asking to coordinate this one. */
+export const PAIRING_MACHINE_HEADER = "x-topics-machine-id";
 export const STALE_EPOCH_CODE = "stale_primary_epoch";
 
 export interface PrimaryState {
   primaryMachineId: string | null;
   epoch: number;
   since: string | null;
+}
+
+/** The primary that paired this server: the device its calls authenticate as, and the machine id it declared. */
+export interface PrimaryChannel {
+  deviceId: string;
+  machineId: string;
 }
 
 export interface PrimaryRole {
@@ -39,16 +52,21 @@ export interface PrimaryRole {
    */
   rejectStale(req: Request): Response | null;
   /**
-   * Adopt the higher epoch a request declares, with the machine id it names.
-   * Call it ONLY after the caller was authenticated as an owner (the primary's
-   * node session): otherwise any anonymous request could turn this server into
-   * a secondary. The id must be a machine this server knows, the epoch at most
-   * one above ours, and every adoption writes a `[primary]` log line. Returns
-   * true when adopted.
+   * Adopt the higher epoch a request declares. `caller` is the identity the
+   * access gate resolved: only the channel's device moves the epoch, and the
+   * primary it names is the channel's machine. Loopback, other devices and
+   * anonymous callers change nothing. Every adoption writes a `[primary]` log
+   * line. Returns true when adopted.
    */
-  adoptFrom(req: Request, isKnownMachine: (machineId: string) => boolean): boolean;
-  /** Headers an outgoing call from the primary carries: its epoch and machine id. Empty until a primary was chosen. */
+  adoptFrom(req: Request, caller: { deviceId: string | null } | null): boolean;
+  /** The primary that paired this server, or null. */
+  channel(): PrimaryChannel | null;
+  /** Record the primary that just paired this server (called by the pairing approval). */
+  recordChannel(next: PrimaryChannel): void;
+  /** Headers an outgoing call carries: the epoch, only while this server is the chosen primary. */
   outgoingHeaders(): Record<string, string>;
+  /** Headers a pairing request carries: this server's machine id, so the node can record its channel. */
+  pairingHeaders(): Record<string, string>;
 }
 
 export interface PrimaryRoleDeps {
@@ -77,6 +95,14 @@ function readDb(db: Database): PrimaryState {
   return row
     ? { primaryMachineId: row.primary_machine_id, epoch: row.epoch, since: row.since }
     : { primaryMachineId: null, epoch: 0, since: null };
+}
+
+function readChannel(db: Database): PrimaryChannel | null {
+  const row = db.query("SELECT channel_device_id, channel_machine_id FROM primary_state WHERE id = 1").get() as
+    { channel_device_id: string | null; channel_machine_id: string | null } | null;
+  return row?.channel_device_id && row.channel_machine_id
+    ? { deviceId: row.channel_device_id, machineId: row.channel_machine_id }
+    : null;
 }
 
 function writeDb(db: Database, s: PrimaryState): void {
@@ -152,16 +178,12 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       if (presented === null || presented >= current.epoch) return null;
       return staleResponse(current.epoch, presented);
     },
-    adoptFrom(req, isKnownMachine) {
+    adoptFrom(req, caller) {
       const presented = declaredEpoch(req);
       if (presented === null || presented <= current.epoch) return false;
-      const id = req.headers.get(PRIMARY_ID_HEADER)?.trim();
-      if (!id || !isKnownMachine(id)) return false;
-      // One switch at a time: an epoch far ahead is a forged or broken caller, not a primary.
-      if (presented > current.epoch + 1) {
-        log(`[primary] epoch ${presented} from ${id} not adopted: more than one above the current ${current.epoch}`);
-        return false;
-      }
+      const ch = readChannel(deps.db);
+      if (!ch || !caller?.deviceId || caller.deviceId !== ch.deviceId) return false;
+      const id = ch.machineId;
       try {
         const from = current.epoch;
         role.adopt({ primaryMachineId: id, epoch: presented });
@@ -172,9 +194,16 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
         return false;
       }
     },
-    outgoingHeaders: (): Record<string, string> => (current.primaryMachineId && current.epoch > 0
-      ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch), [PRIMARY_ID_HEADER]: current.primaryMachineId }
+    channel: () => readChannel(deps.db),
+    recordChannel(next) {
+      deps.db.query("UPDATE primary_state SET channel_device_id = ?, channel_machine_id = ? WHERE id = 1").run(next.deviceId, next.machineId);
+      log(`[primary] paired by machine ${next.machineId}: a higher epoch is now adopted only from its device ${next.deviceId}`);
+    },
+    // A server that is not the chosen primary sends nothing: its node would record the wrong machine.
+    outgoingHeaders: (): Record<string, string> => (current.epoch > 0 && current.primaryMachineId === localMachineId()
+      ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch) }
       : {}),
+    pairingHeaders: (): Record<string, string> => ({ [PAIRING_MACHINE_HEADER]: localMachineId() }),
   };
   return role;
 }

@@ -202,16 +202,14 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
   });
 
   // A call from a primary that was replaced (lower epoch) is refused before it touches a card.
-  // A higher epoch is adopted only from an OWNER the access gate already authenticated
-  // (the coordinator's node session) and only for a machine this server knows.
+  // A higher epoch is adopted only from the device of the primary that paired this server,
+  // as the access gate authenticated it: loopback and every other device change nothing.
   const nodesRouter: RouteHandler = (req, url, pathname, method) => {
     if (!pathname.startsWith("/api/nodes/")) return nodesRouterInner(req, url, pathname, method);
     const role = getPrimaryRole();
     const stale = role?.rejectStale(req);
     if (stale) return stale;
-    if (role && ctx.requestIdentity?.(req)?.role === "owner") {
-      role.adoptFrom(req, (machineId) => ctx.machineStore.get(machineId) !== null);
-    }
+    role?.adoptFrom(req, ctx.requestIdentity?.(req) ?? null);
     return nodesRouterInner(req, url, pathname, method);
   };
 

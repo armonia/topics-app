@@ -171,11 +171,12 @@ export function bootRoutersFirst(scope: AfterTracker) {
   const hubLive = createHubLive({
     base: () => upstreamBase("TOPICS_HUB_URL", HUB_DEFAULT_URL),
     broadcast: (frame) => broadcastToAll(frame),
-    hasClients: () => wsClients.size > 0,
+    // Only the primary reads the usage hub on its timer. Asked on every beat, not once at boot:
+    // a node adopts a new primary's epoch while it runs.
+    hasClients: () => wsClients.size > 0 && isThisServerPrimary(),
   });
 
-  // Only the primary reads the usage hub; the role is fixed for the life of the process (a switch restarts the server).
-  if (isThisServerPrimary()) hubLive.start();
+  hubLive.start();
 
   const hubRouter = createHubRouter(ctx, { live: hubLive });
 
