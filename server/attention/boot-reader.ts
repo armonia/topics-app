@@ -22,12 +22,14 @@ export interface AttentionBootSources extends ActiveRowsSource {
   cliHasWork: (sessionKey: string) => boolean;
   /** A Topics `run_command` of this session still owes it a wake (`commandWakeState` not `none`). */
   commandOwesWake: (sessionKey: string) => boolean;
+  /** A `spawn_agent` child of this session still runs or owes it a result (`subagentWakeState` not `none`). */
+  subagentOwesWake?: (sessionKey: string) => boolean;
   /** The chat subjects of the board agents in flight (dispatcher). */
   dispatchedSubjects: () => string[];
   decode: (value: unknown) => string | null | undefined;
 }
 
-/** The review predicate that leaves out AI review, where the DB has the column. */
+/** The review predicate that leaves out the CI column, where the DB has the column. */
 function reviewWaitsOnPerson(db: Database): string {
   let hasStage = false;
   try { hasStage = (db.query("PRAGMA table_info(tasks)").all() as Array<{ name: string }>).some((c) => c.name === "stage"); } catch { /* the plain predicate */ }
@@ -56,13 +58,17 @@ export function attentionBootReader(src: AttentionBootSources): AttentionBootRea
       const sk = sessionOf(subject);
       return !!sk && src.commandOwesWake(sk);
     },
+    subagentOwed: (subject) => {
+      const sk = sessionOf(subject);
+      return !!sk && src.subagentOwesWake?.(sk) === true;
+    },
     planWaiting: (subject, toolCallId) => {
       const sk = sessionOf(subject);
       if (!sk) return false;
       try { return toolCallWaitingOnRows(recentActiveRows(src, sk), toolCallId, src.decode); } catch { return false; }
     },
-    // A card in AI review (`stage = 'ai_review'`, shared/workflow.ts) waits on
-    // whoever opened it, not on a person: it is not lit. The migrated DB has
+    // A card in the CI column (`stage = 'ci'`, shared/workflow.ts) waits on
+    // the integration queue, not on a person: it is not lit. The migrated DB has
     // the column; a reduced one reads every review card, as before.
     // Every card, steps included: a step's project and title ride on its row,
     // because the board feed holds roots only and cannot place it.

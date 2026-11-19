@@ -215,6 +215,7 @@ export function requestWakeFor(sp: ScriptProcess): void {
     topicId: cmd.topicId,
     label: sp.scriptName,
     exitCode: sp.exitCode ?? null,
+    startedAt: sp.startedAt,
     durationMs: ended - Date.parse(sp.startedAt),
     lines: sp.output.slice(-WAKE_TAIL_LINES),
     settle: () => { cmd.wake = false; saveState(); },

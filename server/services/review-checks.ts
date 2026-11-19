@@ -905,6 +905,9 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // The run time is the command's own; the queue for a gate slot is named
   // apart, so a slow verdict points at the machine and not at the code.
   const line = (r: CheckRun) => {
+    // SKIPPED is not a measured pass: a time next to it would claim a run
+    // that never happened (`ciSkipped`, no commit of its own beyond main).
+    if (r.skipped) return `⤳ \`${r.name}\` (saltato: nessun commit proprio)`;
     const queued = r.queuedMs ?? 0;
     const run = fmtMs(Math.max(0, r.ms - queued));
     const parts = [run];
@@ -967,7 +970,12 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
 export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: string | null }): string {
   const failed = runs.find((run) => !run.ok);
   const where = opts?.commit ? ` su \`${opts.commit.slice(0, 8)}\`` : "";
-  if (!failed) return `Checks pre-review verdi${where}.`;
+  if (!failed) {
+    const skipped = runs.filter((r) => r.skipped).map((r) => r.name);
+    return skipped.length
+      ? `Checks pre-review verdi${where} (saltati: ${skipped.join(", ")}, nessun commit proprio).`
+      : `Checks pre-review verdi${where}.`;
+  }
   const position = runs.indexOf(failed) + 1;
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
   const ci = isCiEvidenceCheck(failed);

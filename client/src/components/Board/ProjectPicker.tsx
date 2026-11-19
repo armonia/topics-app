@@ -1,11 +1,12 @@
 import { useState, useMemo, useRef } from 'react';
 import { useT } from '../../hooks/useT';
-import { Check, Loader2, Plus, Sparkles } from 'lucide-react';
+import { Check, Plus, Sparkles } from 'lucide-react';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ProjectTaskCounts } from './atoms';
 import type { BoardProjectRef } from '../../lib/board';
 import type { ProjectCounts } from '../../lib/projectTaskCounts';
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
+import { Spinner } from '../Shared/Spinner';
 
 /**
  * Menu content shared by OGNI superficie «scegli un progetto»: il chip del
@@ -126,7 +127,7 @@ export function ProjectPickerBody({
           </button>
         )}
         {projects === null ? (
-          <div className="flex items-center justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-app-text-muted" /></div>
+          <div className="flex items-center justify-center py-3"><Spinner size="sm" box={16} tone="current" className="text-app-text-muted" /></div>
         ) : filtered.length === 0 ? (
           <p className="px-2.5 py-2 text-compact leading-4 text-app-text-muted">{query.trim() ? tr('board.projectPicker.noMatch') : emptyLabel ?? tr('board.projectPicker.none')}</p>
         ) : filtered.map((p) => {
@@ -161,7 +162,7 @@ export function ProjectPickerBody({
                 : tr('picker.typeName', { where: newProjectDir ? tr('picker.typeName.in', { dir: newProjectDir }) : '' })}
             className={`${POPOVER_ITEM} disabled:opacity-40`}
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}
+            {busy ? <Spinner size="sm" box={14} tone="current" /> : <Plus className="h-3.5 w-3.5 shrink-0" />}
             <span className="min-w-0 flex-1 truncate">
               {createState === 'ready' ? <>{tr('board.projectPicker.create', { name: typed })}</> : tr('board.projectPicker.newProject')}
             </span>

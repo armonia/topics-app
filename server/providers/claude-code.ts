@@ -511,6 +511,7 @@ export interface PersistentProcess {
   rewindFrom?: number; // the one rewind below `consumedOffset` the reattach asked for, until it lands (`admitFrame`)
   reattachLive?: boolean; // left by a scan cut short: the cursor is inside the history, the next resync is live unless a frame folds first
   exitTail?: Promise<void>; // the tail of a child that exited while we were detached, until it is folded (`closeAfterTail`)
+  readopting?: boolean; // `reattach` is still driving this pp: the child may be gone already, its row is not closed yet
   /** True while replaying buffered NDJSON on reattach — suppresses live-only
    *  client side effects (onUserInputRequired) while in-memory state rebuilds. */
   replaySilent?: boolean;
@@ -2619,7 +2620,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // So is a child that exited while detached, until its tail lands: `exitTail`, waiting behind the backlog.
     // A fresh idle child that took the key after a kill is alive too, and answering yes for it kept a dead
     // stream on the extend path for hours (2026-09-03, topic ada7e7db): the turn's child was gone.
-    return !!pp && (pp.exitTail !== undefined || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
+    // A child that exited with nothing left past our cursor (its whole store already folded by the scan) is `alive`
+    // false at once, while the re-adoption can still wait behind another session's backlog for the rewind that
+    // closes the row. Read «dead» there, the route's grace closed that row as a timeout with its answer in the store.
+    return !!pp && (pp.exitTail !== undefined || pp.readopting === true || (pp.alive && (pp.streamHandler !== null || pp.replayMute === true)));
   }
 
   /**
@@ -3104,10 +3108,13 @@ export class ClaudeCodeProvider implements AIProvider {
     // questa via il danno era totale, perché la riga è già stata svuotata per
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
+    pp.readopting = true;
     try {
       return await this.reattachDrive(sessionKey, handler, pp, parked !== null, opts.rowId);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
+    } finally {
+      pp.readopting = false;
     }
   }
 

@@ -8,11 +8,12 @@ use crate::tray_menu_projects::project_table;
 use crate::tray_menu_detail::{machine_details, MachineDetail, Segment};
 use crate::tray_menu_pic::Palette;
 use crate::tray_menu_procs::{procs_table, remote_procs_table};
-use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
+use crate::tray_node_charts::{submenu_nodes, NodeData};
+use crate::tray_menu_views::{backup_card, draw_backup_card, draw_machine_card_with, draw_quota_panel, machine_cards_from_board, quota_cards, MachineCard};
 use serde_json::Value;
 
 fn card(key: &str, pic: crate::tray_menu_pic::Pic, children: Vec<Node>) -> Option<Node> {
-    Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, children })
+    Some(Node::Card { key: key.into(), png: pic.to_png()?, w: pic.w, h: pic.h, hover: pic.hover.clone(), children })
 }
 
 /// How long a state lasted, in words: «21 h 40 min», «5 min».
@@ -25,7 +26,18 @@ fn span_text(secs: f64) -> String {
     }
 }
 
-/// Where the machine's state spent the window the service logged, longest first: «lavora 21 h · dorme 2 h».
+/// The words for a state of the machine in the day's account: «acceso» alone reads as the time it was on, which allow-italian: quoted menu wording
+/// «al lavoro» is part of, so it says what it is: on, with nothing to do. allow-italian: quoted menu wording
+fn state_say(state: &str) -> &str {
+    match state {
+        "lavora" => "al lavoro",
+        "acceso" => "acceso senza lavoro",
+        other => other,
+    }
+}
+
+/// Where the machine's state spent the window the service logged, longest first: «al lavoro 21 h · dorme 2 h». allow-italian: quoted menu wording
+/// The states split the window between them, so the line says «nelle ultime 24 h» and no state is a total. allow-italian: quoted menu wording
 /// `None` when it logged nothing. Times in milliseconds are read as such.
 fn timeline_say(segments: &[Segment]) -> Option<String> {
     let secs = |t: f64| if t > 1e11 { t / 1000.0 } else { t };
@@ -39,22 +51,14 @@ fn timeline_say(segments: &[Segment]) -> Option<String> {
     }
     spent.retain(|(_, l)| *l >= 30.0);
     spent.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    (!spent.is_empty()).then(|| format!("Ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{s} {}", span_text(*l))).collect::<Vec<_>>().join(" · ")))
+    (!spent.is_empty()).then(|| format!("Nelle ultime 24 h · {}", spent.iter().take(3).map(|(s, l)| format!("{} {}", state_say(s), span_text(*l))).collect::<Vec<_>>().join(" · ")))
 }
 
-/// The readings of a machine read from afar and how its state went through the day, as the original tray's
-/// remote submenu opens: a line per reading in the service's words, then the timeline. Text, not the
-/// bars and charts picture the submenus dropped on purpose.
+/// How a machine read from afar went through the day, as the original tray's remote submenu opens. The readings
+/// themselves (CPU, memory, disk, spend) are the card's: said again here they were two figures for one thing.
 pub(crate) fn remote_reading_nodes(detail: Option<&MachineDetail>) -> Vec<Node> {
     let Some(d) = detail else { return Vec::new() };
-    let mut out: Vec<Node> = d.metrics.iter().map(|x| {
-        let value = if !x.value.is_empty() { x.value.clone() } else { x.pct.map_or("—".to_string(), |p| format!("{}%", p.round() as i64)) };
-        let line = if x.note.is_empty() { format!("{} {value}", x.name) } else { format!("{} {value} · {}", x.name, x.note) };
-        let tone = match x.level { 0 => "ok", 1 => "warn", _ => "bad" };
-        with_icon(format!("sf:circle.fill|{tone}"), note(line))
-    }).collect();
-    out.extend(timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))));
-    out
+    timeline_say(&d.timeline).map(|l| with_icon("sf:clock", note(l))).into_iter().collect()
 }
 
 /// The commands the service offers on a machine (Hetzner: «Spegni tutti»): one row each, with the power allow-italian: quoted menu wording
@@ -70,33 +74,54 @@ pub(crate) fn machine_action_nodes(machine: &MachineCard, detail: Option<&Machin
 /// MacBook's: its state lines, the processes that weigh in the same table, the
 /// commands of the machine, the finder. This computer takes its own census (`/api/mac/procs`);
 /// the others the service's `procs`.
-fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, p: Palette) -> Vec<Node> {
+fn machine_nodes(machines: &[MachineCard], snap: &Snapshot, now: i64, p: Palette) -> Vec<Node> {
     let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    let (offset, data) = (local_offset_secs(), NodeData::from_snapshot(snap, now, local_offset_secs()));
     machines
         .iter()
         .filter_map(|m| {
             let found = details.iter().find(|d| d.id == m.id && !m.id.is_empty());
-            let mut kids: Vec<Node> = if m.local { Vec::new() } else { remote_reading_nodes(found) };
-            if !kids.is_empty() && !m.lines.is_empty() {
-                kids.push(Node::Sep);
-            }
-            kids.extend(m.lines.iter().map(note));
-            if !kids.is_empty() {
-                kids.push(Node::Sep);
-            }
-            if m.local {
-                kids.extend(procs_table(snap));
-            } else {
-                kids.extend(remote_procs_table(found));
-            }
+            let extras = data.extras(m, &details, now, offset);
+            // what the node files say first (security, charts), then the readings and the processes
+            let mut kids: Vec<Node> = m.agents.as_ref().map(|a| crate::tray_node_agents::submenu_nodes(a, now)).unwrap_or_default();
             kids.push(Node::Sep);
+            kids.extend(submenu_nodes(&extras, &m.id, p, offset));
+            kids.push(Node::Sep);
+            if !m.local {
+                kids.extend(remote_reading_nodes(found));
+            }
+            // the service's lines, minus the one the card already says under the name
+            kids.extend(m.lines.iter().filter(|l| **l != m.reason).map(note));
+            // a separator between groups, never two in a row and none at the ends
+            kids.push(Node::Sep);
+            let procs = if m.local { procs_table(snap) } else { remote_procs_table(found) };
+            if !procs.is_empty() {
+                kids.extend(procs);
+                kids.push(Node::Sep);
+            }
             if !m.local {
                 kids.extend(machine_action_nodes(m, found));
             }
             kids.push(with_icon("sf:magnifyingglass", item(&format!("machine-open:{}", m.id), "Cerca in una finestra…")));
-            card(&format!("machine:{}", m.id), draw_machine_card(m, p), kids)
+            let kids = tidy_separators(kids);
+            card(&format!("machine:{}", m.id), draw_machine_card_with(m, &extras, p), kids)
         })
         .collect()
+}
+
+/// Separators only between two rows: none at the start or the end, one where a run of them was.
+fn tidy_separators(nodes: Vec<Node>) -> Vec<Node> {
+    let mut out: Vec<Node> = Vec::new();
+    for n in nodes {
+        if matches!(n, Node::Sep) && matches!(out.last(), None | Some(Node::Sep)) {
+            continue;
+        }
+        out.push(n);
+    }
+    if matches!(out.last(), Some(Node::Sep)) {
+        out.pop();
+    }
+    out
 }
 
 /// The subscription limits entry of the original tray, first of the options.
@@ -149,7 +174,7 @@ fn unreachable_nodes(overview: &Option<String>) -> Vec<Node> {
 /// the service's own when there is none); `dark` picks the ink for the menu surface.
 pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[MachineCard], dark: bool) -> Vec<Node> {
     let p = Palette::new(dark);
-    let mut m = machine_nodes(machines, snap, p);
+    let mut m = machine_nodes(machines, snap, now, p);
     if !m.is_empty() {
         m.push(Node::Sep);
     }
@@ -165,7 +190,7 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     more.extend(extras_nodes(&snap.overview, prefs));
     more.push(item("pref:five-hour", tick("Fascia 5 ore", prefs.five_hour)));
     more.push(item("pref:api-credit", tick("Credito API", prefs.api_credit)));
-    more.push(item("pref:cloud-bonus", tick("Bonus cloud", prefs.cloud_bonus)));
+    more.push(item("pref:cloud-bonus", tick("Quote per modello", prefs.cloud_bonus)));
     more.push(Node::Sep);
     more.push(item("tray-new-chat", "Nuova chat"));
     more.push(item("tray-check-updates", "Controlla aggiornamenti"));
@@ -181,15 +206,39 @@ pub fn build_menu_rich(snap: &Snapshot, prefs: Prefs, now: i64, machines: &[Mach
     m
 }
 
+/// The board has no history of its readings; `/api/machines` has, and it says how far back it really goes, which a
+/// «peak of 24 h» must not claim beyond.
+pub(crate) fn attach_histories(cards: &mut [MachineCard], machines: Option<&str>) {
+    let rows: Value = machines.and_then(|b| serde_json::from_str(b).ok()).unwrap_or(Value::Null);
+    let Some(rows) = rows.as_array() else { return };
+    for c in cards.iter_mut() {
+        let Some(row) = rows.iter().find(|r| s(r, "id") == c.id) else { continue };
+        for m in &mut c.metrics {
+            if let Some(x) = row.get("metrics").and_then(Value::as_array).and_then(|a| a.iter().find(|x| s(x, "key") == m.key)) {
+                (m.hist_n, m.hist_span_s, m.hist_peak) = crate::tray_menu_views::hist_of(x);
+            }
+        }
+    }
+}
+
 /// The machines to draw: the service's cards (it reads this computer and its own
 /// machines in more depth), then every machine of the client's list the service
 /// does not describe, so a cloud node gets the same card as the Mac. A client card
 /// is the service's own when both are this computer or both carry the same name.
 pub fn machines_for(client: &[MachineCard], snap: &Snapshot) -> Vec<MachineCard> {
-    let service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
+    let mut service = snap.board.as_deref().map(machine_cards_from_board).unwrap_or_default();
+    attach_histories(&mut service, snap.machines.as_deref());
     let known = |c: &MachineCard| service.iter().any(|s| (c.local && s.local) || s.name.trim().eq_ignore_ascii_case(c.name.trim()));
-    let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c)).cloned().collect();
-    service.into_iter().chain(extra).collect()
+    // a node of the client's list that answers nothing and has no reading to show is not a node worth a card
+    let extra: Vec<MachineCard> = client.iter().filter(|c| !known(c) && !(c.level >= 2 && c.metrics.iter().all(|m| m.pct.is_none()))).cloned().collect();
+    // the service's own card may carry another id than the Topics machine of the same name: remember it for the node files
+    let all: Vec<MachineCard> = service.into_iter().map(|mut c| {
+        c.machine_id = client.iter().find(|x| !c.local && x.name.trim().eq_ignore_ascii_case(c.name.trim())).map(|x| x.id.clone()).unwrap_or_default();
+        c
+    }).chain(extra).collect();
+    let pool = snap.pool.as_deref().map(crate::tray_nodes::parse_pool).unwrap_or_default();
+    let details = snap.machines.as_deref().map(machine_details).unwrap_or_default();
+    crate::tray_nodes::arrange(all, client, &pool, &details, local_offset_secs())
 }
 
 #[cfg(test)]

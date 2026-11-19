@@ -114,6 +114,7 @@ research/
 competitor-screenshots/
 backups/
 tasks/
+!server/services/tasks/
 docs/*
 # ENV.md is the public env-var reference (env audit 2026-07) — committable.
 !docs/ENV.md

@@ -11,6 +11,8 @@
  * Since 2026-10-04 that is work in progress like any other: one ring.
  */
 import { ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
+import { classifyToolAction, type AgentAction } from '../../../../shared/agent-action';
+import type { LoaderActivity } from './squareLoader';
 
 export type LoaderState = 'working' | 'waiting';
 
@@ -49,23 +51,53 @@ export function loaderArcClass(state: LoaderState, onFill = false): string {
 }
 
 /**
- * The ink of a loader: the state's arc, except for the two outcomes, which
- * carry their own colour (green done, red error). Those are only ever drawn
- * where a surface already shows that outcome.
+ * The ink of the two outcomes (green done, red error), or '' for every other
+ * shape. It follows the shape the body is really playing (`LoaderBody.shape`),
+ * never the one asked for: a change waits for the one before it to settle, and
+ * a green sign on the old shape would say the work was over while it still
+ * moved. Those are only ever drawn where a surface already shows that outcome.
  */
-export function loaderInkClass(state: LoaderState, onFill = false, activity?: string): string {
-  if (activity === 'done') return 'text-green-500';
-  if (activity === 'error') return 'text-red-500';
-  return loaderArcClass(state, onFill);
+export function loaderOutcomeInkClass(shape: string | null | undefined): string {
+  if (shape === 'done') return 'text-green-500';
+  if (shape === 'error') return 'text-red-500';
+  return '';
 }
 
 /**
- * The movement a running tool call plays: looking things up, writing files, or
- * the generic tool movement. Matches on the bare tool name, MCP-prefixed or not.
+ * THE MAP FROM WHAT AN AGENT DOES TO THE SHAPE THE LOADER PLAYS. The loader's
+ * shapes are approved and final (`squareLoader`), and eleven actions fold onto
+ * six of them: reading and the web are a search, writing and editing write,
+ * running a command, driving a browser, delegating and any other tool are a
+ * tool, and think, wait and error keep their own shape.
+ *
+ * This is the ONLY place that knows the fold. Every surface goes through
+ * `loaderActivityForAction` or `loaderActivityForTool`, and the menu-bar tray
+ * reads the same table at build time (`scripts/gen-tray-loader-frames.ts`
+ * writes it into `tray_loader_frames.rs`), so changing a line here and
+ * regenerating moves the app and the tray together.
  */
-export function loaderActivityForTool(name: string): 'search' | 'write' | 'tool' {
-  const bare = (name.split('__').pop() ?? name).toLowerCase();
-  if (bare === 'grep' || bare === 'glob' || bare === 'websearch' || bare === 'web_search') return 'search';
-  if (bare === 'edit' || bare === 'write' || bare === 'multiedit' || bare === 'notebookedit') return 'write';
-  return 'tool';
+const LOADER_FOR_ACTION: Record<AgentAction, LoaderActivity> = {
+  think: 'think',
+  write: 'write',
+  read: 'search',
+  edit: 'write',
+  run: 'tool',
+  web: 'search',
+  browse: 'tool',
+  delegate: 'tool',
+  tool: 'tool',
+  wait: 'wait',
+  error: 'error',
+};
+
+export function loaderActivityForAction(action: AgentAction | undefined): LoaderActivity | undefined {
+  return action ? LOADER_FOR_ACTION[action] : undefined;
+}
+
+/**
+ * The movement a running tool call plays: an adapter on `classifyToolAction`,
+ * the one classifier of tool names (MCP-prefixed or not).
+ */
+export function loaderActivityForTool(name: string, opts?: { command?: boolean }): LoaderActivity {
+  return LOADER_FOR_ACTION[classifyToolAction(name, opts)];
 }

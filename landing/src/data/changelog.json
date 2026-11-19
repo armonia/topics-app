@@ -1,5 +1,65 @@
 [
   {
+    "version": "2.4.41",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "un turno di chat non promuove card che la chat ha aperto per sé (#1230)",
+          "scope": "board"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.40",
+    "date": "2026-11-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.29",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.27",
+    "date": "2026-11-16",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "focus-pane mounts the panel with the same force-open fallback as open-pane",
+          "scope": "browser"
+        },
+        {
+          "text": "approve re-captures a missing delivery_commit before deciding CI",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.23",
     "date": "2026-11-16",
     "sections": {
@@ -58,6 +118,10 @@
         {
           "text": "sveglia comment on a review card rejects and requeues like board_review reject (#1124)",
           "scope": "board"
+        },
+        {
+          "text": "a 401 on the plan usage read recovers the OAuth token once and retries",
+          "scope": "usage"
         },
         {
           "text": "a branch carried to another machine lands or is refused, never accepted (#1028)",

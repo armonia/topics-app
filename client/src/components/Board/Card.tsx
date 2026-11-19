@@ -52,7 +52,7 @@ import { canOpenTaskSession, shouldExplainMissingSession, type TaskSessionState 
 import { TaskCountdown } from './TaskCountdown';
 import { TaskContextChip } from './TaskContextChip';
 import { TaskChildrenChip } from './TaskChildrenChip';
-import { estimatesByProject } from '../../../../shared/task-countdown';
+import { estimatesByProject, type EstimateBasis } from '../../../../shared/task-countdown';
 import { fmtMs, fmtTok, fmtAttesa, fmtUsd, taskCopyText } from './format';
 import { UpdatedAgo } from './UpdatedAgo';
 import { StatusIcon, DispatchChip, QueueReasonChip, TaskIdChip, LabelChip } from './atoms';
@@ -93,7 +93,7 @@ export function Column(props: ColumnProps) {
 
 type ColumnProps = {
   status: TaskStatus; tasks: BoardTask[];
-  /** The workflow column this is, when it is not the plain one of `status` (Triage, AI review, Human review). */
+  /** The workflow column this is, when it is not the plain one of `status` (today only CI). */
   columnId?: string;
   /** Its header; absent = the status label. */
   label?: string; onOpen: OpenTask; onCreate: (text: string) => void;
@@ -211,7 +211,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
       parentTitle={t.parentTaskId ? tasksById.get(t.parentTaskId)?.text : undefined}
       projectPath={projectPathById.get(t.projectId)}
       live={liveById.get(t.id)}
-      estimateMs={estimateByProject.get(t.projectId) ?? null}
+      estimate={estimateByProject.get(t.projectId) ?? null}
       // The live event OR the thread: the first dies with the process, the
       // second does not, and an unanswered question survives a restart.
       awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
@@ -480,8 +480,8 @@ type CardDragProps = {
 };
 
 type CardProps = {
-  /** Departure estimate learned from the project's closed cards; null = none. */
-  estimateMs?: number | null;
+  /** Estimate learned from the project's closed cards; null = none. */
+  estimate?: EstimateBasis | null;
   task: BoardTask; onOpen: OpenTask; showProject: boolean;
   /** Il perché l'ultimo click non ha fatto niente, disegnato SULLA card (in coda,
    *  sotto le sue scelte): la barra in cima al board sta a colonne di distanza,
@@ -525,7 +525,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -1547,7 +1547,16 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             ><AlarmClock className="h-3 w-3 shrink-0" /> {plannedChip.label}</span>
           )}
-          {task.assignedTo && <span data-testid="card-assignee" title={tr('board.card.assigneeTitle', { name: task.assignedTo })} className="rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading">@{task.assignedTo}</span>}
+          {/* When the conductor closes the card, the assignee is only a name on
+              it: say so in the chip itself (visible on touch), not in a tooltip. */}
+          {task.assignedTo && (
+            <span
+              data-testid="card-assignee"
+              data-closes={conductorCloses ? 'conductor' : undefined}
+              title={tr(conductorCloses ? 'board.card.assigneeNameOnlyTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })}
+              className={`rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
+            >@{task.assignedTo}{conductorCloses ? ` · ${tr('board.card.assigneeNameOnly')}` : ''}</span>
+          )}
           {dueChip && (
             <span
               data-testid="card-due-date"
@@ -1978,7 +1987,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             from its tail (tokens first) when it does not. The last update
             still closes the row, on the right. */}
         {live && !live.retry && task.dispatchState === 'working' ? (
-          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} />
+          <LiveEffortChip usage={live} label={measureLine} trailing={updatedAgo('')} taskId={task.id} />
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
@@ -2014,7 +2023,7 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
             description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
         {task.status === 'in_progress' && (
           <div data-testid="card-work-row" className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden text-compact leading-4 md:text-mini">
-            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown estimateMs={estimateMs} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
+            {task.status === 'in_progress' && task.assignedTopicId && <TaskChildrenChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskContextChip assignedTopicId={task.assignedTopicId} />}{task.status === 'in_progress' && <TaskCountdown basis={estimate} elapsedMs={task.agentMs} stepsDone={task.subtaskDoneCount} stepsTotal={task.subtaskCount} />}
           </div>
         )}
         {/* WHICH MACHINE it runs on, next to the model it runs with. Only when
@@ -2056,6 +2065,18 @@ const CardBody = memo(function CardBody({ estimateMs = null, task, onOpen, showP
           that it comes back by itself. A texture alone would only say that
           something is wrong with this card. */}
       {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mt-1" />}
+      {/* "Needs you" with no recorded reason: say in words what we DO know (the
+          agent asked for a person) without inventing the question,
+          which lives in the thread. The card is the button that opens it. */}
+      {task.status === 'review' && task.dispatchState === 'needs_input' && !task.dispatchError && (
+        <p
+          data-testid="card-needs-input-why"
+          data-source={task.humanAsk ? 'human-ask' : 'generic'}
+          className="mt-1 line-clamp-3 break-words text-compact md:text-mini leading-snug text-app-text-muted"
+        >
+          {task.humanAsk ? task.humanAsk : tr('board.card.needsInputWhy')}
+        </p>
+      )}
       {/* SET ASIDE, AND WHY. A parked card (failed, blocked, stopped, waited
           out) kept its reason in the chip's tooltip, invisible on touch, and
           offered no gesture: the way back was guessing that a drag to Todo

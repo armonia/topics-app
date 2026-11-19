@@ -99,7 +99,7 @@ interface FrameReport {
 /** The per-frame meter, armed before the input and started by it (capture phase). */
 async function installMeter(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    const SPIN = '[data-testid="chat-skeleton"], [data-testid="terminal-skeleton"], .animate-spin';
+    const SPIN = '[data-testid="chat-skeleton"], [data-testid="terminal-skeleton"], [data-spinner]';
     const shown = (el: Element): boolean => {
       for (let n: Element | null = el; n; n = n.parentElement) {
         if (n.getAttribute("data-pane-visible") === "0") return false;

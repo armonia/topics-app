@@ -62,6 +62,12 @@ export interface IntegrationQueueDeps {
   log?(line: string): void;
   maxBatch?: number;
   /**
+   * The cards are ALREADY on main (the `after` rule of the CI phase): the measure reads main as it is,
+   * so cutting the batch in halves would measure the same commit again and again. A green means "main
+   * is fine with these", a red goes back to every card of the batch (each one reads who else landed with it).
+   */
+  landed?: boolean;
+  /**
    * How long an idle queue waits for more cards before measuring: approvals come
    * in bursts (a person goes down the review column), and one CI run for the
    * burst is the whole point. Later arrivals batch by themselves behind the run.
@@ -143,7 +149,9 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
       for (const id of out.measured) {
         limit.delete(id);
         if (!deps.stillWanted(projectId, id)) continue;
-        note(id, `CI verde su ${sha}: main più ${out.measured.length === 1 ? "questa card" : `queste ${out.measured.length} card`}, misurati insieme. Atterra adesso.`);
+        note(id, deps.landed
+          ? `CI verde su ${sha}: main con ${out.measured.length === 1 ? "il lavoro di questa card" : `il lavoro di queste ${out.measured.length} card`}, misurata dopo l'atterraggio.`
+          : `CI verde su ${sha}: main più ${out.measured.length === 1 ? "questa card" : `queste ${out.measured.length} card`}, misurati insieme. Atterra adesso.`);
         await deps.land(projectId, id).catch((err) => log(`[integration] land fallito per ${id}: ${String(err)}`));
       }
       return;
@@ -154,6 +162,18 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
         limit.delete(id);
         if (!deps.stillWanted(projectId, id)) return;
         await deps.bounce(projectId, id, out.why ?? `la CI di ${sha} è rossa`).catch((err) => log(`[integration] rimando fallito per ${id}: ${String(err)}`));
+        return;
+      }
+      if (deps.landed) {
+        // Nothing to bisect: every card of the batch is inside the commit that went red.
+        for (const id of out.measured) {
+          limit.delete(id);
+          if (!deps.stillWanted(projectId, id)) continue;
+          const others = out.measured.filter((x) => x !== id).map((x) => x.slice(0, 8));
+          const why = (out.why ?? `la CI di ${sha} è rossa`)
+            + (others.length ? `\n\nÈ atterrata insieme a ${others.length === 1 ? "un'altra card" : `altre ${others.length} card`} (${others.join(", ")}): il rosso può essere di una di loro. Guarda se il test che fallisce tocca il tuo lavoro; se è chiaramente di un'altra, scrivilo con human_ask invece di cambiare codice che non è tuo.` : "");
+          await deps.bounce(projectId, id, why).catch((err) => log(`[integration] rimando fallito per ${id}: ${String(err)}`));
+        }
         return;
       }
       // Halve: the two halves go back to the front, the first measured next.
@@ -172,7 +192,7 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
           deps.giveUp(projectId, id, `la CI non ha dato un esito ${n} volte di fila (${out.why ?? "nessun esito"})`);
           continue;
         }
-        note(id, `CI non misurata${out.commit ? ` su ${sha}` : ""}: ${out.why ?? "nessun esito"}. Resta nella fase CI e riprovo alla prossima spazzata.`);
+        note(id, `CI non misurata${out.commit ? ` su ${sha}` : ""}: ${out.why ?? "nessun esito"}. ${deps.landed ? "Riprovo" : "Resta nella fase CI e riprovo"} alla prossima spazzata.`);
       }
       return;
     }

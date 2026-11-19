@@ -127,6 +127,12 @@ export interface TasksRouterOpts {
    * straight to the land queue as before.
    */
   integrationRepo?: (taskId: string) => Promise<string | null>;
+  /**
+   * main's own CI for a project (`services/main-ci-watch.ts`): the commits of its main, the push CI of
+   * each, and whether a commit came in with a sha. `null` = the project has no repository here. Absent = the
+   * board does not watch main.
+   */
+  mainCiPort?: (projectId: string) => Promise<import("../services/main-ci-watch").MainCiPort | null>;
   /** Tests: replaces the git + CI measure of an integration batch. */
   integrationMeasure?: (projectId: string, taskIds: string[]) => Promise<IntegrationMeasure>;
   /** Tests: how long an idle integration queue collects cards before measuring. */

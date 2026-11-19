@@ -11,6 +11,7 @@
  */
 
 import type { ToolCall, ToolCallDetail } from '../../types';
+import { workKindOf } from './workKind';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 import { deriveToolDetail, goalStepsAsTodo, isGoalStepsTool, isSetGoalTool, pageHost } from '../../../../shared/tool-detail';
 
@@ -134,9 +135,19 @@ export function subAgentBodyDescription(
  * description cut to one line).
  */
 export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string; tooltip?: string } {
+  const label = labelOf(detail, rawName);
+  // A process that keeps running and wakes the chat when it ends has one name,
+  // whichever tool started it (`Bash` in the background, `run_command`, `run_script`).
+  return workKindOf(rawName ?? '', detail) === 'background' ? { ...label, name: BACKGROUND_LABEL } : label;
+}
+
+export const SUB_AGENT_LABEL = 'Sub-agent';
+export const BACKGROUND_LABEL = 'Background';
+
+function labelOf(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string; tooltip?: string } {
   switch (detail.type) {
     case 'shell': {
-      const name = detail.background ? 'Shell (background)' : 'Shell';
+      const name = 'Shell';
       // The model's own "Run unit tests" reads better than the command; the
       // command stays on hover and, whole, in the open card.
       if (detail.description) return { name, summary: detail.description, tooltip: detail.command };
@@ -165,16 +176,17 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
         summary: `${done}/${detail.items.length}${activeText}`,
       };
     }
-    case 'sub_agent':
-      if (detail.via === 'spawn_agent') return { name: 'Sub-agent', summary: detail.name ?? detail.description };
-      // The type is already the row's name: a description that just repeats
-      // it ("general-purpose") would print the same label twice.
-      // The summary is cut to one line, so the full description rides on the
-      // tooltip; the open card shows it whole.
-      if (detail.description && detail.description !== detail.subAgentType) {
-        return { name: detail.subAgentType ?? 'Task', summary: detail.description, tooltip: detail.description };
-      }
-      return { name: detail.subAgentType ?? 'Task' };
+    case 'sub_agent': {
+      // One name for every way of starting one (`Task`, `Agent`, `spawn_agent`):
+      // what it is, so a call with nothing else to say still has a row with words.
+      // The line after it says what it is FOR; the type and the whole
+      // description ride on the tooltip.
+      const type = detail.subAgentType;
+      const said = detail.description && detail.description !== type ? detail.description : undefined;
+      const tooltip = [type, said].filter(Boolean).join(' · ');
+      const summary = detail.via === 'spawn_agent' ? (detail.name ?? said ?? type) : (said ?? type);
+      return { name: SUB_AGENT_LABEL, ...(summary ? { summary } : {}), ...(tooltip ? { tooltip } : {}) };
+    }
     case 'task_card':
       return { name: 'Card', summary: typeof detail.args?.text === 'string' ? detail.args.text : detail.taskId };
     case 'plan':

@@ -1007,7 +1007,13 @@ export class CodexProvider implements AIProvider {
 
         if (t === "item.started") {
           state?.runningTools.set(id, { toolCallId: id, partial: "" });
-          handler.onToolStart(id, name, this.coerceArgs(item.arguments ?? item.input));
+          const args = this.coerceArgs(item.arguments ?? item.input);
+          // The call is NAMED after its command (`pwd`, `make`), so the name
+          // alone cannot say it is a shell command. The command rides as
+          // `args.command` too, and `isCommandCall` reads the pair on both
+          // sides of the wire (the server's `stream:action`, the tool row).
+          const isBareCommand = typeof item.name !== "string" && typeof item.command === "string" && item.command.trim() !== "";
+          handler.onToolStart(id, name, isBareCommand ? { ...(args ?? {}), command: item.command as string } : args);
         } else if (t === "item.updated") {
           // Partial command output. Codex emits `aggregated_output` (full
           // accumulated text so far) on each delta — track and forward via

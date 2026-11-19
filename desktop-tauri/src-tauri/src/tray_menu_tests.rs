@@ -175,7 +175,7 @@ fn full_menu_has_every_section() {
     let t = dump_text(&build_menu(&full_snap(), Prefs { five_hour: true, ..Default::default() }, 0, true));
     for want in ["Claude · a · 39% · frenato fino a lun", "Codex · b · 5% · libero · non risponde", "Ritmo di oggi", "Claude · a · 57,0% in 24 h", "Processi", "Apri Processi",
         "Topics · 11.4%", "sessione · Stato chiamate", "Chat Topics · Chat di prova", "Ultimo lavoro · Revisione card · done", "normale ✓", "Rinnovi",
-        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 · Rinnovo", "Backup · nessun dato"] {
+        "rinnovo 2026-11-23", "Togli lo sblocco di claude", "Ferma i lavori nuovi", "Fascia 5 ore ✓", "Automazioni · 5 ti aspettano · 3 rotte", "In calendario · 39 | Rinnovo", "Backup · nessun dato"] {
         assert!(t.contains(want), "manca «{want}» in:\n{t}");
     }
     assert!(!t.contains("Mac e PC"), "the machine rows are drawn by the Topics tray, not here");
@@ -345,11 +345,11 @@ fn tray_calendar_row_says_when_the_next_one_is_due() {
     let body = |at: i64| Some(format!(r#"{{"needsYou":1,"broken":0,"calendar":{{"count":72,"next":{{"title":"Leggere la carta SuperFlash dalle API e confrontarla","at":{at}}}}}}}"#));
     let now = 1_794_297_600 - 3 * 86_400;
     let t = dump_text(&automation_nodes(&body(1_794_297_600_000), now, 3600));
-    assert!(t.contains("In calendario · 72 · mar 10 nov 09:00 Leggere la carta SuperFlash dalle A…"), "{t}");
+    assert!(t.contains("In calendario · 72 · mar 10 nov 09:00 | Leggere la carta SuperFlash dalle API e confrontarla"), "the title is whole, on the line under the row: {t}");
     let tomorrow = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 86_400, 3600));
-    assert!(tomorrow.contains("· domani 09:00 "), "{tomorrow}");
+    assert!(tomorrow.contains("· domani 09:00 |"), "{tomorrow}");
     let today = dump_text(&automation_nodes(&body(1_794_297_600_000), 1_794_297_600 - 3600, 3600));
-    assert!(today.contains("· oggi 09:00 "), "{today}");
+    assert!(today.contains("· oggi 09:00 |"), "{today}");
 }
 
 #[test]
@@ -455,4 +455,14 @@ fn tray_a_failed_icon_download_keeps_the_folder_and_is_asked_again() {
     fetch_project_icons("http://127.0.0.1:1", &live);
     assert!(project_icon_png("gamma").is_none());
     assert_eq!(crate::tray_menu_projects::project_icon_spec(&serde_json::json!({"name": "gamma"})), "sf:folder");
+}
+
+#[test]
+fn the_models_quotas_hide_a_stale_reading_and_say_what_they_are() {
+    let show = |stale: bool| {
+        let body = format!(r#"{{"credits":{{"a@x":{{"nobonus":true,"stale":{stale},"models":[{{"name":"Fable","pct":26}}]}}}}}}"#);
+        dump_text(&extras_nodes(&Some(body), Prefs::default()))
+    };
+    assert!(show(false).contains("Quote per modello") && show(false).contains("a@x · Fable 26% della sua quota"), "{}", show(false));
+    assert!(!show(true).contains("Fable") && !show(true).contains("bonus"), "an old reading is not shown: {}", show(true));
 }

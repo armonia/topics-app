@@ -231,7 +231,7 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
         clearRetirement(db, "topic", r.topicId);
       } else {
         recordRetirement(db, "topic", r.topicId, at, "tab-close");
-        try { deps.archiveTopic(r.topicId); out.topics++; }
+        try { deps.archiveTopic(r.topicId, "tab-close"); out.topics++; }
         catch (err) { console.error(`[retirement] cascata topic ${r.topicId}`, err); }
       }
     }
@@ -253,8 +253,14 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
 // ---------------------------------------------------------------------------
 
 export interface ReconcileDeps {
-  /** Archivia il topic per intero (`archiveTopicFully` legato alle sue dipendenze). */
-  archiveTopic: (topicId: string) => void;
+  /**
+   * Archives the whole topic (`archiveTopicFully` bound to its dependencies).
+   * `reason` is the `retirements.reason` the retirement writes: `archive` is a
+   * person's, whoever archives on the system's behalf passes one of its own
+   * (`task-release`, `subagent-end`, `reconcile:archived`), because the wakes
+   * of `lib/wake-adoption.ts` trust only the reasons people write.
+   */
+  archiveTopic: (topicId: string, reason?: string) => void;
   /**
    * Rare durable Topic roles may opt out of panel-driven retirement. The
    * predicate must be identity-based (never a mutable title/UI field).
@@ -315,7 +321,7 @@ export function reconcile(db: Database, deps: ReconcileDeps): ReconcileResult {
     }
     // Il fatto sa una chiusura che il registro non ha applicato.
     try {
-      if (d.kind === "topic") { deps.archiveTopic(d.refId); topicsArchived++; }
+      if (d.kind === "topic") { deps.archiveTopic(d.refId, "reconcile:archived"); topicsArchived++; }
       else if (d.kind === "terminal") { deps.retireTerminal(d.refId); terminalsRetired++; }
     } catch (err) {
       // Best-effort per riga: un topic che non si archivia non deve impedire

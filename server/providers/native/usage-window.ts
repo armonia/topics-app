@@ -8,6 +8,7 @@
 // message does not tell them apart; the usage endpoint does.
 
 import { setProviderHold, clearProviderHold, providerHold, recordPlanUsage, type UsageWindowKind } from "../../lib/provider-hold";
+import { recoverAfter401 } from "./auth";
 import type { PlanUsage, PlanUsageWindow } from "../../../shared/provider-hold";
 
 export const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -63,18 +64,50 @@ export function observePlanUsage(usage: Usage | null, nowMs: number = Date.now()
   if (!usage) return;
   recordPlanUsage(usage, nowMs);
   const hold = holdFromUsage(usage, nowMs);
-  if (hold) setProviderHold(hold, nowMs);
+  if (!hold) return;
+  // The very wall the engine just said it rotates past (same window, a reset
+  // no later) is not set again on the CLI's word alone (see
+  // `ENGINE_LIFT_TRUST_MS`): the engine is asked again, and the wall goes up
+  // if it no longer has a free account. Any other wall is set at once.
+  const lift = engineLift;
+  if (lift && nowMs - lift.atMs < ENGINE_LIFT_TRUST_MS && hold.window === lift.window && hold.untilMs <= lift.untilMs) {
+    // Only for the lift it was asked about: a later lift (the engine free
+    // again) makes this answer stale.
+    void lift.probe()
+      .then((free) => { if (free !== true && engineLift === lift) setProviderHold(hold, nowMs); })
+      .catch(() => { if (engineLift === lift) setProviderHold(hold, nowMs); });
+    return;
+  }
+  setProviderHold(hold, nowMs);
 }
 
 /** Read the windows with the session's OAuth token. Never throws: a usage
  *  endpoint that is down must not decide anything. */
-export async function fetchUsage(token: string, fetchImpl: typeof fetch = fetch): Promise<Usage | null> {
+export async function fetchUsage(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+  recover: (stale: string) => Promise<string | null> = recoverAfter401,
+): Promise<Usage | null> {
+  const read = (t: string) => fetchImpl(USAGE_URL, {
+    headers: { Authorization: `Bearer ${t}`, "anthropic-beta": "oauth-2025-04-20" },
+    signal: AbortSignal.timeout(10_000),
+  });
   try {
-    const res = await fetchImpl(USAGE_URL, {
-      headers: { Authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return null;
+    let res = await read(token);
+    // An expired or revoked token (the CLI rotated the pair) is one re-read or
+    // renewal away from working: retry once with the recovered token.
+    if (res.status === 401) {
+      const fresh = await recover(token);
+      if (!fresh) {
+        console.warn("[usage] the OAuth token is expired and could not be renewed: the plan usage is unreadable until a new /login");
+        return null;
+      }
+      res = await read(fresh);
+    }
+    if (!res.ok) {
+      console.warn(`[usage] the usage endpoint answered ${res.status}: the plan usage is unreadable`);
+      return null;
+    }
     return parseUsage(await res.json());
   } catch {
     return null;
@@ -115,4 +148,39 @@ export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now
   if (holdFromUsage(usage, nowMs)) return false;
   clearProviderHold();
   return true;
+}
+
+/**
+ * A plan hold lifted because the account engine behind the base URL still has
+ * an account that can take requests (`engineHasFreeAccount`, `base-url.ts`). The hold
+ * measures one account's windows, the engine rotates past it: a spent account
+ * is no wall while another one is free. An API outage hold is not the
+ * engine's to lift, and an engine that cannot be read decides nothing.
+ *
+ * Only the hold that was asked about is lifted: one set while the engine was
+ * being read (a real 429, `saturationHold`) is newer than the answer.
+ */
+export async function releaseHoldIfEngineFree(engineFree: () => Promise<boolean | null>, nowMs: number = Date.now()): Promise<boolean> {
+  const hold = providerHold(nowMs);
+  if (!hold || hold.window === "api-down") return false;
+  if ((await engineFree()) !== true) return false;
+  if (providerHold(nowMs)?.sinceMs !== hold.sinceMs) return false;
+  clearProviderHold();
+  engineLift = { window: hold.window, untilMs: hold.untilMs, atMs: nowMs, probe: engineFree };
+  return true;
+}
+
+/**
+ * How long an engine lift keeps the CLI's own readings from setting the same
+ * wall again. The CLI reports the windows of the account that served its
+ * turn: right after a lift, an account at 99% would re-arm the hold on its
+ * next turn and the banner, the dispatcher and the resume sweep would flap.
+ * A real 429 (`saturationHold`) is not stopped by this.
+ */
+export const ENGINE_LIFT_TRUST_MS = 10 * 60_000;
+let engineLift: { window: UsageWindowKind; untilMs: number; atMs: number; probe: () => Promise<boolean | null> } | null = null;
+
+/** Tests only: forget the last engine lift. */
+export function resetEngineLift(): void {
+  engineLift = null;
 }

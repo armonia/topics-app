@@ -62,10 +62,10 @@ import type { BackgroundTaskSummary } from '../../../../shared/background-work';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact, formatRunningFor } from '../../state/workLongevity';
 import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
-import { StatusIcon } from '../Board/atoms';
 import { useBoardTasks } from '../../lib/boardTasksStore';
 import { openCardsOf, taskCardPhase } from '../../lib/taskCardState';
 import { useChatCardIds } from '../../state/chatCards';
+import { SparkLoader } from '../Layout/StreamingIndicator';
 
 export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, sessionKey, isMobile }: { topicId: string; sessionKey?: string; isMobile: boolean }) {
   const tasks = useTopicBackgroundTasks(topicId);
@@ -77,7 +77,7 @@ export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, se
   const sentIds = useChatCardIds(sessionKey);
   const cards = openCardsOf(board, topicId, sentIds);
   // A command alone is the strip's (BGVIS-07): with nothing else the line does not come up.
-  const own = tasks.some((t) => t.kind !== 'command') ? lineWork(tasks, detail) : undefined;
+  const own = tasks.some((t) => t.kind !== 'command' && t.kind !== 'subagent') ? lineWork(tasks, detail) : undefined;
   const work = cards.length
     ? {
         sessionKey: own?.sessionKey ?? detail?.sessionKey ?? '',
@@ -113,7 +113,7 @@ function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork |
     // A queued wake is no work: it is the CLI about to answer a report. It
     // keeps the line up and is named by «about to resume» (n = 0 below), the
     // branch that otherwise no attention state could reach.
-    if (t.kind === 'wake' || t.kind === 'command') continue;
+    if (t.kind === 'wake' || t.kind === 'command' || t.kind === 'subagent') continue;
     const startedAt = Date.parse(t.startedAt);
     named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
   }
@@ -137,7 +137,7 @@ function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
           <span className={`flex flex-shrink-0 ${isStale ? 'opacity-70' : ''}`}>
-            <StatusIcon status="in_progress" live className="h-3 w-3" />
+            <SparkLoader size={12} activity="tool" className="flex-shrink-0" />
           </span>
           <span className="min-w-0 truncate text-compact text-app-text-secondary">
             {n === 0

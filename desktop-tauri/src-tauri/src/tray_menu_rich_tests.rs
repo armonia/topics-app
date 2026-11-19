@@ -49,7 +49,7 @@ fn the_projects_table_puts_the_working_one_first_and_hides_dead_ones() {
     let (busy, idle) = (t.find("Busy one").unwrap(), t.find("Idle one").unwrap());
     assert!(busy < idle && !t.contains("Gone"));
     assert!(t.contains("Busy one | 0,4 | 11,5 | 26,3 | 12k | ▸ 1"), "{t}");
-    assert!(t.contains("Idle one | – | – | – | – | –"));
+    assert!(t.contains("Idle one | – | – | – |  | –"));
 }
 
 #[test]
@@ -95,9 +95,10 @@ fn a_section_without_data_is_not_drawn() {
 fn local_machine_lists_its_processes_and_every_card_can_open_the_finder() {
     let sn = Snapshot { procs: Some(r#"{"units":[]}"#.into()), ..snap() };
     let machines = machines_for(&[], &sn);
-    let nodes = machine_nodes(&machines, &sn, Palette::new(false));
+    let nodes = machine_nodes(&machines, &sn, 1_800_000_000, Palette::new(false));
     let t = dump_text(&nodes);
-    assert!(t.contains("CPU intasata") && t.matches("Cerca in una finestra…").count() == 2, "{t}");
+    assert!(!t.contains("CPU intasata"), "the reason is under the name in the card, not again in the submenu: {t}");
+    assert!(t.matches("Cerca in una finestra…").count() == 2, "{t}");
 }
 
 /// Every clickable id of the whole menu, machines with commands and processes included.
@@ -142,8 +143,9 @@ fn the_client_machines_join_the_service_ones_without_doubles() {
     let names: Vec<String> = machines_for(&[], &snap()).iter().map(|m| m.name.clone()).collect();
     let client = vec![card("me", "anything", true), card("twin", &names[names.len() - 1].to_uppercase(), false), card("n1", "Node", false)];
     let ids: Vec<String> = machines_for(&client, &snap()).iter().map(|m| m.id.clone()).collect();
+    // dispatch order: this computer, then the node that answers, then the one asleep (the service lists «pc» as «dorme»)
     let mut want = service.clone();
-    want.push("n1".into());
+    want.insert(1, "n1".into());
     assert_eq!(ids, want);
     // with no service there is nothing to merge: the client list is the menu
     let none = Snapshot { board: None, ..snap() };
@@ -191,7 +193,7 @@ const UNIFORM_MACHINES: &str = r#"[
 
 fn uniform_cards() -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(UNIFORM_MACHINES.into()), procs: Some(r#"{"units":[{"id":"u1","name":"Topics","type":"app","n":3,"memMB":900,"pids":[]}]}"#.into()), ..Default::default() };
-    machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true))
+    machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true))
 }
 
 #[test]
@@ -207,10 +209,12 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
         let children = &children;
         let k = children.len();
         assert!(k >= 5, "{key}: {}", dump_text(children));
-        // the state first, then a separator and the process table, then the finder
-        assert!(matches!(children[0], Node::Item { enabled: false, .. }), "{key}: a state line first, as on the MacBook");
+        // what the machine says first (state lines, the day), a separator, the process table, then the finder; never a
+        // separator at the start or two in a row
+        assert!(!matches!(children[0], Node::Sep), "{key}: starts on a row");
+        assert!(!children.windows(2).any(|w| matches!((&w[0], &w[1]), (Node::Sep, Node::Sep))), "{key}: no separator twice in a row");
         let head = children.iter().position(|n| matches!(n, Node::Row { header: true, .. })).expect("a process table");
-        assert!(matches!(children[head - 1], Node::Sep), "{key}: a separator before the process table");
+        assert!(head == 0 || matches!(children[head - 1], Node::Sep), "{key}: a separator before the process table");
         let Node::Row { cells, table, .. } = &children[head] else { unreachable!() };
         assert!(cells[0].starts_with("GIRA ADESSO"), "{key}: {cells:?}");
         // the MacBook measures GPU and network per process; a remote machine does not, so it has no such columns
@@ -247,7 +251,7 @@ fn every_machine_submenu_has_the_shape_of_the_macbook_one() {
 
 fn remote_sub(machines: &str) -> Vec<Node> {
     let sn = Snapshot { board: Some(UNIFORM_BOARD.into()), machines: Some(machines.into()), ..Default::default() };
-    let cards = machine_nodes(&machines_for(&[], &sn), &sn, Palette::new(true));
+    let cards = machine_nodes(&machines_for(&[], &sn), &sn, 1_800_000_000, Palette::new(true));
     let Node::Card { children, .. } = &cards[2] else { panic!("the server card") };
     children.clone()
 }
@@ -286,14 +290,21 @@ fn a_remote_machine_invents_nothing_it_cannot_measure() {
 }
 
 #[test]
-fn a_remote_machine_shows_its_readings_and_its_day_like_the_original_submenu() {
+fn a_remote_machine_shows_its_day_and_does_not_say_the_card_again() {
     let m = r#"[{"id":"hetzner","metrics":[{"key":"cpu","name":"CPU","pct":1,"level":0,"note":"0,2 di 16 core"},{"key":"spend","name":"Spesa","pct":14,"level":2,"value":"8,44/60 €","note":"oltre il tetto"}],
       "timeline":{"window":86400,"segments":[{"t0":0,"t1":79200,"state":"lavora"},{"t0":79200,"t1":86400,"state":"dorme"}]},"procs":[]}]"#;
     let t = dump_text(&remote_sub(m));
-    assert!(t.contains("CPU 1% · 0,2 di 16 core") && t.contains("Spesa 8,44/60 € · oltre il tetto"), "a line per reading, in the service's words: {t}");
-    assert!(t.contains("Ultime 24 h · lavora 22 h · dorme 2 h"), "{t}");
-    // a reading comes before the state lines, as the card did in the original
-    assert!(t.find("CPU 1%").unwrap() < t.find("Nodo fisso acceso").unwrap(), "{t}");
+    assert!(!t.contains("CPU 1%") && !t.contains("Spesa 8,44"), "the readings are the card's: said twice they were two figures for one thing: {t}");
+    assert!(t.contains("Nelle ultime 24 h · al lavoro 22 h · dorme 2 h"), "{t}");
+}
+
+#[test]
+fn the_day_of_a_machine_never_reads_as_the_time_it_was_on() {
+    // «acceso 7 h» next to «lavora 16 h» read as on for 7 hours while working for 16: the states split the day allow-italian: quoted menu wording
+    let m = r#"[{"id":"hetzner","timeline":{"window":86400,"segments":[{"t0":0,"t1":60000,"state":"lavora"},{"t0":60000,"t1":86400,"state":"acceso"}]}}]"#;
+    let t = dump_text(&remote_sub(m));
+    assert!(t.contains("al lavoro 16 h 40 min · acceso senza lavoro 7 h 20 min"), "{t}");
+    assert!(!t.contains("lavora "), "{t}");
 }
 
 #[test]
@@ -392,6 +403,11 @@ fn tray_dump_of_the_real_menu() {
         trust: read("trust"),
         backup: read("backup"),
         backup_set: read("backup").is_some(),
+        memory_sync: read("memory-sync"),
+        memory_sync_set: read("memory-sync").is_some(),
+        pool: read("pool"),
+        health: read("machines-health"),
+        harness_sync: read("harness-sync"),
         cpu,
     };
     // the poller reads the pictures from the service; the dump only needs to know there is one
@@ -407,4 +423,22 @@ fn tray_dump_of_the_real_menu() {
     let mut out = String::from("# Tendina della tray Rust coi dati veri dell'hub\n# ⟨icona⟩ davanti alla riga · ‹tabella, aspetto; tab› di ogni riga a colonne · ⟶ id di ciò che si clicca · ▸ si apre un sottomenu\n\n");
     dump_detailed(&menu, 0, &mut out);
     std::fs::write(dir.join("nuovo-menu-v7.txt"), out).unwrap();
+}
+
+#[test]
+fn separators_sit_between_two_rows_only() {
+    let item = |t: &str| crate::tray_menu::note(t);
+    let out = tidy_separators(vec![Node::Sep, item("a"), Node::Sep, Node::Sep, item("b"), Node::Sep]);
+    let kinds: Vec<&str> = out.iter().map(|n| if matches!(n, Node::Sep) { "-" } else { "row" }).collect();
+    assert_eq!(kinds, ["row", "-", "row"], "none at the start or the end, one where there were two");
+}
+
+#[test]
+fn the_history_of_a_reading_comes_from_the_machines_answer_and_bounds_the_peak() {
+    let board = machine_cards_from_board(r#"{"machines":[{"id":"local","name":"Mac","state":"x","metrics":[{"key":"gpu","pct":77,"note":"picco 24 h 77%"}]}]}"#);
+    let mut cards = board;
+    attach_histories(&mut cards, Some(r#"[{"id":"local","metrics":[{"key":"gpu","history":[{"t":1000000,"v":10},{"t":1600000,"v":77},{"t":2200000,"v":30}]}]}]"#));
+    assert_eq!((cards[0].metrics[0].hist_n, cards[0].metrics[0].hist_span_s, cards[0].metrics[0].hist_peak), (3, 1200, Some(77)));
+    crate::tray_numbers::say_what_each_is_of(&mut cards[0]);
+    assert_eq!(cards[0].metrics[0].note, "picco 77% · ultime 20 minuti", "twenty minutes of history are not 24 hours");
 }

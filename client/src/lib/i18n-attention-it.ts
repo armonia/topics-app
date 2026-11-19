@@ -52,6 +52,7 @@ const ATTENTION_IT: Dict = {
   'inbox.task.cron': 'Cron',
   'inbox.task.command': 'Comando',
   'inbox.task.wake': 'Risveglio',
+  'inbox.task.subagent': 'Sottoagente',
   'bell.group.broken': 'Si è rotto',
   'bell.group.quota': 'Quote e account',
   'bell.chip.quota': 'Quote',

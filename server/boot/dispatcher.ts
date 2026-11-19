@@ -220,7 +220,7 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // non da una terza implementazione: qui si archiviava e basta, e ogni task
     // dispacciato lasciava dietro un badge di non letti su una conversazione non
     // più apribile e un id fantasma in `ui_state` che risuscitava al reload.
-    archiveTopic: retirementConsequences.archiveTopic,
+    archiveTopic: (topicId) => retirementConsequences.archiveTopic(topicId, "task-release"),
     // Il pavimento sulle risorse, misurato sul volume che ospita davvero le
     // worktree. Serve da quando il tetto sugli agenti si può togliere: senza,
     // «nessun limite» vuol dire che la coda si ferma a disco pieno, cioè quando

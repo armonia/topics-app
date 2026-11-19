@@ -311,7 +311,7 @@ export function TodoCard({ items }: { items: Array<{ content: string; status: 'p
 
 // ── Sub-agent (Task) ────────────────────────────────────────────────────────
 
-export function SubAgentCard({ actions, result, isRunning, description }: {
+export function SubAgentCard({ actions, result, isRunning, isError, description }: {
   actions: Array<{ index: number; toolName: string; summary?: string; status?: 'running' | 'success' | 'error' }>;
   result?: string;
   /** Full task description: the row shows it cut to one line. */
@@ -325,6 +325,8 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
    * is false, so the card doesn't look stuck.
    */
   isRunning?: boolean;
+  /** A failed call says so with its error: «no activity» under it would be a second, emptier line. */
+  isError?: boolean;
 }) {
   const tr = useT();
   return (
@@ -335,9 +337,12 @@ export function SubAgentCard({ actions, result, isRunning, description }: {
         <div data-testid="sub-agent-description" className="text-compact text-app-text whitespace-pre-wrap break-words">{description}</div>
       )}
       {actions.length === 0 ? (
-        <div className="text-mini italic text-app-text-muted">
-          {isRunning ? tr('chat.tool.subAgentStarting') : (result ? null : tr('chat.tool.noActivity'))}
-        </div>
+        // Nothing to say, no line: an empty div would still take its gap.
+        (isRunning || !(result || isError)) && (
+          <div className="text-mini italic text-app-text-muted">
+            {isRunning ? tr('chat.tool.subAgentStarting') : tr('chat.tool.noActivity')}
+          </div>
+        )
       ) : (
         <div>
           <div className="text-mini uppercase tracking-wide text-app-text-muted mb-0.5">
@@ -744,7 +749,7 @@ function ToolCardBodyDetail({ detail, isError, error, isRunning, sessionKey, liv
     case 'sub_agent':
       // Topics' `spawn_agent`: a child with a pane, a live state and results of its own.
       if (detail.via === 'spawn_agent') return <SpawnAgentCard detail={detail} sessionKey={sessionKey} isRunning={isRunning} isError={isError} error={error} />;
-      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} description={subAgentBodyDescription(detail, !!summaryCut)} />;
+      return <SubAgentCard actions={detail.actions} result={detail.result} isRunning={isRunning} isError={isError} description={subAgentBodyDescription(detail, !!summaryCut)} />;
     case 'task_card':
       return <TaskToolCard detail={detail} isRunning={isRunning} isError={isError} error={error} />;
     case 'plan':

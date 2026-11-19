@@ -402,7 +402,7 @@ pub(crate) fn set_clipboard_image(bytes: Vec<u8>) -> Result<(), String> {
 /// One attention row for the dynamic tray menu: a chat topic needing the user,
 /// clickable to jump straight to it (Electron parity: the tray listed unread
 /// topics that navigate on click).
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, PartialEq)]
 pub(crate) struct StatusItem {
     pub(crate) id: String,
     pub(crate) title: String,
@@ -418,7 +418,7 @@ pub(crate) struct StatusItem {
 /// `shared/tray-board.ts`; this side only draws it. `count` is the WHOLE column,
 /// `rows` the ones that fit: the difference is what the submenu declares as
 /// "altri N", instead of letting them vanish.
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, PartialEq)]
 pub(crate) struct StatusGroup {
     /// Kanban status id: picks the label and builds the row id that reopens the board.
     pub(crate) status: String,
@@ -574,6 +574,9 @@ pub(crate) fn set_app_status(
     groups: Option<Vec<StatusGroup>>,
     machines: Option<Vec<tray_machines::StatusMachine>>,
     agents: Option<tray_agents::AgentStates>,
+    // What the agents are doing (`shared/agent-action.ts`), the most recent
+    // move among those at work. Optional: an older client does not send it.
+    action: Option<String>,
 ) {
     if !accepts_app_status_from(window.label()) {
         return;
@@ -588,8 +591,14 @@ pub(crate) fn set_app_status(
         let machines = machines.unwrap_or_default();
         // The agents by state replace the single number on the strip, on its left.
         tray_poller::set_agents(agents.unwrap_or_default());
+        tray_poller::set_action(action.as_deref().and_then(tray_poller::AgentAction::from_wire));
+        // Badge, title and tooltip depend only on `count`: a push that only moves the
+        // action (every ~700 ms while agents work) must not write to the status button,
+        // least of all while its menu is open (`tray_tracking`).
+        static CHROME_COUNT: tray_tracking::LastWritten<u32> = tray_tracking::LastWritten::new();
+        let chrome_changed = CHROME_COUNT.changed(count);
         // The dock-tile badge is an AppKit UI mutation — must run on the main thread.
-        if let Some(win) = app.get_window("main") {
+        if let (true, Some(win)) = (chrome_changed, app.get_window("main")) {
             let _ = win.run_on_main_thread(move || set_dock_badge(count));
         }
         // Menu-bar tray: glyph + tooltip + the clickable attention rows.
@@ -597,25 +606,35 @@ pub(crate) fn set_app_status(
         if let Some(tray) = app.tray_by_id("main") {
             // Keep what the Topics rows need, then draw the whole menu from one place:
             // the service poller redraws it too, and must not lose these rows.
-            if let Ok(mut st) = TRAY_STATUS.lock() {
-                *st = (items.clone(), groups.clone(), machines.clone());
+            // A push that only moves the action (it changes every ~700 ms while
+            // agents work) leaves the rows as they were: no menu rebuild for it.
+            let rows_changed = match TRAY_STATUS.lock() {
+                Ok(mut st) => {
+                    let changed = st.0 != items || st.1 != groups || st.2 != machines;
+                    if changed {
+                        *st = (items.clone(), groups.clone(), machines.clone());
+                    }
+                    changed
+                }
+                Err(_) => true,
+            };
+            if rows_changed {
+                rebuild_tray_menu(&app);
             }
-            rebuild_tray_menu(&app);
 
             // No number next to the strip: the glyph group on its left says it by state.
-            let title: Option<String> = None;
-            let tip = if count > 0 {
-                format!("Topics — {count} in attesa")
-            } else {
-                "Topics".to_string()
-            };
-            let _ = tray.set_title(title);
-            let _ = tray.set_tooltip(Some(tip));
+            if chrome_changed {
+                let tip = if count > 0 { format!("Topics — {count} in attesa") } else { "Topics".to_string() };
+                tray_tracking::defer("chrome", move || {
+                    let _ = tray.set_title(None::<String>);
+                    let _ = tray.set_tooltip(Some(tip));
+                });
+            }
         }
         Ok(())
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (app, count, items, groups, machines, agents);
+    let _ = (app, count, items, groups, machines, agents, action);
 }
 
 /// Last attention rows and board columns, kept so the service poller can redraw the
@@ -651,8 +670,8 @@ fn hub_leaf(app: &tauri::AppHandle, node: &tray_menu::Node, prefix: &str) -> Opt
             (tray_label(label), if id.is_empty() { format!("note:{label}") } else { id.clone() }, *enabled, &[])
         }
         tray_menu::Node::Sub { label, children } => (tray_label(label), String::new(), true, children),
-        tray_menu::Node::Card { key, png, w, h, children } => {
-            (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
+        tray_menu::Node::Card { key, png, w, h, hover, children } => {
+            (tray_menu_native::register_card(key, png, *w, *h, hover), format!("card:{key}"), false, children)
         }
         tray_menu::Node::Row { id, cells, header, table, look, children } => {
             let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -896,7 +915,7 @@ pub(crate) fn rebuild_tray_menu(app: &tauri::AppHandle) {
 #[cfg(target_os = "macos")]
 pub(crate) fn refresh_hub_menu(app: &tauri::AppHandle) {
     let base = tray_quota::hub_base();
-    let snap = tray_menu::Snapshot::fetch(&base, tray_menu::backup_cache_path().as_deref());
+    let snap = tray_menu::Snapshot::fetch_with(&base, tray_menu::backup_cache_path().as_deref(), tray_menu::memory_sync_cache_path().as_deref());
     let prefs = tray_menu::prefs_path().map(|p| tray_menu::load_prefs(&p)).unwrap_or_default();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

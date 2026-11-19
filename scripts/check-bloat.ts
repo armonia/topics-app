@@ -80,6 +80,7 @@ const GROWTH_FLOOR = 120;
 const EXCLUDED = [
   "server/db/migrations-embedded.ts", // written by scripts/gen-migrations-manifest.ts
   "client/src/lib/generated-shortcuts.ts", // written by scripts/gen-shortcuts.ts
+  "desktop-tauri/src-tauri/src/tray_loader_frames.rs", // written by scripts/gen-tray-loader-frames.ts
 ];
 
 /**

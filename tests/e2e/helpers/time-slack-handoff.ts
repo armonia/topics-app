@@ -30,6 +30,23 @@ export interface TimeSlackDecision {
   note: string;
 }
 
+/** Per-runner Playwright process count, set by the CI step that starts them. */
+export const PROCS_ENV = "E2E_PROCS_PER_RUNNER";
+
+/**
+ * Load per core that ONE extra process adds on purpose. Measured on the
+ * 4 vCPU runners: two processes read 4.9 (1.2 per core), so the second one is
+ * ~0.6 per core of load that is the plan, not contention.
+ */
+const STRUCTURAL_LOAD_PER_CORE = 0.6;
+
+/** Load that is there by design because several processes share the runner. */
+function structuralLoad(env: Record<string, string | undefined>, cores: number): number {
+  const procs = Math.floor(Number(env[PROCS_ENV]));
+  if (!Number.isFinite(procs) || procs < 2) return 0;
+  return (procs - 1) * STRUCTURAL_LOAD_PER_CORE * Math.max(1, cores);
+}
+
 /**
  * Measure the machine, write the factor into `env`, and return the line to say.
  *
@@ -45,7 +62,10 @@ export function handDownTimeSlack(
   env: Record<string, string | undefined> = process.env,
   machine: { load: number; cores: number } = { load: loadavg()[0] ?? 0, cores: cpus().length || 1 },
 ): TimeSlackDecision {
-  const slack = timeSlack({ load: machine.load, cores: machine.cores, forced: env[TIME_SLACK_ENV] });
+  // With two processes per runner a load of 1.2/core is the plan; only the
+  // excess is contention worth widening the waits for.
+  const load = Math.max(0, machine.load - structuralLoad(env, machine.cores));
+  const slack = timeSlack({ load, cores: machine.cores, forced: env[TIME_SLACK_ENV] });
   env[TIME_SLACK_ENV] = String(slack);
   return { slack, note: timeSlackNote(slack, machine.load, machine.cores) };
 }

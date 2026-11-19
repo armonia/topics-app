@@ -12,9 +12,9 @@
  * finger the text wraps and the buttons go under it. The texts are the hub's own sentences; the names of
  * files and the hub's ids never reach the screen.
  */
-import { useState, type ReactNode } from 'react';
+import { useState, type ComponentType, type ReactNode } from 'react';
 import {
-  ArrowLeftRight, ArrowUpCircle, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, History, KeyRound, Layers, LoaderCircle, Megaphone,
+  ArrowLeftRight, ArrowUpCircle, Bot, Check, ChevronRight, CircleDashed, CircleX, Clock, Clock3, Cpu, CreditCard, Eye, Gauge, History, KeyRound, Layers, Megaphone,
   MessageCircle, MonitorOff, PieChart, RotateCw, Scale, ServerCrash, Settings2, SkipForward, User, UserCog, Workflow, Wrench, type LucideIcon,
 } from 'lucide-react';
 import { useLocale, useT } from '../../hooks/useT';
@@ -31,6 +31,7 @@ import { openAutomation } from '../../state/automationTarget';
 import { openTaskInApp } from '../../lib/openTaskLink';
 import { WARNING_TEXT, DANGER_TEXT, SUCCESS_TEXT } from '../../lib/popoverStyles';
 import { useSharedNow } from '../../state/useSharedNow';
+import { Spinner } from '../Shared/Spinner';
 
 addCatalogue('it', PROXY_EVENTS_IT);
 addCatalogue('en', PROXY_EVENTS_EN);
@@ -87,8 +88,16 @@ function dueLabel(due: number, now: number, tr: ReturnType<typeof useT>): string
  * the text with a mouse, under it with a finger. With `onOpen` the text is a
  * button that opens the subject, otherwise it only takes the focus.
  */
+/** What a row draws on its left: a lucide icon, or the loader for a line still running. */
+type RowIcon = ComponentType<{ size?: number; className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
+
+/** A line still running: the square loader in the footprint of the row icon (2px margin per side). */
+function RunningGlyph({ size = 15, className = '' }: { size?: number; className?: string }) {
+  return <Spinner size={size - 4} box={size} tone="current" activity="tool" className={className} />;
+}
+
 export function RowShell({ icon: Icon, tint, first, title, second, at, clock, actions, aside, onOpen, attrs, full, iconLabel }: {
-  icon: LucideIcon;
+  icon: RowIcon;
   tint: string;
   first: boolean;
   title: ReactNode;
@@ -405,10 +414,10 @@ const DIARY_ICON: Record<DiaryEntry['kind'], LucideIcon> = { auto: Workflow, app
 const DIARY_OUTCOMES = new Set(['ok', 'error', 'undelivered', 'skipped', 'running', 'queued']);
 
 /** The state of a line, as an icon the eye reads and a word for the hover and screen readers. */
-const DIARY_STATUS: Record<string, { icon: LucideIcon; tint: string; spin?: boolean }> = {
+const DIARY_STATUS: Record<string, { icon: RowIcon; tint: string }> = {
   error: { icon: CircleX, tint: DANGER_TEXT },
   undelivered: { icon: CircleX, tint: DANGER_TEXT },
-  running: { icon: LoaderCircle, tint: 'text-primary', spin: true },
+  running: { icon: RunningGlyph, tint: 'text-primary' },
   queued: { icon: Clock3, tint: 'text-app-text-tertiary' },
   skipped: { icon: SkipForward, tint: 'text-app-text-muted' },
 };
@@ -438,7 +447,7 @@ export function DiaryRow({ entry, onNavigate }: { entry: DiaryEntry; onNavigate?
     <RowShell
       attrs={{ 'data-testid': 'bell-diary-row', 'data-kind': entry.kind, 'data-outcome': entry.outcome ?? undefined }}
       icon={Icon}
-      tint={`${status?.tint ?? 'text-app-text-tertiary'}${status?.spin ? ' [&_svg]:animate-spin' : ''}`}
+      tint={status?.tint ?? 'text-app-text-tertiary'}
       iconLabel={word ?? undefined}
       first={false}
       title={entry.title}

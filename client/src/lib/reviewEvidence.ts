@@ -107,7 +107,7 @@ export function reviewEvidence(task: {
   // A delivery an AGENT declared is not a hand either, bound or not: an agent
   // that delivers a card it opened from its own chat, or the coordinator, has
   // no session on the card (`assignedTopicId`), and the card said it had been
-  // moved by hand on Human review (seen on the board-workflow clip, 30/10).
+  // moved by hand into review (seen on the board-workflow clip, 30/10).
   if (!task.assignedTopicId) return task.deliveredBy === 'agent' ? { kind: 'in-place', isolated: false } : { kind: 'manual', isolated: false };
   if (task.deliveredBy === 'system') return { kind: 'empty', isolated: false };
   // Nessun ramo, ma un agente c'e' ed e' stato LUI a dichiarare finito: il

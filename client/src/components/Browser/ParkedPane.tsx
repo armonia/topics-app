@@ -12,6 +12,7 @@ import { Unplug, RotateCw } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { loopbackDownText } from './navErrorMessage';
 import { shortcut } from '../../lib/shortcutLabel';
+import { Spinner } from '../Shared/Spinner';
 
 interface ParkedPaneProps {
   url: string;
@@ -52,7 +53,7 @@ export function ParkedPane({ url, checkedAt, checking, onRetry }: ParkedPaneProp
             disabled={checking}
             className="flex items-center gap-1.5 px-3 py-1.5 text-compact rounded-md border border-app-border-light text-app-text hover:bg-app-hover transition-colors disabled:opacity-50"
           >
-            <RotateCw size={12} className={checking ? 'animate-spin' : undefined} aria-hidden />
+            {checking ? <Spinner size="sm" tone="current" /> : <RotateCw size={12} aria-hidden />}
             {checking ? tr('browser.parked.checking') : tr('browser.parked.retry')}
           </button>
         </div>

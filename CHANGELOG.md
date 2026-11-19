@@ -2,6 +2,226 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.48 — 2026-11-19
+
+### Sotto il cofano
+- provider-hold: lift a plan hold when the account engine has a free account
+- provider-hold: ask the engine's selector, lift only the hold asked about, no re-arm flap
+- provider-hold: the anti re-arm covers only the very wall lifted, and asks the engine again
+- engine-free-account declares what it covers; English-only comment wording
+- provider-hold: re-arm probe covers earlier resets of the same window, and a stale probe re-arms nothing
+
+## 2.4.47 — 2026-11-18
+
+### Sotto il cofano
+- Thinking body: no empty space under the last sentence (#1282)
+- Client nested in a Topics pane no longer drives the real app (#1285)
+- fornitore accanto all'email e frase delle 5 ore nelle schede account (#1283)
+
+## 2.4.46 — 2026-11-18
+
+### Sotto il cofano
+- grafici dei nodi con dettaglio al passaggio del mouse, memoria e storia di server e PC (#1279)
+
+## 2.4.45 — 2026-11-18
+
+### Sotto il cofano
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1263)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-18 [skip ci]
+- browser pane: bounce size by 1px when a view comes on screen so it never stays black (#1266)
+
+## 2.4.44 — 2026-11-18
+
+### Sotto il cofano
+- niente useMemo con dipendenza da store esterno, il caso senza traduzioni esce subito
+- Nomi in inglese per il cancello degli identificatori
+
+## 2.4.43 — 2026-11-18
+
+### Sotto il cofano
+- Usage ledger: external calls (delegate jobs) name their project and count in it (06fda227) (#1265)
+- Thinking tradotto nella lingua della chat, gratis su macOS (Translation di Apple, helper Swift on-device)
+- Manifest delle migration riallineato dopo il merge di main
+- numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
+- ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
+- la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper
+- il test della riga delle fasce misura con i font del Mac
+- consumo per progetto con conto giusto, avviso sul telefono e freno al budget
+- Reasoning translation: export solo ciò che serve fuori dal modulo
+- topics/gleaming-panther (card bb70db88) (#1270)
+- spawn dell'helper dichiarati (scadenza, motivo), trattino della regex annotato, registro dei tipi in uscita a 109
+- stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)
+- Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto
+- Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati
+- apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)
+- topics/transient-bay (card 6d1e962f) (#1271)
+- Traduzione del ragionamento: requisito REASONING-TRANSLATE-01 nelle spec della chat, @covers sui test, binari di sistema dichiarati a knip
+- withReasoningTranslation riceve il servizio come gli altri: niente import a namespace che accecava il gate del codice morto
+
+## 2.4.42 — 2026-11-17
+
+### Sotto il cofano
+- Consumi per persona: mittente vero dei canali, registro d'uso esterno, «Chi ha consumato» (#1228)
+- Pannello delle domande: il tetto toglie anche la barra sopra la pane e ciò che sta sotto (#1234)
+- ssh del nodo cloud senza marcatura DSCP: IPQoS=none
+- ssh del nodo cloud con DSCP af41, scp senza marcatura
+- harness-sync: anche ssh_opts usa DSCP af41
+- accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)
+- Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)
+- Marcatore persistente per le chat di sistema degli agenti (system_chats)
+- l'esempio della foto della tray torna a compilare (#1248)
+- Manifest delle migrazioni rigenerato
+- stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)
+- il testo lungo via /send arriva intero come paste (TERM-SEND-01)
+- una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
+- topics/tawny-marble (card 7749cf36) (#1247)
+- CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
+- Usage ledger: external calls (delegate jobs) name their project and count in it
+- Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
+- ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
+- il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
+
+## 2.4.41 — 2026-11-17
+
+### Correzioni
+- **board** · un turno di chat non promuove card che la chat ha aperto per sé (#1230)
+
+### Sotto il cofano
+- Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)
+- Pannello delle domande a scelte: resta dentro la pane e scorre dentro di sé (#1229)
+- righe di tool, sottoagenti e card sulla stessa griglia (#1227)
+- Tab e riga di una chat col turno chiuso dicono cosa aspettano (sottoagente, processo, lavoro) (#1225)
+- il loader non si ferma più quando apri il menu (#1232)
+- an unreachable node says so in three words, not with the transport's timeout message
+
+## 2.4.40 — 2026-11-17
+
+### Correzioni
+- **chat** · una card che nessuno lavora non tiene su «in attesa di un lavoro in background» (#1224)
+
+### Sotto il cofano
+- node cards hide technical names and link the PC by name
+- rewrite the Italian code comments in English so the comment-language gate passes
+- a provider firewall in front of a node wins over its own ufw reading
+- Add an e2e spec measuring every board button at 44px under a coarse pointer (375 and 768)
+- Fix the touch target spec: an empty audit list is the pass, count the board buttons separately
+- Widen the sidebar 'action' toggle touch area to 44px
+- Make the card preview commands a 44px always-visible target under a coarse pointer
+- name the OS tools the security probes read, and spell out a regex the linter counts as hard
+- write the health file where the tray reads it, not in the server's data folder
+
+## 2.4.39 — 2026-11-17
+
+### Sotto il cofano
+- node cards say memories, code and security, with small charts
+- per-machine security probes and 24h history in machines-health.json for the tray
+- harness-sync: put each project's memory where Claude Code on the node looks for it
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-17 [skip ci]
+- harness-sync: stop rsync --delete from wiping the node's own folders
+- nodo principale scelto a mano (analisi, proposta, tracce)
+- nodo principale per tutto il sistema agentico (strada completa, mappa, account)
+- sul principale i modelli Claude solo da abbonamento, con barra in T2
+- harness-sync: raise the open-files limit under launchd
+- harness-sync: resend at once what the node lost, without waiting for the 15 minute retry gate
+- Drop the empty left column from the Thinking row (#1223)
+
+## 2.4.38 — 2026-11-17
+
+### Sotto il cofano
+- Thinking row: label «Thinking», chevron only on hover and focus like the tool rows (#1221)
+- cloud-node: carry the Mac's agent rules and memories to the nodes, with the private part encrypted at rest
+
+## 2.4.37 — 2026-11-17
+
+### Sotto il cofano
+- verifica cron-gate Spinta, nessuna modifica al repo (falso allarme, soglia sistemata fuori repo) (#1219)
+
+## 2.4.36 — 2026-11-17
+
+### Sotto il cofano
+- baseline follows the scores that rose tonight
+- F02 transcript motion waits 30 s for the tool body to close on a loaded runner (card d8ee685d) (#1218)
+
+## 2.4.35 — 2026-11-17
+
+### Sotto il cofano
+- **git-status-native** · force a fresh generation between the disabled and native rounds (#1216)
+
+## 2.4.34 — 2026-11-17
+
+### Sotto il cofano
+- la finestra di fiducia ha 30 s invece di 7 e il log dice a che passo si ferma
+- topics/sleepy-phantom (card 3d431e73) (#1210)
+- sheet sidebar reopened after reload on phones, Plan status sign may be the canvas loader
+- **deploy-outcome** · 2 s deadline cap so a slow shell start still prints before it
+- Card 6b93490f: nessuna modifica qui, test riavvio di jarvis-channels già corretto in b7c8a2e1 (attesa del figlio da 3 a 30 s)
+
+## 2.4.33 — 2026-11-17
+
+### Sotto il cofano
+- Il loader mostra cosa sta facendo l'AI, ovunque e nella tray (#1204)
+
+## 2.4.32 — 2026-11-17
+
+### Sotto il cofano
+- an archived chat that launched work after being archived is alive (#1195)
+- Guardia rm per i turni: risolvere i target relativi contro il cwd (#1207)
+- in locale si unisce subito, la CI misura dopo e riporta i rossi a chi li ha fatti (#1203)
+- topics/brassy-hour (card 2a1f2e84) (#1208)
+
+## 2.4.31 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: la chiusura automatica avviene in un fotogramma (#1202)
+- la scheda della sincronizzazione memorie in un file suo, tray_menu_views.rs torna sotto le 800 righe (#1206)
+
+## 2.4.30 — 2026-11-17
+
+### Sotto il cofano
+- Ragionamento in chat: aperto mentre il modello pensa, chiuso quando risponde (#1194)
+- topics/patient-badger (card 3c348ab4) (#1191)
+- node-pool: cancellando un server a ore si toglie anche la sua macchina dal Mac
+- toglie il preset di workflow `armonia` (Triage, AI review, Human review) (#1197)
+- Anteprima di review: prepara il worktree, dice perché non parte, serve topics-app da un bundle suo (#1196)
+- un nodo per server vero, in ordine di dispatch, e la scheda delle memorie
+- Anteprima di topics-app: dati di esempio e pagina da fotografare scritta dallo script (#1200)
+- toglie il campo `preset` dal workflow e la lettura di board_workflows (#1199)
+- il fallimento di un riallineamento vecchio non resta per sempre, e la frase intera sta nel sottomenu
+- note on ghost queued CI runs that the API cannot cancel (#1179)
+
+## 2.4.29 — 2026-11-16
+
+### Correzioni
+- **chat** · una riadozione in corso risulta viva al watchdog anche se il figlio è già uscito (#1190)
+
+### Sotto il cofano
+- Align the reworded-wait test with agent waits staying in todo
+
+## 2.4.28 — 2026-11-16
+
+### Sotto il cofano
+- Agent waits and scheduled cards stay in todo: repeated waits grow the window (15 min, 1 h, 6 h, 24 h) instead of parking in backlog
+
+## 2.4.27 — 2026-11-16
+
+### Correzioni
+- **browser** · focus-pane mounts the panel with the same force-open fallback as open-pane
+- approve re-captures a missing delivery_commit before deciding CI
+
+### Sotto il cofano
+- a reload during a server restart gets one more reload once the server answers (card 10e0dd3d) (#1158)
+- La nightly rossa caricava un report che non esiste: ora carica video, trace e screenshot dei test che cadono (#1161)
+- worktree-gc: keep worktrees of running or recently ended sub-agents (#1164)
+- E2E time slack: discount the load two Playwright processes per runner add by design (#1141)
+- **browser** · move focus-pane mount flow into browser-bridge-focus to keep browser-bridge under the bloat limit
+- Il test del refresh a server giù non trovava le tab perché non trovava la pagina: il banco bloccava il service worker (#1172)
+- Split server/services/tasks.ts into tasks/ sibling modules by responsibility (#1165)
+- Usage read: say why the plan usage is unreadable (expired token, endpoint refusal) (#1178)
+- Delegation nudge: count wait_for_process and browser_eval as inline work, drop the last-step exit (#1177)
+- topics/cryptic-chimera (card 638aa944) (#1171)
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-16 [skip ci]
+- topics/precise-marsh (card b89ed087) (#1183)
+
 ## 2.4.26 — 2026-11-16
 
 ### Sotto il cofano
@@ -68,6 +288,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **native** · clear /login message when an expired token's refresh fails before the turn (#1125)
 - **terminal** · il focus tardivo non ruba la tastiera all'inbox appena aperta (#1126)
 - **board** · sveglia comment on a review card rejects and requeues like board_review reject (#1124)
+- **usage** · a 401 on the plan usage read recovers the OAuth token once and retries
 - **land** · a branch carried to another machine lands or is refused, never accepted (#1028)
 
 ### Sotto il cofano
@@ -204,6 +425,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **tray** · machine card flat-detail condition compiles
 
 ### Sotto il cofano
+- needs_input and name-only assignee are readable on the card, not only in tooltips
+- a needs_input card shows the agent's actual question (human_ask) on the card, generic line only when none
+- no-reason needs_input says 'Question not recorded' instead of claiming a thread question
+- card-assignee governed by task.assignedTo
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-15 [skip ci]
 - topics/cheery-orbit (card 475724bc) (#868)
 - **tray** · machine cards laid out as the original (no frame, brake line, mini-dial legend, flat rows for cloud)
@@ -246,6 +471,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - mark quoted menu wording in comments
 - voice-call: un risultato in mano si toglie dalla coda solo se il cervello l'ha raccontato (#1004)
 - i rami vecchi della card non tolgono i suoi commit (#1005)
+- audit dell'header della board a quattro larghezze
 - attesa riformulata tiene l'orologio; sha-off-main per commit in altri repo (#1008)
 - mobile board audit (read-only, no code change)
 - Bookmark vecchi dell'hub: :3360/#pagina apre il posto giusto in Topics (#1010)
