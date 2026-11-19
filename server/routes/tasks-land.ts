@@ -15,6 +15,7 @@ import { createCiPhase } from "./tasks-ci-phase";
 import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
+import { createReviewSweep } from "./tasks-review-sweep";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -248,6 +249,12 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
   });
   const { bounceRed, enterCiPhase, afterDelivery } = ciPhase;
 
+  const reviewSweep = createReviewSweep({
+    svc, broadcastToAll, runChecksGate, capturaConsegna, nodeMeter, bounceRed, afterDelivery,
+    bounceWithReason: ciPhase.bounceWithReason, reviewPrMergeable: opts?.reviewPrMergeable,
+  });
+  const { unmeasuredInReview, remeasureInReview, probeConflict } = reviewSweep;
+
   /** Every review card gets the verdict again: a timer lost to a reload strands nothing. */
   async function sweepAutoLand(): Promise<number> {
     let asked = 0;
@@ -256,7 +263,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     autoLander.forgetExcept(new Set(rows.map((t) => t.id)));
     for (const t of rows) {
       // A red that arrived after the delivery (a node's bar, a CI row that settled late) goes back to its agent here.
-      if (t.checksState === "fail") { await bounceRed(t.projectId, t.id); continue; }
+      if (t.checksState === "fail") {
+        if (await bounceRed(t.projectId, t.id)) continue;
+        // A red that is not about the delivered commit is history: the commit itself gets measured below.
+        if (!unmeasuredInReview(t)) continue;
+      }
+      // One card at a time, in the background: a measure lasts as long as its CI.
+      if (unmeasuredInReview(t)) {
+        if (!reviewSweep.measuring() && !nodeMeter.isMeasuring(t.id) && !cardTurnIsLive(t)) {
+          void remeasureInReview(t).catch((err) => console.warn(`[review-sweep] ${t.id.slice(0, 8)}: misura fallita:`, err));
+        }
+        continue;
+      }
+      if (t.checksState === "pass" && !cardTurnIsLive(t) && await probeConflict(t)) continue;
       // The CI phase lives in memory: a card that carries a person's decision and is in no queue is put
       // back (`returnToCiPhase` checks it again); an automatic decision goes through the automatic land below.
       if (t.landIntent === "human") {

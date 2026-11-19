@@ -97,6 +97,9 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // earlier, remeasurable: plain English the dictionary lacks, in the CI phase of the board (`supersedeEarlierRounds` in `server/services/ci-supersede.ts`,
+  // `ciRemeasurable` in `server/services/ci-evidence.ts`: a run with no verdict that is measured again).
+  "earlier", "remeasurable",
   // stdin, oneshot: the standard input stream of a spawned CLI, and the one-shot `complete()` path of the Claude
   // provider, which spawns the CLI once per completion (`server/providers/claude/cli-launch.ts`).
   "stdin", "oneshot",
