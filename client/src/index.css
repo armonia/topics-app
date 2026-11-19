@@ -4179,6 +4179,20 @@ html.native-frost [role="region"][aria-label$=" panel"] > .bg-surface {
   background-color: transparent !important;
 }
 
+/* Below `lg` (1024px), the task drawer and the orchestrator drawer are a
+ * FULL-SCREEN OVERLAY sitting above the board (`absolute inset-0`, see their
+ * own comments) — not window chrome that should frost into the backdrop like
+ * a sidebar. They still carry `.pane-frost` for the lg+ in-flow layout, so
+ * `native-frost` was making them fully transparent there too: the board's own
+ * cards showed through the drawer's text. Force the opaque fallback back on
+ * for just this narrow range. */
+@media (max-width: 1023px) {
+  html.native-frost [data-testid="task-detail-drawer"],
+  html.native-frost [data-testid="board-orchestrator-drawer"] {
+    background-color: var(--bg-surface) !important;
+  }
+}
+
 /* ─── Resize-handle hover/grab affordance ───────────────────────────────────
  * Every split divider (column / row / sub-stack / sidebar handle / project
  * panel sections) is a 1px hairline carrying `cursor-col-resize` /
