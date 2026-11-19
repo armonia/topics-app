@@ -55,7 +55,7 @@ import { effectiveLevels, groupTasks, leavesOf, NO_VALUE, type GroupKey, type Gr
 import { useBoardViewState } from './useBoardViewState';
 import { draftLaneOf } from './draftPreview';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { QUICK_FILTERS, countQuickFilters, taskMatchesQuick, type QuickFilter } from './quickFilters';
+import { QUICK_FILTERS, countQuickFiltersWithoutCreator, taskMatchesQuick, type QuickFilter } from './quickFilters';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
@@ -525,7 +525,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
 
   // The cards the search filters let through, before the quick filter: its counts read from here.
   const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
-  const quickCounts = useMemo(() => countQuickFilters(filtered), [filtered]);
+  // The counts ignore the creator toggle: with «mine» on, «Jarvis» and «Agents» would read 0 for a filter that is not broken.
+  const quickCounts = useMemo(
+    () => countQuickFiltersWithoutCreator(tasks, filters),
+    [tasks, filters],
+  );
   const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
   const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 

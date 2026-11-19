@@ -129,23 +129,30 @@ export function pickOverflowMachine(
     const cloud = online.find((m) => m.kind === "cloud");
     if (cloud) return cloud;
   }
-  return online.find((m) => m.kind === "node")
+  // A node with its wake breaker open is never chosen, ONLINE included: the
+  // heartbeat says the machine answers, not that a run starts there (14/11: a
+  // cloud node online with a refusing hook, one card bounced 542 times in 47 h).
+  return online.find((m) => m.kind === "node" && !opts.wakeBlocked?.(m.id))
     ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m))
     ?? null;
 }
 
 /**
  * A machine no card may be pinned to right now: it declares zero slots (drained),
+ * its wake breaker is open (recent runs failed to start there, online or not),
  * or a paired node is offline and nothing can switch it on (only a node with a `node-run`
- * hook and no recent failed wake can be woken). Decided from the machine row
- * alone: no machine name or id is known here.
+ * hook can be woken). Decided from the machine row alone: no machine name or id is known here.
  */
 export function machineForbidden(m: OverflowMachine, wakeBlocked?: (machineId: string) => boolean): boolean {
   if (m.slots === 0) return true;
   // The cloud row has no heartbeat and nothing to wake: its "online" only says
   // whether the overflow may CHOOSE it, so it never forbids a card already pinned there.
-  if (m.kind === "cloud" || m.online) return false;
-  return !(m.wakeable && !wakeBlocked?.(m.id));
+  if (m.kind === "cloud") return false;
+  // The breaker before `online`: with the early return on online nodes it was never
+  // read, and the card went back every 5 minutes to the node that kept refusing it.
+  if (wakeBlocked?.(m.id)) return true;
+  if (m.online) return false;
+  return !m.wakeable;
 }
 
 /**

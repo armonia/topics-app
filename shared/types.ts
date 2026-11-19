@@ -1187,8 +1187,11 @@ export type ContentBlock =
    * typed (server/services/subagent-wake.ts). A `user` row when it wakes the
    * parent chat, an `assistant` row when the parent could not be woken; either
    * way the chat draws one card per result (SUBAGENT-12, SUBAGENT-16).
+   * `shown`: the cards are already a row of the chat, written while a provider
+   * hold kept the parent's turn back; this row is the late wake and draws one
+   * line, not the cards again.
    */
-  | { kind: 'subagent-result'; results: SubagentResultCard[] };
+  | { kind: 'subagent-result'; results: SubagentResultCard[]; shown?: true };
 
 /**
  * One turn of one sub-agent, as its card shows it. `reason.code` is one of the

@@ -134,6 +134,8 @@ import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
 import { setBenchStaleTimeout, setBenchStaleTick } from "../lib/stale-stream-sweep";
 import { setBenchEndedTtl } from "../lib/live-work";
+import { setChildPhase, type SubAgentPhase } from "../lib/subagent-runtime";
+import { broadcastTerminalSessions } from "./terminal-shared";
 import { __resetPendingForTests } from "./auth";
 import { reloadAttentionTable } from "../attention/store";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
@@ -507,6 +509,26 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
       const ms = typeof body?.ttlMs === "number" && body.ttlMs > 0 ? body.ttlMs : null;
       setBenchEndedTtl(ms);
       return json({ ok: true, ttlMs: ms });
+    }
+
+    // POST /api/test/subagent-phase {id, phase} - a running native child's phase,
+    // as its own code sets it (`setChildPhase`).
+    //
+    // `waiting-results` is the strip's `awaiting`: a child whose turn closed and
+    // that waits on a grandchild or a command. Reaching it for real takes a
+    // model that delegates and a grandchild that outlives the turn, which a
+    // fake Anthropic can script but a spec about the STRIP would then depend
+    // on. The state is the thing under test, so it is staged here, through the
+    // same function the runtime calls. The windows read the strip again on the
+    // frame that follows a phase (`terminal:sessions`; in life the turn's own end
+    // carries it), so the verb sends it: a phase alone moves no window.
+    if (method === "POST" && pathname === "/api/test/subagent-phase") {
+      const body = (await req.json().catch(() => null)) as { id?: string; phase?: SubAgentPhase } | null;
+      const phases: SubAgentPhase[] = ["waiting-prompt", "working", "waiting-results", "finished"];
+      if (!body?.id || !body.phase || !phases.includes(body.phase)) return json({ error: "id and a known phase required" }, 400);
+      setChildPhase(body.id, body.phase);
+      broadcastTerminalSessions();
+      return json({ ok: true });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

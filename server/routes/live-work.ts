@@ -13,7 +13,7 @@
 import type { AppContext, StoredMessage, Topic } from "../types";
 import type { ChildAgentRow, LiveChildren, LiveWork, LiveWorkRow } from "../../shared/live-work";
 import { getDatabase } from "../db";
-import { endedSubagents, runningSubagents } from "../lib/subagent-store";
+import { endedSubagents, lastUnreportedTurn, runningSubagents } from "../lib/subagent-store";
 import { childPhase } from "../lib/subagent-runtime";
 import { liveWorkRows, endedTtlMs } from "../lib/live-work";
 import type { EstimateBasis } from "../../shared/task-countdown";
@@ -63,7 +63,8 @@ export function liveWorkOf(ctx: AppContext, topic: Pick<Topic, "id" | "sessionKe
     cli: liveCliChildren(parentKey).map(({ tool, ...c }) => ({ ...c, preview: tool ? toolLine(tool.name, tool.input) : "" })),
     native: runningSubagents(db, parentKey).filter((r) => r.runtime === "topics").map((r) => ({
       id: r.id, name: r.name, createdAt: r.createdAt, sessionKey: r.sessionKey,
-      phase: childPhase(r.id), preview: lastActivityOf(ctx, r.sessionKey),
+      phase: childPhase(r.id), unreportedTurn: childPhase(r.id) === null && lastUnreportedTurn(db, r.id) != null,
+      preview: lastActivityOf(ctx, r.sessionKey),
     })),
     // An ended row says «finished»: its last line is not read for a minute of check.
     ended: endedSubagents(db, parentKey).map((r) => ({

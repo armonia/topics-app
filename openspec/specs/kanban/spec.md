@@ -5234,6 +5234,23 @@ spento» 1,12:1.
 - **WHEN** axe e il calcolo sui fondi composti leggono la colonna
 - **THEN** nessun testo SHALL stare sotto il contrasto minimo
 
+### Requirement: KANBAN-MOBILE-06 — La scheda del task, sotto lg, copre la board con un fondo opaco
+
+Sotto `lg` la scheda del task (e il cassetto del coordinatore) è un overlay a
+tutto schermo sopra le colonne. Il suo fondo SHALL essere opaco (alpha 1) anche
+nel guscio desktop (`html.native-frost`), dove le superfici `pane-frost` sono
+trasparenti per lasciar passare il vetro: un overlay non ha niente da
+lasciar passare, ha sotto le card della board.
+
+Misurato prima: sotto `native-frost` il fondo calcolato della scheda era
+`rgba(0, 0, 0, 0)` a 375 e a 525 px, e le card della Board si leggevano sotto il
+suo testo.
+
+#### Scenario: scheda aperta in una finestra stretta
+- **GIVEN** la board in una finestra larga 375 o 525 px, con `native-frost` sull'`html`
+- **WHEN** si apre una card
+- **THEN** il fondo calcolato di `task-detail-drawer` SHALL avere alpha 1
+
 ### Requirement: KANBAN-95 — Card a calendario
 
 **Una ricorrenza della board SHALL creare una card normale all'ora giusta**, secondo una regola cron
@@ -5591,3 +5608,11 @@ A card's `stayLocal` pin with no `stayLocalUntil` SHALL be decided at boot by a 
 #### Scenario: a repeated sweep
 - **WHEN** the sweep runs a second time over a card it already decided
 - **THEN** it SHALL write nothing further
+
+### Requirement: KANBAN-118 - Every dispatcher log line carries its time
+
+Every line the dispatcher writes to the server's standard output or error SHALL start with an ISO-8601 timestamp, before the `[dispatcher]` prefix, so a wait (a held card, a card waiting for memory, a node that does not wake) can be dated from the log alone. The rest of the line SHALL keep its format.
+
+#### Scenario: a dispatcher line in the server log
+- **WHEN** the dispatcher logs a message with no injected logger
+- **THEN** the written line SHALL match `<ISO timestamp> [dispatcher] <message>`
