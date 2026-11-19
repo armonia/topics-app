@@ -472,4 +472,33 @@ describe("a child that waits on its own work", () => {
     expect((outcome.reason as { detail: string }).detail).toContain(`sub-agent "slow-grand" (${gid})`);
     expect(rowOf(id)?.state).not.toBe("running");
   }, 30_000);
+
+  test("a turn that wakes it puts it back to `working` (busy) while the turn is open", async () => {
+    hold("TASK-WAKE-PHASE");
+    const c = await spawn(ROOT_KEY, { name: "wake-phase", prompt: "TASK-WAKE-PHASE" });
+    const id = c.body.agentId as string; const sk = c.body.sessionKey as string;
+    busyBackground.add(sk);
+    release("TASK-WAKE-PHASE");
+    await until("turn 1 reported", () => reportsFor(id)[0]);
+    expect((await liveChild(id))?.phase).toBe("waiting-results");
+
+    // A grandchild's result wakes it: a turn the server starts on the child's own chat.
+    hold("WAKE-PHASE-HELD");
+    const url = new URL("http://localhost/api/chat");
+    const resp = await route(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionKey: sk, messages: [{ role: "user", content: "<subagent-result>WAKE-PHASE-HELD</subagent-result>" }] }) }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    const drained = (async () => { const r = resp!.body!.getReader(); while (!(await r.read()).done) { /* drain */ } })();
+    await until("the wake turn is open", () => busy(sk));
+    // The wake's turn is open: the strip draws it at work again.
+    const { liveNativeChildren } = await import("../../server/lib/native-subagents");
+    await until("phase working", () => liveNativeChildren(ROOT_KEY).find((x) => x.agentId === id)?.phase === "working");
+    const live = await liveChild(id);
+    expect(live?.phase).toBe("working");
+    expect(live?.busy).toBe(true);
+
+    release("WAKE-PHASE-HELD");
+    await drained;
+    busyBackground.delete(sk);
+    await until("the wake turn reported", () => reportsFor(id)[1]);
+  }, 30_000);
 });
