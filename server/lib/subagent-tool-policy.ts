@@ -5,7 +5,8 @@
  * runtime (that one imports the providers: the cycle would leave an export
  * undefined at load).
  */
-import { getSubagentBySessionKey, subagentDepth } from "./subagent-store";
+import { getSubagent, getSubagentBySessionKey, subagentDepth, type SubagentRow } from "./subagent-store";
+import type { Database } from "bun:sqlite";
 
 /**
  * Max spawned-agent ancestry depth (a top-level orchestrator's child = 1):
@@ -67,6 +68,24 @@ export function nativeSubagentToolPolicy(sessionKey: string): SubagentToolPolicy
   } catch {
     return null;
   }
+}
+
+/**
+ * The spawn_agent child whose session this is, on EITHER runtime — null for a
+ * person's chat or a dispatched board session (neither ever gets a `subagents`
+ * row). A native child is keyed by its chat's session key, a CLI
+ * (`claude-code`) one by its own id (`subagentDepth` walks the same pair).
+ *
+ * Why this exists next to `nativeSubagentToolPolicy`: that one filters the
+ * native engine's own tool list, which only a native child goes through. A CLI
+ * child's tools are a static MCP declaration the bridge process cannot trim
+ * per session, so there is no tool-list choke point for it — only the
+ * execution route each blocking tool shares. `ask_user_question`'s HTTP leg
+ * (`routes/permission.ts`) uses this to refuse a CLI child the same way
+ * SUBAGENT-23 already refuses a native one.
+ */
+export function spawnedChildOf(db: Pick<Database, "query" | "run">, sessionKey: string): SubagentRow | null {
+  return getSubagent(db, sessionKey) ?? getSubagentBySessionKey(db, sessionKey);
 }
 
 /** Is this tool one the session may use, by its sub-agent policy? A non-child may use all. */

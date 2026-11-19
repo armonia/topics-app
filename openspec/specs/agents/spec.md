@@ -1178,18 +1178,30 @@ così la persona che scrive a mano nella sua chat, anche su un figlio fermato: t
 - **THEN** la sua chat è archiviata e non ha badge
 - **AND** un `send_to_agent` successivo la riapre e ci manda il turno
 
-### Requirement: SUBAGENT-23 — A native child cannot ask the person, its choices come back in its result
+### Requirement: SUBAGENT-23 — A spawn_agent child cannot ask the person, its choices come back in its result
 
-A question a native child (`subagentOf` set) put on screen would sit in a chat nobody
-watches, and the parent would never hear of it. So a native child SHALL NOT see
-`ask_user_question`, neither in the tool list nor at execution, even when its profile
-grants it. The choices go back in the child's result and the parent carries them to the
+A question a spawn_agent child put on screen would sit in a chat nobody watches (its own
+topic, not the one the person who spawned it is looking at), and the parent would never
+hear of it. So a child SHALL NOT be able to ask `ask_user_question`, on either runtime.
+A native child SHALL NOT see it, neither in the tool list nor at execution, even when its
+profile grants it: that runtime fully controls its own tool list. A `claude-code` child's
+tool list is a static MCP declaration the bridge cannot trim per session, so it is instead
+refused at the one execution choke point both runtimes share, the `ask-user` HTTP leg
+(`spawnedChildOf` in `server/lib/subagent-tool-policy.ts`, read by
+`routes/permission.ts`): the call returns `{cancelled}` instead of parking the question.
+Either way the choices go back in the child's result and the parent carries them to the
 person in its own channel. A chat that is not a child keeps the tool.
 
-#### Scenario: A child whose profile grants the question tool
+#### Scenario: A native child whose profile grants the question tool
 - **GIVEN** a native child whose profile lists `ask_user_question`
 - **WHEN** the tool policy is asked about that tool
 - **THEN** it is refused, while the child's other granted tools stay allowed
+
+#### Scenario: A claude-code child calls the question tool anyway
+- **GIVEN** a `claude-code` child spawned by `spawn_agent`
+- **WHEN** it calls `ask_user_question`
+- **THEN** the `ask-user` leg answers `{cancelled: true}` instead of opening a panel in
+  the child's own topic
 
 ### Requirement: SUBAGENT-24 — A session that can delegate is told when, and reminded after a long inline run
 
