@@ -303,7 +303,7 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
   /**
    * A ROUND CUT WHILE IT ONLY WAITED ON GITHUB RESUMES THE WAIT.
    *
-   * 68 «interrupted by the shutdown» and 10 «il giro non riparte» in the log of
+   * 68 «interrupted by the shutdown» and 10 «il giro non riparte» in the log of // allow-italian: quotes the literal log line
    * 18/11/2026: rounds whose local commands were green, cut while the pull
    * request CI ran on GitHub, restarted from the commands at every boot and
    * given up on after three. The run on GitHub was on the same head all along.
