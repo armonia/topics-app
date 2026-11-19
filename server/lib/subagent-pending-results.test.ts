@@ -2,6 +2,7 @@
  * `parentHasPendingResults` feeds the "chat is about to resume" indicator.
  * A child that was stopped or lost can never run again, so a result it never
  * delivered must not keep the indicator lit (card 0f8f8b9b).
+ * @covers SUBAGENT-14
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
