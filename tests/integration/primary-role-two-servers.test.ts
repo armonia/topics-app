@@ -63,6 +63,7 @@ import { join } from "node:path";
 import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
 import { gitEnv } from "../setup/bun-test-preload";
+import { restrictMachineLikeDevices } from "../../server/lib/node-scope";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
 const MACHINE_HEADER = "x-topics-machine-id";
@@ -650,15 +651,14 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     const deviceId = before.channel_device_id!;
     const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
     const roleOf = async () => ((await (await fetch(`${tunnel}/api/auth/session`, { headers: { cookie } })).json()) as { role: string }).role;
-    // What a node paired before 18/11 looks like: no channel, A's device with no mark and the
-    // name the server gave every Topics server then (`deviceNameFromUserAgent`'s fallback).
+    // What a node paired before 18/11 looks like: no channel, A's device with no mark and no
+    // trace of a person on it. Whatever name it carries is not read.
     withDb(serverB, (db) => {
       db.run("DELETE FROM node_devices WHERE device_id = ?", [deviceId]);
       db.run("UPDATE primary_state SET channel_device_id = NULL, channel_machine_id = NULL WHERE id = 1");
-      db.run("UPDATE devices SET name = 'Dispositivo sconosciuto' WHERE id = ?", [deviceId]); // allow-italian: the label the server stored
     });
     expect(await roleOf(), "unmarked, it was an owner").toBe("owner");
-    withDb(serverB, (db) => db.exec(readFileSync(join(import.meta.dir, "../../server/db/migrations/20261119100000-node-devices.sql"), "utf-8")));
+    withDb(serverB, (db) => restrictMachineLikeDevices(db));
     // The bare cookie, no Topics user agent: the role comes from the database.
     expect(await roleOf()).toBe("node");
     expect((await status(`${tunnel}/api/topics`, undefined, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "x" }) })).status).toBe(403);

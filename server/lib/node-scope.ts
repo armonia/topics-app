@@ -91,6 +91,28 @@ export function markNodeDevice(db: Db, deviceId: string, machineId: string | nul
 }
 
 /**
+ * Every credential this node still holds as an owner's that never showed a
+ * person's hand (no push subscription, no message it wrote, not a screen) becomes
+ * a node credential. The name the device carries is not read: it is the user
+ * agent in disguise, and a person's `curl` or a server called like a platform
+ * both fooled the name. It fails toward the narrower role: a person wrongly
+ * narrowed pairs again with six characters, a machine wrongly left an owner
+ * would run commands. Returns the devices it narrowed, for the server log.
+ */
+export function restrictMachineLikeDevices(db: Database, now = Date.now()): Array<{ id: string; name: string }> {
+  const rows = db.query(
+    `SELECT d.id, d.name FROM devices d
+      WHERE d.revoked_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM node_devices n WHERE n.device_id = d.id)
+        AND NOT EXISTS (SELECT 1 FROM screen_devices s WHERE s.device_id = d.id)
+        AND NOT EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.auth_device_id = d.id)
+        AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.author_device_id = d.id)`,
+  ).all() as Array<{ id: string; name: string }>;
+  for (const row of rows) markNodeDevice(db, row.id, null, "migrated", now);
+  return rows;
+}
+
+/**
  * May this node credential create, read and cancel runs here? Being a node is
  * not enough: every server that pairs this one gets a node credential, and a
  * run is a card that starts in `bypassPermissions`, so a run from anyone but
