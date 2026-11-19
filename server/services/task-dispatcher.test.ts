@@ -30,6 +30,7 @@ function asFloor(reason: string | null): ResourceFloorVerdict {
 
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
+import { BOARD_HOLD_KEY, clearProviderHold, dispatchBrakes, isProviderHeld, providerHold } from "../lib/provider-hold";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -892,6 +893,50 @@ describe("task-dispatcher", () => {
     expect(ultimaLive(h, "t1")?.retry).toBeUndefined();
     h.finishTurn();
     await flush();
+  });
+
+  it("un errore che dichiara il reset del piano mette la card in ATTESA fino a quell'ora: niente tentativi, niente backlog", async () => {
+    // 19/11, card 8f2d0c9f: the account engine answered «Only the reserve is
+    // left ... (resets_at: ...)», the turn ended `provider-error`, four empty
+    // rounds and the card in backlog, where nobody picks it up. Here six turns in a row
+    // against the same wall with cap 3: the card stays queued, with the hour.
+    const h = harness({ retryBackoffMs: 20 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    clearProviderHold();
+    clearProviderHold(BOARD_HOLD_KEY);
+    try {
+      await h.dispatcher.tick(PID);
+      await flush();
+      const resetAt = Date.now() + 3_600_000;
+      const detail = `API Error: 400 Only the reserve is left: x@y.z (1% left). Every other account is out until 09:00. Confirm to continue on the reserve (POST /api/reserve-confirm), or wait. (resets_at: ${new Date(resetAt).toISOString().replace(/\.\d+Z$/, "Z")})`;
+      for (let i = 0; i < 6; i++) {
+        if (h.turns.length <= i) break;
+        h.finishTurnWith({ end: "error", cause: "provider-error", detail });
+        await flush();
+        await flush();
+      }
+      expect(h.task("t1")!.status).not.toBe("backlog");
+      expect(h.task("t1")!.dispatchState).not.toBe("failed");
+      expect(h.task("t1")!.dispatchAttempts ?? 0).toBe(1);
+      const hold = providerHold(Date.now(), BOARD_HOLD_KEY);
+      expect(hold?.untilMs).toBeGreaterThan(Date.now() + 3_000_000);
+      expect(hold?.untilMs).toBeLessThanOrEqual(resetAt);
+      // The board sees it (the «Frenato» chip)...
+      expect(dispatchBrakes().some((b) => b.provider === "claude" && b.untilMs === hold!.untilMs)).toBe(true);
+      // ...but a live chat does NOT: the reserve is Attilio's, who can confirm it from the button. What
+      // reads the provider wall for chats (send, wake, resume, banner) looks at the «claude» key and
+      // finds it free, so the turn starts and the stop arrives with the continue-on-reserve button.
+      expect(providerHold()).toBeNull();
+      expect(isProviderHeld("claude-code")).toBe(false);
+      // After the backoff it does NOT restart: it waits for the reset hour.
+      await new Promise((r) => setTimeout(r, 60));
+      await flush();
+      expect(h.turns.length).toBe(1);
+    } finally {
+      clearProviderHold();
+      clearProviderHold(BOARD_HOLD_KEY);
+    }
   });
 
   it("il chip vivo porta COSA sta facendo la sessione: il tool in corso, letto dal tracker", async () => {
