@@ -6,6 +6,7 @@ import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { createOrphanCensusRunner } from "../services/orphan-census";
+import { startPrReviewTicker } from "../services/pr-review-runtime";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
 import type { AfterRelay } from "./scope";
 
@@ -136,6 +137,9 @@ export function bootPostListen(scope: AfterRelay) {
     runOrphanCensus();
     setInterval(runOrphanCensus, ORPHAN_CENSUS_EVERY_MS).unref?.();
   }, ORPHAN_CENSUS_DELAY_MS).unref?.();
+
+  // Automatic review of new PRs: off unless a repo and a workflow path are configured.
+  startPrReviewTicker();
 
 
   // Planner statistics for `tasks` (see refreshPlannerStats): a minute after boot,
