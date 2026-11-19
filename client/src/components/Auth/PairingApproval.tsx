@@ -54,7 +54,10 @@ export function PairingApproval() {
   // A machine takeover is approved only from a LOCAL human session (the
   // computer's own UI): server/routes/auth.ts rejects the call itself, this
   // just spares the person a click that the server would refuse anyway.
-  const [loopback, setLoopback] = useState(() => getSession().status === 'paired' && getSession().as === 'loopback');
+  const [loopback, setLoopback] = useState(() => {
+    const s = getSession();
+    return s.status === 'paired' && s.as === 'loopback';
+  });
   useEffect(() => subscribeSession((s) => setLoopback(s.status === 'paired' && s.as === 'loopback')), []);
 
   useEffect(() => {
