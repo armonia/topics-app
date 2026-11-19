@@ -2473,6 +2473,7 @@ const EN = {
   'auth.err.public_sharing_off': 'Sharing off your network is turned off on this installation.',
   'auth.err.pairing_expired': 'The request expired. Try again from the device.',
   'auth.err.too_many_requests': 'Too many requests from this device. Wait a moment.',
+  'auth.err.machine_pairing_requires_local_session': 'A server taking over this node can only be approved from this computer.',
   'auth.err.name_required': 'A name is required.',
   'auth.err.person_required': 'A person is required.',
   'auth.err.unknown_role': 'That role does not exist.',

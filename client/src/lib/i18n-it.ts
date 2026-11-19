@@ -2745,6 +2745,7 @@ const IT: Dict = {
   'auth.err.public_sharing_off': 'La condivisione fuori rete è spenta su questa installazione.',
   'auth.err.pairing_expired': 'La richiesta è scaduta. Riprova dal dispositivo.',
   'auth.err.too_many_requests': 'Troppe richieste da questo dispositivo. Aspetta un momento.',
+  'auth.err.machine_pairing_requires_local_session': 'Un server che prende questo nodo si approva solo da questo computer.',
   'auth.err.name_required': 'Serve un nome.',
   'auth.err.person_required': 'Serve una persona.',
   'auth.err.unknown_role': 'Quel ruolo non esiste.',
