@@ -11,12 +11,20 @@
  * cure the card had no notion of a machine id and ignored them, so a takeover
  * looked exactly like a phone knocking. The two shots at 375 and 1440 px are
  * the before/after the eye judges.
+ *
+ * Who loses the channel is a MACHINE, named as the `machines` table names it
+ * (card a97724c1): the last block seeds a real machine row and a real channel
+ * on the test server, asks for the pairing through the real route, and the card
+ * reads it from `/api/auth/pair/pending`. Before, it printed the raw machine id;
+ * after, the machine's name, with the short id only for a server too old to
+ * send one.
  * @covers MACHINE-01
  */
 import { test, expect } from "./fixtures/test-fixtures";
 import type { Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { E2E_BASE } from "./helpers/test-server";
 import { mkdirSync } from "fs";
 import { homedir } from "os";
 
@@ -96,5 +104,39 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
         },
       });
     }
+  });
+}
+
+/** A machine as the `machines` table holds it, and the name a person reads for it. */
+const HOLDER_NAME = "Studio Mac";
+
+for (const [width, height] of [[375, 812], [1440, 900]] as const) {
+  test(`the takeover names the machine holding the channel, not its id, at ${width}px`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height });
+    const seeded = await request.post(`${E2E_BASE}/api/test/machines`, { data: { name: HOLDER_NAME, baseUrl: "https://studio-mac.test:3333" } });
+    expect(seeded.ok()).toBe(true);
+    const { machine } = await seeded.json() as { machine: { id: string } };
+    expect((await request.post(`${E2E_BASE}/api/test/primary-channel`, { data: { machineId: machine.id } })).ok()).toBe(true);
+
+    // Before: the card as an older server fed it, the holder's id and no name.
+    const before = await showRequest(page, { ...NODE_PRIMARY_REQUEST, id: "pair-req-before", currentPrimaryMachineId: machine.id });
+    await expect(before).toContainText(machine.id.slice(0, 8));
+    await expect(before).not.toContainText(HOLDER_NAME);
+    mkdirSync(SHOTS, { recursive: true });
+    await before.screenshot({ path: `${SHOTS}/holder-before-card-${width}.png` });
+
+    // After: a real pairing request from a server declaring a machine id and a higher epoch.
+    const asked = await request.post(`${E2E_BASE}/api/auth/pair/request`, {
+      headers: { "x-topics-machine-id": "b7f1c2d4-node-asking", "x-topics-primary-epoch": "50", "user-agent": "Topics/test (laptop)" },
+    });
+    expect(asked.ok()).toBe(true);
+    await page.unroute("**/api/auth/pair/pending");
+    await goToApp(page);
+    const card = page.getByTestId("pair-request-card").filter({ hasText: /epoc[ah] 50/i });
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card).toContainText(HOLDER_NAME);
+    await expect(card).not.toContainText(machine.id);
+    await card.screenshot({ path: `${SHOTS}/holder-after-card-${width}.png` });
+    if (width === 1440) await page.screenshot({ path: `${SHOTS}/holder-after-${width}.png` });
   });
 }

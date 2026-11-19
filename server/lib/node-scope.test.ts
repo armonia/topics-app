@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isNodeAllowedRequest, isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHost, shouldLearnNodeDevice } from "./node-scope";
+import { isNodeAllowedRequest, isNodeDevice, isTopicsServerAgent, markNodeDevice, mayDriveRuns, ownsNodeRun, serverAgentHost, shouldLearnNodeDevice, signNodeRun } from "./node-scope";
 import { hashToken } from "./device-auth";
 import { resolveIdentity } from "./identity";
 import { TASKS_DDL } from "../db/test-schema";
@@ -65,46 +65,56 @@ describe("the node scope", () => {
 });
 
 describe("migration 20261119100000-node-devices on a synthetic database", () => {
-  function syntheticDb(path: string): void {
-    const db = new Database(path);
+  /** What the deploy runs the migration on: every table it reads, at the version before it. */
+  function baseDb(db: Database): void {
     db.run(TASKS_DDL);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT)");
+    db.run("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY, endpoint TEXT, auth_device_id TEXT)");
+    db.run("CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT, author_device_id TEXT)");
     for (const f of BEFORE) db.exec(sql(f));
     db.run("INSERT INTO people (id, display_name, created_at, updated_at) VALUES ('owner', 'Owner', 1, 1)");
     db.run("DELETE FROM installation_owners");
     db.run("INSERT INTO installation_owners (person_id, added_at, is_default) VALUES ('owner', 1, 1)");
-    const add = db.query("INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role, person_id) VALUES (?, ?, ?, 1, 1, NULL, NULL, 'owner', 'owner')");
-    add.run("primary-mac", "Mac", hashToken("t-primary"));
-    add.run("phone", "iPhone", hashToken("t-phone"));
-    add.run("old-server", "Linux", hashToken("t-old"));
-    db.run("UPDATE primary_state SET channel_device_id = 'primary-mac', channel_machine_id = 'machine-mac' WHERE id = 1");
-    db.close();
   }
-  const cookie = (t: string) => `topics_device=${t}`;
+  /** `name` is what the pairing wrote: the platform a browser names, or the label for a user agent naming none. */
+  function addDevice(db: Database, id: string, name: string, lastSeenAt: number): void {
+    db.query("INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role, person_id) VALUES (?, ?, ?, 1, ?, NULL, NULL, 'owner', 'owner')")
+      .run(id, name, hashToken(`t-${id}`), lastSeenAt);
+  }
+  function addTask(db: Database, id: string, runKey: string | null): void {
+    db.query("INSERT INTO tasks (id, project_id, text, claude_task_id, created_at, updated_at) VALUES (?, 'p', 'a card', ?, '', '')").run(id, runKey);
+  }
+  const UNKNOWN = "Dispositivo sconosciuto"; // allow-italian: the device name the server writes for a user agent naming no platform
+  const cookie = (id: string) => `topics_device=t-${id}`;
 
-  test("backed up first, it marks the device holding the channel and nothing else; the backup restores the state before", () => {
+  test("backed up first, with a channel: the holder and every machine credential become node, people stay owner; the backup restores the state before", () => {
     const dir = mkdtempSync(join(tmpdir(), "node-devices-"));
     try {
       const live = join(dir, "topics.db");
-      syntheticDb(live);
+      const seed = new Database(live);
+      baseDb(seed);
+      addDevice(seed, "primary-mac", "Mac", 50);
+      addDevice(seed, "phone", "iPhone", 40);
+      addDevice(seed, "old-server", UNKNOWN, 30);
+      seed.run("UPDATE primary_state SET channel_device_id = 'primary-mac', channel_machine_id = 'machine-mac' WHERE id = 1");
+      seed.close();
       // The backup the deploy takes before the migration runs (docs/backup-pre-migration-policy.md).
       const backup = join(dir, "topics.db.bak-pre-node-devices");
       copyFileSync(live, backup);
 
       const db = new Database(live);
       db.exec(sql(NODE_DEVICES));
-      expect(db.query("SELECT device_id, machine_id FROM node_devices").all()).toEqual([{ device_id: "primary-mac", machine_id: "machine-mac" }]);
-      // Run twice (a boot that replays it) and it adds nothing.
-      db.exec(sql(NODE_DEVICES));
-      expect((db.query("SELECT COUNT(*) AS n FROM node_devices").get() as { n: number }).n).toBe(1);
-
-      expect(resolveIdentity(db, cookie("t-primary"), false)).toMatchObject({ node: true, confined: false, personId: "owner" });
-      expect(resolveIdentity(db, cookie("t-phone"), false)).toMatchObject({ node: false, confined: false });
-      // A machine paired before the channel was recorded: owner until it calls the run routes.
-      expect(resolveIdentity(db, cookie("t-old"), false).node).toBe(false);
-      markNodeDevice(db, "old-server", null);
-      expect(isNodeDevice(db, "old-server")).toBe(true);
-      // Revoking and deleting the device takes the mark with it.
+      expect(db.query("SELECT device_id, machine_id, legacy_driver FROM node_devices ORDER BY device_id").all()).toEqual([
+        { device_id: "old-server", machine_id: null, legacy_driver: 0 },
+        { device_id: "primary-mac", machine_id: "machine-mac", legacy_driver: 0 },
+      ]);
+      expect(resolveIdentity(db, cookie("primary-mac"), false)).toMatchObject({ node: true, confined: false, personId: "owner" });
+      expect(resolveIdentity(db, cookie("old-server"), false).node).toBe(true);
+      expect(resolveIdentity(db, cookie("phone"), false)).toMatchObject({ node: false, confined: false });
+      // With a channel, only its holder starts runs.
+      expect(mayDriveRuns(db, "primary-mac")).toBe(true);
+      expect(mayDriveRuns(db, "old-server")).toBe(false);
+      // Deleting the device takes the mark with it.
       db.run("PRAGMA foreign_keys = ON");
       db.run("DELETE FROM devices WHERE id = 'old-server'");
       expect(isNodeDevice(db, "old-server")).toBe(false);
@@ -120,13 +130,49 @@ describe("migration 20261119100000-node-devices on a synthetic database", () => 
     }
   });
 
-  test("a node with no channel and no devices migrates to an empty table", () => {
+  test("with no channel (a node paired before 18/11): two machines become node, phone and browser stay owner, the machine seen last drives the runs", () => {
     const db = new Database(":memory:");
-    db.run(TASKS_DDL);
-    db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT)");
-    for (const f of BEFORE) db.exec(sql(f));
+    baseDb(db);
+    addDevice(db, "mac-live", UNKNOWN, 900);
+    addDevice(db, "mac-stale", UNKNOWN, 100);
+    addDevice(db, "phone", "iPhone", 950);
+    addDevice(db, "browser", "Mac", 960);
+    // A person on a browser the server could not name: what a person does keeps it owner.
+    addDevice(db, "odd-browser", UNKNOWN, 970);
+    db.run("INSERT INTO push_subscriptions (endpoint, auth_device_id) VALUES ('https://push.example/1', 'odd-browser')");
+    db.run("INSERT INTO messages (id, content, author_device_id) VALUES ('m1', 'hello', 'odd-browser')");
+    db.exec(sql(NODE_DEVICES));
+
+    for (const id of ["mac-live", "mac-stale"]) expect(resolveIdentity(db, cookie(id), false).node, id).toBe(true);
+    for (const id of ["phone", "browser", "odd-browser"]) expect(resolveIdentity(db, cookie(id), false), id).toMatchObject({ node: false, confined: false });
+
+    expect(mayDriveRuns(db, "mac-live")).toBe(true);
+    expect(mayDriveRuns(db, "mac-stale")).toBe(false);
+    // The runs the primary started before the migration are unsigned: the driver keeps them, nobody else.
+    addTask(db, "run-old", "node-run:o1");
+    addTask(db, "card", null);
+    expect(ownsNodeRun(db, "mac-live", "run-old")).toBe(true);
+    expect(ownsNodeRun(db, "mac-stale", "run-old")).toBe(false);
+    expect(ownsNodeRun(db, "mac-live", "card"), "a normal card is never a run").toBe(false);
+    // A run started after it is signed by who asked, and only that device owns it.
+    addTask(db, "run-new", "node-run:o2");
+    signNodeRun(db, "run-new", "mac-live");
+    expect(ownsNodeRun(db, "mac-live", "run-new")).toBe(true);
+    expect(ownsNodeRun(db, "mac-stale", "run-new")).toBe(false);
+    db.close();
+  });
+
+  test("with no channel and no legacy mark, the only machine credential drives the runs; two drive none", () => {
+    const db = new Database(":memory:");
+    baseDb(db);
     db.exec(sql(NODE_DEVICES));
     expect(db.query("SELECT COUNT(*) AS n FROM node_devices").get()).toEqual({ n: 0 });
+    addDevice(db, "first-primary", "studio-pc", 1);
+    markNodeDevice(db, "first-primary", null);
+    expect(mayDriveRuns(db, "first-primary")).toBe(true);
+    addDevice(db, "secondary", "laptop", 2);
+    markNodeDevice(db, "secondary", null);
+    expect(mayDriveRuns(db, "first-primary"), "nobody, until a primary takes the channel").toBe(false);
     db.close();
   });
 });

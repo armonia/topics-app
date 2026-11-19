@@ -91,3 +91,44 @@ export function markNodeDevice(db: Db, deviceId: string, machineId: string | nul
 export function shouldLearnNodeDevice(pathname: string, ua: string | null): boolean {
   return pathname.startsWith("/api/nodes/runs") && isTopicsServerAgent(ua);
 }
+
+/**
+ * May this node credential create runs here, and read the ones nobody signed?
+ * The device that holds this node's channel; with no channel yet, the machine
+ * the migration found driving this node (`legacy_driver`), else the one node
+ * credential paired. Any other paired server (a secondary, a stale cookie)
+ * reaches the run routes and finds nothing it may touch: a run is a card born
+ * in `bypassPermissions`, which is command execution under another name.
+ */
+export function mayDriveRuns(db: Db, deviceId: string): boolean {
+  try {
+    const channel = db.query("SELECT channel_device_id AS id FROM primary_state WHERE id = 1").get() as { id: string | null } | null;
+    if (channel?.id) return channel.id === deviceId;
+    const rows = db.query(`SELECT n.device_id AS id, n.legacy_driver AS driver FROM node_devices n
+        JOIN devices d ON d.id = n.device_id WHERE d.revoked_at IS NULL`).all() as { id: string; driver: number }[];
+    const driver = rows.find((r) => r.driver === 1);
+    if (driver) return driver.id === deviceId;
+    return rows.length === 1 && rows[0].id === deviceId;
+  } catch {
+    return false;
+  }
+}
+
+/** Signs a run with the node credential that asked for it (`tasks.node_run_device`). */
+export function signNodeRun(db: Db, taskId: string, deviceId: string): void {
+  db.query("UPDATE tasks SET node_run_device = ? WHERE id = ?").run(deviceId, taskId);
+}
+
+/**
+ * A run a node credential may read, fetch or cancel: one of the node's run
+ * mirrors (`node-run:` key) it asked for itself, or an unsigned one (started
+ * before runs were signed) when it is the device that drives runs here. A
+ * normal card of the board is never one.
+ */
+export function ownsNodeRun(db: Db, deviceId: string, taskId: string): boolean {
+  const row = db.query("SELECT claude_task_id AS key, node_run_device AS device FROM tasks WHERE id = ?").get(taskId) as
+    { key: string | null; device: string | null } | null;
+  if (!row?.key?.startsWith("node-run:")) return false;
+  if (row.device) return row.device === deviceId;
+  return mayDriveRuns(db, deviceId);
+}

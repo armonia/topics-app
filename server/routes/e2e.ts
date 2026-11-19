@@ -823,6 +823,16 @@ export function createE2eRouter(ctx: AppContext, hooks: E2eRouterHooks = {}): Ro
     // production; `status` is the only thing written outside it, because a node
     // that stopped answering is the state the picker greys out and no seeding
     // path reaches it (the sweep needs a stale heartbeat, i.e. an hour).
+    // The machine holding this node's channel. Only a pairing from a second server writes it,
+    // and the approval card names that machine (`/api/auth/pair/pending`): a spec seeds one here.
+    if (method === "POST" && pathname === "/api/test/primary-channel") {
+      const body = (await req.json().catch(() => null)) as { machineId?: string } | null;
+      const machineId = (body?.machineId ?? "").trim();
+      if (!machineId) return json({ error: "machineId required" }, 400);
+      db.prepare("UPDATE primary_state SET channel_device_id = ?, channel_machine_id = ? WHERE id = 1").run(`e2e-channel-${machineId}`, machineId);
+      return json({ ok: true });
+    }
+
     if (method === "POST" && pathname === "/api/test/machines") {
       const body = (await req.json().catch(() => null)) as
         | { name?: string; baseUrl?: string; status?: string }

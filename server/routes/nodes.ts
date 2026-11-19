@@ -34,6 +34,7 @@ import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
 import { stripCtrlOrNull } from "../lib/strip-ctrl";
+import { isNodeDevice, mayDriveRuns, ownsNodeRun, signNodeRun } from "../lib/node-scope";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -303,6 +304,9 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     const stale = guardNodesCall(req, identity);
     if (stale) return stale;
     const confined = pathname.startsWith("/api/nodes/delegated-runs");
+    // A node credential (a server that paired this one) drives only its own runs: see `mayDriveRuns`.
+    const nodeCaller = identity?.deviceId && isNodeDevice(db, identity.deviceId) ? identity.deviceId : null;
+    const notYours = () => json({ error: "this run belongs to another machine", code: "node_run_forbidden" }, 403);
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
       const purpose = body?.purpose === "catalog" ? "catalog" : body?.purpose === "authorization" ? "authorization" : null;
@@ -591,6 +595,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     }
 
     if (method === "POST" && pathname === "/api/nodes/runs") {
+      if (nodeCaller && !mayDriveRuns(db, nodeCaller)) return json({ error: "only the machine holding this node's channel starts runs", code: "node_run_forbidden" }, 403);
       const body = await readJSON(req);
       if (!body) return errorResponse(400, "body required");
       const originTaskId = stripCtrlOrNull(body.originTaskId);
@@ -659,6 +664,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           model: typeof body.model === "string" ? body.model : null,
           idempotencyKey: key,
         });
+        if (nodeCaller) signNodeRun(db, task.id, nodeCaller);
         svc.addComment({
           taskId: task.id,
           author: "system",
@@ -678,6 +684,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     if (bundle && method === "GET") {
       const got = svc.get(bundle.id);
       if (!got) return json({ error: "run not found", code: "not_found" }, 404);
+      if (nodeCaller && !ownsNodeRun(db, nodeCaller, got.task.id)) return notYours();
       const repoPath = repoPathOf(got.task);
       if (!repoPath) return json({ error: "project of the run has no checkout", code: "repo_unresolved" }, 409);
       const { branch } = await nodeRunDelivery(runGit, opts.worktreeOfTask, got.task);
@@ -728,6 +735,8 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
 
     const run = matchRoute(pathname, "/api/nodes/runs/:id");
     if (run) {
+      const owned = svc.get(run.id);
+      if (owned && nodeCaller && (method === "GET" || method === "DELETE") && !ownsNodeRun(db, nodeCaller, owned.task.id)) return notYours();
       if (method === "GET") {
         const got = svc.get(run.id);
         if (!got) return json({ error: "run not found", code: "not_found" }, 404);

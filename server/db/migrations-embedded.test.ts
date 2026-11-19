@@ -91,6 +91,7 @@ test("without the migrations folder (compiled sidecar) the schema is built from 
     closeDatabase();
     if (savedDataDir === undefined) delete process.env.DATA_DIR;
     else process.env.DATA_DIR = savedDataDir;
-    rmSync(root, { recursive: true, force: true });
+    // Windows keeps a closed SQLite file locked until the handle is collected: the folder is a temp one either way.
+    try { rmSync(root, { recursive: true, force: true }); } catch { /* left to the OS temp sweep */ }
   }
 });

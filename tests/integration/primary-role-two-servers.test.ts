@@ -49,8 +49,9 @@
  *      a97724c1): D's cookie, through B's tunnel, is refused commands, topics,
  *      pairing approval, settings and devices, and B's channel does not move;
  *      A's cookie still reaches every route a primary calls on its node and
- *      starts a run there; a phone paired on B stays owner; a machine
- *      credential from before the node scope is marked at its first run call.
+ *      starts a run there; a phone paired on B stays owner. Only the machine
+ *      holding the channel starts runs, and a node credential touches only
+ *      its own runs; a node paired before 18/11 is migrated at boot.
  *
  * @covers MACHINE-01
  */
@@ -86,6 +87,7 @@ interface TaskView {
   dispatchError: string | null;
   dispatchAttempts: number;
   assignedTopicId: string | null;
+  archived?: boolean;
 }
 
 const running: ServerUnderTest[] = [];
@@ -234,6 +236,9 @@ async function waitClaimed(s: ServerUnderTest, card: TaskView): Promise<TaskView
   }
   throw new Error(`${s.name} never claimed card ${card.id}: ${JSON.stringify(last)}\n${logOf(s)}`);
 }
+
+/** The origin of the repository B holds for the cards a primary sends it. */
+const NODE_SCOPE_ORIGIN = "https://example.test/fleet/node-scope.git";
 
 /** The cookie a server keeps for one of its nodes, read from the token file its pairing wrote. */
 function nodeCookie(s: ServerUnderTest, machineId: string): string {
@@ -466,6 +471,8 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
   let machineD = "";
   /** B's row on D, written by D's pairing. */
   let nodeBOnD = "";
+  /** The phone paired on B in (c). */
+  let phoneCookie = "";
 
   test("D pairs B after A: the channel on B stays A's device, not D's", async () => {
     await boot(serverD);
@@ -545,7 +552,7 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     expect((await asA("GET", "/api/nodes/runs/__probe__")).code).not.toBe("node_scope");
 
     // A card the primary sends: a repository on B whose origin matches the card's.
-    const origin = "https://example.test/fleet/node-scope.git";
+    const origin = NODE_SCOPE_ORIGIN;
     const repo = join(serverB.root, "projects", "node-scope");
     mkdirSync(repo, { recursive: true });
     for (const args of [["init", "-q"], ["remote", "add", "origin", origin]]) {
@@ -573,6 +580,7 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     expect(approved.role).toBe("owner");
     const collected = await fetch(`${tunnel}/api/auth/pair/status?requestId=${asked.requestId}&claim=${asked.claim}`, { headers: phone });
     const cookie = (collected.headers.get("set-cookie") ?? "").split(";")[0]!;
+    phoneCookie = cookie;
     const asPhone = (method: string, path: string, body?: unknown) => fetch(`${tunnel}${path}`, {
       method,
       headers: { cookie, ...phone, ...(body === undefined ? {} : { "content-type": "application/json" }) },
@@ -596,19 +604,94 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
     await api(serverB, "POST", "/api/auth/pair/deny", { requestId });
   }, 60_000);
 
-  test("a machine credential paired before the node scope existed becomes one the first time it calls the run routes", async () => {
-    const cookie = nodeCookie(serverA, nodeBOnA);
-    const deviceId = channelOf(serverB)!.channel_device_id!;
-    // What a node migrated from an older version looks like: A's device with no mark.
-    withDb(serverB, (db) => db.run("DELETE FROM node_devices WHERE device_id = ?", [deviceId]));
-    const tunnel = `http://127.0.0.1:${serverB.tunnelHttpPort}`;
-    const roleOf = async () => ((await (await fetch(`${tunnel}/api/auth/session`, { headers: { cookie } })).json()) as { role: string }).role;
-    expect(await roleOf()).toBe("owner");
-    // A's next heartbeat probe, as its node client sends it.
-    await fetch(`${tunnel}/api/nodes/runs/__probe__`, { headers: { cookie, "user-agent": "Topics/test (a)" } });
-    expect(await roleOf()).toBe("node");
-    expect(logOf(serverB)).toContain(`device ${deviceId} called the node routes as a Topics server`);
+  /** Asks B, through its tunnel, to start a run the way a node client does. */
+  async function startRun(cookie: string, agent: string, text: string): Promise<{ status: number; runId: string | null; code: string | null }> {
+    const res = await fetch(`http://127.0.0.1:${serverB.tunnelHttpPort}/api/nodes/runs`, {
+      method: "POST",
+      headers: { cookie, "user-agent": agent, "content-type": "application/json", [EPOCH_HEADER]: "2" },
+      body: JSON.stringify({ originTaskId: crypto.randomUUID(), text, originUrl: NODE_SCOPE_ORIGIN }),
+    });
+    const body = await res.json() as { runId?: string; code?: string };
+    return { status: res.status, runId: body.runId ?? null, code: body.code ?? null };
+  }
+  const asNode = (cookie: string, agent: string) => (method: string, path: string) =>
+    status(`http://127.0.0.1:${serverB.tunnelHttpPort}${path}`, "2", { method, headers: { cookie, "user-agent": agent } });
+  const roleOn = async (cookie: string): Promise<string> =>
+    ((await (await fetch(`http://127.0.0.1:${serverB.tunnelHttpPort}/api/auth/session`, { headers: { cookie } })).json()) as { role: string }).role;
+
+  /**
+   * A run is a card born in `bypassPermissions` on the node: starting one with
+   * any text is command execution under another name. So only the machine
+   * holding the channel starts runs, and a node credential reaches only the
+   * runs it started itself, never a normal card of the board.
+   */
+  test("(d) only the primary drives runs: D gets 403 on POST, GET, bundle and DELETE of A's run and of a normal card; A starts and cancels its own", async () => {
+    const asA = asNode(nodeCookie(serverA, nodeBOnA), "Topics/test (a)");
+    const asD = asNode(nodeCookie(serverD, nodeBOnD), "Topics/test (d)");
+    const forbidden = { status: 403, code: "node_run_forbidden" };
+
+    const byD = await startRun(nodeCookie(serverD, nodeBOnD), "Topics/test (d)", "D's text, which would run in bypassPermissions");
+    expect({ status: byD.status, code: byD.code }, "D starts no run on B").toEqual(forbidden);
+
+    const byA = await startRun(nodeCookie(serverA, nodeBOnA), "Topics/test (a)", "A card the primary runs on its node");
+    expect(byA.status, `A starts its run: ${JSON.stringify(byA)}`).toBe(201);
+
+    const plainDir = join(serverB.root, "projects", "plain");
+    mkdirSync(plainDir, { recursive: true });
+    const plain = await api<{ id: string }>(serverB, "POST", "/api/projects", { name: "plain", path: realpathSync(plainDir) });
+    const card = await createCard(serverB, plain.id, { text: "A normal card of B", status: "backlog" });
+
+    for (const id of [byA.runId!, card.id]) {
+      for (const [method, path] of [["GET", `/api/nodes/runs/${id}`], ["GET", `/api/nodes/runs/${id}/bundle`], ["DELETE", `/api/nodes/runs/${id}`]] as const) {
+        expect(await asD(method, path), `D: ${method} ${path}`).toEqual(forbidden);
+      }
+    }
+    // Not even the primary reaches a normal card through the run routes.
+    expect(await asA("DELETE", `/api/nodes/runs/${card.id}`), "A: DELETE of a normal card").toEqual(forbidden);
+    expect((await readCard(serverB, card)).archived, "the normal card is still there").toBeFalsy();
+
+    expect((await asA("GET", `/api/nodes/runs/${byA.runId}`)).status, "A reads its run").toBe(200);
+    expect((await asA("GET", `/api/nodes/runs/${byA.runId}/bundle`)).status, "A fetches its delivery").not.toBe(403);
+    expect((await asA("DELETE", `/api/nodes/runs/${byA.runId}`)).status, "A cancels its run").toBe(200);
   }, 60_000);
+
+  /**
+   * Every node paired before 18/11 (the Hetzner server, the PC) has no channel
+   * row and no mark: the migration, run at boot, has to find the machine
+   * credentials from what the pairing wrote, never from a header the caller
+   * picks. Here B is put back in that state and restarted.
+   */
+  test("(e) a node paired before 18/11, migrated at boot: both machine cookies become node with no user agent, the phone stays owner, A still starts a run on B and D does not", async () => {
+    const channel = channelOf(serverB)!;
+    const deviceA = channel.channel_device_id!;
+    await stop(serverB);
+    withDb(serverB, (db) => {
+      const machines = (db.query("SELECT device_id FROM node_devices").all() as { device_id: string }[]).map((r) => r.device_id);
+      expect(machines.length, "A's and D's credentials").toBeGreaterThanOrEqual(2);
+      // The name every pairing from a Topics server wrote before 19/11.
+      db.run(`UPDATE devices SET name = 'Dispositivo sconosciuto', last_seen_at = ? WHERE id IN (${machines.map(() => "?").join(",")})`, [Date.now() - 60_000, ...machines]); // allow-italian: the device name stored by older pairings
+      db.run("UPDATE devices SET last_seen_at = ? WHERE id = ?", [Date.now(), deviceA]);
+      db.run("DROP TABLE node_devices");
+      db.run("ALTER TABLE tasks DROP COLUMN node_run_device");
+      db.run("UPDATE primary_state SET channel_device_id = NULL, channel_machine_id = NULL WHERE id = 1");
+      db.run("DELETE FROM schema_migrations WHERE version = 20261119100000");
+    });
+    await boot(serverB);
+    try {
+      expect(await roleOn(nodeCookie(serverA, nodeBOnA)), "A's cookie, no user agent").toBe("node");
+      expect(await roleOn(nodeCookie(serverD, nodeBOnD)), "D's cookie, no user agent").toBe("node");
+      expect(await roleOn(phoneCookie), "the phone").toBe("owner");
+
+      const byA = await startRun(nodeCookie(serverA, nodeBOnA), "Topics/test (a)", "A card the primary runs on its migrated node");
+      expect(byA.status, `A still starts a run on B: ${JSON.stringify(byA)}\n${logOf(serverB)}`).toBe(201);
+      expect((await asNode(nodeCookie(serverA, nodeBOnA), "Topics/test (a)")("GET", `/api/nodes/runs/${byA.runId}`)).status).toBe(200);
+      const byD = await startRun(nodeCookie(serverD, nodeBOnD), "Topics/test (d)", "D's text");
+      expect({ status: byD.status, code: byD.code }).toEqual({ status: 403, code: "node_run_forbidden" });
+    } finally {
+      // The tests after this one need B's channel as A's pairing wrote it.
+      withDb(serverB, (db) => db.run("UPDATE primary_state SET channel_device_id = ?, channel_machine_id = ? WHERE id = 1", [channel.channel_device_id, channel.channel_machine_id]));
+    }
+  }, 120_000);
 
   test("A restarted at a higher epoch is still adopted by B", async () => {
     await stop(serverA);
