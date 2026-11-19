@@ -44,6 +44,12 @@ describe("session routes bind the caller to its session", () => {
     taskId = (await (await call(router, "POST", "/api/sessions/s1/tasks", { text: "card" }))!.json()).id;
   });
 
+  test("a session create refuses an idempotency key that forges the mirror-card sign", async () => {
+    const resp = (await call(router, "POST", "/api/sessions/s1/tasks", { text: "forged", idempotency_key: "node-run:x" }))!;
+    expect(resp.status).toBe(400);
+    expect((await resp.json()).code).toBe("reserved_idempotency_key");
+  });
+
   async function authors(): Promise<string[]> {
     const got = await (await call(router, "GET", `/api/sessions/s1/tasks/${taskId}`))!.json();
     return got.comments.filter((c: { author: string }) => c.author !== "system").map((c: { author: string }) => c.author);
