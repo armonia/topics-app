@@ -174,6 +174,50 @@ for i in 0 $(seq 1 "$N"); do
   pgrep -u "ci$i" -x Runner.Worker >/dev/null || systemctl restart "ci-runner@$i.service"
 done
 
+# A run's shards on the permanent node can finish in minutes while the booking (its
+# `pn-<run>-<attempt>` label) stays until that run's own give-back job runs, which waits
+# behind the GitHub-hosted queue: 5 runners held idle for 20+ minutes under a full queue.
+# `ci-permanent-reserve.sh sweep` drops a booking whose jobs are all done without needing
+# a GitHub-hosted slot, so a timer on the node itself can call it directly.
+#
+# Dedicated user (not one of the ci<i> runner accounts) and a repo-admin token the deploy
+# never writes: ConditionPathExists makes the timer a no-op until an admin creates
+# /etc/ci-permanent/sweep.env by hand (mode 600, GH_TOKEN and GITHUB_REPOSITORY).
+getent passwd ci-sweep >/dev/null || useradd -r -M -s /usr/sbin/nologin ci-sweep
+mkdir -p /etc/ci-permanent
+chown root:root /etc/ci-permanent
+chmod 700 /etc/ci-permanent
+
+REPO=${URL#https://github.com/}
+REF=${CI_PERMANENT_REF:-main}
+curl -fsSL -o /usr/local/sbin/ci-permanent-reserve.sh \
+  "https://raw.githubusercontent.com/$REPO/$REF/scripts/ci-permanent-reserve.sh"
+chmod 755 /usr/local/sbin/ci-permanent-reserve.sh
+
+cat > /etc/systemd/system/ci-permanent-sweep.service <<'EOS'
+[Unit]
+Description=Drop bookings of the permanent node runners that outlived their run
+ConditionPathExists=/etc/ci-permanent/sweep.env
+[Service]
+Type=oneshot
+User=ci-sweep
+EnvironmentFile=/etc/ci-permanent/sweep.env
+ExecStart=/usr/local/sbin/ci-permanent-reserve.sh sweep
+EOS
+
+cat > /etc/systemd/system/ci-permanent-sweep.timer <<'EOS'
+[Unit]
+Description=Run ci-permanent-sweep.service every minute
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+[Install]
+WantedBy=timers.target
+EOS
+
+systemctl daemon-reload
+systemctl enable --now ci-permanent-sweep.timer
+
 # Ports below 3342 privileged (3301, 3333, 3341 are the node's), Topics with the
 # capability to bind its own. The proof binds a FREE port of the range as a runner
 # would: probing 3333 itself says nothing, the node already holds it (EADDRINUSE).

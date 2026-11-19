@@ -3,6 +3,13 @@
 #
 #   ci-permanent-reserve.sh reserve <pool label> <how many> <run label>   prints how many it got
 #   ci-permanent-reserve.sh release <run label>
+#   ci-permanent-reserve.sh sweep                                        drops stale bookings only
+#
+# `sweep` runs `drop_stale` without booking anything: a run can finish its shards on the
+# permanent node in minutes and still hold them for 20+ minutes, because the booking is
+# otherwise only dropped by that run's own give-back job (which waits behind the
+# GitHub-hosted queue) or the next `reserve` (which needs a run wanting a slot). A timer
+# calling `sweep` on the node itself frees the booking without waiting for either.
 #
 # The runners there are persistent and shared by every run. A run takes a runner by
 # adding its own label to it (`pn-<run>-<attempt>`), and its shards target that label
@@ -62,13 +69,16 @@ drop_stale() {  # bookings of runs that are over
     done
 }
 
-# True when the run has jobs on this booking (label or label-prep) and none is still
-# queued or running. The job that gives the runners back waits on ubuntu-latest, so the
-# run itself stays "queued" and would hold the booking behind a queue it should relieve.
-# A run with no listed job on the label (not created yet) keeps its booking.
+# True when the run has jobs on this exact booking label and none is still queued or
+# running. The job that gives the runners back waits on ubuntu-latest, so the run itself
+# stays "queued" and would hold the booking behind a queue it should relieve.
+# A run with no listed job on the label (not created yet) keeps its booking. Only the
+# exact label counts: the shard runners' `pn-<run>-<n>` must not be judged by the
+# finished `-prep` job, because the e2e shards are created a few seconds after
+# prepare-e2e ends, and a sweep in that gap would strand them on a label nobody serves.
 run_done_with() {  # <run id> <booking label>
   gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" '
-    [.jobs[]? | select(any(.labels[]?; . == $l or . == ($l + "-prep")))] as $j
+    [.jobs[]? | select(any(.labels[]?; . == $l))] as $j
     | ($j | length) > 0 and all($j[]; .status == "completed")' >/dev/null 2>&1
 }
 
@@ -107,10 +117,17 @@ release() {
     while read -r id; do unbook "$id" "$mine"; done
 }
 
+sweep() {
+  local all
+  all=$(runners) || return 0
+  drop_stale "$all"
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "${1:-}" in
     reserve) reserve "${2:?pool}" "${3:?how many}" "${4:?run label}" ;;
     release) release "${2:?run label}" ;;
-    *) echo "uso: $0 reserve <pool> <n> <run label> | release <run label>" >&2; exit 2 ;;
+    sweep) sweep ;;
+    *) echo "uso: $0 reserve <pool> <n> <run label> | release <run label> | sweep" >&2; exit 2 ;;
   esac
 fi

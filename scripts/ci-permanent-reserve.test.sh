@@ -105,4 +105,29 @@ for i in $(seq 1 10); do
 done
 [ "$fail" = 0 ] && echo "ok   two runs at once: never a runner booked twice (10 rounds)"
 
+# sweep: same drop_stale, no booking needed. Run 700 is "queued" (its give-back job
+# waits on ubuntu-latest) but every job on the booking is completed: stale, dropped.
+JOBS='{"700":[{"status":"completed","labels":["pn-700-1"]},{"status":"queued","labels":["ubuntu-latest"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-700-1\"]}"' >/dev/null
+run sweep
+ok "sweep drops a booking whose jobs are all done, run still queued" "$(booked pn-700-1)" 0
+
+# Run 710 has a job still queued on the booking: not stale, sweep leaves it.
+JOBS='{"710":[{"status":"completed","labels":["pn-710-1"]},{"status":"queued","labels":["pn-710-1"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-710-1\"]}"' >/dev/null
+run sweep
+ok "sweep keeps a booking with a job still queued" "$(booked pn-710-1)" 1
+
+# Run 720: prepare-e2e is done, its shards are not created yet. The shard runners'
+# booking is judged by its own label only, so a sweep in that gap keeps it.
+JOBS='{"720":[{"status":"completed","labels":["pn-720-1-prep"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-720-1\"]}"' >/dev/null
+run sweep
+ok "sweep keeps the shard booking while only the prep job is done" "$(booked pn-720-1)" 1
+
+seed "$FOUR"
+run sweep
+ok "sweep with no bookings does nothing" "$?" 0
+ok "...and books nothing" "$(booked pn-x)" 0
+
 exit "$fail"
