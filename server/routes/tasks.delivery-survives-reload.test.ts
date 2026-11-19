@@ -381,6 +381,38 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     expect(red.ci).toBe(1);
   }, 60_000);
 
+  /**
+   * A ROUND THAT WAITS ON THE PULL REQUEST CI CLOSES THE CARD'S EARLIER PULL REQUESTS AT ITS START.
+   *
+   * A new round on a new branch leaves the earlier rounds' PRs open, each with
+   * its own CI run burning runner minutes; the round asks for them to be closed
+   * as soon as it begins, not only once its own draft is open. A bar with no CI
+   * row has no pull request of its own to protect, so it asks nobody.
+   */
+  test("a round with a CI row closes the card's earlier pull requests once, at its start; a bar without one does not", async () => {
+    const order: string[] = [];
+    const superseded: Array<{ cwd: string; taskId: string }> = [];
+    const withCi = await delivery([{ name: "bar", cmd: "true" }, E2E_CI_CHECK], {
+      supersedeEarlierRounds: async (input: { cwd: string; taskId: string }) => {
+        order.push("supersede"); superseded.push(input); return { closed: [] };
+      },
+      ciEvidence: async (input: { checks: Array<{ name: string; cmd: string }> }) => {
+        order.push("ci");
+        return input.checks.map((c) => ({ name: c.name, cmd: c.cmd, ok: true, code: 0, ms: 1, timedOut: false, tail: "verde in CI" }));
+      },
+    });
+    expect((await withCi.deliver(20_000))!.status).toBe(200);
+    expect(superseded).toEqual([{ cwd, taskId: withCi.id }]);
+    expect(order[0]).toBe("supersede");
+
+    const localOnly: Array<{ cwd: string; taskId: string }> = [];
+    const without = await delivery([{ name: "bar", cmd: "true" }], {
+      supersedeEarlierRounds: async (input: { cwd: string; taskId: string }) => { localOnly.push(input); return { closed: [] }; },
+    });
+    expect((await without.deliver(20_000))!.status).toBe(200);
+    expect(localOnly).toEqual([]);
+  }, 60_000);
+
   test("a delivery cut before it ever realigned realigns at the boot, instead of inheriting an old commit", async () => {
     const started = join(cwd, `never-realigned-${Date.now()}`);
     const d = await delivery([{ name: "bar", cmd: `touch ${started}` }], {});
