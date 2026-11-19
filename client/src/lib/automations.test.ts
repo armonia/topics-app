@@ -147,7 +147,7 @@ describe('commands only on the Jarvis jobs', () => {
 
   test('a one-shot job is an ordinary task: no row, switched on or off', () => {
     const once = { schedule: { kind: 'at', at: '2026-11-06T09:00:00Z' }, nextRunAt: null };
-    const withOnce = [...jobs, { id: 'job-once', name: 'Once', enabled: true, ...once }, { id: 'job-once-off', name: 'Once off', enabled: false, ...once }];
+    const withOnce = [...(jobs ?? []), { id: 'job-once', name: 'Once', enabled: true, ...once }, { id: 'job-once-off', name: 'Once off', enabled: false, ...once }];
     const merged = withCronJobs(rows, withOnce);
     expect(merged.some((r) => r.jobId === 'job-once' || r.jobId === 'job-once-off')).toBe(false);
     expect(merged.length).toBe(withCronJobs(rows, jobs).length);
