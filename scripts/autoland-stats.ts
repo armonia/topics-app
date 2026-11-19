@@ -13,7 +13,7 @@
  *   - landed by a person: every other card that reached `done` with its code on
  *     main («Mergiato su main»);
  *   - failure after an automatic land: the CI on main went red after it (the
- *     status line «la CI su main è rossa dopo il land» sends the card back), or
+ *     status line «la CI su main è rossa dopo il land» sends the card back), or // allow-italian: the status text the probe matches
  *     a revert names its commit;
  *   - rework after an automatic land: the card was reopened after it landed.
  *
