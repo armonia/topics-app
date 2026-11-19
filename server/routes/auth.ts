@@ -8,7 +8,7 @@ import {
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
-import { isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHostname } from "../lib/node-scope";
+import { isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHost } from "../lib/node-scope";
 import { resolvePrincipals } from "../lib/principals";
 import { privacyPersona } from "../lib/follows";
 import { isResourceType, type ResourceType } from "../lib/grants";
@@ -492,7 +492,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       }
       const ua = req.headers.get("user-agent");
       // A server names its host in the user agent: "PC-studio" says which machine, "Linux" does not.
-      const name = serverAgentHostname(ua) ?? deviceNameFromUserAgent(ua);
+      const name = serverAgentHost(ua) ?? deviceNameFromUserAgent(ua);
       const id = crypto.randomUUID();
       const declaredMachine = req.headers.get(PAIRING_MACHINE_HEADER)?.trim() ?? "";
       const machineId = /^[\w-]{1,128}$/.test(declaredMachine) ? declaredMachine : null;

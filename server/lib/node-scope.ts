@@ -62,7 +62,7 @@ export function isTopicsServerAgent(ua: string | null): boolean {
 }
 
 /** The hostname a Topics server names in its user agent; `null` for anything else. */
-export function serverAgentHostname(ua: string | null): string | null {
+export function serverAgentHost(ua: string | null): string | null {
   const host = ua ? SERVER_AGENT.exec(ua)?.[1]?.trim() : "";
   return host ? host.slice(0, 60) : null;
 }

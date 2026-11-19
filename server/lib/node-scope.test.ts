@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isNodeAllowedRequest, isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHostname, shouldLearnNodeDevice } from "./node-scope";
+import { isNodeAllowedRequest, isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHost, shouldLearnNodeDevice } from "./node-scope";
 import { hashToken } from "./device-auth";
 import { resolveIdentity } from "./identity";
 import { TASKS_DDL } from "../db/test-schema";
@@ -53,10 +53,10 @@ describe("the node scope", () => {
 
   test("a Topics server is told apart by the user agent it sends its nodes, a browser is not one", () => {
     expect(isTopicsServerAgent("Topics/2.4.51 (studio-pc)")).toBe(true);
-    expect(serverAgentHostname("Topics/2.4.51 (studio-pc)")).toBe("studio-pc");
+    expect(serverAgentHost("Topics/2.4.51 (studio-pc)")).toBe("studio-pc");
     for (const ua of [null, "", "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)", "Bun/1.3.0", "curl/8.7.1"]) {
       expect(isTopicsServerAgent(ua)).toBe(false);
-      expect(serverAgentHostname(ua)).toBeNull();
+      expect(serverAgentHost(ua)).toBeNull();
     }
     expect(shouldLearnNodeDevice("/api/nodes/runs/__probe__", "Topics/2.4.51 (studio-pc)")).toBe(true);
     expect(shouldLearnNodeDevice("/api/topics", "Topics/2.4.51 (studio-pc)")).toBe(false);
