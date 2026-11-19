@@ -125,18 +125,22 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
     mkdirSync(SHOTS, { recursive: true });
     await before.screenshot({ path: `${SHOTS}/holder-before-card-${width}.png` });
 
-    // After: a real pairing request from a server declaring a machine id and a higher epoch.
+    // After: a real pairing request from a server declaring a machine id and a higher epoch. Pending
+    // requests live in the server's memory across tests, so each width asks under its own host name.
+    const asker = `laptop-${width}`;
     const asked = await request.post(`${E2E_BASE}/api/auth/pair/request`, {
-      headers: { "x-topics-machine-id": "b7f1c2d4-node-asking", "x-topics-primary-epoch": "50", "user-agent": "Topics/test (laptop)" },
+      headers: { "x-topics-machine-id": `b7f1c2d4-node-${width}`, "x-topics-primary-epoch": "50", "user-agent": `Topics/test (${asker})` },
     });
     expect(asked.ok()).toBe(true);
+    const { requestId } = await asked.json() as { requestId: string };
     await page.unroute("**/api/auth/pair/pending");
     await goToApp(page);
-    const card = page.getByTestId("pair-request-card").filter({ hasText: /epoc[ah] 50/i });
+    const card = page.getByTestId("pair-request-card").filter({ hasText: asker });
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText(HOLDER_NAME);
     await expect(card).not.toContainText(machine.id);
     await card.screenshot({ path: `${SHOTS}/holder-after-card-${width}.png` });
     if (width === 1440) await page.screenshot({ path: `${SHOTS}/holder-after-${width}.png` });
+    await request.post(`${E2E_BASE}/api/auth/pair/deny`, { data: { requestId } });
   });
 }
