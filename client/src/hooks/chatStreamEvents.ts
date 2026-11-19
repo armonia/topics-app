@@ -26,6 +26,7 @@ import { HeldToolFacts, patchToolCallOrHold, withPermissionAsked, withPermission
 import { LiveTurnIds, carryLateStart, liveAssistantIndex, type LateDelta } from './liveTurn';
 import { adoptDurableMessageId } from './ownBubble';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
+import { rememberReasoningTranslation } from '../state/reasoningTranslations';
 import { mergeCatchupIntoPartial } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
 import { TextPaintGate } from './textPaintGate';
@@ -85,6 +86,13 @@ export function useStreamEvents(ctx: StreamEventsCtx) {
     // use `sessionKey` without per-case re-narrowing on each switch arm.
     const sessionKey = 'sessionKey' in event ? (event as { sessionKey?: string }).sessionKey : undefined;
     if (!sessionKey) return;
+    // A translated reasoning sentence only fills the translation store: it
+    // touches no message, so it neither waits behind an end nor flushes the
+    // buffered text, and it is safe to receive twice.
+    if (event.type === 'stream:reasoning_translation') {
+      rememberReasoningTranslation(event.source, event.text);
+      return;
+    }
     // An end is waiting for its last words to be painted: what follows it waits too.
     const heldBehindEnd = heldBehindEndRef.current.get(sessionKey);
     if (heldBehindEnd) { heldBehindEnd.push(event); return; }
