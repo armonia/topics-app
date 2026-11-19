@@ -11,7 +11,7 @@
  * @covers KANBAN-77
  */
 import { describe, it, expect } from "bun:test";
-import { TASK, report, harness, poll, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
+import { TASK, MACHINE, report, harness, poll, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
 
 describe("lo slot remoto non resta zombie", () => {
   it("il nodo riporta la corsa parcheggiata (backlog + blocked): la card si parcheggia col motivo del nodo, lo slot si libera", async () => {
@@ -33,6 +33,39 @@ describe("lo slot remoto non resta zombie", () => {
     expect(t.dispatchState).toBe("blocked");
     expect(t.dispatchError ?? "").toContain("runtime claude-code non disponibile per sonnet");
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("la stessa card ci torna SOLO se la ci aveva pinnata l'overflow: pinnata a mano resta sul nodo", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "blocked",
+        reason: "runtime claude-code non disponibile per sonnet",
+      })),
+    });
+    h.seed();
+    await dispatch(h);
+    await poll(h);
+    expect(h.task().machineId).toBe(MACHINE);
+  });
+
+  it("il nodo ha parcheggiato una card che l'OVERFLOW ci aveva messa: il pin si libera, un requeue non torna sullo stesso nodo rotto", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "blocked",
+        reason: "runtime claude-code non disponibile per sonnet",
+      })),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date(h.nowMs()).toISOString(), TASK]);
+    await dispatch(h);
+    await poll(h);
+
+    const t = h.task();
+    expect(t.status).toBe("backlog");
+    expect(t.dispatchState).toBe("blocked");
+    expect(t.machineId).toBeNull();
   });
 
   it("PATCH umano a todo su una card con slot remoto ancora aperto: la corsa si cancella, lo slot si libera e la card riparte con una corsa nuova", async () => {
