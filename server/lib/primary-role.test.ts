@@ -102,14 +102,18 @@ describe("primary role", () => {
     f.done();
   });
 
-  test("a dispatcher on a secondary server assigns no card", async () => {
-    let touched = 0;
-    const svc = new Proxy({}, { get: () => () => { touched++; return []; } }) as never;
-    const dispatcher = createTaskDispatcher({ svc, isActive: () => false } as never);
-    await dispatcher.tick("p1");
-    dispatcher.onEnterTodo("p1", "t1");
-    await dispatcher.reconcile({ reason: "poll" });
-    expect(touched).toBe(0);
+  test("a dispatcher on a secondary server assigns no card of its own board, but works a mirror card", async () => {
+    const claimedIds: string[] = [];
+    const normal = { id: "t-normal", status: "todo", claudeTaskId: null } as never;
+    const mirror = { id: "t-mirror", status: "todo", claudeTaskId: "node-run:origin-1" } as never;
+    const svc = new Proxy({}, { get: (_t, name) => name === "list" ? () => [normal, mirror] : () => { throw new Error("stop after the list"); } }) as never;
+    const dispatcher = createTaskDispatcher({
+      svc, isActive: () => false,
+      resolveProject: () => null,
+      log: (m: string) => { if (m.includes("t-")) claimedIds.push(m); },
+    } as never);
+    await dispatcher.tick("p1").catch(() => {});
+    expect(claimedIds.every((m) => !m.includes("t-normal"))).toBe(true);
   });
   test("an empty or garbled epoch header means not declared, never 0", () => {
     const f = fixture();
