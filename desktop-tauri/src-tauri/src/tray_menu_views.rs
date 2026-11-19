@@ -431,7 +431,14 @@ pub fn draw_machine_card_with(m: &MachineCard, node: &crate::tray_node_charts::N
         pic.text(Face::Sans, label, lx + 20.0, y + 12.5, 10.5, p.fg, p.dim);
         let has = x.and_then(|x| x.pct).is_some();
         put_value(&mut pic, y, &values[i], c, if has { 1.0 } else { 0.4 });
-        bar(&mut pic, y, x.and_then(|x| x.pct), c);
+        // a reading with a history draws it where its bar would be: the line says the same «now» (its last point,
+        // in the tone of the value) and the day behind it; a reading without one keeps the bar
+        let history = match *key { "cpu" => Some(&node.cpu), "mem" => Some(&node.mem), _ => None };
+        let w = cols.bar_end - cols.bar_x;
+        let lined = history.map_or(false, |h| w >= 40.0 && crate::tray_node_charts::spark_for(&mut pic, (cols.bar_x, y + 3.0, w, 12.0), h, node, p));
+        if !lined {
+            bar(&mut pic, y, x.and_then(|x| x.pct), c);
+        }
         let (note, ncol, na) = &notes[i];
         put_note(&mut pic, y, note, *ncol, *na);
     }
@@ -601,7 +608,7 @@ pub fn draw_backup_card(b: &BackupCard, p: Palette) -> Pic {
     pic.hover.push(crate::tray_hover::HoverZone { x: m, y: 55.0, w: inner, h: 18.0, points: b.days.iter().enumerate().map(|(i, d)| crate::tray_hover::HoverPoint {
         x: m + i as f32 * step + step / 2.0,
         label: format!("{} · {}", crate::tray_hover::day_label(b.today - (b.days.len() - 1 - i) as i64), match d { Some(true) => "copia fatta", Some(false) => "copia non riuscita", None => "niente da giudicare" }),
-    }).collect() });
+    }).collect(), reach: None });
     for (i, d) in b.days.iter().enumerate() {
         let (col, a) = match d {
             Some(true) => (tone(0), 1.0),

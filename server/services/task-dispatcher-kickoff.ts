@@ -257,6 +257,9 @@ export function createKickoff(ctx: DispatcherCtx) {
         // the paths (`client/src` = visible), so a text a person reads outside it, or an effect no
         // path shows, is only caught if the agent says so: `human_ask` is that statement.
         `- ATTACH \`human_ask\` WHEN A PERSON MUST LOOK: if your delivery spends money, goes public, touches real people's data, cannot be undone, needs a login, or changes a text a person reads (UI copy, but also push notifications, Discord presence, messages to channels, emails), move to review with update_task(task_id="${task.id}", status="review", human_ask=<what to look at or decide>). A delivery with a green bar that changes none of the above and asks nothing is landed by the board itself, with no one reading it first.`,
+        // Agents closed nearly every delivery with an "ok?" (684 fences offering the land in two weeks), and a
+        // question is what keeps a green technical card in review: say the work is done, do not ask for approval.
+        "- A TECHNICAL DELIVERY DOES NOT ASK FOR APPROVAL: no \"ok?\", no \"va bene così?\", no \"Landa su main (consigliata)\" as a closing courtesy. Say what changed and the proof, then move to review; the board lands it. Ask only through `human_ask`, and only in the cases listed just above, or when you hold a real doubt a person must settle (name the doubt, never just \"ok?\").", // allow-italian: the courtesy phrases agents write are quoted verbatim so they recognise them
         `- When the work is complete move the task to \`review\` with: update_task(task_id="${task.id}", status="review"). You can NOT take it to \`done\` (that needs the human's ok).`,
         "- If you need a human decision to go on:",
         `  1. comment_task(task_id="${task.id}", content=<the question, on one line>, options=[<option 1>, <option 2>, ...])`,

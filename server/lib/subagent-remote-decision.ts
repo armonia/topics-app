@@ -14,15 +14,25 @@
  *     has no CLI road for it yet.
  *  2. A live mac-only resource the child would need — the same reasons a
  *     card's `stayLocal` protects (`task-shapes.ts`: local processes, Jarvis,
- *     sessions, macOS itself) — keeps the child here too: a node has none of
- *     those to hand it.
+ *     sessions, macOS itself), plus the GitHub CLI's login — keeps the child
+ *     here too: a node has none of those to hand it.
  *  3. Otherwise: a git working tree (GitHub origin or a plain local repo)
  *     can go remote, because a node can clone and push to it. Anything else
  *     — no `.git` at all — cannot: there is nothing for a node to check out.
  */
 
-/** A live resource only this machine has, the same ones `stayLocal` names on a card. */
-export type MacOnlyResource = "macos" | "browser" | "session" | "jarvis";
+/**
+ * A live resource only this machine has, the same ones `stayLocal` names on a
+ * card, plus `"gh"`: the GitHub CLI's login is a local credential on whatever
+ * machine ran `gh auth login`, never carried in the child's bundle (that is
+ * git history and the working tree, not `~/.config/gh`), and Topics has no
+ * way to ask a node whether its own `gh` is logged in the way it does for a
+ * node's coding-model catalog (`nodeModels`). A child that reads CI or a PR
+ * through `gh` on a node without that login gets nothing to read and reports
+ * back empty, the same shape as the other three (SUBAGENT-28, 19/11: two
+ * children of the same chain lost a turn each to this).
+ */
+export type MacOnlyResource = "macos" | "browser" | "session" | "jarvis" | "gh";
 
 export interface RemoteSpawnRequest {
   /** The runtime the caller asked for (`body.runtime` on `/agents/spawn`); undefined = no preference. */
@@ -43,6 +53,7 @@ const MAC_ONLY_RESOURCE_LABEL: Readonly<Record<MacOnlyResource, string>> = {
   browser: "a live browser pane",
   session: "a live session",
   jarvis: "Jarvis, which only runs here",
+  gh: "the GitHub CLI's login, a local credential no node is known to share",
 };
 
 /**

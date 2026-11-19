@@ -71,7 +71,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git add spec-flow.mutation-baseline.json
-          git commit -m "mutation: baseline follows the scores that rose tonight"
+          git commit -m "mutation: baseline follows the scores that rose tonight [skip ci]"
           git push origin HEAD:main || echo "::warning::main moved, the baseline rises on the next run"
 
       - name: Report

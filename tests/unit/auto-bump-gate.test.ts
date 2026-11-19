@@ -137,6 +137,18 @@ describe("release-gate: the nightly's commit on top of a measured one", () => {
     expect(decide(nightly())).toEqual({ publish: true, sha: TIP });
   });
 
+  it("the mutation baseline raised at night is in between too: the TIP goes out", () => {
+    expect(decide(nightly({
+      tipMessage: "mutation: baseline follows the scores that rose tonight [skip ci]",
+      changedSinceMeasured: ["spec-flow.mutation-baseline.json"],
+    }))).toEqual({ publish: true, sha: TIP });
+  });
+
+  it("the mutation job's commit carries [skip ci], or the gate would wait for a run that never comes", () => {
+    const mutation = readFileSync(new URL("../../.github/workflows/mutation.yml", import.meta.url), "utf8");
+    expect(mutation).toMatch(/git commit -m "mutation: baseline follows[^"]*\[skip ci\]"/);
+  });
+
   it("any other file in between does not go out on another commit's verdict", () => {
     const d = decide(nightly({ changedSinceMeasured: ["scripts/e2e-durations.json", "server/index.ts"] }));
     expect(d.publish).toBe(false);

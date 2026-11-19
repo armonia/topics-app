@@ -365,9 +365,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * in `dispatch_error`, because `deriveQueueReason` matches a word and not the
    * prose the deferral leaves there.
    */
-  function deferForSilentNode(task: Task, why: string): void {
+  function deferForSilentNode(task: Task, why: string, untilMs?: number | null): void {
     try {
-      const after = host.deferWait(task.id, why, NODE_RETRY_MINUTES, "machine");
+      // With the wake breaker open the card waits until it closes, not the fixed 5 minutes:
+      // the doubling window (15 min … 4 h) was announced on the card and never applied to it.
+      const minutes = untilMs ? Math.max(NODE_RETRY_MINUTES, Math.ceil((untilMs - Date.now()) / 60_000)) : NODE_RETRY_MINUTES;
+      const after = host.deferWait(task.id, why, minutes, "machine");
       // The sentinel goes ONLY on a card that is still waiting in the queue.
       // Past its own cap the wait parks the card and announces the park with
       // its own chip (`waited_out`) and note: overwriting that would hide "the
@@ -382,10 +385,22 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     } catch (err) { log(`nodo: rinvio della card ${task.id} non riuscito`, err); }
   }
 
-  /** A card that can never start where it is pointed: parked, with the fix in words. */
+  /**
+   * A card that can never start where it is pointed: parked, with the fix in
+   * words. The pin to that node survives the park (`release` never touches
+   * `machineId`): a card the SYSTEM overflowed there (`task.overflowedAt`)
+   * came back here blocked on the same broken node every time a human dragged
+   * it back to `todo`, because nothing ever cleared the pin. A card a person
+   * pinned there by hand keeps it, with the reason on it — same asymmetry as
+   * `returnEmptyNodeRunToTodo`.
+   */
   function parkNodeCard(task: Task, reason: string): void {
     try { releaseAndEmit({ taskId: task.id, requeue: false, parkState: CHIP_BLOCKED, reason }); }
-    catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); }
+    catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); return; }
+    if (task.overflowedAt) {
+      try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+      catch (err) { log(`nodo: la card ${task.id} bloccata non è tornata sulla macchina locale`, err); }
+    }
   }
 
   /**
@@ -418,6 +433,16 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         task,
         `il nodo «${name}» non risponde` + (baseUrl ? " (nessun accoppiamento valido)" : " (nessun indirizzo noto)"),
       );
+      return;
+    }
+    // THE BREAKER IS READ BEFORE THE HOOK. An open breaker means recent runs could not start
+    // there, online heartbeat or not: running the hook again only adds one more failure and one
+    // more note. The card waits until the breaker closes (the claim already tried to move it to
+    // another machine through `machineForbidden`). Fixed reason, no clock in it: the wait series
+    // counts it as the same wait.
+    const blockedUntil = wakeBreaker.openUntil(machineId);
+    if (blockedUntil) {
+      deferForSilentNode(task, `il nodo «${name}» non si sveglia da più tentativi`, blockedUntil);
       return;
     }
     // The node resolves the project by its git ORIGIN, never by id or path:
@@ -516,7 +541,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
               content: `«${name}» non si sveglia da più tentativi: fino alle ${new Date(until).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} non gli mando altre card (allow-italian: user-facing note).` });
           } catch { /* the note never blocks the deferral */ }
         }
-        deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`);
+        deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`, until);
         return;
       }
       // THE OLD RUN DIES BEFORE A NEW ONE IS BORN. A run this board buried may
@@ -1282,7 +1307,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
     // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
     // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
-    if (!svc.nodeRunIsOpen(task.id)) return false;
+    if (!svc.nodeRunIsOpen(task.id)) {
+      // With no open run a card is either dragged to In Progress by hand (not an orphan: leave
+      // it) or CUT BY THE SERVER while the launch had not created the run yet. The two differ by
+      // the cut: `interrupted_at`, written by the shutdown, is later than the entry into
+      // in-progress. Left alone, the second stayed in_progress forever with the node slot
+      // counted as busy (f4dbe271, 17/11: the token rotation waited two days).
+      const cut = task.interruptedAt, since = task.inProgressAt;
+      if (!cut || !since || cut < since) return false;
+    }
     if (task.delegatedStartCapabilityId && !host.delegatedPolicyForTask?.(task.id)) {
       try {
         releaseAndEmit({
