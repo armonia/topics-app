@@ -5234,6 +5234,23 @@ spento» 1,12:1.
 - **WHEN** axe e il calcolo sui fondi composti leggono la colonna
 - **THEN** nessun testo SHALL stare sotto il contrasto minimo
 
+### Requirement: KANBAN-MOBILE-06 — La scheda del task, sotto lg, copre la board con un fondo opaco
+
+Sotto `lg` la scheda del task (e il cassetto del coordinatore) è un overlay a
+tutto schermo sopra le colonne. Il suo fondo SHALL essere opaco (alpha 1) anche
+nel guscio desktop (`html.native-frost`), dove le superfici `pane-frost` sono
+trasparenti per lasciar passare il vetro: un overlay non ha niente da
+lasciar passare, ha sotto le card della board.
+
+Misurato prima: sotto `native-frost` il fondo calcolato della scheda era
+`rgba(0, 0, 0, 0)` a 375 e a 525 px, e le card della Board si leggevano sotto il
+suo testo.
+
+#### Scenario: scheda aperta in una finestra stretta
+- **GIVEN** la board in una finestra larga 375 o 525 px, con `native-frost` sull'`html`
+- **WHEN** si apre una card
+- **THEN** il fondo calcolato di `task-detail-drawer` SHALL avere alpha 1
+
 ### Requirement: KANBAN-95 — Card a calendario
 
 **Una ricorrenza della board SHALL creare una card normale all'ora giusta**, secondo una regola cron
