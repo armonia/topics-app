@@ -2,7 +2,7 @@
  * @covers MACHINE-05
  */
 import { describe, expect, test } from "bun:test";
-import { parseProcMemoryPct, readMemPct } from "./machine-metrics";
+import { memPctFromReadout, parseProcMemoryPct, readMemPct } from "./machine-metrics";
 
 const PROC_MEMORY_TEXT = "MemTotal:       32000000 kB\nMemFree:         1000000 kB\nMemAvailable:   16000000 kB\n";
 
@@ -21,5 +21,16 @@ describe("memoria dei nodi non macOS", () => {
   test("la lettura del cancello di macOS vince", () => {
     expect(readMemPct(61, "darwin")).toBe(61);
     expect(readMemPct(null, "darwin")).toBeNull();
+  });
+});
+
+describe("memory of a node on an old build", () => {
+  test("processes over the machine total, in percent", () => {
+    expect(memPctFromReadout({ memTotalMB: 1000, procs: [{ memMB: 200 }, { memMB: 100 }], rest: { memMB: 200 } })).toBe(50);
+  });
+  test("no total or no process list is not measured, never 0", () => {
+    expect(memPctFromReadout(null)).toBeNull();
+    expect(memPctFromReadout({ memTotalMB: null, procs: [] })).toBeNull();
+    expect(memPctFromReadout({ memTotalMB: 1000 })).toBeNull();
   });
 });
