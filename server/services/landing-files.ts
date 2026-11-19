@@ -44,6 +44,21 @@ export async function landingFiles(
 /** What runs or configures the bar: a file named in any of these is part of the judge, not a test or a note. */
 const JUDGE_PLACES = ["bunfig.toml", "scripts", "package.json", ".github"];
 
+/**
+ * The DATA the checks keep under `scripts/` (`*.json`: per-test durations for the
+ * shards, the language and bloat baselines) is not the judge's configuration.
+ * `test-unit-durations.json` names every test file in the repo, and the baselines
+ * name most server files: read as "the judge names it", they made the whole repo
+ * the judge. Measured on the server log of 12-18/11: 7 invisible deliveries
+ * refused only because a data file named them (e8a0ce90, a single unit test,
+ * named by the durations file). Renaming or editing a file such a list names does
+ * not change what the check decides about any other file, so the lists are left
+ * out; the scripts that read them are still the judge, and so is a list itself
+ * when a delivery edits it: loosening a baseline is loosening the bar.
+ */
+const JUDGE_DATA_LEFT_OUT = [":(exclude)scripts/*.json"];
+const JUDGE_DATA = /^scripts\/.*\.json$/;
+
 /** Code is named without its extension in an import (`./helpers/time-slack`), a document with it. */
 const withoutCodeExtension = (path: string): string => path.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
 
@@ -68,11 +83,11 @@ export async function referencedByTheJudge(
   const resolved = await run(repoPath, ["rev-parse", "--verify", "--quiet", `${commit.trim()}^{commit}`]);
   const sha = resolved.stdout.trim();
   if (resolved.code !== 0 || !sha) return null;
-  const named = new Set<string>();
+  const named = new Set<string>(files.filter((f) => JUDGE_DATA.test(f)));
   const CHUNK = 40;
   for (let i = 0; i < files.length; i += CHUNK) {
     const chunk = files.slice(i, i + CHUNK);
-    const args = ["grep", "-h", "-o", "-F", ...chunk.flatMap((f) => ["-e", withoutCodeExtension(f)]), sha, "--", ...JUDGE_PLACES];
+    const args = ["grep", "-h", "-o", "-F", ...chunk.flatMap((f) => ["-e", withoutCodeExtension(f)]), sha, "--", ...JUDGE_PLACES, ...JUDGE_DATA_LEFT_OUT];
     const res = await run(repoPath, args);
     // 1 = no match anywhere in this chunk; anything else but 0 is a git that did not answer.
     if (res.code === 1) continue;
