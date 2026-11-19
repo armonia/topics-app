@@ -36,6 +36,15 @@
  *      channel). A, restarted at a higher epoch, is still adopted by B
  *      through the unchanged channel. D, independently declaring an even
  *      higher epoch, is never adopted, because it is not the channel's device.
+ *   7. And the other half of the same defect: a channel frozen at the first
+ *      pairing would lock a node to a primary that no longer exists. A pairing
+ *      takes the channel over only when it declares an epoch ABOVE the one the
+ *      node adopted (no epoch, a lower or an equal one take nothing, and a
+ *      lower one is refused at the door), the machine holding the channel keeps
+ *      it when it pairs a new device, the primary the node still obeys reclaims
+ *      it, a SECONDARY that knows a later epoch declares nothing at pairing,
+ *      and D, once chosen primary at a higher epoch with A gone, pairs B, takes
+ *      the channel, is adopted, and makes A's epoch stale.
  *
  * @covers MACHINE-01
  */
@@ -47,6 +56,7 @@ import { freePort, PROJECT_ROOT, spawnedServerHostEnv, testTmpDir } from "./help
 import { slackMs } from "../helpers/time-slack";
 
 const EPOCH_HEADER = "x-topics-primary-epoch";
+const MACHINE_HEADER = "x-topics-machine-id";
 const STALE_CODE = "stale_primary_epoch";
 /** Longer than the dispatcher grace (6 s) and the scheduled-cards interval (15 s). */
 const QUIET_WINDOW_MS = 22_000;
@@ -163,6 +173,24 @@ async function api<T>(s: ServerUnderTest, method: string, path: string, body?: u
   const text = await res.text();
   if (!res.ok) throw new Error(`${s.name} ${method} ${path} answered ${res.status}: ${text}`);
   return JSON.parse(text) as T;
+}
+
+/**
+ * A pairing request exactly as a Topics server sends it: the machine id and the
+ * epoch travel as headers, so a declaration can be reproduced without booting a
+ * whole server for it. The owner of the target approves through the real route,
+ * as a person clicking the card would. Returns the status of the request (a
+ * replaced primary is refused at the door) and the device id it was given.
+ */
+async function pairDeclaring(target: ServerUnderTest, declared: { machineId: string; epoch?: number }): Promise<{ status: number; deviceId: string | null }> {
+  const tunnel = `http://127.0.0.1:${target.tunnelHttpPort}`;
+  const headers: Record<string, string> = { [MACHINE_HEADER]: declared.machineId };
+  if (declared.epoch !== undefined) headers[EPOCH_HEADER] = String(declared.epoch);
+  const asked = await fetch(`${tunnel}/api/auth/pair/request`, { method: "POST", headers });
+  if (!asked.ok) return { status: asked.status, deviceId: null };
+  const { requestId } = await asked.json() as { requestId: string };
+  const approved = await api<{ deviceId: string }>(target, "POST", "/api/auth/pair/approve", { requestId });
+  return { status: asked.status, deviceId: approved.deviceId };
 }
 
 /** A project with auto-dispatch on; returns the board id the cards live under. */
@@ -463,4 +491,91 @@ describe("D, a third server that is not the fleet's primary, cannot steal B's ch
       expect((await call("8")).status, `${door} with A's epoch after D's attempt`).not.toBe(409);
     }
   }, 120_000);
+
+  /**
+   * The other half of the same defect, and the one a guard against "last
+   * pairing wins" can easily create: if a channel were frozen at the first
+   * pairing, a node could NEVER follow a legitimate change of primary. The
+   * line is the epoch: a pairing the owner approves takes the channel over
+   * only when it declares one above the epoch the node adopted, and only a
+   * chosen primary declares an epoch at all.
+   */
+  describe("the channel follows a new primary, by epoch only", () => {
+    /** A machine id nobody runs: what a pairing declares is a declaration, not a proof. */
+    const ghost = crypto.randomUUID();
+
+    test("no epoch, a lower one or an equal one takes nothing; a replaced primary cannot even ask", async () => {
+      const before = channelOf(serverB);
+      expect(before?.channel_machine_id, "B's channel is A's before anybody else asks").toBe(machineA);
+
+      const lower = await pairDeclaring(serverB, { machineId: ghost, epoch: 7 });
+      expect(lower, "epoch 7 is below B's 8: refused at the door, never approved").toEqual({ status: 409, deviceId: null });
+
+      for (const epoch of [undefined, 8]) {
+        const asked = await pairDeclaring(serverB, { machineId: ghost, epoch });
+        expect(asked.deviceId, `the pairing declaring epoch ${epoch ?? "none"} was approved`).not.toBeNull();
+        expect(channelOf(serverB), `epoch ${epoch ?? "none"} left B's channel alone`).toEqual(before);
+      }
+      expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+    }, 60_000);
+
+    test("an epoch above B's takes the channel, and the machine holding it keeps it when it pairs again", async () => {
+      const taken = await pairDeclaring(serverB, { machineId: ghost, epoch: 9 });
+      expect(channelOf(serverB), "epoch 9 is above B's 8: the channel changed hands").toEqual({ channel_device_id: taken.deviceId, channel_machine_id: ghost });
+      expect(primaryRow(serverB), "a pairing records a channel, it never moves the epoch by itself").toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+
+      // The same machine pairs a second device (its token was revoked, say) and
+      // declares nothing above B's epoch: it keeps the channel it already holds.
+      const again = await pairDeclaring(serverB, { machineId: ghost, epoch: 8 });
+      expect(channelOf(serverB), "the machine that holds the channel keeps it").toEqual({ channel_device_id: again.deviceId, channel_machine_id: ghost });
+    }, 60_000);
+
+    test("the primary B still obeys reclaims its channel without a higher epoch", async () => {
+      const reclaimed = await pairDeclaring(serverB, { machineId: machineA, epoch: 8 });
+      expect(channelOf(serverB), "A is the primary B recognizes: its pairing restores its own channel").toEqual({ channel_device_id: reclaimed.deviceId, channel_machine_id: machineA });
+      expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+    }, 60_000);
+
+    test("a secondary holding a higher epoch pairs B and declares nothing", async () => {
+      const before = channelOf(serverB);
+      await stop(serverD);
+      // D is a SECONDARY that knows a later epoch: it believes A is the primary
+      // at 10. It must not declare itself at pairing, so its machine id and that
+      // epoch never reach B.
+      writePrimaryState(serverD, machineA, 10);
+      await boot(serverD);
+      const opened = await api<{ pairingId: string }>(serverD, "POST", "/api/machines/pair", { baseUrl: `http://127.0.0.1:${serverB.tunnelHttpPort}` });
+      const { requests } = await api<{ requests: { id: string }[] }>(serverB, "GET", "/api/auth/pair/pending");
+      expect(requests).toHaveLength(1);
+      await api(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
+      expect((await api<{ state: string }>(serverD, "GET", `/api/machines/pair/${opened.pairingId}`)).state).toBe("approved");
+      expect(channelOf(serverB), "a secondary's pairing left B's channel exactly as it was").toEqual(before);
+      expect(primaryRow(serverB)).toMatchObject({ primary_machine_id: machineA, epoch: 8 });
+    }, 120_000);
+
+    test("A is gone, D is chosen primary at epoch 11: it pairs B, takes the channel and is adopted, and A's epoch is now stale", async () => {
+      await stop(serverA);
+      await stop(serverD);
+      writePrimaryState(serverD, machineD, 11);
+      await boot(serverD);
+
+      const opened = await api<{ pairingId: string }>(serverD, "POST", "/api/machines/pair", { baseUrl: `http://127.0.0.1:${serverB.tunnelHttpPort}` });
+      const { requests } = await api<{ requests: { id: string }[] }>(serverB, "GET", "/api/auth/pair/pending");
+      expect(requests).toHaveLength(1);
+      const approved = await api<{ deviceId: string }>(serverB, "POST", "/api/auth/pair/approve", { requestId: requests[0]!.id });
+      expect((await api<{ state: string }>(serverD, "GET", `/api/machines/pair/${opened.pairingId}`)).state).toBe("approved");
+      expect(channelOf(serverB), "the new primary declared epoch 11 and took the channel").toEqual({ channel_device_id: approved.deviceId, channel_machine_id: machineD });
+
+      // D's heartbeat now reaches B through the channel it just took.
+      const until = Date.now() + slackMs(45_000);
+      while (Date.now() < until && primaryRow(serverB).epoch !== 11) await Bun.sleep(500);
+      expect(primaryRow(serverB), `B adopted the new primary\n${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineD, epoch: 11 });
+      expect(JSON.parse(readFileSync(join(serverB.root, "app-data", "primary-state.json"), "utf8"))).toMatchObject({ primaryMachineId: machineD, epoch: 11 });
+
+      // A, were it to come back at 8, is now the replaced primary on every door.
+      for (const [door, call] of Object.entries(doors(serverB))) {
+        expect(await call("8"), `${door} with A's old epoch`).toEqual({ status: 409, code: STALE_CODE });
+      }
+    }, 180_000);
+  });
 });

@@ -15,6 +15,11 @@
  * it next to the device row it creates (the channel). Machine ids are UUIDs
  * minted by each DB, so the id the node stores is the one declared at pairing,
  * and an adoption names that id, never one read from the request.
+ *
+ * That channel is not frozen at the first pairing: a primary really does get
+ * replaced. A pairing the owner of this machine approves takes the channel over
+ * when it declares an epoch above the one this node adopted, and only the
+ * chosen primary of a fleet declares an epoch at all.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -36,6 +41,15 @@ export interface PrimaryState {
 export interface PrimaryChannel {
   deviceId: string;
   machineId: string;
+}
+
+/**
+ * What a pairing request declared, as the approval saw it: the machine asking
+ * to coordinate this one, and the epoch it claims. The epoch is null when the
+ * caller declared none, which is what a secondary does.
+ */
+export interface PairingClaim extends PrimaryChannel {
+  epoch?: number | null;
 }
 
 export interface PrimaryRole {
@@ -62,10 +76,14 @@ export interface PrimaryRole {
   /** The primary that paired this server, or null. */
   channel(): PrimaryChannel | null;
   /** Record the primary that just paired this server (called by the pairing approval). */
-  recordChannel(next: PrimaryChannel): void;
+  recordChannel(next: PairingClaim): void;
   /** Headers an outgoing call carries: the epoch, only while this server is the chosen primary. */
   outgoingHeaders(): Record<string, string>;
-  /** Headers a pairing request carries: this server's machine id, so the node can record its channel. */
+  /**
+   * Headers a pairing request carries, only while this server is the chosen
+   * primary: its machine id, so the node can record its channel, and its epoch,
+   * which is what lets a NEW primary take a channel its predecessor holds.
+   */
   pairingHeaders(): Record<string, string>;
 }
 
@@ -196,12 +214,24 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
     },
     channel: () => readChannel(deps.db),
     recordChannel(next) {
-      // An existing channel changes hands only for the primary this server already
-      // recognizes: a secondary that slips its machine id through (it should not,
-      // see `pairingHeaders`) must not steal a channel that belongs to someone else.
+      // An existing channel changes hands in three cases, and in no other:
+      //
+      //  - the machine that already holds it pairs again (a new device row for
+      //    the same server, after a revoke or a second pairing);
+      //  - the pairing comes from the primary this server already recognizes,
+      //    which is reclaiming its channel from someone who took it;
+      //  - the pairing declares an epoch ABOVE the one this server adopted.
+      //    That last one is how a legitimate change of primary reaches a node
+      //    whose old primary is gone: without it the FIRST pairing would own
+      //    the channel for ever and no later primary could ever be adopted.
+      //    It is not an open door: the owner of this machine approved that
+      //    pairing by hand, and only the chosen primary declares an epoch at
+      //    all (see `pairingHeaders`), so a secondary is left out.
       const existing = readChannel(deps.db);
-      if (existing && existing.machineId !== next.machineId && current.primaryMachineId !== next.machineId) {
-        log(`[primary] pairing from ${next.machineId} ignored: the channel already belongs to ${existing.machineId}`);
+      const declared = typeof next.epoch === "number" && Number.isInteger(next.epoch) ? next.epoch : null;
+      const takesOver = declared !== null && declared > current.epoch;
+      if (existing && existing.machineId !== next.machineId && current.primaryMachineId !== next.machineId && !takesOver) {
+        log(`[primary] pairing from ${next.machineId} at epoch ${declared ?? "none"} ignored: the channel belongs to ${existing.machineId} and this server is at epoch ${current.epoch}`);
         return;
       }
       deps.db.query("UPDATE primary_state SET channel_device_id = ?, channel_machine_id = ? WHERE id = 1").run(next.deviceId, next.machineId);
@@ -213,9 +243,14 @@ export function createPrimaryRole(deps: PrimaryRoleDeps): PrimaryRole {
       : {}),
     // Same criterion as `outgoingHeaders`, minus the epoch>0 guard: a virgin
     // installation (no primary chosen yet) is its own primary and must still be
-    // able to pair its first devices and record itself as their channel.
+    // able to pair its first devices and record itself as their channel. The
+    // epoch rides along when there is one, so a node can tell a new primary
+    // from a server that merely paired it first.
     pairingHeaders: (): Record<string, string> => (current.primaryMachineId === null || current.primaryMachineId === localMachineId()
-      ? { [PAIRING_MACHINE_HEADER]: localMachineId() }
+      ? {
+        [PAIRING_MACHINE_HEADER]: localMachineId(),
+        ...(current.epoch > 0 ? { [PRIMARY_EPOCH_HEADER]: String(current.epoch) } : {}),
+      }
       : {}),
   };
   return role;
