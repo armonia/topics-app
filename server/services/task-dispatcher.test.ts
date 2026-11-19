@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -4297,7 +4297,10 @@ describe("l'envelope non parla italiano", () => {
    */
   function withoutLabels(envelope: string): string {
     return [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL,
-      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica"]
+      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica",
+      // The review-card headings are matched by exact text on the server (missingReviewCardFields),
+      // so the rule has to quote them verbatim, the same case as the action labels.
+      ...REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION]
       .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
   }
 
