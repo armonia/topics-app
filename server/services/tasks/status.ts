@@ -431,7 +431,9 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           // A WARNING, never a refusal: the card still reaches review, and the
           // agent reads the note at its next turn. Fixed headings matched by
           // exact text (`REVIEW_CARD_RULE`), so there is no prose to misread.
-          const missing = missingReviewCardFields(summary);
+          // Root cards only: a subtask's summary is read by its parent agent,
+          // never by the person, the same scope as the stage move above.
+          const missing = row.parent_task_id ? [] : missingReviewCardFields(summary);
           if (missing.length) {
             try {
               this.addComment({
