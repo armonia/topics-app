@@ -123,7 +123,8 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
     await expect(before).toContainText(machine.id.slice(0, 8));
     await expect(before).not.toContainText(HOLDER_NAME);
     mkdirSync(SHOTS, { recursive: true });
-    await before.screenshot({ path: `${SHOTS}/holder-before-card-${width}.png` });
+    // Attached as well as written: the attachment travels in the CI trace, where a reviewer reads it.
+    await test.info().attach(`holder-before-card-${width}`, { body: await before.screenshot({ path: `${SHOTS}/holder-before-card-${width}.png` }), contentType: "image/png" });
 
     // After: a real pairing request from a server declaring a machine id and a higher epoch. Pending
     // requests live in the server's memory across tests, so each width asks under its own host name.
@@ -139,8 +140,10 @@ for (const [width, height] of [[375, 812], [1440, 900]] as const) {
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card).toContainText(HOLDER_NAME);
     await expect(card).not.toContainText(machine.id);
-    await card.screenshot({ path: `${SHOTS}/holder-after-card-${width}.png` });
-    if (width === 1440) await page.screenshot({ path: `${SHOTS}/holder-after-${width}.png` });
+    await test.info().attach(`holder-after-card-${width}`, { body: await card.screenshot({ path: `${SHOTS}/holder-after-card-${width}.png` }), contentType: "image/png" });
+    if (width === 1440) {
+      await test.info().attach(`holder-after-${width}`, { body: await page.screenshot({ path: `${SHOTS}/holder-after-${width}.png` }), contentType: "image/png" });
+    }
     await request.post(`${E2E_BASE}/api/auth/pair/deny`, { data: { requestId } });
   });
 }
