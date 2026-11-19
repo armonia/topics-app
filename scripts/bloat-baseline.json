@@ -524,7 +524,6 @@
 
     "server/mcp/topics-mcp-server.test.ts": 2520,
 
-    "server/mcp/topics-mcp-server.ts": 3113,
 
     "server/providers/acp.ts": 917,
 
@@ -666,7 +665,7 @@
 
     "server/services/worktree-gc.ts": 871,
 
-    "server/utils.ts": 3244,
+    "server/utils.ts": 1476,
 
     "shared/board.test.ts": 1260,
 

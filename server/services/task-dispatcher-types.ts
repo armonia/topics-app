@@ -19,6 +19,8 @@ interface SessionActivity { name: string; input?: unknown; since: number }
 
 /** What the dispatcher needs from the outside world — all injected. */
 export interface DispatcherDeps {
+  /** False on a server that is not the primary: tick, resume, reconcile and the todo go-ahead do nothing. */
+  isActive?: () => boolean;
   svc: TaskService;
   /** Where `task:unowned` leaves its activity_log row (the real writer when unset). */
   recordActivity?: (entry: ActivityLogEntry) => void;

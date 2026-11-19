@@ -30,7 +30,7 @@ import { useHubLive, refreshHubLive } from '../../state/hubLive';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import {
   HUB_USAGE_DAYS, bucketTotals, chartLayers, formatCurrency, museFolders, museJobs, museWeekTokens, overCap, planCostForWindow, projectDetails, projectShares,
-  proxyAttribution, readHubUsage, savingOf, tokenParts, exchangeRateOf, type HubUsage, type HubUsageDays, type HubUsageFilter,
+  proxyAttribution, readHubUsage, readQuotaReadings, savingOf, type QuotaReadingRow, tokenParts, exchangeRateOf, type HubUsage, type HubUsageDays, type HubUsageFilter,
 } from '../../lib/hubUsage';
 import { NO_USAGE_FILTER, usageFilterQuery } from '../../../../shared/hub-usage';
 import type { DashboardKPIs } from '../../lib/api';
@@ -56,6 +56,7 @@ interface Reads {
   live: unknown;
   queue: unknown;
   projects: unknown;
+  readings: QuotaReadingRow[] | null;
   at: number;
 }
 
@@ -64,9 +65,9 @@ function useReads(days: HubUsageDays, filter: HubUsageFilter): { reads: Reads | 
   const [reads, setReads] = useState<Reads | null>(null);
   const alive = useRef(true);
   const read = useCallback(async () => {
-    const [usageRaw, profiles, settings, live, queue, projects] = await Promise.all([
+    const [usageRaw, profiles, settings, live, queue, projects, readingsRaw] = await Promise.all([
       readJson(`/api/hub-usage?days=${days}${usageFilterQuery(filter)}`), readJson('/api/switchboard/profiles'), readJson('/api/switchboard/settings'),
-      readJson('/api/hub/live'), readJson('/api/hub/queue'), readJson('/api/hub/projects'),
+      readJson('/api/hub/live'), readJson('/api/hub/queue'), readJson('/api/hub/projects'), readJson('/api/quota-readings'),
     ]);
     if (!alive.current) return;
     const usage = readHubUsage(usageRaw);
@@ -81,6 +82,7 @@ function useReads(days: HubUsageDays, filter: HubUsageFilter): { reads: Reads | 
         live: live ?? prev?.live ?? null,
         queue: queue ?? prev?.queue ?? null,
         projects: projects ?? prev?.projects ?? null,
+        readings: readQuotaReadings(readingsRaw) ?? prev?.readings ?? null,
         at: usage || live ? Date.now() : prev?.at ?? 0,
       };
     });
@@ -200,7 +202,7 @@ export function HubUsageSection({ kpis, children }: { kpis: DashboardKPIs | null
 
         <div className="grid grid-cols-3 gap-3 @max-4xl:grid-cols-1">
           <ByModel usage={usage} money={money} tr={tr} />
-          <ByAccount profiles={reads?.profiles} usage={usage} pace={live.pace?.data} gates={live.gates?.data} money={money} tr={tr} />
+          <ByAccount readings={reads?.readings ?? null} profiles={reads?.profiles} usage={usage} pace={live.pace?.data} gates={live.gates?.data} money={money} tr={tr} />
           <ByProject live={reads?.live} details={details} tr={tr} />
         </div>
 

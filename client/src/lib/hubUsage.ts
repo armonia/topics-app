@@ -204,6 +204,23 @@ export function museWeekTokens(projects: unknown): number | null {
   return m.projects.filter(isObject).reduce((s, p) => s + (num(p.tokens) ?? 0), 0);
 }
 
+/** One account's last reading from the quota history (`GET /api/quota-readings`), the file the hub's pacing reads. */
+export interface QuotaReadingRow {
+  provider: string;
+  account: string;
+  week: { pct: number; t: number } | null;
+  fiveH: { pct: number; t: number } | null;
+}
+
+/** The history's number wins over the proxy's where the window is still running: same % as `usage-hub pace`. */
+function withReading(w: QuotaWindow | null, r: { pct: number } | null | undefined): QuotaWindow | null {
+  return w && r ? { ...w, pct: Math.round(r.pct) } : w;
+}
+
+export function readQuotaReadings(raw: unknown): QuotaReadingRow[] | null {
+  return isObject(raw) && Array.isArray(raw.readings) ? (raw.readings as QuotaReadingRow[]) : null;
+}
+
 export interface AccountShare {
   label: string;
   inUse: boolean;
@@ -225,7 +242,7 @@ export interface AccountShare {
  * window, switched-off ones included; then every account the window's rows
  * name that the proxy no longer has, so the shares still add up to the whole.
  */
-export function accountShares(profiles: unknown, usage: HubUsage | null, now = Date.now()): AccountShare[] {
+export function accountShares(profiles: unknown, usage: HubUsage | null, readings: QuotaReadingRow[] | null = null, now = Date.now()): AccountShare[] {
   const proxy = readProxyAccounts(profiles, now);
   const used = new Set<HubUsageSlice>();
   const carried = (slice: HubUsageSlice | undefined) => ({
@@ -235,7 +252,8 @@ export function accountShares(profiles: unknown, usage: HubUsage | null, now = D
   const known = (proxy?.accounts ?? []).map((a): AccountShare => {
     const slice = usage?.accounts.find((s) => s.key === a.label || s.key === a.name);
     if (slice) used.add(slice);
-    return { label: a.label, inUse: a.active, disabled: a.disabled, removed: false, fiveH: a.fiveH, week: a.week, ...carried(slice) };
+    const read = readings?.find((r) => r.provider === 'claude' && (r.account === a.label || r.account === a.name));
+    return { label: a.label, inUse: a.active, disabled: a.disabled, removed: false, fiveH: withReading(a.fiveH, read?.fiveH), week: withReading(a.week, read?.week), ...carried(slice) };
   });
   const gone = (usage?.accounts ?? []).filter((s) => !used.has(s) && s.tokens > 0)
     .map((s): AccountShare => ({ label: s.key, inUse: false, disabled: false, removed: true, fiveH: null, week: null, ...carried(s) }));

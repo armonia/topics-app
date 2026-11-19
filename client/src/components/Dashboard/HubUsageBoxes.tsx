@@ -10,7 +10,7 @@ import { useLocale } from '../../hooks/useT';
 import { meteredProviders, type QuotaWindow } from '../../lib/accountQuotas';
 import {
   accountShares, headAndRest, projectShares, savingCurve, sharePct, tokenParts,
-  type HubUsage, type PlanCost, type ProjectDetail, type ProjectShare,
+  type HubUsage, type PlanCost, type ProjectDetail, type ProjectShare, type QuotaReadingRow,
 } from '../../lib/hubUsage';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { Bar, Box, CHIP, FIGURE_COL, LINE, MoreRows, NAME_COL } from './hubUsageUi';
@@ -55,10 +55,10 @@ function QuotaRow({ label, pct }: { label: string; pct: number | null }) {
 
 const windowPct = (w: QuotaWindow | null) => (w ? w.pct : null);
 
-export function ByAccount({ profiles, usage, pace, gates, money, tr }: { profiles: unknown; usage: HubUsage | null; pace: unknown; gates: unknown; money: Money; tr: Tr }) {
+export function ByAccount({ profiles, usage, pace, gates, money, tr, readings = null }: { readings?: QuotaReadingRow[] | null; profiles: unknown; usage: HubUsage | null; pace: unknown; gates: unknown; money: Money; tr: Tr }) {
   const locale = useLocale();
   // Switched-off and removed accounts stay: what they carried is part of the window's whole.
-  const accounts = accountShares(profiles, usage).filter((a) => !a.disabled || a.tokens > 0);
+  const accounts = accountShares(profiles, usage, readings).filter((a) => !a.disabled || a.tokens > 0);
   // One row per provider: the reader lists the active account first, the Accounts view shows the rest.
   const metered = meteredProviders(pace, gates).filter((m, i, all) => all.findIndex((o) => o.provider === m.provider) === i);
   return (
