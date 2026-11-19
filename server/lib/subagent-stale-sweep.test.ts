@@ -4,11 +4,12 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
 
-const SQL = readFileSync(resolve(import.meta.dir, "../db/migrations/20261001203100-subagents.sql"), "utf8");
+const DIR = resolve(import.meta.dir, "../db/migrations");
+const SQL = readdirSync(DIR).filter((f) => /subagent/.test(f)).sort().map((f) => readFileSync(resolve(DIR, f), "utf8")).join("\n");
 const T0 = 1_000_000;
 const pending = JSON.stringify([{ agentId: "c1", turn: 1, status: "completed", partial: false, text: "x", name: "n" }]);
 
