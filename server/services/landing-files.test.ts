@@ -156,5 +156,7 @@ describe("referencedByTheJudge: files that bunfig.toml, scripts/, package.json o
     expect(await referencedByTheJudge(dir, sha, ["server/lib/block-persist-throttle.test.ts"])).toEqual([]);
     expect(await referencedByTheJudge(dir, sha, ["server/lib/pinned.test.ts", "scripts/test-unit-durations.json"]))
       .toEqual(["server/lib/pinned.test.ts", "scripts/test-unit-durations.json"]);
+    // Only data under scripts/ is the judge by being edited: a json elsewhere is judged by what names it.
+    expect(await referencedByTheJudge(dir, sha, ["docs/scripts/data.json", "scripts/data.json.bak"])).toEqual([]);
   }, WITH_REAL_GIT);
 });
