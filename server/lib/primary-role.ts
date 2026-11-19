@@ -220,6 +220,18 @@ export function getPrimaryRole(): PrimaryRole | null {
   return active;
 }
 
+/**
+ * The gate of `/api/nodes/*`: a call from a primary that was replaced (lower epoch) is refused
+ * before it touches a card, and a higher epoch is adopted only from the device of the primary
+ * that paired this server, as the access gate authenticated it. Loopback and every other
+ * device change nothing.
+ */
+export function guardNodesCall(req: Request, caller: { deviceId: string | null } | null): Response | null {
+  const stale = active?.rejectStale(req) ?? null;
+  if (!stale) active?.adoptFrom(req, caller);
+  return stale;
+}
+
 export function isThisServerPrimary(): boolean {
   return active ? active.isPrimary() : true;
 }

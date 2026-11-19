@@ -1,20 +1,17 @@
 /**
- * Routes: `/api/nodes/runs`, the INGRESS of a card mirrored from another
- * machine (KANBAN-76). This code runs ON THE NODE: the origin board POSTs a
- * card here, polls its state and comments, pulls the delivery branch back as
- * a git bundle, and deletes the run when it buries it (KANBAN-77).
+ * Routes: `/api/nodes/runs`, the INGRESS of a card mirrored from another machine (KANBAN-76).
+ * This code runs ON THE NODE: the origin board POSTs a card here, polls its state and comments,
+ * pulls the delivery branch back as a git bundle, and deletes the run when it buries it (KANBAN-77).
  *
  * The mirror is an ordinary local task: same service, same dispatcher, same
  * board. What this router adds is the mapping between the two machines:
- *   - the PROJECT is resolved by git origin, never by id or path. The board's
- *     project id is a hash of a path that does not exist here, so a lookup by
- *     id would always miss and a lookup by path would create phantom projects.
+ *   - the PROJECT is resolved by git origin, never by id or path. The board's project id is a hash
+ *     of a path that does not exist here, so a lookup by id would always miss and a lookup by path would create phantom projects.
  *   - the RUN id is the node-local task id, and the origin task id is kept as
  *     the task's idempotency key, so a retried POST finds its own card.
  *
- * Legacy mirrored runs remain owner-only. Delegated runs use a separate,
- * capability-bound credential minted by the execution computer after its
- * installation owner approves the checkout and policy.
+ * Legacy mirrored runs remain owner-only. Delegated runs use a separate, capability-bound
+ * credential minted by the execution computer after its installation owner approves the checkout and policy.
  */
 import type { AppContext, RouteHandler } from "../types";
 import type { ProvidersSnapshot } from "../../shared/types";
@@ -30,7 +27,7 @@ import { hashToken, mintSessionToken, buildSessionCookie } from "../lib/device-a
 import { availableTaskModels } from "../../shared/task-coding-models";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { isLoopbackAddress } from "../lib/auth-gate";
-import { getPrimaryRole } from "../lib/primary-role";
+import { guardNodesCall } from "../lib/primary-role";
 import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
@@ -302,16 +299,10 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
 
-    // A call from a primary that was replaced (lower epoch) is refused before it touches a card.
-    // A higher epoch is adopted only from the device of the primary that paired this server,
-    // as the access gate authenticated it: loopback and every other device change nothing.
-    const role = getPrimaryRole();
-    const stale = role?.rejectStale(req);
-    if (stale) return stale;
-    role?.adoptFrom(req, ctx.requestIdentity?.(req) ?? null);
-
-    const confined = pathname.startsWith("/api/nodes/delegated-runs");
     const identity = ctx.requestIdentity?.(req) ?? null;
+    const stale = guardNodesCall(req, identity);
+    if (stale) return stale;
+    const confined = pathname.startsWith("/api/nodes/delegated-runs");
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
       const purpose = body?.purpose === "catalog" ? "catalog" : body?.purpose === "authorization" ? "authorization" : null;
