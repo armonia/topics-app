@@ -309,7 +309,8 @@ function walk(dir: string, acc: string[]): string[] {
     }
     if (!EXTENSIONS.some((ext) => entry.endsWith(ext))) continue;
     if (SKIP_FILE.test(entry)) continue;
-    const rel = relative(ROOT, full);
+    // Posix separators: PROMPT_SURFACES is written with `/`, and on Windows `relative` answers with `\`.
+    const rel = relative(ROOT, full).replaceAll("\\", "/");
     if (PROMPT_SURFACES.has(rel)) continue;
     acc.push(rel);
   }
