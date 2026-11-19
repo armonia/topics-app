@@ -43,6 +43,26 @@ function harness(over: Partial<SubagentWakeDeps> & { answers?: number[] } = {}) 
 }
 
 describe("subagent wake", () => {
+  test("a result asked for twice while queued wakes the parent once, and can be asked again once settled or failed", async () => {
+    const h = harness();
+    h.setBusy(true);
+    h.ask(result());
+    h.ask(result());
+    h.setBusy(false);
+    await h.wake.idle();
+    expect(h.posted.length).toBe(1);
+    expect(h.settled).toEqual(["c1:1"]);
+    let fail = true;
+    const rows: string[] = [];
+    const h2 = harness({ canWake: () => "row" });
+    h2.wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => { if (fail) throw new Error("db"); rows.push("ok"); }, settle: () => {} });
+    await h2.wake.idle();
+    fail = false;
+    h2.wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => rows.push("ok"), settle: () => {} });
+    await h2.wake.idle();
+    expect(rows).toEqual(["ok"]);
+  });
+
   // The archive of a chat is judged against the launch each result answers: A
   // spawned before the person archived the chat stays a row, B spawned after wakes it.
   test("canWake is asked per child, and only the children it refuses become rows", async () => {

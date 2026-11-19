@@ -28,7 +28,7 @@
  *    while their parents went on working and never saw them.
  */
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
-import type { SubAgentResult } from "../lib/subagent-result";
+import { resultKey, type SubAgentResult } from "../lib/subagent-result";
 import type { WakeLaunch } from "../lib/wake-adoption";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -136,6 +136,8 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   const pollMs = deps.pollMs ?? 500;
   const graceMs = deps.endGraceMs ?? 20_000;
   const pending = new Map<string, SubagentWakeRequest[]>();
+  /** Results asked for and not settled yet: queued or in flight. */
+  const tracked = new Set<string>();
   const workers = new Map<string, Promise<void>>();
 
   async function drain(sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
@@ -153,7 +155,10 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
 
   function asRows(batch: SubagentWakeRequest[]): void {
     for (const r of batch) {
-      try { if (!r.rowWritten) r.writeRow(); r.settle(); } catch (err) { deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
+      try { if (!r.rowWritten) r.writeRow(); r.settle(); } catch (err) {
+        // Forgotten, not settled: the durable copy stays and a later sweep may ask again.
+        tracked.delete(resultKey(r.result));
+        deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
     }
   }
 
@@ -255,6 +260,13 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   }
 
   function request(r: SubagentWakeRequest): void {
+    // Asked again for a result already on its way (the runtime's stale sweep):
+    // the first request will settle it, a second copy would wake the chat twice.
+    const key = resultKey(r.result);
+    if (tracked.has(key)) return;
+    tracked.add(key);
+    const settleOnce = r.settle;
+    r.settle = () => { tracked.delete(key); settleOnce(); };
     const list = pending.get(r.parentSessionKey) ?? [];
     list.push(r);
     pending.set(r.parentSessionKey, list);
