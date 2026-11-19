@@ -2427,6 +2427,19 @@
       "riga",
       "totale"
     ],
+    "server/app-context/app-statements.ts": [
+      "stmts"
+    ],
+    "server/app-context/message-branches.ts": [
+      "deleteMessageSubtree",
+      "subtree"
+    ],
+    "server/app-context/message-thread-writes.ts": [
+      "riusabile"
+    ],
+    "server/app-context/stream-registry.ts": [
+      "eraPermesso"
+    ],
     "server/boot-orphan-scan.test.ts": [
       "inCorso",
       "ins",
@@ -5105,14 +5118,9 @@
       "arr",
       "chiave",
       "chiuse",
-      "deleteMessageSubtree",
-      "eraPermesso",
       "fresche",
       "osservatori",
-      "riusabile",
-      "serializzati",
-      "stmts",
-      "subtree"
+      "serializzati"
     ],
     "server/utils/executable.ts": [
       "semver"
