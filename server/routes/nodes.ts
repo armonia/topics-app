@@ -34,6 +34,7 @@ import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
 import { stripCtrlOrNull } from "../lib/strip-ctrl";
+import { isNodeDevice, mayDriveNodeRuns, ownsNodeRun, recordNodeRunCaller } from "../lib/node-scope";
 
 const RUN_KEY_PREFIX = "node-run:";
 
@@ -296,12 +297,30 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
     const origin = await runGit(path, ["remote", "get-url", "origin"]);
     return origin.code === 0 && normalizeRemoteUrl(origin.stdout) === binding.repositoryKey ? got : null;
   }
+  /**
+   * A node credential drives runs only as the primary, and only its own: the
+   * gate lets every node credential reach these routes, so the line between the
+   * channel and any other server that paired this one is drawn here. A run id
+   * this board does not know falls through to the route's 404, which is what
+   * the heartbeat probe reads.
+   */
+  function refuseForeignNodeRun(pathname: string, deviceId: string | null): Response | null {
+    if (!deviceId || !pathname.startsWith("/api/nodes/runs") || !isNodeDevice(db, deviceId)) return null;
+    const refuse = (reason: string) => json({ error: reason, code: "node_run_scope" }, 403);
+    if (!mayDriveNodeRuns(db, deviceId)) return refuse("only the primary holding this node's channel drives its runs");
+    const runId = matchRoute(pathname, "/api/nodes/runs/:id/bundle")?.id ?? matchRoute(pathname, "/api/nodes/runs/:id")?.id;
+    if (!runId || !db.query("SELECT 1 FROM tasks WHERE id = ?").get(runId)) return null;
+    return ownsNodeRun(db, runId, deviceId, RUN_KEY_PREFIX) ? null : refuse("not a run this credential created");
+  }
+
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
 
     const identity = ctx.requestIdentity?.(req) ?? null;
     const stale = guardNodesCall(req, identity);
     if (stale) return stale;
+    const refused = refuseForeignNodeRun(pathname, identity?.deviceId ?? null);
+    if (refused) return refused;
     const confined = pathname.startsWith("/api/nodes/delegated-runs");
     if (pathname === "/api/nodes/delegated-requests" && method === "POST") {
       const body = await readJSON(req) as Record<string, unknown> | null;
@@ -614,6 +633,11 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
       const prior = db.query("SELECT id, project_id, archived, status, dispatch_state FROM tasks WHERE claude_task_id = ?").get(key) as
         | { id: string; project_id: string; archived: number; status: string; dispatch_state: string | null }
         | null;
+      // The same origin card from another server's credential is not its run to resend.
+      const nodeCaller = identity?.deviceId && isNodeDevice(db, identity.deviceId) ? identity.deviceId : null;
+      if (prior && nodeCaller && !ownsNodeRun(db, prior.id, nodeCaller, RUN_KEY_PREFIX)) {
+        return json({ error: "not a run this credential created", code: "node_run_scope" }, 403);
+      }
       if (prior && prior.archived === 0) {
         // A finished copy is a resend: archive it, or its old delivery replays (13/11).
         const idle = prior.dispatch_state !== "working" && prior.dispatch_state !== "starting";
@@ -659,6 +683,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           model: typeof body.model === "string" ? body.model : null,
           idempotencyKey: key,
         });
+        if (nodeCaller) recordNodeRunCaller(db, task.id, nodeCaller);
         svc.addComment({
           taskId: task.id,
           author: "system",
