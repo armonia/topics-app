@@ -55,12 +55,12 @@ describe("listCronRuns", () => {
     await syncCronRuns(db, cliFor(3000000, runs(3000000, 1000)).cli).then(() => {});
     db.run(`INSERT INTO topics VALUES ('topic:1', 'Agent job'), ('topic:2', 'Other job')`);
     const at = (ms: number) => new Date(ms).toISOString();
-    const ins = db.query(`INSERT INTO messages (session_key, role, timestamp, usage_prompt_tokens, usage_completion_tokens, cost_cents) VALUES (?, ?, ?, ?, ?, ?)`);
-    ins.run("topic:1", "assistant", at(3000100), 10, 5, 50);
-    ins.run("topic:1", "assistant", at(3000200), 1, 1, null);
-    ins.run("topic:1", "user", at(3000150), 500, 500, 500);
-    ins.run("topic:1", "assistant", at(9000000), 99, 99, 900);
-    ins.run("topic:2", "assistant", at(3000100), 77, 77, 700);
+    const inserted = db.query(`INSERT INTO messages (session_key, role, timestamp, usage_prompt_tokens, usage_completion_tokens, cost_cents) VALUES (?, ?, ?, ?, ?, ?)`);
+    inserted.run("topic:1", "assistant", at(3000100), 10, 5, 50);
+    inserted.run("topic:1", "assistant", at(3000200), 1, 1, null);
+    inserted.run("topic:1", "user", at(3000150), 500, 500, 500);
+    inserted.run("topic:1", "assistant", at(9000000), 99, 99, 900);
+    inserted.run("topic:2", "assistant", at(3000100), 77, 77, 700);
     const [latest, failed] = listCronRuns(db);
     expect(latest).toMatchObject({ runAt: 3000000, status: "ok", inputTokens: 11, outputTokens: 6, costUsd: 0.5 });
     expect(failed).toMatchObject({ runAt: 1000, status: "error", error: "boom", inputTokens: 0 });
