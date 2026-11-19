@@ -6800,3 +6800,11 @@ Il riassunto del ragionamento (la riga «Thinking») arriva dal modello spesso i
 - **GIVEN** un blocco già tradotto
 - **WHEN** la persona riapre la chat e la riga
 - **THEN** le frasi SHALL arrivare dalla cache salvata, senza chiamare di nuovo il traduttore
+
+### Requirement: CHAT-06 — Tempo dalla fine del turno nella riga della sidebar
+La riga di una chat finita SHALL mostrare, dopo l'anteprima, il tempo trascorso ("· 34m ago"), in uno span proprio che non viene troncato insieme all'anteprima.
+
+#### Scenario: Anteprima lunga
+- **GIVEN** una chat finita con un ultimo messaggio molto lungo
+- **WHEN** la riga si disegna a 375 o a 1440 px
+- **THEN** il tempo SHALL restare visibile per intero e l'anteprima SHALL troncarsi prima di lui

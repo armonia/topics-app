@@ -8,12 +8,22 @@ import { createAppContext } from "../utils";
 import { setUploadRootsProvider } from "../browser-tool-dispatcher";
 import { uploadAllowedRoots, parseExtraRoots } from "../lib/upload-allowlist";
 import { homedir } from "os";
+import { initPrimaryRole } from "../lib/primary-role";
 import type { BaseScope } from "./scope";
 
 export function bootCore(scope: BaseScope) {
   const { rootDir } = scope;
   // Create app context (initializes SQLite database)
   const ctx = createAppContext(rootDir);
+  // Who is the primary, read before any stage that would start work. A non-primary server keeps quiet.
+  const primaryRole = initPrimaryRole({
+    db: ctx.db,
+    stateFile: join(ctx.APP_DATA_DIR, "primary-state.json"),
+    localMachineId: () => ctx.machineStore.upsertLocal().id,
+  });
+  if (!primaryRole.isPrimary()) {
+    console.log(`[primary] this server is NOT the primary (epoch ${primaryRole.epoch()}): dispatcher, scheduled cards and hub reader stay off`);
+  }
 
   // Always built by `createAppContext`; optional on the type only for test contexts.
   const turnLedger = ctx.turnLedger!;

@@ -2,6 +2,7 @@
  * Bind the listeners (main, tunnel, model proxy, external proxy).
  */
 import { getAccessToken, recoverAfter401 } from "../providers/native/auth";
+import { getPrimaryRole } from "../lib/primary-role";
 import { createModelProxyListener, modelProxyPort } from "../services/model-proxy";
 import { bootExternalProxy, externalProxyPort } from "../services/external-proxy";
 import { existsSync } from "fs";
@@ -149,6 +150,8 @@ export async function bootListen(scope: AfterFront) {
         port: portaTunnel,
         hostname: "127.0.0.1",
         fetch(req: Request, srv: typeof server) {
+          const stale = getPrimaryRole()?.rejectStale(req);
+          if (stale) return stale;
           markViaTunnel(req);
           // `.call(srv, …)`: il gestore dichiara `this: Server`, e chiamarlo come
           // metodo dell'oggetto opzioni glielo legherebbe all'oggetto sbagliato.
@@ -177,6 +180,8 @@ export async function bootListen(scope: AfterFront) {
         hostname: "127.0.0.1",
         tls: undefined,
         fetch(req: Request, srv: typeof server) {
+          const stale = getPrimaryRole()?.rejectStale(req);
+          if (stale) return stale;
           markViaTunnel(req);
           return fetchCompresso.call(srv, req, srv);
         },
@@ -200,6 +205,7 @@ export async function bootListen(scope: AfterFront) {
         machineExists: (machineId) => ctx.machineStore.get(machineId) !== null,
         getAccessToken,
         recoverAfter401,
+        rejectStale: (req) => getPrimaryRole()?.rejectStale(req) ?? null,
       })
     : null;
 

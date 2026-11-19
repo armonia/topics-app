@@ -15,7 +15,7 @@ const cli = (over: Partial<CliChildNow> = {}): CliChildNow => ({
   id: "cli-1", name: "cli", createdAt: ago(10 * MIN), phase: "working", busy: true, reportedAt: null, preview: "", ...over,
 });
 const native = (over: Partial<NativeChildNow> = {}): NativeChildNow => ({
-  id: "nat-1", name: "native", createdAt: ago(10 * MIN), sessionKey: "topic:nat1", phase: "working", preview: "", ...over,
+  id: "nat-1", name: "native", createdAt: ago(10 * MIN), sessionKey: "topic:nat1", phase: "working", unreportedTurn: false, preview: "", ...over,
 });
 const ended = (over: Partial<EndedChildNow> = {}): EndedChildNow => ({
   id: "end-1", name: "ended", createdAt: ago(3 * HOUR), runtime: "topics", sessionKey: "topic:end1",
@@ -85,9 +85,29 @@ describe("what a live child is doing", () => {
   test("waiting for its prompt, working, and a CLI child before the first look (its PTY says)", () => {
     expect(ids(liveWorkRows(input({ cli: [cli({ phase: "waiting-prompt" })] }), NOW))).toEqual(["cli-1:waiting"]);
     expect(ids(liveWorkRows(input({ native: [native({ phase: "waiting-prompt" })] }), NOW))).toEqual(["nat-1:waiting"]);
-    expect(ids(liveWorkRows(input({ native: [native({ phase: null })] }), NOW))).toEqual(["nat-1:working"]);
+    expect(ids(liveWorkRows(input({ native: [native({ phase: null, unreportedTurn: true })] }), NOW))).toEqual(["nat-1:working"]);
     expect(ids(liveWorkRows(input({ cli: [cli({ phase: null, busy: true })] }), NOW))).toEqual(["cli-1:working"]);
     expect(ids(liveWorkRows(input({ cli: [cli({ phase: null, busy: false })] }), NOW))).toEqual(["cli-1:waiting"]);
+  });
+});
+
+describe("a native child that waits on its own work is not drawn at work", () => {
+  const state = (over: Partial<NativeChildNow>) => ids(liveWorkRows(input({ native: [native(over)] }), NOW));
+
+  test("waiting-results is awaiting, never working (no loader for hours)", () => {
+    expect(state({ phase: "waiting-results" })).toEqual(["nat-1:awaiting"]);
+    // Even with a stale unreported-turn flag: the phase in memory is the truth.
+    expect(state({ phase: "waiting-results", unreportedTurn: true })).toEqual(["nat-1:awaiting"]);
+  });
+
+  test("after a restart (no phase) it depends on whether a turn is still unreported", () => {
+    expect(state({ phase: null, unreportedTurn: false })).toEqual(["nat-1:awaiting"]);
+    expect(state({ phase: null, unreportedTurn: true })).toEqual(["nat-1:working"]);
+  });
+
+  test("an open turn is still working", () => {
+    expect(state({ phase: "working" })).toEqual(["nat-1:working"]);
+    expect(state({ phase: "working", unreportedTurn: false })).toEqual(["nat-1:working"]);
   });
 });
 

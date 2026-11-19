@@ -39,7 +39,8 @@ const REPO = join(import.meta.dir, "..", "..");
 const dispatcher = readDispatcherSource();
 const doc = readFileSync(join(REPO, "docs/board-protocol.md"), "utf8");
 const board = readFileSync(join(REPO, "shared/board.ts"), "utf8");
-const mcp = readFileSync(join(REPO, "server/mcp/topics-mcp-server.ts"), "utf8");
+// The tool definitions live in the catalog module the MCP server composes.
+const mcp = readFileSync(join(REPO, "server/mcp/tool-catalog.ts"), "utf8");
 
 /** The source of ONE tool definition, from its `name:` to the next one's. */
 function mcpTool(nome: string): string {

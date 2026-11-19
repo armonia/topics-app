@@ -7,7 +7,8 @@
  */
 import { describe, it, expect } from "bun:test";
 import { harness, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
-import { machineForbidden, pickReassignTarget, type OverflowMachine } from "./dispatch-overflow";
+import { machineForbidden, pickOverflowMachine, pickReassignTarget, type OverflowMachine } from "./dispatch-overflow";
+import { wakeBreaker } from "./wake-breaker";
 
 const FORBIDDEN = "node-1";
 const ALLOWED = "node-2";
@@ -36,6 +37,15 @@ describe("machineForbidden", () => {
     expect(machineForbidden({ id: "x", name: "x", kind: "cloud", online: false })).toBe(false);
   });
 
+  it("an ONLINE node with its wake breaker open is forbidden and never chosen", () => {
+    const node: OverflowMachine = { id: "x", name: "x", kind: "node", online: true, slots: 2 };
+    expect(machineForbidden(node)).toBe(false);
+    expect(machineForbidden(node, () => true)).toBe(true);
+    const opts = { cloudCredit: false, githubOrigin: false, model: null, load: () => 0 };
+    expect(pickOverflowMachine([node], { ...opts, wakeBlocked: () => true })).toBeNull();
+    expect(pickOverflowMachine([node], { ...opts, wakeBlocked: () => false })?.id).toBe("x");
+  });
+
   it("the target skips the forbidden machine and one with no room", () => {
     const opts = { cloudCredit: false, githubOrigin: false, model: null };
     expect(pickReassignTarget(machines(), FORBIDDEN, { ...opts, load: () => 0 })?.id).toBe(ALLOWED);
@@ -61,6 +71,18 @@ describe("dispatcher: card pinned to a forbidden machine", () => {
     await dispatch(h);
     await flush();
     expect(h.task().machineId).toBeNull();
+  });
+
+  it("a card pinned to an ONLINE node whose breaker is open moves to the allowed machine", async () => {
+    const h = setup(machines({ [FORBIDDEN]: { online: true, slots: 2 } }));
+    h.seed();
+    wakeBreaker.success(FORBIDDEN);
+    wakeBreaker.failure(FORBIDDEN);
+    wakeBreaker.failure(FORBIDDEN);
+    try {
+      await dispatch(h);
+      expect(h.task().machineId).toBe(ALLOWED);
+    } finally { wakeBreaker.success(FORBIDDEN); }
   });
 
   it("an offline node that can be woken keeps its card", async () => {

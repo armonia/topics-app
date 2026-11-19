@@ -14,6 +14,14 @@ export const DEFAULT_RETRY_CAP = 2;
 export const WAITING_MEMORY = "waiting-memory" as const;
 
 /**
+ * Prefix of every dispatcher stdout line. The server log carries no timestamps,
+ * so without this a wait ("held", "waiting-memory") cannot be dated afterwards.
+ */
+export function dispatcherLogLine(message: string): string {
+  return `${new Date().toISOString()} [dispatcher] ${message}`;
+}
+
+/**
  * Working rule for every kickoff: Topics is a product for anybody, so no single
  * person's data is hard-coded. Exported so the unit test reads the same sentence
  * the agent receives; `docs/board-protocol.md` carries the human copy.
