@@ -134,7 +134,7 @@ export function PairingApproval() {
   return (
     <div className="fixed bottom-4 right-4 z-[9998] flex w-[320px] flex-col gap-2">
       {richieste.map((r) => (
-        <div key={r.id} className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
+        <div key={r.id} data-testid="pair-request-card" className="rounded-xl border border-app-border bg-surface p-3 shadow-lg">
           <div className="flex items-center gap-2">
             <Smartphone size={14} className="text-app-text-secondary" />
             <span className="text-prose font-medium text-app-text">{tr('pair.requestsAccess', { name: r.name })}</span>
