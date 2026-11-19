@@ -30,6 +30,7 @@ import { hashToken, mintSessionToken, buildSessionCookie } from "../lib/device-a
 import { availableTaskModels } from "../../shared/task-coding-models";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { isLoopbackAddress } from "../lib/auth-gate";
+import { getPrimaryRole } from "../lib/primary-role";
 import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
@@ -300,6 +301,14 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
   }
   return async function nodesRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/nodes/")) return null;
+
+    // A call from a primary that was replaced (lower epoch) is refused before it touches a card.
+    // A higher epoch is adopted only from the device of the primary that paired this server,
+    // as the access gate authenticated it: loopback and every other device change nothing.
+    const role = getPrimaryRole();
+    const stale = role?.rejectStale(req);
+    if (stale) return stale;
+    role?.adoptFrom(req, ctx.requestIdentity?.(req) ?? null);
 
     const confined = pathname.startsWith("/api/nodes/delegated-runs");
     const identity = ctx.requestIdentity?.(req) ?? null;
