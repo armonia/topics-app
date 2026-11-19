@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Per-tool detail cards.
  *
  * One component per `ToolCallDetail.type`. The parent <ToolCallRow> already
@@ -27,7 +27,7 @@ import { AgentMessageCard, AgentControlCard, ArtifactCard, AskUserCard } from '.
 import { ViewBlock } from '../Views/ViewBlock';
 import type { ToolCallDetail } from '../../types';
 import { ChatMarkdown } from '../ChatMarkdown';
-import { highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
+import { detectResultSyntax, highlightCode, langFromPath, subscribeHighlighter, highlighterReady } from '../../lib/syntaxHighlight';
 import { clampBody, formatBytes } from './clampBody';
 import { useFindExpandsClamp } from '../../state/chatFindFocus';
 import { useDisclosureToggle } from './transcriptDisclosure';
@@ -114,9 +114,12 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
           {typeof exitCode === 'number' && exitCode !== 0 && (
             <div className="text-mini font-mono text-red-500 mb-0.5">exit {exitCode}</div>
           )}
-          <pre data-testid="tool-call-result" className={`tool-card-code text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}>
-            {output}
-          </pre>
+          <HighlightedPre
+            testId="tool-call-result"
+            className={`text-mini font-mono whitespace-pre-wrap overflow-auto max-h-72 rounded px-2 py-1.5 ${isError ? 'text-red-500 bg-red-500/5' : 'text-app-text-secondary bg-app-hover/40'}`}
+            code={output}
+            lang={isError ? '' : detectResultSyntax(output)}
+          />
         </div>
       )}
       <LiveShellTail live={live} />
@@ -471,10 +474,19 @@ export function ClampedPre({ text: raw, testId = 'tool-call-result', maxH = 'max
   if (findExpands && oversized && !expanded) setExpanded(true);
   return (
     <div className="space-y-1">
-      <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
-        {expanded ? text : shown}
-        {oversized && !expanded && <span className="text-app-text-muted">…</span>}
-      </pre>
+      {oversized && !expanded ? (
+        <pre data-testid={testId} className={`tool-card-code text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}>
+          {shown}
+          <span className="text-app-text-muted">…</span>
+        </pre>
+      ) : (
+        <HighlightedPre
+          testId={testId}
+          className={`text-mini font-mono text-app-text-secondary whitespace-pre-wrap overflow-auto ${maxH} bg-app-hover/40 rounded px-2 py-1.5`}
+          code={text}
+          lang={detectResultSyntax(text)}
+        />
+      )}
       {oversized && (
         <button type="button" aria-expanded={expanded} data-testid={`${testId}-toggle`} className="text-mini text-blue-500 hover:underline"
           onClick={(e) => { disclose(e.currentTarget); setExpanded((v) => !v); }}>
