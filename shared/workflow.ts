@@ -249,8 +249,8 @@ export function agentAskInThread(comments: readonly { author?: string | null; co
  * click, a swallowed question costs a land nobody wanted.
  */
 const APPROVAL_WORDS = new Set(normalizeActionLabel(
-  'ok okay va bene vanno cosi così posso landare landa landala landarla su main a ci verde consigliata consigliato recommended ' +
-  'rispondi oppure o dimmi dimmelo cosa cambiare approvi approva approvo procedo procedere ti tutto il la lo',
+  'ok okay va bene vanno cosi così posso landare landa landala landarla su main a ci verde consigliata consigliato recommended ' + // allow-italian: the words agents write, matched by value
+  'rispondi oppure o dimmi dimmelo cosa cambiare approvi approva approvo procedo procedere ti tutto il la lo', // allow-italian: the words agents write, matched by value
 ).split(' '));
 const LAND = normalizeActionLabel(LAND_ACTION_LABEL);
 const SEND_BACK = normalizeActionLabel(PLAN_REVISE_LABEL);
