@@ -431,7 +431,10 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           // A WARNING, never a refusal: the card still reaches review, and the
           // agent reads the note at its next turn. Fixed headings matched by
           // exact text (`REVIEW_CARD_RULE`), so there is no prose to misread.
-          const missing = missingReviewCardFields(summary);
+          // A subtask has no stage and no board column of its own (see the
+          // `!row.parent_task_id` carve-out above): it is a checklist step the
+          // owner reads inline, not a card a reviewer opens on its own.
+          const missing = row.parent_task_id ? [] : missingReviewCardFields(summary);
           if (missing.length) {
             try {
               this.addComment({
