@@ -39,7 +39,11 @@ export function parseProcNetDev(text: string): { rx: number; tx: number } | null
 export function memPctFromReadout(readout: { memTotalMB?: number | null; procs?: Array<{ memMB: number }>; rest?: { memMB: number } } | null): number | null {
   const total = readout?.memTotalMB;
   if (!readout || typeof total !== "number" || total <= 0 || !Array.isArray(readout.procs)) return null;
-  const usedMB = readout.procs.reduce((sum, p) => sum + p.memMB, 0) + (readout.rest?.memMB ?? 0);
+  // The readout is JSON from another node: keep only entries whose memMB is a finite number.
+  const values = [...readout.procs, readout.rest].map((p) => (p as { memMB?: unknown } | null | undefined)?.memMB);
+  const numeric = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (numeric.length === 0) return null;
+  const usedMB = numeric.reduce((sum, v) => sum + v, 0);
   return Math.min(100, Math.round((usedMB / total) * 1000) / 10);
 }
 

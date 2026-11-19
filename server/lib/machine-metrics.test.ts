@@ -32,5 +32,12 @@ describe("memory of a node on an old build", () => {
     expect(memPctFromReadout(null)).toBeNull();
     expect(memPctFromReadout({ memTotalMB: null, procs: [] })).toBeNull();
     expect(memPctFromReadout({ memTotalMB: 1000 })).toBeNull();
+  });  test("a malformed remote payload never throws and skips bad entries", () => {
+    const bad = (readout: unknown) => memPctFromReadout(readout as Parameters<typeof memPctFromReadout>[0]);
+    expect(bad({ memTotalMB: 1000, procs: [null] })).toBeNull();
+    expect(bad({ memTotalMB: 1000, procs: [{ memMB: "x" }] })).toBeNull();
+    expect(bad({ memTotalMB: 1000, procs: [], rest: { memMB: null } })).toBeNull();
+    expect(bad({ memTotalMB: 1000, procs: [null, { memMB: "x" }, { memMB: 100 }], rest: { memMB: null } })).toBe(10);
   });
+
 });
