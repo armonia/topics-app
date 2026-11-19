@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { DispatchBrake, PlanUsage, PlanUsageWindow, ProviderHold, UsageWindowKind } from "../../shared/provider-hold";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "../../shared/provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, readDeclaredReset } from "../../shared/provider-hold";
 export type { PlanUsage, ProviderHold, UsageWindowKind };
 
 /**
@@ -149,6 +149,19 @@ export function setProviderHold(hold: { untilMs: number; window: UsageWindowKind
     for (const cb of listeners) { try { cb(next); } catch { /* a listener's failure is its own */ } }
   }
   return next;
+}
+
+/**
+ * The hold a turn's error text asks for when it declares its own reset
+ * (`readDeclaredReset`), or null when it declares none or the instant is past.
+ * The plan is spent and the error says until when: a card that met it waits for
+ * that hour instead of retrying into the same wall (19/11: the reserve stop of the
+ * account engine read as a plain provider error, four attempts, card in backlog).
+ */
+export function holdFromDeclaredReset(text: string | null | undefined, nowMs: number = Date.now()): { untilMs: number; window: UsageWindowKind; reason: string } | null {
+  const untilMs = readDeclaredReset(text);
+  if (untilMs == null || untilMs <= nowMs) return null;
+  return { untilMs, window: "usage_limit", reason: "il piano è esaurito" }; // allow-italian: task queue reason
 }
 
 /** The provider accepted a request: whatever the memo said, the wall for

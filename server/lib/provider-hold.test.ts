@@ -8,8 +8,8 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, holdAsksAPerson, HOLD_ASKS_A_PERSON_MS, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage, holdForApiDown, liftApiDownHold, API_DOWN_HOLD_MS } from "./provider-hold";
-import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from "../../shared/provider-hold";
+import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, holdAsksAPerson, HOLD_ASKS_A_PERSON_MS, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage, holdForApiDown, liftApiDownHold, API_DOWN_HOLD_MS, holdFromDeclaredReset } from "./provider-hold";
+import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT, readDeclaredReset } from "../../shared/provider-hold";
 
 const NOW = 1_800_000_000_000;
 
@@ -253,5 +253,23 @@ describe("the plan-usage memo", () => {
   test("the two thresholds keep their order, and both sit under exhaustion", () => {
     expect(PLAN_USAGE_WARN_AT).toBeLessThan(PLAN_DISPATCH_HOLD_AT);
     expect(PLAN_DISPATCH_HOLD_AT).toBeLessThan(100);
+  });
+});
+
+describe("an error that declares its own reset", () => {
+  const text = (iso: string) => `API Error: 400 Only the reserve is left: a@b.c (1% left). Every other account is out until 09:00. (resets_at: ${iso})`;
+
+  test("the instant is read from the tail, and only from it", () => {
+    expect(readDeclaredReset(text("2026-11-20T08:00:00Z"))).toBe(Date.UTC(2026, 10, 20, 8, 0, 0));
+    expect(readDeclaredReset("API Error: 429 rate limited, retry later")).toBeNull();
+    expect(readDeclaredReset(text("domani"))).toBeNull();
+    expect(readDeclaredReset(undefined)).toBeNull();
+  });
+
+  test("a reset still ahead is a wall until then; a past one is none", () => {
+    const iso = new Date(NOW + 3_600_000).toISOString();
+    expect(holdFromDeclaredReset(text(iso), NOW)).toMatchObject({ untilMs: NOW + 3_600_000, window: "usage_limit" });
+    expect(holdFromDeclaredReset(text(iso), NOW + 7_200_000)).toBeNull();
+    expect(holdFromDeclaredReset("503 overloaded", NOW)).toBeNull();
   });
 });

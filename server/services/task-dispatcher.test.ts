@@ -30,6 +30,7 @@ function asFloor(reason: string | null): ResourceFloorVerdict {
 
 import { currentDispatchBlock } from "./dispatch-block-signal";
 import { cancelled, type TurnEndInfo, describeTurnEnd } from "../providers/stop-reason";
+import { clearProviderHold, providerHold } from "../lib/provider-hold";
 import { beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, endPermission } from "../lib/permission-bridge";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
@@ -892,6 +893,41 @@ describe("task-dispatcher", () => {
     expect(ultimaLive(h, "t1")?.retry).toBeUndefined();
     h.finishTurn();
     await flush();
+  });
+
+  it("un errore che dichiara il reset del piano mette la card in ATTESA fino a quell'ora: niente tentativi, niente backlog", async () => {
+    // 19/11, card 8f2d0c9f: il motore degli account rispondeva «Only the reserve is
+    // left ... (resets_at: ...)», il turno finiva `provider-error`, quattro giri a
+    // vuoto e la card in backlog, dove nessuno la riprende. Qui sei turni di fila
+    // contro lo stesso muro con tetto 3: la card resta in coda, con l'ora.
+    const h = harness({ retryBackoffMs: 20 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    clearProviderHold();
+    try {
+      await h.dispatcher.tick(PID);
+      await flush();
+      const resetAt = Date.now() + 3_600_000;
+      const detail = `API Error: 400 Only the reserve is left: x@y.z (1% left). Every other account is out until 09:00. Confirm to continue on the reserve (POST /api/reserve-confirm), or wait. (resets_at: ${new Date(resetAt).toISOString().replace(/\.\d+Z$/, "Z")})`;
+      for (let i = 0; i < 6; i++) {
+        if (h.turns.length <= i) break;
+        h.finishTurnWith({ end: "error", cause: "provider-error", detail });
+        await flush();
+        await flush();
+      }
+      expect(h.task("t1")!.status).not.toBe("backlog");
+      expect(h.task("t1")!.dispatchState).not.toBe("failed");
+      expect(h.task("t1")!.dispatchAttempts ?? 0).toBe(1);
+      const hold = providerHold();
+      expect(hold?.untilMs).toBeGreaterThan(Date.now() + 3_000_000);
+      expect(hold?.untilMs).toBeLessThanOrEqual(resetAt);
+      // Dopo il backoff NON riparte: aspetta l'ora del reset.
+      await new Promise((r) => setTimeout(r, 60));
+      await flush();
+      expect(h.turns.length).toBe(1);
+    } finally {
+      clearProviderHold();
+    }
   });
 
   it("il chip vivo porta COSA sta facendo la sessione: il tool in corso, letto dal tracker", async () => {
