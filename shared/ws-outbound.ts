@@ -443,6 +443,21 @@ const streamThinkingChunkSchema = z.looseObject({
 });
 
 /**
+ * One reasoning sentence translated into the chat language. `source` is the
+ * sentence exactly as it streamed (trimmed) and the client swaps `text` in for
+ * it wherever it appears, so the frame is a fixed fact and receiving it twice
+ * changes nothing (which is why the window that sent the message may get it too).
+ */
+const streamReasoningTranslationSchema = z.looseObject({
+  type: z.literal('stream:reasoning_translation'),
+  sessionKey: z.string(),
+  topicId: z.optional(z.string()),
+  index: z.number(),
+  source: z.string(),
+  text: z.string(),
+});
+
+/**
  * Contesto reale del modello dopo una chiamata (1b.5), nella forma standard
  * `usage_update` di ACP (3.1). Il blocco `usage` è l'oggetto ACP LETTERALE —
  * si inoltra senza tradurlo — e `used`/`size` sono obbligatori lì dentro:
@@ -1505,6 +1520,7 @@ const OUTBOUND_SCHEMAS = {
   'stream:thinking_start': streamThinkingStartSchema,
   'stream:thinking_end': streamThinkingEndSchema,
   'stream:thinking_chunk': streamThinkingChunkSchema,
+  'stream:reasoning_translation': streamReasoningTranslationSchema,
   'stream:error': streamErrorSchema,
   'stream:slow': streamSlowSchema,
   'stream:resumed': streamResumedSchema,
@@ -1674,6 +1690,7 @@ export const OUTBOUND_FRAME_CLASSES: Record<OutboundType, OutboundFrameClass> = 
   'stream:slow': 'topic',
   'stream:start': 'global',
   'stream:thinking_chunk': 'topic',
+  'stream:reasoning_translation': 'topic',
   'stream:thinking_end': 'topic',
   'stream:thinking_start': 'topic',
   'stream:tool_call': 'topic',

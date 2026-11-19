@@ -984,3 +984,8 @@ The senders already written in the text of past messages (`<messaggio da="…">`
 - **WHEN** the same id is posted again
 - **THEN** one row SHALL exist, with its author
 
+#### Scenario: One human on two channels becomes one person
+- **GIVEN** the same human known as a Discord person and as a WhatsApp person, both born from a channel
+- **WHEN** the owner merges one into the other from the Dashboard
+- **THEN** identities, messages, usage records and started tasks SHALL follow, the list SHALL show one row at once, and a person with a device, an organisation or an account SHALL NOT be mergeable
+

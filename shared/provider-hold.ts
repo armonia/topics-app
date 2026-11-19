@@ -101,3 +101,14 @@ export function providerHoldKey(provider: string): 'claude' | 'codex' | null {
 export function providerHoldLabel(key: 'claude' | 'codex'): string {
   return key === 'codex' ? 'Codex' : 'Claude';
 }
+
+/**
+ * Whether a card's `dispatch_error` is the dispatcher's own "the provider's
+ * plan is spent / near its limit" reason. The dispatcher writes it as
+ * `<label>: <why>` (`task-dispatcher-hold.ts`, `taskPlanWait`), so the label
+ * is the marker; a wait an agent declared has another prefix and never matches.
+ */
+export function isPlanWaitReason(error: string | null | undefined): boolean {
+  if (!error) return false;
+  return error.startsWith(`${providerHoldLabel('claude')}: `) || error.startsWith(`${providerHoldLabel('codex')}: `);
+}

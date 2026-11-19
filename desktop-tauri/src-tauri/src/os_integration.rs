@@ -670,8 +670,8 @@ fn hub_leaf(app: &tauri::AppHandle, node: &tray_menu::Node, prefix: &str) -> Opt
             (tray_label(label), if id.is_empty() { format!("note:{label}") } else { id.clone() }, *enabled, &[])
         }
         tray_menu::Node::Sub { label, children } => (tray_label(label), String::new(), true, children),
-        tray_menu::Node::Card { key, png, w, h, children } => {
-            (tray_menu_native::register_card(key, png, *w, *h), format!("card:{key}"), false, children)
+        tray_menu::Node::Card { key, png, w, h, hover, children } => {
+            (tray_menu_native::register_card(key, png, *w, *h, hover), format!("card:{key}"), false, children)
         }
         tray_menu::Node::Row { id, cells, header, table, look, children } => {
             let n = ROW_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -489,7 +489,9 @@
   // `openssl` is run by server/services/external-proxy.test.ts to verify with a real chain
   // verifier (name constraints included) that the local CA of the external-sessions proxy
   // signs nothing but api.anthropic.com. It is preinstalled on macOS and on ubuntu-latest.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl"],
+  // `xcode-select` and `swiftc` are run by server/reasoning-translation/apple-adapter.ts on macOS only,
+  // to build and probe the on-device translation helper; both ship with the Mac, not with the repo.
+  "ignoreBinaries": ["xcode-select", "swiftc", "pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo", "trash", "openssl"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

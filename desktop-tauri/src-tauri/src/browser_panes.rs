@@ -1812,6 +1812,16 @@ pub(crate) fn browser_set_bounds(
     })
 }
 
+/// X the client parks hidden panes at (see `useTauriBrowser.ts`).
+const PARKED_X_THRESHOLD: f64 = -50000.0;
+
+/// True when this push brings a pane on screen: its first push, or one that
+/// follows a park off-screen.
+pub(crate) fn coming_on_screen(prev: Option<(f64, f64, f64, f64)>, next: (f64, f64, f64, f64)) -> bool {
+    let next_visible = next.0 > PARKED_X_THRESHOLD;
+    next_visible && prev.map_or(true, |p| p.0 <= PARKED_X_THRESHOLD)
+}
+
 pub(crate) fn browser_set_bounds_inner(
     app: tauri::AppHandle,
     id: String,
@@ -1829,20 +1839,32 @@ pub(crate) fn browser_set_bounds_inner(
     // when nothing moved): setting identical bounds is a no-op, so we avoid the move FFI
     // + window-size FFI + corner mask on those frames.
     let rect = (x, y, width, height);
+    let needs_repaint_nudge;
     {
         let mut g = match browser_bounds_cache().lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
         };
-        if g.get(&id) == Some(&rect) {
+        let prev = g.get(&id).copied();
+        if prev == Some(rect) {
             return Ok(());
         }
+        needs_repaint_nudge = coming_on_screen(prev, rect);
         g.insert(id.clone(), rect);
     }
     wv.set_position(tauri::LogicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
     wv.set_size(tauri::LogicalSize::new(width.max(1.0), height.max(1.0)))
         .map_err(|e| e.to_string())?;
+    if needs_repaint_nudge && width >= 4.0 && height >= 4.0 {
+        // A view that was created or parked off-screen can come back showing a
+        // black surface until its size really changes (card 155df43f). Bounce
+        // the size by one pixel so the compositor allocates and paints it.
+        wv.set_size(tauri::LogicalSize::new(width + 1.0, height))
+            .map_err(|e| e.to_string())?;
+        wv.set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| e.to_string())?;
+    }
     // Re-evaluate which corners are flush with the window edge (it changes as the
     // pane moves/resizes) and round only those — cached, so the objc work runs only
     // when the flush state actually changes (not every drag frame). See apply_browser_corner_mask.
@@ -5560,5 +5582,27 @@ mod browser_open_reuse_tests {
         assert!(close_is_for_this_host(Some("detach-1a2b3c4d"), None));
         assert!(close_is_for_this_host(None, Some("main")));
         assert!(close_is_for_this_host(None, None));
+    }
+}
+
+#[cfg(test)]
+mod repaint_nudge_tests {
+    use super::coming_on_screen;
+
+    #[test]
+    fn first_push_and_return_from_park_nudge() {
+        let on = (10.0, 20.0, 800.0, 600.0);
+        let parked = (-100000.0, 0.0, 800.0, 600.0);
+        assert!(coming_on_screen(None, on));
+        assert!(coming_on_screen(Some(parked), on));
+    }
+
+    #[test]
+    fn moves_and_parks_do_not_nudge() {
+        let on = (10.0, 20.0, 800.0, 600.0);
+        let parked = (-100000.0, 0.0, 800.0, 600.0);
+        assert!(!coming_on_screen(Some(on), (10.0, 20.0, 900.0, 600.0)));
+        assert!(!coming_on_screen(Some(on), parked));
+        assert!(!coming_on_screen(None, parked));
     }
 }

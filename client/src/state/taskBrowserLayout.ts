@@ -36,6 +36,7 @@ import {
   rowGroupIds,
 } from '../components/Layout/groupLayoutStacks';
 import { apiFetch } from '../lib/shell/net';
+import { isNestedInTopicsPane } from '../lib/shell/nestedPane';
 
 /** Every task browser pane is a single group kind — no chat/file affinity. */
 const GROUP_TYPE: PaneGroupType = 'utility';
@@ -458,6 +459,8 @@ async function uiGet<T>(key: string): Promise<T | null | undefined> {
 
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function uiPutDebounced(key: string, value: unknown, ms = 800): void {
+  // Nested in a Topics pane: a read-only mirror, the layout edit stays local.
+  if (isNestedInTopicsPane()) return;
   const t = writeTimers.get(key);
   if (t) clearTimeout(t);
   writeTimers.set(key, setTimeout(() => {

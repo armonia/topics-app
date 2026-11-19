@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead, clampInt, MACHINE_RETRY_BASE_MS, MACHINE_RETRY_CAP, GLOBAL_SETTINGS_KEY } from "./shared";
-import { PARKED_WAITED_OUT, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap } from "../../../shared/board";
+import { PARKED_WAITED_OUT, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap, missingReviewCardFields } from "../../../shared/board";
 import { type Task } from "../task-shapes";
 import { markTargetNotificationsSeen } from "../../db/notification-log";
 import { WORKFLOW_COLUMNS } from "../../../shared/workflow";
@@ -428,6 +428,18 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           this.addComment({ taskId, author: by, content: summary, projectId: projectId ?? row.project_id, kind: "delivery", messageId: messageId ?? null });
           // The report is there. Now we look at whether what it says holds up.
           annotateDeliveryClaims(taskId, projectId ?? row.project_id, (a) => this.addComment(a));
+          // A WARNING, never a refusal: the card still reaches review, and the
+          // agent reads the note at its next turn. Fixed headings matched by
+          // exact text (`REVIEW_CARD_RULE`), so there is no prose to misread.
+          const missing = missingReviewCardFields(summary);
+          if (missing.length) {
+            try {
+              this.addComment({
+                taskId, author: "system", kind: "service", projectId: projectId ?? row.project_id,
+                content: `Consegna non leggibile dalla card: mancano ${missing.join(", ")}. Alla prossima consegna scrivi il riassunto nei cinque campi.`, // allow-italian: reviewer-facing note
+              });
+            } catch { /* best-effort */ }
+          }
           db.prepare(
             `INSERT INTO approvals (id, task_id, requested_by, approval_type, from_status, to_status, status, created_at)
              VALUES (?, ?, ?, 'review', ?, 'done', 'pending', ?)`,

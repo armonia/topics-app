@@ -61,7 +61,7 @@ fn trust_summary_names_the_suspects_and_counts_the_ok() {
 fn macos_row_and_rankings_are_there() {
     let t = dump_text(&procs_table(&snap()));
     assert!(t.contains("macOS · 300 processi | 10% | 5,0% | 20 B/s") || t.contains("macOS · 300 processi | 10% | 5,0% | –"), "{t}");
-    assert!(t.contains("Classifiche per CPU, GPU, rete e memoria · CPU totale 1,8 core · 100% = un core intero"), "{t}");
+    assert!(t.contains("Classifiche · CPU totale 1,8 core · 100% = un core intero"), "{t}");
     for h in ["PIÙ CPU ADESSO", "PIÙ MEMORIA", "PIÙ GPU ADESSO", "PIÙ RETE ADESSO"] {
         assert!(t.contains(&format!("{h} | CPU")), "{h}");
     }
@@ -134,4 +134,12 @@ fn a_unit_that_can_be_closed_is_set_in_semibold_and_one_that_cannot_is_not() {
     for (name, bold) in [("App A", true), ("Leftover C", true), ("Service B", false)] {
         assert_eq!(found.iter().find(|(n, _)| n == name).map(|(_, b)| *b), Some(bold), "{name}: {found:?}");
     }
+}
+
+#[test]
+fn a_dev_server_row_names_its_port_and_project_not_its_kind_twice() {
+    let u: Value = serde_json::from_str(r#"{"name":"Server di sviluppo · astro :4633 · armonia-agency","type":"devserver"}"#).unwrap();
+    assert_eq!(row_name(&u), "astro :4633 · armonia-agency");
+    let other: Value = serde_json::from_str(r#"{"name":"Server di sviluppo · x","type":"app"}"#).unwrap();
+    assert_eq!(row_name(&other), "Server di sviluppo · x");
 }

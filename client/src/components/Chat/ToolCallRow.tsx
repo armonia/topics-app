@@ -12,7 +12,7 @@ import { ToolCardBody } from './ToolCards';
 import { spawnRefusal } from './subagentResult';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForCall } from './toolIcons';
-import { workKindOf } from './workKind';
+import { isEmptySubAgent, workKindOf } from './workKind';
 import { ToolPermissionRow } from './ToolPermissionRow';
 import { QuestionAnswerCard, QuestionAnswerRecap } from './QuestionAnswer';
 import type { AskedQuestion } from './questionAnswers';
@@ -586,6 +586,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         </span>
         </>
   );
+
+  // A finished sub-agent call with nothing to say is not a row (see `isEmptySubAgent`).
+  if (isEmptySubAgent(toolCall, detail)) return null;
 
   return (
     <div
