@@ -5,8 +5,11 @@
  * else the page title, else the host), host, where the page lives now, and an
  * arrow. The whole row is the target: it brings the page back on screen
  * wherever it lives, and reopens it in this chat's window when it lives nowhere
- * (`focusBrowserContext`). No picture of the page: the live view is already
- * beside the chat, and a webview inside a message is the occlusion bug class.
+ * (`focusBrowserContext`). What the opening SHOWED sits under the row as a
+ * picture or file (SHOWN-01): it comes from the tool result, so it is in the
+ * message the moment the tool answers, with the panel closed, on any device, and
+ * after a restart. It is a saved file, never a live webview (the occlusion bug
+ * class).
  *
  * The state is derived from the live surfaces and follows them: closing the
  * sheet in the window turns «in the window» into «closed» with no reload.
@@ -19,12 +22,14 @@ import { focusBrowserContextLive, watchBrowserPlace } from '../../lib/focusBrows
 import { pageHost } from '../../../../shared/tool-detail';
 import { browserPageLabel } from './toolDetail';
 import { useDisclosureToggle } from './transcriptDisclosure';
+import { MediaRenderer } from '../MediaBlocks';
 import { DisclosureBody } from './DisclosureBody';
 import { useChatTopicId } from './chatTopicContext';
 import {
   browserMarkerState,
   currentPage,
   markerFaviconUrl,
+  markerMedia,
   markerTitle,
   type BrowserMarker,
   type BrowserMarkerState,
@@ -118,6 +123,11 @@ export const BrowserOpenMarker = memo(function BrowserOpenMarker({ marker }: { m
       </div>
       {/* The list unrolls under the row like every fold of the transcript:
           the row stays where the click found it (CHAT-FOLD-01). */}
+      {markerMedia(marker).map((path) => (
+        <div key={path} data-testid="browser-open-marker-media" className="mb-2">
+          <MediaRenderer path={path} isVoice={false} isUserMessage={false} />
+        </div>
+      ))}
       <DisclosureBody open={listOpen}>
         <ol data-testid="browser-open-marker-page-list" className="ml-[22px] mb-1 space-y-0.5 text-mini text-app-text-secondary">
           {marker.pages.map((p) => (

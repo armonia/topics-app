@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { ToolCall } from '../../types';
-import { browserMarkerState, coalesceBrowserOpens, currentPage, markerFaviconUrl, markerTitle } from './browserOpens';
+import { browserMarkerState, coalesceBrowserOpens, currentPage, markerFaviconUrl, markerMedia, markerTitle } from './browserOpens';
 
 const opened = (id: string, url: string, extra: { contextId?: string; title?: string; name?: string; visible?: boolean } = {}): ToolCall => {
   const where = url + (extra.title ? ` (title: ${extra.title})` : '');
@@ -97,5 +97,39 @@ describe('markerFaviconUrl', () => {
     expect(markerFaviconUrl('http://localhost:5173/', 'http:')).toBe('http://localhost:5173/favicon.ico');
     expect(markerFaviconUrl('about:blank', 'https:')).toBeUndefined();
     expect(markerFaviconUrl('not a url', 'https:')).toBeUndefined();
+  });
+});
+
+/** SHOWN-01: what an opening left in the message rides on the marker. */
+describe('what the opening showed', () => {
+  const shown = (id: string, url: string, media: string): ToolCall => ({
+    id,
+    name: 'mcp__topics__open_browser_pane',
+    args: { url },
+    status: 'success',
+    result: `Opened browser pane at ${url} [media: ${media}] [contextId: topic-1]`,
+    endedAt: Number(id.replace(/\D/g, '')) || undefined,
+  });
+
+  test('the marker carries the file, with spaces in its path, before any question is answered', () => {
+    const plan = coalesceBrowserOpens([shown('o1', '/api/media?path=%2Fm%2Fa%20b.png', '/m/a b.png')]);
+    const marker = plan.get('o1');
+    expect(marker && markerMedia(marker)).toEqual(['/m/a b.png']);
+    expect(marker?.contextId).toBe('topic-1');
+  });
+
+  test('four proposals opened in a row in one context are four pictures, each once', () => {
+    const plan = coalesceBrowserOpens([
+      shown('o1', '/api/media?path=a', '/m/a.png'),
+      shown('o2', '/api/media?path=b', '/m/b.png'),
+      shown('o3', '/api/media?path=b', '/m/b.png'),
+    ]);
+    const marker = plan.get('o1');
+    expect(marker && markerMedia(marker)).toEqual(['/m/a.png', '/m/b.png']);
+  });
+
+  test('an opening with no media leaves the marker as it was', () => {
+    const marker = coalesceBrowserOpens([opened('o1', 'http://x.dev/', { contextId: 'c' })]).get('o1');
+    expect(marker && markerMedia(marker)).toEqual([]);
   });
 });

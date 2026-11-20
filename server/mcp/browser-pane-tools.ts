@@ -7,7 +7,7 @@ export async function callOpenBrowserPane(
   args: ParsedArgs,
   toolArgs: { url?: unknown; name?: unknown },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ url: string; title: string; visible: boolean; contextId?: string; warning?: string }> {
+): Promise<{ url: string; title: string; visible: boolean; contextId?: string; media?: string; note?: string; warning?: string }> {
   if (typeof toolArgs?.url !== "string" || !toolArgs.url) {
     throw new Error("open_browser_pane: 'url' (string) is required");
   }
@@ -40,7 +40,7 @@ export async function callOpenBrowserPane(
     const text = await resp.text().catch(() => "");
     throw new Error(`topics-app HTTP ${resp.status}: ${text || resp.statusText}`);
   }
-  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; contextId?: unknown; warning?: unknown; error?: unknown };
+  const body = (await resp.json()) as { url?: unknown; title?: unknown; visible?: unknown; contextId?: unknown; media?: unknown; note?: unknown; warning?: unknown; error?: unknown };
   if (body.error) throw new Error(String(body.error));
   return {
     url: typeof body.url === "string" ? body.url : toolArgs.url,
@@ -51,6 +51,8 @@ export async function callOpenBrowserPane(
     // Absent from a server older than BROWSER-CHAT-05: then the text simply
     // does not name it, and the chat falls back to the topic's own context.
     ...(typeof body.contextId === "string" && body.contextId ? { contextId: body.contextId } : {}),
+    ...(typeof body.media === "string" && body.media ? { media: body.media } : {}),
+    ...(typeof body.note === "string" && body.note ? { note: body.note } : {}),
     // The foreign-port / no-response check (task f9cf765e): present only when
     // there IS something to say, so a plain open keeps its plain result shape.
     ...(typeof body.warning === "string" && body.warning ? { warning: body.warning } : {}),

@@ -874,6 +874,27 @@ describe("handleMessage", () => {
     }
   });
 
+  test("open_browser_pane: what was shown rides in the text before the context, and the road note leads (SHOWN-01, SHOWN-03)", async () => {
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = stubFetch(async () =>
+      new Response(
+        JSON.stringify({ url: "/api/media?path=x", title: "", visible: true, contextId: "topic-1", media: "/m/a b.png", note: "Nobody is looking at this chat's pane." }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 79, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "/m/a b.png" } } },
+        ARGS,
+      );
+      const text = (resp!.result as any).content[0].text as string;
+      expect(text.startsWith("Nobody is looking")).toBe(true);
+      expect(text.endsWith("[media: /m/a b.png] [contextId: topic-1]")).toBe(true);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("open_browser_pane: a foreign-port warning LEADS the text, it does not trail it (task f9cf765e)", async () => {
     const orig = globalThis.fetch;
     (globalThis as any).fetch = stubFetch(async () =>
