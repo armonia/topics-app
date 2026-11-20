@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # Proposal: multi-project-intake
 
 Card a5906c31 (part 2 of the director plan; part 1 is card f2289637: confirmation

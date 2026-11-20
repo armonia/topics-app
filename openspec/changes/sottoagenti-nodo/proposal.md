@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # Sottoagenti su PC e nodo, non solo sul Mac
 
 Oggi `spawn_agent` gira SEMPRE sul Mac: una card ha già la corsia remota

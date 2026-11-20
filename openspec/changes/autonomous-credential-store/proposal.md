@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 27 da fare (`tasks.md`).
+
 ## Why
 
 Oggi l'agente non sa autenticarsi da solo. Ogni login nel browser di Topics richiede che

@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # browser-store-reaper-setting — la pulizia dei browser chiusi è un'impostazione di Topics, a due livelli
 
 ## Perché

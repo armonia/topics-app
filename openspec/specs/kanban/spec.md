@@ -47,8 +47,6 @@ The system SHALL render a kanban board with five status columns, support creatin
 - **WHEN** the board renders
 - **THEN** the task card displays the assigned agent name or badge
 
-> Note: Agent assignment on task cards is also relevant to AGENT-02 (topic assignment and status indicators).
-
 #### Scenario: Task detail panel opens on card click
 - **GIVEN** a task card is visible on the board
 - **WHEN** the user clicks on the task card
@@ -286,76 +284,6 @@ The system SHALL provide a board memory panel that lists stored memory entries w
 - **THEN** the memory entries are reloaded from the server
 - **AND** the refresh icon spins during loading
 
-### Requirement: KANBAN-04 — Extended Approvals
-
-**Status: NOT BUILT** — The extended approval modal does not exist: no `rubricScores`, `confidenceScore` or `justification` anywhere in the client, and no `/api/approvals` route. The cure is deleting this requirement, not writing a test for it; the marker keeps the coverage gate from counting it as debt, and the gate fails if a test ever claims it.
-
-The system SHALL provide an approval review modal that displays task information, status transition, confidence score as a percentage bar, rubric scores, justification text, an optional reviewer comment field, and Approve/Reject action buttons with metadata.
-
-#### Scenario: Approval modal displays task information
-- **GIVEN** the approval review modal is open
-- **WHEN** the modal content renders
-- **THEN** the task text or task ID is displayed under a "Task" heading
-- **AND** the modal title reads "Review Approval"
-
-#### Scenario: Approval modal shows status transition
-- **GIVEN** the approval has fromStatus and toStatus fields
-- **WHEN** the modal renders
-- **THEN** a "Status Change" section shows the transition as "fromStatus -> toStatus"
-- **AND** the target status is displayed in bold
-
-#### Scenario: Confidence score renders as percentage bar
-- **GIVEN** the approval has a confidenceScore value
-- **WHEN** the modal renders
-- **THEN** a horizontal progress bar fills to the confidence percentage width
-- **AND** the rounded percentage number is displayed next to the bar (e.g., "85%")
-
-#### Scenario: Rubric scores display category ratings
-- **GIVEN** the approval has rubricScores with multiple categories
-- **WHEN** the modal renders
-- **THEN** each rubric category is listed with its name and score out of 5
-- **AND** a "Rubric Scores" section header with a bar chart icon is visible
-
-#### Scenario: Justification text is displayed in formatted area
-- **GIVEN** the approval has justification text
-- **WHEN** the modal renders
-- **THEN** the justification appears under a "Justification" heading
-- **AND** the text preserves whitespace and wrapping in a styled container
-
-#### Scenario: Reviewer can add an optional comment
-- **GIVEN** the approval review modal is open
-- **WHEN** the user types text in the comment textarea
-- **THEN** the comment text is captured
-- **AND** the comment is passed to the approve or reject callback when an action is taken
-
-#### Scenario: Approve button calls onApprove with ID and comment
-- **GIVEN** the approval review modal is open
-- **WHEN** the user clicks the "Approve" button
-- **THEN** the onApprove callback is invoked with the approval ID and the optional comment
-- **AND** the button displays a shield-check icon next to "Approve"
-
-#### Scenario: Reject button calls onReject with ID and comment
-- **GIVEN** the approval review modal is open
-- **WHEN** the user clicks the "Reject" button
-- **THEN** the onReject callback is invoked with the approval ID and the optional comment
-- **AND** the button displays a shield-x icon with red styling
-
-#### Scenario: Escape key closes the approval modal
-- **GIVEN** the approval review modal is open
-- **WHEN** the user presses the Escape key
-- **THEN** the modal closes via the onClose callback
-
-#### Scenario: Clicking backdrop closes the approval modal
-- **GIVEN** the approval review modal is open
-- **WHEN** the user clicks on the dark overlay outside the modal content
-- **THEN** the modal closes via the onClose callback
-
-#### Scenario: Modal shows requester and timestamp metadata
-- **GIVEN** the approval review modal is open
-- **WHEN** the user views the footer area
-- **THEN** the text "Requested by [name]" is displayed with the creation timestamp
-- **AND** if an expiration date exists it is shown as "Expires [date]"
-
 ### Requirement: KANBAN-05 — Gate di consegna umano (Review → Done)
 
 Le azioni della card e del dettaglio SHALL offrire «Landa su main» solo per un
@@ -386,7 +314,7 @@ il task a `in_progress` e registrare un commento.
 
 Una consegna SHALL NOT essere muta: un agente non può portare un task in `review` se il
 thread non contiene almeno un suo commento (autore ≠ `user`/`system`) — la card in review
-mostra sempre l'ultima parola dell'agent (KANBAN-04) e senza commenti l'umano deciderebbe
+mostra sempre l'ultima parola dell'agent e senza commenti l'umano deciderebbe
 alla cieca. Il rifiuto (`review_needs_summary`, 409) SHALL istruire l'agent a postare una
 sintesi di 1-2 frasi e riprovare. Unica eccezione al gate `done`: gli **step propri**
 (KANBAN-08), che l'agent chiude direttamente.

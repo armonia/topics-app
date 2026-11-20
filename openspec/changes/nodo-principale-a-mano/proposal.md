@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 11 da fare (`tasks.md`).
+
 ## Da decidere
 
 1. **Segreti sul server: sì, ma solo l'elenco minimo del sistema agentico, cifrato a riposo, mai password personali o bancarie.** Il server Hetzner diventa la macchina che tiene i token dei bot Discord, il token dell'agente Topics, la chiave dei file cifrati del repo, i token Hetzner e Cloudflare, quello di fatturazione e la chiave di decifratura della replica del DB (elenco esatto in T4). Se il server viene compromesso, si compromettono quelli. Alternativa: il server riceve solo token a scadenza breve e il resto resta sul Mac, ma allora a Mac spento canali e cron non funzionano.

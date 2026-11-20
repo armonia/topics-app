@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Costruita (codice e test in main); resta aperta solo perché le sue spec delta non sono promosse: promuoverle richiede `@covers <ID>` nei test, altrimenti `check:spec-coverage` cresce di debito. Da archiviare con quel lavoro. Restano 6 task aperti.
+
 # Change: relay
 
 ## Why

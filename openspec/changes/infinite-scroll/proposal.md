@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # Proposal: infinite-scroll
 
 **Stato: in corso.** La fusione in cima regge a vista ferma ma non ancora negli altri casi (sotto,

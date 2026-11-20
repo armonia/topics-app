@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 ## Da decidere
 
 1. Fondere la PR di `feat/pc-nodo` a CI verde. Perché: la corsa remota è provata su un nodo vero, e tutto resta spento finché `TOPICS_MODEL_PROXY_PORT` non è impostata e una card non nomina un nodo (o: tenerla aperta finché il PC non gira una release ufficiale).

@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # live-terminals: ogni terminale acceso sul Mac, pilotabile da un agente e dalla tendina di Topics
 
 ## Perché

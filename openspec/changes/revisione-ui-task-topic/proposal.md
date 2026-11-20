@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # Revisione UI/UX di task e topic: studio
 
 Card 7d221b53, chiesta da Attilio il 25/10. Questo documento è lo studio: niente codice dell'interfaccia. Ogni difetto ha lo stato di oggi su `origin/main` (3f1056509d, v2.3.40), una immagine, la copertura delle change esistenti e la correzione proposta in una riga. Le card piccole nascono dopo il tuo sì.

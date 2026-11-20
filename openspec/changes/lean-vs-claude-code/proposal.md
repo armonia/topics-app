@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # lean-vs-claude-code: Topics deve costare meno della CLI nativa, non di più
 
 ## Da decidere

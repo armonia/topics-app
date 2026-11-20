@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # workflow-per-progetto: colonne della board configurabili, con triage, AI review e human review
 
 ## Deciso da Attilio (28/10, tutte e tre come consigliate)

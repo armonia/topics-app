@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # giornata-condivisa: Topics tenuto da tre persone su sei dispositivi, senza toccare la macchina che lo ospita
 
 Successore di `daily-driver`, che ha chiuso il suo arco: D0-D7 hanno 45 report su

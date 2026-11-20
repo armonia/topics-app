@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # fase-ci: il tuo «fatto» atterra da solo, la CI misura a lotti, il rosso torna all'agente
 
 ## Deciso da Attilio (14/11)

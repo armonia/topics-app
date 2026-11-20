@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 20 da fare (`tasks.md`).
+
 # Proposal — remappable-shortcuts
 
 Le scorciatoie di Topics sono **cablate**: la lettera vive dentro un `if` in

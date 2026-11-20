@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # e2e-stop-on-red: su una PR gli shard e2e si fermano quando unit o gates sono rossi
 
 ## Da decidere

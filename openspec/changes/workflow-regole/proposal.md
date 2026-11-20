@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # workflow-regole: fase CI e «chi deve guardare» nel workflow della board
 
 ## Deciso da Attilio (14/11)

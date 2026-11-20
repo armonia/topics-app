@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Costruita (codice e test in main); resta aperta solo perché le sue spec delta non sono promosse: promuoverle richiede `@covers <ID>` nei test, altrimenti `check:spec-coverage` cresce di debito. Da archiviare con quel lavoro.
+
 ## Da decidere
 
 Tab: il tasto destro apre la tab espansa, lo stesso foglio del clic, con le voci a due livelli. 5 scelte. Mockup: `mockup/mockup-tab-menu.html` (e `.png`).

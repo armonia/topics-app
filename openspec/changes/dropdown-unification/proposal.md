@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 22 da fare (`tasks.md`).
+
 ## Why
 
 Audit ultracode (2 agenti, read-only) su **~30 dropdown/menu/popover** del client. La

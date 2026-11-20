@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 18 task fatti, 31 da fare (`tasks.md`).
+
 # Change: chat-claude-code-parity
 
 ## Why

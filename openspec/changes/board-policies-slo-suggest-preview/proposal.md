@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # Proposal: board-policies-slo-suggest-preview
 
 > Approvata il **2026-09-22 11:41** (vedi `.openspec.yaml`). Risposta esatta di

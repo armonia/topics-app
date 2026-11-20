@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: la proposta non ha ancora una barra eseguibile.
+
 # Tab di anteprima, e gli agenti fuori dalla barra
 
 ## Da decidere

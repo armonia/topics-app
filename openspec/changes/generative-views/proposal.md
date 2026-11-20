@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # Proposal: generative-views
 
 Nessun «Da decidere»: niente spesa, niente dati di persone, niente di irreversibile. Le scelte tecniche sono in fondo, «Deciso da me».

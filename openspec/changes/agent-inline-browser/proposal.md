@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 25 da fare (`tasks.md`).
+
 # Proposal — agent-inline-browser
 
 ## Why

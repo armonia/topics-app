@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 30 da fare (`tasks.md`).
+
 ## Da decidere
 
 Nodi cloud, piano parcheggiato: 4 scelte. Il nodo libera RAM al Mac, non quota.

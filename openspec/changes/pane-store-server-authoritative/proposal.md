@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto: 16 task fatti, 20 da fare (`tasks.md`).
+
 # Change: pane-store-server-authoritative
 
 ## Why

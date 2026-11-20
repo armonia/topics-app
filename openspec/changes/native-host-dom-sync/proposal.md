@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Lavoro aperto, tracce in `proposal.md`/`tasks.md` senza caselle: la barra di `specs/acceptance.md` dice cosa manca.
+
 # native-host-dom-sync — il Mac resta nativo, l'iPad riceve gli aggiornamenti del DOM
 
 ## Perché
