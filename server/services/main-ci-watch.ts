@@ -70,6 +70,27 @@ export async function watchMainCi(deps: MainCiWatchDeps): Promise<MainCiOutcome>
   return "no-ci";
 }
 
+/**
+ * Why a land must wait: the newest commit of main that has an answer is red. A land on a red main proves nothing
+ * (its own CI inherits the red) and every card in review then inherits it too. Pending, unknown and no-CI never
+ * stop a land: a guess is not a refusal. Null = go ahead.
+ */
+export async function mainRedStop(port: MainCiPort, nowMs: number = Date.now()): Promise<string | null> {
+  const commits = await port.recent();
+  for (const c of commits) {
+    const v = await port.verdict(c.sha);
+    if (v.state === "pending") return null;
+    if (v.state === "none") {
+      if (nowMs / 1000 - c.at < RUN_APPEARS_WITHIN_S) return null;
+      continue;
+    }
+    if (v.state === "pass") return null;
+    const jobs = v.failed.length ? ` (${v.failed.join(", ")})` : "";
+    return `the CI of main is red on ${c.sha.slice(0, 8)}${jobs}: landing on a red main proves nothing, so the land waits for the repair${v.url ? ` (${v.url})` : ""}`;
+  }
+  return null;
+}
+
 /** The failing jobs and the run, as the card reads them. */
 export function describeMainRed(c: MainCiCommit, v: MainCiVerdict): string {
   return [

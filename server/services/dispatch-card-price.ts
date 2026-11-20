@@ -39,7 +39,7 @@
  * last 72 hours prices the next one at what they measured. A heavy card still
  * pays the list.
  */
-import { estimatedAgentMemCost, reservedCost, type ReviewCheck } from "../../shared/board";
+import { estimatedAgentMemCost, isCiEvidenceCheck, reservedCost, type ReviewCheck } from "../../shared/board";
 import { boardHasNoLocalChecks, reservationForRuntime } from "./dispatch-no-check-exemption";
 
 export type CardWeight = "light" | "standard";
@@ -57,13 +57,25 @@ export interface CardPriceBoard {
 }
 
 /**
- * In place and no local check: nothing the card runs can burst past the agent.
- * A worktree board delivers a branch through the repo gates (typecheck, lint,
- * dead code), and a board with a local check runs it on this machine.
+ * No local check can burst past the agent. Two kinds of board qualify:
+ *
+ *  - in place with no local check: nothing is delivered through a branch;
+ *  - a worktree board whose checks are ALL pull request CI evidence rows
+ *    (`github-ci:*`), at least one declared. The board says where its heavy
+ *    gates (typecheck, lint, unit, e2e) run: on GitHub, not on this Mac. What
+ *    stays local is the fast static guard (`gates:fast`, seconds, a few hundred
+ *    MB), which is the agent's own light command. Read from the board's
+ *    settings, never from a project name: the same board turned back to local
+ *    checks is standard again.
+ *
+ * A worktree board with NO declared check keeps the dearer price: it says
+ * nothing about where its gates run, so the repo gates are assumed local.
+ * A board with a local check runs it on this machine, in place or not.
  */
 export function cardWeightOf(board: CardPriceBoard | null | undefined, dispatchWeight?: string | null): CardWeight {
   if (!board || dispatchWeight === "heavy") return "standard";
-  return !board.dispatchUseWorktree && boardHasNoLocalChecks(board.reviewChecks) ? "light" : "standard";
+  if (!boardHasNoLocalChecks(board.reviewChecks)) return "standard";
+  return !board.dispatchUseWorktree || board.reviewChecks.some(isCiEvidenceCheck) ? "light" : "standard";
 }
 
 export function createCardPrices(deps: {

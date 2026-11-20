@@ -354,7 +354,21 @@ export async function branchContentWasOnMain(
   const changed = (await gitOut(repoPath, ["diff", "--name-only", "-z", "--no-renames", base, branch], runGit))
     .split("\0")
     .filter((p) => p.length > 0);
-  if (changed.length === 0) return false;
+  if (changed.length === 0) {
+    // No file changed since the fork point: either the branch never carried
+    // anything, or it already took back everything the card had done (the work
+    // reached main through a squash, then the land merged `origin/main` into the
+    // branch, so the branch tree is the fork tree again). Merging the branch into
+    // `mainRef` would change nothing, so there is nothing to lose. An empty list
+    // alone does NOT prove it (git in error returns empty): equal trees do, with
+    // both ids read and non-empty; any other outcome stays "don't know".
+    const [baseTree, branchTree] = await Promise.all([
+      gitOut(repoPath, ["rev-parse", `${base}^{tree}`], runGit),
+      gitOut(repoPath, ["rev-parse", `${branch}^{tree}`], runGit),
+    ]);
+    const a = baseTree.trim();
+    return /^[0-9a-f]{40,64}$/.test(a) && a === branchTree.trim();
+  }
   const literal = changed.map((p) => `:(literal)${p}`);
   // Only main's own line after the fork, and only commits that touched those files: the
   // content can only have become equal at one of them.

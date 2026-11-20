@@ -524,11 +524,10 @@
 
     "server/mcp/topics-mcp-server.test.ts": 2520,
 
-    "server/mcp/topics-mcp-server.ts": 3113,
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 4611,
+    "server/providers/claude-code.ts": 3858,
 
     "server/providers/codex.ts": 1378,
 
@@ -589,6 +588,13 @@
     "server/routes/e2e.ts": 1017,
 
     "server/routes/files.ts": 1637,
+
+    "server/routes/nodes.ts": {
+      "lines": 825,
+      "why": [
+        "2026-11-19, node pairing scope (card d665f0ba): 800 on main -> 825, +25 only the device holding the node's channel creates runs, and each caller reads, bundles and cancels only the runs it created."
+      ]
+    },
 
     "server/routes/outbound.test.ts": 1049,
 
@@ -666,7 +672,7 @@
 
     "server/services/worktree-gc.ts": 871,
 
-    "server/utils.ts": 3244,
+    "server/utils.ts": 1476,
 
     "shared/board.test.ts": 1260,
 
@@ -715,6 +721,13 @@
     "tests/e2e/topic-browser-window.spec.ts": 1836,
 
     "tests/integration/auth-routes.test.ts": 1734,
+
+    "tests/integration/primary-role-two-servers.test.ts": {
+      "lines": 832,
+      "why": [
+        "2026-11-19, node pairing scope (card d665f0ba): 616 on main -> 832, the two and three server proofs with real pairing, (a) node cookie refused, (a2) runs confined to the channel, (b) the primary still runs a card, (c) the owner phone unchanged. They share one fleet booted in beforeAll, so splitting the file would boot it twice."
+      ]
+    },
 
     "tests/integration/process-run-command.test.ts": 812,
 

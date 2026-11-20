@@ -80,6 +80,18 @@ JOBS='{"610":[{"status":"completed","labels":["pn-610-1"]},{"status":"queued","l
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-610-1\"]}"' >/dev/null
 ok "a run with an e2e job still queued keeps its booking" "$(run reserve permanent 4 pn-611-1)" 3
 ok "...label kept" "$(booked pn-610-1)" 1
+# Run 720: prepare-e2e is done, its shards are not created yet. The shard booking is
+# judged by its own label only, so another run's reserve in that gap leaves it alone.
+JOBS='{"720":[{"status":"completed","conclusion":"success","labels":["pn-720-1-prep"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-720-1\"]}"' >/dev/null
+ok "the shard booking is kept while only the prep job is done" "$(run reserve permanent 4 pn-721-1)" 3
+ok "...label kept" "$(booked pn-720-1)" 1
+# Run 730: prepare-e2e failed, so its shards are skipped and will never run: the shard
+# booking is over and the runners go to the next run.
+JOBS='{"730":[{"status":"completed","conclusion":"failure","labels":["pn-730-1-prep"]}]}' seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-730-1\"]}"' >/dev/null
+ok "a failed prep frees the shard booking" "$(run reserve permanent 4 pn-731-1)" 4
+ok "...and its label is gone" "$(booked pn-730-1)" 0
 
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0

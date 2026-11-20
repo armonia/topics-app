@@ -59,13 +59,38 @@ export const BOARD_SHOW_DONE_STORAGE_KEY = 'topics.board.showDone';
 /** The projects whose lane (and Plan tile) the reader folded, as a JSON array of project ids. */
 export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProjects';
 
-export type BoardGroupBy = 'none' | 'project';
+/** What cards can be grouped by. `none` = flat. */
+export const GROUP_KEYS = ['none', 'project', 'status', 'assignee', 'closer', 'priority'] as const;
+export type BoardGroupBy = (typeof GROUP_KEYS)[number];
+/** Where the second grouping level («then by») is kept. */
+export const BOARD_THEN_BY_STORAGE_KEY = 'topics.board.thenBy';
+
+export function parseGroupKey(raw: string | null | undefined): BoardGroupBy {
+  return (GROUP_KEYS as readonly string[]).includes(raw ?? '') ? (raw as BoardGroupBy) : 'none';
+}
+
+/**
+ * A view preference is kept PER BOARD (`<key>:<boardId>`); a board that never
+ * chose reads the old board-less key, so nobody loses the choice made before.
+ */
+export function boardStorageKey(key: string, boardId: string): string {
+  return `${key}:${boardId}`;
+}
+
+export function readStoredForBoard(key: string, boardId: string): string | null {
+  try { return localStorage.getItem(boardStorageKey(key, boardId)) ?? localStorage.getItem(key); }
+  catch { return null; }
+}
 export type BoardDensity = 'full' | 'compact';
 
 /** The stored grouping, defaulting to the flat board. */
-export function readBoardGroupBy(): BoardGroupBy {
-  try { return localStorage.getItem(BOARD_GROUP_BY_STORAGE_KEY) === 'project' ? 'project' : 'none'; }
-  catch { return 'none'; }
+export function readBoardGroupBy(boardId = 'all'): BoardGroupBy {
+  return parseGroupKey(readStoredForBoard(BOARD_GROUP_BY_STORAGE_KEY, boardId));
+}
+
+/** The stored second level, defaulting to none. */
+export function readBoardThenBy(boardId = 'all'): BoardGroupBy {
+  return parseGroupKey(readStoredForBoard(BOARD_THEN_BY_STORAGE_KEY, boardId));
 }
 
 /** The stored Done choice, defaulting to hidden. */

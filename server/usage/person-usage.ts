@@ -26,6 +26,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { findClaudeTranscript } from "../lib/claude-transcript-path";
+import { channelOnlyPeople } from "../lib/person-identities";
 import type { PeopleUsage, PeopleUsageMeta, PersonRequestRow, PersonUsageDetail, PersonUsageRow } from "../../shared/person-usage";
 
 export type { PeopleUsage } from "../../shared/person-usage";
@@ -42,6 +43,13 @@ export function weighTokens(u: TokenUsage): number {
 /** One line of the quota history (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
 export interface QuotaHistorySample { t: number; s?: Record<string, number> }
 
+/**
+ * Readings of the 7d quota wobble by a point (31 -> 30 -> 31) without any real reset.
+ * A drop smaller than this is read noise: it is ignored and the previous value is kept,
+ * so the return to it does not count twice. A bigger drop is a genuine weekly reset.
+ */
+export const QUOTA_RESET_MIN_DROP = 5;
+
 /** Points per hour (key = whole hour since epoch): rises of the 7d % of every Claude account. */
 export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, untilMs: number): Map<number, number> {
   const out = new Map<number, number>();
@@ -52,6 +60,7 @@ export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, unti
       const t = l.t * 1000;
       const p = prev.get(k);
       if (p !== undefined && t >= sinceMs && t <= untilMs) {
+        if (v < p && p - v < QUOTA_RESET_MIN_DROP) continue; // read noise, keep `p`
         const d = v >= p ? v - p : v;
         if (d > 0) {
           const h = Math.floor(t / HOUR_MS);
@@ -233,15 +242,16 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   }
 
   // Registry rows: calls outside the engine (sandboxed channels, service calls).
-  const records = db.query(`SELECT timestamp ts, session_key sk, author_person_id pid, purpose, COALESCE(input_tokens,0) i, COALESCE(output_tokens,0) o,
+  const records = db.query(`SELECT timestamp ts, session_key sk, author_person_id pid, purpose, label, COALESCE(input_tokens,0) i, COALESCE(output_tokens,0) o,
       COALESCE(cache_read_tokens,0) cr, COALESCE(cache_creation_tokens,0) cw
     FROM usage_records WHERE timestamp > ? AND timestamp <= ? AND measured = 1`)
-    .all(o.sinceMs, o.untilMs) as Array<{ ts: number; sk: string; pid: string | null; purpose: string | null; i: number; o: number; cr: number; cw: number }>;
+    .all(o.sinceMs, o.untilMs) as Array<{ ts: number; sk: string; pid: string | null; purpose: string | null; label: string | null; i: number; o: number; cr: number; cw: number }>;
   for (const r of records) {
     const weight = weighTokens({ input: r.i, output: r.o, cacheWrite: r.cw, cacheRead: r.cr });
     const mark = r.pid ? null : authorAt(r.sk, r.ts);
     const c = make(r.ts, weight, r.sk, mark, "record", r.pid ?? mark?.personId ?? null);
-    if (!c.requestText && r.purpose) c.requestText = r.purpose;
+    // the caller's label says what the call did; the purpose is only its kind
+    if (!c.requestText) c.requestText = r.label?.trim() || r.purpose || "";
     calls.push(c);
   }
   return calls;
@@ -287,6 +297,7 @@ export const NO_AUTHOR = "senza autore";
 
 export function peopleUsage(c: Computed, db: Database): PeopleUsage {
   const names = namesOf(db);
+  const channelOnly = channelOnlyPeople(db);
   const g = new Map<string | null, { w: number; p: number }>();
   for (const call of c.calls) {
     const e = g.get(call.personId) ?? { w: 0, p: 0 };
@@ -302,6 +313,7 @@ export function peopleUsage(c: Computed, db: Database): PeopleUsage {
       weighted: Math.round(e.w),
       accountPct: c.meta.quotaHistory ? round1(e.p) : null,
       sharePct: round1(c.meta.quotaHistory && totP > 0 ? (100 * e.p) / totP : totW > 0 ? (100 * e.w) / totW : 0),
+      canMerge: personId !== null && channelOnly.has(personId),
     } as PersonUsageRow,
     // order on the full values: rounded to one digit, rows under 0.05% came out equal and unordered
     key: c.meta.quotaHistory ? e.p : e.w,

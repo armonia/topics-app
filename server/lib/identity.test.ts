@@ -49,7 +49,7 @@ describe("identità · il percorso locale non tocca il database", () => {
   it("locale = la macchina, senza cookie e senza query", () => {
     const db = db084();
     const io = resolveIdentity(db, null, true);
-    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false });
+    expect(io).toEqual({ locale: true, device: null, principals: [], confined: false, personId: null, rev: 0, screen: false, node: false });
   });
 
   it("e vale anche se un cookie c'è: sul locale non lo si legge nemmeno", () => {

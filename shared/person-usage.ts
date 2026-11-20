@@ -14,6 +14,8 @@ export interface PersonUsageRow {
   accountPct: number | null;
   /** Share of the attributed total, in %. */
   sharePct: number;
+  /** Born from a channel only: it can be merged into another person. */
+  canMerge: boolean;
 }
 
 export interface PeopleUsageMeta {

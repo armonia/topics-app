@@ -247,6 +247,7 @@ const CHAT_IT: Dict = {
   'chat.subagent.reason.machine-cut': 'fermato dal sistema ({detail})',
   'chat.subagent.reason.swept': "ritirato perché chi l'ha lanciato non lavora più",
   'chat.subagent.reason.terminal-lost': 'il suo terminale non è sopravvissuto al riavvio',
+  'chat.subagent.reason.wait-expired': "chiuso dopo l'attesa senza notizie ({detail})",
   'chat.subagent.lastSeen': 'Ultima riga vista, non un esito:',
   'chat.subagent.noOutput': 'terminato senza output',
   'chat.subagent.turn': 'turno {n}',
@@ -254,6 +255,8 @@ const CHAT_IT: Dict = {
   // What works now for the chat, the strip under it (chat-live-work), and the
   // empty log of a command: what it waits for and since when.
   'livework.finished': 'finito',
+  'chat.subagent.shownAfterHold': "Pausa del provider finita: l'agente legge i risultati di {names}, già qui sopra",
+  'livework.awaiting': 'turno finito, aspetta i suoi lavori',
   'livework.logTitle': '{name} · log (apri)',
   'livework.logClose': 'Chiudi il log',
   'livework.stopTitle': 'Ferma {name}',
@@ -273,6 +276,10 @@ const CHAT_IT: Dict = {
   'processlog.fetchFailed': 'Lettura del log non riuscita',
   'processlog.readError': 'Errore: {error}',
   'processlog.stopFailed': 'Stop non riuscito: il processo è ancora in corso',
+  'reasoning.showOriginal': 'Originale',
+  'reasoning.showTranslated': 'Tradotto',
+  'reasoning.showOriginalTitle': 'Mostra il testo originale del ragionamento',
+  'reasoning.showTranslatedTitle': 'Mostra la traduzione del ragionamento',
   ...VIEWS_IT,
 };
 

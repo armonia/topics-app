@@ -20,6 +20,7 @@ import { rememberLocalAck } from './selfEcho';
 import { getTabId } from './syncCrossTab';
 import { hasReceivedServerHydrate } from './serverHydrated';
 import { apiFetch } from '../../../lib/shell/net';
+import { isNestedInTopicsPane } from '../../../lib/shell/nestedPane';
 
 const REMOTE_KEY = 'pane-store-v2';
 const DEBOUNCE_MS = 500;
@@ -123,6 +124,8 @@ async function pushSnapshot(
   snapshotSeq: number,
   baseSeq?: number,
 ): Promise<void> {
+  // Nested in a Topics pane: a read-only mirror, it never writes the shared layout.
+  if (isNestedInTopicsPane()) return;
   const prior = inflight.get(key);
   if (prior) prior.controller.abort();
 
@@ -274,7 +277,7 @@ function flushNowKeepalive(): void {
   // closes before the WS `ui-state:init` lands — would otherwise PUT that
   // empty snapshot and clobber the server's good copy (the exact reload-storm
   // pathology the debounce guard fixed, minus this path). Skip the flush.
-  if (!hasReceivedServerHydrate()) return;
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return;
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   void (async () => {
@@ -317,7 +320,7 @@ function flushNowBeacon(): void {
   }
   // Same boot-time hydrate guard as flushNowKeepalive — a pre-hydrate pagehide
   // must not beacon the empty default store over the server's authoritative copy.
-  if (!hasReceivedServerHydrate()) return;
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return;
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
@@ -341,6 +344,8 @@ function flushNowBeacon(): void {
 export function initServerSync(): void {
   if (started) return;
   started = true;
+  // Mirror mode: no debounce subscription and no teardown flush are wired at all.
+  if (isNestedInTopicsPane()) return;
 
   // SI OSSERVA `localSeq`, NON `lastSeq` — ed e' la riga che chiude il ciclo.
   //
@@ -555,7 +560,7 @@ export function flushPaneStoreNow(): Promise<void> {
     clearTimeout(timer);
     timer = null;
   }
-  if (!hasReceivedServerHydrate()) return Promise.resolve();
+  if (isNestedInTopicsPane() || !hasReceivedServerHydrate()) return Promise.resolve();
   const state = usePaneStore.getState();
   const snap = selectSyncableSnapshot(state);
   return pushSnapshot(REMOTE_KEY, snap, state.lastSeq);

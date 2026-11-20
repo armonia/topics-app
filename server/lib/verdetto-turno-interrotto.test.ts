@@ -107,7 +107,8 @@ function dbDiProva(): Database {
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, partial INTEGER, timestamp TEXT, end_reason TEXT)`);
   // The sweep skips the archived topics: without this table it has nothing to
   // ask and the query fails.
-  db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);
+  db.run(`CREATE TABLE topics (id TEXT, session_key TEXT, archived INTEGER)`);
+  db.run(`CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT)`);
   return db;
 }
 const ora = new Date().toISOString();
@@ -184,7 +185,7 @@ describe("bonifica dei turni muti", () => {
     ];
     inserisci(db, "archiviato", silent(), { sessionKey: "sk-archiviato" });
     inserisci(db, "aperto", silent(), { sessionKey: "sk-aperto" });
-    db.run(`INSERT INTO topics (session_key, archived) VALUES ('sk-archiviato', 1), ('sk-aperto', 0)`);
+    db.run(`INSERT INTO topics (id, session_key, archived) VALUES ('t-arch', 'sk-archiviato', 1), ('t-open', 'sk-aperto', 0)`);
 
     expect(bonificaTurniMuti(db as never, "TESTO DEL CARTELLO")).toBe(1);
     const leggi = (id: string) =>
