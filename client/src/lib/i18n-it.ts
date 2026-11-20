@@ -452,6 +452,8 @@ const IT: Dict = {
   'tool.agentWaits': "L'agente attende la tua risposta",
   'ask.recommended.hint': "È la strada che l'agente consiglia. La scelta resta tua.",
   'ask.recommended': 'consigliato',
+  'ask.image.open': 'Apri immagine',
+  'ask.image.missing': 'Immagine non disponibile',
   'ask.answerPlaceholder': 'Scrivi la tua risposta…',
   'plan.edit.label': 'Il piano, correggibile',
   'plan.edit.hint': "Approvare manda questa versione al posto di quella scritta dall'agente. Le correzioni restano se chiudi il pannello.",

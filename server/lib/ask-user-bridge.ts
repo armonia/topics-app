@@ -176,13 +176,13 @@ interface OpenAsk {
  * There is no expiry: an ask open for a day, or a week, is still open. It ends
  * when somebody answers, cancels, or sends a new message (see the header).
  */
-export function beginAsk(sessionKey: string, now = Date.now()): void {
+export function beginAsk(sessionKey: string, now = Date.now(), text?: string | null): void {
   if (activeAsks.has(sessionKey)) return;
   activeAsks.set(sessionKey, { startedAt: now });
   // From here the turn is parked on a person. Whoever watches the BOARD cannot
   // tell by itself: the task would stay `working` under an open panel. See
   // human-hold-events.ts.
-  emitHumanHoldChange({ sessionKey, phase: "held", source: "ask", id: `ask:${now}` });
+  emitHumanHoldChange({ sessionKey, phase: "held", source: "ask", id: `ask:${now}`, ...(text ? { text } : {}) });
 }
 
 /** Close an ask: answered or cancelled. Idempotent. */

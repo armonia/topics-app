@@ -448,6 +448,8 @@ const EN = {
   'tool.agentWaits': 'The agent is waiting for your answer',
   'ask.recommended.hint': 'This is the route the agent recommends. The choice stays yours.',
   'ask.recommended': 'recommended',
+  'ask.image.open': 'Open image',
+  'ask.image.missing': 'Image not available',
   'ask.answerPlaceholder': 'Write your answer…',
   'plan.edit.label': 'The plan, yours to correct',
   'plan.edit.hint': 'Approving sends this version instead of the one the agent wrote. Corrections survive closing the panel.',

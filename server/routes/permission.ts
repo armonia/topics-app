@@ -103,7 +103,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
   // la stessa vista.
   const askRouting = {
     db: ctx.db,
-    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string; media?: string[] }) => {
       try {
         const svc = createTaskService(ctx.db);
         const written = svc.addComment({
@@ -112,6 +112,9 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           content: a.content,
           projectId: a.projectId,
           questionOptions: a.options,
+          // Only paths the media route serves: the allowlist of
+          // `comment_task media`.
+          media: a.media?.filter((m) => { try { return ctx.isPathAllowed(m); } catch { return false; } }),
           // The question is asked DURING a turn: anchor it to the row it was
           // asked in, so the thread can draw it under that step instead of
           // beside the tool call that produced it.
@@ -184,7 +187,11 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // No expiry branch here any more: this route answered "the question
         // expired with no answer" after 24 hours, which ended a question nobody
         // had cancelled. A question waits for its human (29/09).
-        beginAsk(sk);
+        // The text of the question travels with the wait, so that after a
+        // server restart the attention store can compare it with the saved
+        // one (ATTN-07).
+        const firstQuestion = (body.questions[0] as { question?: unknown } | undefined)?.question;
+        beginAsk(sk, Date.now(), typeof firstQuestion === "string" ? firstQuestion.trim().slice(0, 200) : null);
         // THE ANSWER MAY ALREADY BE ON THE ROW. Given before a restart, it sat
         // in a buffer the restart emptied, while this child kept polling. The
         // row is the durable record, so the leg collects it there instead of
