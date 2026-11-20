@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Aperta: la ricetta (`deploy/cloud-node/`, `server/services/cloud-node-recipe.test.ts`) e il pool come guardiano (`deploy/cloud-node/node-pool`) esistono; manca `server/services/node-pool.ts` con `node-pool.test.ts` (assenti), manca la tabella `node_lives` e la migration di cloud-nodes (nessuna occorrenza in `server/`), e mancano le misure 0.7/0.8 su un nodo vero.
+
 ## Da decidere
 
 Nodi cloud, piano parcheggiato: 4 scelte. Il nodo libera RAM al Mac, non quota.

@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-95
+ * @covers KANBAN-119
  *
  * The card preview is photographed by WebKit, never by Chromium. Two layers:
  * the module launches `pw.webkit` and never `pw.chromium`, and the server wires
@@ -62,7 +62,7 @@ function fakePlaywright(bodyText = "") {
 const noSleep = async () => {};
 const quiet = () => {};
 
-describe("preview browser (KANBAN-95)", () => {
+describe("preview browser (KANBAN-119)", () => {
   test("the screenshot launches WebKit, never chromium.launch, at width x 760", async () => {
     const { calls, pw } = fakePlaywright();
     const pb = createPreviewBrowser({ loadPlaywright: async () => pw, sleep: noSleep, log: quiet });

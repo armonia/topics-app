@@ -14,7 +14,7 @@
  * seconds, then the process is closed after `idleMs`. At rest it holds zero
  * processes, like the remote browser's idle reaper.
  *
- * Kanban spec: KANBAN-95.
+ * Kanban spec: KANBAN-119.
  */
 import type { Browser, BrowserContext } from "playwright-core";
 

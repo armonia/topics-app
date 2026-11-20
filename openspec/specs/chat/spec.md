@@ -6808,3 +6808,197 @@ La riga di una chat finita SHALL mostrare, dopo l'anteprima, il tempo trascorso 
 - **GIVEN** una chat finita con un ultimo messaggio molto lungo
 - **WHEN** la riga si disegna a 375 o a 1440 px
 - **THEN** il tempo SHALL restare visibile per intero e l'anteprima SHALL troncarsi prima di lui
+
+
+### Requirement: CCLI-13 - Un lavoro interno non paga il contesto dell'utente
+
+Un one-shot interno (titolo, giudice, scelta del modello) SHALL partire senza i
+CLAUDE.md, lo stile di output e gli hook dell'utente: `--settings` SHALL portare
+`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`, `outputStyle: "default"` e
+`disableAllHooks: true`, nello stesso blocco delle altre leve (CCLI-07). Le
+sorgenti delle impostazioni SHALL restare `user,project,local`: l'`env`
+dell'utente può instradare la CLI, come fa il proxy degli account.
+
+Una risposta che l'utente legge (modifica di un messaggio, rigenerazione, ripiego
+SSE) SHALL dichiararsi `userFacing` e SHALL tenere quel contesto.
+
+PERCHÉ: la CLI mette in cache solo fino alla fine di un prompt che cambia a ogni
+chiamata, quindi quel contesto veniva riscritto nella cache da 1 h, a prezzo
+doppio, a ogni titolo. Misura del 14/10 (CLI 2.1.299): da 14.879 a 1.722 token di
+prefisso, da $0,0596 a $0,0069 a chiamata.
+
+#### Scenario: titolo di una chat
+- WHEN parte un one-shot interno
+- THEN gli argomenti portano le tre leve, e togliendone una qualsiasi il banco va rosso
+
+#### Scenario: modifica di un messaggio
+- WHEN l'utente modifica un messaggio e la risposta passa dal one-shot
+- THEN il one-shot porta solo `CLAUDE_CODE_DISABLE_AUTO_MEMORY`
+
+### Requirement: CHAT-MEDIA-BOX-01 — Un'immagine di un messaggio occupa il suo spazio prima di caricarsi
+
+Un'immagine disegnata in chat (`MediaImage`: il marcatore `MEDIA:`, un
+`[Attached file: …]`, l'array `media`, un'immagine markdown su un percorso locale)
+SHALL occupare il suo riquadro finale prima che i suoi byte arrivino, così che il
+caricamento non sposti niente sotto gli occhi di chi legge.
+
+Il server SHALL mandare con ogni messaggio che esce verso i client (pagina di
+`/api/history`, frame `message:new` e `message:media`) un campo
+`mediaSizes: { <percorso>: [larghezza, altezza] }` per le immagini PNG, JPEG, GIF e
+WebP di cui legge l'intestazione, con larghezza e altezza scambiate per un JPEG
+ruotato dall'EXIF. Le dimensioni NON SHALL essere salvate nel database: si leggono
+all'uscita, dal file, con una cache per percorso e `mtime`.
+
+Il client SHALL dare all'immagine, fino al suo caricamento, lo stesso riquadro che
+il browser le darà a caricamento avvenuto (`max-w-full max-h-80`, proporzioni
+mantenute, mai ingrandita), e dopo il caricamento SHALL lasciarla dimensionarsi da
+sé come prima.
+
+Senza `mediaSizes` (server che non le manda, file illeggibile, SVG, immagine
+remota) il comportamento SHALL restare quello di prima: l'immagine cresce quando
+arriva. Un client che non conosce il campo lo ignora.
+
+Finché i byte non arrivano, il riquadro SHALL leggersi come il posto di
+un'immagine e non come un buco: una tinta neutra del tema, in chiaro e in scuro,
+senza animazioni. Il sipario della lista (TOPIC-FIRST-01) NON SHALL aspettare
+un'immagine in vista che ha già il suo riquadro, perché il suo arrivo non sposta
+niente; un'immagine senza riquadro resta aspettata come prima.
+
+La bolla di chi invia un'immagine allegata (file scelto, incollato, o primo
+messaggio di una bozza) è disegnata prima che il server abbia la riga: il client
+SHALL metterci le dimensioni lette dal file nel composer, sotto lo stesso percorso
+con cui `MediaImage` le cerca. L'invio NON SHALL aspettare quella lettura più di
+mezzo secondo.
+
+#### Scenario: una risposta con immagine arrivata mentre la persona era via
+- **GIVEN** una chat letta, con la copia locale scritta, e una risposta con
+  un'immagine arrivata sul server dopo
+- **WHEN** la persona ricarica con la prima pagina trattenuta e l'immagine lenta
+- **THEN** la risposta compare in fondo con il riquadro dell'immagine già alto
+  quanto l'immagine, e il CLS del ritorno è ≤ 0,01 (prima 0,034)
+
+#### Scenario: un'immagine che arriva dal vivo
+- **GIVEN** una chat aperta, ferma in fondo
+- **WHEN** arriva dal server un messaggio con un'immagine (`message:new`), oppure le
+  immagini di fine turno (`message:media`), e i byte dell'immagine tardano
+- **THEN** il riquadro dell'immagine è già alto quanto l'immagine, e il CLS è ≤ 0,01
+
+#### Scenario: una topic visitata con un'immagine in vista si scopre senza aspettarne i byte
+- **GIVEN** una topic letta, con la copia locale scritta, la cui ultima risposta
+  ha un'immagine di dimensioni note
+- **WHEN** la persona torna sulla topic dal suo tab e i byte dell'immagine tardano
+  1,5 s
+- **THEN** il sipario si alza prima che i byte arrivino, in un numero di frame
+  lontano dal tetto duro del sipario (prima: al tetto, 74-75 frame, ~1270 ms),
+  l'immagine è già alta quanto sarà, e il CLS è ≤ 0,01
+
+#### Scenario: la bolla di chi allega un'immagine
+- **GIVEN** una chat aperta, ferma in fondo
+- **WHEN** la persona allega un PNG e invia, e i byte dell'immagine tardano
+- **THEN** la bolla compare con il riquadro dell'immagine già alto quanto
+  l'immagine, e il CLS è ≤ 0,01 (prima 0,0488)
+
+#### Scenario: senza dimensioni, come prima
+- **GIVEN** un messaggio con un'immagine il cui file il server non sa leggere
+- **THEN** il messaggio non porta `mediaSizes` e l'immagine si disegna come prima
+
+### Requirement: CHAT-FIND-01 — La chat cerca nella conversazione intera, uscite degli strumenti comprese, sul server
+
+Il cercatore della chat NON SHALL cercare nelle righe montate dalla lista
+virtuale (`MessageList.tsx:2111,2267`), e NON SHALL cercare l'uscita degli
+strumenti nei dati del client. Il client non la riceve: la storia la toglie
+(`server/routes/history.ts:136-143,266`, `shared/lean-tool-call.ts:305,433-436,516`).
+
+SHALL chiedere i risultati alla rotta `POST /api/history-find`
+(`{ sessionKey, query, matchCase }`, in `server/routes/history.ts`). La rotta
+SHALL leggere tutti i messaggi attivi della sessione con le uscite rimesse da
+`message_tool_outputs`, e SHALL rispondere
+`{ total, hits: [{ messageId, part, toolCallId?, offset }], truncated }`, con
+`total` esatto e al più 5.000 posizioni. La rotta NON SHALL essere aperta agli
+ospiti (`server/lib/grants.ts:101`).
+
+In ogni messaggio SHALL cercare: il testo; i ragionamenti; il comando o gli
+argomenti e l'uscita di ogni strumento (dal `detail` validato, o da `result`
+quando `detail` manca). NON SHALL cercare nei comandi lanciati da chi scrive
+(`CommandRunBlock`), che non sono messaggi. La ricerca SHALL essere una
+funzione pura (`shared/chat-find.ts`), la stessa per la rotta e per il client,
+e SHALL dare per ogni risultato `messageId`, la parte (`text`, `thinking`,
+`tool` con `toolCallId`) e la posizione.
+
+Il messaggio in streaming SHALL essere cercato nel client, sul testo ricevuto
+dal vivo; i suoi risultati SHALL sostituire quelli della rotta per lo stesso
+`messageId`. La barra SHALL chiedere alla rotta 250 ms dopo l'ultima lettera,
+annullando la richiesta precedente, e di nuovo a fine turno.
+
+I risultati SHALL essere nell'ordine in cui la conversazione li mostra, dal
+primo messaggio all'ultimo. Il primo passo avanti da fermo SHALL essere il
+primo risultato **sotto** la posizione di lettura, e il primo indietro il primo
+sopra (poi BROWSER-FIND-01 per il ciclo).
+
+Senza maiuscole/minuscole il confronto SHALL ignorare le maiuscole; una parola
+vuota SHALL dare zero risultati. Oltre 5.000 risultati il contatore SHALL dire
+«oltre 5000».
+
+Per un ospite di una chat condivisa la barra SHALL cercare solo nel testo e nei
+ragionamenti che il client ha.
+
+#### Scenario: una parola solo nel primo messaggio di una chat lunga
+- **GIVEN** una chat con più messaggi di quanti ne porti la prima pagina (`HISTORY_FIRST_PAGE`) e la parola «zibaldone» solo nel primo
+- **WHEN** apro la chat e cerco «zibaldone»
+- **THEN** il contatore arriva a «1 di 1» senza che la lista cambi righe sotto gli occhi
+- **AND** con Invio la riga del primo messaggio è in vista
+
+#### Scenario: una parola solo nell'uscita di uno strumento
+- **GIVEN** una risposta con una chiamata a uno strumento chiusa, la cui uscita contiene «ENOENT» e sta in `message_tool_outputs`
+- **WHEN** cerco «ENOENT»
+- **THEN** il contatore dice almeno un risultato
+
+#### Scenario: la funzione pura
+- **WHEN** `chatFind([{ id: 'a', content: 'Uno uno' }], 'uno', { matchCase: false })`
+- **THEN** il risultato ha due voci su `messageId: 'a'`, parte `text`, posizioni 0 e 4
+
+### Requirement: CHAT-FIND-02 — Arrivare su un risultato lo mostra, anche se era chiuso
+
+Andare su un risultato SHALL:
+
+- portare la sua riga al centro della vista, con il salto che già usa la
+  palette (`requestScrollToMessage`, `MessageList.tsx:1384-1460`), che unisce la
+  storia mancante (`'apply'`) solo in questo momento;
+- aprire la sezione dei ragionamenti o dello strumento che lo contiene, se è
+  chiusa, e lasciarla aperta dopo; una riga di strumento SHALL chiedere il suo
+  testo intero con la richiesta che c'è già (`ToolCallRow.tsx:274-283`) prima
+  di evidenziare;
+- espandere il corpo se il risultato è oltre il taglio di `clampBody`
+  (`Chat/clampBody.ts:14`);
+- evidenziare la parola nel testo a schermo con la CSS Custom Highlight API
+  (`CSS.highlights`), il corrente con un colore suo, senza modificare il DOM
+  della riga. Dove la parola non si ritrova nel testo a schermo (markdown che la
+  spezza, uscita disegnata in parte) SHALL evidenziare la riga intera
+  (`chat-msg-jump-highlight`).
+
+Chiudere la barra SHALL togliere ogni evidenziazione e NON SHALL richiudere le
+sezioni aperte.
+
+#### Scenario: la sezione chiusa si apre
+- **GIVEN** il risultato corrente dentro l'uscita di uno strumento chiuso
+- **WHEN** ci arrivo con Invio
+- **THEN** la sezione è aperta e la parola ha l'evidenziazione del corrente
+
+#### Scenario: nessun layout shift dall'evidenziazione
+- **GIVEN** una riga montata con tre risultati
+- **WHEN** la barra li evidenzia
+- **THEN** l'altezza della riga non cambia
+
+### Requirement: CHAT-FIND-03 — Mentre l'agente scrive il conteggio cresce, e non ti sposta
+
+Con la barra aperta su una chat in streaming, il cercatore SHALL ricercare il
+messaggio in corso quando il suo testo cambia, al più ogni 120 ms. I risultati
+nuovi SHALL aggiungersi al totale; l'indice e la posizione del risultato
+corrente NON SHALL cambiare, e la lista NON SHALL scorrere da sola per un
+risultato nuovo.
+
+#### Scenario: un risultato nuovo in coda
+- **GIVEN** la barra su «3 di 5» e un turno in streaming
+- **WHEN** l'agente scrive la parola cercata
+- **THEN** il contatore dice «3 di 6»
+- **AND** la vista non si è spostata
