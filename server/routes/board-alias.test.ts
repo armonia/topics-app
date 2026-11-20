@@ -1,6 +1,7 @@
 /**
  * A project folder moves and a symlink is left at the old path: the old board
  * id must reach the project's board (card 266a3e1e).
+ * @covers KANBAN-05
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
