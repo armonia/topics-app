@@ -63,6 +63,8 @@ export interface OverflowMachine {
   wakeable?: boolean;
   /** The machine's declared capacity, when it has one (default `OVERFLOW_SLOTS[kind]`). */
   slots?: number;
+  /** Cloud only: the account is known to be refused (no environment, login refused). Never set on «not asked yet». */
+  refused?: boolean;
   /** Free RAM the node last reported, in MB (optional heartbeat field). */
   freeMemoryMb?: number;
 }
@@ -147,7 +149,8 @@ export function machineForbidden(m: OverflowMachine, wakeBlocked?: (machineId: s
   if (m.slots === 0) return true;
   // The cloud row has no heartbeat and nothing to wake: its "online" only says
   // whether the overflow may CHOOSE it, so it never forbids a card already pinned there.
-  if (m.kind === "cloud") return false;
+  // The one exception is an account the cloud is known to refuse: nothing pinned there can start.
+  if (m.kind === "cloud") return m.refused === true;
   // The breaker before `online`: with the early return on online nodes it was never
   // read, and the card went back every 5 minutes to the node that kept refusing it.
   if (wakeBlocked?.(m.id)) return true;
@@ -267,7 +270,7 @@ export function overflowMachinesFrom(input: {
   for (const m of input.rows) {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
-      ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false }
+      ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false, ...(input.environmentOk === false ? { refused: true } : {}) }
       : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}) });
   }
   return out;

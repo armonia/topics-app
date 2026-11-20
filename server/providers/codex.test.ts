@@ -20,76 +20,9 @@ import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extract
 import { aggregateTouchedFiles } from "../lib/topic-changes";
 import type { ToolCall } from "../../shared/types";
 import { classifyToolAction, isCommandCall } from "../../shared/agent-action";
-import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
-
-interface RecordedHandler extends StreamHandler {
-  text: { delta: string; full: string }[];
-  tools: { type: "start" | "update" | "result"; id: string; payload: string | ToolArgs | undefined; error?: boolean }[];
-  toolNames: { id: string; name: string }[];
-  executing: string[];
-  activity: string[];
-  errors: string[];
-  done: { usage?: ProviderUsage; result?: string }[];
-  aborted: { usage?: ProviderUsage; result?: string }[];
-  context: { tokens: number; model?: string; windowTokens?: number }[];
-}
-
-function makeHandler(): RecordedHandler {
-  const h = {
-    text: [],
-    tools: [],
-    toolNames: [],
-    executing: [],
-    activity: [],
-    errors: [],
-    done: [],
-    aborted: [],
-    context: [],
-  } as unknown as RecordedHandler;
-  h.onContextSize = (tokens, model, windowTokens) => { h.context.push({ tokens, model, windowTokens }); };
-  h.onTextDelta = (text, fullText) => { h.text.push({ delta: text, full: fullText }); };
-  h.onToolStart = (id, name, args) => { h.toolNames.push({ id, name }); h.tools.push({ type: "start", id, payload: args }); };
-  h.onToolExecStart = (id) => { h.executing.push(id); };
-  h.onToolActivity = (id) => { h.activity.push(id); };
-  h.onToolUpdate = (id, partial) => { h.tools.push({ type: "update", id, payload: partial }); };
-  h.onToolResult = (id, result, error) => { h.tools.push({ type: "result", id, payload: result, ...(error ? { error } : {}) }); };
-  h.onError = (err) => { h.errors.push(err); };
-  h.onDone = (msg) => { h.done.push({ usage: msg?.usage, result: msg?.result }); };
-  h.onAborted = (msg) => { h.aborted.push({ usage: msg?.usage, result: msg?.result }); };
-  return h;
-}
-
-/**
- * Push an event through `routeCodexEvent` for a synthetic session. The
- * provider's session state needs to exist for tool tracking, so we seed it
- * via the same internal map. Using `as any` keeps the test focused on
- * behavior rather than re-exporting internals.
- */
-function pushEvent(
-  provider: CodexProvider,
-  sessionKey: string,
-  event: Record<string, unknown>,
-  handler: StreamHandler,
-  fullText = "",
-): string | null {
-  const p = provider as unknown as {
-    sessionState: Map<string, {
-      aborted: boolean;
-      usage?: ProviderUsage;
-      startedAt: number;
-      runningTools: Map<string, { toolCallId: string; partial: string }>;
-    }>;
-    routeCodexEvent: (sessionKey: string, event: Record<string, unknown>, handler: StreamHandler, fullText: string) => string | null;
-  };
-  if (!p.sessionState.has(sessionKey)) {
-    p.sessionState.set(sessionKey, {
-      aborted: false,
-      startedAt: Date.now(),
-      runningTools: new Map(),
-    });
-  }
-  return p.routeCodexEvent(sessionKey, event, handler, fullText);
-}
+import type { ProviderUsage } from "./types";
+import { makeHandler, pushEvent } from "./codex-test-helpers";
+import type { RecordedHandler } from "./codex-test-helpers";
 
 describe("extractCodexUsage", () => {
   test("returns null when no usage fields are present", () => {
@@ -670,7 +603,7 @@ describe("a Codex branch's fork, on disk", () => {
   afterAll(() => {
     try { closeDatabase(); } catch { /* cleanup */ }
     for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-    rmSync(root, { recursive: true, force: true });
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); } catch { /* Windows may hold the temp dir briefly */ }
   });
 
   function branch(sk: string, parentAt: string | null): void {

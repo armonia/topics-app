@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { harness, dispatch, flush } from "./task-dispatcher-remote-node-test-support";
-import { machineForbidden, pickOverflowMachine, pickReassignTarget, type OverflowMachine } from "./dispatch-overflow";
+import { machineForbidden, overflowMachinesFrom, pickOverflowMachine, pickReassignTarget, type OverflowMachine } from "./dispatch-overflow";
 import { wakeBreaker } from "./wake-breaker";
 
 const FORBIDDEN = "node-1";
@@ -25,6 +25,20 @@ function setup(list: OverflowMachine[]) {
   h.db.run("INSERT INTO machines (id) VALUES (?)", [ALLOWED]);
   return h;
 }
+
+describe("machineForbidden, cloud row", () => {
+  it("a cloud whose account is refused forbids a card pinned there; a merely offline one does not", () => {
+    expect(machineForbidden({ id: "c", name: "c", kind: "cloud", online: false, refused: true })).toBe(true);
+    expect(machineForbidden({ id: "c", name: "c", kind: "cloud", online: false })).toBe(false);
+  });
+  it("overflowMachinesFrom marks the cloud refused only on a definite `false`", () => {
+    const rows = [{ id: "c", name: "c", baseUrl: "claude-cloud://", status: "online" }];
+    const mk = (environmentOk: boolean | null) => overflowMachinesFrom({ rows, isCloud: () => true, cloudEnabled: true, environmentOk, wakeable: false })[0]!;
+    expect(mk(false)).toMatchObject({ online: false, refused: true });
+    expect(mk(null).refused).toBeUndefined();
+    expect(mk(true).online).toBe(true);
+  });
+});
 
 describe("machineForbidden", () => {
   it("zero slots, or offline with nothing to wake it, is forbidden", () => {

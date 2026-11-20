@@ -49,6 +49,7 @@ export async function bootHeartbeat(scope: AfterRouters2) {
     log: (message, err) => console.warn(`[Heartbeat] ${message}`, err),
   });
 
+  let lastCloudOffline: string | null = null;
   function tickHeartbeat() {
     try {
       const local = ctx.machineStore.upsertLocal();
@@ -67,10 +68,13 @@ export async function bootHeartbeat(scope: AfterRouters2) {
         if (env && !env.ok) {
           const off = ctx.machineStore.markNodeOffline(cloud.id);
           if (off) {
-            console.warn(`[claude-cloud] offline: ${env.reason}`);
+            // Once per cause: the same refusal is not written again on every beat.
+            if (lastCloudOffline !== env.reason) console.warn(`[claude-cloud] offline: ${env.reason}`);
+            lastCloudOffline = env.reason;
             ctx.broadcastToAll({ type: "machine:updated", machine: off, payload_version: 1 });
           }
         } else {
+          lastCloudOffline = null;
           ctx.machineStore.upsertNode({ hostname: CLOUD_NODE_HOST, name: cloud.name, baseUrl: CLOUD_NODE_BASE_URL });
         }
       }

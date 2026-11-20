@@ -460,6 +460,8 @@ export interface DispatcherDeps {
   cloudCredit?: () => boolean;
   /** Is the project's origin a GitHub repository (the cloud clones nothing else)? Absent = no, Cloud is never chosen. */
   githubOriginOf?: (projectId: string) => Promise<boolean>;
+  /** The cloud account is known to be refused access to this project's repository: the overflow does not pick the cloud for it. */
+  cloudRefusesProject?: (projectId: string) => boolean;
   /** Live delegated authority. A marked task fails closed when this is absent. */
   delegatedPolicyForTask?: (taskId: string) => DelegatedRunPolicy | null;
   /** Node-local bindings stay delegated even after expiry makes their live policy disappear. */
