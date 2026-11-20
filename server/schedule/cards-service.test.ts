@@ -90,7 +90,7 @@ describe("card a calendario", () => {
   });
 
   test("rifiuta una data cron impossibile senza scandire ogni minuto", () => {
-    expect(() => monday({ cron: "0 0 30 2 *" })).toThrow("La regola non ha esecuzioni nei prossimi otto anni.");
+    expect(() => monday({ cron: "0 0 30 2 *" })).toThrow("The rule has no run in the next eight years.");
   });
 
   test("eliminare la ricorrenza la ferma e conserva il riferimento delle card già nate", () => {

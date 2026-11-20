@@ -25,28 +25,28 @@ const FIELDS = [
 
 function parseCron(expression: string): Set<number>[] {
   const parts = expression.trim().split(/\s+/);
-  if (parts.length !== 5) throw new ScheduleError('La regola deve avere cinque campi cron.');
+  if (parts.length !== 5) throw new ScheduleError('A cron rule needs five fields.');
   return parts.map((part, index) => {
     const { min, max } = FIELDS[index];
     const values = new Set<number>();
     for (const term of part.split(',')) {
       const [rangeText, stepText] = term.split('/');
-      if (term.split('/').length > 2 || (stepText && !/^\d+$/.test(stepText))) throw new ScheduleError('Campo cron non valido.');
+      if (term.split('/').length > 2 || (stepText && !/^\d+$/.test(stepText))) throw new ScheduleError('Invalid cron field.');
       const step = stepText ? Number(stepText) : 1;
-      if (step < 1) throw new ScheduleError('Il passo cron deve essere positivo.');
+      if (step < 1) throw new ScheduleError('The cron step must be positive.');
       let start: number; let end: number;
       if (rangeText === '*') { start = min; end = max; }
       else if (/^\d+$/.test(rangeText)) { start = Number(rangeText); end = term.includes('/') ? max : start; }
       else {
         const range = /^(\d+)-(\d+)$/.exec(rangeText);
-        if (!range) throw new ScheduleError('Campo cron non valido.');
+        if (!range) throw new ScheduleError('Invalid cron field.');
         start = Number(range[1]); end = Number(range[2]);
       }
-      if (start < min || end > max || start > end) throw new ScheduleError('Valore cron fuori intervallo.');
+      if (start < min || end > max || start > end) throw new ScheduleError('Cron value out of range.');
       for (let value = start; value <= end; value += step) values.add(value);
     }
     if (index === 4 && values.has(7)) values.add(0);
-    if (!values.size) throw new ScheduleError('Campo cron vuoto.');
+    if (!values.size) throw new ScheduleError('Empty cron field.');
     return values;
   });
 }
@@ -73,7 +73,7 @@ export function nextCronOccurrence(expression: string, timeZone: string, after: 
     clockFormat = clockFormatFor(timeZone);
   } catch (error) {
     if (error instanceof ScheduleError) throw error;
-    throw new ScheduleError('Fuso orario o regola cron non validi.');
+    throw new ScheduleError('Invalid time zone or cron rule.');
   }
   const afterLocal = zonedDateParts(after, clockFormat);
   const firstDate = new Date(Date.UTC(afterLocal.year, afterLocal.month - 1, afterLocal.day) - 86_400_000);
@@ -109,7 +109,7 @@ export function nextCronOccurrence(expression: string, timeZone: string, after: 
     }
     if (first !== null) return new Date(first);
   }
-  throw new ScheduleError('La regola non ha esecuzioni nei prossimi otto anni.');
+  throw new ScheduleError('The rule has no run in the next eight years.');
 }
 
 /**
@@ -131,12 +131,12 @@ export function isRepeatedWallTime(timeZone: string, instant: Date): boolean {
 
 /** Throws a ScheduleError when the schedule cannot run; `at` in the past only when `rejectPast`. */
 export function validateSchedule(value: unknown, options: { now?: Date; rejectPast?: boolean; requireZone?: boolean } = {}): Schedule {
-  if (!value || typeof value !== 'object') throw new ScheduleError('Orario mancante.');
+  if (!value || typeof value !== 'object') throw new ScheduleError('Schedule missing.');
   const s = value as Record<string, unknown>;
   if (s.kind === 'cron') {
-    if (typeof s.expr !== 'string') throw new ScheduleError('Testo e regola cron sono obbligatori.');
-    if (s.tz !== undefined && typeof s.tz !== 'string') throw new ScheduleError('Fuso orario non valido.');
-    if (options.requireZone && !s.tz) throw new ScheduleError('Fuso orario non valido.');
+    if (typeof s.expr !== 'string') throw new ScheduleError('The cron rule is required.');
+    if (s.tz !== undefined && typeof s.tz !== 'string') throw new ScheduleError('Invalid time zone.');
+    if (options.requireZone && !s.tz) throw new ScheduleError('Invalid time zone.');
     const tz = (s.tz as string | undefined)?.trim() || DEFAULT_TIME_ZONE;
     const cronText = s.expr.trim();
     nextCronOccurrence(cronText, tz, options.now ?? new Date());
@@ -149,10 +149,10 @@ export function validateSchedule(value: unknown, options: { now?: Date; rejectPa
   if (s.kind === 'at') {
     const parsed = typeof s.at === 'string' ? Date.parse(s.at) : Number.NaN;
     if (Number.isNaN(parsed)) throw new ScheduleError('at must be a date and time');
-    if (options.rejectPast && parsed <= (options.now ?? new Date()).getTime()) throw new ScheduleError('Un orario `at` nel passato non si può creare.');
+    if (options.rejectPast && parsed <= (options.now ?? new Date()).getTime()) throw new ScheduleError('An `at` time in the past cannot be created.');
     return { kind: 'at', at: new Date(parsed).toISOString() };
   }
-  throw new ScheduleError('Tipo di orario sconosciuto.');
+  throw new ScheduleError('Unknown schedule kind.');
 }
 
 /** The occurrence after `after` (`every` counts from `after`; a spent `at` has none). */

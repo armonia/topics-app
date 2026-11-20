@@ -41,7 +41,7 @@ describe("cron with a zone", () => {
   });
 
   test("an impossible date is refused without scanning every minute", () => {
-    expect(() => nextCronOccurrence("0 0 30 2 *", "UTC", at("2026-01-01T00:00:00Z"))).toThrow("La regola non ha esecuzioni nei prossimi otto anni.");
+    expect(() => nextCronOccurrence("0 0 30 2 *", "UTC", at("2026-01-01T00:00:00Z"))).toThrow("The rule has no run in the next eight years.");
   });
 });
 
