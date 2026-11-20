@@ -139,7 +139,7 @@ export interface AppDataDirInputs {
   linkTarget?: (path: string) => string | null;
 }
 
-function symlinkTarget(path: string): string | null {
+function resolvedLink(path: string): string | null {
   try { return lstatSync(path).isSymbolicLink() ? realpathSync(path) : null; }
   catch { return null; }
 }
@@ -186,7 +186,7 @@ export function resolveAppDataDir(inputs: AppDataDirInputs = {}): string {
   // A legacy root that is only a link (the folder moved and the old name points at
   // it) resolves to where it points: new paths are written under the real folder,
   // never under the obsolete name. The files are the same either way.
-  if (exists(legacy)) return (inputs.linkTarget ?? symlinkTarget)(legacy) ?? legacy;
+  if (exists(legacy)) return (inputs.linkTarget ?? resolvedLink)(legacy) ?? legacy;
   return topicsHome(env, home);
 }
 
