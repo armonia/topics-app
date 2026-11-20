@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead, clampInt, MACHINE_RETRY_BASE_MS, MACHINE_RETRY_CAP, GLOBAL_SETTINGS_KEY } from "./shared";
-import { PARKED_WAITED_OUT, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap, missingReviewCardFields } from "../../../shared/board";
+import { PARKED_WAITED_OUT, UNRESOLVED_PROJECT_PARK_REASON, LEGACY_UNRESOLVED_PROJECT_PARK_REASON, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap, missingReviewCardFields } from "../../../shared/board";
 import { type Task } from "../task-shapes";
 import { markTargetNotificationsSeen } from "../../db/notification-log";
 import { WORKFLOW_COLUMNS } from "../../../shared/workflow";
@@ -15,7 +15,7 @@ import { readGlobalCap, readSpendCaps, readChecksMemFloorGB } from "../dispatch-
 import { isNodeChildRun } from "../node-child-run";
 import { checksMemFloorGB } from "../../../shared/checks-memory-floor";
 
-export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
+export function createStatusMethods(db: Database, _opts: ServiceOpts, shared: ReturnType<typeof createTasksShared>): Pick<TaskService, "update" | "hasHeavyInFlight" | "liveAgents" | "overflowToMachine" | "countOnMachine" | "claim" | "bumpDispatchAttempt" | "listBlockedBy" | "isDispatchBlocked" | "release" | "deferForWait" | "askParkedChildren" | "sweepParkedChildren" | "waitedOutIfCapped" | "sweepMachineWaitedOut" | "sweepUnresolvedProjectParked" | "sweepWaitedOut" | "sweepUnownedBacklog" | "resolveParkedChildren" | "setDispatchState" | "setDispatchWeight" | "boardsWithQueuedTodos" | "taskIdOfTopic" | "getGlobalAutoDispatch" | "setGlobalAutoDispatch" | "getGlobalCap" | "setGlobalCap" | "getSpendCaps" | "setSpendCaps" | "getChecksMemFloorGB" | "setChecksMemFloorGB" | "agentSpend"> {
   const {
     agentAskOnThread,
     annotateDeliveryClaims,
@@ -678,6 +678,15 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
           // left behind: the badge went out and the explanation for a queue
           // that no longer exists stayed on the row, ready to be rendered by
           // any surface that reads the reason rather than the state.
+          put("dispatch_error", null);
+        }
+        // A person sending a card to backlog by hand, when it already sits there
+        // under the "project folder not found" park, says it is held on purpose:
+        // the sign goes, so the automatic return does not requeue it.
+        if (patch.status === "backlog" && current === "backlog" && actor === "human"
+          && row.dispatch_state === "blocked" && (row.dispatch_error === UNRESOLVED_PROJECT_PARK_REASON
+            || row.dispatch_error === LEGACY_UNRESOLVED_PROJECT_PARK_REASON)) {
+          put("dispatch_state", null);
           put("dispatch_error", null);
         }
         // A task arriving in review is a hand-off, not live work: settle a
@@ -1502,6 +1511,40 @@ sweepWaitedOut({ eligible, busy } = {}): Task[] {
         } catch { /* a card may have moved underneath: the next pass picks it up */ }
       }
       return parkedCards;
+    },
+
+sweepUnresolvedProjectParked(this: TaskService, { resolvable }): Task[] {
+      // A card parked because its board mapped to no directory comes back once
+      // the board maps again. The match is on the exact park reason, so a card
+      // parked for any other cause, or moved to backlog by hand (which clears
+      // the chip), is never touched.
+      const ts = now();
+      let rows: Array<{ id: string; project_id: string }> = [];
+      try {
+        rows = db.prepare(
+          `SELECT id, project_id FROM tasks
+            WHERE archived = 0 AND status = 'backlog' AND dispatch_state = 'blocked' AND dispatch_error = ?`,
+        ).all(UNRESOLVED_PROJECT_PARK_REASON) as typeof rows;
+      } catch { return []; }
+      const out: Task[] = [];
+      const answers = new Map<string, boolean>();
+      for (const r of rows) {
+        let ok = answers.get(r.project_id);
+        if (ok === undefined) { try { ok = resolvable(r.project_id); } catch { ok = false; } answers.set(r.project_id, ok); }
+        if (!ok) continue;
+        const res = db.prepare(
+          `UPDATE tasks SET status = 'todo', dispatch_state = NULL, dispatch_error = NULL, dispatch_attempts = 0, updated_at = ?
+            WHERE id = ? AND status = 'backlog' AND dispatch_state = 'blocked' AND dispatch_error = ?`,
+        ).run(ts, r.id, UNRESOLVED_PROJECT_PARK_REASON);
+        if (!res.changes) continue;
+        logStatus(r.id, "backlog", "todo", "dispatcher");
+        try {
+          this.addComment({ taskId: r.id, author: "system", kind: "service", content: "Rimessa in coda da sola: la cartella del progetto si trova di nuovo." });
+        } catch { /* the note never blocks the requeue */ }
+        const t = getTaskRow(r.id);
+        if (t) out.push(rowToTask(t));
+      }
+      return out;
     },
 
 sweepUnownedBacklog(): Task[] {
