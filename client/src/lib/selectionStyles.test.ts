@@ -292,6 +292,10 @@ describe('le due famiglie di altezza, e le tre misure interne', () => {
     expect(riga.compact).toBe(44);
   });
 
+  test('a touch screen at md width keeps the 44px row', () => {
+    expect(ROW_H.split(/\s+/)).toContain('coarse:h-11');
+  });
+
   test("l'aria DENTRO una riga è una sola, e SECTION_CARD la usa", () => {
     // `SECTION_CARD` stava a `gap-1.5` mentre otto superfici su quattordici
     // usavano `gap-2`: la costante era in minoranza rispetto ai suoi clienti.

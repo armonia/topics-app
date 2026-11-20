@@ -581,7 +581,8 @@ export const TAB_GAP_CLASS = 'gap-1.5';
  * Era già la regola scritta in `useMobile`, e la stessa riga la violava
  * scegliendo il ramo con `isTouch` e il box del comando con `md:`.
  */
-export const ROW_H = 'h-11 md:h-[34px]';
+/** `coarse:h-11` keeps a 768px touch screen (an iPad in portrait is at `md:`) on a 44px row. */
+export const ROW_H = 'h-11 md:h-[34px] coarse:h-11';
 /** L'altra famiglia — vedi {@link ROW_H}. Uguale a {@link ROW_ACTION_BOX} in
  *  altezza, e l'uguaglianza la blocca `selectionStyles.test.ts`. */
 export const CARD_H = 'h-9 md:h-7';
