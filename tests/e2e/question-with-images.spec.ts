@@ -189,9 +189,11 @@ test.describe.serial("La domanda porta l'immagine", () => {
 
       const result = await bridge;
       expect(result.answers).toEqual({ [question]: "Warm" });
-      // The answer is out: the panel holds its sending state until the turn
-      // resumes, and that state is the last frame of the clip.
-      await expect(form.getByTestId("ask-submit")).toBeDisabled();
+      // The answer is out: the server flips the call to running, the panel
+      // closes and the row keeps the choice. That row is the last frame of
+      // the clip.
+      await expect(form).toBeHidden({ timeout: 10_000 });
+      await expect(page.getByTestId(`tool-call-row-${toolCallId}`)).toContainText("Warm");
     });
   }
 
