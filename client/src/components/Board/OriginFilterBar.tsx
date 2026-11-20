@@ -4,7 +4,7 @@
  * question three ways (the «all / mine / others» toggle, the quick filters
  * where «Agents» also counted Jarvis's cards, and the «who closes» grouping).
  *
- *   [Il mio lavoro | Tutto]  Tu 3 · Agenti 54 · Jarvis 24 · Visione 1 · Sessioni 22 · Programmate 17  [Canale ▾]  [Serve te 12]  [Nascondi in corso]
+ *   [My work | All]  You 3 · Agents 54 · Jarvis 24 · Visione 1 · Chats 22 · Scheduled 17  [Channel ▾]  [Needs you 12]  [Hide in progress]
  *
  * Every count says how many cards that choice would show with the other
  * filters as they are, so a chip never reads 0 because of itself.
