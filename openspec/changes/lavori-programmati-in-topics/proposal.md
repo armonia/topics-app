@@ -1,7 +1,7 @@
 # Lavori programmati dentro Topics
 
 ## Deciso da me
-«ma io lo farei dentro topics, refactorando il possibile per utilità e pulizia e potenza condivisa, e eventualmente separare i processi se ha senso» (Attilio, 20/11/2026).
+«ma io lo farei dentro topics, refactorando il possibile per utilità e pulizia e potenza condivisa, e eventualmente separare i processi se ha senso» (il proprietario, 20/11/2026).
 
 ## Perché
 Oggi un lavoro a orario (un comando o un turno di agente) lo fa partire un servizio esterno nato per i canali di messaggistica. Topics ne è il telecomando: elenca, mette in pausa, rilancia e cancella (`server/routes/cron.ts`, `server/routes/agent-config.ts`), ma non può crearne uno. In più Topics ha un secondo motore a orario, quello delle card programmate (`server/services/scheduled-cards.ts`), con un suo parser. Risultato: due motori, due calcoli degli orari, la storia dei giri fuori dal DB di Topics, nessun freno comune, e chi installa Topics senza quel servizio non ha lavori programmati.
