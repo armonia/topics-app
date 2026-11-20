@@ -264,15 +264,14 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeVisible({ timeout: 20000 });
-    const toggle = page.getByTestId("board-detail-slider");
-    await toggle.press("End");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await page.getByTestId("board-view-grid").click();
+    await expect(page.getByTestId("board-view-grid")).toHaveAttribute("aria-checked", "true");
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
     // The switch takes the scroll away from the column body. An observer left on it saw the
     // show-more row in view forever and chained every page of the archive, with nobody scrolling.
-    await toggle.press("ArrowLeft");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
+    await page.getByTestId("board-view-list").click();
+    await expect(page.getByTestId("board-view-list")).toHaveAttribute("aria-checked", "true");
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count(), "no page without a reader").toBe(COLUMN_PAGE);
 
@@ -314,9 +313,8 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
-    const toggle = page.getByTestId("board-detail-slider");
-    await toggle.press("End");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await page.getByTestId("board-view-grid").click();
+    await expect(page.getByTestId("board-view-grid")).toHaveAttribute("aria-checked", "true");
     const rowPastColumn = () => page.evaluate(() => {
       const row = document.querySelector('[data-testid="kanban-column-more-done"]')!.getBoundingClientRect();
       return Math.round(row.top - document.querySelector('[data-testid="kanban-column-body-done"]')!.getBoundingClientRect().bottom);
@@ -325,8 +323,8 @@ test.describe("Kanban — il volume di una colonna", () => {
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
-    await toggle.press("ArrowLeft");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
+    await page.getByTestId("board-view-list").click();
+    await expect(page.getByTestId("board-view-list")).toHaveAttribute("aria-checked", "true");
     await afterFrames(page, 120);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 
@@ -392,14 +390,13 @@ test.describe("Kanban — il volume di una colonna", () => {
     await page.goto("/");
     await openProjectBoard(page);
     await expect(cardsIn(page, "done").first()).toBeAttached({ timeout: 20000 });
-    const toggle = page.getByTestId("board-detail-slider");
-    await toggle.press("End");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
-    await toggle.press("ArrowLeft");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "1");
+    await page.getByTestId("board-view-grid").click();
+    await expect(page.getByTestId("board-view-grid")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("board-view-list").click();
+    await expect(page.getByTestId("board-view-list")).toHaveAttribute("aria-checked", "true");
     await afterFrames(page, 30);
-    await toggle.press("ArrowRight");
-    await expect(toggle).toHaveAttribute("aria-valuenow", "2");
+    await page.getByTestId("board-view-grid").click();
+    await expect(page.getByTestId("board-view-grid")).toHaveAttribute("aria-checked", "true");
     await afterFrames(page, 30);
     expect(await cardsIn(page, "done").count()).toBe(COLUMN_PAGE);
 

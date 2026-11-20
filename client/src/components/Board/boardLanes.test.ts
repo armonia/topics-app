@@ -9,7 +9,7 @@ import { columnIdOfDropTarget, dropsOnOtherProject, laneDropId, projectIdOfDropT
 import { draftLaneOf, type DraftPreview } from './draftPreview';
 import {
   BOARD_COLLAPSED_PROJECTS_STORAGE_KEY, BOARD_GROUP_BY_STORAGE_KEY,
-  readBoardGroupBy, readCollapsedProjects, writeBoardPreference, writeCollapsedProjects,
+  BOARD_THEN_BY_STORAGE_KEY, readBoardGroupBy, readBoardThenBy, readCollapsedProjects, writeBoardPreference, writeCollapsedProjects,
 } from './boardGeometry';
 
 const task = (id: string, projectId: string): BoardTask => ({ id, projectId } as BoardTask);
@@ -163,8 +163,19 @@ describe('view preferences', () => {
     install(fake);
     writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, 'project');
     expect(readBoardGroupBy()).toBe('project');
-    store.set(BOARD_GROUP_BY_STORAGE_KEY, 'status');
+    store.set(BOARD_GROUP_BY_STORAGE_KEY, 'bogus');
     expect(readBoardGroupBy()).toBe('none');
+  });
+
+  test('the choice is kept per board; a board that never chose reads the old global key', () => {
+    install(fake);
+    writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, 'project');
+    writeBoardPreference(`${BOARD_GROUP_BY_STORAGE_KEY}:b1`, 'closer');
+    writeBoardPreference(`${BOARD_THEN_BY_STORAGE_KEY}:b1`, 'priority');
+    expect(readBoardGroupBy('b1')).toBe('closer');
+    expect(readBoardThenBy('b1')).toBe('priority');
+    expect(readBoardGroupBy('b2')).toBe('project');
+    expect(readBoardThenBy('b2')).toBe('none');
   });
 
   test('folded projects survive a write and a broken value reads as none', () => {
