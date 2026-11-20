@@ -2,6 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.56 — 2026-11-20
+
+### Sotto il cofano
+- Old board id resolves to the moved project's board (card 266a3e1e)
+- Declare what the board alias test covers
+- Persist board aliases so an old board id reaches the moved project (card 266a3e1e)
+- Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main
+- Preview recapture: wait for the seeded deep link long enough under load
+- Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda
+- una board aperta attraverso un link tiene le sue card
+- la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione
+- i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore
+- baseline follows the scores that rose tonight [skip ci]
+
 ## 2.4.55 — 2026-11-20
 
 ### Sotto il cofano
@@ -12,6 +26,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - move Codex spawn_agent ask-user tests to their own file
 - Board settings warn when a registered project cannot have a worktree (#1358)
 - topics/ivory-sloop (card 10508340) (#1339)
+- Per-project quota: correct count (nested transcripts, per-model weight, cards keep their project, one folder one project, single calls), surfaces, 24h limit and a meter in the sidebar and the Dashboard, with no pause
 - Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)
 - trova il checkout dopo uno spostamento e chiude la card già su main (#1371)
 - Quality bar: a skipped placement job is neutral, a skipped e2e shard stays red
@@ -21,6 +36,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts
 - riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate
 - Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)
+- filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming
 - declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows
 - Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati
 - Il nodo cloud non prende card che non può eseguire: rifiuti per repository e account tornano subito in coda, un avviso per causa
@@ -32,6 +48,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)
 - cards parked for an unresolvable project folder return to todo by themselves
 - Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud
+- Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary
+- Test schema: for_you columns in migration order
 
 ## 2.4.54 — 2026-11-19
 

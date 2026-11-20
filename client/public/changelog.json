@@ -1,5 +1,70 @@
 [
   {
+    "version": "2.4.56",
+    "date": "2026-11-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Old board id resolves to the moved project's board (card 266a3e1e)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare what the board alias test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Persist board aliases so an old board id reaches the moved project (card 266a3e1e)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview recapture: wait for the seeded deep link long enough under load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "una board aperta attraverso un link tiene le sue card",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "baseline follows the scores that rose tonight [skip ci]",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.55",
     "date": "2026-11-20",
     "sections": {
@@ -45,6 +110,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Per-project quota: correct count (nested transcripts, per-model weight, cards keep their project, one folder one project, single calls), surfaces, 24h limit and a meter in the sidebar and the Dashboard, with no pause",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)",
@@ -95,6 +165,12 @@
           "it": "Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows",
@@ -151,6 +227,16 @@
         },
         {
           "it": "Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test schema: for_you columns in migration order",
           "en": "",
           "scope": null
         }
