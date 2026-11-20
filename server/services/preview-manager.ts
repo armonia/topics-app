@@ -314,8 +314,16 @@ export interface PreviewManager {
 
 const DEFAULT_RANGE: [number, number] = [3400, 3450];
 
-/** How long to wait for a command's deep-link file once its server answers, ms. */
-const DEEP_LINK_WAIT_MS = 15_000;
+/**
+ * How long to wait for a command's deep-link file once its server answers, ms.
+ *
+ * The wait ends the moment the file appears, so a generous cap costs nothing on
+ * a healthy run. It used to be 15 s: on a loaded machine the seeding that
+ * writes the file takes longer, the shot fell back to `/` (the app's empty
+ * shell), the empty-shell gate retired it, and the visible card was parked for
+ * a missing photo with its live preview up.
+ */
+const DEEP_LINK_WAIT_MS = 120_000;
 
 /**
  * The pool from TOPICS_PREVIEW_PORTS ("low-high"), else the default. A Topics node that

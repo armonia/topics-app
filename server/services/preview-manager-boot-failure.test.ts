@@ -134,3 +134,27 @@ describe("preview deep-link file", () => {
     expect((await pm.ensurePreview("t1"))?.url).toBe("http://localhost:3400/");
   });
 });
+
+describe("recapture on a slow seed", () => {
+  // A visible card holds the generated sheet; the recapture must replace it with
+  // a real shot of the topic the seeding creates, even when the seeding is slow.
+  function slowSeed(seedAtMs: number) {
+    let t = 0;
+    const set: string[] = [];
+    const h = harness({
+      now: () => t, sleep: async (ms) => { t += ms; },
+      resolveCommand: () => ({ cmd: ["x"], deepLinkPath: "/", deepLinkFile: "/tmp/dl-{port}" }),
+      readDeepLink: () => (t >= seedAtMs ? "/?topic=abc" : null),
+      currentPreviewImage: () => "/data/media/task-sheets/t1.svg",
+      emptyAppShell: async (url) => !url.includes("topic="),
+      setPreviewImage: (_t, p) => { set.push(p); },
+    });
+    return { h, set };
+  }
+
+  it("replaces the sheet with a real shot when the seeding takes 40 s", async () => {
+    const { h, set } = slowSeed(40_000);
+    await createPreviewManager(h.deps).prepareForReview("t1");
+    expect(set.map((p) => p.split("\\").join("/"))).toEqual(["/tmp/media/t1.png"]);
+  });
+});
