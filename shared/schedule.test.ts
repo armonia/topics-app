@@ -2,7 +2,7 @@
  * The one schedule calculation: cron with zones and the two clock changes, `every`,
  * `at`, and the validation the server and the client share.
  *
- * @covers R2, R5
+ * @covers SCHED-02
  */
 import { describe, expect, test } from "bun:test";
 import {

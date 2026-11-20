@@ -1,6 +1,8 @@
 /**
  * The migration that carries the board recurrences into the engine's tables
  * (R1): same ids, same next occurrence, the cards already born kept as runs.
+ *
+ * @covers SCHED-01
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -2,7 +2,7 @@
  * The engine on a fake clock: lost occurrences, windows, overlap, the cap, two engines
  * on one file, a launch that fails, the card in the run's transaction, the shutdown.
  *
- * @covers R3, R4, R5, R6, R7, R8, R9, R10
+ * @covers SCHED-01, SCHED-02, SCHED-03
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
