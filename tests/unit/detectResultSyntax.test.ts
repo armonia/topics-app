@@ -1,3 +1,10 @@
+/**
+ * A tool result has no file extension, so its language is read from the content:
+ * valid JSON or a git diff gets highlighted, anything else (or anything oversized)
+ * stays plain text.
+ *
+ * @covers CHAT-TOOL-04
+ */
 import { describe, expect, test } from 'bun:test';
 import { detectResultSyntax } from '../../client/src/lib/syntaxHighlight';
 
