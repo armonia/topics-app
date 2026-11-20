@@ -17,7 +17,7 @@ import type { MachineMetrics } from "../../shared/machine-overview";
 import type { MachineSecurityReport } from "../../shared/machine-health";
 import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
-import { readLocalMetrics } from "../lib/machine-metrics";
+import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
@@ -91,10 +91,18 @@ export function startMachineHealth(ctx: AppContext): void {
       return all.map(({ id, name, kind }) => ({ id, name, kind }));
     },
     readMetrics: async (t) => {
-      const metrics: MachineMetrics | null = t.kind === "local"
-        ? readLocalMetrics()
-        : (await fetchNodeJson<{ metrics?: MachineMetrics }>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-metrics", REMOTE_METRICS_TIMEOUT_MS))?.metrics ?? null;
-      return metrics ? { cpu: metrics.cpuPct, mem: metrics.memPct } : null;
+      if (t.kind === "local") {
+        const local = readLocalMetrics();
+        return { cpu: local.cpuPct, mem: local.memPct };
+      }
+      const baseUrl = baseUrlOf.get(t.id) ?? "";
+      const metrics: MachineMetrics | null = (await fetchNodeJson<{ metrics?: MachineMetrics }>(ctx, t.id, baseUrl, "/api/system/machine-metrics", REMOTE_METRICS_TIMEOUT_MS))?.metrics ?? null;
+      if (!metrics) return null;
+      if (metrics.memPct !== null) return { cpu: metrics.cpuPct, mem: metrics.memPct };
+      // A node still running a build that cannot read its own memory (a Linux server before the /proc/meminfo reading):
+      // its process list is old enough to exist, so the processes' memory over the machine total stands in.
+      const readout = await fetchNodeJson<{ memTotalMB?: number | null; procs?: Array<{ memMB: number }>; rest?: { memMB: number } }>(ctx, t.id, baseUrl, "/api/system/machine-readout", REMOTE_METRICS_TIMEOUT_MS);
+      return { cpu: metrics.cpuPct, mem: memPctFromReadout(readout) };
     },
     externalSamples: async (t, sinceS) => {
       if (t.kind === "local" || !(await isHomePc(t.id))) return [];
