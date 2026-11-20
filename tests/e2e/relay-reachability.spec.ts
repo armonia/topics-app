@@ -12,7 +12,7 @@ import { openSocket } from "./helpers/node-websocket";
 hermetic(test);
 
 /**
- * DA UN'ALTRA RETE, passando dal relay.
+ * DA UN'ALTRA RETE, passando dal relay. @covers RELAY-04
  *
  * ── COSA PROVA CHE `guest-confinement.spec.ts` NON PROVA ────────────────────
  * Quello entra dalla porta del tunnel: la prova che il confine esiste. Questo
