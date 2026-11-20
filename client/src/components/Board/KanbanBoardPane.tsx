@@ -1157,7 +1157,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (colonne su fondo diverso), e la riga in piu' disegnava un confine che
           si vedeva gia' da solo. Le strisce che compaiono sotto (errore,
           archivio, impostazioni) portano il proprio bordo quando servono. */}
-      <div className="relative shrink-0">
+      {/* `@container`: the view labels follow the PANE's width, not the window's.
+          At 1440px with the sidebar and the file pane open the board is ~950px
+          wide, and `xl:` (a viewport query) kept the labels on and pushed the
+          grouping and the actions past the right edge. */}
+      <div className="relative shrink-0 @container">
       {/* `overflow-y-hidden`: a bar is fixed chrome and never scrolls vertically
           (KANBAN-MOBILE-01). `overflow-x: auto` alone turns the other axis into
           `auto` as well (CSS Overflow 3), so any child reaching past the 36px

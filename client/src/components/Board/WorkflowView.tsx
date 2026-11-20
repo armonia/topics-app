@@ -39,17 +39,17 @@ export function WorkflowView({ columns, tasks, rules, onOpenKanban, onOpenSettin
   const ciNote = rules?.ciPhase === 'off' ? tr('board.workflow.ciOff') : rules?.ciPhase === 'after' ? tr('board.workflow.ciAfter') : null;
 
   return (
-    <section data-testid="workflow-view" aria-label={tr('board.view.workflow')} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-      <div className="mx-auto max-w-2xl xl:max-w-none">
+    <section data-testid="workflow-view" aria-label={tr('board.view.workflow')} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 @container">
+      <div className="mx-auto max-w-2xl @5xl:max-w-none">
         <p className="mb-3 text-compact leading-snug text-app-text-secondary">{tr(rules ? 'board.workflow.intro' : 'board.workflow.introAll')}</p>
-        <ol className="flex flex-col items-stretch gap-1 xl:flex-row">
+        <ol className="flex flex-col items-stretch gap-1 @5xl:flex-row">
           {columns.map((c, i) => {
             const key = stepOf(c);
             const Icon = STEP_ICON[key] ?? Bot;
             const off = key === 'ci' && !!ciNote;
             const n = counts.get(c.id) ?? 0;
             return (
-              <li key={c.id} className="flex min-w-0 flex-col items-center gap-1 xl:flex-1 xl:flex-row">
+              <li key={c.id} className="flex min-w-0 flex-col items-center gap-1 @5xl:flex-1 @5xl:flex-row">
                 <button
                   type="button" data-testid={`workflow-step-${c.id}`} onClick={onOpenKanban}
                   title={tr('board.workflow.openKanban')}
@@ -67,8 +67,8 @@ export function WorkflowView({ columns, tasks, rules, onOpenKanban, onOpenSettin
                   </span>
                 </button>
                 {i < columns.length - 1 && <>
-                  <ChevronDown className="h-4 w-4 shrink-0 text-app-text-muted xl:hidden" aria-hidden="true" />
-                  <ChevronRight className="hidden h-4 w-4 shrink-0 text-app-text-muted xl:block" aria-hidden="true" />
+                  <ChevronDown className="h-4 w-4 shrink-0 text-app-text-muted @5xl:hidden" aria-hidden="true" />
+                  <ChevronRight className="hidden h-4 w-4 shrink-0 text-app-text-muted @5xl:block" aria-hidden="true" />
                 </>}
               </li>
             );

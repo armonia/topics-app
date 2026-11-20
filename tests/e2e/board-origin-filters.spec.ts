@@ -188,6 +188,12 @@ test.describe("Di chi è la card", () => {
         await openProjectBoard(page);
         await page.getByTestId("board-preset-all").click();
         await expect(cardOf(page, "discord")).toBeVisible();
+        if (width >= 1440) {
+          // On a desktop the bar fits: nothing past the right edge (it scrolls only on a phone).
+          const bar = page.getByTestId("board-toolbar");
+          const over = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+          expect(over).toBeLessThanOrEqual(1);
+        }
         await page.screenshot({ path: `${SHOTS}/board-${width}-${theme}.png` });
         await page.getByTestId("board-preset-mine").click();
         await expect(cardOf(page, "discord")).toHaveCount(0);

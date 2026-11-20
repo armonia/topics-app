@@ -37,7 +37,7 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
             data-testid={`board-view-${level}`} title={tr(`board.view.${level}Title`)} aria-label={tr(`board.view.${level}`)}
             onClick={() => onChange(level)}
             className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-1.5 text-compact leading-4 coarse:min-w-11 coarse:justify-center ${on ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
-          ><Icon className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden xl:inline">{tr(`board.view.${level}`)}</span></button>
+          ><Icon className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden @7xl:inline">{tr(`board.view.${level}`)}</span></button>
         );
       })}
     </div>
