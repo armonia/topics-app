@@ -30,6 +30,9 @@ set -uo pipefail
 
 PREFIX=pn-
 SETTLE_S=${PERMANENT_SETTLE_S:-4}
+# A prepare-e2e job that waited this long on its booked runner is not going to start
+# (measured 20/11: 35+ minutes queued on an online, idle runner holding its label).
+PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
   local m=$1 p=$2
@@ -56,10 +59,25 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      if [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
+      if [[ $lab == *-prep ]] && prep_stuck "$run" "$lab"; then
+        # Hand every runner of the run back, then cancel it: its queued job would wait
+        # for a label nobody serves any more.
+        unbook "$id" "$lab"
+        for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
+          unbook "$sid" "${lab%-prep}"
+        done
+        gh_api POST "/actions/runs/$run/cancel" >/dev/null 2>&1 || true
+      elif [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
         unbook "$id" "$lab"
       fi
     done
+}
+
+# True when the run's prepare-e2e job on this prep label has sat queued for PREP_STUCK_S.
+prep_stuck() {  # <run id> <prep label>
+  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$PREP_STUCK_S" '
+    any(.jobs[]?; .status == "queued" and any(.labels[]?; . == $l)
+      and (now - (.created_at | fromdateiso8601)) > $max)' >/dev/null 2>&1
 }
 
 # True when the run has jobs on this exact booking label and none is still queued or

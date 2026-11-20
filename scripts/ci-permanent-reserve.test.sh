@@ -21,6 +21,8 @@ gh_api() {
       "GET /actions/runners?"*) jq '{runners}' "$STATE" ;;
       "GET /actions/runs/"*/jobs*) jq --arg r "$(basename "$(dirname "${p%%\?*}")")" '{jobs: (.jobs[$r] // [])}' "$STATE" ;;
       "GET /actions/runs/"*) jq --arg r "${p##*/}" '{status: (.runs[$r] // "in_progress")}' "$STATE" ;;
+      "POST /actions/runs/"*/cancel)
+        jq --arg r "$(basename "$(dirname "$p")")" '.runs[$r] = "completed"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
       "POST /actions/runners/"*/labels)
         id=${p#/actions/runners/}; id=${id%/labels}
         l=$(jq -r '.labels[0]' <<<"$body")
@@ -92,6 +94,17 @@ JOBS='{"730":[{"status":"completed","conclusion":"failure","labels":["pn-730-1-p
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-730-1\"]}"' >/dev/null
 ok "a failed prep frees the shard booking" "$(run reserve permanent 4 pn-731-1)" 4
 ok "...and its label is gone" "$(booked pn-730-1)" 0
+
+# Run 740: its prepare-e2e has sat queued for 10 minutes on its booked runner. Both
+# bookings are released and the run is cancelled; a prep queued 1 minute is left alone.
+old=$(jq -rn 'now - 600 | todate'); new=$(jq -rn 'now - 60 | todate')
+JOBS="{\"740\":[{\"status\":\"queued\",\"created_at\":\"$old\",\"labels\":[\"pn-740-1-prep\"]}],\"750\":[{\"status\":\"queued\",\"created_at\":\"$new\",\"labels\":[\"pn-750-1-prep\"]}]}" seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-740-1-prep\"]}"; gh_api POST /actions/runners/2/labels "{\"labels\":[\"pn-740-1\"]}"; gh_api POST /actions/runners/3/labels "{\"labels\":[\"pn-750-1-prep\"]}"' >/dev/null
+ok "a prep stuck in the queue frees the whole run" "$(run reserve permanent 4 pn-741-1)" 3
+ok "...prep label gone" "$(booked pn-740-1-prep)" 0
+ok "...shard label gone" "$(booked pn-740-1)" 0
+ok "...run cancelled" "$(jq -r '.runs["740"]' "$STATE")" completed
+ok "a prep queued only a minute keeps its booking" "$(booked pn-750-1-prep)" 1
 
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0
