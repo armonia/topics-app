@@ -148,7 +148,13 @@ jobs:
       # other browser tests run against fakes. The step stays until someone
       # decides to drop it or to run test:heavy here.
       - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
+        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
+          done
+          exit 1
 
       # `main` as a ref, like `gates` has it (it
       # fetches it for the migrations gate). tests/unit/migration-number-
@@ -305,7 +311,13 @@ jobs:
       # menu was see-through in Safari while the probe only looked at Chromium).
       - name: Install Playwright browsers (Chromium and WebKit)
         id: setup
-        run: npx playwright install --with-deps chromium webkit
+        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium webkit && exit 0
+            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
+          done
+          exit 1
 
       # All three projects in one step. Each `typecheck:*` script uses the
       # LOCALLY pinned TypeScript 7 (alias `typescript7` in client/) — `bunx tsc` could fetch
@@ -833,7 +845,13 @@ jobs:
 
       - name: Install Playwright browsers (Chromium and WebKit)
         id: setup
-        run: npx playwright install --with-deps chromium webkit
+        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium webkit && exit 0
+            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
+          done
+          exit 1
 
       # The landing demo is the real client with a mock seam in place of the
       # server, and nothing in a build fails when a mock stops matching the
@@ -1326,7 +1344,7 @@ jobs:
           if compgen -G "$HOME/apt-playwright/*.deb" > /dev/null; then
             sudo cp "$HOME"/apt-playwright/*.deb /var/cache/apt/archives/
           fi
-          npx playwright install --with-deps chromium webkit
+          for attempt in 1 2 3; do npx playwright install --with-deps chromium webkit && break; [ "$attempt" = 3 ] && exit 1; sleep $((attempt * 30)); done
           # Quello che apt ha appena installato torna nella cache, che si salva a
           # fine job. autoclean toglie le versioni superate, così la cache presa
           # da un'immagine vecchia non cresce a ogni aggiornamento.

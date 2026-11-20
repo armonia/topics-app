@@ -1,6 +1,6 @@
 /** @covers LAND-16 */
 import { describe, expect, test } from "bun:test";
-import { watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
+import { mainRedStop, watchMainCi, type MainCiCommit, type MainCiPort, type MainCiVerdict } from "./main-ci-watch";
 
 const NOW = 1_800_000_000;
 const commit = (sha: string, ageS = 3600): MainCiCommit => ({ sha, subject: `commit ${sha}`, at: NOW - ageS });
@@ -51,5 +51,27 @@ describe("watchMainCi", () => {
     expect(old.opened).toEqual(["b"]);
     const nothing = world([commit("c", 3 * 3600)], { c: v("none") });
     expect(await watchMainCi(nothing.deps)).toBe("no-ci");
+  });
+});
+
+describe("mainRedStop: a land waits while main is red", () => {
+  const at = Math.floor(Date.now() / 1000) - 3600;
+  const portWith = (v: MainCiVerdict): MainCiPort => ({
+    recent: async () => [{ sha: "a".repeat(40), subject: "x", at }],
+    verdict: async () => v,
+    entersAt: async () => false,
+  });
+
+  test("red: the reason names the sha, the red jobs and the run", async () => {
+    const why = await mainRedStop(portWith({ state: "fail", failed: ["unit"], url: "https://run/1" }));
+    expect(why).toContain("aaaaaaaa");
+    expect(why).toContain("unit");
+    expect(why).toContain("https://run/1");
+  });
+
+  test("green, pending and no answer never stop a land", async () => {
+    for (const state of ["pass", "pending", "none"] as const) {
+      expect(await mainRedStop(portWith({ state, failed: [], url: null }))).toBeNull();
+    }
   });
 });
