@@ -42,7 +42,7 @@ function row(path: string, points24h: number, day: Partial<Record<QuotaSurface, 
   return {
     projectId: projectIdForPath(path), projectPath: path, points24h, points7d: points24h * 3, weighted24h: 1, weighted7d: 3, limit: 10,
     surfaces: surfaces(day),
-    topChats: [{ chatId: "chat-1", title: "Checkout review", surface: "chat", points24h: points24h / 2, points7d: points24h * 1.5 }],
+    topChats: [{ topicId: "chat-1", title: "Checkout review", surface: "chat", points24h: points24h / 2, points7d: points24h * 1.5 }],
   };
 }
 

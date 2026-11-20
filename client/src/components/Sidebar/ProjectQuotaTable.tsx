@@ -12,15 +12,10 @@ import { useState } from 'react';
 import { ChevronRight, FolderGit2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProjectQuota } from '../../hooks/useProjectQuota';
-import { addCatalogue } from '../../lib/i18n';
-import PROJECT_QUOTA_IT from '../../lib/i18n-project-quota-it';
-import PROJECT_QUOTA_EN from '../../lib/i18n-project-quota-en';
 import { formatPoints, quotaTone, type QuotaTone } from '../../lib/projectQuotaMeter';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { QUOTA_SURFACES, type ProjectQuotaRow } from '../../../../shared/usage-shapes';
 
-addCatalogue('it', PROJECT_QUOTA_IT);
-addCatalogue('en', PROJECT_QUOTA_EN);
 
 const TONE_INK: Record<QuotaTone, string> = { ok: 'text-app-text', warn: WARNING_TEXT, over: DANGER_TEXT };
 
@@ -82,7 +77,7 @@ export function ProjectQuotaTable() {
                   <>
                     <div className="text-app-text-faint">{tr('projectQuota.topChats')}</div>
                     {p.topChats.map((c) => (
-                      <div key={c.chatId} className="truncate">{tr('projectQuota.chatRow', { title: c.title, day: points(c.points24h), week: points(c.points7d) })}</div>
+                      <div key={c.topicId} className="truncate">{tr('projectQuota.chatRow', { title: c.title, day: points(c.points24h), week: points(c.points7d) })}</div>
                     ))}
                   </>
                 )}

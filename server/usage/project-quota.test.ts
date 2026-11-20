@@ -267,7 +267,7 @@ describe("surfaces, chats and limits", () => {
     const a = row(result.projects, "/proj/A")!;
     expect([a.surfaces.chat, a.surfaces.card, a.surfaces.chatSubagent, a.surfaces.cardSubagent].map((s) => s.points7d)).toEqual([2, 2, 2, 2]);
     // A subagent's calls count for its root chat.
-    expect(a.topChats.map((c) => [c.chatId, c.surface, c.points7d]).sort()).toEqual([["tCard", "card", 4], ["tChat", "chat", 4]]);
+    expect(a.topChats.map((c) => [c.topicId, c.surface, c.points7d]).sort()).toEqual([["tCard", "card", 4], ["tChat", "chat", 4]]);
   });
 
   test("a project's row carries its limit: the default, a chosen one, and none", () => {

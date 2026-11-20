@@ -188,7 +188,7 @@ export interface QuotaPoints { points24h: number | null; points7d: number | null
 /** One of the chats (or cards) that spent the most inside a project. */
 export interface QuotaChatRow extends QuotaPoints {
   /** The topic id, so the row can link to the chat. */
-  chatId: string;
+  topicId: string;
   title: string;
   /** `card` when the chat is a board card's agent, `chat` otherwise. */
   surface: 'card' | 'chat';

@@ -89,7 +89,7 @@ export function projectQuota(db: Database, o: ProjectQuotaOptions = {}): Project
   const pointsOf = (b: Bucket): QuotaPoints => ({ points24h: quotaHistory ? round1(b.p24) : null, points7d: quotaHistory ? round1(b.p7) : null });
   const rows: ProjectQuotaRow[] = [...byProject].map(([key, e]) => {
     const projectId = key === OUTSIDE ? null : key;
-    const topChats: QuotaChatRow[] = [...e.chats].map(([chatId, b]) => ({ chatId, title: chatNames.get(chatId) ?? chatId, surface: b.surface, ...pointsOf(b), _rank: quotaHistory ? [b.p24, b.p7] : [b.w24, b.w7] }))
+    const topChats: QuotaChatRow[] = [...e.chats].map(([chatId, b]) => ({ topicId: chatId, title: chatNames.get(chatId) ?? chatId, surface: b.surface, ...pointsOf(b), _rank: quotaHistory ? [b.p24, b.p7] : [b.w24, b.w7] }))
       .sort((a, b) => b._rank[0]! - a._rank[0]! || b._rank[1]! - a._rank[1]!)
       .slice(0, TOP_CHATS).map(({ _rank, ...row }) => row);
     return {

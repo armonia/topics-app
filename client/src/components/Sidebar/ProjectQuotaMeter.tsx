@@ -8,16 +8,11 @@
  */
 import { useT } from '../../hooks/useT';
 import { useProjectQuota } from '../../hooks/useProjectQuota';
-import { addCatalogue } from '../../lib/i18n';
-import PROJECT_QUOTA_IT from '../../lib/i18n-project-quota-it';
-import PROJECT_QUOTA_EN from '../../lib/i18n-project-quota-en';
 import { boardIdForPath } from '../../lib/board';
 import { formatPoints, quotaTone, type QuotaTone } from '../../lib/projectQuotaMeter';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { ON_FILL_TEXT_SOFT } from '../../lib/selectionStyles';
 
-addCatalogue('it', PROJECT_QUOTA_IT);
-addCatalogue('en', PROJECT_QUOTA_EN);
 
 const TONE_INK: Record<QuotaTone, string> = { ok: 'text-app-text-faint/70', warn: WARNING_TEXT, over: DANGER_TEXT };
 

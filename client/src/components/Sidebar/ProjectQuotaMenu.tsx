@@ -10,17 +10,12 @@
  */
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { addCatalogue } from '../../lib/i18n';
-import PROJECT_QUOTA_IT from '../../lib/i18n-project-quota-it';
-import PROJECT_QUOTA_EN from '../../lib/i18n-project-quota-en';
 import { refreshProjectQuota } from '../../hooks/useProjectQuota';
 import { apiFetch } from '../../lib/shell/net';
 import { POPOVER_DIVIDER, DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { Segmented } from '../Shared/Segmented';
 import { QUOTA_LIMIT_CHOICES } from '../../../../shared/usage-shapes';
 
-addCatalogue('it', PROJECT_QUOTA_IT);
-addCatalogue('en', PROJECT_QUOTA_EN);
 
 
 export function ProjectQuotaMenu({ projectPath }: { projectPath: string }) {
