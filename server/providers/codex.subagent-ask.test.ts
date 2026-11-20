@@ -1,6 +1,7 @@
 /**
  * The MCP ask_user_question of a Codex spawn_agent child: the panel must
  * never surface in the topic the person is looking at.
+ * @covers SUBAGENT-23
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
