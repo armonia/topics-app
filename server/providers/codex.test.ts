@@ -22,6 +22,7 @@ import type { ToolCall } from "../../shared/types";
 import { classifyToolAction, isCommandCall } from "../../shared/agent-action";
 import type { ProviderUsage } from "./types";
 import { makeHandler, pushEvent } from "./codex-test-helpers";
+import type { RecordedHandler } from "./codex-test-helpers";
 
 describe("extractCodexUsage", () => {
   test("returns null when no usage fields are present", () => {
