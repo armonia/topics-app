@@ -23,6 +23,8 @@ gh_api() {
       "GET /actions/runs/"*) jq --arg r "${p##*/}" '{status: (.runs[$r] // "in_progress")}' "$STATE" ;;
       "POST /actions/runs/"*/cancel)
         jq --arg r "$(basename "$(dirname "$p")")" '.runs[$r] = "completed"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
+      "POST /actions/runs/"*/rerun)
+        jq --arg r "$(basename "$(dirname "$p")")" '.reruns += [$r]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
       "POST /actions/runners/"*/labels)
         id=${p#/actions/runners/}; id=${id%/labels}
         l=$(jq -r '.labels[0]' <<<"$body")
@@ -49,7 +51,7 @@ seed() {  # <runners spec: "id:status:busy:label ..."> [runs json]
     js=$(jq --argjson id "$id" --arg st "$st" --argjson b "$b" --arg l "$l" \
       '. + [{id: $id, name: "topics-permanent-node-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
   done
-  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs, jobs: ($ENV.JOBS // "{}" | fromjson)}' > "$STATE"
+  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs, reruns: [], jobs: ($ENV.JOBS // "{}" | fromjson)}' > "$STATE"
 }
 booked() { jq -r --arg l "$1" '[.runners[] | select(any(.labels[]; .name == $l))] | length' "$STATE"; }
 double() { jq '[.runners[] | select([.labels[].name | select(startswith("pn-"))] | length > 1)] | length' "$STATE"; }
@@ -99,12 +101,18 @@ ok "...and its label is gone" "$(booked pn-730-1)" 0
 # bookings are released and the run is cancelled; a prep queued 1 minute is left alone.
 old=$(jq -rn 'now - 600 | todate'); new=$(jq -rn 'now - 60 | todate')
 JOBS="{\"740\":[{\"status\":\"queued\",\"created_at\":\"$old\",\"labels\":[\"pn-740-1-prep\"]}],\"750\":[{\"status\":\"queued\",\"created_at\":\"$new\",\"labels\":[\"pn-750-1-prep\"]}]}" seed "$FOUR"
-run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-740-1-prep\"]}"; gh_api POST /actions/runners/2/labels "{\"labels\":[\"pn-740-1\"]}"; gh_api POST /actions/runners/3/labels "{\"labels\":[\"pn-750-1-prep\"]}"' >/dev/null
-ok "a prep stuck in the queue frees the whole run" "$(run reserve permanent 4 pn-741-1)" 3
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/4/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-740-1-prep\"]}"; gh_api POST /actions/runners/2/labels "{\"labels\":[\"pn-740-1\"]}"; gh_api POST /actions/runners/3/labels "{\"labels\":[\"pn-750-1-prep\"]}"' >/dev/null
+ok "a prep stuck in the queue frees the whole run" "$(run reserve permanent 4 pn-741-1 2>/dev/null)" 3
 ok "...prep label gone" "$(booked pn-740-1-prep)" 0
 ok "...shard label gone" "$(booked pn-740-1)" 0
 ok "...run cancelled" "$(jq -r '.runs["740"]' "$STATE")" completed
+ok "...and rerun" "$(jq -r '.reruns | join(",")' "$STATE")" 740
+ok "...runner 1 quarantined out of the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep")' "$STATE")" null
 ok "a prep queued only a minute keeps its booking" "$(booked pn-750-1-prep)" 1
+# Next round (run 741 is over): the quarantined runner is not picked for a prep, runner 4 is.
+run release pn-741-1
+ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
+ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
 
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0

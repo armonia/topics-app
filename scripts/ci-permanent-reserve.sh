@@ -33,6 +33,8 @@ SETTLE_S=${PERMANENT_SETTLE_S:-4}
 # A prepare-e2e job that waited this long on its booked runner is not going to start
 # (measured 20/11: 35+ minutes queued on an online, idle runner holding its label).
 PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
+PREP_POOL=permanent-prep
+RERUN_WAIT_TRIES=${PERMANENT_RERUN_WAIT_TRIES:-12}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
   local m=$1 p=$2
@@ -60,17 +62,32 @@ drop_stale() {  # bookings of runs that are over
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
       if [[ $lab == *-prep ]] && prep_stuck "$run" "$lab"; then
-        # Hand every runner of the run back, then cancel it: its queued job would wait
-        # for a label nobody serves any more.
+        # Hand every runner of the run back, take the runner that did not serve the prep
+        # out of the prep pool (quarantine: it comes back by hand, after someone looked at
+        # the node), then cancel the run and start it again so it places itself anew.
         unbook "$id" "$lab"
         for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
           unbook "$sid" "${lab%-prep}"
         done
-        gh_api POST "/actions/runs/$run/cancel" >/dev/null 2>&1 || true
+        unbook "$id" "$PREP_POOL"
+        echo "::warning::runner $id removed from the $PREP_POOL pool: prep of run $run queued over ${PREP_STUCK_S}s on it; run $run cancelled and rerun" >&2
+        restart_run "$run"
       elif [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
         unbook "$id" "$lab"
       fi
     done
+}
+
+# Cancel a run and start it again, so its PR is not left with a cancelled CI. A rerun is
+# refused while the run is still winding down, hence the wait for it to complete.
+restart_run() {  # <run id>
+  local i
+  gh_api POST "/actions/runs/$1/cancel" >/dev/null 2>&1 || true
+  for i in $(seq 1 "$RERUN_WAIT_TRIES"); do
+    [ "$(gh_api GET "/actions/runs/$1" 2>/dev/null | jq -r '.status // empty')" = completed ] && break
+    sleep 5
+  done
+  gh_api POST "/actions/runs/$1/rerun" >/dev/null 2>&1 || true
 }
 
 # True when the run's prepare-e2e job on this prep label has sat queued for PREP_STUCK_S.
