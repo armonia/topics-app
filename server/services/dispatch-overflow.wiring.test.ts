@@ -80,7 +80,8 @@ describe("server.ts hands those functions to the dispatcher, with the live input
   });
 
   it("githubOriginOf asks the planter for the origin and resolves its GitHub slug", () => {
-    expect(call).toContain("githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug)");
+    expect(call).toContain("githubOriginOf: async (projectId) => {");
+    expect(call).toContain("return githubOriginFrom(origin, resolveGithubSlug);");
   });
 
   it("the remote lane can push a card's own branch before it leaves", () => {

@@ -52,7 +52,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     const origin = overflowOriginOf(t.projectId);
     const target = pickReassignTarget(machines, pinned.id, {
       cloudCredit,
-      githubOrigin: origin.github,
+      githubOrigin: origin.github && !cloudRefusesProject(t.projectId),
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       load: machineLoad,
       wakeBlocked: (id) => wakeBreaker.isOpen(id),
@@ -64,6 +64,10 @@ export function createOverflow(ctx: DispatcherCtx) {
     } catch (err) { log(`reassign: move of ${t.id} failed`, err); return false; }
     log(`reassign: ${t.id} left ${pinned.name}, now ${target?.name ?? "local"}`);
     return true;
+  }
+  /** Is the cloud known to refuse this project's repository for the account that would launch? Read fresh, never cached with the origin. */
+  function cloudRefusesProject(projectId: string): boolean {
+    try { return deps.cloudRefusesProject?.(projectId) ?? false; } catch { return false; }
   }
   function isRemoteTask(task: Task): boolean {
     if (!task.machineId) return false;
@@ -211,7 +215,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
       cloudCredit,
-      githubOrigin: origin.github,
+      githubOrigin: origin.github && !cloudRefusesProject(t.projectId),
       // The model the run would use: the card's, else the board's (`auto` = no choice).
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
