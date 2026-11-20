@@ -247,6 +247,20 @@ The agent environment SHALL carry the Windows system and profile variables (`APP
 - **WHEN** the agent environment is built from it
 - **THEN** `APPDATA` passes and `GH_TOKEN` does not.
 
+### Requirement: QUOTA-SAMPLER-01 — Topics writes the plan quota history itself
+
+The server SHALL append, every few minutes, one line `{t, s: {"claude|<account>|7d": pct}}` to the quota history file the points count reads, so a clean install has a history. The key carries the address of the login read at runtime, so one account is one series. A round SHALL be skipped when the file holds a reading of that series younger than the sampling gap, or when a writer with other keys wrote within the last hour, so a second writer never doubles the points.
+
+#### Scenario: clean folder
+- **GIVEN** an empty history folder and two samples with the 7d quota up by 3 points
+- **WHEN** the points per hour are counted
+- **THEN** they total 3, not null.
+
+#### Scenario: an external writer on the same file
+- **GIVEN** another writer appended a Claude 7d reading a moment ago
+- **WHEN** the sampler runs
+- **THEN** it writes nothing and the points are not doubled.
+
 
 ### Requirement: MP-DIRECT-01 — Configurable OpenAI-compatible chat endpoints
 

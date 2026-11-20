@@ -62,7 +62,7 @@ export const TOOLS = [
   {
     name: "open_browser_pane",
     description:
-      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
+      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to show the user something (OAuth flows, dev servers, generated previews, images, documentation). What you open is left in your message as a picture or file, on every device and after a restart; the pane is an extra. For a local file pass its plain path; a file outside the served folders must first be copied under ~/.topics/media. Do not tell the user to look at the pane: point at the preview in your message. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
     inputSchema: {
       type: "object",
       properties: {

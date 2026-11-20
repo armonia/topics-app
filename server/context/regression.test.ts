@@ -209,11 +209,11 @@ function buildLegacyHistoryAware(_providerName: string = "claude"): { systemMess
   const hasControlTools = true;
   // 4. browser — tool-only (markers removed). Mirrors browserInstructionContent().
   if (hasControlTools) {
-    const content = `When you need to open a URL or file in the user's embedded browser panel, use the \`open_browser_pane\` tool with the absolute URL. Examples:
-- After creating an HTML file: open_browser_pane({ url: "file:///path/to/file.html" })
+    const content = `To show the user something (a page, an image, a PDF, a preview), open it with the \`open_browser_pane\` tool. What you open is left in your message as a picture or file, whatever device the person reads on and whether or not the panel is open: the panel is an extra, not the place where it lives. Examples:
+- A local file: open_browser_pane({ url: "/path/to/file.png" }) with the plain path. A file outside the served folders must first be copied under ~/.topics/media.
 - After starting a dev server: open_browser_pane({ url: "http://localhost:3000" })
 - To show a webpage: open_browser_pane({ url: "https://example.com" })
-The tool returns the final URL + page title after navigation. Do not mention the tool to the user.`;
+The tool returns the final URL + page title after navigation. Do not tell the person to look at the panel: point at the preview in your message.`;
     const idx = finalMessages.findIndex((m) => m.role !== "system");
     finalMessages.splice(idx >= 0 ? idx : finalMessages.length, 0, { role: "system", content });
   }

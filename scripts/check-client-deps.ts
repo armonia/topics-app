@@ -22,12 +22,14 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Il codice che significa NON MISURATO. Deve restare uguale a review-checks.ts. */
 export const NOT_MEASURED_EXIT = 97;
 
-const root = new URL("..", import.meta.url).pathname;
-const eslint = join(root, "client", "node_modules", ".bin", "eslint");
+const root = fileURLToPath(new URL("..", import.meta.url));
+// Bun on Windows installs the shim as `eslint.exe`, with no extensionless file beside it.
+const eslint = join(root, "client", "node_modules", ".bin", process.platform === "win32" ? "eslint.exe" : "eslint");
 
 if (!existsSync(eslint)) {
   console.error(

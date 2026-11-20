@@ -128,7 +128,9 @@ test("a call that lands while the pane's register frame is on the wire navigates
 
     expect(res.status, await res.clone().text()).toBe(200);
     expect(await res.json()).toMatchObject({ url: URL_OPENED, visible: true });
-    expect(pane.ran, "the navigation was delegated to the pane").toEqual([{ tool: "browser_open", url: URL_OPENED }]);
+    // The navigation first, then the one photo the opening leaves in the message.
+    expect(pane.ran.map((r) => r.tool), "the navigation was delegated to the pane").toEqual(["browser_open", "browser_screenshot"]);
+    expect(pane.ran[0].url).toBe(URL_OPENED);
     expect(headless, "no headless context was driven").toEqual([]);
   } finally {
     pane.stop();
