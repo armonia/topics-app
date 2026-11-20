@@ -1,4 +1,4 @@
-﻿/**
+/**
  * chat-rendering-parity CHAT-RND-01 — syntax highlighting for chat code blocks.
  *
  * Lazy facade over `syntaxHighlightLangs.ts` (hljs core + curated languages).

@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { detectResultSyntax } from '../../client/src/lib/syntaxHighlight';
 
 describe('detectResultSyntax', () => {
