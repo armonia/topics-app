@@ -3555,6 +3555,7 @@ const EN = {
   'firstRun.done': 'Done',
   'firstRun.skip': 'Skip',
   'firstRun.reopen': 'First-run setup',
+  'profile.support': 'Support and community',
   'firstRun.nameError': 'We could not save the name.',
   'firstRun.loadError': 'We could not read this machine’s status.',
   'stepper.decrease': 'Decrease {name}',
