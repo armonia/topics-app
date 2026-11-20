@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext } from "../types";
+import { canonicalBoardIdForPath } from "../lib/board-alias";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -348,7 +349,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (!settings.deployCommand) {
             let dirs: string[] = [];
             try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-            const path = dirs.find((d) => projectIdForPath(d) === projectId);
+            const path = dirs.find((d) => projectIdForPath(d) === projectId || canonicalBoardIdForPath(d) === projectId);
             if (path) deployCommandSuggestion = deploySuggestionFromPackageJson(path);
           }
           // `admissionHolds`: same nature as the two above - a fact, not a
