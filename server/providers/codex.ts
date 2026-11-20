@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
 import { detectUserInputRequest } from "./ask-user-detector";
+import { isSpawnedChildSession } from "../lib/subagent-tool-policy";
 import { isHumanHold } from "../lib/human-hold";
 import { armProviderTurnTimeout, PROVIDER_TURN_TIMEOUT_MS } from "../lib/turn-deadline";
 import { resolveCodexBin } from "../lib/codex-bin";
@@ -934,7 +935,14 @@ export class CodexProvider implements AIProvider {
           // detector's verdict, which the Claude and native runtimes already
           // call. Without it a Codex question blocked the turn with no control
           // anywhere (the native runtime's defect of 28/08, one provider later).
-          const askSchema = detectUserInputRequest({ name, input: args });
+          //
+          // A spawn_agent child's chat is hidden from whoever spawned it
+          // (SUBAGENT-23); `permission.ts` already refuses the `/ask-user`
+          // rendezvous for the same reason, but that refusal runs AFTER this
+          // detector fires, so the box still sat on screen in a topic nobody
+          // watches (the Claude CLI's own fix for the same gap). Drop it here
+          // too, for the third runtime that broadcasts it.
+          const askSchema = isSpawnedChildSession(sessionKey) ? null : detectUserInputRequest({ name, input: args });
           if (askSchema) handler.onUserInputRequired?.(id, name, askSchema);
         } else if (t === "item.updated") {
           handler.onToolActivity?.(id);

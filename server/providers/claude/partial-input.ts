@@ -15,6 +15,7 @@ import { isSubAgentToolName } from "./sidechain-tracker";
 import { decodePartialStreamEvent, parseToolInputBuffer } from "./events";
 import { PARTIAL_ARGS_EMIT_MS, extractPrimaryToolArg } from "../partial-tool-input";
 import { detectUserInputRequest } from "../ask-user-detector";
+import { isSpawnedChildSession } from "../../lib/subagent-tool-policy";
 
 /** Which session owns a process record (the provider's pool lookup). */
 export type SessionKeyOf = (pp: PersistentProcess) => string | null;
@@ -148,6 +149,13 @@ export function detectUserInputForTool(
   const schema = detectUserInputRequest({ name: toolName, input });
   if (!schema) return;
   const sessionKey = sessionKeyOf(pp);
+  // A spawn_agent child's chat is hidden from whoever spawned it (SUBAGENT-23);
+  // `permission.ts` already refuses the `/ask-user` rendezvous for the same
+  // reason, but that refusal runs AFTER this detector already fired — the box
+  // would still sit on screen in a topic nobody watches. Drop it here instead
+  // of registering it, so no panel exists to answer and the CLI's own
+  // permission denial is what the model sees.
+  if (sessionKey && isSpawnedChildSession(sessionKey)) return;
   if (sessionKey) {
     pp.pendingInputs.set(toolId, { sessionKey, schema, awaitingSince: Date.now() });
   }
