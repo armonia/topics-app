@@ -246,12 +246,12 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           richiesto ma il progetto non è un repo git registrato»: il messaggio
           era corretto e arrivava alla persona sbagliata. */}
       {s.dispatchUseWorktree && (s as { worktreeReady?: true | 'no-git' | 'nested-worktree' }).worktreeReady === 'no-git' && (
-        <p className="text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">
+        <p className="text-mini leading-snug text-amber-800/90 dark:text-amber-800/90 dark:text-amber-300/90">
           {tr('board.settings.notRepoWarn')}
         </p>
       )}
       {s.dispatchUseWorktree && (s as { worktreeReady?: true | 'no-git' | 'nested-worktree' }).worktreeReady === 'nested-worktree' && (
-        <p className="text-mini leading-snug text-amber-300/90">
+        <p className="text-mini leading-snug text-amber-800/90 dark:text-amber-300/90">
           {tr('board.settings.nestedWorktreeWarn')}
         </p>
       )}
