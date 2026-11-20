@@ -441,12 +441,17 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         branch: task.deliveryBranch ?? null,
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
-        beforeMerge: async (sha: string) => {
-          // The repair card of a red main is the one land that must go through.
-          const stop = await redMainStop(projectId, taskId).catch(() => null);
-          if (stop) return stop;
-          return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
-        },
+        // Only passed when there is something to check, so the old tryMerge contract holds.
+        ...(recheck || opts?.mainCiPort
+          ? {
+              beforeMerge: async (sha: string) => {
+                // The repair card of a red main is the one land that must go through.
+                const stop = await redMainStop(projectId, taskId).catch(() => null);
+                if (stop) return stop;
+                return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
+              },
+            }
+          : {}),
       });
       // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
       if (res.status === "skipped" && res.code === "auto-land-stopped") {
