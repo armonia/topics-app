@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import { isTaskLabel, normalizeLabels } from "../../shared/task-labels";
 import { DEFAULT_TIME_ZONE, nextCronOccurrence, ScheduleError, validateSchedule } from "../../shared/schedule";
 import type { ScheduledCard, ScheduledStatus } from "../../shared/scheduled-cards";
-import type { JobRow, RunRow } from "./store";
+import type { ScheduledJobRow, RunRow } from "./store";
 
 export type { ScheduledCard } from "../../shared/scheduled-cards";
 
@@ -28,7 +28,7 @@ export interface ScheduledCardsService {
 
 const CARD_JOBS = "json_extract(action_json, '$.kind') = 'card'";
 
-function mapRow(row: JobRow, last: RunRow | null): ScheduledCard {
+function mapRow(row: ScheduledJobRow, last: RunRow | null): ScheduledCard {
   const schedule = JSON.parse(row.schedule_json) as { expr: string; tz: string };
   const action = JSON.parse(row.action_json) as { text: string; status: ScheduledStatus; labels: ScheduledCard["labels"] };
   return {
@@ -41,7 +41,7 @@ function mapRow(row: JobRow, last: RunRow | null): ScheduledCard {
 }
 
 export function createScheduledCardsService(db: Database, now: () => Date = () => new Date()): ScheduledCardsService {
-  const read = (id: string) => db.query(`SELECT * FROM scheduled_jobs WHERE id = ? AND ${CARD_JOBS}`).get(id) as JobRow | null;
+  const read = (id: string) => db.query(`SELECT * FROM scheduled_jobs WHERE id = ? AND ${CARD_JOBS}`).get(id) as ScheduledJobRow | null;
   const lastRun = (id: string) => db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? AND status NOT IN ('missed') ORDER BY created_at DESC, rowid DESC LIMIT 1").get(id) as RunRow | null;
   const view = (id: string) => { const row = read(id)!; return mapRow(row, lastRun(id)); };
   const live = (id: string, projectId: string) => {
@@ -95,7 +95,7 @@ export function createScheduledCardsService(db: Database, now: () => Date = () =
         .run(now().toISOString(), now().toISOString(), id, projectId);
     },
     list(projectId) {
-      return (db.query(`SELECT * FROM scheduled_jobs WHERE project_id = ? AND deleted_at IS NULL AND ${CARD_JOBS} ORDER BY created_at, id`).all(projectId) as JobRow[])
+      return (db.query(`SELECT * FROM scheduled_jobs WHERE project_id = ? AND deleted_at IS NULL AND ${CARD_JOBS} ORDER BY created_at, id`).all(projectId) as ScheduledJobRow[])
         .map(row => mapRow(row, lastRun(row.id)));
     },
   };

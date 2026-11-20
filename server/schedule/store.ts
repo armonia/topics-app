@@ -1,5 +1,5 @@
 /** Row shapes of `scheduled_jobs` and `scheduled_job_runs`, and their parsed form. */
-import type { Schedule } from "../../shared/schedule";
+import type { JobSchedule } from "../../shared/schedule";
 import type { ScheduledStatus } from "../../shared/scheduled-cards";
 
 export type RunStatus = "pending" | "starting" | "running" | "ok" | "error" | "timeout" | "cancelled" | "skipped" | "missed" | "failed_to_start" | "interrupted";
@@ -16,7 +16,7 @@ export interface JobPolicy {
   windowMs?: number;
 }
 
-export interface JobRow {
+export interface ScheduledJobRow {
   id: string; name: string; project_id: string | null; schedule_json: string; action_json: string;
   deliver_json: string | null; policy_json: string; enabled: number; next_run_at: string | null;
   created_by: string; created_at: string; updated_at: string; deleted_at: string | null;
@@ -29,7 +29,7 @@ export interface RunRow {
 }
 
 export interface ScheduledJob {
-  id: string; name: string; projectId: string | null; schedule: Schedule; action: JobAction; policy: JobPolicy;
+  id: string; name: string; projectId: string | null; schedule: JobSchedule; action: JobAction; policy: JobPolicy;
   enabled: boolean; nextRunAt: Date | null; deletedAt: string | null;
 }
 
@@ -38,10 +38,10 @@ export interface ScheduledRun {
   cause: string | null; reason: string | null; missedCount: number; taskId: string | null;
 }
 
-export function parseJob(row: JobRow): ScheduledJob {
+export function parseJob(row: ScheduledJobRow): ScheduledJob {
   return {
     id: row.id, name: row.name, projectId: row.project_id,
-    schedule: JSON.parse(row.schedule_json) as Schedule,
+    schedule: JSON.parse(row.schedule_json) as JobSchedule,
     action: JSON.parse(row.action_json) as JobAction,
     policy: JSON.parse(row.policy_json) as JobPolicy,
     enabled: row.enabled === 1,

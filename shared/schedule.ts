@@ -5,7 +5,7 @@
  * `every` and `at`.
  */
 
-export type Schedule =
+export type JobSchedule =
   | { kind: 'cron'; expr: string; tz: string }
   | { kind: 'every'; minutes: number }
   | { kind: 'at'; at: string };
@@ -130,7 +130,7 @@ export function isRepeatedWallTime(timeZone: string, instant: Date): boolean {
 }
 
 /** Throws a ScheduleError when the schedule cannot run; `at` in the past only when `rejectPast`. */
-export function validateSchedule(value: unknown, options: { now?: Date; rejectPast?: boolean; requireZone?: boolean } = {}): Schedule {
+export function validateSchedule(value: unknown, options: { now?: Date; rejectPast?: boolean; requireZone?: boolean } = {}): JobSchedule {
   if (!value || typeof value !== 'object') throw new ScheduleError('Schedule missing.');
   const s = value as Record<string, unknown>;
   if (s.kind === 'cron') {
@@ -156,7 +156,7 @@ export function validateSchedule(value: unknown, options: { now?: Date; rejectPa
 }
 
 /** The occurrence after `after` (`every` counts from `after`; a spent `at` has none). */
-export function nextOccurrence(schedule: Schedule, after: Date): Date | null {
+export function nextOccurrence(schedule: JobSchedule, after: Date): Date | null {
   if (schedule.kind === 'cron') return nextCronOccurrence(schedule.expr, schedule.tz, after);
   if (schedule.kind === 'every') return new Date(after.getTime() + schedule.minutes * 60_000);
   const at = new Date(schedule.at);
@@ -164,13 +164,13 @@ export function nextOccurrence(schedule: Schedule, after: Date): Date | null {
 }
 
 /** When a brand new job first runs. */
-export function firstOccurrence(schedule: Schedule, now: Date): Date | null {
+export function firstOccurrence(schedule: JobSchedule, now: Date): Date | null {
   if (schedule.kind === 'every') return new Date(now.getTime() + Math.min(schedule.minutes, EVERY_FIRST_RUN_CAP_MINUTES) * 60_000);
   return nextOccurrence(schedule, now);
 }
 
 /** Next `count` occurrences after `from`, for the preview. */
-export function previewOccurrences(schedule: Schedule, from: Date, count: number): Date[] {
+export function previewOccurrences(schedule: JobSchedule, from: Date, count: number): Date[] {
   const out: Date[] = [];
   let cursor: Date | null = firstOccurrence(schedule, from);
   while (cursor && out.length < count) {

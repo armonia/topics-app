@@ -9,7 +9,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Schedule } from "../../shared/schedule";
+import type { JobSchedule } from "../../shared/schedule";
 import { createCardAction } from "./card-action";
 import { createScheduleEngine, type ActionExecutor, type StartResult } from "./engine";
 import type { JobAction } from "./store";
@@ -39,7 +39,7 @@ function fakeCommand(behaviour: "run" | "fail" = "run") {
   return { executor, launched };
 }
 
-function addJob(id: string, schedule: Schedule, action: JobAction, nextRunAt: string, projectId: string | null = PID) {
+function addJob(id: string, schedule: JobSchedule, action: JobAction, nextRunAt: string, projectId: string | null = PID) {
   db.prepare(`INSERT INTO scheduled_jobs (id, name, project_id, schedule_json, action_json, enabled, next_run_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`).run(id, id, projectId, JSON.stringify(schedule), JSON.stringify(action), nextRunAt, clock.toISOString(), clock.toISOString());
 }

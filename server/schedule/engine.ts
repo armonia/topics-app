@@ -10,8 +10,8 @@
  * the launch.
  */
 import type { Database } from "bun:sqlite";
-import { isRepeatedWallTime, nextOccurrence, type Schedule } from "../../shared/schedule";
-import { parseJob, parseRun, type JobRow, type RunRow, type ScheduledJob, type ScheduledRun, type RunStatus, type MissedCause, type JobAction } from "./store";
+import { isRepeatedWallTime, nextOccurrence, type JobSchedule } from "../../shared/schedule";
+import { parseJob, parseRun, type ScheduledJobRow, type RunRow, type ScheduledJob, type ScheduledRun, type RunStatus, type MissedCause, type JobAction } from "./store";
 
 export const TICK_INTERVAL_MS = 15_000;
 /** A job whose action never reported a process or a turn this long after `starting` did not start. */
@@ -55,7 +55,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const readJob = (id: string) => {
-    const row = db.query("SELECT * FROM scheduled_jobs WHERE id = ?").get(id) as JobRow | null;
+    const row = db.query("SELECT * FROM scheduled_jobs WHERE id = ?").get(id) as ScheduledJobRow | null;
     return row ? parseJob(row) : null;
   };
 
@@ -122,7 +122,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   }
 
   /** Every occurrence from `first` up to `instant`, oldest first, with the repeated wall times already dropped. */
-  function dueOccurrences(schedule: Schedule, first: Date, instant: Date): { list: Date[]; truncated: boolean } {
+  function dueOccurrences(schedule: JobSchedule, first: Date, instant: Date): { list: Date[]; truncated: boolean } {
     if (schedule.kind === "at") return { list: [first], truncated: false };
     const list: Date[] = [];
     if (schedule.kind === "every") {
@@ -140,7 +140,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   }
 
   /** The slot after `instant`, always strictly in the future and never counted from the start of the run. */
-  function slotAfter(schedule: Schedule, scheduledFor: Date, instant: Date): Date | null {
+  function slotAfter(schedule: JobSchedule, scheduledFor: Date, instant: Date): Date | null {
     if (schedule.kind === "every") {
       const step = schedule.minutes * 60_000;
       return new Date(scheduledFor.getTime() + step * (Math.floor((instant.getTime() - scheduledFor.getTime()) / step) + 1));
