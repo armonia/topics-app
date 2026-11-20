@@ -68,16 +68,17 @@ export function OriginFilterBar({ tasks, filters, onChange, personName }: {
 
   return (
     <div role="group" aria-label={tr('board.filters.label')} data-testid="board-origin-filters" className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1 scrollbar-none">
-      <div role="radiogroup" aria-label={tr('board.filters.preset')} className="mr-1 flex shrink-0 items-center gap-px rounded-full bg-black/5 p-0.5 dark:bg-white/5">
-        {/* h-5 inside p-0.5: the toggle is as tall as a toolbar control (24px, 44 under a
-            finger), so the row matches the skeleton's and the columns do not jump 4px. */}
+      <div role="radiogroup" aria-label={tr('board.filters.preset')} className="mr-1 flex shrink-0 items-center gap-px rounded-full bg-black/5 p-0.5 coarse:p-0 dark:bg-white/5">
+        {/* As tall as a toolbar control, so the row matches the skeleton's and the columns
+            do not jump 4px: h-5 inside p-0.5 (24px); under a finger the buttons are the
+            44px target themselves and the inset goes. */}
         <button type="button" role="radio" aria-checked={myWork} data-testid="board-preset-mine" title={tr('board.filters.myWorkTitle')}
           onClick={() => pick('mine')}
-          className={`flex h-5 coarse:h-10 items-center gap-1 rounded-full px-2.5 text-compact leading-4 ${myWork ? 'bg-surface text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'}`}
+          className={`flex h-5 coarse:h-11 items-center gap-1 rounded-full px-2.5 text-compact leading-4 ${myWork ? 'bg-surface text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'}`}
         ><Sparkles className="h-3 w-3" aria-hidden="true" />{tr('board.filters.myWork')}</button>
         <button type="button" role="radio" aria-checked={everything} data-testid="board-preset-all" title={tr('board.filters.allTitle')}
           onClick={() => pick('all')}
-          className={`flex h-5 coarse:h-10 items-center rounded-full px-2.5 text-compact leading-4 ${everything ? 'bg-surface text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'}`}
+          className={`flex h-5 coarse:h-11 items-center rounded-full px-2.5 text-compact leading-4 ${everything ? 'bg-surface text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'}`}
         >{tr('board.filters.all')}</button>
       </div>
 

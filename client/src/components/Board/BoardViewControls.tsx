@@ -4,6 +4,7 @@
  * column is shown. Out of `KanbanBoardPane` so the pane keeps its size budget.
  */
 import { AlignJustify, CheckCircle2, Equal, List, SquareKanban, UsersRound, Workflow } from 'lucide-react';
+import { useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { BOARD_DENSITIES, type BoardDensity, type BoardGroupBy } from './boardGeometry';
 import { groupKeysFor } from './boardGrouping';
@@ -48,12 +49,24 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
  * HOW MUCH OF EACH CARD, as a slider with three stops: the title alone, the
  * compact card, the whole card. Few lines on the left, many on the right, like
  * a zoom. A slider (not three buttons) because the stops are an order.
+ *
+ * ONE target: a click or a tap anywhere on it picks the nearest stop, and the
+ * two glyphs at the ends step down or up. The dots and glyphs are drawing, not
+ * buttons: three 16px buttons side by side cannot each be a 44px target under a
+ * finger (KANBAN-MOBILE-02), while the whole slider is.
  */
 export function DensitySlider({ value, onChange }: { value: BoardDensity; onChange: (next: BoardDensity) => void }) {
   const tr = useT();
+  const track = useRef<HTMLSpanElement>(null);
   const at = BOARD_DENSITIES.indexOf(value);
   const last = BOARD_DENSITIES.length - 1;
   const go = (i: number) => onChange(BOARD_DENSITIES[Math.max(0, Math.min(last, i))]!);
+  const pick = (clientX: number) => {
+    const r = track.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return;
+    const ratio = (clientX - r.left) / r.width;
+    go(ratio < 0 ? at - 1 : ratio > 1 ? at + 1 : Math.round(ratio * last));
+  };
   return (
     <div
       role="slider" tabIndex={0} data-testid="board-density" data-density={value}
@@ -67,21 +80,21 @@ export function DensitySlider({ value, onChange }: { value: BoardDensity; onChan
         e.preventDefault();
         go(at + step);
       }}
-      className={`mx-0.5 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1 rounded px-1 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
+      onClick={(e) => pick(e.clientX)}
+      className={`mx-0.5 flex ${TOOLBAR_CONTROL_H} shrink-0 cursor-pointer items-center gap-1 rounded px-1 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
     >
-      <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => go(at - 1)} title={tr('board.density.less')} className="grid place-items-center hover:text-app-text"><Equal className="h-3.5 w-3.5" /></button>
-      <span className="relative flex h-4 w-10 items-center">
+      <span aria-hidden="true" title={tr('board.density.less')} className="grid place-items-center hover:text-app-text"><Equal className="h-3.5 w-3.5" /></span>
+      <span ref={track} className="relative flex h-4 w-10 items-center">
         <span className="absolute inset-x-0 h-0.5 rounded-full bg-app-border" />
         <span className="absolute left-0 h-0.5 rounded-full bg-primary" style={{ width: `${(at / last) * 100}%` }} />
         {BOARD_DENSITIES.map((level, i) => (
-          <button
-            key={level} type="button" tabIndex={-1} aria-hidden="true" data-testid={`board-density-${level}`}
-            onClick={() => go(i)} title={tr(`board.density.${level}`)}
+          <span
+            key={level} aria-hidden="true" data-testid={`board-density-${level}`} title={tr(`board.density.${level}`)}
             className="absolute grid h-4 w-4 -translate-x-1/2 place-items-center" style={{ left: `${(i / last) * 100}%` }}
-          ><span className={i === at ? 'h-3 w-3 rounded-full bg-primary shadow ring-2 ring-surface' : `h-1.5 w-1.5 rounded-full ${i < at ? 'bg-primary' : 'bg-app-border-light'}`} /></button>
+          ><span className={i === at ? 'h-3 w-3 rounded-full bg-primary shadow ring-2 ring-surface' : `h-1.5 w-1.5 rounded-full ${i < at ? 'bg-primary' : 'bg-app-border-light'}`} /></span>
         ))}
       </span>
-      <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => go(at + 1)} title={tr('board.density.more')} className="grid place-items-center hover:text-app-text"><AlignJustify className="h-3.5 w-3.5" /></button>
+      <span aria-hidden="true" title={tr('board.density.more')} className="grid place-items-center hover:text-app-text"><AlignJustify className="h-3.5 w-3.5" /></span>
     </div>
   );
 }
