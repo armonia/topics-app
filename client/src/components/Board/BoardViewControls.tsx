@@ -19,7 +19,7 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
   return (
     <div
       role="radiogroup" data-testid="board-view-selector" aria-label={tr('board.view.label')}
-      className="mx-1 flex shrink-0 items-center gap-px rounded bg-white/5"
+      className="mx-1 flex shrink-0 items-center gap-px rounded bg-black/5 dark:bg-white/5"
       onKeyDown={(e) => {
         const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
         if (!step) return;
@@ -36,7 +36,7 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
             key={level} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1}
             data-testid={`board-view-${level}`} title={tr(`board.view.${level}`)}
             onClick={() => onChange(level)}
-            className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-1.5 text-compact leading-4 coarse:min-w-11 coarse:justify-center ${on ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-1.5 text-compact leading-4 coarse:min-w-11 coarse:justify-center ${on ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
           ><Icon className="h-3.5 w-3.5" /><span className="hidden lg:inline">{tr(`board.view.${level}`)}</span></button>
         );
       })}
@@ -83,7 +83,7 @@ export function DoneToggle({ showDone, onShowDone }: { showDone: boolean; onShow
     <button
       type="button" data-testid="board-done-toggle" aria-pressed={showDone}
       onClick={() => onShowDone((v) => !v)}
-      className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${showDone ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+      className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${showDone ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
       title={tr(showDone ? 'board.toolbar.done.hide' : 'board.toolbar.done.show')}
     ><CheckCircle2 className="h-3.5 w-3.5" /></button>
   );

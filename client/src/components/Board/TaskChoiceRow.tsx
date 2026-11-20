@@ -43,8 +43,8 @@ import { TASK_ACTION_ICON, TASK_ACTION_ICON_TONE } from './taskActionIcons';
 
 const TONE_CLS: Record<TaskChoice['tone'], string> = {
   primary: 'bg-emerald-700 text-white hover:bg-emerald-800',
-  neutral: 'bg-white/10 text-app-text hover:bg-white/20',
-  danger: 'bg-white/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20',
+  neutral: 'bg-black/5 dark:bg-white/10 text-app-text hover:bg-black/10 dark:hover:bg-white/20',
+  danger: 'bg-black/5 dark:bg-white/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20',
 };
 
 /**
@@ -245,7 +245,7 @@ export function TaskChoiceMenu({ task, exclude, disabled, onDone, onError, onNee
         title={ariaLabel}
         disabled={disabled}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
-        className={`flex shrink-0 items-center justify-center rounded-md px-1.5 coarse:min-h-[44px] coarse:min-w-[44px] py-1.5 text-app-text-secondary hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
+        className={`flex shrink-0 items-center justify-center rounded-md px-1.5 coarse:min-h-[44px] coarse:min-w-[44px] py-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text disabled:opacity-50 ${className ?? ''}`}
       ><MoreHorizontal className="h-3.5 w-3.5" /></button>
       {/* `task-choices-panel`, non `task-choices`: quello è la RIGA di bottoni,
           che vive nel drawer sopra il composer, e il drawer si apre SOPRA la

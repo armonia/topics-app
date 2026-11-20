@@ -1185,11 +1185,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
@@ -1249,7 +1249,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               // `py-0.5` it was 21px tall, and under a finger the 44px band its
               // `.tap-expand-y` projected ran over the layout toggle beside it.
               className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini disabled:cursor-wait disabled:opacity-60 ${
-                orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
+                orchestratorTopic ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text'
               }`}
             >
               {/* THE NOTES, not the speech bubble. The bubble said "you can
@@ -1276,7 +1276,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -1291,7 +1291,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>
@@ -1306,7 +1306,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       <div className="shrink-0 px-2 pb-1.5 empty:hidden sm:hidden"><BrakeChip band /></div>
-      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
+      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-800 dark:text-rose-300">{error}</div>}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -1314,7 +1314,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-compact leading-4 text-amber-200">
           <Archive className="h-3.5 w-3.5 shrink-0" />
           <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
-          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-black/5 dark:hover:bg-white/10">{tr('board.archive.hide')}</button>
         </div>
       )}
       {/* THE SETTINGS ARE A DROPDOWN, anchored to the ⚙ (KANBAN-75), not a band
@@ -1373,7 +1373,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             {QUICK_FILTERS.map((q) => (
               <button key={q} type="button" data-testid={`board-quick-${q}`} aria-pressed={quick === q}
                 onClick={() => setQuick((cur) => (cur === q ? null : q))}
-                className={`flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-compact leading-4 coarse:min-w-11 ${quick === q ? 'border-primary bg-primary/15 text-app-text' : 'border-app-border text-app-text-secondary hover:bg-white/5'}`}
+                className={`flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-compact leading-4 coarse:min-w-11 ${quick === q ? 'border-primary bg-primary/15 text-app-text' : 'border-app-border text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
               >{tr(`board.quick.${q}`)}<span data-testid={`board-quick-count-${q}`} className="tabular-nums text-app-text-muted">{quickCounts[q]}</span></button>
             ))}
           </div>
@@ -1482,7 +1482,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

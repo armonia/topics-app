@@ -87,13 +87,13 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
         onClick={() => setOpen(value => !value)}
         title={tr('board.scheduled.title')}
         data-testid="scheduled-cards-open"
-        className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${open ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+        className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${open ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
       ><CalendarClock className="h-3.5 w-3.5" /></button>
       <Menu open={open} anchorRef={buttonRef} onClose={() => setOpen(false)} align="right" minWidth={390} unmanagedFocus ariaLabel={tr('board.scheduled.title')} testId="scheduled-cards-menu">
         <div className="max-h-[min(75vh,640px)] overflow-y-auto p-3 text-compact">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="font-medium text-app-text">{tr('board.scheduled.title')}</h2>
-            <button type="button" className="flex items-center gap-1 rounded px-2 py-1 text-app-text-secondary hover:bg-white/10" onClick={reset}>
+            <button type="button" className="flex items-center gap-1 rounded px-2 py-1 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10" onClick={reset}>
               <Plus className="h-3 w-3" />{tr('board.scheduled.add')}
             </button>
           </div>
@@ -109,7 +109,7 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
                     <div className="text-app-text-secondary">{tr('board.scheduled.next', { date: new Date(card.nextRunAt).toLocaleString(locale, { timeZone: card.timeZone }) })}</div>
                     <div className="text-app-text-secondary">{tr('board.scheduled.last', { result: card.lastResult ? tr(`board.scheduled.result.${card.lastResult}`) : tr('board.scheduled.noResult'), reason: card.lastReason ?? '' })}</div>
                   </div>
-                  <button type="button" aria-label={tr('board.scheduled.edit')} onClick={() => edit(card)} className="rounded p-1 text-app-text-secondary hover:bg-white/10"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" aria-label={tr('board.scheduled.edit')} onClick={() => edit(card)} className="rounded p-1 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10"><Pencil className="h-3.5 w-3.5" /></button>
                   <button type="button" aria-label={tr('board.scheduled.delete')} onClick={() => void remove(card)} className="rounded p-1 text-app-text-secondary hover:bg-rose-500/15 hover:text-rose-300"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               </li>
@@ -140,9 +140,9 @@ export function ScheduledCardsControl({ projectId }: { projectId: string }) {
             <input required value={form.cron} onChange={event => { setPreset('custom'); setForm({ ...form, cron: event.target.value }); }} aria-label={tr('board.scheduled.cron')} placeholder="0 9 * * 1" className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 font-mono text-app-text" />
             <input required value={form.timeZone} onChange={event => setForm({ ...form, timeZone: event.target.value })} aria-label={tr('board.scheduled.timeZone')} className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-app-text" />
             <input value={labelDraft} onChange={event => setLabelDraft(event.target.value)} aria-label={tr('board.scheduled.labels')} placeholder={tr('board.scheduled.labels')} className="w-full rounded border border-white/15 bg-black/20 px-2 py-1.5 text-app-text" />
-            {error && <p role="alert" className="text-rose-300">{error}</p>}
+            {error && <p role="alert" className="text-rose-800 dark:text-rose-300">{error}</p>}
             <div className="flex justify-end gap-2">
-              {editing && <button type="button" onClick={reset} className="rounded px-2 py-1.5 text-app-text-secondary hover:bg-white/10">{tr('board.scheduled.cancel')}</button>}
+              {editing && <button type="button" onClick={reset} className="rounded px-2 py-1.5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10">{tr('board.scheduled.cancel')}</button>}
               <button disabled={busy} type="submit" className="rounded bg-primary/20 px-3 py-1.5 text-primary hover:bg-primary/30 disabled:opacity-50">{tr(editing ? 'board.scheduled.save' : 'board.scheduled.create')}</button>
             </div>
           </form>
