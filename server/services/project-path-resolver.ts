@@ -23,7 +23,8 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, isAbsolute, join, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
 import { projectIdForPath } from "./tasks";
@@ -35,10 +36,68 @@ export interface ProjectCandidate {
   projectStoreId: string | null;
 }
 
-/** Pure: find the candidate whose path re-hashes to `projectId`. */
-export function resolveProjectPath(projectId: string, candidates: ProjectCandidate[]): ProjectCandidate | null {
+/**
+ * The other addresses under which the SAME project has been known: the symlinks
+ * a move leaves at the old place.
+ *
+ * The board id is the hash of the whole path, so moving a folder changes the id
+ * you derive from it: cards written before keep the id of the old address and no
+ * candidate inverts it any more (19/11: the reshuffle of the projects folder left
+ * the topics-app board without a checkout, and the land sent every card back to
+ * review). Whoever moves a folder usually leaves a symlink at the old place, in
+ * the same tree: we look for symlinks pointing at the project in the two folders
+ * above it, never higher than the home. The result also holds the real path when
+ * the candidate is itself a symlink. Folder listings are memoised for the
+ * duration of one resolution only.
+ */
+export function makeAliasPathFinder(home = homedir()): (path: string) => string[] {
+  const listings = new Map<string, Array<{ link: string; real: string }>>();
+  const linksIn = (dir: string) => {
+    let hit = listings.get(dir);
+    if (hit) return hit;
+    hit = [];
+    try {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (!e.isSymbolicLink()) continue;
+        const link = join(dir, e.name);
+        try { hit.push({ link, real: realpathSync(link) }); } catch { /* broken symlink */ }
+      }
+    } catch { /* unreadable or vanished folder */ }
+    listings.set(dir, hit);
+    return hit;
+  };
+  return (path) => {
+    let real: string;
+    try { real = realpathSync(path); } catch { return []; }
+    const out = new Set<string>();
+    if (real !== path) out.add(real);
+    let dir = dirname(real);
+    for (let level = 0; level < 2; level++) {
+      // Stop at the home: nobody keeps projects above it.
+      if (dir === home || dir === dirname(dir) || !isInsideDir(dir, home)) break;
+      for (const l of linksIn(dir)) if (l.real === real) out.add(l.link);
+      dir = dirname(dir);
+    }
+    return [...out];
+  };
+}
+
+/**
+ * Pure (apart from the symlinks, which are injectable): find the candidate whose
+ * path re-hashes to `projectId`. When no path matches, retry with the other
+ * addresses of the same project (`aliasPathsOf`): a card from before a move must
+ * find the checkout where it is now.
+ */
+export function resolveProjectPath(
+  projectId: string,
+  candidates: ProjectCandidate[],
+  aliasPathsOf: (path: string) => string[] = makeAliasPathFinder(),
+): ProjectCandidate | null {
   for (const c of candidates) {
     if (projectIdForPath(c.path) === projectId) return c;
+  }
+  for (const c of candidates) {
+    if (aliasPathsOf(c.path).some((alias) => projectIdForPath(alias) === projectId)) return c;
   }
   return null;
 }
