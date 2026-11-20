@@ -2,7 +2,6 @@
  * The tasks router and the process detection and presence that start with it.
  */
 import { join } from "path";
-import { existsSync } from "fs";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
@@ -14,6 +13,7 @@ import { branchStatusFromRepo, commitIsAncestor, resolveCommit } from "../servic
 import { resolveDeliveryBranch } from "../services/delivery-branch-ref";
 import { realMainCiPort } from "../services/main-ci-watch";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
+import { classifyWorktreeSource } from "../services/worktree-manager";
 import { tryGetProvider } from "../providers";
 import { startProcessDetection, stopCardCommandProcesses, stopTopicCommandProcesses } from "../routes/processes";
 import { createTasksRouter, ownBranchFiles, runGitCap } from "../routes/tasks";
@@ -49,9 +49,13 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     autoMerge: taskAutoMerge,
     // Structural review gate: real uncommitted changes in the task's branch
     // worktree (junk excluded); null = no worktree, gate skipped.
-    // Il progetto di questa board puo' avere un worktree isolato? Stessa
-    // risoluzione che usa il dispatch, cosi' il pannello non puo' dire una cosa e
-    // il dispatch farne un'altra.
+    // Can this board's project have an isolated worktree? Same classification
+    // the dispatch uses (`classifyWorktreeSource`, shared with
+    // `assertNotAlreadyAWorktree`), so the panel can never say one thing while
+    // dispatch does another. A REGISTERED project (non-null projectStoreId)
+    // used to always return `true` here, skipping the `.git` check entirely:
+    // every project added through the UI (which is almost all of them) never
+    // saw the warning, even with no repo or from inside a nested worktree.
     worktreeReady: (projectId) => {
       try {
         const c = resolveProjectPath(
@@ -62,8 +66,9 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
             extraPaths: dispatchExtraPaths,
           }),
         );
-        if (!c) return false;
-        return !!c.projectStoreId || existsSync(join(c.path, ".git"));
+        if (!c) return "no-git";
+        const kind = classifyWorktreeSource(c.path);
+        return kind === "ok" ? true : kind;
       } catch { return true; } // in dubbio non si accusa il progetto
     },
     taskWorktreeDirt: async (taskId) => {
