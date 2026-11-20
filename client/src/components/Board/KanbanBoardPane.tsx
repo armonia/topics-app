@@ -403,7 +403,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
   const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
-  const { justCreated, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
+  const { justCreated, pinnedIds, clearPinned, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
@@ -524,13 +524,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
 
   // The cards the search filters let through, before the quick filter: its counts read from here.
-  const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
+  // Cards created from this window are exempt until the filters change (see `pinnedIds`).
+  const filtered = useMemo(
+    () => tasks.filter((task) => pinnedIds.has(task.id) || taskMatchesFilters(task, filters)),
+    [tasks, filters, pinnedIds],
+  );
   // The counts ignore the creator toggle: with «mine» on, «Jarvis» and «Agents» would read 0 for a filter that is not broken.
   const quickCounts = useMemo(
     () => countQuickFiltersWithoutCreator(tasks, filters),
     [tasks, filters],
   );
-  const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
+  const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => pinnedIds.has(task.id) || taskMatchesQuick(task, quick)) : filtered), [filtered, quick, pinnedIds]);
+  useEffect(() => { clearPinned(); }, [filters, quick, clearPinned]);
   const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 
   /**
