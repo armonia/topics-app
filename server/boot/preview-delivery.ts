@@ -170,7 +170,7 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
     // the literal string PanelGrid renders when no topic is selected — see
     // client/src/components/Layout/PanelGrid.tsx.
     // Both captures run on the preview's own WebKit, never on the remote
-    // browser's Chromium (KANBAN-95, server/services/preview-browser.ts).
+    // browser's Chromium (KANBAN-119, server/services/preview-browser.ts).
     emptyAppShell: (url) => previewBrowser.emptyAppShell(url),
     // Viewport, not full page: the card draws the preview with `object-cover`,
     // and an image taller than `PREVIEW_CARD_MAX_RATIO` (0.70) times its width

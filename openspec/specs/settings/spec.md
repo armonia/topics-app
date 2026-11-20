@@ -693,6 +693,18 @@ lingue.
 - **GIVEN** una licenza team da 5 posti che scade fra 12 giorni
 - **THEN** la riga Piano dice «Scade tra 12 g · Team · 5 posti» nel tono di avviso
 
+### Requirement: USERMENU-11 — Supporto e community apre l'invito Discord, in un punto solo
+
+In fondo al menu utente SHALL esserci una riga «Supporto e community» che apre
+l'invito Discord ufficiale del progetto in una finestra esterna (una tab
+dedicata sul web, `shell.openExternal` su desktop), mai dentro l'app. L'URL
+dell'invito SHALL vivere in un unico punto di configurazione
+(`lib/externalLinks.ts`): nessun altro file SHALL ripeterlo come stringa.
+
+#### Scenario: la riga apre l'invito configurato
+- **WHEN** apro il menu utente e premo «Supporto e community»
+- **THEN** si apre, in una finestra esterna, l'URL dell'invito Discord configurato in `lib/externalLinks.ts`
+
 ### Requirement: SETHOME-01 — Ogni modulo vive dove si usa
 
 Richiesta del 03/10: «ma no il menu di opzioni l'avevamo proprio tolto perchè

@@ -331,11 +331,14 @@ export const TOOL_HANDLERS: Record<
     // The context goes LAST, so every reader of the prefix (pane-nav-outcome,
     // the agents themselves) keeps reading what it always read. The chat
     // marker parses it back out (`shared/tool-detail.ts`).
-    const body = r.contextId ? `${outcome} [contextId: ${r.contextId}]` : outcome;
+    // What was shown rides before the context, so the contextId stays last.
+    const shown = r.media ? `${outcome} [media: ${r.media}]` : outcome;
+    const body = r.contextId ? `${shown} [contextId: ${r.contextId}]` : shown;
     // The port/project warning (task f9cf765e) LEADS the result: it is the one
     // line an agent skimming "Opened browser pane at ..." must not be able to
     // miss, so it is not appended at the end where a long result truncates it.
-    return r.warning ? `${r.warning}\n${body}` : body;
+    const lead = [r.warning, r.note].filter(Boolean).join("\n");
+    return lead ? `${lead}\n${body}` : body;
   },
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),

@@ -7,6 +7,7 @@ import {
   toServableUrl,
   setLocalFileServing,
   isMediaRef,
+  mediaRefOfOwnOrigin,
   type LocalFileServing,
 } from "./browser-local-file-url";
 
@@ -126,5 +127,29 @@ describe("toServableUrl", () => {
   test("il singleton è la sorgente di default", () => {
     setLocalFileServing(deps);
     expect(toServableUrl(`file://${ALLOWED}`).kind).toBe("rewritten");
+  });
+});
+
+describe("mediaRefOfOwnOrigin (SHOWN-02)", () => {
+  const ref = `/api/media?path=${encodeURIComponent(ALLOWED)}`;
+  test("an absolute media URL of this server is the relative reference", () => {
+    expect(mediaRefOfOwnOrigin(`https://127.0.0.1:3333${ref}`, deps)).toBe(ref);
+    expect(mediaRefOfOwnOrigin(`http://localhost:3333${ref}`, deps)).toBe(ref);
+  });
+  test("the desktop proxy port counts as this server", () => {
+    expect(mediaRefOfOwnOrigin(`http://127.0.0.1:13333${ref}`, deps)).toBe(ref);
+  });
+  test("another loopback port is left alone", () => {
+    expect(mediaRefOfOwnOrigin(`http://127.0.0.1:4000${ref}`, deps)).toBeNull();
+  });
+  test("another path or a foreign host is left alone", () => {
+    expect(mediaRefOfOwnOrigin("http://127.0.0.1:3333/api/other?path=/x", deps)).toBeNull();
+    expect(mediaRefOfOwnOrigin(`https://example.com:3333${ref}`, deps)).toBeNull();
+    expect(mediaRefOfOwnOrigin("not a url", deps)).toBeNull();
+  });
+  test("a path with spaces survives the round trip", () => {
+    const spaced = "/Users/x/.topics/media/a b.png";
+    const abs = `http://127.0.0.1:3333/api/media?path=${encodeURIComponent(spaced)}`;
+    expect(mediaRefOfOwnOrigin(abs, deps)).toBe(`/api/media?path=${encodeURIComponent(spaced)}`);
   });
 });

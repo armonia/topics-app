@@ -12,6 +12,62 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { dispatchBrowserToolCallByContext } from "../browser-tool-dispatcher";
 import { blankPaneFailure, settledUrl } from "../lib/pane-nav-outcome";
 import { bridgeErrorText } from "../lib/browser-bridge-warn";
+import { MEDIA_REF_PREFIX, isMediaRef } from "../browser-local-file-url";
+import { topicsHome } from "../services/daemon-state";
+import { copyFile, mkdir } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
+
+/** Who is on the other end of the call, when it is not a plain chat. */
+export type OpenPaneSurface = "agent" | "card" | "terminal";
+
+/**
+ * The road that WORKS for each surface that does not write where the person
+ * reads (SHOWN-03). Said whatever `visible` is: a pane some socket attached to
+ * is not a pane someone is looking at.
+ */
+export const SURFACE_NOTES: Record<OpenPaneSurface, string> = {
+  agent:
+    "Nobody is looking at this chat's pane. To show the person what you opened, return its file path to whoever launched you so it reaches them in a message.",
+  card:
+    "This is a card session: the pane is a tab of the task, not a message. To show the reviewer a file or a screenshot, attach it (update_task preview_image, comment_task media).",
+  terminal:
+    "This is a terminal session: there is no message to carry the image, only the pane next to the terminal.",
+};
+
+/** Files a pane shows as themselves; anything else is a page and gets a photo. */
+const SHOWN_FILE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".mp4", ".webm", ".mov", ".pdf"]);
+
+/**
+ * What the opening leaves in the message (SHOWN-01): the file itself when the
+ * pane opened a served file, else ONE photo of the page, taken here once for
+ * every client. The photo is copied out of the screenshot folder, which is
+ * pruned, into a folder nobody prunes and the end-of-turn media scan does not
+ * read, so the saved message never points at a file that is gone and the same
+ * picture is not attached a second time.
+ */
+async function shownMedia(opts: { url: string; contextId: string; service: BrowserService; dispatch: typeof dispatchBrowserToolCallByContext }): Promise<string | undefined> {
+  if (isMediaRef(opts.url)) {
+    try {
+      const path = decodeURIComponent(opts.url.slice(MEDIA_REF_PREFIX.length));
+      if (SHOWN_FILE_EXT.has(extname(path).toLowerCase())) return path;
+    } catch {
+      return undefined;
+    }
+    // A served document that is not a picture or a PDF is a page: photo below.
+  }
+  try {
+    const shot = (await opts.dispatch("browser_screenshot", {}, opts.contextId, opts.service)) as { path?: unknown; error?: unknown };
+    if (typeof shot?.path !== "string" || shot.error) return undefined;
+    const dir = join(topicsHome(), "media", "browser", "opened");
+    await mkdir(dir, { recursive: true });
+    const kept = join(dir, `${Date.now()}-${basename(shot.path)}`);
+    await copyFile(shot.path, kept);
+    return kept;
+  } catch {
+    // A photo is a bonus: the page is open either way.
+    return undefined;
+  }
+}
 
 /** What the sequence needs from the router that owns the sockets and the topics. */
 export interface OpenPaneFlowDeps {
@@ -23,6 +79,8 @@ export interface OpenPaneFlowDeps {
   paneWaitMs: number;
   /** The localhost-port warning, or undefined when there is nothing to say. */
   portOwnershipWarning: (url: string, callerProjectPath: string | null) => Promise<string | undefined>;
+  /** The tool dispatcher; injected so a test can answer for the pane. */
+  dispatch?: typeof dispatchBrowserToolCallByContext;
 }
 
 export interface OpenPaneFlowOptions {
@@ -45,12 +103,15 @@ export interface OpenPaneFlowOptions {
    * failure in `warning` instead, which is the same information without the lie.
    */
   navigationFatal?: boolean;
+  /** The surface, when it does not write where the person reads: its note goes back to the agent. */
+  surface?: OpenPaneSurface;
   /** Told what the navigation threw, before the 500 goes out: the route logs it. */
   onNavigationThrow?: (reason: unknown) => void;
 }
 
 export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
   const { json, broadcastToAll, waitForAttachedPane, portOwnershipWarning } = deps;
+  const dispatch = deps.dispatch ?? dispatchBrowserToolCallByContext;
   const PANE_WAIT_MS = deps.paneWaitMs;
 
   /**
@@ -128,7 +189,7 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
     let pageTitle = "";
     let navError = "";
     try {
-      const result = (await dispatchBrowserToolCallByContext(
+      const result = (await dispatch(
         "browser_open",
         { url },
         contextId,
@@ -164,6 +225,7 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
         : opts.forceOpen === false
           ? false
           : await forceOpenAndWait(contextId, resolvedUrl);
+    const media = navError ? undefined : await shownMedia({ url, contextId, service, dispatch });
     const portWarning = await portOwnershipWarning(resolvedUrl, projectPath);
     const warning = [navError ? `navigation failed: ${navError}` : "", portWarning ?? ""]
       .filter(Boolean)
@@ -176,6 +238,8 @@ export function makeOpenPaneFlow(deps: OpenPaneFlowDeps) {
       title: opts.title ?? pageTitle,
       visible,
       contextId,
+      ...(media ? { media } : {}),
+      ...(opts.surface ? { note: SURFACE_NOTES[opts.surface] } : {}),
       ...(warning ? { warning } : {}),
     });
   }
