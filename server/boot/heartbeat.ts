@@ -10,13 +10,20 @@ import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeProbe } from "../services/node-heartbeat";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { initVapid } from "../push-service";
-import { readRevisionePrConfig, startRevisionePrTick } from "../services/revisione-pr";
+import { execFile } from "node:child_process";
+import { projectIdForPath } from "../services/tasks";
+import {
+  findProjectDirForRepo,
+  readPrReviewConfig,
+  createPrReviewDeps,
+  startPrReviewTick,
+} from "../services/revisione-pr";
 import { startDevBundleReload } from "../lib/dev-bundle-reload";
 import { startBundleProbe } from "../lib/bundle-probe";
 import type { AfterRouters2 } from "./scope";
 
 export async function bootHeartbeat(scope: AfterRouters2) {
-  const { PUBLIC_DIR, broadcastToAll, cloudEnabled, cloudNode, ctx, retirementConsequences } = scope;
+  const { PUBLIC_DIR, broadcastToAll, cloudEnabled, cloudNode, ctx, dispatcherSvc, listSelectableProjectDirs, retirementConsequences } = scope;
   // Phase D — heartbeat ticker. Upserts the local machine row every 30 s
   // and flips other machines that haven't checked in for 5 minutes to
   // `offline`. Cheap (one indexed UPDATE + one indexed SELECT per tick).
@@ -81,8 +88,33 @@ export async function bootHeartbeat(scope: AfterRouters2) {
 
   const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
 
-  // Automatic review of open PRs; off until REVIEW_PR_REPO and REVIEW_PR_WORKFLOW are set.
-  startRevisionePrTick(readRevisionePrConfig(process.env, ctx.APP_DATA_DIR));
+  // Automatic review of PRs opened after boot; off until REVIEW_PR_REPO and REVIEW_PR_WORKFLOW are set.
+  // Confirmed defects become a card in review on the board of the project whose `origin` is that repo.
+  const originOf = (dir: string) =>
+    new Promise<string | null>((resolve) => {
+      execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000 }, (err, stdout) => resolve(err ? null : stdout.trim()));
+    });
+  const projectDirOf = (repo: string) => findProjectDirForRepo(repo, listSelectableProjectDirs(), originOf);
+  startPrReviewTick(
+    readPrReviewConfig(process.env, ctx.APP_DATA_DIR),
+    createPrReviewDeps({
+      hasBoard: async (repo) => (await projectDirOf(repo)) !== null,
+      openCard: async (card) => {
+        const dir = await projectDirOf(card.repo);
+        if (!dir) throw new Error(`no project owns ${card.repo}`);
+        const projectId = projectIdForPath(dir);
+        const task = dispatcherSvc.create({
+          projectId,
+          text: card.title,
+          description: card.description,
+          status: "review",
+          createdBy: "cron:revisione-pr",
+          idempotencyKey: card.idempotencyKey,
+        });
+        broadcastToAll({ type: "task:updated", projectId, task });
+      },
+    }),
+  );
 
 
   // I registri d'accordo col fatto, a ogni avvio.
