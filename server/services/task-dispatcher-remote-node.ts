@@ -385,10 +385,22 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     } catch (err) { log(`nodo: rinvio della card ${task.id} non riuscito`, err); }
   }
 
-  /** A card that can never start where it is pointed: parked, with the fix in words. */
+  /**
+   * A card that can never start where it is pointed: parked, with the fix in
+   * words. The pin to that node survives the park (`release` never touches
+   * `machineId`): a card the SYSTEM overflowed there (`task.overflowedAt`)
+   * came back here blocked on the same broken node every time a human dragged
+   * it back to `todo`, because nothing ever cleared the pin. A card a person
+   * pinned there by hand keeps it, with the reason on it — same asymmetry as
+   * `returnEmptyNodeRunToTodo`.
+   */
   function parkNodeCard(task: Task, reason: string): void {
     try { releaseAndEmit({ taskId: task.id, requeue: false, parkState: CHIP_BLOCKED, reason }); }
-    catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); }
+    catch (err) { log(`nodo: parcheggio della card ${task.id} non riuscito`, err); return; }
+    if (task.overflowedAt) {
+      try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+      catch (err) { log(`nodo: la card ${task.id} bloccata non è tornata sulla macchina locale`, err); }
+    }
   }
 
   /**

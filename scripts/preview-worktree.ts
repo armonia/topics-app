@@ -23,6 +23,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { previewServerEnv } from "./preview-env";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const port = Number(process.env.PORT);
@@ -60,12 +61,11 @@ console.log(`▸ isolated server on :${port}`);
 const server = spawn("bash", [join(REPO_ROOT, "scripts", "start-test-server.sh")], {
   cwd: REPO_ROOT,
   stdio: "inherit",
-  env: {
-    ...process.env,
+  env: previewServerEnv(process.env, {
     BUN_PORT: String(port),
     DATA_DIR: join(root, "data"),
     TOPICS_PUBLIC_DIR: bundleDir,
-  },
+  }),
 });
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(sig, () => server.kill(sig));
 server.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
