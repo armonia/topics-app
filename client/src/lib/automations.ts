@@ -405,6 +405,11 @@ export function readCronJobs(raw: unknown): CronJob[] | null {
   });
 }
 
+/** A job that fires once (`at`) and never repeats. */
+function isOneShot(job: CronJob): boolean {
+  return job.schedule?.kind === 'at';
+}
+
 /**
  * The hub's rows with jarvis-channels' word on each Jarvis job: on or off, and
  * the jobs switched off (the hub leaves them out) as rows of their own, so
@@ -415,14 +420,16 @@ export function withCronJobs(rows: AutomationRow[], jobs: CronJob[] | null, desc
   if (!jobs) return rows;
   const byId = new Map(jobs.map((j) => [j.id, j]));
   const seen = new Set<string>();
-  const out = rows.map((r) => {
+  const out = rows.flatMap((r) => {
     const j = r.jobId ? byId.get(r.jobId) : undefined;
-    if (!j) return r;
+    if (!j) return [r];
     seen.add(j.id);
-    return { ...r, enabled: j.enabled };
+    // A one-shot job is an ordinary task, not an automation: it stays out of the list.
+    if (isOneShot(j)) return [];
+    return [{ ...r, enabled: j.enabled }];
   });
   for (const j of jobs) {
-    if (seen.has(j.id)) continue;
+    if (seen.has(j.id) || isOneShot(j)) continue;
     out.push({ ...blankRow(`cron:${j.id}`, 'jarvis', j.name), when: describe?.(j) ?? null, next: j.enabled ? j.nextRunAt : null, jobId: j.id, enabled: j.enabled });
   }
   return out;

@@ -172,24 +172,23 @@ describe('la riga di chrome e il comando in coda', () => {
     );
   });
 
-  test('la riga subordinata è box + un solo incasso, e i due li dice la stessa fonte', () => {
-    // 34 = 28 + 6. Scritto come aritmetica e non come numero: se il box o
-    // l'incasso si muovono, la riga figlia li segue o si separa QUI.
+  test('la riga subordinata è box + ROW_INSET, diviso a metà sopra e sotto la tab', () => {
+    // 34 = 28 + 6. Written as arithmetic, not as a number: if the box or the
+    // inset move, the child row follows them or splits apart RIGHT HERE.
     expect(CHROME_ROW_SUB_H).toBe(ROW_ACTION_BOX_PX.desktop + ROW_INSET);
-    // E la riga piena è la stessa cosa con l'incasso DUE volte: è tutta la
-    // faccenda in una riga: la figlia non paga l'aria in cima perché quella
-    // sopra l'ha già messa.
+    // And the full row is the same thing with the inset counted TWICE: it is
+    // the whole story in one row.
     expect(CHROME_ROW_SUB_H + ROW_INSET).toBe(CHROME_ROW_CONTENT_H);
-    // La classe deve dire lo stesso numero della costante: sono due scritture
-    // dello stesso valore, e Tailwind legge solo la prima.
+    // The class must say the same number as the constant: two spellings of
+    // the same value, and Tailwind only reads the first.
     expect(risolvi(CHROME_BAR_SUB, 'h')).toEqual({ wide: CHROME_ROW_SUB_H, compact: CHROME_ROW_CONTENT_H });
-    // `md:pb-[…]` esiste SOLO sopra i 768: `risolvi` pretende un valore per
-    // entrambe le larghezze, quindi qui si legge il ramo `md:` da solo — ed è
-    // giusto così, sotto quel breakpoint l'incasso in coda non c'è perché la
-    // riga non si è stretta.
-    const pb = /(?:^|\s)md:pb-\[(\d+)px\]/.exec(CHROME_BAR_SUB);
-    expect(pb, 'CHROME_BAR_SUB senza incasso in coda').not.toBeNull();
-    expect(Number(pb![1])).toBe(ROW_INSET);
+    // NO padding override above 768px: `items-center` alone splits the gap
+    // between the box (28) and the row (34) evenly — ROW_INSET/2 above, the
+    // same below — so the tab stays centred instead of sticking to the top
+    // edge (card 18/11, "tabs stuck to the top edge").
+    const paddingOverride = /(?:^|\s)md:p[tby]?-/.exec(CHROME_BAR_SUB);
+    expect(paddingOverride, 'CHROME_BAR_SUB should not override vertical padding above 768px').toBeNull();
+    expect((CHROME_ROW_SUB_H - ROW_ACTION_BOX_PX.desktop) / 2).toBe(ROW_INSET / 2);
   });
 
   test('il comando ci sta dentro la riga', () => {
