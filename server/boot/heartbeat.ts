@@ -10,6 +10,7 @@ import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeProbe } from "../services/node-heartbeat";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { initVapid } from "../push-service";
+import { readRevisionePrConfig, startRevisionePrTick } from "../services/revisione-pr";
 import { startDevBundleReload } from "../lib/dev-bundle-reload";
 import { startBundleProbe } from "../lib/bundle-probe";
 import type { AfterRouters2 } from "./scope";
@@ -79,6 +80,9 @@ export async function bootHeartbeat(scope: AfterRouters2) {
   tickHeartbeat();
 
   const heartbeatTimer = setInterval(tickHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  // Automatic review of open PRs; off until REVIEW_PR_REPO and REVIEW_PR_WORKFLOW are set.
+  startRevisionePrTick(readRevisionePrConfig(process.env, ctx.APP_DATA_DIR));
 
 
   // I registri d'accordo col fatto, a ogni avvio.
