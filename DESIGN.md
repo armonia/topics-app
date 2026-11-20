@@ -146,6 +146,9 @@ barra dei menu.
 - La scala dei testi e i token del CSS: si aggiungono ruoli, non si spostano valori.
 - Il chip di Jarvis sulla card (avatar blu con l'iniziale e il nome, 15/11 «Jarvis resta com'è»):
   ora è il chip del proprietario quando l'agente è Jarvis, stesso aspetto.
+- La Board del 20/11 («va bene così»): barra «Il mio lavoro | Tutto» con i chip dei proprietari e il
+  menu dei canali, chip proprietario e canale sulla card, slider del dettaglio, viste «Kanban, Lista,
+  Chi la segue, Workflow» con icone; etichette e campo di ricerca seguono la larghezza della board.
 
 ## Feedback di Attilio
 

@@ -19,7 +19,7 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
   return (
     <div
       role="radiogroup" data-testid="board-view-selector" aria-label={tr('board.view.label')}
-      className="mx-1 flex shrink-0 items-center gap-px rounded bg-black/5 dark:bg-white/5"
+      className="mx-0.5 flex shrink-0 items-center gap-px rounded bg-black/5 dark:bg-white/5"
       onKeyDown={(e) => {
         const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
         if (!step) return;
@@ -67,10 +67,10 @@ export function DensitySlider({ value, onChange }: { value: BoardDensity; onChan
         e.preventDefault();
         go(at + step);
       }}
-      className={`mx-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 rounded px-1.5 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
+      className={`mx-0.5 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1 rounded px-1 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
     >
       <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => go(at - 1)} className="grid place-items-center hover:text-app-text"><Equal className="h-3.5 w-3.5" /></button>
-      <span className="relative flex h-4 w-12 items-center">
+      <span className="relative flex h-4 w-10 items-center">
         <span className="absolute inset-x-0 h-0.5 rounded-full bg-app-border" />
         <span className="absolute left-0 h-0.5 rounded-full bg-primary" style={{ width: `${(at / last) * 100}%` }} />
         {BOARD_DENSITIES.map((level, i) => (

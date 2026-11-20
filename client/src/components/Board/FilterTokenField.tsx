@@ -213,7 +213,7 @@ export function FilterTokenField({ value, onChange, assignees, persons, computer
       // the container), not the window's: at 1440 with the sidebar and the
       // file pane open the board is ~950px and a 15rem field pushed the
       // actions past the right edge.
-      className={`${filterFieldClass(active)} min-w-[calc(100vw-4.5rem)] max-w-[24rem] sm:min-w-[9rem] @7xl:min-w-[15rem]`}
+      className={`${filterFieldClass(active)} min-w-[calc(100vw-4.5rem)] max-w-[24rem] sm:min-w-[7rem] @7xl:min-w-[15rem]`}
     >
       <Search className="pointer-events-none h-3 w-3 shrink-0 text-app-text-secondary coarse:h-4 coarse:w-4" />
       {/* Every token is drawn, and every remove button stays a Tab stop. A `+N`
