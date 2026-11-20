@@ -102,7 +102,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     reapClaudeSessions: (t) => claudeSessionTracker.reapOnce(t),
     advanceScheduledCards: (value) => {
       late.scheduledCardTestNow = value;
-      return value ? tickScheduledCards() : { created: [], skipped: [] };
+      return value ? tickScheduledCards() : { created: [], skipped: [], started: [] };
     },
   });
 

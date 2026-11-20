@@ -25,7 +25,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, parseReviewChecks } from "../services/r
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
-import { ScheduledCardsError, type ScheduledCardsService } from "../services/scheduled-cards";
+import { ScheduledCardsError, type ScheduledCardsService } from "../schedule/cards-service";
 import { invalidateProbeCache } from "../services/url-probe-cache";
 import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
