@@ -1,5 +1,5 @@
 import { homedir } from "os";
-import { accessSync, constants, existsSync, mkdirSync } from "fs";
+import { accessSync, constants, existsSync, lstatSync, mkdirSync, realpathSync } from "fs";
 import { join, resolve } from "path";
 import { topicsHome } from "../services/daemon-state";
 import { LEGACY_DATA_DIR_NAME } from "../../shared/legacy-data-dir";
@@ -135,6 +135,13 @@ export interface AppDataDirInputs {
   home?: string;
   /** Directory probe. Injected in tests; the resolution never creates anything. */
   exists?: (path: string) => boolean;
+  /** Where a path points when it is a symbolic link, else null. Injected in tests. */
+  linkTarget?: (path: string) => string | null;
+}
+
+function symlinkTarget(path: string): string | null {
+  try { return lstatSync(path).isSymbolicLink() ? realpathSync(path) : null; }
+  catch { return null; }
 }
 
 /**
@@ -176,7 +183,10 @@ export function resolveAppDataDir(inputs: AppDataDirInputs = {}): string {
   const explicit = env.APP_DATA_DIR;
   if (explicit) return explicit;
   const legacy = join(home, LEGACY_DATA_DIR_NAME);
-  if (exists(legacy)) return legacy;
+  // A legacy root that is only a link (the folder moved and the old name points at
+  // it) resolves to where it points: new paths are written under the real folder,
+  // never under the obsolete name. The files are the same either way.
+  if (exists(legacy)) return (inputs.linkTarget ?? symlinkTarget)(legacy) ?? legacy;
   return topicsHome(env, home);
 }
 
