@@ -28,7 +28,7 @@
  *    while their parents went on working and never saw them.
  */
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
-import type { SubAgentResult } from "../lib/subagent-result";
+import { resultKey, type SubAgentResult } from "../lib/subagent-result";
 import type { WakeLaunch } from "../lib/wake-adoption";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -136,6 +136,11 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   const pollMs = deps.pollMs ?? 500;
   const graceMs = deps.endGraceMs ?? 20_000;
   const pending = new Map<string, SubagentWakeRequest[]>();
+  /** Results asked for and not settled yet: queued or in flight. */
+  const tracked = new Map<string, string>();
+  /** Results already delivered by this process: a late re-ask (the durable clear failed) must not wake twice. */
+  const delivered = new Set<string>();
+  const DELIVERED_CAP = 500;
   const workers = new Map<string, Promise<void>>();
 
   async function drain(sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
@@ -153,7 +158,10 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
 
   function asRows(batch: SubagentWakeRequest[]): void {
     for (const r of batch) {
-      try { if (!r.rowWritten) r.writeRow(); r.settle(); } catch (err) { deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
+      try { if (!r.rowWritten) r.writeRow(); r.settle(); } catch (err) {
+        // Forgotten, not settled: the durable copy stays and a later sweep may ask again.
+        tracked.delete(resultKey(r.result));
+        deps.log?.(`row for ${r.result.agentId}: ${err instanceof Error ? err.message : String(err)}`); }
     }
   }
 
@@ -255,19 +263,44 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   }
 
   function request(r: SubagentWakeRequest): void {
+    // Asked again for a result already on its way, or already delivered here
+    // (the runtime's stale sweep): a second copy would wake the chat twice.
+    const key = resultKey(r.result);
+    if (tracked.has(key) || delivered.has(key)) return;
+    tracked.set(key, r.parentSessionKey);
+    const settleOnce = r.settle;
+    r.settle = () => {
+      // Delivered is recorded before the durable clear, which may fail silently.
+      delivered.add(key);
+      if (delivered.size > DELIVERED_CAP) delivered.delete(delivered.values().next().value as string);
+      tracked.delete(key);
+      settleOnce();
+    };
+    enqueue(r);
+  }
+
+  /** Queue an already tracked request and make sure its parent has a worker. */
+  function enqueue(r: SubagentWakeRequest): void {
     const list = pending.get(r.parentSessionKey) ?? [];
     list.push(r);
     pending.set(r.parentSessionKey, list);
     if (workers.has(r.parentSessionKey)) return;
-    const job = work(r.parentSessionKey)
-      .catch((err) => deps.log?.(`${r.parentSessionKey}: ${err instanceof Error ? err.message : String(err)}`))
+    const parent = r.parentSessionKey;
+    const job = work(parent)
+      .catch((err) => {
+        deps.log?.(`${parent}: ${err instanceof Error ? err.message : String(err)}`);
+        // The batch the worker held is gone with the throw: forget it so the
+        // sweep's next ask is not discarded. Still queued ones stay tracked.
+        const queued = new Set((pending.get(parent) ?? []).map((x) => resultKey(x.result)));
+        for (const [key, owner] of tracked) if (owner === parent && !queued.has(key)) tracked.delete(key);
+      })
       .finally(() => {
-        workers.delete(r.parentSessionKey);
+        workers.delete(parent);
         // Something arrived after the worker's last look: start another.
-        const left = pending.get(r.parentSessionKey)?.splice(0) ?? [];
-        for (const x of left) request(x);
+        const left = pending.get(parent)?.splice(0) ?? [];
+        for (const x of left) enqueue(x);
       });
-    workers.set(r.parentSessionKey, job);
+    workers.set(parent, job);
   }
 
   /**

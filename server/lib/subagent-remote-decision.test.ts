@@ -46,3 +46,9 @@ test("a mac-only resource on a non-git folder still reports the resource, not th
   expect(decision.remote).toBeFalse();
   expect(decision.reason).toMatch(/browser pane/);
 });
+
+test("a child needing gh's login stays local: the credential is not in the bundle a node gets", () => {
+  const decision = decideRemoteSpawn({ isGitRepo: true, macOnlyResource: "gh" });
+  expect(decision.remote).toBeFalse();
+  expect(decision.reason).toMatch(/GitHub CLI/);
+});

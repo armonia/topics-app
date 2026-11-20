@@ -43,7 +43,8 @@ const SQL = `SELECT id, content, tool_calls, blocks FROM messages
 /** The two tables the sweep reads: messages, plus the archived blacklist. */
 function schema(db: Database): void {
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, content TEXT, tool_calls BLOB, blocks BLOB, partial INTEGER DEFAULT 0)`);
-  db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);
+  db.run(`CREATE TABLE topics (id TEXT, session_key TEXT, archived INTEGER)`);
+  db.run(`CREATE TABLE retirements (kind TEXT, ref_id TEXT, retired_at TEXT)`);
 }
 
 function dbWithRows(n: number, indiciInCorso: number[]): Database {
@@ -139,9 +140,25 @@ describe("setaccio dei tool orfani al boot", () => {
     const ins = db.prepare(`INSERT INTO messages VALUES (?, ?, '', ?, NULL, 0)`);
     ins.run("archiviato", "sk-archiviato", inCorso());
     ins.run("aperto", "sk-aperto", inCorso());
-    db.run(`INSERT INTO topics (session_key, archived) VALUES ('sk-archiviato', 1), ('sk-aperto', 0)`);
+    db.run(`INSERT INTO topics (id, session_key, archived) VALUES ('t-arch', 'sk-archiviato', 1), ('t-open', 'sk-aperto', 0)`);
+    db.run(`INSERT INTO retirements VALUES ('topic', 't-arch', datetime('now', '-30 days'))`);
 
     expect(trovatiScorrendo(db)).toEqual(["aperto"]);
+  });
+
+  it("tiene dentro un topic archiviato da poco: il suo tool in corso va chiuso", () => {
+    // A chat archived while a tool was running (native sub-agent chats archive
+    // at the end of their turn) was never swept again.
+    const db = new Database(":memory:");
+    schema(db);
+    const inCorso = () => encodeCol(JSON.stringify([{ id: "t", status: "running", pad: "z".repeat(1000) }])) as never;
+    const ins = db.prepare(`INSERT INTO messages VALUES (?, ?, '', ?, NULL, 0)`);
+    ins.run("recente", "sk-recente", inCorso());
+    ins.run("vecchio", "sk-vecchio", inCorso());
+    db.run(`INSERT INTO topics (id, session_key, archived) VALUES ('t-rec', 'sk-recente', 1), ('t-old', 'sk-vecchio', 1)`);
+    db.run(`INSERT INTO retirements VALUES ('topic', 't-rec', datetime('now', '-1 days')), ('topic', 't-old', datetime('now', '-20 days'))`);
+
+    expect(trovatiScorrendo(db)).toEqual(["recente"]);
   });
 
   it("una sessione senza riga in topics resta dentro: blacklist, non whitelist", () => {
@@ -157,7 +174,7 @@ describe("setaccio dei tool orfani al boot", () => {
     // that has none: `NULL NOT IN (...)` is NULL, that is falsy, and would
     // empty the whole scan although nobody archived anything.
     ins.run("senza-chiave", null, inCorso());
-    db.run(`INSERT INTO topics (session_key, archived) VALUES (NULL, 1)`);
+    db.run(`INSERT INTO topics (id, session_key, archived) VALUES ('t-null', NULL, 1)`);
 
     expect(trovatiScorrendo(db)).toEqual(["nuovo", "senza-chiave"]);
   });

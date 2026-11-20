@@ -101,8 +101,12 @@ export interface TasksRouterOpts {
    * a chi guarda un task, invece che a chi ha acceso l'impostazione.
    *
    * Esposto insieme alle impostazioni così il pannello può dirlo PRIMA.
+   *
+   * `true` = ready. `"no-git"` / `"nested-worktree"` name the exact cause
+   * (the same classification as `classifyWorktreeSource`), so the panel shows
+   * the right warning instead of a generic one.
    */
-  worktreeReady?: (projectId: string) => boolean;
+  worktreeReady?: (projectId: string) => true | "no-git" | "nested-worktree";
   /**
    * The task branch's state relative to main, read from the PROJECT repo by
    * CONTENT (so a squash-land still reads "merged"). `null` ⇒ the task has no

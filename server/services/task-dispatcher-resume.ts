@@ -10,7 +10,7 @@ import { type ResourceFloorKind } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
 import { runWithDelegatedDeadline } from "./task-dispatcher-delegated";
-import { WAITING_MEMORY, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, CHIP_QUEUED, CHIP_WORKING } from "./task-dispatcher-support";
+import { isMirrorCard, WAITING_MEMORY, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, CHIP_QUEUED, CHIP_WORKING } from "./task-dispatcher-support";
 import { warnIfBusy } from "../lib/sqlite-busy";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
@@ -127,6 +127,7 @@ export function createResume(ctx: DispatcherCtx) {
 
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
+    if (t && deps.isActive?.() === false && !isMirrorCard(t)) return;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
     // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al
