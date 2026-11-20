@@ -108,6 +108,27 @@ describe("two projects in the same hour", () => {
   });
 });
 
+describe("the last 24 hours are a window of their own", () => {
+  test("points from three days ago count in the week but not in the 24h the meter shows", () => {
+    const db = makeDb();
+    project(db, "/proj/A");
+    const sk = topic(db, "tA", { path: "/proj/A" });
+    const OLD_T = T0 - 3 * 24 * 60 * 60_000;
+    nativeCall(db, sk, "claude-opus-5-5", 100_000, 0, OLD_T);
+    nativeCall(db, sk, "claude-opus-5-5", 100_000, 0, T0);
+    // The account rose 4 points three days ago and 6 more in T0's hour.
+    const file = join(scratch, "history-three-days-apart.jsonl");
+    writeFileSync(file, [
+      { t: Math.floor(OLD_T / 1000) - 60, s: { "claude|acc1|7d": 0 } },
+      { t: Math.floor(OLD_T / 1000), s: { "claude|acc1|7d": 4 } },
+      { t: Math.floor(T0 / 1000), s: { "claude|acc1|7d": 10 } },
+    ].map((l) => JSON.stringify(l)).join("\n"));
+    const a = row(projectQuota(db, { now: NOW, historyFile: file, listTranscripts: NONE }).projects, "/proj/A")!;
+    expect(a.points7d).toBe(10);
+    expect(a.points24h).toBe(6);
+  });
+});
+
 describe("1a: nested Claude Code transcripts", () => {
   test("the listing finds a session's own file and its subagents folder", () => {
     const root = join(scratch, "claude-projects");
