@@ -266,4 +266,33 @@ describe("approve decoupled from landing", () => {
     const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
     expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
   });
+
+  test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
+    const hooks: Array<(sha: string) => Promise<string | null>> = [];
+    const am = {
+      tryMerge: async (_id: string, _t: string, delivery: any) => {
+        hooks.push(delivery.beforeMerge);
+        return { status: "skipped", code: "auto-land-stopped", reason: "stopped" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const redPort = {
+      recent: async () => [{ sha: "0123456789abcdef0123456789abcdef01234567", subject: "x", at: Math.floor(Date.now() / 1000) - 3600 }],
+      verdict: async () => ({ state: "fail" as const, failed: ["unit"], url: null }),
+      entersAt: async () => false,
+    };
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am, mainCiPort: async () => redPort } as any);
+    db.run("INSERT INTO topics (id) VALUES ('top-3')");
+    const ids: string[] = [];
+    for (const key of [null, "main-ci-red:abc"]) {
+      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "card " + String(key) }))!.json();
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-3', status='review', delivery_branch='topics/x', delivery_commit='bdfcf0cb', claude_task_id=? WHERE id = ?").run(key, t.id);
+      ids.push(t.id);
+      await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(hooks).toHaveLength(2);
+    expect(await hooks[0]!("bdfcf0cb")).toContain("main");
+    expect(await hooks[1]!("bdfcf0cb")).toBeNull();
+  });
 });
