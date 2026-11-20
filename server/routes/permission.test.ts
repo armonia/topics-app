@@ -17,7 +17,8 @@
  *     con quello della CLI: senza l'alias scritto dalla gamba, la decisione
  *     cadeva nel vuoto (409) e il turno restava fermo;
  *   - una `decision` non riconosciuta che diventa un sì per inerzia.
-  * @covers PERM-06
+ * @covers PERM-06
+ * @covers SUBAGENT-23
  */
 import { describe, test, expect } from "bun:test";
 import { createPermissionRouter, permissionLabel } from "./permission";
@@ -28,11 +29,16 @@ import { confirmOutbound, confirmQuestion, CONFIRM_LABEL, _resetOutboundHolds, t
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
-function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string>; card?: { id: string; project_id: string; assigned_topic_id: string } } = {}) {
+function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string>; card?: { id: string; project_id: string; assigned_topic_id: string }; childSessionKeys?: Iterable<string> } = {}) {
   const threadComments: Array<{ taskId: string; content: string }> = [];
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
   const toolCallWrites: Array<{ sessionKey: string; toolCallId: string; fields: Record<string, unknown> }> = [];
   const rawGlobalSessions = new Set(options.rawGlobalSessions ?? []);
+  // A spawn_agent child (any runtime): `spawnedChildOf` looks it up with a
+  // single-arg `.get(sessionKey)`, which the raw-registry lookup below never
+  // does (it always passes scope + sessionKey) — the arg count tells the two
+  // apart without needing to parse the SQL text.
+  const childSessionKeys = new Set(options.childSessionKeys ?? []);
 
   /**
    * I topic della finta app. Uno per session key, coniato alla prima richiesta
@@ -66,9 +72,18 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
       // with corrupt provider/project fields is still a registry role and must
       // be rejected before any generic bridge side effect.
       query: () => ({
-        get: (_scope: string, sessionKey: string) => rawGlobalSessions.has(sessionKey)
-          ? { scope: "global", topic_id: "registered-coordinator", created_at: "now", updated_at: "now" }
-          : null,
+        get: (...args: string[]) => {
+          if (args.length === 1) {
+            const [key] = args;
+            return childSessionKeys.has(key)
+              ? { id: key, parent_session_key: "topic:parent", name: key, state: "running", runtime: "claude-code" }
+              : null;
+          }
+          const [, sessionKey] = args;
+          return rawGlobalSessions.has(sessionKey)
+            ? { scope: "global", topic_id: "registered-coordinator", created_at: "now", updated_at: "now" }
+            : null;
+        },
       }),
     },
     // The active thread the recent-rows read walks: the one chat row.
@@ -114,6 +129,17 @@ const callRow = (id: string, extra: Record<string, unknown> = {}) =>
   JSON.stringify([{ id, name: "Bash", status: "running", ...extra }]);
 
 describe("POST /api/sessions/:sessionKey/ask-user", () => {
+  test("SUBAGENT-23 estesa alla CLI: un figlio spawn_agent è annullato, non aperto nel suo topic", async () => {
+    const sk = "cli-child-1";
+    const h = makeHarness(undefined, { childSessionKeys: [sk] });
+    const resp = (await h.call("POST", `/api/sessions/${sk}/ask-user`, { questions: [{ q: "?" }] }))!;
+    expect(resp.status).toBe(200);
+    expect(await resp.json()).toMatchObject({ cancelled: true });
+    // No rendez-vous left open: no panel should sit anywhere waiting for an
+    // answer that will never reach it there.
+    expect(hasPendingAsk(sk)).toBe(false);
+  });
+
   test("senza domande è 400 e NON apre nessuna attesa", async () => {
     const h = makeHarness();
     const sk = "ask:empty";
