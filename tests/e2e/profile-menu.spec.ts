@@ -43,9 +43,10 @@ async function openProfileMenu(page: Page): Promise<Locator> {
   await card.click();
   const menu = page.getByTestId("profile-menu");
   await expect(menu).toBeVisible({ timeout: 10_000 });
-  // The account block is a lazy chunk and can land after the panel is
-  // visible, growing it by its own height (313 -> 369, measured): a height
-  // read before it would blame the next level for the growth.
+  // The account block used to be a lazy chunk that landed after the panel
+  // was visible, growing it by its own height (313 -> 369, measured). It now
+  // ships with the menu (the test below pins that); the wait stays as the
+  // check that the header is there before any height is read.
   await expect(menu.getByTestId("account-identity")).toBeVisible({ timeout: 10_000 });
   return menu;
 }
@@ -74,6 +75,32 @@ function devicesRoute(phone: string, ipadConnected: boolean, fromIpad = false) {
     devices: [paired("dev-1", phone, true, false), paired("dev-2", "iPad", ipadConnected, fromIpad)],
   });
 }
+
+test.describe("il menu utente si apre intero", () => {
+  test("nessun istante del menu senza chi sei in cima: le righe non scivolano sotto il puntatore", async ({ page }) => {
+    await goToApp(page);
+    const card = page.getByTestId("identity-me-profile");
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    // EVERY BATCH OF DOM CHANGES, NOT A LATE LOOK. A header that lands a
+    // frame after the panel is already there when any locator reads the page,
+    // so the watch goes in before the click and counts each batch in which the
+    // panel stands without the account row. That gap is what made the rows
+    // slide down one under the pointer: in CI on 20/11 the pointer that had
+    // just opened System found the row above it there and opened that instead.
+    await page.evaluate(() => {
+      const w = window as unknown as { __menuWithoutHeader: number };
+      w.__menuWithoutHeader = 0;
+      new MutationObserver(() => {
+        const menu = document.querySelector('[data-testid="profile-menu"]');
+        if (menu && !menu.querySelector('[data-testid="account-identity"]')) w.__menuWithoutHeader += 1;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await card.click();
+    await expect(page.getByTestId("profile-menu").getByTestId("account-identity")).toBeVisible({ timeout: 10_000 });
+    const without = await page.evaluate(() => (window as unknown as { __menuWithoutHeader: number }).__menuWithoutHeader);
+    expect(without, "batches of DOM changes in which the menu stood without its header").toBe(0);
+  });
+});
 
 test.describe("il menu utente apre i livelli di lato", () => {
   test("un gruppo con sottolivello apre un pannello A DESTRA, e il menu non cresce", async ({ page }) => {

@@ -90,6 +90,7 @@ import type { TasksRouterOpts } from "./tasks-opts";
 import { gitRunner, runGitCap } from "./tasks-git";
 import { emitReviewReadyEdge, requestCardProcessStop } from "./tasks-shared";
 import { matchGuestTaskAction } from "./tasks-guests";
+import { resolveBoardPath } from "../lib/board-alias";
 import { MIRROR_KEY_PREFIX } from "../services/task-dispatcher-support";
 
 /** The mirror-card sign is reserved: only the node-run handoff may mint it, never a caller-chosen key. */
@@ -232,6 +233,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     publishProject, filterMedia, acceptPreview, rejectDeliveryPatch, asTaskStatus, fail, checksRedGate,
   });
   const tasksRouter = async function tasksRouter(req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
+    // An old board id (project folder moved, symlink left behind) is rewritten
+    // once here, so every board route below sees the current id.
+    if (pathname.startsWith("/api/boards/")) pathname = resolveBoardPath(ctx.db, pathname);
     const sessionActionOrigin = req.headers.get("X-Topics-Action-Origin") === "mcp" ? "mcp" : "api";
     // Fast reject: only task paths — agent (session-scoped) or human (board-scoped),
     // plus the machine-wide dispatch-capacity probe (a /api/system/ path that this

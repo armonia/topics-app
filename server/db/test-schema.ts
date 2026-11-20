@@ -211,7 +211,10 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20261115220000: 1 while that run is still open on the node.
   node_run_open INTEGER NOT NULL DEFAULT 0,
   -- 20261116120000: the landed card whose CI is still to be read (JSON), NULL = nothing to measure.
-  ci_after TEXT
+  ci_after TEXT,
+  -- 20261120100000: the plain-words summary of a card in Review and its key.
+  for_you TEXT,
+  for_you_key TEXT
 )`;
 
 /**

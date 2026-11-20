@@ -2348,7 +2348,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261114010000: the decision to land, who took it and on which commit.
          land_intent = 'human', land_intent_at = '2020-01-01T00:00:00.000Z', land_intent_commit = 'abc1234',
          -- 20261116120000: the landed card whose CI is still to be read (and how it ended).
-         ci_after = '{"commit":"abc1234","who":"human","repo":null,"at":"2020-01-01T00:00:00.000Z"}'
+         ci_after = '{"commit":"abc1234","who":"human","repo":null,"at":"2020-01-01T00:00:00.000Z"}',
+         -- 20261111140000: the plain-words summary and the key it came from.
+         for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

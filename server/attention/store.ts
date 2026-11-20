@@ -197,6 +197,8 @@ interface Entry {
    * says it again with an id of the new process; it is the same wait.
    */
   carriedHolds?: Partial<Record<AttentionHold["kind"], string>>;
+  /** The words of the wait carried across the restart: what tells it from a different question asked after it. */
+  carriedText?: string | null;
   /** Causes that are the current epoch's too: the wait open at the restart, and what its end left. */
   sameEpochCauses?: Set<string>;
   /**
@@ -321,12 +323,12 @@ function ensureLoaded(): void {
  * `hold:<kind>:<id>` and its state still says it. A wait already answered
  * (the row moved on) carries nothing, so a new question is a new epoch.
  */
-function carriedOf(row: SavedRow): Pick<Entry, "carriedHolds" | "sameEpochCauses"> {
+function carriedOf(row: SavedRow): Pick<Entry, "carriedHolds" | "carriedText" | "sameEpochCauses"> {
   const cause = row.epochCause;
   if (!cause || row.state !== "needs-you" || !row.reason || !cause.startsWith(`hold:${row.reason}:`)) return {};
   const id = cause.slice(`hold:${row.reason}:`.length);
   if (!id) return {};
-  return { carriedHolds: { [row.reason as AttentionHold["kind"]]: id }, sameEpochCauses: new Set([cause]) };
+  return { carriedHolds: { [row.reason as AttentionHold["kind"]]: id }, carriedText: row.detail, sameEpochCauses: new Set([cause]) };
 }
 
 function persist(row: SavedRow): void {
@@ -933,7 +935,12 @@ export function openHold(subject: string, source: string, hold: { kind: Attentio
   const prev = e.live.holds[source];
   // The first wait of this kind after a restart, while the one open at the
   // stop is still carried: the surviving bridge saying it again (ATTN-07).
-  const carried = !prev ? e.carriedHolds?.[hold.kind] : undefined;
+  // Only when it IS the same wait: a different question asked after the
+  // restart is a new epoch and must notify. Both texts are needed to tell
+  // them apart; a wait saved without its words is taken as the same.
+  const savedText = e.carriedText;
+  const sameWords = !hold.text || !savedText || hold.text === savedText;
+  const carried = !prev && sameWords ? e.carriedHolds?.[hold.kind] : undefined;
   if (carried) delete e.carriedHolds![hold.kind];
   const id = carried ?? hold.id;
   e.live.holds = { ...e.live.holds, [source]: { kind: hold.kind, id, text: hold.text ?? null, since: prev?.id === id ? prev.since : hold.since ?? nowIso() } };

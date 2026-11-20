@@ -301,3 +301,402 @@ Una rinomina rifiutata NON SHALL chiudere il campo: il nome digitato resta.
 - **WHEN** si conferma il cestino
 - **THEN** SHALL comparire il blocco d'errore con «Riprova»
 - **AND** SHALL essere ancora lì dopo la ricarica dell'elenco
+
+### Requirement: LAN-OPEN-01 - The origin axis is decided on the request's origin alone
+
+For a gated path the server SHALL make exactly one decision on the ORIGIN axis, on
+the request's origin, independent of the identity axis (`AUTH-01`): passing one
+never substitutes for the other, and the origin check SHALL NOT demand a token,
+a pairing credential or a peer-address property.
+
+The server SHALL allow the request on this axis when any of the following holds,
+evaluated in order: the `TOPICS_AUTH_OFF` kill-switch is set; the request is neither
+a mutating method nor a WebSocket upgrade; the request carries no `Origin` header;
+the request's `Origin` is same-site with its `Host`; or the request's `Origin`
+appears in the operator-configured allowed-origins list. Otherwise the server
+SHALL respond `403` with reason `cross-site origin blocked`.
+
+Same-site SHALL be decided on the canonicalized hostname, ignoring scheme, with
+`localhost`, `127.0.0.0/8`, `::1` and any `*.localhost` name collapsed into a single
+local equivalence class. The allowed-origins list SHALL be read from configuration
+on every evaluation, without caching.
+
+#### Scenario: A hostile website cannot forge a mutating request
+- **GIVEN** a page served from an origin whose hostname differs from the server's `Host`
+- **WHEN** it issues a mutating request or a WebSocket upgrade to the server
+- **THEN** the server SHALL respond `403` with reason `cross-site origin blocked`
+
+#### Scenario: An opaque origin is not same-site
+- **GIVEN** a document that sends the literal `Origin: null`
+- **WHEN** it issues a mutating request
+- **THEN** the server SHALL respond `403`
+
+#### Scenario: A non-browser client without an Origin header is served on this axis
+- **GIVEN** a client that sends no `Origin` header (the CLI, an MCP tool, an HTTP hook)
+- **WHEN** it issues a mutating request
+- **THEN** the origin check SHALL NOT refuse it
+
+#### Scenario: The desktop shell and the dev proxy are same-site
+- **GIVEN** the Tauri shell (`Origin: tauri://localhost`, `Host: 127.0.0.1:13333`) or the Vite dev proxy
+- **WHEN** either issues a mutating request
+- **THEN** both sides SHALL canonicalize to the local equivalence class and pass
+
+#### Scenario: Cross-origin reads stay unreadable
+- **GIVEN** a page on a foreign origin issues a non-mutating `GET` to a gated path
+- **WHEN** the server responds
+- **THEN** the response SHALL NOT carry an `Access-Control-Allow-Origin` header for that origin
+
+### Requirement: AUTH-01 - Every request from another machine carries an identity
+
+The server SHALL require an identity for every gated path - the API, WebSocket
+upgrades, and the file-serving roots - when the request does not come from the
+machine the server runs on. Requests from that machine SHALL be trusted by
+transport, so the owner can never be locked out.
+
+The identity decision SHALL be made for **every** method, including reads. The
+server SHALL NOT exempt non-mutating requests from it: the absence of a
+cross-origin read permission stops a web page, but it does not stop a command-line
+client on the network.
+
+The identity axis and the origin axis SHALL both be satisfied. A request carrying
+a valid session but driven from a foreign origin SHALL still be refused, because a
+valid session driven by a page the owner did not open is precisely the attack the
+origin check exists for.
+
+A refusal for identity SHALL be distinguishable from a refusal for origin, so the
+client can offer the authorization flow instead of failing silently.
+
+#### Scenario: An unknown device is refused, on reads too
+- **GIVEN** a device on the network that has never been authorized
+- **WHEN** it requests any gated path, including a read
+- **THEN** the server SHALL refuse it
+- **AND** the refusal SHALL identify itself as an identity problem
+
+#### Scenario: The machine running Topics is always trusted
+- **GIVEN** a request originating from the machine the server runs on
+- **WHEN** it reaches any gated path
+- **THEN** the server SHALL serve it without any credential
+
+#### Scenario: A valid session does not defeat the origin check
+- **GIVEN** an authorized device
+- **WHEN** a page from a foreign origin drives it into a mutating request
+- **THEN** the server SHALL refuse the request
+
+#### Scenario: The session travels without the client arranging it
+- **GIVEN** an authorized device
+- **WHEN** it issues any request, opens the WebSocket, or loads a file from a gated root
+- **THEN** the session SHALL accompany the request without per-call-site handling
+
+### Requirement: AUTH-02 - A new device is authorized by the trusted machine, not by guessing
+
+To gain access, a new device SHALL display a short verification code, and the
+machine that already holds access SHALL display the same request and approve or
+refuse it. The new device SHALL NOT be asked to enter a secret.
+
+The verification code SHALL avoid characters that a person can confuse when
+comparing two screens. A pending request SHALL expire, and an expired request
+SHALL NOT be approvable.
+
+The request for approval SHALL reach the trusted machine wherever the user is
+looking, not only inside a settings surface.
+
+#### Scenario: The two screens show the same code
+- **GIVEN** a new device asks for access
+- **WHEN** the trusted machine displays the request
+- **THEN** the code shown on both SHALL be identical
+
+#### Scenario: Approval grants access to that device only
+- **GIVEN** a pending request that the owner approves
+- **WHEN** the new device continues
+- **THEN** it SHALL gain access
+- **AND** no other device SHALL gain access from that approval
+
+#### Scenario: A refusal is told, not left hanging
+- **GIVEN** a pending request that the owner refuses
+- **WHEN** the new device polls
+- **THEN** it SHALL be told it was refused
+- **AND** SHALL be able to ask again
+
+#### Scenario: An expired request cannot be approved
+- **GIVEN** a request older than its expiry
+- **WHEN** approval is attempted
+- **THEN** the server SHALL refuse it
+
+### Requirement: AUTH-03 - Access is revocable, and revocation takes effect at once
+
+The system SHALL let the owner revoke an authorized device. A revoked device SHALL
+lose access on its next request, without waiting for anything to expire, and its
+refusal SHALL say it was revoked rather than that it was never known. The record of
+a revoked device SHALL be retained rather than erased.
+
+#### Scenario: Revocation is immediate
+- **GIVEN** an authorized device
+- **WHEN** the owner revokes it
+- **THEN** its next request SHALL be refused
+
+#### Scenario: A revoked device is told why
+- **GIVEN** a revoked device
+- **WHEN** it is refused
+- **THEN** the refusal SHALL distinguish revocation from never having been authorized
+
+#### Scenario: Revoking one device does not affect the others
+- **GIVEN** two authorized devices
+- **WHEN** one is revoked
+- **THEN** the other SHALL keep working
+
+### Requirement: RELAY-02 - Idle connections cost nothing
+
+The relay SHALL hold connections in a hibernatable form, so that a connection
+with no traffic incurs no duration cost.
+
+This is a requirement and not an optimization: for the same workload, holding
+the socket awake instead of hibernating it costs roughly **forty times** more.
+The economics of the whole feature depend on this single choice, so it SHALL be
+verified rather than assumed.
+
+Pixel-level co-browsing SHALL NOT travel through the relay's stateful objects.
+It SHALL remain peer-to-peer.
+
+#### Scenario: An idle session is not billed for duration
+- **GIVEN** a registered installation with no traffic
+- **WHEN** the billing period is measured
+- **THEN** no duration SHALL accrue for that connection
+
+#### Scenario: Screen streams do not enter the relay
+- **GIVEN** a co-browsing session between two participants
+- **WHEN** its transport is inspected
+- **THEN** the pixel stream SHALL NOT pass through the relay's stateful objects
+
+### Requirement: RELAY-04 - Reaching a thing is not the same as being allowed to see it
+
+The relay SHALL establish reachability only. Every existing rule about identity
+and permission SHALL continue to be enforced by the installation itself: who the
+requester is, what has been granted to them, and that a guest may only read.
+
+The relay SHALL NOT introduce a second system that decides who someone is. Two
+authorities on identity must be kept in agreement forever, and the one that
+disagrees silently is the one nobody is looking at.
+
+#### Scenario: Arriving through the relay grants nothing by itself
+- **GIVEN** a request that reaches an installation through the relay
+- **WHEN** it asks for something that was not shared with it
+- **THEN** it SHALL be refused exactly as it would be on the local network
+
+#### Scenario: A guest still cannot write
+- **GIVEN** a guest reaching a shared resource through the relay
+- **WHEN** it attempts a write
+- **THEN** it SHALL be refused
+
+### Requirement: RELAY-05 - When the machine is off, the interface says so
+
+While an installation is not connected, anything shared from it SHALL be
+presented as **temporarily unreachable**, naming the reason, rather than as
+empty or broken.
+
+Continuing a session elsewhere when the machine goes offline is explicitly not
+part of this: it would move the work off the owner's machine, which is the one
+property the product is built on. Should it ever be offered, it SHALL be an
+explicit, separately chosen service - never a default, and never a silent
+fallback.
+
+#### Scenario: A guest opening a link to a sleeping machine
+- **GIVEN** a shared link whose installation is offline
+- **WHEN** a guest opens it
+- **THEN** the interface SHALL say the machine is not reachable right now
+- **AND** it SHALL NOT present an empty result as if nothing had been shared
+
+### Requirement: ORG-01 - A request resolves to a bounded set of principals
+
+The system SHALL resolve a remote request's identity into a set of **principals**
+of depth at most two: the device, the person it belongs to, and the non-revoked
+organizations that person is a non-revoked, non-locally-blocked member of.
+
+Nested organizations SHALL NOT be admitted. The bounded depth is the **condition
+of validity** for resolving at read time rather than materializing, not a default
+that may later be relaxed: a fixed-length path is a join, an unbounded one is a
+graph walk, and the argument for this design does not survive the change. A test
+SHALL fail if a parent column appears on the organization table.
+
+Every revocation column SHALL be read on every resolution. A revocation column
+that exists and is never read is worse than none: it makes a revocation look
+performed.
+
+#### Scenario: Two devices of one person share what that person was granted
+- **GIVEN** a person with two paired devices and a grant to that person
+- **WHEN** either device requests the resource
+- **THEN** the server SHALL serve it
+
+#### Scenario: Removing someone from an organization withdraws access at once
+- **GIVEN** a resource granted to an organization and a member with a device
+- **WHEN** the membership is revoked
+- **THEN** the next request from that device SHALL be refused
+- **AND** no reconciliation pass SHALL be required for this to hold
+
+#### Scenario: Nesting is refused by construction
+- **GIVEN** the organization table
+- **WHEN** a migration introduces a parent column on it
+- **THEN** a test SHALL fail
+
+### Requirement: ORG-02 - Ownership of the installation is local, and never conferred by an organization
+
+The system SHALL derive whether a device is confined **only** from: the presence
+of a person, that person not being revoked, and that person belonging to the
+installation's local owner set. Membership of an organization SHALL NOT confer
+ownership of the machine.
+
+The reason is that organization membership will be a replica whose authority is
+remote - it is the licence and the billing relationship - while the machine, its
+filesystem, its terminals and its subscription are not. Were ownership to depend
+on it, a declined payment or a row removed in a panel would demote the owner to a
+guest **on their own machine**, and the failure would arrive through a channel
+the owner does not control.
+
+The local owner set SHALL NOT be writable by any synchronization process, and
+SHALL carry no remote-identity column.
+
+A device with no person SHALL be treated as confined. Every branch SHALL fail
+towards fewer powers: an unrecognized subject counts as a guest, never as an
+owner.
+
+#### Scenario: A teammate is a guest on someone else's machine
+- **GIVEN** two people in the same organization, one of whom owns the installation
+- **WHEN** the other opens that installation from their own device
+- **THEN** they SHALL be confined to what has been shared with them
+
+#### Scenario: Losing the organization does not lose the machine
+- **GIVEN** the owner's person record, and their organization membership removed
+- **WHEN** they use their own installation
+- **THEN** they SHALL still be its owner
+
+#### Scenario: Synchronization cannot grant ownership
+- **GIVEN** a synchronization process with write access to the replicated tables
+- **WHEN** it runs
+- **THEN** it SHALL NOT be able to alter who owns the installation
+
+### Requirement: ORG-03 - One door for every question asked of the grant table
+
+Every read and write of the grant relation SHALL pass through a single module. A
+test SHALL fail if the relation or its subject column is named anywhere else.
+
+This is a requirement and not a convention because the failure it prevents is
+silent in the safe direction: a reader left behind, still filtering for the old
+subject kind, returns **less** rather than more. It fails closed, which means
+nothing breaks loudly and the gap can persist unnoticed.
+
+Deciding whether a principal may read a resource SHALL be one indexed lookup, and
+a denial SHALL take precedence over any permission.
+
+The system SHALL be able to answer, for a resource, both **who was granted it**
+and the **effective** set that expands to, and SHALL be able to enumerate *all*
+the reasons a principal sees something rather than the first one found.
+
+#### Scenario: A denial outranks a permission
+- **GIVEN** a principal granted a resource through one path and denied it through another
+- **WHEN** access is decided
+- **THEN** it SHALL be refused
+
+#### Scenario: The interface can explain an access
+- **GIVEN** a principal that can see a resource through more than one path
+- **WHEN** the reasons are requested
+- **THEN** all of them SHALL be returned
+
+### Requirement: ORG-04 - A person can be granted something before they have any device
+
+The system SHALL allow granting a resource to a person who has not yet paired any
+device, and that grant SHALL take effect on the first device they pair **without
+any grant row being written** at that moment.
+
+Today the ordering is reversed: a recipient who has not paired is not
+representable at all, so inviting someone means waiting for their device to
+appear and only then sharing. That is not the order in which anyone would
+describe the act.
+
+Reassigning a device to a different person SHALL be possible from the interface,
+and SHALL NOT modify any existing grant.
+
+#### Scenario: Sharing precedes pairing
+- **GIVEN** a person with no devices, granted a resource
+- **WHEN** they pair their first device
+- **THEN** they SHALL see the resource
+- **AND** no grant row SHALL have been written at pairing time
+
+#### Scenario: A device paired to the wrong person can be moved
+- **GIVEN** a device attributed to the wrong person
+- **WHEN** it is reassigned
+- **THEN** existing grants SHALL be untouched
+
+### Requirement: ORG-05 - One module translates a credential into an identity
+
+The system SHALL resolve a credential into an identity in a single module, used
+by the HTTP gate, the WebSocket upgrade, and the endpoint that reports the
+session. Three translations that must agree and are written separately will
+eventually disagree, and the one that disagrees silently is the WebSocket path,
+whose result is never seen by the client.
+
+A connection SHALL re-resolve its principals when the underlying membership
+changes, rather than carrying the set it was stamped with for its lifetime. All
+of a device's connections SHALL be closed when that device is revoked or
+reassigned.
+
+#### Scenario: A live connection notices a membership change
+- **GIVEN** an open connection whose principals were resolved at connect time
+- **WHEN** the membership behind them changes
+- **THEN** subsequent delivery SHALL respect the new set
+
+#### Scenario: Revocation ends the connections
+- **GIVEN** a device with open connections
+- **WHEN** it is revoked
+- **THEN** its connections SHALL be closed
+
+### Requirement: ORG-08 - The account is never a gate
+
+An account SHALL NOT be required to install, to open the application for the
+first time, to use it locally, or to reach it from the same network. Those paths
+SHALL keep working with no account, no network, and no third party aware that
+the installation exists.
+
+An account SHALL be required only for what genuinely needs an authority outside
+the machine: being found from a **different** network, keeping people and
+organizations consistent **across** installations, and licensing.
+
+The distinction is the product, not a preference. A local-first tool that asks
+who you are before it will run has already conceded the thing it is selling -
+and the concession is invisible in a feature list, which is why it must be a
+requirement rather than a habit.
+
+An account SHALL therefore be addable to an installation that already holds
+data, and adding one SHALL NOT create a second identity alongside the local one:
+the existing local person SHALL acquire the remote identity. An installation
+that has been used for a year before signing in is the normal case, not an edge
+one.
+
+Signing in on a second installation SHALL reconcile to the same person rather
+than producing two. Two people who are one person split what has been shared
+with them, and the split is silent.
+
+Loss of contact with the account service SHALL degrade only the things that need
+it. It SHALL NOT reduce local capability, and SHALL NOT be presented as an error
+state on a machine that is working.
+
+#### Scenario: A fresh installation, never signed in
+- **GIVEN** a machine that has never had an account
+- **WHEN** the application is installed and opened
+- **THEN** it SHALL be fully usable locally
+- **AND** it SHALL NOT ask who the user is
+
+#### Scenario: Authorizing a phone on the same network
+- **GIVEN** an installation with no account
+- **WHEN** a phone on the same network asks for access
+- **THEN** the existing device authorization SHALL be sufficient
+
+#### Scenario: Signing in after a year of use
+- **GIVEN** an installation with an established local person and their history
+- **WHEN** an account is connected for the first time
+- **THEN** the existing person SHALL acquire the remote identity
+- **AND** no second person SHALL appear
+
+#### Scenario: The account service is unreachable
+- **GIVEN** a signed-in installation that cannot reach the account service
+- **WHEN** the owner works locally
+- **THEN** every local capability SHALL remain
+- **AND** the interface SHALL NOT present the machine as broken

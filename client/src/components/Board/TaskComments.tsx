@@ -1,3 +1,5 @@
+import { useMemo } from 'react';
+import { readableCommentContent } from './readableCommentContent';
 import { useT } from '../../hooks/useT';
 import { getMediaUrl } from '../../lib/api';
 import { parseQuestionBlock, type TaskStatus, type TaskComment, STATUS_LABEL, TASK_STATUSES, commentAuthorLabel, parseStatusEvent } from '../../lib/board';
@@ -192,7 +194,7 @@ export function StatusTrail({ comments, ownerName }: { comments: TaskComment[]; 
   );
 }
 
-export function CommentBubble({ comment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
+export function CommentBubble({ comment: rawComment, ownerName = null, resolvedParked = false, onPreview, questionActions, historicalQuestion = false, continuation = false }: {
   comment: TaskComment;
   /** The name of whoever uses the app: YOUR rows are signed with your name. */
   ownerName?: string | null;
@@ -209,6 +211,7 @@ export function CommentBubble({ comment, ownerName = null, resolvedParked = fals
   continuation?: boolean;
 }) {
   const tr = useT();
+  const comment = useMemo(() => ({ ...rawComment, content: readableCommentContent(rawComment.content, tr) }), [rawComment, tr]);
   const origin = actionOriginDisplay(comment.origin, tr);
   // Machine-authored review evidence (live-preview screenshot from the verifier).
   // Distinct from human/agent speech: it never woke the agent, it just informs.

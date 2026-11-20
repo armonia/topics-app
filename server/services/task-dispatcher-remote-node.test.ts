@@ -144,6 +144,36 @@ describe("la card parte sul nodo, non qui", () => {
     expect(t.machineId ?? null).toBeNull();
   });
 
+  it("il cloud non raggiunge il repository: la card torna in coda subito, senza attesa, e dice la causa vera", async () => {
+    const words = "L'app GitHub di Claude non ha accesso al repository o/r: il cloud non può clonarlo.";
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error(words), { reason: "cloud_repo" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.dispatchDeferredUntil).toBeNull();
+    expect(t.dispatchError).not.toBe("node_unreachable");
+    const said = h.svc.get(TASK)!.comments.map((c: { content: string }) => c.content).join("\n");
+    expect(said).toContain("non ha accesso al repository o/r");
+    expect(said).not.toContain("non risponde");
+    console.log("TESTO SULLA CARD:", said.split("\n").find((l: string) => l.includes("accesso al repository")));
+  });
+
+  it("account rifiutato dal cloud: stessa cosa, la card esce dal cloud senza attese", async () => {
+    const h = harness({ createRun: () => Promise.reject(Object.assign(new Error("l'API del cloud rifiuta l'account (403 su /v1/environment_providers)"), { reason: "cloud_account" })) });
+    h.seed();
+
+    await dispatch(h);
+
+    const t = h.task();
+    expect(t.status).toBe("todo");
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.dispatchDeferredUntil).toBeNull();
+  });
+
   it("nodo muto due volte: la card resta in coda, il tetto dei rimandi dell'agente non la ferma", async () => {
     // The node's retry opens no turn, so it keeps the wide streak cap; the
     // agent's cap (one wait, then the card asks) would park it on the second.

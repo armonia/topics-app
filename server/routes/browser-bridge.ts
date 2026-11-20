@@ -416,6 +416,7 @@ export function createBrowserBridgeRouter(
               title: "",
               projectPath: term.cwd || null,
               service: browserService,
+              surface: "terminal",
               announce: (u) => broadcastToAll({ type: "browser:open-near-pane", paneId: `terminal:${term.id}`, contextId: ctxId, url: u }),
             });
           }
@@ -485,6 +486,7 @@ export function createBrowserBridgeRouter(
             },
             forceOpen: false,
             navigationFatal: false,
+            surface: "card",
           });
         }
 
@@ -510,6 +512,7 @@ export function createBrowserBridgeRouter(
             service: browserService,
             announce: () => {},
             forceOpen: false,
+            surface: "agent",
           });
         }
         return openPaneAnswer({

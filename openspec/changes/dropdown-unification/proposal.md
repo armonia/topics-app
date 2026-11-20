@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** aperta: fondazione costruita (`client/src/hooks/useDismissable.ts`, `components/Shared/Menu.tsx`, `lib/popoverPosition.ts`, `lib/overlayMenu.ts` rimosso) ma nessun test dichiara `@covers UI-POPOVER-01..06` e manca `client/src/hooks/useDismissable.test.ts` (assente); restano file con `mousedown` outside-click propri (es. `components/Layout/PaneTabBar.tsx`, `CellSubStack.tsx`) da migrare o giustificare.
+
 ## Why
 
 Audit ultracode (2 agenti, read-only) su **~30 dropdown/menu/popover** del client. La

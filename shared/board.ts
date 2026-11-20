@@ -489,6 +489,24 @@ export const PARKED_STOPPED = 'stopped';
  */
 export const PARKED_WAITED_OUT = 'waited_out';
 
+/**
+ * The park reason written when a board cannot be mapped back to a project
+ * directory. It doubles as the marker `sweepUnresolvedProjectParked` matches
+ * on, so only cards parked for exactly this cause come back by themselves.
+ */
+export const UNRESOLVED_PROJECT_PARK_REASON =
+  "Auto-dispatch fermato: la cartella del progetto di questa board non si trova. " + // allow-italian: stored reason, matched by value
+  "La card torna in Todo da sola appena si ritrova."; // allow-italian: stored reason, matched by value
+
+/**
+ * The text this park wrote before the automatic return existed. Rows carrying
+ * it were parked for good by a person's decision as much as by the cause, so
+ * the sweep never matches it; only the hand gesture clears it.
+ */
+export const LEGACY_UNRESOLVED_PROJECT_PARK_REASON =
+  "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " + // allow-italian: stored reason, matched by value
+  "Apri il progetto in una tab (o registralo) e riporta il task in Todo."; // allow-italian: stored reason, matched by value
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Machine notes stamped with the HUMAN's signature.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2619,6 +2637,24 @@ export function isLandedWork(task: { landingState?: string | null }): boolean {
   return task.landingState === 'landed';
 }
 
+/**
+ * CAN THE COMPOSER ACTUALLY REACH THE AGENT.
+ *
+ * `/comments` keeps ANY message on a landed card a note (see tasks-board.ts,
+ * same reasoning as `isLandedWork`): re-kicking the agent over content
+ * already on main would reopen a cycle the merge already closed. A box that
+ * still offered to send to the agent on that card promised a turn the server was
+ * never going to run, and the person read the silence as a bug.
+ */
+export function canSendToAgent(task: {
+  status?: TaskStatus | string | null;
+  assignedTopicId?: string | null;
+  landingState?: string | null;
+  archived?: boolean | null;
+}): boolean {
+  return task.status === 'review' && !!task.assignedTopicId && !isLandedWork(task) && !task.archived;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Deploy proposed at approve (board_settings.deployCommand) — analogue of
 // `landingState`, but for running a command instead of a git merge.
@@ -2647,6 +2683,20 @@ export const DEPLOY_ACTION_LABEL = 'Deploya ora';
  */
 export function showsDeployProposal(task: { deployState: string | null | undefined }): boolean {
   return task.deployState === 'proposed';
+}
+
+/**
+ * ARE THE REVIEW DECISIONS (approve, send back, land) STILL LIVE.
+ *
+ * `archive()` never touches `status`: a card archived straight out of
+ * review keeps saying `review` forever after, because nothing else moves it.
+ * A drawer left open on it kept drawing the three buttons as if the card
+ * were still waiting for a verdict, and a click there changed nothing the
+ * archive had not already decided. The archived banner is the only button
+ * that card gets now; this is what gates the other three off.
+ */
+export function canDecideReview(task: { status: TaskStatus | string; archived?: boolean }): boolean {
+  return task.status === 'review' && !task.archived;
 }
 
 /**

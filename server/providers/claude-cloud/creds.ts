@@ -88,9 +88,9 @@ async function orgFor(account: string | undefined, token: string): Promise<strin
 export function credentialsFor(account?: string): () => Promise<CloudCredentials> {
   return async () => {
     // A fake API (e2e) never sees the real token.
-    if (!cloudApiIsReal()) return { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
+    if (!cloudApiIsReal()) return { accessToken: "e2e-fake", orgUuid: "e2e-fake", accountId: "e2e-fake" };
     const chosen = resolveCloudAccount(account);
     const { accessToken } = chosen ? accountOAuth(chosen) : await keychainOAuth();
-    return { accessToken, orgUuid: await orgFor(chosen, accessToken) };
+    return { accessToken, orgUuid: await orgFor(chosen, accessToken), accountId: chosen ?? "keychain" };
   };
 }
