@@ -24,7 +24,6 @@ const UnsentBanner = lazy(async () => {
   const { UnsentBanner: Body } = await import('./UnsentBanner');
   return { default: Body };
 });
-import { DetachedWindowMarker } from './DetachedWindowMarker';
 import { usePaneStore } from '../../state/pane/store';
 import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
@@ -3247,13 +3246,6 @@ export function PanelGrid({
           <SidebarToggleButton onClick={onToggleSidebar} size="action" className="rounded-lg" />
         </div>
       )}
-
-      {/* Pop-out presence markers — one card per detached OS window on this
-          device, AFTER the grid rows. Space-agnostic (ruling 3.5): renders in
-          every Spazio. Pure presence projection, disappears when the window
-          dies. Click focuses the window or reopens its topics here on false. */}
-      <DetachedWindowMarker topics={topics} onReopenTopic={(id) => onOpenPanelAt(id, openPanels.length)} />
-
     </div>
       {unsentBand}
     </div>
