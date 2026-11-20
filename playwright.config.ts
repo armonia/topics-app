@@ -658,6 +658,8 @@ export default defineConfig({
         "**/project-row-hub.spec.ts",
         // The palette's entries for the hub's places and the board's brake chip, same reason as the bell.
         "**/palette-hub.spec.ts",
+        // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
+        "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",
