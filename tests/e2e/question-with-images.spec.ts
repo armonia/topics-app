@@ -189,7 +189,9 @@ test.describe.serial("La domanda porta l'immagine", () => {
 
       const result = await bridge;
       expect(result.answers).toEqual({ [question]: "Warm" });
-      await page.waitForTimeout(600); // DELIBERATE: the tail frame of the .webm
+      // The answer is out: the panel holds its sending state until the turn
+      // resumes, and that state is the last frame of the clip.
+      await expect(form.getByTestId("ask-submit")).toBeDisabled();
     });
   }
 
