@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.4.52",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "refuse ask_user_question for a Codex spawn_agent child too",
+          "scope": "subagent"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.51",
+    "date": "2026-11-19",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "refuse ask_user_question for CLI spawn_agent children, not just native ones",
+          "scope": "subagent"
+        },
+        {
+          "text": "never surface the ask-user panel for a spawned child, not just refuse its answer",
+          "scope": "subagent"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.49",
     "date": "2026-11-19",
     "sections": {
@@ -13,6 +45,14 @@
         {
           "text": "the re-measure drops the verdict the gate still retains for that commit",
           "scope": "review-sweep"
+        },
+        {
+          "text": "one-shot jobs are tasks, not rows of the automations list",
+          "scope": "automations"
+        },
+        {
+          "text": "rm guard ignores redirections, -- and $TMPDIR when checking temp targets",
+          "scope": "native"
         },
         {
           "text": "keep task/orchestrator drawer opaque under native-frost below 1024px",
@@ -244,6 +284,20 @@
         {
           "text": "a deferred turn write that hits SQLITE_BUSY is retried instead of killing the process (#960)",
           "scope": "server"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.3.107",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "four misleading buttons (send/note, archive, closed-by-human, approve with unmerged branch)",
+          "scope": "board"
         }
       ],
       "perf": []
