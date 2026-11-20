@@ -14,7 +14,6 @@ const read = (rel: string) => readFileSync(join(C, rel), 'utf8');
 
 const CARD_SURFACES = [
   'Board/CardLive.tsx',
-  'Board/PlanTileParts.tsx',
   'Board/SessionLiveRow.tsx',
   'Chat/BackgroundWorkLine.tsx',
   'Chat/SubAgentResultCard.tsx',
@@ -38,13 +37,6 @@ describe('phase to glyph on the card surfaces', () => {
       expect(src).not.toMatch(/<StatusIcon status="in_progress" live/);
     });
   }
-
-  test('the Plan draws a failed dispatch with the failed glyph, and a live agent with the loader', () => {
-    const src = read('Board/PlanView.tsx');
-    expect(src).toContain("c.dispatchState === 'failed' ? 'failed' : c.status");
-    expect(src).toContain("c.status === 'in_progress' && c.dispatchState === 'working' ? (");
-    expect(src).toContain('<TaskActionLoader taskId={c.id} size={12}');
-  });
 
   test('a space waiting for you shows the amber alert, not the waiting spinner', () => {
     const src = read('Sidebar/SpaceGroups.tsx');

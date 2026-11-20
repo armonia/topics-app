@@ -151,17 +151,17 @@ test.describe("Status colours on the Board, the plan and the Agents pane", () =>
       await expect(asking).toBeVisible({ timeout: 15_000 });
       await expect(asking.locator('[data-testid="dispatch-chip"][data-state="needs_input"]')).toBeVisible();
       await expect(page.locator(`[data-task-card="${workingTask}"]`)).toBeVisible();
+      // :visible, because the composer's hidden status menu holds glyphs too and comes first in the DOM.
       for (const status of ["backlog", "todo", "in_progress", "review"]) {
-        await expect(board.locator(`[data-testid="status-glyph"][data-status="${status}"]`).first()).toBeVisible();
+        await expect(board.locator(`[data-testid="status-glyph"][data-status="${status}"]:visible`).first()).toBeVisible();
       }
       await evidence(page, board, `status-visual-board-${scheme}.png`);
 
       // ── Plan ─────────────────────────────────────────────────────────────
-      // The plan is the last stop of the detail slider, on the global board only.
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
-      const plan = page.getByTestId("plan-view");
-      await expect(plan).toBeVisible({ timeout: 15_000 });
+      // The cards view (the old plan), reached from the single view selector.
+      await page.getByTestId("board-view-plan").click();
+      const plan = page.getByTestId("kanban-board");
+      await expect(page.getByTestId("board-cards-grid").first()).toBeVisible({ timeout: 15_000 });
       await expect(plan.locator(`[data-task-card="${needsInputTask}"]`)).toBeVisible();
       await evidence(page, plan, `status-visual-plan-${scheme}.png`);
 
