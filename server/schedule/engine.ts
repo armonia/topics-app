@@ -267,5 +267,3 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     },
   };
 }
-
-export type ScheduleEngine = ReturnType<typeof createScheduleEngine>;

@@ -30,7 +30,7 @@ function fakeCommand(behaviour: "run" | "fail" = "run") {
   const launched: string[] = [];
   const executor: ActionExecutor = {
     atomic: false,
-    start(job, run): StartResult {
+    start(_job, run): StartResult {
       if (behaviour === "fail") throw new Error("spawn failed");
       launched.push(run.occurrenceKey);
       return { status: "running", processRef: `proc-${launched.length}` };

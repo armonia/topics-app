@@ -138,9 +138,9 @@ export function validateSchedule(value: unknown, options: { now?: Date; rejectPa
     if (s.tz !== undefined && typeof s.tz !== 'string') throw new ScheduleError('Fuso orario non valido.');
     if (options.requireZone && !s.tz) throw new ScheduleError('Fuso orario non valido.');
     const tz = (s.tz as string | undefined)?.trim() || DEFAULT_TIME_ZONE;
-    const expr = s.expr.trim();
-    nextCronOccurrence(expr, tz, options.now ?? new Date());
-    return { kind: 'cron', expr, tz };
+    const cronText = s.expr.trim();
+    nextCronOccurrence(cronText, tz, options.now ?? new Date());
+    return { kind: 'cron', expr: cronText, tz };
   }
   if (s.kind === 'every') {
     if (typeof s.minutes !== 'number' || !Number.isInteger(s.minutes) || s.minutes < 1) throw new ScheduleError('minutes must be a whole number above 0');
