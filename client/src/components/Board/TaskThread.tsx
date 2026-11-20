@@ -10,7 +10,7 @@ import { type TaskSessionState, canOpenTaskSession } from '../../lib/taskSession
 import { isThreadSpeech, parseQuestionBlock, boardDrafts, type BoardTask, type TaskComment } from '../../lib/board';
 import { taskActionWord } from './taskActionWords';
 import { type TimelineItem } from './taskTimeline';
-import { ArrowUpRight, ChevronRight, X, Paperclip, ArrowUp, Square, StickyNote } from 'lucide-react';
+import { ChevronRight, X, Paperclip, ArrowUp, Square, StickyNote } from 'lucide-react';
 import { COMPACT_MD_CLS, mediaPaneIdFor } from './constants';
 import type { RefObject, Dispatch, SetStateAction } from 'react';
 import { isDoneThreadService, isServiceComment } from '../../../../shared/task-comment-service';
@@ -27,6 +27,7 @@ import { EffortBadge } from '../Chat/EffortBadge';
 import { markActiveComposer } from '../../lib/composerCursor';
 import { DictationButton } from '../Shared/DictationButton';
 import { ZoomableImage } from '../Shared/ImageLightbox';
+import { DeliveryEvidence } from './DeliveryEvidence';
 import { COMPOSER_CARD, COMPOSER_ICON_BUTTON, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
 import { BoardCommandHint } from './BoardCommandHint';
 import { MessageContent } from '../MessageContent';
@@ -324,7 +325,7 @@ export function TaskComposer({ agentBusy, attachments, busy, commentCursorKey, c
   );
 }
 
-export function ThreadRows({ details, agentBusy, answerOption, busy, children, commentReceipt, composerHeight, deliveryWord, detailsOpen, foldedDeliveryNotes, lastClientHeightRef, lastHeightRef, lastThreadComment, lastTopRef, openTaskPane, ownerName, pending, previewInThread, replyOptions, sending, sessionKey, sessionRuns, stickRef, task, threadContentRef, threadScrollRef, timeline, tr, uploading }: {
+export function ThreadRows({ details, agentBusy, answerOption, busy, children, commentReceipt, composerHeight, deliveryWord, detailsOpen, foldedDeliveryNotes, lastClientHeightRef, lastHeightRef, lastThreadComment, lastTopRef, openTaskPane, ownerName, mediaPaths, pending, replyOptions, sending, sessionKey, sessionRuns, stickRef, task, threadContentRef, threadScrollRef, timeline, tr, uploading }: {
   details?: React.ReactNode;
   agentBusy: boolean;
   answerOption: (opt: string) => Promise<void>;
@@ -342,7 +343,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
   openTaskPane: (paneId: string) => boolean;
   ownerName: string | null;
   pending: { question: string; options: string[]; } | null;
-  previewInThread: boolean;
+  mediaPaths: string[];
   replyOptions: string[];
   sending: boolean;
   sessionKey: string | null;
@@ -484,6 +485,7 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
         }}
       >
         <div ref={threadContentRef} className="chat-measure space-y-2 px-3">
+        {mediaPaths.length > 0 && <DeliveryEvidence paths={mediaPaths} />}
         {details}
         {detailsOpen && chronicle.length > 0 && (
           <div data-testid="task-chronicle" className="rounded-md border border-app-border-subtle px-2 py-2">
@@ -492,14 +494,6 @@ export function ThreadRows({ details, agentBusy, answerOption, busy, children, c
               <ThreadRuns comments={chronicle} renderRow={wordRow} renderStatusRun={statusRun} isService={() => false} />
             </div>
           </div>
-        )}
-        {task.previewImage && !previewInThread && (
-          <button type="button" data-testid="task-conversation-attachment" onClick={() => openTaskPane(mediaPaneIdFor(task.previewImage!))}
-            className="flex w-full items-center gap-2 rounded border border-app-border px-2.5 py-2 text-left text-compact leading-4 text-app-text-secondary hover:bg-white/5 coarse:min-h-11">
-            <Paperclip className="h-3.5 w-3.5 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{task.previewImage.split('/').pop()}</span>
-            <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
-          </button>
         )}
         {/* THE EMPTY STATE SAYS WHAT WILL HAPPEN, not that it is empty. A plain
             "No comments" stated an absence that is already visible

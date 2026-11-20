@@ -8,6 +8,7 @@
  */
 import { proxyLabels } from './proxyLabels';
 import type { ProxyText } from './proxyEvents';
+import { WAITING_KINDS, type WaitingKind } from '../../../shared/waiting-kind';
 
 type Raw = Record<string, unknown>;
 
@@ -17,8 +18,8 @@ const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFi
 
 // ── Waiting for you (the hub's waiting list) ─────────────────────────────────
 
-export const WAITING_KINDS = ['decisione', 'spesa', 'pubblico', 'vista'] as const; // allow-italian: the hub's wire values, compared by value
-export type WaitingKind = (typeof WAITING_KINDS)[number];
+export { WAITING_KINDS };
+export type { WaitingKind };
 
 export interface WaitingItem {
   id: string;

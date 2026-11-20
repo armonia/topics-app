@@ -8,6 +8,7 @@ import {
 import { isLoopbackAddress } from "../lib/auth-gate";
 import { isLocalTransport } from "../lib/tunnel";
 import { resolveIdentity } from "../lib/identity";
+import { isNodeDevice, isTopicsServerAgent, markNodeDevice, serverAgentHost } from "../lib/node-scope";
 import { resolvePrincipals } from "../lib/principals";
 import { privacyPersona } from "../lib/follows";
 import { isResourceType, type ResourceType } from "../lib/grants";
@@ -81,6 +82,12 @@ interface PendingPairing {
   machineId: string | null;
   /** The primary epoch that server declared, if any: a secondary declares none, and only a higher one takes the channel over. */
   machineEpoch: number | null;
+  /**
+   * A Topics server is asking (it declared a machine id, or it speaks with the
+   * user agent every server sends its nodes): approved, it gets the NODE scope
+   * and not an owner's session (`lib/node-scope.ts`).
+   */
+  machine: boolean;
 }
 
 const pending = new Map<string, PendingPairing>();
@@ -380,6 +387,29 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         FROM devices ORDER BY revoked_at IS NOT NULL, last_seen_at DESC, created_at DESC`).all() as Record<string, unknown>[])
       .map(rowToDevice);
 
+  /**
+   * Who holds this node's channel today, for a pairing that would take it over:
+   * the id, and a name a person can read. The name comes from `machines` (name,
+   * then hostname), else from the holder's device row when it says more than a
+   * generic label; null leaves the card to show a short id.
+   */
+  const holderOf = (machineId: string | null): { currentPrimaryMachineId: string | null; currentPrimaryMachineName: string | null } => {
+    if (!machineId) return { currentPrimaryMachineId: null, currentPrimaryMachineName: null };
+    const channel = getPrimaryRole()?.channel() ?? null;
+    if (!channel) return { currentPrimaryMachineId: null, currentPrimaryMachineName: null };
+    let label: string | null = null;
+    try {
+      const m = db.query("SELECT name, hostname FROM machines WHERE id = ?").get(channel.machineId) as { name: string; hostname: string } | undefined;
+      label = m?.name?.trim() || m?.hostname?.trim() || null;
+      if (!label) {
+        const d = db.query("SELECT name FROM devices WHERE id = ?").get(channel.deviceId) as { name: string } | undefined;
+        const generic = ["iPhone", "iPad", "Android", "Mac", "Windows", "Linux", deviceNameFromUserAgent(null)];
+        label = d?.name && !generic.includes(d.name) ? d.name : null;
+      }
+    } catch { /* a schema without `machines`: the card falls back to the short id */ }
+    return { currentPrimaryMachineId: channel.machineId, currentPrimaryMachineName: label };
+  };
+
   return async function authRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (!pathname.startsWith("/api/auth/")) return null;
     const now = Date.now();
@@ -426,7 +456,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       }
       return json({
         paired: true, as: "device", name: io.device.name, deviceId: io.device.id,
-        role: io.screen ? "screen" : io.confined ? "guest" : "owner",
+        role: io.screen ? "screen" : io.node ? "node" : io.confined ? "guest" : "owner",
         installationName: installazione,
         commandShell: hasCommandShell(),
         // La persona, quando c'è: è ciò che il client mostrerà al posto del nome
@@ -460,13 +490,17 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         forgetExpiry(esito.sfratta);
         ctx.broadcast?.({ type: "auth:pair-resolved", requestId: esito.sfratta, approved: false });
       }
-      const name = deviceNameFromUserAgent(req.headers.get("user-agent"));
+      const ua = req.headers.get("user-agent");
+      // A server names its host in the user agent: "PC-studio" says which machine, "Linux" does not.
+      const name = serverAgentHost(ua) ?? deviceNameFromUserAgent(ua);
       const id = crypto.randomUUID();
       const declaredMachine = req.headers.get(PAIRING_MACHINE_HEADER)?.trim() ?? "";
+      const machineId = /^[\w-]{1,128}$/.test(declaredMachine) ? declaredMachine : null;
       const declaredEpoch = req.headers.get(PRIMARY_EPOCH_HEADER)?.trim() ?? "";
       const entry: PendingPairing = {
         id, code: mintPairingCode(), name, ip, createdAt: now, state: "pending", token: null,
-        machineId: /^[\w-]{1,128}$/.test(declaredMachine) ? declaredMachine : null,
+        machineId,
+        machine: machineId !== null || isTopicsServerAgent(ua),
         machineEpoch: /^\d{1,15}$/.test(declaredEpoch) ? Number(declaredEpoch) : null,
         // 256 bit: non è un codice da leggere ad alta voce, è un segreto da
         // rimandare indietro.
@@ -504,6 +538,8 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       ctx.broadcast?.({
         type: "auth:pair-requested", requestId: id, code: entry.code, name, ip,
         from: provenienzaDi(ip),
+        machineId: entry.machineId, machineEpoch: entry.machineEpoch,
+        ...holderOf(entry.machineId),
       });
       return json({ requestId: id, code: entry.code, claim: entry.claim, name, expiresInMs: PAIRING_CODE_TTL_MS });
     }
@@ -537,14 +573,17 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
     // ── Da qui in giù serve già un'identità: il gate l'ha imposta a monte.
 
     if (method === "GET" && pathname === "/api/auth/pair/pending") {
+      // The machine currently holding this node's channel, so the card can
+      // say WHO is being replaced — "nobody" is a fact too, not a blank.
       return json({
         requests: [...pending.values()]
           .filter((p) => p.state === "pending")
           // The same shape as the frame, and that is the point: this route
           // rebuilds the card when the window reopens, so what it shows must
           // match what arrived live.
-          .map(({ id, code, name, ip: da, createdAt }) => ({
+          .map(({ id, code, name, ip: da, createdAt, machineId, machineEpoch }) => ({
             id, code, name, ip: da, createdAt, from: provenienzaDi(da),
+            machineId, machineEpoch, ...holderOf(machineId),
           })),
       });
     }
@@ -555,6 +594,20 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       } | null;
       const entry = pending.get(body?.requestId ?? "");
       if (!entry) return json({ error: "pairing_expired" }, 404);
+
+      // ── A pairing that declares a machine id or an epoch hands over this
+      // node's CHANNEL — which primary it listens to from now on — and that
+      // is a decision only a human sitting at THIS computer can make. Any
+      // identity reached through the tunnel carries a cookie that proves
+      // nothing about who is holding the mouse: a secondary server already
+      // paired as owner has one too, and the ghost machine takeover this
+      // guards against used exactly that door. `loopback` is the request's
+      // own transport, computed above the same way the access gate computes
+      // it: a tunnel hop or a remote peer is never "local", no matter whose
+      // cookie it carries.
+      if (!pathname.endsWith("/deny") && (entry.machineId !== null || entry.machineEpoch !== null) && !loopback) {
+        return json({ error: "machine_pairing_requires_local_session" }, 403);
+      }
 
       if (pathname.endsWith("/deny")) {
         entry.state = "denied";
@@ -577,7 +630,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       // proprietario, che è il caso normale (il tuo secondo telefono).
       // A SCREEN is its own answer, asked for by name (`scope: "screen"`): no person, no grants, one
       // read-only route (`lib/screen-scope.ts`). It is never the default and nothing infers it.
-      const screen = body?.scope === "screen";
+      const screen = body?.scope === "screen" && !entry.machine;
       const pers = screen ? { deciso: true, personId: null, owner: false } : risolvePersonaPerAppaiamento(db, body?.personId, body?.personName, now);
       // `owner` DISCENDE dall'essere proprietari dell'installazione, non da una
       // scelta a parte. `role` resta accettato come alias legacy finché la
@@ -589,6 +642,9 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         "INSERT INTO devices (id, name, token_hash, created_at, last_seen_at, first_ip, revoked_at, role) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
       ).run(deviceId, entry.name, hashToken(token), now, now, entry.ip, role);
       if (screen) db.query("INSERT INTO screen_devices (device_id, created_at) VALUES (?, ?)").run(deviceId, now);
+      // A server pairing this one as its node gets the fleet's routes, never an owner's session:
+      // with that, through the tunnel, it could run a command here and approve from loopback.
+      if (entry.machine) markNodeDevice(db, deviceId, entry.machineId, "paired", now);
       if (pers.personId) {
         try {
           db.query("UPDATE devices SET person_id = ? WHERE id = ?").run(pers.personId, deviceId);
@@ -601,7 +657,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
       entry.state = "approved";
       entry.token = token;
       ctx.broadcast?.({ type: "auth:pair-resolved", requestId: entry.id, approved: true, deviceId });
-      return json({ ok: true, deviceId, role });
+      return json({ ok: true, deviceId, role: entry.machine ? "node" : role });
     }
 
     if (method === "GET" && pathname === "/api/auth/devices") {
@@ -618,7 +674,7 @@ export function createAuthRouter(ctx: AppContext, opts: AuthRouterOpts = {}): Ro
         // offrire lo spostamento. Senza, il pannello sa solo di ferri.
         people: listPeople(),
         devices: listDevices().map((d) => ({
-          id: d.id, name: d.name, role: d.role, createdAt: d.createdAt,
+          id: d.id, name: d.name, role: isNodeDevice(db as never, d.id) ? "node" : d.role, createdAt: d.createdAt,
           person: personaDi(d.id),
           lastSeenAt: d.lastSeenAt, firstIp: d.firstIp, revokedAt: d.revokedAt,
           // CONNESSO adesso, che non e' «autorizzato»: un dispositivo puo' essere

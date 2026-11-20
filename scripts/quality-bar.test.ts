@@ -18,6 +18,9 @@ describe("quality bar measures", () => {
     expect(judgeE2eMain([{ name: "e2e (0)", conclusion: "failure" }]).ok).toBe(false);
     expect(judgeE2eMain([{ name: "check", conclusion: "success" }]).ok).toBe(false);
     expect(judgeE2eMain(null).ok).toBe(false);
+    const placement = { name: "e2e placement / delete", conclusion: "skipped" };
+    expect(judgeE2eMain([{ name: "e2e (0)", conclusion: "success" }, placement]).ok).toBe(true);
+    expect(judgeE2eMain([{ name: "e2e (0)", conclusion: "skipped" }, placement]).ok).toBe(false);
   });
   test("bug-issues", () => {
     expect(judgeBugIssues(0).ok).toBe(true);
