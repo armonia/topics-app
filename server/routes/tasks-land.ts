@@ -5,6 +5,7 @@ import { isAgentWorking } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
+import { mainRedStop } from "../services/main-ci-watch";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { type TaskAttempt } from "../services/task-attempts";
 import { createAutoLander } from "../services/auto-land";
@@ -406,6 +407,15 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
+  /** A land waits while the CI of main is red, unless the card is the one repairing it. */
+  async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
+    if (!opts?.mainCiPort) return null;
+    const row = db.query("SELECT claude_task_id AS key FROM tasks WHERE id = ?").get(taskId) as { key?: string | null } | null;
+    if (row?.key?.startsWith("main-ci-red:")) return null;
+    const port = await opts.mainCiPort(projectId);
+    return port ? mainRedStop(port) : null;
+  }
+
   async function landTask(projectId: string, taskId: string, landOpts?: LandRunOpts): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -431,7 +441,17 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         branch: task.deliveryBranch ?? null,
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
-        ...(recheck ? { beforeMerge: (sha: string) => recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) } : {}),
+        // Only passed when there is something to check, so the old tryMerge contract holds.
+        ...(recheck || opts?.mainCiPort
+          ? {
+              beforeMerge: async (sha: string) => {
+                // The repair card of a red main is the one land that must go through.
+                const stop = await redMainStop(projectId, taskId).catch(() => null);
+                if (stop) return stop;
+                return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
+              },
+            }
+          : {}),
       });
       // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
       if (res.status === "skipped" && res.code === "auto-land-stopped") {
