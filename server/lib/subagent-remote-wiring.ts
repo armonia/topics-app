@@ -55,18 +55,30 @@ export const UNREACHABLE_GIVE_UP_MS = 30 * 60_000;
 const BROWSER_WORK = /\bbrowser\b|\bplaywright\b|\bchrome\b|\bsafari\b|\bscreenshot\b|\bbrowser_\w+/i;
 const JARVIS_WORK = /\bjarvis\b|\bimessage\b|\bwhatsapp\b|\bgmail\b|\bcalendar\b/i;
 const SESSION_WORK = /\bsession_(list|read|send)\b|\btopics-term\b|\btmux\b/i;
+/**
+ * A prompt that needs `gh` itself: reading a PR's CI checks, an issue, a
+ * release, a workflow run. Just "CI" or "PR" is too common in an ordinary
+ * code-review prompt to mean this; the GitHub CLI's own name or one of its
+ * subcommands is the signal (SUBAGENT-28, 19/11: a child collecting CI reds
+ * for a PR landed on a node without `gh`'s login and came back with nothing).
+ */
+const GH_WORK = /\bgh\s+(pr|issue|run|api|release|repo|auth|workflow|check)\b|\bgithub cli\b/i;
 
 /**
  * What only this Mac can hand the child, read off the spawn prompt and profile the same way a card's
- * pin is (`classifyStayLocal`, `stay-local-sweep.ts`), plus the three a child reaches far more often
- * than a card: a browser pane, Jarvis's channels, a live terminal session. Words, not certainty: a
- * prompt that merely mentions one stays here, which costs a local child, never a broken remote one.
+ * pin is (`classifyStayLocal`, `stay-local-sweep.ts`), plus the four a child reaches far more often
+ * than a card: a browser pane, Jarvis's channels, a live terminal session, and `gh`'s own login
+ * (not a card-only credential — it is kept out of the git bundle a child carries, so it is just as
+ * missing for a card's run on a node, which today has no detection of its own either). Words, not
+ * certainty: a prompt that merely mentions one stays here, which costs a local child, never a
+ * broken remote one.
  */
 export function macOnlyResourceOf(prompt: string, agentType: string | null): MacOnlyResource | null {
   const text = `${prompt}\n${agentType ?? ""}`;
   if (BROWSER_WORK.test(text)) return "browser";
   if (JARVIS_WORK.test(text)) return "jarvis";
   if (SESSION_WORK.test(text)) return "session";
+  if (GH_WORK.test(text)) return "gh";
   if (classifyStayLocal({ text }) === "KEEP") return "macos";
   return null;
 }

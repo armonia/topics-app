@@ -43,6 +43,48 @@ function harness(over: Partial<SubagentWakeDeps> & { answers?: number[] } = {}) 
 }
 
 describe("subagent wake", () => {
+  test("a result asked for twice while queued wakes the parent once, and can be asked again once its row write failed", async () => {
+    const h = harness();
+    h.setBusy(true);
+    h.ask(result());
+    h.ask(result());
+    h.setBusy(false);
+    await h.wake.idle();
+    expect(h.posted.length).toBe(1);
+    expect(h.settled).toEqual(["c1:1"]);
+    let fail = true;
+    const rows: string[] = [];
+    const h2 = harness({ canWake: () => "row" });
+    h2.wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => { if (fail) throw new Error("db"); rows.push("ok"); }, settle: () => {} });
+    await h2.wake.idle();
+    fail = false;
+    h2.wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => rows.push("ok"), settle: () => {} });
+    await h2.wake.idle();
+    expect(rows).toEqual(["ok"]);
+  });
+
+  test("the route throwing does not discard the sweep's later re-ask", async () => {
+    let calls = 0;
+    const h = harness({ route: async () => { calls++; if (calls === 1) throw new Error("route down"); return new Response("data: [DONE]\n\n"); } });
+    h.ask(result());
+    await h.wake.idle();
+    expect(h.settled).toEqual([]);
+    h.ask(result());
+    await h.wake.idle();
+    expect(calls).toBe(2);
+    expect(h.settled).toEqual(["c1:1"]);
+  });
+
+  test("a result delivered whose durable clear failed is not woken twice by the sweep", async () => {
+    const h = harness();
+    h.ask(result());
+    await h.wake.idle();
+    // The settle callback swallows its own failure, so the pending copy stays and the sweep asks again.
+    h.ask(result());
+    await h.wake.idle();
+    expect(h.posted.length).toBe(1);
+  });
+
   // The archive of a chat is judged against the launch each result answers: A
   // spawned before the person archived the chat stays a row, B spawned after wakes it.
   test("canWake is asked per child, and only the children it refuses become rows", async () => {
@@ -176,6 +218,58 @@ describe("subagent wake", () => {
     h.ask(result());
     await h.wake.idle();
     expect(h.rows).toEqual(["c1"]);
+  });
+});
+
+describe("a provider hold keeps back the turn, not the card", () => {
+  test("the card is written during the hold; when it lifts one POST goes with subagentResultsShown, no second row", async () => {
+    let verdict: "wait" | "wake" = "wait";
+    const events: string[] = [];
+    const bodies: Array<Record<string, unknown>> = [];
+    const wake = createSubagentWake({
+      debounceMs: 10, pollMs: 5, endGraceMs: 10,
+      isBusy: () => false,
+      canWake: () => verdict,
+      route: async (req) => {
+        events.push("route");
+        bodies.push(await req.json() as Record<string, unknown>);
+        return new Response("data: [DONE]\n\n");
+      },
+    });
+    wake.request({
+      parentSessionKey: PARENT, result: result(),
+      writeRow: () => events.push("writeRow"),
+      settle: () => events.push("settle"),
+      noteRowWritten: () => events.push("noteRowWritten"),
+    });
+    // Well past debounce plus several polls: the hold is still on.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(events).toEqual(["writeRow", "noteRowWritten"]);
+    expect(bodies).toEqual([]);
+
+    verdict = "wake";
+    await wake.idle();
+    expect(bodies.length).toBe(1);
+    expect(bodies[0]!.subagentResultsShown).toBe(true);
+    expect(bodies[0]!.sessionKey).toBe(PARENT);
+    // Written once (during the hold), settled only after the route stored the turn.
+    expect(events.filter((e) => e === "writeRow").length).toBe(1);
+    expect(events.filter((e) => e === "noteRowWritten").length).toBe(1);
+    expect(events.indexOf("route")).toBeLessThan(events.indexOf("settle"));
+    expect(events.filter((e) => e === "settle").length).toBe(1);
+  });
+
+  test("without a hold the wake carries no subagentResultsShown flag", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const wake = createSubagentWake({
+      debounceMs: 10, pollMs: 5, endGraceMs: 10,
+      isBusy: () => false, canWake: () => "wake",
+      route: async (req) => { bodies.push(await req.json() as Record<string, unknown>); return new Response("data: [DONE]\n\n"); },
+    });
+    wake.request({ parentSessionKey: PARENT, result: result(), writeRow: () => {}, settle: () => {} });
+    await wake.idle();
+    expect(bodies.length).toBe(1);
+    expect("subagentResultsShown" in bodies[0]!).toBe(false);
   });
 });
 

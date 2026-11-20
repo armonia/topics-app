@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { isAbsolute } from "node:path";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { INTERRUPT_CLAIM_MS, TaskServiceError, REOPEN_COMMENT_SLACK_MS } from "./shared";
@@ -94,7 +95,7 @@ addComment({ taskId, author, content, mentions, media, projectId, questionOption
       if (!body && (!media || media.length === 0)) throw new TaskServiceError("invalid_input", "comment content is required");
       if (!body) body = "(allegato)";
       // Absolute paths only (the /api/upload contract); cap the count.
-      const files = (media ?? []).filter((p) => typeof p === "string" && p.startsWith("/")).slice(0, 8);
+      const files = (media ?? []).filter((p) => typeof p === "string" && isAbsolute(p)).slice(0, 8);
       // Canonical question block, composed HERE (single writer) — the caller
       // passes the question as plain content + structured options; the exact
       // fence/newline layout the quick-reply parser expects is never delegated

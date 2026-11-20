@@ -29,7 +29,7 @@ import { writeCursor, restoreCursor } from '../../lib/composerCursor';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
 import { boardApi, isAgentWorking, isThreadSpeech, parseQuestionBlock, isProjectlessId, boardDrafts, blockedByChip, subtaskWorkChip, reopenedChip, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef } from '../../lib/board';
-import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
+import { collectTaskMediaPaths } from './taskMedia';
 import { taskActionErrorMessage } from './taskActionError';
 import { usableQuestionOptions } from './taskChoices';
 import { drawerSurfaceLabels, taskActionWord } from './taskActionWords';
@@ -1177,10 +1177,6 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
     setWorkspaceOpen(true);
     return true;
   }, []);
-  const previewInThread = useMemo(() => hasConversationMedia(task?.previewImage,
-    [...timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []), ...(pinnedDeliveryId && deliveryWord ? [deliveryWord] : [])],
-    timeline.flatMap((item) => item.source === 'session' ? [item.msg] : []),
-  ), [task?.previewImage, timeline, pinnedDeliveryId, deliveryWord]);
   const foldedDeliveryNotes = useMemo(() => deliveryNotesToFold(
     timeline.flatMap((item) => item.source === 'comment' ? [item.comment] : []),
   ), [timeline]);
@@ -1262,7 +1258,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
       // shrink-0) so the columns viewport shrinks beside it and the board stays
       // scrollable; wide just grows the review surface (72%/64rem caps keep a
       // strip of board visible).
-      className={`pane-frost flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
+      className={`pane-frost pane-sheet flex flex-col border-app-border ${swiping ? '' : 'transition-transform duration-base'} absolute inset-0 z-40 w-full pb-[var(--mobile-band-own-h,0px)] lg:relative lg:inset-auto lg:z-auto lg:shrink-0 lg:border-l ${
         wide ? 'lg:w-[min(64rem,72%)] lg:shadow-2xl' : 'lg:w-96 lg:max-w-[75%]'
       }`}
     >
@@ -1336,7 +1332,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
             <ThreadRows agentBusy={agentBusy} answerOption={answerOption} busy={busy} children={children} commentReceipt={commentReceipt}
               composerHeight={composerHeight} deliveryWord={deliveryWord} detailsOpen={detailsOpen} foldedDeliveryNotes={foldedDeliveryNotes}
               lastClientHeightRef={lastClientHeightRef} lastHeightRef={lastHeightRef} lastThreadComment={lastThreadComment} lastTopRef={lastTopRef}
-              openTaskPane={openTaskPane} ownerName={ownerName} pending={pending} previewInThread={previewInThread} replyOptions={replyOptions}
+              openTaskPane={openTaskPane} ownerName={ownerName} mediaPaths={mediaPaths} pending={pending} replyOptions={replyOptions}
               sending={sending} sessionKey={sessionKey} sessionRuns={sessionRuns} stickRef={stickRef} task={task} threadContentRef={threadContentRef}
               threadScrollRef={threadScrollRef} timeline={timeline} tr={tr} uploading={uploading}
               details={

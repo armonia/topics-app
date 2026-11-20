@@ -5,12 +5,12 @@
  * itself and the reattach of a turn that survived a restart.
  */
 import { LAND_ACTION_LABEL, type Task } from "./tasks";
-import { PREVIEW_RULE, RECOMMENDED_OPTION_RULE } from "../../shared/board";
+import { PREVIEW_RULE, RECOMMENDED_OPTION_RULE, REVIEW_CARD_RULE } from "../../shared/board";
 import { type ResourceFloorKind } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
 import { runWithDelegatedDeadline } from "./task-dispatcher-delegated";
-import { WAITING_MEMORY, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, CHIP_QUEUED, CHIP_WORKING } from "./task-dispatcher-support";
+import { isMirrorCard, WAITING_MEMORY, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, CHIP_QUEUED, CHIP_WORKING } from "./task-dispatcher-support";
 import { warnIfBusy } from "../lib/sqlite-busy";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
@@ -29,6 +29,9 @@ export function createResume(ctx: DispatcherCtx) {
       // and hands back a mute review. This is the "altro da fare?" → review-without-
       // comment gap. Even "niente di nuovo" is a valid summary.
       `Carry on with the work. On delivery, BEFORE moving to review, ALWAYS write a summary comment for THIS turn with comment_task (1-2 sentences: what you did now, where to look — or "nothing new" with the reason). THEN update_task(task_id="${task.id}", status="review"). Without a comment from this turn the server refuses the review.`,
+      // Same string as the kickoff: the resume is the only message in front of
+      // an agent that comes back, and it writes the review card from it.
+      REVIEW_CARD_RULE,
       // Stessa costante del kickoff, non un riassunto: il resume è l'unico
       // messaggio davanti all'agente che riprende, e la versione «corta» che
       // stava qui aveva già perso per strada il ramo del diagramma.
@@ -124,6 +127,7 @@ export function createResume(ctx: DispatcherCtx) {
 
   async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
     const t = deps.svc.get(taskId)?.task;
+    if (t && deps.isActive?.() === false && !isMirrorCard(t)) return;
     // The caller (reviewDecision reject) has already moved it to in_progress and
     // it must still be bound to its topic. Anything else = nothing to resume.
     // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al

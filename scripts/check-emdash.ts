@@ -52,6 +52,18 @@ const SKIP_FILE = /\.(test|spec|e2e)\.[cm]?tsx?$/;
  */
 const PROMPT_SURFACES = new Set([
   "server/mcp/topics-mcp-server.ts", // MCP tool schemas handed to the agent
+  // The tool catalog and the handler modules split out of the server: their
+  // strings are the same schemas and tool results the agent reads.
+  "server/mcp/tool-catalog.ts",
+  "server/mcp/browser-pane-tools.ts",
+  "server/mcp/bridge-shared.ts",
+  "server/mcp/goal-tools.ts",
+  "server/mcp/process-tools.ts",
+  "server/mcp/topic-tools.ts",
+  "server/mcp/agent-tools.ts",
+  "server/mcp/chat-tools.ts",
+  "server/mcp/board-tools.ts",
+  "server/mcp/human-prompt-tools.ts",
   "server/browser-tool-spec.ts", // browser_* tool descriptions
   "server/context/assemble.ts", // the awareness/context prefix
   "server/services/task-model-picker.ts", // the model+effort classifier prompt
@@ -297,7 +309,8 @@ function walk(dir: string, acc: string[]): string[] {
     }
     if (!EXTENSIONS.some((ext) => entry.endsWith(ext))) continue;
     if (SKIP_FILE.test(entry)) continue;
-    const rel = relative(ROOT, full);
+    // Posix separators: PROMPT_SURFACES is written with `/`, and on Windows `relative` answers with `\`.
+    const rel = relative(ROOT, full).replaceAll("\\", "/");
     if (PROMPT_SURFACES.has(rel)) continue;
     acc.push(rel);
   }
