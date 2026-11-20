@@ -148,10 +148,13 @@ test.describe.serial("La domanda porta l'immagine", () => {
       // One picture for the question, one for each of the four options.
       await expect(form.getByTestId("ask-question-image")).toHaveCount(1);
       await expect(form.getByTestId("ask-option-image")).toHaveCount(4);
-      // Loaded for real, not a broken square.
-      await expect.poll(() => form.getByTestId("ask-option-image").evaluateAll(
-        (imgs) => (imgs as HTMLImageElement[]).every((i) => i.complete && i.naturalWidth > 0),
-      )).toBe(true);
+      // Loaded for real, not a broken square. The pictures load lazily: on a
+      // phone the lower ones wait below the fold of the chat until they are
+      // scrolled to, as a person does, so each is brought into view first.
+      for (const img of await form.getByTestId("ask-option-image").all()) {
+        await img.scrollIntoViewIfNeeded();
+        await expect.poll(() => img.evaluate((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth > 0)).toBe(true);
+      }
       await expect(form.getByTestId("ask-image-missing")).toHaveCount(0);
 
       // The picture opens in the viewer the chat already has, without choosing.
