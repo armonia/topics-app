@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Costruita (codice e test in main). Promossi in `openspec/specs/remote-access` RELAY-02 (`relay/relay-contract.test.ts`, `acceptWebSocket`), RELAY-04 (`tests/e2e/relay-reachability.spec.ts`, `server/services/relay-client.test.ts`), RELAY-05 (`relay/ponte.test.ts`, «macchina spenta = 503»). Restano aperti RELAY-01 (manca il test «relay irraggiungibile, l'app locale funziona» e «nessuna porta in ascolto») e RELAY-03 (cifratura provata da `shared/relay-crypto.test.ts`, ma manca la scadenza/revoca del link visibile dove lo si crea: task 4.2). Restano 6 task aperti.
+
 # Change: relay
 
 ## Why

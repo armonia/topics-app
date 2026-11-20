@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** manca tutto il codice: `server/usage/project-quota.ts`, `server/services/project-pause.ts`, `scripts/project-quota-check.ts` e la migrazione `project_quota` non esistono, e nessun test li copre (USAGE-28, USAGE-29, USAGE-30 senza `@covers`).
+
 # Consumo per progetto: conto giusto, limite di default e conferma sincronizzata
 
 ## Da decidere
