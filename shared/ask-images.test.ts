@@ -1,3 +1,9 @@
+/**
+ * @covers ASK-01
+ *
+ * The picture references a question carries (a path, a file URL, a media
+ * link) resolve to the file they point at, so the panel can show it.
+ */
 import { describe, expect, test } from "bun:test";
 import { askImagePath, questionImageRefs } from "./ask-images";
 
