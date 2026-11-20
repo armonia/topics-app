@@ -338,9 +338,11 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
   /** A different account than the one the answers were given for: they no longer hold. */
   function syncAccount(account: string | null) {
     if (account == null || account === currentAccount) return;
+    const switched = currentAccount !== null;
     currentAccount = account;
     if (envReady && envReady.account !== account) { envReady = null; envAskedAt = -Infinity; }
-    announced.clear();
+    // Learning the account for the first time is not a change: what was announced stays announced.
+    if (switched) announced.clear();
   }
   async function refreshAccount(everyMs = 60_000) {
     if (now() - accountAskedAt < everyMs || !deps.api.accountKey) return;
@@ -354,7 +356,7 @@ export function createCloudNodeClient(deps: CloudNodeDeps) {
     if (err.reason === "cloud_account") {
       syncAccount(account);
       envReady = { ok: false, reason: err.message, account };
-      announce(`account:${account ?? "?"}:${err.message}`, "Il cloud di Claude non può lavorare le card",
+      announce(`account:${err.message}`, "Il cloud di Claude non può lavorare le card",
         `${err.message}. Controlla il login di Claude Code su questa macchina${account ? ` (account ${account})` : ""} e che abbia un ambiente cloud attivo: finché non cambia, le card vanno su un'altra macchina.`);
     }
   }
