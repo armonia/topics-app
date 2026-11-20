@@ -128,6 +128,7 @@ export interface CompletionOptions {
 /** The side calls Topics makes outside a chat turn, by what they are for. */
 export type SideCallPurpose =
   | "card-title"
+  | "card-summary"
   | "chat-name"
   | "goal-judge"
   | "stall-judge"
