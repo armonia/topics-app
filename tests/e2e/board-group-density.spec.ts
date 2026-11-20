@@ -451,8 +451,8 @@ test.describe("Board per progetto e card compatte", () => {
     const quiet = await createTask(request, ID_C, `Nessuna attesa ${STAMP}`, "todo");
 
     await freshGrouped(page, null);
-    await page.getByTestId("board-quick-me").click();
-    await expect(page.getByTestId("board-quick-me")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("board-needs-me").click();
+    await expect(page.getByTestId("board-needs-me")).toHaveAttribute("aria-pressed", "true");
     // Kanban (grid), then list, then cards: the same two cards, the same filter.
     await page.getByTestId("board-view-grid").click();
     await expect(page.locator(`[data-task-card="${asked}"]`).first()).toBeVisible();

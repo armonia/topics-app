@@ -17,7 +17,7 @@
  * @covers RUNTIME-19
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { appDataRoots, LEGACY_DATA_DIR_NAME, resolveAppDataDir } from "./data-dir";
 import { testTmpDir } from "../../tests/integration/helpers";
@@ -40,6 +40,18 @@ describe("resolveAppDataDir", () => {
     const home = emptyHome("legacy");
     mkdirSync(join(home, LEGACY_DATA_DIR_NAME), { recursive: true });
     expect(resolveAppDataDir({ env: {}, home })).toBe(join(home, LEGACY_DATA_DIR_NAME));
+  });
+
+  test("a legacy root that is a link resolves to the folder it points at, and old paths stay readable", () => {
+    const home = emptyHome("linked");
+    const real = join(testTmpDir("app-data-linked-target"), "agent-home");
+    mkdirSync(real, { recursive: true });
+    symlinkSync(real, join(home, LEGACY_DATA_DIR_NAME));
+    const root = resolveAppDataDir({ env: {}, home });
+    expect(root).toBe(realpathSync(real));
+    expect(root).not.toContain(LEGACY_DATA_DIR_NAME);
+    // A path saved under the old name before the move is still inside an allowed root.
+    expect(appDataRoots({ env: {}, home })).toContain(join(home, LEGACY_DATA_DIR_NAME));
   });
 
   test("a home without the legacy root gets the root under ~/.topics", () => {

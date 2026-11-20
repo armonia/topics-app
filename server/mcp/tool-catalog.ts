@@ -595,7 +595,7 @@ export const TOOLS = [
   {
     name: "spawn_agent",
     description:
-      "Spawn a NEW sub-agent and give it a task, the way the built-in Agent tool does, but visible: by default it runs on the Topics engine as a chat of its own in this project, which the user can open, read and write into (runtime:\"claude-code\" starts an interactive Claude Code CLI in a terminal pane instead, and only then: the engine never falls back to the CLI by itself). It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
+      "Spawn a NEW sub-agent and give it a task, the way the built-in Agent tool does, but visible: by default it runs on the Topics engine as a chat of its own in this project, which the user can open, read and write into (runtime:\"claude-code\" starts an interactive Claude Code CLI in a terminal pane instead, only when the person asked for one in words: the engine never falls back to the CLI by itself). It starts in this session's working directory (for a chat, its project or card worktree; your home directory when the chat has no project) unless you pass cwd, or unless you ask for isolation:\"worktree\", which gives it a git checkout and a branch of its own so two children cannot overwrite each other's files (that one answers only once the checkout is ready, and the answer names the branch). " +
       "It runs on this session's model unless you pass model or an agent_type whose profile names one; the answer says which model, profile and effort really started. Never choose haiku on your own initiative: only when the user asks for it. " +
       "By default it runs in the background: when its turn ends, a chat is woken with its result (you do not need to poll), while a terminal session reads it with read_agent. With run_in_background:false the call waits up to 10 minutes and returns the result itself. It stays alive after its turn for follow-ups with send_to_agent; after 15 idle minutes it is retired, and send_to_agent resumes it from where it was. stop_agent when you no longer need it.",
     inputSchema: {
@@ -627,7 +627,7 @@ export const TOOLS = [
         runtime: {
           type: "string",
           enum: ["topics", "claude-code"],
-          description: "'topics' (default): a chat on the Topics engine, no process of its own. 'claude-code': an interactive Claude Code CLI in a terminal pane; ask for it only when the task needs that CLI.",
+          description: "'topics' (default): a chat on the Topics engine, no process of its own. 'claude-code': an interactive Claude Code CLI in a terminal pane. Only when the person asked in words, in this conversation, for a Claude Code CLI; never on your own judgement: it runs outside the engine and spends the Claude subscription. Anything a CLI can do (Bash, files, browser, MCP) the engine does too.",
         },
       },
       required: ["prompt"],

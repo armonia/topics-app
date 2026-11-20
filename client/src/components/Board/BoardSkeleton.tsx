@@ -35,9 +35,11 @@ export function BoardSkeleton({ layout }: { layout?: BoardLayout }) {
         <div className={`h-6 w-60 coarse:h-11 ${BAR} animate-pulse`} />
         <div className={`h-6 w-24 coarse:h-11 ${BAR} animate-pulse`} />
       </div>
-      {/* The quick-filter row: same padding and control height as the real one. */}
+      {/* The origin-filter row: same padding as the real one, and as tall as its
+          tallest control, the «my work | all» toggle: 28 px with a mouse (24 px
+          buttons in a 2 px inset), 44 under a finger, so the columns do not jump. */}
       <div className="flex shrink-0 items-center gap-1 px-2 py-1">
-        <div className={`h-6 w-64 coarse:h-11 ${BAR} animate-pulse`} />
+        <div className={`h-7 w-64 coarse:h-11 ${BAR} animate-pulse`} />
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">

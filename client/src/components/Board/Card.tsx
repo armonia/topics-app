@@ -65,8 +65,11 @@ import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
 import { taskHasWork, uncommittedChipCount } from './chipKey';
 import { runInitiatorName } from './taskFilter';
-import { creatorChip, incompleteChip } from './createdByLabel';
-import { CreatorChipView, IncompleteChipView } from './CreatorChipView';
+import { incompleteChip } from './createdByLabel';
+import { IncompleteChipView } from './IncompleteChipView';
+import { OriginChipView } from './OriginChipView';
+import { ownerChip } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { channelChip } from './channelChip';
 import { ChannelChipView } from './ChannelChipView';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '../../lib/popoverStyles';
@@ -622,6 +625,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   const confirm = useConfirm();
   const tr = useT();
   const toast = useToast();
+  const personName = useOwnerName();
   // Numeri e date della card seguono la lingua scelta, non una fissata a mano.
   const locale = useLocale();
   // The node's NAME for the foot chip. Subscribed only by a card that names one:
@@ -934,7 +938,9 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // tokens, git) moved to the card's foot, so this row renders only when it
   // has something of its own to say.
   const showTopRow = (showProject && !unassigned) || canOpenSession || sessionEnded;
-  const compact = density === 'compact';
+  // Three stops (`DensitySlider`): the title alone, the compact card, the whole card.
+  const compact = density !== 'full';
+  const titleOnly = density === 'title';
   const showPriority = !priorityAwaitingAgent(task) && task.priority !== 2;
   // THE CHECKLIST IS THE SAME IN EVERY COLUMN. It used to open only in review
   // and the other columns got a `3/7` chip instead: the same card changed
@@ -1092,8 +1098,10 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // blocco «i due versi dell'attesa» in lib/board.ts.
   const waitingOnThis = waitingOnThisChip(task, tr);
   const runInitiator = runInitiatorName(task);
-  // WHO opened the card (`createdBy`): the answer to "whose is this, who closes it".
-  const creator = creatorChip(task, tr);
+  // WHOSE work the card is (the person, the board, an agent, a chat, a schedule): the same rule as the filter bar.
+  const owner = ownerChip(task, tr, personName);
+  // Compact cards keep only the owners that carry a name: an agent or a chat.
+  const ownerNamed = owner.kind === 'agent' || owner.kind === 'session';
   // WHICH Jarvis channel the work came from (Discord, WhatsApp), one click from its chat.
   const channel = channelChip(task, tr);
   const incomplete = incompleteChip(task, tr);
@@ -1108,7 +1116,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // Compact cards skip the band: their live chips are drawn after it (`card-compact-chips`).
   const dueChip = dueDateChip(task, tr, Date.now(), locale);
   const plannedChip = scheduledChip(task, tr, locale);
-  const hasMetaRow = !compact && !!(channel || creator || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
+  const hasMetaRow = !compact && !!(channel || owner || incomplete || blockedChip || reopened || waitingOnThis || task.parentTaskId || task.userCommentCount > 0 || task.planFirst || task.assignedTo || dueChip || plannedChip || task.lastActorPersonName || runInitiator || task.runComputerName || notLanded || checksRed || checksUnknown || checksGreen || checksRunning || systemDelivered || deliveryStat !== null || attesa || conductorCloses || lavoroInPlace || spostataAMano || senzaConsegna || senzaCommit || task.labels.length);
 
   return (
     <div
@@ -1292,7 +1300,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           una colonna.
           UNA distanza sola (`gap-1.5`): prima erano 6px dopo la priorita' e
           4px dopo il `#`, due misure per la stessa cosa nella stessa riga. */}
-      <span className={`block break-words leading-snug ${compact ? 'line-clamp-2' : ''}`}>
+      <span className={`block break-words leading-snug ${titleOnly ? 'line-clamp-1' : compact ? 'line-clamp-2' : ''}`}>
         {/* `align-top` e non `align-text-bottom`.
             Il gruppo e' alto ESATTAMENTE una line-box (`h-[1.375em]` =
             `leading-snug`), quindi il suo centro coincide con quello della
@@ -1350,7 +1358,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-amber-800 dark:text-amber-300"
             ><CircleSlash className="h-3 w-3 shrink-0" /> {systemDelivered.label}</span>
           )}
-          {blockedChip && (
+          {!titleOnly && blockedChip && (
             <span
               data-testid="card-blocked-by"
               title={blockedChip.title}
@@ -1413,7 +1421,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               stesso confronto. Un `!== null` secco lasciava passare l'undefined
               di un payload che quel campo non lo porta - ed e' costato un giro
               di debug, perche' il dato era giusto nel DB e giusto nel feed. */}
-          {attesa && (
+          {!titleOnly && attesa && (
             <span
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', {
@@ -1575,7 +1583,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               className="flex items-center gap-1 rounded bg-sky-500/15 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-sky-800 dark:text-sky-300"
             >{task.lastActorPersonName}</span>
           )}
-          {creator && <CreatorChipView chip={creator} notify={toast.error} />}
+          <OriginChipView chip={owner} notify={toast.error} />
           {channel && <ChannelChipView chip={channel} notify={toast.error} />}
           {incomplete && <IncompleteChipView chip={incomplete} />}
           {runInitiator && (
@@ -1637,11 +1645,11 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
       {/* COMPACT: of the whole band only the live facts stay, the ones that say
           the card cannot move (blocker) or that a person is awaited (review age).
           After the band in the source, so the band's chips keep their order. */}
-      {compact && (channel || creator?.jarvis || blockedChip || attesa || plannedChip) && (
+      {compact && (channel || ownerNamed || (!titleOnly && (blockedChip || attesa || plannedChip))) && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5" data-testid="card-compact-chips">
-          {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+          {ownerNamed && <OriginChipView chip={owner} notify={toast.error} />}
           {channel && <ChannelChipView chip={channel} notify={toast.error} />}
-          {plannedChip && (
+          {!titleOnly && plannedChip && (
             <span
               data-testid="card-scheduled"
               title={plannedChip.title}
@@ -1665,11 +1673,11 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
         </div>
       )}
       {/* The first of the four plain-words lines the system wrote for the person («Per te»). */}
-      {task.status === 'review' && task.forYou && !(compact && pending) && (
+      {!titleOnly && task.status === 'review' && task.forYou && !(compact && pending) && (
         <p data-testid="card-for-you" className="mt-1 line-clamp-2 break-words text-compact leading-snug font-medium text-app-text" title={task.forYou.remains}>{task.forYou.asked}</p>
       )}
       {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
-      {compact && task.status === 'review' && pending && (
+      {compact && !titleOnly && task.status === 'review' && pending && (
         <CompactQuestion question={pending.question} options={replyOptions} busy={busy} onAnswer={answer} />
       )}
       {/* The checklist: the steps, in EVERY column and not only in review.
@@ -1939,7 +1947,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           controls: the card reads top down (name, how it stands, what it asks)
           and closes with the measure of whoever is working it. The row is
           always there, because the last update always is: no state hides it. */}
-      <div className={`${compact ? 'mt-1' : 'mt-1.5'} flex flex-wrap items-center gap-1.5`} data-testid="card-foot">
+      <div className={`${titleOnly ? 'hidden' : compact ? 'mt-1' : 'mt-1.5'} flex flex-wrap items-center gap-1.5`} data-testid="card-foot">
         {/* The live chip's pulse dot already says "working": while it ticks,
             the 'al lavoro' state chip is redundant — one chip, not two. */}
         {awaiting ? (
