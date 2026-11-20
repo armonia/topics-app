@@ -105,10 +105,12 @@ test("without a provider snapshot nothing is judged", async () => {
   expect(response?.status).toBe(201);
 });
 
-test("a family alias is never a retired generation", () => {
+test("a bare family alias no engine lists is refused, a listed id is not retired", () => {
+  // No configured engine resolves "sonnet": it used to pass creation and then failed at launch.
   for (const model of ["opus", "sonnet", "haiku", "fable", "opus[1m]", "claude-code:sonnet"]) {
-    expect(taskModelIsCurrent(model, snapshot)).toBe(true);
+    expect(taskModelIsCurrent(model, snapshot)).toBe(false);
   }
+  expect(taskModelIsCurrent("claude-sonnet-5-5", snapshot)).toBe(true);
   expect(taskModelIsCurrent("claude-opus-5-9", snapshot)).toBe(false);
 });
 
@@ -158,3 +160,15 @@ test("a retired Claude id is refused under a prefix even when no catalog lists i
   expect(taskModelIsCurrent("codex:claude-sonnet-5-5", snapshot)).toBe(true);
 });
 
+
+test("a model no engine lists is refused on create and edit, naming the model and the valid ones", async () => {
+  const r = router();
+  const bad = await call(r, "POST", "/api/boards/p-model/tasks", { text: "Task", model: "sonnet" });
+  expect(bad?.status).toBe(400);
+  const body = await bad?.json();
+  expect(body.code).toBe("invalid_task_model");
+  expect(body.error).toContain("sonnet");
+  expect(body.error).toContain("claude-sonnet-5-5");
+  expect(body.available).toContain("claude-sonnet-5-5");
+  expect(taskModelIsCurrent("claude-sonnet-5-5", snapshot)).toBe(true);
+});
