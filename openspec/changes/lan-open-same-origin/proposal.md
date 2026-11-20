@@ -1,4 +1,4 @@
-> **Stato (2026-11-20):** Costruita (codice e test in main); resta aperta solo perché le sue spec delta non sono promosse: promuoverle richiede `@covers <ID>` nei test, altrimenti `check:spec-coverage` cresce di debito. Da archiviare con quel lavoro.
+> **Stato (2026-11-20):** Costruita (codice e test in main). Promosso LAN-OPEN-01 in `openspec/specs/remote-access`, riscritto sul solo asse d'origine (la frase «nessun token da nessun peer» è smentita da AUTH-01 e da `evaluateIdentity` in `server/lib/device-auth.ts`), taggato in `server/lib/auth-gate.test.ts` e `tests/e2e/lan-same-origin.spec.ts`. Resta aperto LAN-OPEN-02 (`/__daemon/*` solo loopback, in `server/routes/daemon-control.ts`): manca un test che provi il 401 a un peer non loopback senza confrontare il token. LAN-PAIR-01/02, REMOTE-01 e LAN-OPEN-03 sono superati (token e pannello tunnel rimossi).
 
 # Change: lan-open-same-origin
 

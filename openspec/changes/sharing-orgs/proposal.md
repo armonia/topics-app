@@ -1,4 +1,4 @@
-> **Stato (2026-11-20):** Costruita (codice e test in main); resta aperta solo perché le sue spec delta non sono promosse: promuoverle richiede `@covers <ID>` nei test, altrimenti `check:spec-coverage` cresce di debito. Da archiviare con quel lavoro.
+> **Stato (2026-11-20):** Costruita (codice e test in main). Promossi in `openspec/specs/remote-access` ORG-01, ORG-02, ORG-05 (`server/lib/identity.test.ts`), ORG-01 (`tests/unit/no-org-nesting.test.ts`), ORG-03 (`tests/unit/single-door.test.ts`), ORG-04 (`tests/integration/auth-routes.test.ts`), ORG-08 (`server/routes/account.test.ts`). Restano aperti ORG-06 (manca un test su origin/revisione univoca remota/tombstone e su «le concessioni non si replicano»: `tests/integration/migration-084-people-orgs.test.ts` copre solo origin e rev di `people`) e ORG-07 (manca un test che il linguaggio «organizzazione» non compaia per un'organizzazione di uno; `client/src/components/Auth/pairingPerson.test.ts` copre solo la scelta della persona).
 
 # Change: sharing-orgs
 

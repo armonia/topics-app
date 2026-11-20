@@ -1,4 +1,4 @@
-> **Stato (2026-11-20):** Costruita (codice e test in main); resta aperta solo perché le sue spec delta non sono promosse: promuoverle richiede `@covers <ID>` nei test, altrimenti `check:spec-coverage` cresce di debito. Da archiviare con quel lavoro.
+> **Stato (2026-11-20):** Costruita (codice e test in main). LAYOUT-34..41 e NATIVEPARK-01 promossi in `openspec/specs/`; resta aperta solo `NATIVEPARK-02` (`specs/remote-browser/spec.md`): nessun test lo dichiara. Il codice c e (`RemoteBrowserPanel.tsx`, `usePaneAlive`), manca la prova che la vista sia SPENTA e non solo a bounds zero (un test unitario sulla chiamata di spegnimento, o il video 7.7 della tasks.md).
 
 # Proposal — pane-zoom
 

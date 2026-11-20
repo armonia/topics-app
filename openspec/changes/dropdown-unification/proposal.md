@@ -1,4 +1,4 @@
-> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 22 da fare (`tasks.md`).
+> **Stato (2026-11-20):** aperta: fondazione costruita (`client/src/hooks/useDismissable.ts`, `components/Shared/Menu.tsx`, `lib/popoverPosition.ts`, `lib/overlayMenu.ts` rimosso) ma nessun test dichiara `@covers UI-POPOVER-01..06` e manca `client/src/hooks/useDismissable.test.ts` (assente); restano file con `mousedown` outside-click propri (es. `components/Layout/PaneTabBar.tsx`, `CellSubStack.tsx`) da migrare o giustificare.
 
 ## Why
 

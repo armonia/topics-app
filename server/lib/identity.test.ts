@@ -10,7 +10,7 @@
  * No cookie is nobody and stays confined; a cookie matching no device opens
  * nothing.
  *
- * @covers GUEST-03
+ * @covers GUEST-03, ORG-01, ORG-02, ORG-05
  */
 import { describe, expect, it, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

@@ -1,4 +1,4 @@
-> **Stato (2026-11-20):** Lavoro aperto: 0 task fatti, 11 da fare (`tasks.md`).
+> **Stato (2026-11-20):** costruita solo T1 (`server/lib/primary-role.ts`, ruolo ed epoca). Mancano T0 (`queueAfterRestart` in `task-dispatcher-remote-node.ts` rimette ancora in coda e cancella la corsa invece di riattaccarla), T3 (nessun deposito segreti cifrato in `server/lib`), T4/T9 (nessun comando `primary switch`/`primary claim` in `server` o `scripts`), T5-T8 e T10.
 
 ## Da decidere
 

@@ -780,7 +780,7 @@ export default defineConfig({
         "**/topic-browser-window-remote-return.spec.ts",
         "**/board-conversation-details.spec.ts",
         // "Recapture evidence" boots a worktree and photographs it. The server
-        // takes that photo with its own WebKit (KANBAN-95), so the whole
+        // takes that photo with its own WebKit (KANBAN-119), so the whole
         // delivery-preview path runs on this Mac without a Chromium.
         "**/board-recapture-preview.spec.ts",
         "**/chat-compact-command.spec.ts",
