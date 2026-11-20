@@ -3,6 +3,7 @@ import { waitForAnswer, beginAsk, endAsk, deliverAnswer, forgetBufferedAnswer, A
 import { answerRecordedOnRow, questionTexts } from "../lib/question-outlives-asker";
 import { createTaskService } from "../services/tasks";
 import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, ENDED_LINE } from "../services/board-ask-routing";
+import { spawnedChildOf } from "../lib/subagent-tool-policy";
 import { outboundHoldOfSession } from "../lib/outbound-gate";
 import {
   beginPermission,
@@ -159,6 +160,17 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         const sk = decodeURIComponent(bySession.sessionKey);
         const denied = denyGlobalCoordinatorHumanBridge(sk);
         if (denied) return denied;
+        // SUBAGENT-23, extended to the CLI runtime: a spawn_agent child's
+        // question would sit on screen in a chat nobody watches (its own topic,
+        // not the one the person who spawned it is looking at). A native child
+        // never reaches here (its tool list has no `ask_user_question` to call);
+        // a CLI child's does, so this is the one place both runtimes share.
+        if (spawnedChildOf(ctx.db, sk)) {
+          return json({
+            cancelled: true,
+            reason: "ask_user_question: a sub-agent cannot put a question on screen. Put the choices in your result, whoever spawned you will carry them to the person",
+          });
+        }
         const body = (await readJSON(req)) as { questions?: unknown; legMs?: unknown } | null;
         if (!Array.isArray(body?.questions) || body.questions.length === 0) {
           return json({ error: "questions (non-empty array) is required" }, 400);
