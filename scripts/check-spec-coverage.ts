@@ -65,13 +65,15 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // `SPEC_COVERAGE_ROOT` exists ONLY for `check-spec-coverage.test.ts`: it points the whole gate
 // at a throwaway fixture tree instead of this repo, so the in-flight-id behaviour below can be
 // proven without 20+ real requirements and 50+ real test files lying around. Unset in every
 // real run, `bun run check:spec-coverage` included.
 const TEST_MODE = !!process.env.SPEC_COVERAGE_ROOT;
-const ROOT = process.env.SPEC_COVERAGE_ROOT ?? new URL("..", import.meta.url).pathname;
+// `.pathname` keeps a leading slash on Windows (`/E:/...`), so the walk read nothing there.
+const ROOT = process.env.SPEC_COVERAGE_ROOT ?? fileURLToPath(new URL("..", import.meta.url));
 const SPECS = join(ROOT, "openspec", "specs");
 const CHANGES = join(ROOT, "openspec", "changes");
 const BASELINE = join(ROOT, "openspec", "coverage-baseline.json");

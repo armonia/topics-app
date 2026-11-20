@@ -17,7 +17,8 @@
  *     con quello della CLI: senza l'alias scritto dalla gamba, la decisione
  *     cadeva nel vuoto (409) e il turno restava fermo;
  *   - una `decision` non riconosciuta che diventa un sì per inerzia.
-  * @covers PERM-06
+ * @covers PERM-06
+ * @covers SUBAGENT-23
  */
 import { describe, test, expect } from "bun:test";
 import { createPermissionRouter, permissionLabel } from "./permission";
