@@ -27,7 +27,7 @@ export function boardTask(f: TaskFields): BoardTask {
     id: f.id, projectId: f.projectId, text: f.text, description: f.description ?? null,
     status: f.status, priority: f.priority ?? 2, priorityAuto: false, kanbanOrder: f.kanbanOrder,
     assignedTo: f.assignedTo ?? null, createdAt: f.at, updatedAt: f.at,
-    assignedTopicId: null, dispatchState: null, dispatchError: null, parentTaskId: null,
+    assignedTopicId: null, archived: false, dispatchState: null, dispatchError: null, parentTaskId: null,
     urlProbeStatus: null, previewImage: null, previewRetiredAt: null, previewRetiredReason: null,
     planFirst: false, agentMs: 0, agentTokens: 0, agentCacheReadTokens: 0, agentCostCents: 0,
     subtaskCount: 0, subtaskDoneCount: 0, userCommentCount: 0, model: null, machineId: null,
