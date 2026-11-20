@@ -112,3 +112,16 @@ export function isPlanWaitReason(error: string | null | undefined): boolean {
   if (!error) return false;
   return error.startsWith(`${providerHoldLabel('claude')}: `) || error.startsWith(`${providerHoldLabel('codex')}: `);
 }
+
+/**
+ * The end an error declares for itself: `(resets_at: 2026-11-20T08:00:00Z)`, an ISO
+ * instant in UTC. A provider, or a proxy standing in front of one, that stops a request
+ * because the plan is spent can say WHEN it is worth asking again with that tail; the
+ * reader needs to know nothing about who wrote it. Ms epoch, or null when the text
+ * declares none.
+ */
+export function readDeclaredReset(text: string | null | undefined): number | null {
+  const m = /resets_at:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/.exec(text ?? "");
+  const at = m ? Date.parse(m[1]) : NaN;
+  return Number.isFinite(at) ? at : null;
+}

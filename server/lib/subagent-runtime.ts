@@ -16,6 +16,7 @@
 import fs from "fs";
 import { getDatabase } from "../db";
 import { warnThrottled } from "./warn-throttled";
+import { resetStaleSweep, sweepStaleResults } from "./subagent-stale-sweep";
 import { noteSubagentWaitChanged } from "./subagent-wait-events";
 import { claudeTranscriptPath } from "./claude-transcript-path";
 import {
@@ -389,6 +390,7 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();
+  resetStaleSweep();
   for (const id of [...foregroundHolds.keys()]) {
     clearTimeout(foregroundHolds.get(id)!.timer);
     foregroundHolds.delete(id);
@@ -721,7 +723,7 @@ let childWatchTimer: ReturnType<typeof setInterval> | null = null;
 /** Start the watch, once for the process however many routers there are. */
 export function startChildWatch(): void {
   if (childWatchTimer) return;
-  childWatchTimer = setInterval(() => { void watchChildren(); }, CHILD_WATCH_MS);
+  childWatchTimer = setInterval(() => { void watchChildren(); sweepStaleResults(getDatabase(), deliverChildResult); }, CHILD_WATCH_MS);
   childWatchTimer.unref?.();
 }
 
