@@ -5,6 +5,7 @@ import { refreshPlannerStats } from "../db";
 import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
+import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
 import type { AfterRelay } from "./scope";
@@ -156,4 +157,7 @@ export function bootPostListen(scope: AfterRelay) {
 
   // Machines' health for the tray: security probes, CPU and memory, cards of today.
   startMachineHealth(ctx);
+
+  // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
+  if (process.env.TOPICS_E2E !== "1") startQuotaSampler();
 }
