@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** Costruita (codice e test in main). Promossi in `openspec/specs/remote-access` AUTH-01, AUTH-02, AUTH-03, taggati `@covers` in `server/lib/device-auth.test.ts` e `tests/integration/auth-routes.test.ts`. Resta aperto AUTH-04 (nome del dispositivo sopra la status bar, e schermata «non autorizzato»): nel client non esiste nessun componente che mostri il nome dell'identità, e nessun test lo asserisce. Resta fuori il punto 6.3 (identità del proprietario). Il delta di rimozione (`spec-removal.md`) non ha effetto: REMOTE-01 e LAN-OPEN-03 non sono più nelle spec in main.
+
 # Change: device-auth
 
 ## Why

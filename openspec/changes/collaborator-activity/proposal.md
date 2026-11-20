@@ -1,3 +1,5 @@
+> **Stato (2026-11-20):** aperta, nulla costruito: mancano la migration con `task_comments.actor_person_id` e `actor_device_id` (assenti), la funzione `taskActivity` (assente in `server/`, `shared/`, `client/`) e i gruppi `person` e `machine` in `filterRows.ts`; ultimo commit solo la proposta (`bec1d0b6d`).
+
 # Change: collaborator-activity
 
 ## Why

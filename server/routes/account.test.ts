@@ -13,7 +13,7 @@
  * positivo che rende quell'asserzione capace di fallire sta nello stesso test —
  * lo stesso `fetch` rotto DEVE far fallire la richiesta di un codice nuovo,
  * altrimenti «resta collegato» passerebbe anche con una rete che funziona.
-  * @covers ACCOUNT-03
+  * @covers ACCOUNT-03, ORG-08
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
