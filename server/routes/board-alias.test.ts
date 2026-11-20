@@ -5,11 +5,11 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectIdForPath } from "../services/tasks";
-import { canonicalBoardIdForPath } from "../lib/board-alias";
+import { canonicalBoardIdForPath, resetBoardAliasScan } from "../lib/board-alias";
 import { createTasksRouter } from "./tasks";
 import { call, freshDb, makeCtx, rawCall } from "./tasks-test-support";
 
@@ -27,13 +27,19 @@ describe("old board id after a folder move", () => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "board-alias-")));
     oldPath = join(root, "app");
     newPath = join(root, "group", "app");
-    mkdirSync(oldPath);
     mkdirSync(join(root, "group"));
     oldId = projectIdForPath(oldPath);
     newId = projectIdForPath(newPath);
     db = freshDb();
-    db.run("INSERT INTO topics (id, name, session_key, provider, project_path) VALUES ('t1', 'app', 'sk-t1', 'codex', ?)", [oldPath]);
-    router = createTasksRouter(makeCtx(db, [], {}), undefined, { listProjectDirs: () => [oldPath] });
+    // The migration file is EXECUTED as written (twice: it must be idempotent).
+    const sql = readFileSync(join(import.meta.dir, "../db/migrations/20261120090000-board-aliases.sql"), "utf-8");
+    db.exec(sql);
+    db.exec(sql);
+    // The project is registered under its REAL path only: the old path is
+    // nowhere in the DB, just a symlink on disk after the move.
+    db.run("INSERT INTO topics (id, name, session_key, provider, project_path) VALUES ('t1', 'app', 'sk-t1', 'codex', ?)", [newPath]);
+    router = createTasksRouter(makeCtx(db, [], {}), undefined, { listProjectDirs: () => [newPath] });
+    resetBoardAliasScan();
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -48,8 +54,8 @@ describe("old board id after a folder move", () => {
 
   test("old id reaches the board of the moved project", async () => {
     expect((await create(newId, "before move")).status).toBe(201);
-    renameSync(oldPath, newPath);
-    symlinkSync(newPath, oldPath);
+    mkdirSync(newPath);
+    symlinkSync(newPath, oldPath, "dir");
     expect(oldId).not.toBe(newId);
     expect(canonicalBoardIdForPath(oldPath)).toBe(newId);
 
@@ -63,5 +69,13 @@ describe("old board id after a folder move", () => {
 
     const count = db.query("SELECT count(*) AS n FROM tasks WHERE project_id = ?").get(oldId) as { n: number };
     expect(count.n).toBe(0);
+  });
+
+  test("the alias is persisted, so it survives the link going away", async () => {
+    const row = db.query("SELECT new_id FROM board_aliases WHERE old_id = ?").get(oldId) as { new_id: string };
+    expect(row.new_id).toBe(newId);
+    rmSync(oldPath);
+    const viaOld = await (await call(router, "GET", `/api/boards/${oldId}/tasks`))!.json();
+    expect((viaOld.tasks ?? viaOld).length).toBe(2);
   });
 });
