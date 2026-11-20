@@ -791,7 +791,7 @@ export type ToolCallDetail =
    *  `browser_open`), and it worked. Drawn as a marker that stays in sight and
    *  brings the page back (CHAT-BROWSER-01). `contextId` is absent on rows older
    *  than BROWSER-CHAT-05; `visible: false` = loaded but on no screen. */
-  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; result?: string }
+  | { type: 'browser'; url: string; contextId?: string; title?: string; name?: string; visible?: boolean; media?: string; result?: string }
   /** `show_view`: the agent sent typed data (a comparison, ...) and Topics
    *  draws it in the chat and at `/v/<viewId>` (GENUI-01). `viewId` arrives
    *  with the result; a running call has only the spec. */
