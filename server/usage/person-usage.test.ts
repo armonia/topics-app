@@ -155,6 +155,16 @@ describe("(c) person-usage", () => {
     const total = [...pointsPerHour(lines, H0 - 1, H0 + HOUR_MS).values()].reduce((a, b) => a + b, 0);
     expect(total).toBe(96 - 31);
   });
+  test("a dip before the window does not make the return inside it count", () => {
+    const t = (ms: number) => ms / 1000;
+    const lines = [
+      { t: t(H0 - 3 * 60_000), s: { "claude|a|7d": 31 } },
+      { t: t(H0 - 2 * 60_000), s: { "claude|a|7d": 30 } },
+      { t: t(H0 + 60_000), s: { "claude|a|7d": 31 } },
+    ];
+    const total = [...pointsPerHour(lines, H0, H0 + HOUR_MS).values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(0);
+  });
   test("un reset vero 100 -> 2 conta 2", () => {
     const t = (ms: number) => ms / 1000;
     const points = pointsPerHour([
