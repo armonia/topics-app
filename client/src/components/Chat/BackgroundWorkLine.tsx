@@ -77,7 +77,7 @@ export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, se
   const sentIds = useChatCardIds(sessionKey);
   const cards = openCardsOf(board, topicId, sentIds);
   // A command alone is the strip's (BGVIS-07): with nothing else the line does not come up.
-  const own = tasks.some((t) => t.kind !== 'command') ? lineWork(tasks, detail) : undefined;
+  const own = tasks.some((t) => t.kind !== 'command' && t.kind !== 'subagent') ? lineWork(tasks, detail) : undefined;
   const work = cards.length
     ? {
         sessionKey: own?.sessionKey ?? detail?.sessionKey ?? '',
@@ -113,7 +113,7 @@ function lineWork(tasks: readonly AttentionTask[], detail: TopicBackgroundWork |
     // A queued wake is no work: it is the CLI about to answer a report. It
     // keeps the line up and is named by «about to resume» (n = 0 below), the
     // branch that otherwise no attention state could reach.
-    if (t.kind === 'wake' || t.kind === 'command') continue;
+    if (t.kind === 'wake' || t.kind === 'command' || t.kind === 'subagent') continue;
     const startedAt = Date.parse(t.startedAt);
     named.push({ type: t.kind, description: t.label, ...(Number.isFinite(startedAt) ? { startedAt } : {}) });
   }

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePaneRoom } from '../../hooks/usePaneRoom';
 import { useT } from '../../hooks/useT';
 import { clearAskDraft, readAskDraft, writeAskDraft } from './askDraft';
 import { readRecommendation } from './questionAnswers';
@@ -226,6 +227,9 @@ function QuestionsForm({
     });
   }
 
+  const formRef = useRef<HTMLFormElement>(null);
+  const room = usePaneRoom(formRef);
+
   const answered = (q: AskUserQuestionItem) => {
     const cur = selections[q.question] || [];
     if (cur.length === 0) return false;
@@ -245,6 +249,8 @@ function QuestionsForm({
 
   return (
     <form
+      ref={formRef}
+      style={room !== null ? { maxHeight: room } : undefined}
       onSubmit={(e) => {
         e.preventDefault();
         if (submitting) return;
@@ -267,10 +273,13 @@ function QuestionsForm({
           submittedAt: '',
         });
       }}
-      className="space-y-3 bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
+      // A column with a cap: header and buttons stay put, the questions scroll
+      // in the middle. The cap is the pane's room (`usePaneRoom`); outside a
+      // pane, the fallback one.
+      className="flex flex-col gap-3 max-h-[min(32rem,80dvh)] min-w-0 max-w-full bg-app-hover/30 border border-amber-500/25 rounded-md px-3 py-2.5 mt-1.5"
       data-testid={`tool-input-form-${toolCallId}`}
     >
-      <div className="flex items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+      <div className="flex shrink-0 items-center gap-1.5 text-mini font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
         <HelpCircle size={12} />
         <span>{tr('tool.agentWaits')}</span>
         {stepped && (
@@ -279,6 +288,7 @@ function QuestionsForm({
           </span>
         )}
       </div>
+      <div data-testid="ask-form-body" className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain -mx-1 px-1">
       {/* The plan, above the two choices: read it, correct it, approve it.
           Correcting is NOT answering: the decision stays the two buttons, and
           Enter in here breaks the line instead of approving. */}
@@ -434,10 +444,11 @@ function QuestionsForm({
         </fieldset>
         );
       })}
+      </div>
       {error && (
-        <div className="text-compact text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
+        <div className="shrink-0 text-compact text-red-500 bg-red-500/5 rounded px-2 py-1">{error}</div>
       )}
-      <div className="flex justify-end items-center gap-2">
+      <div className="flex shrink-0 justify-end items-center gap-2">
         {stepped && step > 0 && (
           <button
             type="button"

@@ -15,9 +15,12 @@ export const LIVE_WORK_ENDED_TTL_MS = 60_000;
 
 /**
  * `waiting`: its prompt has not reached it yet. `working`: its turn is open.
- * `ended`: its turn is over or its process is gone, for the last minute.
+ * `awaiting`: its turn is over and reported, and it waits on its own work (a
+ * sub-agent of its own, a command) to wake it again: no loader, nothing of its
+ * own is running. `ended`: its turn is over or its process is gone, for the
+ * last minute.
  */
-export type LiveAgentState = "working" | "waiting" | "ended";
+export type LiveAgentState = "working" | "waiting" | "awaiting" | "ended";
 
 /**
  * What a sub-agent weighs, as the provider reported it. `usedTokens` and
@@ -51,11 +54,13 @@ export interface LiveAgentRow {
   /** Absent when nothing is measured on this child yet. */
   weight?: WorkWeight;
   /**
-   * How long a child like this takes, from the children of the same kind that
-   * already finished (their median); absent below the sample floor, and then
+   * How long a child like this takes at departure, from the children of the
+   * same kind that already finished; absent below the sample floor, and then
    * no countdown is drawn.
    */
   estimateMs?: number;
+  /** The durations that estimate came from, sorted ascending: the checkpoints re-read them (`revisedEstimate`). */
+  estimateHistoryMs?: number[];
 }
 
 export interface LiveCommandRow {

@@ -13,6 +13,7 @@
 //! `tray_loader_frames.rs`. This file only rasterizes them.
 
 use crate::tray_loader_frames::{LoaderShape, BOX_PX, CORNER, SHAPES, SHAPE_FOR_ACTION};
+use crate::tray_loader_player;
 use crate::tray_quota::{width_pt, Canvas, Face, HEIGHT_PT, SCALE, WHITE};
 use serde::Deserialize;
 use std::f32::consts::TAU;
@@ -51,6 +52,9 @@ const AMBER: [u8; 3] = [255, 185, 0];
 const MUTED: [u8; 3] = [141, 147, 155];
 /// How long each loader frame stays up (the generator samples the engine at this step).
 pub const FRAME_MS: u64 = 120;
+/// How long each image of a change of shape stays up: the slide needs more images
+/// than the loop, for one second, then the loop is back at `FRAME_MS`.
+pub const TRANSITION_FRAME_MS: u64 = 50;
 /// The shape the working glyph plays when the client names no action.
 const DEFAULT_SHAPE: &str = "think";
 /// `frame` value meaning "leave the working glyph out": a native overlay layer
@@ -59,7 +63,8 @@ pub const STATIC_FRAME: u32 = u32::MAX;
 /// Width in points of the box the overlay layer covers (the working glyph).
 pub const OVERLAY_PT: f32 = GLYPH_PT;
 
-/// One RGBA image of every frame of every loader shape, drawn once.
+/// One RGBA image of every frame of every loader loop, drawn once (tests).
+#[cfg(test)]
 pub struct GlyphFrames {
     pub width: u32,
     pub height: u32,
@@ -69,22 +74,35 @@ pub struct GlyphFrames {
     pub spans: Vec<(u32, u32)>,
 }
 
-/// Pre-rendered working-glyph frames: text-free, built once per process.
+/// Size in device pixels of one overlay image.
+pub fn frame_size() -> (u32, u32) {
+    ((OVERLAY_PT * SCALE) as u32, (HEIGHT_PT * SCALE) as u32)
+}
+
+/// The RGBA image of overlay frame `frame` (a loop frame or an image of a change, see
+/// `tray_loader_player`): text-free, rasterized from the engine's squares.
+pub fn frame_rgba(frame: u32) -> Vec<u8> {
+    let (w, h) = frame_size();
+    let mut cv = Canvas::new(w, h);
+    loader(&mut cv, 0.0, tray_loader_player::squares(frame), SKY);
+    cv.px
+}
+
+/// The loop frames, pre-rendered once: what the tests read.
+#[cfg(test)]
 pub fn glyph_frames() -> &'static GlyphFrames {
     static FRAMES: std::sync::OnceLock<GlyphFrames> = std::sync::OnceLock::new();
     FRAMES.get_or_init(|| {
-        let (w, h) = ((OVERLAY_PT * SCALE) as u32, (HEIGHT_PT * SCALE) as u32);
+        let (width, height) = frame_size();
         let mut frames = Vec::new();
         let mut spans = Vec::new();
-        for shape in SHAPES {
+        for (i, shape) in SHAPES.iter().enumerate() {
             spans.push((frames.len() as u32, shape.frames.len() as u32));
-            for squares in shape.frames {
-                let mut cv = Canvas::new(w, h);
-                loader(&mut cv, 0.0, squares, SKY);
-                frames.push(cv.px);
+            for k in 0..shape.frames.len() {
+                frames.push(frame_rgba(tray_loader_player::loop_frame(i, k)));
             }
         }
-        GlyphFrames { width: w, height: h, frames, spans }
+        GlyphFrames { width, height, frames, spans }
     })
 }
 
@@ -99,13 +117,6 @@ pub fn shape_for_action(wire: Option<&str>) -> usize {
         .and_then(|(_, shape)| shape_named(shape))
         .or_else(|| shape_named(DEFAULT_SHAPE))
         .unwrap_or(0)
-}
-
-/// The overlay frame (an index into `glyph_frames().frames`) shape `shape` shows on tick `tick`.
-pub fn overlay_frame(shape: usize, tick: u32) -> u32 {
-    let spans = &glyph_frames().spans;
-    let (start, len) = spans[shape.min(spans.len() - 1)];
-    start + tick % len.max(1)
 }
 
 impl AgentStates {
@@ -170,9 +181,7 @@ fn loader(cv: &mut Canvas, x_pt: f32, squares: &[[f32; 4]], color: [u8; 3]) {
 fn glyph(cv: &mut Canvas, x_pt: f32, kind: Kind, frame: u32) {
     match kind {
         Kind::Working => {
-            let g = glyph_frames();
-            let (shape, k) = shape_and_step(&g.spans, frame % g.frames.len() as u32);
-            loader(cv, x_pt, SHAPES[shape].frames[k], SKY);
+            loader(cv, x_pt, tray_loader_player::squares(frame % tray_loader_player::frame_count() as u32), SKY);
             return;
         }
         Kind::Waiting => {
@@ -205,15 +214,6 @@ fn glyph(cv: &mut Canvas, x_pt: f32, kind: Kind, frame: u32) {
             }
         }
     }
-}
-
-/// Which shape, and which of its frames, a flat overlay frame index is.
-fn shape_and_step(spans: &[(u32, u32)], frame: u32) -> (usize, usize) {
-    spans
-        .iter()
-        .position(|&(start, len)| frame >= start && frame < start + len)
-        .map(|i| (i, (frame - spans[i].0) as usize))
-        .unwrap_or((0, 0))
 }
 
 /// Draws the group at `x_pt`; returns nothing, the caller reserved `width()`.

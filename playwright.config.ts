@@ -721,6 +721,9 @@ export default defineConfig({
         // A sub-agent's description is printed once, in the row or in the body, by
         // the measured truncation of the summary: the layout is read where it ships.
         "**/sub-agent-description-cut.spec.ts",
+        // The rows of a transcript on one grid (thinking, tools, sub-agents, cards, background jobs), read where it ships.
+        "**/chat-rows-layout.spec.ts",
+        "**/chat-rows-strip.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.
@@ -855,6 +858,8 @@ export default defineConfig({
         // The dispatch dashboard panel: the DOM reading runs in both engines, the
         // webkit run also gives the screenshot taken on the engine the app ships in.
         "**/board-dispatch-dashboard.spec.ts",
+        // The drawer's ground in a narrow window: WKWebView is where it was seen.
+        "**/board-drawer-opaque-narrow.spec.ts",
       ],
       use: {
         browserName: "webkit",

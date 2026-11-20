@@ -21,6 +21,7 @@ import * as nodeFs from "node:fs";
 import { join } from "node:path";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
+import { getPrimaryRole } from "../lib/primary-role";
 
 export type NodeFailureReason =
   | "unreachable"
@@ -333,6 +334,9 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     "User-Agent": userAgent,
     Accept: "application/json",
     ...(token ? { Cookie: `${NODE_SESSION_COOKIE}=${token}` } : {}),
+    // Every call to a node carries the primary's epoch, so the node learns the highest one and
+    // refuses a replaced primary. Read here, once for every client: no caller can forget it.
+    ...(getPrimaryRole()?.outgoingHeaders() ?? {}),
     ...extra,
   });
   const delegatedHeaders = (delegation: NodeRunBinding | undefined): Record<string, string> =>
@@ -366,7 +370,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
     async pairRequest(baseUrl) {
       const out = await callJson<Partial<PairRequestResult>>(
         `${baseUrl}/api/auth/pair/request`,
-        { method: "POST", headers: headersFor(null) },
+        // The node records this machine as the primary that paired it (its channel).
+        { method: "POST", headers: headersFor(null, getPrimaryRole()?.pairingHeaders()) },
         "pair request",
       );
       if (typeof out.requestId !== "string" || typeof out.claim !== "string" || typeof out.code !== "string") {

@@ -27,6 +27,7 @@ mod shortcuts_generated;
 mod chords;
 mod tray_agents;
 mod tray_loader_frames;
+mod tray_loader_player;
 mod tray_dials;
 mod tray_machines;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -39,8 +40,12 @@ mod tray_node_health;
 mod tray_menu;
 mod tray_menu_actions;
 mod tray_menu_clock;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_hover;
 #[cfg(target_os = "macos")]
 mod tray_menu_native;
+#[cfg(target_os = "macos")]
+mod tray_menu_hover_view;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_detail;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -52,6 +57,9 @@ mod tray_menu_projects;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod tray_menu_rich;
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod tray_menu_quota_card;
+mod tray_node_agents;
+mod tray_numbers;
 mod tray_menu_views;
 mod tray_menu_memory_sync;
 mod tray_quota;

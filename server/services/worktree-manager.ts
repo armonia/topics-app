@@ -180,6 +180,21 @@ export function worktreeRootDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.TOPICS_WORKTREES_DIR || join(topicsHome(env), "worktrees");
 }
 
+/**
+ * A project path's fitness for `git worktree add`, by inspecting the resolved
+ * `.git` entry: a real repo has `<root>/.git/` as a directory; a worktree
+ * checkout has `<root>/.git` as a file pointing at the parent repo's
+ * `.git/worktrees/<name>/` directory. Shared by the refusal thrown in `create`
+ * (below) and by the board-settings warning (`worktreeReady` in
+ * `server/boot/tasks-router.ts`), so the two can never disagree on the exact
+ * same path.
+ */
+export function classifyWorktreeSource(projectPath: string): "ok" | "no-git" | "nested-worktree" {
+  const dotGit = join(projectPath, ".git");
+  if (!existsSync(dotGit)) return "no-git";
+  return statSync(dotGit).isFile() ? "nested-worktree" : "ok";
+}
+
 export function createWorktreeManager(
   ctx: AppContext,
   deps: {
@@ -336,21 +351,15 @@ export function createWorktreeManager(
     }
   }
 
-  /**
-   * Refuse to create a worktree from inside another worktree. Detect by
-   * inspecting the resolved `.git` path: a real repo has `<root>/.git/` as
-   * a directory; a worktree has `<root>/.git` as a file pointing at the
-   * parent repo's `.git/worktrees/<name>/` directory.
-   */
+  /** Refuse to create a worktree from inside another worktree, or from a path with no git repo. */
   function assertNotAlreadyAWorktree(projectPath: string) {
-    const dotGit = join(projectPath, ".git");
-    if (!existsSync(dotGit)) {
+    const kind = classifyWorktreeSource(projectPath);
+    if (kind === "no-git") {
       throw new WorktreeRefusalError(
         `Project path is not a git repository: ${projectPath}`,
       );
     }
-    const st = statSync(dotGit);
-    if (st.isFile()) {
+    if (kind === "nested-worktree") {
       throw new WorktreeRefusalError(
         `Cannot create worktrees from inside an existing worktree (${projectPath}). Pick the original repository instead.`,
       );

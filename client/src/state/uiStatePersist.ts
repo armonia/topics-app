@@ -88,6 +88,7 @@
 
 import { getTabId } from './pane/middleware/syncCrossTab';
 import { apiFetch } from '../lib/shell/net';
+import { isNestedInTopicsPane } from '../lib/shell/nestedPane';
 
 /**
  * A PUT with no answer would hold a key's frames hostage forever (every frame
@@ -251,6 +252,10 @@ export function createUiStatePersister(options: UiStatePersisterOptions = {}): U
   };
 
   const send = (key: string, value: unknown, keepalive = false): void => {
+    // Nested in a Topics pane: a read-only mirror. Returning BEFORE the flight
+    // is counted keeps `inFlight` clean, so no frame is ever held waiting for
+    // an answer that will not come.
+    if (isNestedInTopicsPane()) return;
     // The signal is built BEFORE the flight is counted, and the request is
     // guarded: anything that throws on the way out (an engine without
     // `AbortSignal.timeout`, a fetch that rejects synchronously) would otherwise

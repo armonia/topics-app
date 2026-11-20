@@ -24,12 +24,14 @@ const failedBash: ToolCall = {
 };
 
 describe('ToolCallRow chevron', () => {
-  test('a row with a body reserves the 12px column and hides the chevron until hover/focus', () => {
+  test('a row with a body keeps its 12px slot AFTER the text and hides the chevron until hover/focus', () => {
     const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: failedBash }));
     expect(html).toContain('w-3 flex-shrink-0');
     expect(html).toContain('opacity-0');
     expect(html).toContain('group-hover/tool:opacity-100');
     expect(html).toContain('group-focus-within/tool:opacity-100');
+    // No empty column on the left: the icon comes first, the chevron after the name.
+    expect(html.indexOf('w-3 flex-shrink-0')).toBeGreaterThan(html.indexOf('data-testid="tool-call-name"'));
   });
 
   test('touch shows the chevron always', () => {
@@ -37,7 +39,7 @@ describe('ToolCallRow chevron', () => {
     expect(html).toContain('coarse:opacity-100');
   });
 
-  test('a sub-agent row shows no chevron, no command name and no parentheses', () => {
+  test('a sub-agent row is on the same grid: the chevron cue, a name and its line, no parentheses', () => {
     const subAgent: ToolCall = {
       id: 'chevron-sub',
       name: 'Task',
@@ -47,9 +49,47 @@ describe('ToolCallRow chevron', () => {
     };
     const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: subAgent }));
     expect(html).toContain('Controlla il modulo di pagamento');
-    expect(html).not.toContain('data-testid="tool-call-name"');
-    expect(html).not.toContain('group-hover/tool:opacity-100');
+    expect(html).toContain('data-testid="tool-call-name"');
+    expect(html).toContain('>Sub-agent<');
+    expect(html).toContain('data-work-kind="subagent"');
+    expect(html).toContain('group-hover/tool:opacity-100');
     expect(html).not.toContain('>(<');
-    expect(html).toContain('title="Explore');
+    expect(html).toContain('title="Sub-agent · Explore');
+  });
+
+  test('a sub-agent call with no description is not an empty row (the bare robot)', () => {
+    for (const toolCall of [
+      { id: 'e1', name: 'Task', args: {}, status: 'running' },
+      { id: 'e2', name: 'spawn_agent', args: {}, status: 'running' },
+      { id: 'e3', name: 'Task', args: {}, status: 'success', result: 'ok' },
+      { id: 'e4', name: 'Task', args: {}, status: 'error', error: 'boom' },
+    ] as ToolCall[]) {
+      const html = renderToStaticMarkup(createElement(ToolCallRow, { toolCall }));
+      expect(html).toMatch(/data-testid="tool-call-name"[^>]*>Sub-agent</);
+    }
+  });
+
+  test('a finished sub-agent call with nothing at all is not drawn; a failed one is', () => {
+    const nothing = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: { id: 'n1', name: 'Task', args: {}, status: 'success' } as ToolCall }));
+    expect(nothing).toBe('');
+    const failed = renderToStaticMarkup(createElement(ToolCallRow, { toolCall: { id: 'n2', name: 'Task', args: {}, status: 'error', error: 'boom' } as ToolCall }));
+    expect(failed).toMatch(/data-testid="tool-call-name"[^>]*>Sub-agent</);
+  });
+
+  test('background work is its own kind: another name, not the sub-agent\'s', () => {
+    const html = renderToStaticMarkup(createElement(ToolCallRow, {
+      toolCall: { id: 'bg1', name: 'run_command', args: { command: 'bun run dev' }, status: 'success', result: 'started · processId=p1' },
+    }));
+    expect(html).toContain('data-work-kind="background"');
+    expect(html).toMatch(/data-testid="tool-call-name"[^>]*>Background</);
+  });
+
+  test('the running tool is flat: no tint, no ring, no negative margin', () => {
+    const html = renderToStaticMarkup(createElement(ToolCallRow, {
+      toolCall: { id: 'run1', name: 'Bash', args: { command: 'bun test' }, status: 'running', startedAt: 1 },
+    }));
+    expect(html).not.toContain('bg-primary/5');
+    expect(html).not.toContain('ring-primary');
+    expect(html).not.toContain('-mx-1.5');
   });
 });
