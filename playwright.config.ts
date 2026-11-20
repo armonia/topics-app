@@ -544,7 +544,7 @@ export default defineConfig({
       // Due spec, stesso telefono: la prima misura la CHROME (cosa c'è in alto e
       // in basso), la seconda il BORDO (chi si prende il trascinamento che parte
       // dal margine dello schermo, il cassetto o la cronologia).
-      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts"],
+      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts", "**/shown-in-message.spec.ts"],
       use: {
         browserName: "chromium",
         // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
@@ -780,7 +780,7 @@ export default defineConfig({
         "**/topic-browser-window-remote-return.spec.ts",
         "**/board-conversation-details.spec.ts",
         // "Recapture evidence" boots a worktree and photographs it. The server
-        // takes that photo with its own WebKit (KANBAN-95), so the whole
+        // takes that photo with its own WebKit (KANBAN-119), so the whole
         // delivery-preview path runs on this Mac without a Chromium.
         "**/board-recapture-preview.spec.ts",
         "**/chat-compact-command.spec.ts",

@@ -21,6 +21,8 @@ export function cloudApiIsReal(): boolean {
 export interface CloudCredentials {
   accessToken: string;
   orgUuid: string;
+  /** Which account these credentials belong to: answers about the account are kept per this id. */
+  accountId?: string;
 }
 /** What a fake API receives in place of the real token. */
 const FAKE_CREDENTIALS: CloudCredentials = { accessToken: "e2e-fake", orgUuid: "e2e-fake" };
@@ -65,13 +67,24 @@ export class CloudApi {
     private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
+  /** The account of the last call's credentials (null when they did not read). */
+  lastAccount: string | null = null;
+
+  /** Which account would launch right now, or null when its credentials do not read. */
+  async accountKey(): Promise<string | null> {
+    try { return (await this.creds()).accountId ?? null; } catch { return null; }
+  }
+
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
     // The base is read BEFORE asking for credentials, and the real token is requested only for
     // the real API: so no base change midway can carry it elsewhere.
     const base = apiBase;
     let c: CloudCredentials;
+    this.lastAccount = null;
     try { c = base === DEFAULT_API ? await this.creds() : FAKE_CREDENTIALS; }
-    catch (err) { throw new CloudSetupError(`credenziali del cloud non leggibili: ${err instanceof Error ? err.message : String(err)}`); }
+    catch (err) { throw new CloudSetupError(`credenziali del cloud non leggibili: ${err instanceof Error ? err.message : String(err)}`, { account: null }); }
+    const account = c.accountId ?? null;
+    this.lastAccount = account;
     const res = await this.fetchImpl(base + path, {
       method,
       headers: {
@@ -89,7 +102,12 @@ export class CloudApi {
       // A token the API refuses is the account, not a silent service: retrying in
       // five minutes gets the same answer (30/10/2026, a Keychain login switched).
       if (res.status === 401 || res.status === 403) {
-        throw new CloudSetupError(`l'API del cloud rifiuta l'account (${res.status} su ${path.split("?")[0]})`);
+        throw new CloudSetupError(`l'API del cloud rifiuta l'account (${res.status} su ${path.split("?")[0]})`, { account, refused: true });
+      }
+      // A 400 on the repository access check is an answer about THIS repository for THIS account
+      // (the Claude GitHub app cannot reach it): the same launch is refused every time.
+      if (res.status === 400 && /repository access/i.test(text)) {
+        throw new CloudRepoAccessError(`${method} ${path.split("?")[0]} → 400 ${text.slice(0, 200)}`, account);
       }
       throw new CloudApiError(res.status, `${method} ${path.split("?")[0]} → ${res.status} ${text.slice(0, 200)}`);
     }
@@ -102,7 +120,7 @@ export class CloudApi {
       "/v1/environment_providers",
     );
     const env = r.environments.find((e) => e.kind === "anthropic_cloud" && e.state === "active");
-    if (!env) throw new CloudSetupError("nessun ambiente cloud attivo sull'account");
+    if (!env) throw new CloudSetupError("nessun ambiente cloud attivo sull'account", { account: this.lastAccount, refused: true });
     return env.environment_id;
   }
 
@@ -192,10 +210,14 @@ export class CloudApi {
  * cloud environments. `reason` is what the remote lane reads (`nodeFailureReason`).
  */
 export class CloudSetupError extends Error {
-  readonly reason = "cloud_setup";
-  constructor(message: string) {
+  /** `cloud_account`: the account is refused for good (401/403, no environment). `cloud_setup`: credentials that did not read, maybe a passing failure. */
+  readonly reason: string;
+  readonly account: string | null;
+  constructor(message: string, opts: { account?: string | null; refused?: boolean } = {}) {
     super(message);
     this.name = "CloudSetupError";
+    this.reason = opts.refused ? "cloud_account" : "cloud_setup";
+    this.account = opts.account ?? null;
   }
 }
 
@@ -205,5 +227,14 @@ export class CloudApiError extends Error {
     message: string,
   ) {
     super(message);
+  }
+}
+
+/** The account cannot launch a session on this repository (the GitHub app has no access to it). */
+export class CloudRepoAccessError extends CloudApiError {
+  readonly reason = "cloud_repo";
+  constructor(message: string, readonly account: string | null) {
+    super(400, message);
+    this.name = "CloudRepoAccessError";
   }
 }

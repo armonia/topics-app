@@ -161,5 +161,21 @@ describe("a refused worktree parks the card with the refusal, it is not retried 
     const task = h.svc.get("t1")!.task;
     expect(task.dispatchState).not.toBe("blocked");
     expect(task.status).toBe("todo");
+    // The card carries the error's own words, not a bare "launch failed".
+    expect(task.dispatchError ?? "").toContain("git worktree failed (exit 128)");
+  });
+
+  it("when the retry cap is spent the parking comment and dispatch_error carry the error message", async () => {
+    const h = harness(async () => { throw new Error('No coding agent is available for model "sonnet".'); });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchRetryCap: 1 });
+    seedTask(h.db, "t1");
+
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    const task = h.svc.get("t1")!.task;
+    expect(task.dispatchError ?? "").toContain('No coding agent is available for model "sonnet"');
+    const comments = h.db.query("SELECT content FROM task_comments WHERE task_id = 't1'").all() as { content: string }[];
+    expect(comments.some((c) => c.content.includes('model "sonnet"'))).toBe(true);
   });
 });

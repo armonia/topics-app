@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -2416,7 +2416,7 @@ describe("task-dispatcher", () => {
     expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
     // The PAIR, for the gate that asks the checks registry by task id whether
     // that card's delivery is only waiting, and then has to take the same
-    // card's stream out of the chat sources (RGATE-07).
+    // card's stream out of the chat sources (RGATE-10).
     expect(h.dispatcher.busyTurns()).toEqual([{ taskId: "t1", sessionKey: h.turns[0]!.sessionKey }]);
     h.dispatcher.shutdown();
   });
@@ -2505,11 +2505,11 @@ describe("task-dispatcher", () => {
     const t = h.task("t1")!;
     expect(t.status).toBe("backlog");                       // parked, not stranded on "queued"
     expect(t.dispatchState).toBe("blocked");                // config issue, human must fix
-    expect(t.dispatchError).toContain("directory del progetto");
+    expect(t.dispatchError).toContain(UNRESOLVED_PROJECT_PARK_REASON);
     expect(h.turns.length).toBe(0);
     // The reason is also in the thread, so the human sees WHY from the card.
     const comments = h.svc.get("t1")!.comments;
-    expect(comments.some((c) => c.content.includes("directory del progetto"))).toBe(true);
+    expect(comments.some((c) => c.content.includes(UNRESOLVED_PROJECT_PARK_REASON))).toBe(true);
   });
 
   // dispatchIdleMin: the stall detector's silence threshold, wired next to

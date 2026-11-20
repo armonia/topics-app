@@ -1,33 +1,38 @@
 /**
- * DUE RIGHE DI CHROME IMPILATE, E UN PASSO SOLO FRA LORO.
+ * TWO STACKED CHROME ROWS, AND THE TAB STAYS CENTRED IN BOTH.
  *
- * In una finestra di progetto le righe sono due: quella dell'app, con la TAB del
- * progetto, e sotto quella del progetto con le sue pane. Ognuna portava i suoi 6
- * di aria, quindi fra l'inchiostro di sopra e quello di sotto passavano DODICI
- * px mentre ogni altra coppia di card dell'app ne ha sei. «Ancora vedo le
- * tabbar troppo lontane» (Attilio, 09/08).
+ * A project window has two chrome rows: the app's, with the project TAB, and
+ * below it the project's own, with its panes. The child row drops to
+ * 34 = box(28) + ROW_INSET(6): the inset used to sit all at the tail (0
+ * above, 6 below) to keep the gap between the two rows at SIX px, same as
+ * every other pair of app cards — but that left the tab at the TOP edge of
+ * its own row (card 18/11, "tabs stuck to the top edge"). Now the inset
+ * splits (3 above, 3 below): the tab is centred like in any other row, and
+ * the gap between the two rows grows from 6 to 9 (6 below the app row + 3
+ * above this one).
  *
- * La regola applicata è quella che la colonna usa un piano più giù: l'aria fra
- * due cose è UNA, e chi viene dopo non la ripete. La riga figlia scende a 34 =
- * box(28) + ROW_INSET(6), con l'incasso solo sotto.
+ * THIS FILE EXISTS FOR THE BLIND SPOTS, not for the number:
  *
- * QUESTO FILE ESISTE PER I DUE PUNTI CIECHI, non per il numero:
+ *  1. WITH THE COLUMN OPEN. The project sidebar header and the tab bar are
+ *     two halves of the SAME row, but they are two different elements in two
+ *     different files: the 34 has to be written by hand in both. If the
+ *     header stays `h-10`, the card and the first sub-tab drift six pixels
+ *     apart — and no other test notices, because they measure the bar
+ *     collapsed.
+ *  2. THE HEIGHT AND THE VARIABLE MUST SAY THE SAME NUMBER. `--chrome-bar-h`
+ *     feeds both the panes' top inset and the gap above the conversation: a
+ *     bar at 34 with the variable at 40 would open an empty strip under the
+ *     bar, and `chrome-bar-overlay.spec.ts` does NOT see it — it measures the
+ *     gap AGAINST the variable, so it is green at 34 just as at 40.
+ *  3. THE TAB STAYS CENTRED EVEN SQUEEZED. Compact and square only change the
+ *     width (`tabDensity`), never the height: the same check holds at any
+ *     density.
  *
- *  1. A COLONNA APERTA. La testata della sidebar di progetto e la barra delle
- *     tab sono due metà della STESSA riga, ma sono due elementi diversi in due
- *     file diversi: il 34 va scritto a mano in tutti e due. Se la testata resta
- *     `h-10`, la card e la prima sotto-tab si scollano di sei pixel — e nessun
- *     altro test se ne accorge, perché misurano la barra da collassata.
- *  2. L'ALTEZZA E LA VARIABILE DEVONO DIRE LO STESSO NUMERO. `--chrome-bar-h`
- *     alimenta il rientro delle celle e il varco in cima alla conversazione: una
- *     barra a 34 con la variabile a 40 aprirebbe una fascia vuota sotto la
- *     barra, e `chrome-bar-overlay.spec.ts` NON lo vede — misura il varco
- *     CONTRO la variabile, quindi è verde a 34 come a 40.
- *
- * Sotto i 768px non cambia niente, e non è prudenza: col dito la tab è 36 e la
- * riga ne lascia già 2 per lato — non c'è aria ripetuta da togliere, e 36 in 34
- * non ci starebbe. Il test lo verifica come INVARIANTE (il varco vale l'aria che
- * la riga di sopra lascia sotto il proprio inchiostro), non come numero magico.
+ * Nothing changes under 768px, and it is not caution: with touch the tab is
+ * 36 and the row already leaves 2 on each side, symmetric — there is nothing
+ * to split, and 36 in 34 would not fit. The test checks it as an INVARIANT
+ * (the gap equals the air the row above leaves below its own ink), not as a
+ * magic number.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
@@ -39,10 +44,12 @@ import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
 
-/** `COLUMN_GAP` / `TAB_GAP_CLASS` in `lib/selectionStyles.ts`. */
-const PASSO = 6;
-/** `CHROME_ROW_SUB_H` = box desktop (28) + ROW_INSET (6). */
+/** Gap between the two rows: 6 (below the app row) + 3 (above the child row). */
+const PASSO = 9;
+/** `CHROME_ROW_SUB_H` = desktop box (28) + ROW_INSET (6). */
 const SUB_H = 34;
+/** Half of ROW_INSET (6): the child row's inset, above and below. */
+const SUB_INSET = 3;
 
 const PROJ = canonicalTmpDir("e2e-sub");
 
@@ -106,7 +113,7 @@ async function apri(page: Page, request: Parameters<typeof seedProjectPane>[0], 
 }
 
 test.describe("La riga di chrome subordinata", () => {
-  test("SUB-1: col mouse fra le due righe passa UN passo, chiusa e aperta", async ({ page, request }) => {
+  test("SUB-1: col mouse la tab figlia è centrata, chiusa e aperta", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHROME-02" });
     await page.setViewportSize({ width: 1400, height: 900 });
     await apri(page, request, "-a");
@@ -127,9 +134,9 @@ test.describe("La riga di chrome subordinata", () => {
 
       // La riga figlia è più bassa, ed è ANCHE il segnale che è subordinata.
       expect(sotto.h, `${stato}: altezza della riga subordinata`).toBe(SUB_H);
-      // L'aria in cima è ZERO: è il cuore della faccenda. Quella sopra l'ha già
-      // messa la riga dell'app, e questa non la ripete.
-      expect(sotto.ink!.top - sotto.y, `${stato}: aria in cima alla riga figlia`).toBe(0);
+      // The top air is HALF the inset: that is the whole point. The tab
+      // stays centred in its own row, not stuck to the top edge.
+      expect(sotto.ink!.top - sotto.y, `${stato}: aria in cima alla riga figlia`).toBe(SUB_INSET);
       // E LA VARIABILE DICE LO STESSO NUMERO DELLA SCATOLA. Confrontate fra
       // loro e non con la costante: è il loro DISACCORDO ad aprire una fascia
       // vuota sotto la barra, e `chrome-bar-overlay.spec.ts` non lo vede —
@@ -144,7 +151,7 @@ test.describe("La riga di chrome subordinata", () => {
     }
   });
 
-  test("SUB-2: una TAB vera cade a un passo, e sotto la barra non resta un vuoto", async ({ page, request }) => {
+  test("SUB-2: una TAB vera cade centrata, e sotto la barra non resta un vuoto", async ({ page, request }) => {
     // I due test qui sopra misurano card e comandi, che stanno nello slot di
     // testa — FUORI dalla strip. La tab no: passa per la radice di PaneTabBar,
     // che nella riga subordinata perde `md:py-1`. È l'unico modo di accorgersi
@@ -172,9 +179,9 @@ test.describe("La riga di chrome subordinata", () => {
         dallAppTab: arrotonda(tab.top - appTab.bottom),
       };
     });
-    expect(t.sopra, "la tab della riga figlia non ha aria in cima").toBe(0);
-    expect(t.sotto, "e ne ha un passo in coda").toBe(PASSO);
-    expect(t.dallAppTab, "dalla tab dell'app alla tab del progetto passa un passo").toBe(PASSO);
+    expect(t.sopra, "la tab della riga figlia è centrata: metà incasso in cima").toBe(SUB_INSET);
+    expect(t.sotto, "e l'altra metà in coda").toBe(SUB_INSET);
+    expect(t.dallAppTab, "dalla tab dell'app alla tab del progetto passa il varco fra le righe").toBe(PASSO);
   });
 
   test("SUB-4: in uno SPLIT le barre della stessa riga sono allineate", async ({ page, request }) => {

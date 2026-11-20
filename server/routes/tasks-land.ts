@@ -5,6 +5,7 @@ import { isAgentWorking } from "../../shared/board";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
 import { landFallout } from "../services/task-automerge";
 import type { LandingState } from "../services/landing-audit";
+import { mainRedStop } from "../services/main-ci-watch";
 import { createLandingQueue, type LandingTicket, type LandOutcomeResult } from "../services/landing-queue";
 import { type TaskAttempt } from "../services/task-attempts";
 import { createAutoLander } from "../services/auto-land";
@@ -406,6 +407,15 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
+  /** A land waits while the CI of main is red, unless the card is the one repairing it. */
+  async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
+    if (!opts?.mainCiPort) return null;
+    const row = db.query("SELECT claude_task_id AS key FROM tasks WHERE id = ?").get(taskId) as { key?: string | null } | null;
+    if (row?.key?.startsWith("main-ci-red:")) return null;
+    const port = await opts.mainCiPort(projectId);
+    return port ? mainRedStop(port) : null;
+  }
+
   async function landTask(projectId: string, taskId: string, landOpts?: LandRunOpts): Promise<LandOutcomeResult | void> {
     const autoMerge = opts?.autoMerge;
     if (!autoMerge) {
@@ -425,13 +435,42 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     if (!task) throw new Error(`task ${taskId} non trovato su questa board: land annullato`);
     // The automatic land's verdict is asked again INSIDE `tryMerge` (`beforeMerge`), not here.
     const toMerge = task.deliveryCommit ?? null;
+    // A FAILED LAND DOES NOT REOPEN A CARD A HUMAN CLOSED.
+    //
+    // The two retraction branches below (`conflict`, `skipped`) pull a `done`
+    // card OUT of `done` on a failed land, and they do it with `actor:
+    // "human"` precisely to walk around the "no agent reopens a human-closed
+    // card" gate in `update()` — on purpose, because most retractions are on
+    // cards an AGENT (or the auto-land sweep) closed. But the same door
+    // reopens a card a PERSON closed on purpose just as easily, and the land
+    // failing is not evidence that their decision was wrong: card 7ce15e25
+    // ("Studio software…"), closed by a human on 10/11 and pulled back into
+    // Review the moment its (stale) delivery branch failed to land.
+    //
+    // `landingState` still gets written below (unconditionally, from
+    // `res.status`/`res.code`), so a human-closed card whose land fails still
+    // shows the existing "not on main" band on the done card
+    // (`showsLandingDebt`/`task-not-landed-banner`) with its own "Landa su
+    // main" button — the fix stays reachable, the closed decision does not
+    // get reverted to reach it.
+    const closedByHuman = task.status === "done" && task.doneActor === "human";
     try {
       const recheck = landOpts?.recheck;
       const res = await autoMerge.tryMerge(taskId, task.text, {
         branch: task.deliveryBranch ?? null,
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
-        ...(recheck ? { beforeMerge: (sha: string) => recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) } : {}),
+        // Only passed when there is something to check, so the old tryMerge contract holds.
+        ...(recheck || opts?.mainCiPort
+          ? {
+              beforeMerge: async (sha: string) => {
+                // The repair card of a red main is the one land that must go through.
+                const stop = await redMainStop(projectId, taskId).catch(() => null);
+                if (stop) return stop;
+                return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
+              },
+            }
+          : {}),
       });
       // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
       if (res.status === "skipped" && res.code === "auto-land-stopped") {
@@ -690,25 +729,42 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         const rc = res.realignConflict;
         const files = rc?.files ?? [];
         const elenco = files.length > 0 ? files.slice(0, 20).join(", ") : "nessun file elencabile";
-        svc.update({
-          taskId, actor: "human", by: "system", projectId,
-          patch: { status: "in_progress" },
-          statusReason: rc
-            ? `riportare main nel ramo (indietro di ${rc.behind}) ha fatto conflitto`
-            : "il land ha fatto conflitto con main",
-        });
-        svc.addComment({
-          taskId, author: "system",
-          content: rc
-            ? `Il ramo era indietro di ${rc.behind} commit su main e riportare main dentro il ramo ha fatto conflitto su ${files.length} file: ${elenco}. Non ho landato niente. Rimando all'agent per riconciliare.`
-            : "Merge automatico in conflitto con main. Rimando all'agent per risolvere.",
-        });
-        sendBackAfterLand(
-          projectId, taskId,
-          rc
-            ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
-            : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
-        );
+        // Re-read AFTER the await: the owner may have closed or reopened the
+        // card while the land ran, and the value taken before it is stale.
+        const nowClosedByHuman = (() => {
+          try {
+            const fresh = svc.get(taskId, { projectId })?.task;
+            return !!fresh && fresh.status === "done" && fresh.doneActor === "human";
+          } catch { return closedByHuman; }
+        })();
+        if (nowClosedByHuman) {
+          svc.addComment({
+            taskId, author: "system",
+            content: rc
+              ? `Il ramo era indietro di ${rc.behind} commit su main e riportare main dentro il ramo ha fatto conflitto su ${files.length} file: ${elenco}. Non ho landato niente. La card resta chiusa (l'ha chiusa una persona): landa a mano dal branch, o riapri tu stesso la card se va rifatta.`
+              : "Merge automatico in conflitto con main. Non ho landato niente. La card resta chiusa (l'ha chiusa una persona): landa a mano dal branch, o riapri tu stesso la card se va rifatta.",
+          });
+        } else {
+          svc.update({
+            taskId, actor: "human", by: "system", projectId,
+            patch: { status: "in_progress" },
+            statusReason: rc
+              ? `riportare main nel ramo (indietro di ${rc.behind}) ha fatto conflitto`
+              : "il land ha fatto conflitto con main",
+          });
+          svc.addComment({
+            taskId, author: "system",
+            content: rc
+              ? `Il ramo era indietro di ${rc.behind} commit su main e riportare main dentro il ramo ha fatto conflitto su ${files.length} file: ${elenco}. Non ho landato niente. Rimando all'agent per riconciliare.`
+              : "Merge automatico in conflitto con main. Rimando all'agent per risolvere.",
+          });
+          sendBackAfterLand(
+            projectId, taskId,
+            rc
+              ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
+              : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
+          );
+        }
       } else if (res.status === "skipped") {
         svc.addComment({ taskId, author: "system", content: `⚠️ Land NON riuscito: ${res.reason}. Il branch del task NON è su main. Risolvi e rilancia "Landa su main".` });
         // Il thread lo diceva onestamente e lo STATO diceva il contrario: la card
@@ -734,6 +790,17 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
           explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+        } else if (cur && cur.status === "done" && cur.doneActor === "human") {
+          // Same guard as the `conflict` branch, same reason: `landingState`
+          // (written below, unconditionally) is enough to surface the "not
+          // on main" band with its own button — reopening a human decision
+          // is not needed to make it reachable. The comment just above
+          // already said why the land failed; this one only says why the
+          // card stays closed anyway.
+          svc.addComment({
+            taskId, author: "system",
+            content: "La card resta chiusa (l'ha chiusa una persona): landa a mano dal branch, o riapri tu stesso la card se va rifatta.",
+          });
         } else if (cur && (cur.status === "done" || cur.status === "review") && cur.status !== fall.status) {
           try {
             // `actor: "human"` è l'asse dei PERMESSI (nessun agente riporta
@@ -825,7 +892,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
       try { await opts?.stampLanding?.(taskId, "unlanded"); } catch { /* la spia non fa fallire il resto */ }
       try {
         const cur = svc.get(taskId, { projectId })?.task;
-        if (cur && cur.status === "done") {
+        // A card a person closed stays closed, whatever the land threw.
+        if (cur && cur.status === "done" && cur.doneActor !== "human") {
           // `actor: "human"` è l'asse dei PERMESSI, `by: "system"` la firma vera:
           // stessa scelta dei rami `conflict` e `skipped`.
           svc.update({

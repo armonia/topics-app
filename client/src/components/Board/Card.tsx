@@ -10,7 +10,7 @@ import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
-import { STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
+import { STATUS_GLYPH_PX, STATUS_LABEL, blockedByChip, boardApi, commentAuthorLabel, isAgentWorking, isProjectlessId, dueDateChip, scheduledChip, nothingDeliveredWins, parseQuestionBlock, reopenedChip, showsLandingDebt, subtaskWorkChip, systemDeliveryChip, waitingOnThisChip, whoCloses, type BoardSettings, type BoardTask, type TaskStatus, priorityAwaitingAgent } from '../../lib/board';
 import { columnSlice, COLUMN_PAGE } from '../../lib/boardOrder';
 import { recallColumnPages, rememberColumnPages } from '../../lib/columnPages';
 import { cardCommentsFromRow, cardDetailNeed, isMachineVoice, selectCardComments, showsCardThread, type CardComments } from './cardComments';
@@ -322,7 +322,7 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
               are working in, so it is the one place where "why is nothing
               starting?" gets asked. Beside the count, never instead of it. */}
           {status === 'in_progress' && !archived && <DispatchLoadGauge onOpenSettings={onOpenSettings} />}
-          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
+          <span data-testid={`kanban-column-count-${colKey}`} className="rounded bg-black/5 dark:bg-white/10 px-1.5 text-compact leading-4 text-app-text-secondary">{tasks.length}</span>
         </span>
       </div>
       {/* HUBBR-20: how many of this column a provider's wall holds, and until when. */}
@@ -378,25 +378,25 @@ const ColumnBody = memo(function ColumnBody({ status, columnId, label, tasks, on
             ref={moreRef}
             onClick={() => setShown((n) => n + COLUMN_PAGE)}
             data-testid={`kanban-column-more-${status}`}
-            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5"
+            className="flex w-full items-center justify-center gap-1 rounded-md border border-app-border px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5"
           >
             {tr('board.column.showMore', { n: Math.min(slice.hidden, COLUMN_PAGE), left: slice.hidden })}
           </button>
         )}
         {!canCreate ? null : adding ? (
-          <div className="rounded-md border border-app-border bg-white/5 p-2">
+          <div className="rounded-md border border-app-border bg-black/5 dark:bg-white/5 p-2">
             <textarea
               autoFocus value={text} onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } if (e.key === 'Escape') { setText(''); setAdding(false); } }}
               className="w-full resize-none bg-transparent text-body-lg leading-5 text-app-text outline-none" rows={2} placeholder={tr('board.column.newTaskPlaceholder')}
             />
             <div className="mt-1 flex justify-end gap-1">
-              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10">{tr('board.column.cancel')}</button>
+              <button onClick={() => { setText(''); setAdding(false); }} className="rounded px-2 py-0.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10">{tr('board.column.cancel')}</button>
               <button onClick={submit} className="rounded bg-emerald-500/80 px-2 py-0.5 text-compact leading-4 text-white hover:bg-emerald-500">{tr('board.column.add')}</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/5">
+          <button onClick={() => setAdding(true)} className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5">
             <Plus className="h-3.5 w-3.5" /> {tr('board.column.add')}
           </button>
         )}
@@ -1204,7 +1204,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               // 24x24 (WCAG 2.5.8), not 20: `-m-0.5` gives the 4px back to the row,
               // `tap-expand` makes it 44 under a finger (usability audit, 04/10);
               // `coarse:mr-0.5` keeps that 44 inside the card's padding, which clips.
-              className="tap-expand -m-0.5 shrink-0 rounded bg-white/10 p-1.5 text-app-text hover:bg-white/20 coarse:mr-0.5"
+              className="tap-expand -m-0.5 shrink-0 rounded bg-black/5 dark:bg-white/10 p-1.5 text-app-text hover:bg-black/10 dark:hover:bg-white/20 coarse:mr-0.5"
               title={tr('board.task.openSessionTitle')}
             ><MessageSquare className="h-3 w-3" /></button>
           )}
@@ -1213,7 +1213,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           {sessionEnded && (
             <span
               data-testid="card-session-gone"
-              className="shrink-0 rounded bg-white/5 p-1 text-app-text-faint"
+              className="shrink-0 rounded bg-black/5 dark:bg-white/5 p-1 text-app-text-faint"
               title={tr('board.task.sessionGoneTitle')}
             ><MessageSquare className="h-3 w-3" /></span>
           )}
@@ -1309,7 +1309,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <span
               title={tr('board.card.priorityTitle', { label: PRIORITY_LABEL[task.priority] ?? task.priority })}
               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${
-                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-white/10 text-app-text-secondary'
+                task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300' : 'bg-black/5 dark:bg-white/10 text-app-text-secondary'
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -1381,7 +1381,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           {task.userCommentCount > 0 && (
             <span
               title={tr(task.userCommentCount === 1 ? 'board.card.yourMessagesOne' : 'board.card.yourMessagesMany', { n: task.userCommentCount })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
             ><MessageSquare className="h-3 w-3 shrink-0" /> {task.userCommentCount}</span>
           )}
           {notLanded && (
@@ -1419,7 +1419,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               title={tr('board.card.reviewAgeTitle', {
                 when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '',
               })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
           {senzaCommit && (
@@ -1442,14 +1442,14 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <span
               data-testid="card-worked-in-place"
               title={tr('board.card.inPlaceTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             ><GitBranch className="h-3 w-3 shrink-0" /> {tr('board.card.inPlace')}</span>
           )}
           {spostataAMano && (
             <span
               data-testid="card-moved-by-hand"
               title={tr('board.card.movedByHandTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
             >{/* NON PIU' UNA MANO, e non e' una questione di gusto: segnalata come
                   «la vedo sgranata», e misurata lo e' davvero. A 12px il
                   viewBox 24 si comprime a scala 0,5, e `hand` e' l'icona piu'
@@ -1478,7 +1478,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
                     done: task.checksProgress.done, total: task.checksProgress.total,
                   })
                 : tr('board.card.checksRunningTitle')}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             >
               <Timer className="h-3 w-3 shrink-0" />
               {/* A CHE PUNTO E', non solo «in corso». Segnalato: «vedo che c'e'
@@ -1498,7 +1498,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
                 // La barra: due numeri si leggono, una barra si coglie senza
                 // leggere. Larghezza fissa perche' in una riga di chip un
                 // elemento che cresce col contenuto fa ballare i vicini.
-                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-white/15" aria-hidden>
+                <span className="ml-0.5 h-1 w-6 overflow-hidden rounded-full bg-black/10 dark:bg-white/15" aria-hidden>
                   <span
                     /* NON `card-…`: quel prefisso e' riservato ai CHIP della
                      * fascia, e un cancello (`card-meta-row-completeness`)
@@ -1554,14 +1554,14 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               data-testid="card-assignee"
               data-closes={conductorCloses ? 'conductor' : undefined}
               title={tr(conductorCloses ? 'board.card.assigneeNameOnlyTitle' : 'board.card.assigneeTitle', { name: task.assignedTo })}
-              className={`rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
+              className={`rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini ${conductorCloses ? 'text-app-text-muted' : 'text-app-text-heading'}`}
             >@{task.assignedTo}{conductorCloses ? ` · ${tr('board.card.assigneeNameOnly')}` : ''}</span>
           )}
           {dueChip && (
             <span
               data-testid="card-due-date"
               title={dueChip.title}
-              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-white/10 text-app-text-heading'}`}
+              className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-compact leading-4 md:text-mini ${dueChip.overdue ? 'bg-red-500/15 text-red-800 dark:text-red-300' : 'bg-black/5 dark:bg-white/10 text-app-text-heading'}`}
             ><CalendarClock className="h-3 w-3 shrink-0" /> {dueChip.label}</span>
           )}
           {/* Who actually wrote the last collaborator comment, and from
@@ -1659,10 +1659,14 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             <span
               data-testid="card-review-age"
               title={tr('board.card.reviewAgeTitle', { when: task.reviewAt ? new Date(task.reviewAt).toLocaleString(locale) : '' })}
-              className="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
+              className="flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-muted"
             ><Clock className="h-3 w-3 shrink-0" /> {tr('board.card.reviewAge', { t: attesa })}</span>
           )}
         </div>
+      )}
+      {/* The first of the four plain-words lines the system wrote for the person («Per te»). */}
+      {task.status === 'review' && task.forYou && !(compact && pending) && (
+        <p data-testid="card-for-you" className="mt-1 line-clamp-2 break-words text-compact leading-snug font-medium text-app-text" title={task.forYou.remains}>{task.forYou.asked}</p>
       )}
       {/* COMPACT: a question with quick replies shows both (`CompactQuestion`). */}
       {compact && task.status === 'review' && pending && (
@@ -1683,7 +1687,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           <span
             data-testid="card-subtasks-to-approve"
             title={tr('board.card.subtasksToApproveTitle', { n: task.subtaskReviewCount ?? 0 })}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{tr('board.card.subtasksToApprove', { n: task.subtaskReviewCount ?? 0 })}</span>
         </div>
       )}
@@ -1701,7 +1705,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
               key={s.id}
               onClick={() => onOpen(s.id)}
               title={tr('board.card.openSubtaskTitle', { status: STATUS_LABEL[s.status] })}
-              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-white/5"
+              className="flex w-full items-center gap-1.5 rounded px-0.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
             >
               <StatusIcon status={s.status} />
               <span className={`min-w-0 flex-1 truncate text-compact leading-4 ${s.status === 'done' ? 'text-app-text-muted line-through' : 'text-app-text-heading'}`}>{s.text}</span>
@@ -1735,7 +1739,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
         <div className="mt-1">
           <span
             title={tr('board.card.subtasksDone', { done: task.subtaskDoneCount, total: task.subtaskCount })}
-            className="inline-flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
+            className="inline-flex items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-heading"
           ><ListTree className="h-3 w-3 shrink-0" aria-hidden />{task.subtaskDoneCount}/{task.subtaskCount}</span>
         </div>
       ) : null}
@@ -1991,8 +1995,8 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
         ) : (task.model || task.agentMs > 0 || task.agentTokens > 0) ? (
           // The model always lives here, in the time/effort chip — never as a
           // second standalone chip. Before the agent has logged any time we
-          // show just the model; once it runs we prepend it to the ⏱ effort,
-          // matching the live chip (`Opus · ⏱ 2m · 1.2k tok`).
+          // show just the model; once it runs we prepend it to the timer effort,
+          // matching the live chip (`Opus · timer 2m · 1.2k tok`).
           <span
             // IL NUMERO E' QUANTO E' COSTATO, non quanti token sono passati.
             // `agentTokens` da solo lascia fuori la RILETTURA di cache, che e'
@@ -2017,7 +2021,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
             className="flex w-full min-w-0 max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 rounded-lg bg-black/[0.12] px-2.5 py-1.5 text-compact leading-4 md:text-mini text-app-text-secondary dark:bg-white/[0.16] tabular-nums"
           ><span className="min-w-[8rem] flex-1 break-words" title={measureLine}>{measureLine}</span>{/* THE DOLLARS, when the card has a priced spend: the token figure is the
               cost-weighted volume, this is what it came to. Right side: never wrapped, never cut. The
-              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span>{(task.agentMs > 0 || costo > 0) && `⏱ ${fmtMs(task.agentMs)}${costo > 0 ? ` · ${fmtTok(costo)}` : ''}`}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
+              last update closes the band too: «ora» on a line of its own under it was a second row. */}<span className="flex shrink-0 items-center gap-2 whitespace-nowrap"><span className="inline-flex items-center gap-1">{(task.agentMs > 0 || costo > 0) && <><Timer size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{fmtMs(task.agentMs)}{costo > 0 && ` · ${fmtTok(costo)}`}</>}{task.agentCostCents > 0 && <span data-testid="card-spend"> · {fmtUsd(task.agentCostCents, locale)}</span>}</span>{task.status !== 'in_progress' && updatedAgo('')}</span></span>
         ) : null}
         {/* THE COUNTDOWN AND THE WEIGHT, on a row of their own under the effort chip: inside it they squeezed the
             description block to one letter per line and ran past the card's edge. Wraps, never overflows. */}
@@ -2034,7 +2038,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           <span
             data-testid="card-node-chip"
             title={tr(task.overflowedAt ? 'board.task.node.overflowedTitle' : 'board.task.node.onTitle', { node: machineLabel(machines, task.machineId) })}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-compact leading-4 md:text-mini text-app-text-secondary"
           ><Server className="h-3 w-3 shrink-0 text-app-text-muted" /> {tr(task.overflowedAt ? 'board.task.node.overflowed' : 'board.task.node.on', { node: machineLabel(machines, task.machineId) })}</span>
         )}
         {/* THE GIT CHANGES, next to the model that is writing them.
@@ -2148,7 +2152,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
                 <button
                   key={i} disabled={busy}
                   onClick={() => answer(opt)}
-                  className="rounded-md bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20 disabled:opacity-50"
+                  className="rounded-md bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20 disabled:opacity-50"
                 >{opt}</button>
               ))}
             </div>
@@ -2265,7 +2269,7 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
           <button
             aria-label={tr('board.task.closeError')}
             onClick={clearError}
-            className="tap-expand shrink-0 rounded p-0.5 hover:bg-white/10 coarse:p-1.5"
+            className="tap-expand shrink-0 rounded p-0.5 hover:bg-black/5 dark:hover:bg-white/10 coarse:p-1.5"
           ><X className="h-3 w-3" /></button>
         </div>
       )}

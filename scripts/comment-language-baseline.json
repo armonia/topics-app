@@ -153,7 +153,6 @@
     "client/src/components/Git/HunkActions.tsx": 44,
     "client/src/components/Layout/BoardTabCounts.tsx": 8,
     "client/src/components/Layout/ChatPanel.tsx": 1,
-    "client/src/components/Layout/DetachedWindowMarker.tsx": 2,
     "client/src/components/Layout/GroupLayout.tsx": 131,
     "client/src/components/Layout/InsertDividers.tsx": 7,
     "client/src/components/Layout/LazyPane.tsx": 5,

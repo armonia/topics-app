@@ -6,6 +6,7 @@
  * `tasks.ts`, so no sibling module has to import from `tasks.ts` itself).
  */
 
+import { parseForYou } from "../../../shared/for-you";
 import type { Database } from "bun:sqlite";
 import type { ServiceOpts, TaskService } from "../tasks";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -1534,6 +1535,7 @@ function mapRow(r: any, b: TaskBatch): Task {
       createdAt: r.created_at,
       updatedAt: r.updated_at,
       assignedTopicId: r.assigned_topic_id ?? null,
+      archived: !!r.archived,
       dispatchState: r.dispatch_state ?? null,
       dispatchAttempts: r.dispatch_attempts ?? 0,
       dispatchError: r.dispatch_error ?? null,
@@ -1639,6 +1641,7 @@ function mapRow(r: any, b: TaskBatch): Task {
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
       ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
+      ...(r.for_you ? { forYou: parseForYou(r.for_you) } : {}),
       ...(r.land_intent ? { landIntent: r.land_intent } : {}),
       ...(r.land_intent_commit ? { landIntentCommit: r.land_intent_commit } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not

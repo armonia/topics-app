@@ -36,6 +36,9 @@ import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
 import { isThisServerPrimary } from "../lib/primary-role";
 
+/** Project id -> GitHub owner/repo, filled by the overflow's origin lookup: the cloud's per-repository refusals are read through it. */
+const projectSlugs = new Map<string, string>();
+
 export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc } = scope;
   const taskDispatcher = createTaskDispatcher({
@@ -378,7 +381,16 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
     // memory floor can go. The cloud has no heartbeat: it is there while its
     // login is; a paired node only while its heartbeat says online.
     // Cloud Claude clones only from GitHub: the overflow asks before choosing it.
-    githubOriginOf: async (projectId) => githubOriginFrom(await nodeBranchPlanter.originUrlOf(projectId), resolveGithubSlug),
+    githubOriginOf: async (projectId) => {
+      const origin = await nodeBranchPlanter.originUrlOf(projectId);
+      const slug = origin ? await Promise.resolve(resolveGithubSlug(origin)).catch(() => null) : null;
+      if (slug) projectSlugs.set(projectId, slug); else projectSlugs.delete(projectId);
+      return githubOriginFrom(origin, resolveGithubSlug);
+    },
+    cloudRefusesProject: (projectId) => {
+      const slug = projectSlugs.get(projectId);
+      return !!slug && cloudNode.repoRefused(slug);
+    },
     // The cloud row is online only while the account has an active cloud
     // environment (the heartbeat asks, `tickHeartbeat`); a node asleep is still a
     // choice when a `node-run` hook is there to wake it.

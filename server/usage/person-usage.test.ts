@@ -148,6 +148,31 @@ describe("(c) person-usage", () => {
     expect(points.get(Math.floor(H0 / HOUR_MS))).toBe(5);
     expect(points.get(Math.floor(H0 / HOUR_MS) + 1)).toBe(3);
   });
+  test("un calo di un punto è rumore di lettura, non un reset", () => {
+    const t = (ms: number) => ms / 1000;
+    const seq = [31, 30, 31, 67, 66, 67, 96, 95, 96];
+    const lines = seq.map((v, i) => ({ t: t(H0 + i * 60_000), s: { "claude|a|7d": v } }));
+    const total = [...pointsPerHour(lines, H0 - 1, H0 + HOUR_MS).values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(96 - 31);
+  });
+  test("a dip before the window does not make the return inside it count", () => {
+    const t = (ms: number) => ms / 1000;
+    const lines = [
+      { t: t(H0 - 3 * 60_000), s: { "claude|a|7d": 31 } },
+      { t: t(H0 - 2 * 60_000), s: { "claude|a|7d": 30 } },
+      { t: t(H0 + 60_000), s: { "claude|a|7d": 31 } },
+    ];
+    const total = [...pointsPerHour(lines, H0, H0 + HOUR_MS).values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(0);
+  });
+  test("un reset vero 100 -> 2 conta 2", () => {
+    const t = (ms: number) => ms / 1000;
+    const points = pointsPerHour([
+      { t: t(H0), s: { "claude|a|7d": 100 } },
+      { t: t(H0 + 60_000), s: { "claude|a|7d": 2 } },
+    ], H0 - 1, H0 + HOUR_MS);
+    expect(points.get(Math.floor(H0 / HOUR_MS))).toBe(2);
+  });
   test("i punti dell'ora si dividono in proporzione al peso", () => {
     const c = (ts: number, weight: number): Call => ({ ts, weight, personId: null, chatKey: "s", requestId: null, requestText: "", source: "native" });
     const calls = splitPoints([c(H0, 1), c(H0 + 10, 3), c(H0 + HOUR_MS, 5)], new Map([[Math.floor(H0 / HOUR_MS), 8]]));

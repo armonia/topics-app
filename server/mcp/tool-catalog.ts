@@ -62,7 +62,7 @@ export const TOOLS = [
   {
     name: "open_browser_pane",
     description:
-      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to surface a URL to the user (OAuth flows, dev servers, generated previews, documentation). The pane appears next to the current chat. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
+      "Open the topics-app browser pane and navigate it to the given URL. Use this whenever you need to show the user something (OAuth flows, dev servers, generated previews, images, documentation). What you open is left in your message as a picture or file, on every device and after a restart; the pane is an extra. For a local file pass its plain path; a file outside the served folders must first be copied under ~/.topics/media. Do not tell the user to look at the pane: point at the preview in your message. Inside a task, the pane IS a tab of that task and survives your turn: pass `name` to open one tab PER SURFACE you are delivering (e.g. 'App', 'Report') — same name reopened navigates that tab, a new name adds one. Returns the final URL and page title after navigation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -504,6 +504,11 @@ export const TOOLS = [
               question: { type: "string", description: "The question text shown to the human." },
               header: { type: "string", description: "Very short label/category (≤12 chars) shown above the question." },
               multiSelect: { type: "boolean", description: "Allow selecting more than one option (default false = single choice)." },
+              images: {
+                type: "array",
+                description: "Up to 4 pictures the question is about (absolute paths of image files that already exist; anywhere outside ~/.topics/media or the workspace, copy them there first). They are shown with the question and open in the viewer. Use them whenever the choice is about something visual: the person decides by looking.",
+                items: { type: "string" },
+              },
               options: {
                 type: "array",
                 description: "2–4 mutually-exclusive choices. An 'Other' free-text box is always shown and always open — do not add your own. Set `recommended: true` on the one you'd pick (at most one).",
@@ -512,6 +517,7 @@ export const TOOLS = [
                   properties: {
                     label: { type: "string", description: "Short button label." },
                     description: { type: "string", description: "Optional one-line explanation of this choice." },
+                    image: { type: "string", description: "Optional picture of this choice (absolute path of an existing image file). Tapping it picks the option, so give every option one when the options ARE pictures." },
                     recommended: {
                       type: "boolean",
                       description: "Mark THE option you'd pick — at most one per question. It renders as a 'consigliato' chip next to the label; it does NOT preselect anything, the human still chooses. Use it whenever you have a view: hiding your recommendation doesn't make the choice freer, it makes it slower.",

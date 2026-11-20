@@ -24,6 +24,8 @@ import { getSessionConsumption } from "../services/session-consumption-wiring";
 import type { SessionUsageResponse } from "../../shared/usage-shapes";
 import type { Database } from "bun:sqlite";
 import { computeCalls, peopleUsage, personDetail, type Computed } from "../usage/person-usage";
+import { projectQuota, withLimits } from "../usage/project-quota";
+import type { ProjectQuotaResponse, ProjectQuotaResult } from "../../shared/usage-shapes";
 import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type Sender } from "../lib/person-identities";
 
 /**
@@ -41,11 +43,15 @@ import { authorForSender, mergeChannelPerson, parseSender, senderAllowed, type S
  */
 const PROJECT_TTL_MS = 60_000;
 
+/** A transcript scan costs enough that every reader shares one reading; a minute keeps the meter within a minute of the truth. */
+const PROJECT_QUOTA_TTL_MS = 60_000;
+
 export function createUsageRouter(ctx: AppContext): RouteHandler {
   const { db, json } = ctx;
 
   let cached: { at: number; days: number | null; data: ProjectUsageResult } | null = null;
   let peopleCache: { at: number; days: number; data: Computed } | null = null;
+  let projectQuotaCache: { at: number; data: ProjectQuotaResult } | null = null;
 
   return async function usageRouter(
     _req: Request,
@@ -170,6 +176,24 @@ export function createUsageRouter(ctx: AppContext): RouteHandler {
       } catch (err) {
         console.error("[Usage] record insert failed:", err);
         return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to store usage record");
+      }
+    }
+
+    // GET /api/usage/projects/quota: every project's share of the weekly Claude
+    // quota (project quota, USAGE-28), not to be confused with
+    // `/api/usage/projects` (`projectUsage`, dollar/token cost: a different
+    // question, see the header of this file).
+    if (method === "GET" && pathname === "/api/usage/projects/quota") {
+      try {
+        const now = Date.now();
+        if (!projectQuotaCache || now - projectQuotaCache.at >= PROJECT_QUOTA_TTL_MS) {
+          projectQuotaCache = { at: now, data: projectQuota(db, { now }) };
+        }
+        const body: ProjectQuotaResponse = { cachedAt: new Date(projectQuotaCache.at).toISOString(), ...withLimits(db, projectQuotaCache.data) };
+        return json(body);
+      } catch (err) {
+        console.error("[Usage] project quota failed:", err);
+        return ctx.errorResponse(500, err instanceof Error ? err.message : "Failed to compute project quota");
       }
     }
 

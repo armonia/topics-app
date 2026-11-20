@@ -10,6 +10,7 @@ import {
   countCommitsAhead,
   filterUniqueSourceFiles,
   worktreeDiffStat,
+  branchContentWasOnMain,
 } from "./branch-status";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -448,5 +449,51 @@ describe("commitIsAncestor", () => {
     expect(await commitIsAncestor(repo, "0".repeat(40), "main")).toBeNull();
     expect(await commitIsAncestor(repo, suMain, "ramo-che-non-esiste")).toBeNull();
     expect(await commitIsAncestor(join(tmpdir(), "anc-non-esiste-affatto"), suMain, "main")).toBeNull();
+  });
+});
+
+describe("branchContentWasOnMain: branch that already took its work back from main", () => {
+  let repo: string;
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), "wasonmain-"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "base");
+    // The card branch changes a.txt…
+    git(repo, "checkout", "-q", "-b", "topics/card");
+    writeFileSync(join(repo, "a.txt"), "lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro della card");
+    // …main receives it with a SQUASH (same content, another commit)…
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "a.txt"), "lavoro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "squash della card (#1)");
+    // …the land brings main into the branch: the branch tree becomes main's…
+    git(repo, "checkout", "-q", "topics/card");
+    git(repo, "merge", "-q", "--no-edit", "main");
+    // …and main moves on elsewhere: its tip is no longer the branch's.
+    git(repo, "checkout", "-q", "main");
+    writeFileSync(join(repo, "b.txt"), "altro\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "altro lavoro");
+  });
+
+  afterAll(() => { rmSync(repo, { recursive: true, force: true }); });
+
+  test("no difference from the fork: the work is already in main", async () => {
+    expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(true);
+  });
+
+  test("a branch that still carries something of its own does NOT pass", async () => {
+    git(repo, "checkout", "-q", "topics/card");
+    writeFileSync(join(repo, "c.txt"), "ancora mio\n");
+    git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "lavoro non su main");
+    git(repo, "checkout", "-q", "main");
+    expect(await branchContentWasOnMain(repo, "topics/card", "main")).toBe(false);
+  });
+
+  test("git that cannot answer (missing branch) is not \"already on main\"", async () => {
+    expect(await branchContentWasOnMain(repo, "topics/non-esiste", "main")).toBe(false);
   });
 });

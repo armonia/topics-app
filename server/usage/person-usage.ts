@@ -43,6 +43,13 @@ export function weighTokens(u: TokenUsage): number {
 /** One line of the quota history (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
 export interface QuotaHistorySample { t: number; s?: Record<string, number> }
 
+/**
+ * Readings of the 7d quota wobble by a point (31 -> 30 -> 31) without any real reset.
+ * A drop smaller than this is read noise: it is ignored and the previous value is kept,
+ * so the return to it does not count twice. A bigger drop is a genuine weekly reset.
+ */
+export const QUOTA_RESET_MIN_DROP = 5;
+
 /** Points per hour (key = whole hour since epoch): rises of the 7d % of every Claude account. */
 export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, untilMs: number): Map<number, number> {
   const out = new Map<number, number>();
@@ -52,6 +59,8 @@ export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, unti
       if (!k.startsWith("claude|") || !k.endsWith("|7d") || !Number.isFinite(v)) continue;
       const t = l.t * 1000;
       const p = prev.get(k);
+      // Noise is filtered before the window check: a small dip just before `sinceMs` must not lower `prev`.
+      if (p !== undefined && v < p && p - v < QUOTA_RESET_MIN_DROP) continue; // read noise, keep `p`
       if (p !== undefined && t >= sinceMs && t <= untilMs) {
         const d = v >= p ? v - p : v;
         if (d > 0) {
@@ -78,8 +87,11 @@ export interface Call {
   points?: number;
 }
 
+/** Anything with a timestamp, a weight and a point total to fill in — what `splitPoints` needs and no more, so a caller with its own call shape (`project-quota.ts`) does not have to carry `Call`'s person-specific fields. */
+export interface WeighedCall { ts: number; weight: number; points?: number }
+
 /** Splits each hour's points across that hour's calls, by weight. */
-export function splitPoints(calls: Call[], points: Map<number, number>): Call[] {
+export function splitPoints<T extends WeighedCall>(calls: T[], points: Map<number, number>): T[] {
   const w = new Map<number, number>();
   for (const c of calls) { const h = Math.floor(c.ts / HOUR_MS); w.set(h, (w.get(h) ?? 0) + c.weight); }
   for (const c of calls) {
