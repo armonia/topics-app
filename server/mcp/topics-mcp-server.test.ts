@@ -1957,6 +1957,27 @@ describe("callAskUserQuestion", () => {
     expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
   });
 
+  test("a picture that is not on disk is refused, and the error names it", async () => {
+    let called = false;
+    const fetchImpl = stubFetch(async () => { called = true; return new Response("{}", { status: 200 }); });
+    await expect(
+      callAskUserQuestion(
+        { baseUrl: "http://x", sessionKey: "s" },
+        { questions: [{ question: "Which?", options: [{ label: "A", image: "/nowhere/ghost-proposal.png" }, { label: "B" }] }] },
+        fetchImpl,
+      ),
+    ).rejects.toThrow("/nowhere/ghost-proposal.png");
+    expect(called).toBe(false);
+  });
+
+  test("pictures that exist go to the server untouched", async () => {
+    const seen: { body?: string } = {};
+    const fetchImpl = stubFetch(async (_u, init) => { seen.body = String(init?.body); return new Response(JSON.stringify({ answers: { Q: "A" } }), { status: 200 }); });
+    const qs = [{ question: "Q", images: [import.meta.path], options: [{ label: "A", image: import.meta.path }, { label: "B" }] }];
+    await callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions: qs }, fetchImpl);
+    expect(JSON.parse(seen.body!).questions).toEqual(qs);
+  });
+
   test("carries metadata through when the server returns it", async () => {
     const fetchImpl = stubFetch(async () =>
       new Response(JSON.stringify({ answers: { Q: "A" }, metadata: { other: "free text" } }), { status: 200 }),

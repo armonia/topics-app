@@ -380,9 +380,16 @@ export interface AskUserQuestionItem {
   question: string;
   /** Short label, ≤ 12 chars by SDK convention. */
   header: string;
+  /**
+   * Pictures the question is about: absolute paths (or `/api/media` refs) of
+   * files the agent already wrote. At most 4, shown above the options.
+   */
+  images?: string[];
   options: {
     label: string;
     description?: string;
+    /** One picture for this choice: tapping it picks the option. */
+    image?: string;
     /**
      * L'opzione che chi ha fatto la domanda CONSIGLIA.
      *

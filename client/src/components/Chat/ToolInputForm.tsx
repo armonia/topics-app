@@ -7,6 +7,7 @@ import { HelpCircle, Send, ChevronRight, ArrowRight } from 'lucide-react';
 import type { ToolUserResponse, UserInputSchema, AskUserQuestionItem } from '../../types';
 import { isPlanApprovalSchema, PLAN_EDIT_KEY } from '../../../../shared/plan-decision';
 import { Select } from '../Shared/Select';
+import { OptionImage, QuestionImages } from './AskImages';
 import { Spinner } from '../Shared/Spinner';
 
 /** Extract a human-readable message from a rejected submit. `onSubmit`
@@ -358,6 +359,7 @@ function QuestionsForm({
               </div>
             )}
           </legend>
+          {q.images && q.images.length > 0 && <QuestionImages images={q.images} />}
           <div className="space-y-0.5">
             {(() => {
               // Il consiglio è UNO: la prima opzione marcata vince, le altre
@@ -396,6 +398,7 @@ function QuestionsForm({
                   {opt.description && (
                     <div className="text-compact leading-snug text-app-text-muted">{opt.description}</div>
                   )}
+                  {opt.image && <OptionImage image={opt.image} label={rec.label} />}
                 </div>
               </label>
                 );

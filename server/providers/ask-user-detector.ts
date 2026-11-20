@@ -24,6 +24,7 @@
  */
 
 import type { UserInputSchema, AskUserQuestionItem } from "../types";
+import { MAX_QUESTION_IMAGES } from "../../shared/ask-images";
 
 export interface ToolUseLike {
   name: string;
@@ -124,7 +125,13 @@ function sanitiseQuestion(raw: unknown): AskUserQuestionItem | null {
           const label = typeof rec.label === "string" ? rec.label : "";
           if (!label) return null;
           const description = typeof rec.description === "string" ? rec.description : undefined;
-          return { label, description };
+          const image = typeof rec.image === "string" && rec.image.trim() ? rec.image.trim() : undefined;
+          return {
+            label,
+            description,
+            ...(rec.recommended === true ? { recommended: true } : {}),
+            ...(image ? { image } : {}),
+          };
         })
         .filter((o): o is NonNullable<typeof o> => o !== null)
     : [];
@@ -134,5 +141,12 @@ function sanitiseQuestion(raw: unknown): AskUserQuestionItem | null {
   if (options.length < 2) return null;
   const clamped = options.slice(0, 4);
   const multiSelect = r.multiSelect === true;
-  return { question, header, options: clamped, multiSelect };
+  // Pictures of the question: strings only, at most `MAX_QUESTION_IMAGES`.
+  const images = Array.isArray(r.images)
+    ? r.images
+        .filter((i): i is string => typeof i === "string" && i.trim().length > 0)
+        .map((i) => i.trim())
+        .slice(0, MAX_QUESTION_IMAGES)
+    : [];
+  return { question, header, ...(images.length ? { images } : {}), options: clamped, multiSelect };
 }

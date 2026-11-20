@@ -504,6 +504,11 @@ export const TOOLS = [
               question: { type: "string", description: "The question text shown to the human." },
               header: { type: "string", description: "Very short label/category (≤12 chars) shown above the question." },
               multiSelect: { type: "boolean", description: "Allow selecting more than one option (default false = single choice)." },
+              images: {
+                type: "array",
+                description: "Up to 4 pictures the question is about (absolute paths of image files that already exist; anywhere outside ~/.topics/media or the workspace, copy them there first). They are shown with the question and open in the viewer. Use them whenever the choice is about something visual: the person decides by looking.",
+                items: { type: "string" },
+              },
               options: {
                 type: "array",
                 description: "2–4 mutually-exclusive choices. An 'Other' free-text box is always shown and always open — do not add your own. Set `recommended: true` on the one you'd pick (at most one).",
@@ -512,6 +517,7 @@ export const TOOLS = [
                   properties: {
                     label: { type: "string", description: "Short button label." },
                     description: { type: "string", description: "Optional one-line explanation of this choice." },
+                    image: { type: "string", description: "Optional picture of this choice (absolute path of an existing image file). Tapping it picks the option, so give every option one when the options ARE pictures." },
                     recommended: {
                       type: "boolean",
                       description: "Mark THE option you'd pick — at most one per question. It renders as a 'consigliato' chip next to the label; it does NOT preselect anything, the human still chooses. Use it whenever you have a view: hiding your recommendation doesn't make the choice freer, it makes it slower.",
