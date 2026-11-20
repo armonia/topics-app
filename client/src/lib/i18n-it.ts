@@ -2290,6 +2290,8 @@ const IT: Dict = {
   'board.density.title': 'Solo titolo',
   'board.density.compact': 'Compatte',
   'board.density.full': 'Complete',
+  'board.density.less': 'Meno dettaglio',
+  'board.density.more': 'Più dettaglio',
   'board.workflow.intro': 'Il percorso di ogni card su questa board, un passo dopo l\'altro. Un clic su un passo apre il Kanban.',
   'board.workflow.introAll': 'Le colonne sono le stesse per ogni board; la fase CI e i percorsi da guardare li sceglie ogni progetto nelle sue impostazioni.',
   'board.workflow.openKanban': 'Apri il Kanban',

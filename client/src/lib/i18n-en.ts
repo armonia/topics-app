@@ -2068,6 +2068,8 @@ const EN = {
   'board.density.title': 'Title only',
   'board.density.compact': 'Compact',
   'board.density.full': 'Full',
+  'board.density.less': 'Less detail',
+  'board.density.more': 'More detail',
   'board.workflow.intro': 'The path of every card on this board, one step after the other. Click a step to open the Kanban.',
   'board.workflow.introAll': 'The columns are the same on every board; each project picks its CI phase and the paths to look at in its settings.',
   'board.workflow.openKanban': 'Open the Kanban',
