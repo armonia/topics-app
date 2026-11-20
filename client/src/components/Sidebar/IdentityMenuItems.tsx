@@ -19,11 +19,11 @@
  * desktop card needs it for the card itself, the phone only while its menu is
  * open. This module is the menu's body, loaded with the menu.
  */
-import { Suspense, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Building2, LifeBuoy, Users } from 'lucide-react';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
-import { AccountPanel } from './accountPanelLazy';
+import { AccountPanel } from './AccountPanel';
 import { DevicesLevel } from './DevicesLevel';
 import { AgentToolsLevel, PlanLevel } from './FormLevels';
 import { AccountQuotasRow } from './AccountQuotasRow';
@@ -53,12 +53,17 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
   const tr = useT();
   return (
     <>
-      <Suspense fallback={null}>
-        <AccountPanel
-          who={data.who}
-          onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
-        />
-      </Suspense>
+      {/* THE HEADER SHIPS WITH THE MENU. It was a lazy chunk of its own behind
+          a null fallback, and `React.lazy` suspends on the first mount even
+          with the chunk cached: the menu committed one row short and the
+          header landed a frame later, sliding every row down under a pointer
+          already on its way to one of them (CI, 20/11: the row above System
+          opened instead of System). This module is itself the menu's chunk,
+          so a static import costs the entry nothing. */}
+      <AccountPanel
+        who={data.who}
+        onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
+      />
       {/* The menu's own row: a hand-sized row under a finger, 40px was below the 44px target. */}
       <button type="button" data-testid="open-first-run-settings" onClick={() => { onClose(); openFirstRun(); }} className={POPOVER_ITEM}>
         {tr('firstRun.reopen')}
