@@ -189,17 +189,16 @@ test.describe("Canale sulla card", () => {
   }
 
   for (const theme of ["dark", "light"] as const) {
-    test(`card compatta (vista Piano): il chip resta, 1440px ${theme}`, async ({ page }) => {
+    test(`card compatta (vista Card): il chip resta, 1440px ${theme}`, async ({ page }) => {
       test.info().annotations.push({ type: "spec", description: "KANBAN-05" });
       await page.emulateMedia({ colorScheme: theme });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto("/");
       await openProjectBoard(page);
-      // Only the Plan view (all projects, last stop of the slider) draws the board's compact card.
+      // Only the cards view (all projects) draws the board's compact card.
       await page.getByText("Tutti i progetti", { exact: true }).click();
-      await page.getByTestId("board-detail-slider").focus();
-      await page.keyboard.press("End");
-      await expect(page.getByTestId("plan-view")).toBeVisible({ timeout: 15000 });
+      await page.getByTestId("board-view-plan").click();
+      await expect(page.getByTestId("board-cards-grid").first()).toBeVisible({ timeout: 15000 });
       const card = page.locator(`[data-task-card="${discordCard}"][data-density="compact"]`);
       await expect(card.getByTestId("card-channel")).toBeVisible();
       await expect(card.getByTestId("card-created-by")).toContainText("Jarvis");

@@ -43,6 +43,13 @@ export function weighTokens(u: TokenUsage): number {
 /** One line of the quota history (`history.jsonl`): `s` = {"claude|<account>|7d": %}. */
 export interface QuotaHistorySample { t: number; s?: Record<string, number> }
 
+/**
+ * Readings of the 7d quota wobble by a point (31 -> 30 -> 31) without any real reset.
+ * A drop smaller than this is read noise: it is ignored and the previous value is kept,
+ * so the return to it does not count twice. A bigger drop is a genuine weekly reset.
+ */
+export const QUOTA_RESET_MIN_DROP = 5;
+
 /** Points per hour (key = whole hour since epoch): rises of the 7d % of every Claude account. */
 export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, untilMs: number): Map<number, number> {
   const out = new Map<number, number>();
@@ -53,6 +60,7 @@ export function pointsPerHour(lines: QuotaHistorySample[], sinceMs: number, unti
       const t = l.t * 1000;
       const p = prev.get(k);
       if (p !== undefined && t >= sinceMs && t <= untilMs) {
+        if (v < p && p - v < QUOTA_RESET_MIN_DROP) continue; // read noise, keep `p`
         const d = v >= p ? v - p : v;
         if (d > 0) {
           const h = Math.floor(t / HOUR_MS);

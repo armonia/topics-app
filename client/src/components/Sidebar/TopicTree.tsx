@@ -969,9 +969,9 @@ export function TopicTree({
   // ── Chat item ────────────────────────────────────────────────────────────
 
   // Sidebar click decision ladder, step (a): a topic detached in ANOTHER window
-  // focuses that OS window rather than reopening here. On false (window died /
-  // on another machine) fall through to the normal open/focus path — which
-  // resolves the remaining space/active/closed steps (b–d) inside usePanelLifecycle.
+  // focuses that OS window rather than reopening here. The normal open/focus
+  // path resolves the remaining space/active/closed steps (b to d) inside
+  // usePanelLifecycle.
   const handleChatRowClick = useCallback(
     (topicId: string, detachedWindowLabel: string | undefined, e?: React.MouseEvent) => {
       if (detachedWindowLabel) {
@@ -980,16 +980,25 @@ export function TopicTree({
         // click that brings that window forward is the look, here. Any other
         // row click focuses the chat's pane and the seen event clears it.
         sendAttentionSeen([topicSubject(topicId)]);
+        // The focus fails when the window closed before the next presence
+        // snapshot, or lives on another machine on the same server. Opening the
+        // chat here anyway read as "the row sends me to a tab of this window",
+        // so the row says why and leaves opening here to an explicit click.
+        const notReachable = () =>
+          toast.info(tr('topic.elsewhereUnreachable'), 6000, {
+            label: tr('topic.openHere'),
+            onClick: () => onTopicClick(topicId),
+          });
         void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
           .then((focused) => {
-            if (!focused) onTopicClick(topicId, e);
+            if (!focused) notReachable();
           })
-          .catch(() => onTopicClick(topicId, e));
+          .catch(notReachable);
         return;
       }
       onTopicClick(topicId, e);
     },
-    [onTopicClick],
+    [onTopicClick, toast, tr],
   );
 
   /** A terminal row's click opens (focuses) it and sends the seen of its
