@@ -24,7 +24,7 @@ addCatalogue('en', PROJECT_QUOTA_EN);
 
 const TONE_INK: Record<QuotaTone, string> = { ok: 'text-app-text', warn: WARNING_TEXT, over: DANGER_TEXT };
 
-const pts = (v: number | null) => (v === null ? '-' : formatPoints(v));
+const points = (v: number | null) => (v === null ? '-' : formatPoints(v));
 
 /** The folder's last segment: what a person calls the project. */
 function projectName(row: ProjectQuotaRow, outside: string): string {
@@ -58,7 +58,7 @@ export function ProjectQuotaTable() {
         const tone = quotaTone(p.points24h, p.limit);
         const expanded = open === key;
         const where = QUOTA_SURFACES.filter((s) => (p.surfaces[s].points24h ?? 0) > 0)
-          .map((s) => `${tr(`projectQuota.surface.${s}`)} ${pts(p.surfaces[s].points24h)}`).join(' · ');
+          .map((s) => `${tr(`projectQuota.surface.${s}`)} ${points(p.surfaces[s].points24h)}`).join(' · ');
         return (
           <div key={key} data-testid="project-quota-row" data-tone={tone}>
             <button
@@ -71,8 +71,8 @@ export function ProjectQuotaTable() {
               <ChevronRight size={11} className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} />
               <FolderGit2 size={11} className="flex-shrink-0 text-app-text-muted" />
               <span className="min-w-0 flex-1 truncate text-app-text">{projectName(p, tr('projectQuota.outside'))}</span>
-              <span data-testid="project-quota-day" className={`w-14 flex-shrink-0 text-right tabular-nums ${TONE_INK[tone]}`}>{pts(p.points24h)}</span>
-              <span className="w-12 flex-shrink-0 text-right tabular-nums text-app-text-secondary">{pts(p.points7d)}</span>
+              <span data-testid="project-quota-day" className={`w-14 flex-shrink-0 text-right tabular-nums ${TONE_INK[tone]}`}>{points(p.points24h)}</span>
+              <span className="w-12 flex-shrink-0 text-right tabular-nums text-app-text-secondary">{points(p.points7d)}</span>
               <span className="w-12 flex-shrink-0 text-right tabular-nums text-app-text-secondary">{p.limit === null ? tr('projectQuota.noLimit') : p.limit}</span>
             </button>
             {expanded && (
@@ -82,7 +82,7 @@ export function ProjectQuotaTable() {
                   <>
                     <div className="text-app-text-faint">{tr('projectQuota.topChats')}</div>
                     {p.topChats.map((c) => (
-                      <div key={c.chatId} className="truncate">{tr('projectQuota.chatRow', { title: c.title, day: pts(c.points24h), week: pts(c.points7d) })}</div>
+                      <div key={c.chatId} className="truncate">{tr('projectQuota.chatRow', { title: c.title, day: points(c.points24h), week: points(c.points7d) })}</div>
                     ))}
                   </>
                 )}
