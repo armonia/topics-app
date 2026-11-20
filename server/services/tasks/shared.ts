@@ -31,6 +31,7 @@ import { checkStage } from "../board-workflow";
 import { waitsLineAsk } from "../../../shared/waits-on-person";
 import { EFFORT_TIERS } from "../../../shared/effort";
 import { channelKindOfIcon, type ChannelKind, type ChannelPlace } from "../../../shared/channel-origin";
+import { agentOfPath } from "../../../shared/agent-home";
 import { channelPlaceOf } from "../channel-place";
 
 /** Automatic requeues of a machine-parked card before it stays for a human. */
@@ -1759,20 +1760,21 @@ function rowsToTasks(rows: readonly any[]): Task[] {
    */
   let openerNameQuery: ReturnType<typeof db.prepare> | null = null;
 
-function topicBrief(id: string): { name: string | null; kind: ChannelKind | null } | null {
+function topicBrief(id: string): { name: string | null; kind: ChannelKind | null; agent: string | null } | null {
     try {
       // Prepared once: a list of thousands of cards would otherwise compile one statement per row.
-      openerNameQuery ??= db.prepare("SELECT name, icon FROM topics WHERE id = ?");
-      const t = openerNameQuery.get(id) as { name?: string | null; icon?: string | null } | null;
-      return t ? { name: t.name ?? null, kind: channelKindOfIcon(t.icon) } : null;
+      openerNameQuery ??= db.prepare("SELECT name, icon, project_path FROM topics WHERE id = ?");
+      const t = openerNameQuery.get(id) as { name?: string | null; icon?: string | null; project_path?: string | null } | null;
+      return t ? { name: t.name ?? null, kind: channelKindOfIcon(t.icon), agent: agentOfPath(t.project_path) } : null;
     } catch { return null; }
   }
 
-function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: string | null }): { openerTopicId?: string; openerName?: string } {
+function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: string | null }): { openerTopicId?: string; openerName?: string; openerAgent?: string } {
     const id = r.origin_topic_id ?? r.created_by_topic_id;
     if (!id) return {};
     const t = topicBrief(id);
-    return t ? { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}) } : {};
+    // The always-on agent whose chat opened the card (its home folder says which): the card is that agent's work.
+    return t ? { openerTopicId: id, ...(t.name ? { openerName: t.name } : {}), ...(t.agent ? { openerAgent: t.agent } : {}) } : {};
   }
 
   /**
@@ -1781,14 +1783,15 @@ function openerOf(r: { origin_topic_id?: string | null; created_by_topic_id?: st
    * chat. Only while that chat exists and wears a channel mark: a deleted chat
    * would open a ghost tab, and an ordinary chat is not a channel. Display only.
    */
-  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace } } {
+  function channelOf(r: { channel_topic_id?: string | null; origin_topic_id?: string | null; created_by_topic_id?: string | null }): { channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace; agent?: string } } {
     for (const id of [r.channel_topic_id, r.origin_topic_id, r.created_by_topic_id]) {
       if (!id) continue;
       const t = topicBrief(id);
       if (t?.kind) {
         let place: ChannelPlace | null = null;
         try { place = channelPlaceOf(t.name ?? ""); } catch { /* the bridge database is optional */ }
-        return { channel: { topicId: id, name: t.name ?? "", kind: t.kind, ...(place ? { place } : {}) } };
+        // The agent that answers in that channel (Jarvis, Visione...): read from the chat's home folder.
+        return { channel: { topicId: id, name: t.name ?? "", kind: t.kind, ...(place ? { place } : {}), ...(t.agent ? { agent: t.agent } : {}) } };
       }
       // An explicit link names the channel: when it is gone the card is NOT re-attributed to another chat.
       if (id === r.channel_topic_id) return {};

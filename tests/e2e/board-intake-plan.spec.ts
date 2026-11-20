@@ -158,13 +158,12 @@ test.describe("Multi-project intake proposal", () => {
     expect(roots[0].text).toContain("Alpha");
   });
 
-  test("under the Others filter, a card and a 3-card plan made here all stay visible until the filter changes", async ({ page, request }) => {
+  test("under the «Needs you» filter, a card and a 3-card plan made here all stay visible until the filter changes", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "KANBAN-106" });
     await page.goto("/");
     await openProjectBoard(page);
-    const filter = page.getByTestId("filter-creator");
-    await filter.click(); // Mine
-    await filter.click(); // Others: hides every card a person made
+    const filter = page.getByTestId("board-needs-me");
+    await filter.click(); // Needs you: hides every card that does not wait on the person, a new one too
     const composer = page.getByTestId("board-task-composer").locator("textarea");
     const card = (title: string) => page.locator("[data-task-card]", { hasText: title });
 
@@ -186,7 +185,7 @@ test.describe("Multi-project intake proposal", () => {
       await expect(card(title)).toBeVisible();
     }
 
-    await filter.click(); // All: the pins are dropped, cards stay because the filter now lets them in
+    await filter.click(); // Off: the pins are dropped, cards stay because the filter now lets them in
     await expect(card("Pin plan three")).toBeVisible();
   });
 

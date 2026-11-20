@@ -306,7 +306,9 @@ export default defineConfig({
     baseURL: E2E_BASE,
     // The board hides Done by default (a board of live work); the suite reads cards in
     // Done, so a test starts with the column shown. board-group-density checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }] }] },
+    // Same for the origin preset: a board opens on «My work», which hides cards in progress
+    // and the agents' cards; the suite starts on «All» and board-origin-filters checks the default.
+    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }] }] },
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome

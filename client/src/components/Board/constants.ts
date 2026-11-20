@@ -452,12 +452,23 @@ export interface BoardFilters {
   initiator: string[];
   /** `Task.runComputerName` - where that delegated run executed. */
   runComputer: string[];
-  /** Who opened the card: all, mine (a person's) or others (an agent or a schedule). Absent = all. */
-  creator?: CreatorFilter;
+  /** Who follows the card (`cardOrigin.ts`): `me`, `board`, `session`, `scheduled`, `agent:<id>`. Empty = everyone. */
+  owners?: string[];
+  /** The channel paths the work came from (`cardOrigin.ts`, `channelPath`). Empty = any. */
+  channels?: string[];
+  /** Out of sight: the cards an agent is working right now (the In Progress column). */
+  hideInProgress?: boolean;
+  /** Only the cards that wait on the person (an answer, a review, a decision). */
+  needsMe?: boolean;
 }
 
-export type CreatorFilter = 'all' | 'mine' | 'others';
+/** What «My work» sets: the person's own cards and the board agents', nothing in progress. */
+export const MY_WORK_PRESET = { owners: ['me', 'board'], channels: [] as string[], hideInProgress: true } as const;
+
+/** The empty filters: every axis open. */
+export const NO_FILTERS: BoardFilters = { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], owners: [], channels: [], hideInProgress: false, needsMe: false };
 
 /** What the ONE field owns: every axis except the project, which keeps its own
- *  control (it already has a search box and an inline chip strip of its own). */
-export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'creator'>;
+ *  control (it already has a search box and an inline chip strip of its own),
+ *  and the origin axes, which have their own bar (`OriginFilterBar`). */
+export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'owners' | 'channels' | 'hideInProgress' | 'needsMe'>;

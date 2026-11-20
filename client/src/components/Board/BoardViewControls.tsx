@@ -3,17 +3,17 @@
  * list, cards), the grouping («group by» and «then by») and whether the Done
  * column is shown. Out of `KanbanBoardPane` so the pane keeps its size budget.
  */
-import { CheckCircle2, LayoutGrid, List, SquareKanban } from 'lucide-react';
+import { AlignJustify, CheckCircle2, Equal, List, SquareKanban, UsersRound, Workflow } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import type { BoardGroupBy } from './boardGeometry';
+import { BOARD_DENSITIES, type BoardDensity, type BoardGroupBy } from './boardGeometry';
 import { groupKeysFor } from './boardGrouping';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 import { Select } from '../Shared/Select';
 import { DETAIL_LEVELS, type DetailLevel } from './detailLevel';
 
-const VIEW_ICON = { grid: SquareKanban, list: List, plan: LayoutGrid } as const;
+const VIEW_ICON = { grid: SquareKanban, list: List, plan: UsersRound, workflow: Workflow } as const;
 
-/** ONE selector with the three views. Arrow keys move along it (a radio group). */
+/** ONE selector with the four views, each with its name and a tooltip that says what it shows. Arrow keys move along it (a radio group). */
 export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange: (next: DetailLevel) => void }) {
   const tr = useT();
   return (
@@ -34,12 +34,54 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
         return (
           <button
             key={level} type="button" role="radio" aria-checked={on} tabIndex={on ? 0 : -1}
-            data-testid={`board-view-${level}`} title={tr(`board.view.${level}`)}
+            data-testid={`board-view-${level}`} title={tr(`board.view.${level}Title`)} aria-label={tr(`board.view.${level}`)}
             onClick={() => onChange(level)}
             className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-1.5 text-compact leading-4 coarse:min-w-11 coarse:justify-center ${on ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
-          ><Icon className="h-3.5 w-3.5" /><span className="hidden lg:inline">{tr(`board.view.${level}`)}</span></button>
+          ><Icon className="h-3.5 w-3.5" aria-hidden="true" /><span className="hidden xl:inline">{tr(`board.view.${level}`)}</span></button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * HOW MUCH OF EACH CARD, as a slider with three stops: the title alone, the
+ * compact card, the whole card. Few lines on the left, many on the right, like
+ * a zoom. A slider (not three buttons) because the stops are an order.
+ */
+export function DensitySlider({ value, onChange }: { value: BoardDensity; onChange: (next: BoardDensity) => void }) {
+  const tr = useT();
+  const at = BOARD_DENSITIES.indexOf(value);
+  const last = BOARD_DENSITIES.length - 1;
+  const go = (i: number) => onChange(BOARD_DENSITIES[Math.max(0, Math.min(last, i))]!);
+  return (
+    <div
+      role="slider" tabIndex={0} data-testid="board-density" data-density={value}
+      aria-label={tr('board.density.label')} aria-valuemin={0} aria-valuemax={last} aria-valuenow={at}
+      aria-valuetext={tr(`board.density.${value}`)} title={`${tr('board.density.label')}: ${tr(`board.density.${value}`)}`}
+      onKeyDown={(e) => {
+        const step = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+        if (e.key === 'Home') { e.preventDefault(); go(0); return; }
+        if (e.key === 'End') { e.preventDefault(); go(last); return; }
+        if (!step) return;
+        e.preventDefault();
+        go(at + step);
+      }}
+      className={`mx-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 rounded px-1.5 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
+    >
+      <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => go(at - 1)} className="grid place-items-center hover:text-app-text"><Equal className="h-3.5 w-3.5" /></button>
+      <span className="relative flex h-4 w-12 items-center">
+        <span className="absolute inset-x-0 h-0.5 rounded-full bg-app-border" />
+        <span className="absolute left-0 h-0.5 rounded-full bg-primary" style={{ width: `${(at / last) * 100}%` }} />
+        {BOARD_DENSITIES.map((level, i) => (
+          <button
+            key={level} type="button" tabIndex={-1} aria-hidden="true" data-testid={`board-density-${level}`}
+            onClick={() => go(i)} title={tr(`board.density.${level}`)}
+            className="absolute grid h-4 w-4 -translate-x-1/2 place-items-center" style={{ left: `${(i / last) * 100}%` }}
+          ><span className={i === at ? 'h-3 w-3 rounded-full bg-primary shadow ring-2 ring-surface' : `h-1.5 w-1.5 rounded-full ${i < at ? 'bg-primary' : 'bg-app-border-light'}`} /></button>
+        ))}
+      </span>
+      <button type="button" tabIndex={-1} aria-hidden="true" onClick={() => go(at + 1)} className="grid place-items-center hover:text-app-text"><AlignJustify className="h-3.5 w-3.5" /></button>
     </div>
   );
 }
