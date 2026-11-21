@@ -113,6 +113,10 @@ ok "...run cancelled" "$(jq -r '.runs["740"]' "$STATE")" completed
 ok "...and rerun" "$(jq -r '.reruns | join(",")' "$STATE")" 740
 ok "...runner 1 quarantined out of the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep")' "$STATE")" null
 ok "a prep queued only a minute keeps its booking" "$(booked pn-750-1-prep)" 1
+# Next round (run 741 is over): the quarantined runner is not picked for a prep, runner 4 is.
+run release pn-741-1
+ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
+ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
 # Run 770: prep queued 10 minutes, but the label nudge makes it start: no quarantine, no cancel.
 JOBS="{\"770\":[{\"status\":\"queued\",\"starts_on_nudge\":true,\"created_at\":\"$old\",\"labels\":[\"pn-770-1-prep\"]}]}" seed "$FOUR"
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-770-1-prep\"]}"' >/dev/null
@@ -121,10 +125,6 @@ ok "a prep that starts after the nudge keeps its booking" "$(booked pn-770-1-pre
 ok "...runner 1 stays in the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep") != null' "$STATE")" true
 ok "...run not cancelled" "$(jq -r '.runs["770"] // "none"' "$STATE")" none
 ok "...and not rerun" "$(jq -r '.reruns | length' "$STATE")" 0
-# Next round (run 741 is over): the quarantined runner is not picked for a prep, runner 4 is.
-run release pn-741-1
-ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
-ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
 
 # Quarantine over: runner 1 carries a quarantine label from 31 minutes ago, runner 2 one from
 # 5 minutes ago (both out of the pool). The next reserve puts runner 1 back, runner 2 stays out.
