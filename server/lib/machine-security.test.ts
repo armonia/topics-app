@@ -3,10 +3,10 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
-  clip, composeAccess, countFailedLogins, findDeclaredPrivate, lastMacSecurityUpdate, lastXProtect, parseAptHistory,
+  clip, composeAccess, countFailedLogins, findDeclaredPrivate, iptablesBlocksInput, lastMacSecurityUpdate, lastXProtect, nftBlocksInput, parseAptHistory,
   parseAptSecurityPending, parseAutopatchLog, parseFileVault, parseGocryptfsMounts, parseKeyValueLines, parseMacFirewall,
   parseMacInstallHistory, parseMacPendingUpdates, parseNetstatListening, parseSshdConfig, parseSshdT, parseSsListening,
-  powershellArgv, probeMachineSecurity, whyNoAnswer, worstStatus, DETAIL_MAX,
+  powershellArgv, probeMachineSecurity, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
   type ProbeEnv, type RunResult,
 } from "./machine-security";
 
@@ -91,6 +91,38 @@ LISTEN 0      4096      127.0.0.54:53   0.0.0.0:*
 LISTEN 0      4096            [::]:22      [::]:*
 LISTEN 0      128             [::1]:631     [::]:*
 LISTEN 0      128                *:8080        *:*`;
+
+// `iptables -S` of an Ubuntu 24.04 server with ufw inactive (addresses and chain names made generic):
+// INPUT jumps to NODE-IN, whose last rule drops every TCP packet not let through above; the REJECTs
+// in the chains jumped from OUTPUT guard outgoing traffic and are not an input firewall.
+const IPTABLES_NODE = `-P INPUT ACCEPT
+-P FORWARD ACCEPT
+-P OUTPUT ACCEPT
+-N CI-OUT
+-N APPB-OUT
+-N NODE-IN
+-N APPA-OUT
+-N APP-PROTECT
+-A INPUT -j NODE-IN
+-A OUTPUT -m owner --gid-owner 1001 -j APP-PROTECT
+-A OUTPUT -m owner --gid-owner 1002 -j APPA-OUT
+-A OUTPUT -m owner --gid-owner 1003 -j APPB-OUT
+-A OUTPUT -m owner --gid-owner 1001 -j CI-OUT
+-A CI-OUT -o lo -p tcp -m multiport --dports 3301:3341,19222 -j REJECT --reject-with icmp-port-unreachable
+-A CI-OUT -d 192.0.2.1/32 -j REJECT --reject-with icmp-port-unreachable
+-A APPB-OUT -o lo -p tcp -m multiport --dports 3301:3341,3400:3450,13910:13979,19222,19910:19949 -j REJECT --reject-with icmp-port-unreachable
+-A APPB-OUT -d 192.0.2.1/32 -j REJECT --reject-with icmp-port-unreachable
+-A NODE-IN -i lo -j RETURN
+-A NODE-IN -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+-A NODE-IN -p tcp -m tcp --dport 22 -j RETURN
+-A NODE-IN -p tcp -j DROP
+-A APPA-OUT -o lo -p tcp -m multiport --dports 3301:3341,3400:3450,13910:13949,19222,19910:19949 -j REJECT --reject-with icmp-port-unreachable
+-A APPA-OUT -d 192.0.2.1/32 -j REJECT --reject-with icmp-port-unreachable
+-A APP-PROTECT -o lo -p tcp -m tcp --dport 13960:13979 -j REJECT --reject-with icmp-port-unreachable
+`;
+
+// Eight ports bound on every address, plus SSH: what the same server lists with `ss -ltnH`.
+const SS_NODE = ["LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*", ...[13910, 13911, 13920, 13921, 13930, 13931, 13940, 13941].map((p) => `LISTEN 0 511 *:${p} *:*`)].join("\n");
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 
@@ -383,5 +415,103 @@ describe("giro completo per sistema", () => {
     expect(t.checks).toHaveLength(4);
     // without commands only file reads remain: a server's disk is a note, not a fault
     expect(t.checks.filter((c) => c.key !== "disk").every((c) => c.status === "unknown")).toBe(true);
+  });
+});
+
+describe("Linux firewall written straight into the kernel", () => {
+  test("iptables: a catch-all DROP reached from INPUT through a jump guards the machine", () => {
+    expect(iptablesBlocksInput(IPTABLES_NODE)).toBe(true);
+    // Without the jump from INPUT the same DROP guards nothing that comes in.
+    expect(iptablesBlocksInput(IPTABLES_NODE.replace("-A INPUT -j NODE-IN\n", ""))).toBe(false);
+  });
+
+  test("iptables: INPUT policy DROP blocks, ACCEPT and RETURN alone do not", () => {
+    expect(iptablesBlocksInput("-P INPUT DROP\n-P FORWARD DROP\n-P OUTPUT ACCEPT\n-A INPUT -i lo -j ACCEPT\n")).toBe(true);
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-N GUARD\n-A INPUT -j GUARD\n-A GUARD -i lo -j RETURN\n-A GUARD -p tcp -m tcp --dport 22 -j ACCEPT\n-A GUARD -j RETURN\n")).toBe(false);
+  });
+
+  test("iptables: a DROP on one port, or reached only from OUTPUT, is not an input firewall", () => {
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-A INPUT -p tcp -m tcp --dport 5432 -j DROP\n")).toBe(false);
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-N OUT-GUARD\n-A OUTPUT -j OUT-GUARD\n-A OUT-GUARD -p tcp -j DROP\n")).toBe(false);
+  });
+
+  test("nft: an input hook with policy drop or a trailing bare drop blocks, policy accept alone does not", () => {
+    const chain = (head: string, ...rules: string[]) => `table inet filter {\n\tchain input {\n\t\t${head}\n${rules.map((r) => `\t\t${r}\n`).join("")}\t}\n\tchain output {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n}\n`;
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy drop;", "ct state established,related accept", "tcp dport { 22, 443 } accept"))).toBe(true);
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept"))).toBe(false);
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept", "counter packets 12 bytes 720 drop"))).toBe(true);
+  });
+
+  test("ufw inactive but iptables drops: the access facts say firewall on and the check is ok", async () => {
+    const answers = {
+      "sshd -T": res("passwordauthentication no\n"),
+      "ss -ltnH": res(SS_NODE),
+      "ufw status": res("Status: inactive\n"),
+      "iptables -S": res(IPTABLES_NODE),
+    };
+    const on = await probeMachineSecurity(envOf("linux", answers));
+    expect(on.access_facts?.firewall).toBe(true);
+    expect(on.checks.find((c) => c.key === "access")).toMatchObject({ status: "ok", detail: "Solo chiave SSH, 8 porte aperte, firewall acceso" });
+    // Readable rules that let everything in: the firewall is off, not unknown.
+    const off = await probeMachineSecurity(envOf("linux", { ...answers, "iptables -S": res("-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n") }));
+    expect(off.access_facts?.firewall).toBe(false);
+  });
+});
+
+describe("Linux failed logins filtered on the machine", () => {
+  const KEYS_ONLY = { "sshd -T": res("passwordauthentication no\n") };
+  const antivirus = async (answers: Record<string, RunResult | ((argv: string[]) => RunResult)>) =>
+    (await probeMachineSecurity(envOf("linux", { ...KEYS_ONLY, ...answers }))).checks.find((c) => c.key === "antivirus");
+  const AUTH_LOG = [
+    "2026-11-15T10:00:00.000000+00:00 srv sshd[7]: Failed password for root from 192.0.2.10 port 1 ssh2",
+    "2026-11-17T09:00:00.000000+00:00 srv sshd[8]: Invalid user admin from 192.0.2.11 port 2",
+    "2026-11-17T09:00:01.000000+00:00 srv sshd[8]: Failed password for invalid user admin from 192.0.2.11 port 2 ssh2",
+    "2026-11-17T10:00:00.000000+00:00 srv sshd[9]: Failed publickey for root from 192.0.2.12 port 3 ssh2",
+  ].join("\n");
+
+  test("the journal answers with only the matching lines: two attempts", async () => {
+    const seen: string[][] = [];
+    const check = await antivirus({
+      journalctl: (argv) => {
+        seen.push(argv);
+        return res("Nov 17 09:00:00 srv sshd[1]: Invalid user admin from 192.0.2.11\nNov 17 10:00:00 srv sshd[2]: Failed password for root from 192.0.2.12\n");
+      },
+    });
+    expect(check).toMatchObject({ status: "ok", detail: "2 tentativi di accesso respinti in 24 ore" });
+    expect(seen[0]).toContain("--grep");
+    expect(seen[0][seen[0].indexOf("--grep") + 1]).toBe(FAILED_LOGIN_PATTERN);
+  });
+
+  test("journal with no match exits 1 with '-- No entries --': zero attempts, auth.log not read", async () => {
+    let grepped = false;
+    const check = await antivirus({
+      journalctl: res("-- No entries --\n", { code: 1 }),
+      grep: () => { grepped = true; return res("", { code: 2 }); },
+    });
+    expect(check).toMatchObject({ status: "ok", detail: "0 tentativi di accesso respinti in 24 ore" });
+    expect(grepped).toBe(false);
+  });
+
+  test("journal killed at the deadline: auth.log filtered by grep, only the last 24 hours count", async () => {
+    const seen: string[][] = [];
+    const check = await antivirus({
+      journalctl: { ...TIMEOUT },
+      grep: (argv) => { seen.push(argv); return res(`${AUTH_LOG}\n`); },
+    });
+    expect(check).toMatchObject({ status: "ok", detail: "2 tentativi di accesso respinti in 24 ore" });
+    expect(seen[0]).toEqual(["grep", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
+  });
+
+  test("grep exit 1 with nothing printed is zero attempts, not an unreadable log", async () => {
+    const check = await antivirus({ journalctl: { ...TIMEOUT }, grep: res("", { code: 1 }) });
+    expect(check).toMatchObject({ status: "ok", detail: "0 tentativi di accesso respinti in 24 ore" });
+  });
+
+  test("neither log readable: unknown", async () => {
+    const check = await antivirus({
+      journalctl: { ...TIMEOUT },
+      grep: res("", { code: 2, stderr: "grep: /var/log/auth.log: Permission denied" }),
+    });
+    expect(check).toMatchObject({ status: "unknown", detail: "Accessi falliti: registri non leggibili da questo utente" });
   });
 });

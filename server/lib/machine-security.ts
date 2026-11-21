@@ -274,6 +274,15 @@ export function parseAptSecurityPending(text: string): number {
 }
 
 /**
+ * The lines of a failed SSH login. One pattern, valid as a JavaScript regex, as
+ * grep -E and as journalctl --grep (PCRE2): the machine filters with it, so a
+ * day of logs (1.9 MB of journal, 19 MB of auth.log on a busy server) never
+ * crosses the wire, and the counter below reads the same lines.
+ */
+export const FAILED_LOGIN_PATTERN = "Failed password|Invalid user|authentication failure|Failed publickey";
+const FAILED_LOGIN_RE = new RegExp(FAILED_LOGIN_PATTERN);
+
+/**
  * Failed SSH logins in `journalctl -u ssh` or `auth.log`. One attempt is one
  * sshd process: "Invalid user" and "Failed password" of the same process count
  * once (lines without a pid count one each).
@@ -282,7 +291,7 @@ export function countFailedLogins(text: string, sinceMs?: number): number {
   const pids = new Set<string>();
   let loose = 0;
   for (const line of text.split("\n")) {
-    if (!/Failed password|Invalid user|authentication failure|Failed publickey/.test(line)) continue;
+    if (!FAILED_LOGIN_RE.test(line)) continue;
     if (sinceMs !== undefined) {
       // Modern Ubuntu's auth.log starts each line with an ISO time; without one the line counts.
       const m = /^(\d{4}-\d{2}-\d{2}T[\d:.]+[+-]\d{2}:\d{2})/.exec(line);
@@ -292,6 +301,75 @@ export function countFailedLogins(text: string, sinceMs?: number): number {
     if (pid) pids.add(pid); else loose++;
   }
   return pids.size + loose;
+}
+
+/** A rule of `iptables -S` (words after `-A <chain>`): its target, and whether it matches every inbound TCP packet. */
+function iptablesRule(words: string[]): { target: string; everyPacket: boolean } | null {
+  const jump = words.findIndex((w) => w === "-j" || w === "-g");
+  if (jump < 0 || jump + 1 >= words.length) return null;
+  const target = words[jump + 1];
+  // Only "-p tcp" and an input interface other than loopback leave the match open; anything else narrows it.
+  for (let i = 0; i < jump; i += 2) {
+    const flag = words[i];
+    const value = i + 1 < jump ? words[i + 1] : "";
+    const open = (flag === "-p" && value === "tcp") || (flag === "-i" && value !== "" && value !== "lo");
+    if (!open) return { target, everyPacket: false };
+  }
+  return { target, everyPacket: true };
+}
+
+/**
+ * Whether `iptables -S` drops inbound traffic: the INPUT policy is DROP, or a
+ * DROP/REJECT matching every inbound TCP packet is reached from INPUT through
+ * jumps, before an ACCEPT or RETURN that would let the packet through. Chains
+ * reached only from OUTPUT or FORWARD guard other traffic and do not count.
+ */
+export function iptablesBlocksInput(text: string): boolean {
+  const chains = new Map<string, string[][]>();
+  let policy = "ACCEPT";
+  for (const line of text.split("\n")) {
+    const words = line.trim().split(/\s+/);
+    if (words[0] === "-P" && words[1] === "INPUT" && words[2]) policy = words[2];
+    else if (words[0] === "-A" && words[1]) chains.set(words[1], [...(chains.get(words[1]) ?? []), words.slice(2)]);
+  }
+  const seen = new Set<string>();
+  // null = the packet falls through back to the caller.
+  const verdict = (chain: string): "block" | "accept" | null => {
+    if (seen.has(chain)) return null;
+    seen.add(chain);
+    for (const words of chains.get(chain) ?? []) {
+      const rule = iptablesRule(words);
+      if (!rule?.everyPacket) continue;
+      if (rule.target === "DROP" || rule.target === "REJECT") return "block";
+      if (rule.target === "ACCEPT") return "accept";
+      if (rule.target === "RETURN") return null;
+      const inner = chains.has(rule.target) ? verdict(rule.target) : null;
+      if (inner) return inner;
+    }
+    return null;
+  };
+  const v = verdict("INPUT");
+  return v === "block" || (v === null && (policy === "DROP" || policy === "REJECT"));
+}
+
+/**
+ * Whether `nft list ruleset` drops inbound traffic: a chain on the input hook
+ * with policy drop, or with a bare drop/reject rule (a counter in front is
+ * allowed) before any bare accept. Jumps are not followed: the rules written by
+ * iptables-nft are read by `iptablesBlocksInput`.
+ */
+export function nftBlocksInput(text: string): boolean {
+  for (const m of text.matchAll(/chain\s+\S+\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)) {
+    const lines = m[1].split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.some((l) => /\bhook\s+input\b/.test(l))) continue;
+    if (lines.some((l) => /\bpolicy\s+drop\b/.test(l))) return true;
+    for (const l of lines) {
+      const bare = /^(?:counter(?:\s+packets\s+\d+\s+bytes\s+\d+)?\s+)?(accept|drop|reject)(?:\s+with\s.*)?$/.exec(l)?.[1];
+      if (bare === "accept") break;
+      if (bare) return true;
+    }
+  }
+  return false;
 }
 
 /** `/proc/mounts`: the mount points encrypted with gocryptfs. */
@@ -451,7 +529,12 @@ async function linuxDisk(env: ProbeEnv): Promise<SecurityCheck> {
 
 async function linuxFirewall(env: ProbeEnv): Promise<boolean | "unknown"> {
   const ufw = await env.run(["ufw", "status"]);
-  if (ok(ufw)) return /Status:\s*active/i.test(ufw.stdout);
+  if (ok(ufw) && /Status:\s*active/i.test(ufw.stdout)) return true;
+  // ufw off does not mean no firewall: rules written straight into iptables or nftables guard the machine too.
+  const [ipt, nft] = await Promise.all([env.run(["iptables", "-S"]), env.run(["nft", "list", "ruleset"])]);
+  if ((ok(ipt) && iptablesBlocksInput(ipt.stdout)) || (ok(nft) && nftBlocksInput(nft.stdout))) return true;
+  if (ok(ipt) || ok(nft) || ok(ufw)) return false;
+  // Not root: the kernel rules are not readable, ufw's own configuration is the only answer left.
   const conf = await env.readFile("/etc/ufw/ufw.conf");
   if (conf !== null) return /^ENABLED=yes/im.test(conf);
   return "unknown";
@@ -476,16 +559,31 @@ async function linuxAccess(env: ProbeEnv): Promise<AccessCheck> {
   return { ...composeAccess(facts), facts };
 }
 
+/** Exit 1 from grep or journalctl --grep: the log was read and no line matched. */
+function nothingMatched(r: RunResult): boolean {
+  return !r.missing && !r.timedOut && r.code === 1;
+}
+
+/**
+ * Failed SSH logins of the last 24 hours, `null` when no log can be read. The
+ * machine filters the lines itself: the whole log does not arrive within the
+ * probe deadline over SSH (measured 7.9 s for one day of journal).
+ */
+async function failedLoginsLastDay(env: ProbeEnv): Promise<number | null> {
+  const j = await env.run(["journalctl", "-u", "ssh", "-u", "sshd", "--since", "24 hours ago", "--no-pager", "--grep", FAILED_LOGIN_PATTERN]);
+  // Without permission to read the system journal, journalctl answers with a hint: that is not "zero attempts".
+  const hidden = /not seeing messages from other users/i.test(j.stdout + j.stderr);
+  // With --grep and no match, journalctl prints "-- No entries --" and exits 1, like grep (systemd journalctl.c).
+  if (!hidden && (ok(j) || (nothingMatched(j) && /^-- No entries --$/m.test(j.stdout)))) return countFailedLogins(j.stdout);
+  // Journal too slow, unreadable or without pattern support: auth.log, filtered on the machine as well.
+  const g = await env.run(["grep", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
+  if (ok(g)) return countFailedLogins(g.stdout, env.now() - DAY_MS);
+  if (nothingMatched(g) && g.stdout.trim() === "") return 0;
+  return null;
+}
+
 async function linuxAntivirus(env: ProbeEnv): Promise<SecurityCheck> {
-  const since = env.now() - DAY_MS;
-  const j = await env.run(["journalctl", "-u", "ssh", "-u", "sshd", "--since", "24 hours ago", "--no-pager"]);
-  let count: number | null = null;
-  // Without permission to read the system journal, journalctl exits 0 with a hint: that is not "zero attempts".
-  if (ok(j) && !/not seeing messages from other users/i.test(j.stdout + j.stderr)) count = countFailedLogins(j.stdout);
-  if (count === null) {
-    const auth = await env.readFile("/var/log/auth.log");
-    if (auth !== null) count = countFailedLogins(auth, since);
-  }
+  const count = await failedLoginsLastDay(env);
   if (count === null) return unknown("antivirus", "Accessi falliti", "registri non leggibili da questo utente");
   const sshd = await env.run(["sshd", "-T"]);
   const passwordOn = (ok(sshd) ? parseSshdT(sshd.stdout) : await passwordFromConfigFiles(env)) === true;
