@@ -86,11 +86,11 @@ export function deterministicReadableView(value: unknown): ReadableView | null {
 
   if (Array.isArray(value)) {
     if (value.length === 0) return null;
-    if (value.every((v) => typeof v === 'string')) {
-      if (value.every(looksLikePath)) {
-        return { kind: 'list', items: value.slice(0, MAX_LIST_ITEMS).map((text) => ({ text })) };
-      }
-      return { kind: 'list', items: value.slice(0, MAX_LIST_ITEMS).map((text) => ({ text: cellText(text) })) };
+    if (value.every((v): v is string => typeof v === 'string')) {
+      const strings: string[] = value;
+      const allPaths = strings.every((v) => looksLikePath(v));
+      const items: ListItem[] = strings.slice(0, MAX_LIST_ITEMS).map((text) => (allPaths ? { text } : { text: cellText(text) }));
+      return { kind: 'list', items };
     }
     if (value.every(isPlainObject)) {
       const columns: string[] = [];
