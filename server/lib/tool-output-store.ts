@@ -40,6 +40,7 @@ import { containsSameString, leanBlocks, STRIP_FIELDS, type MovedOutputMark } fr
 import { decodeCol, encodeCol, encodesAsBlob, MACHINE_MARKS, MOVED_OUTPUT_MARK } from "../../shared/message-blob";
 import { parseToolCallDetail } from "../../shared/tool-call-detail";
 import { warnThrottled } from "./warn-throttled";
+import { redactDeep } from "./secret-redaction";
 
 /**
  * A tool call moves only when this much text would leave it. Measured on the
@@ -237,7 +238,7 @@ export interface BlocksColumn {
  */
 export function blocksColumn<B>(blocks: readonly B[] | null | undefined, final: boolean): BlocksColumn {
   if (!blocks) return { value: null, whole: () => null, moved: null, stubbed: null, original: null };
-  const lean = leanBlocks(blocks as never) as unknown as unknown[];
+  const lean = redactDeep(leanBlocks(blocks as never) as unknown as unknown[]);
   const text = JSON.stringify(lean);
   const split = final && encodesAsBlob(text) ? splitToolOutputs(lean) : null;
   if (!split) {
