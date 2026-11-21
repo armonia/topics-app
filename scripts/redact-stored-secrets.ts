@@ -13,7 +13,6 @@
 import { Database } from "bun:sqlite";
 import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { redactDeep } from "../server/lib/secret-redaction";
 
@@ -69,7 +68,7 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
   const at = args.indexOf("--db");
-  const dbPath = at >= 0 ? args[at + 1] : join(homedir(), ".topics", "data", "topics.db");
+  const dbPath = at >= 0 ? args[at + 1] : join(process.env.DATA_DIR ?? join(import.meta.dir, "..", "data"), "topics.db");
   if (apply) console.log("backup:", backupDatabase(dbPath, new Date().toISOString().replace(/[:.]/g, "-")).join(", "));
   const db = new Database(dbPath);
   console.log(apply ? "masked:" : "would mask:", redactStoredSecrets(db, apply));
