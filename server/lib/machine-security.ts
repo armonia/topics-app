@@ -19,6 +19,8 @@ export const PROBE_TIMEOUT_MS = 5_000;
 const MAC_LOG_TIMEOUT_MS = 20_000;
 /** A security update pending for longer than this = warning. */
 export const PENDING_WARN_DAYS = 7;
+/** A Linux reboot-required flag older than this = warning (the patch is installed but not active). */
+const REBOOT_WARN_MS = 24 * 3_600_000;
 /** Maximum length of a check sentence (file contract). */
 export const DETAIL_MAX = 60;
 const DAY_MS = 86_400_000;
@@ -425,7 +427,7 @@ async function linuxUpdates(env: ProbeEnv): Promise<SecurityCheck> {
   const last = times.length ? Math.max(...times) : null;
   if (!ok(apt) && last === null) return unknown("updates", "Aggiornamenti", ok(apt) ? "nessun registro" : whyNoAnswer(apt));
   const pending = ok(apt) ? parseAptSecurityPending(apt.stdout) : 0;
-  if (reboot !== null && now - reboot > PENDING_WARN_DAYS * DAY_MS) {
+  if (reboot !== null && now - reboot > REBOOT_WARN_MS) {
     return { key: "updates", status: "warn", detail: clip(`Riavvio in attesa da ${daysBetween(now, reboot)} giorni per gli aggiornamenti`) };
   }
   if (pending > 0 && (last === null || now - last > PENDING_WARN_DAYS * DAY_MS)) {
