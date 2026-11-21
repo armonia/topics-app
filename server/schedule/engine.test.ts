@@ -46,7 +46,7 @@ function addJob(id: string, schedule: JobSchedule, action: JobAction, nextRunAt:
 const runs = (jobId: string) => db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? ORDER BY scheduled_for, occurrence_key").all(jobId) as Array<Record<string, unknown>>;
 const statuses = (jobId: string) => runs(jobId).map(r => r.status);
 const nextRun = (jobId: string) => (db.query("SELECT next_run_at FROM scheduled_jobs WHERE id = ?").get(jobId) as { next_run_at: string | null }).next_run_at;
-const COMMAND: JobAction = { kind: "command" };
+const COMMAND: JobAction = { kind: "command", argv: ["echo"], stdin: null, cwd: null, env: {}, timeoutSec: 60 };
 
 beforeEach(() => {
   db = freshDb();
@@ -273,8 +273,8 @@ describe("a job with broken data (review finding)", () => {
     setClock("2026-03-02T10:00:00Z");
     const executor = fakeCommand();
     const engine = createScheduleEngine(db, { executors: { command: executor.executor }, now: () => clock });
-    addJob("bad", { kind: "cron", expr: "nope", tz: "UTC" }, { kind: "command", command: "echo" } as JobAction, "2026-03-02T09:00:00Z");
-    addJob("good", { kind: "every", minutes: 10 }, { kind: "command", command: "echo" } as JobAction, "2026-03-02T09:50:00Z");
+    addJob("bad", { kind: "cron", expr: "nope", tz: "UTC" }, COMMAND, "2026-03-02T09:00:00Z");
+    addJob("good", { kind: "every", minutes: 10 }, COMMAND, "2026-03-02T09:50:00Z");
     expect(() => engine.tick()).not.toThrow();
     expect((db.query("SELECT enabled FROM scheduled_jobs WHERE id='bad'").get() as { enabled: number }).enabled).toBe(0);
     expect(statuses("good").length).toBeGreaterThan(0);

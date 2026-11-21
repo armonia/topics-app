@@ -21,6 +21,9 @@ const AT_WINDOW_MS = 24 * 3_600_000;
 const DEFAULT_MAX_CONCURRENT = 4;
 /** Longest backlog the engine walks to count lost occurrences. */
 const MAX_COUNTED_OCCURRENCES = 1_000;
+/** The history of runs is kept this long (R14). */
+export const HISTORY_DAYS = 30;
+const PRUNE_EVERY_MS = 3_600_000;
 
 export interface StartResult {
   /** `ok` = the action is already over; `running` = the engine waits for `finishRun`. */
@@ -35,6 +38,10 @@ export interface ActionExecutor {
   /** True when a previous run of the job is still open, judged from the real thing (R6). */
   isBusy?(job: ScheduledJob): boolean;
   start(job: ScheduledJob, run: ScheduledRun, now: Date): StartResult;
+  /** Stops what the run started. The engine has already written the run's final state (R13, R25). */
+  stop?(job: ScheduledJob, run: ScheduledRun): void;
+  /** Called at every tick, before the occurrences are taken: reconciles open runs with the real thing and applies limits (R12, R13). */
+  sweep?(now: Date): void;
 }
 
 export type Executors = Partial<Record<JobAction["kind"], ActionExecutor>>;
@@ -53,6 +60,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
   const maxConcurrent = options.maxConcurrent ?? (() => DEFAULT_MAX_CONCURRENT);
   let startsPaused = false;
   let timer: ReturnType<typeof setInterval> | null = null;
+  let lastPruneAt = 0;
 
   const readJob = (id: string) => {
     const row = db.query("SELECT * FROM scheduled_jobs WHERE id = ?").get(id) as ScheduledJobRow | null;
@@ -226,6 +234,21 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     }
   }
 
+  /** Each executor reconciles its open runs. One that throws must not hold the others back. */
+  function sweepExecutors(instant: Date) {
+    for (const executor of Object.values(options.executors)) {
+      try { executor?.sweep?.(instant); } catch (error) { console.warn("[schedule] sweep failed:", error); }
+    }
+  }
+
+  /** R14: closed runs older than the history window go, at most once an hour. */
+  function pruneHistory(instant: Date) {
+    if (instant.getTime() - lastPruneAt < PRUNE_EVERY_MS) return;
+    lastPruneAt = instant.getTime();
+    db.prepare("DELETE FROM scheduled_job_runs WHERE finished_at IS NOT NULL AND finished_at < ?")
+      .run(new Date(instant.getTime() - HISTORY_DAYS * 86_400_000).toISOString());
+  }
+
   function tick(): TickResult {
     const out: TickResult = { created: [], skipped: [], started: [] };
     if (startsPaused) return out;
@@ -233,6 +256,8 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     const previousTick = lastTickAt();
     writeHeartbeat(instant);
     failStaleStarting(instant);
+    sweepExecutors(instant);
+    pruneHistory(instant);
     const due = db.query("SELECT id FROM scheduled_jobs WHERE enabled = 1 AND deleted_at IS NULL AND next_run_at <= ? ORDER BY next_run_at, id")
       .all(instant.toISOString()) as { id: string }[];
     for (const { id } of due) {
@@ -255,9 +280,50 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     return tick();
   }
 
+  /** A run still open, closed as `status` only if nobody closed it first. True when this call closed it. */
+  function closeIfOpen(runId: string, status: RunStatus, reason: string | null, extra: { exitCode?: number | null; stdoutTail?: string; stderrTail?: string } = {}): boolean {
+    return db.prepare(`UPDATE scheduled_job_runs SET status = ?, finished_at = ?, reason = COALESCE(?, reason),
+      exit_code = COALESCE(?, exit_code), stdout_tail = COALESCE(?, stdout_tail), stderr_tail = COALESCE(?, stderr_tail)
+      WHERE id = ? AND status IN ('pending','starting','running')`)
+      .run(status, now().toISOString(), reason, extra.exitCode ?? null, extra.stdoutTail ?? null, extra.stderrTail ?? null, runId).changes === 1;
+  }
+
+  /** R25: a job that is deleted or cancelled stops the run in flight: `cancelled` first, then the process, and nothing is delivered. */
+  function cancelOpenRuns(jobId: string, reason: string): number {
+    const job = readJob(jobId);
+    const open = db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? AND status IN ('pending','starting','running')").all(jobId) as RunRow[];
+    let cancelled = 0;
+    for (const row of open) {
+      if (!closeIfOpen(row.id, "cancelled", reason)) continue;
+      cancelled++;
+      if (job) try { options.executors[job.action.kind]?.stop?.(job, parseRun(row)); } catch (error) { console.warn("[schedule] stop failed:", error); }
+    }
+    return cancelled;
+  }
+
+  /** R5: `run now` has its own key and never moves `next_run_at`. */
+  function runNow(jobId: string): ScheduledRun | null {
+    const job = readJob(jobId);
+    if (!job || job.deletedAt) return null;
+    const at = now();
+    const run = insertRun(job, `manual:${crypto.randomUUID()}`, at, "pending", {}, at);
+    if (!run) return null;
+    tick();
+    return parseRun(db.query("SELECT * FROM scheduled_job_runs WHERE id = ?").get(run.id) as RunRow);
+  }
+
+  /** Runs that hold a slot: what a shutdown or a planned restart has to wait for (R28). */
+  function inFlight(): number {
+    return (db.query("SELECT COUNT(*) AS n FROM scheduled_job_runs WHERE status IN ('starting','running')").get() as { n: number }).n;
+  }
+
   return {
     tick,
     finishRun,
+    closeIfOpen,
+    cancelOpenRuns,
+    runNow,
+    inFlight,
     /** R28: no occurrence starts while paused. Shutdown calls it before anything else. */
     pauseStarts() { startsPaused = true; },
     resumeStarts() { startsPaused = false; },
