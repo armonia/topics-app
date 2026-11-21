@@ -152,40 +152,6 @@ export function entriesFromPackageScripts(manifest: string, dir: string): string
  * cieco che non è qui dentro è una regressione.
  */
 export const KNOWN_BLIND: Array<{ file: string; reason: string }> = [
-  // `lazy(() => import('./X').then(m => ({ default: m.X })))`: l'adattatore
-  // «export nominato → default» di React.lazy. Knip riconosce a parte
-  // `lazy(() => import('./X'))` (LOADER: acceca solo i moduli SENZA export
-  // default), ma il `.then` in mezzo rompe il riconoscimento e l'import ridiventa
-  // opaco. Si ripara così, e allora si toglie la riga da questa lista:
-  //   const X = lazy(async () => {
-  //     const { X: C } = await import('./X');
-  //     return { default: C };
-  //   });
-  // Costo di lasciarlo: ognuno di questi file esporta il proprio componente (più,
-  // al massimo, i tipi delle sue props), e quel componente è vivo per definizione
-  // — è quello che il `lazy()` carica.
-  { file: "client/src/components/Board/KanbanBoardPane.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Browser/RemoteBrowserPanel.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Context/ContextInspector.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Dashboard/DashboardPane.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Editor/CodeEditor.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Editor/DiffViewer.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Editor/EditorTabs.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Editor/FilePane.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Modals/NewTopicModal.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Modals/TopicSettingsModal.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Project/FileExplorer.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Project/FileSearch.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Project/GitChanges.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Project/ProcessLogPane.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Shared/KeyboardShortcuts.tsx", reason: "lazy+then" },
-  { file: "client/src/components/Terminal/SingleTerminalPane.tsx", reason: "lazy+then" },
-  // Tre test leggono il SORGENTE di questo file (`readFileSync(new URL(
-  // '../../hooks/useTauriBrowser.ts', import.meta.url))`) per asserire su cosa
-  // c'è scritto dentro. Per knip `new URL(specifier, import.meta.url)` è un
-  // riferimento al modulo, e non sapendo cosa ne leggi lo rende opaco. È il
-  // prezzo giusto: quei test valgono più della copertura su un file con UN export.
-  { file: "client/src/hooks/useTauriBrowser.ts", reason: "il sorgente è letto da 3 test via new URL()" },
   // A genuine ENTRY POINT: the auto-bump workflow runs it
   // (`bun run scripts/release-gate.ts`), and knip counts every export of an
   // entry point as used — rightly, since nobody imports them. That
