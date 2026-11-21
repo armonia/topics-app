@@ -224,6 +224,7 @@ export function createBoardEvents(ctx: DispatcherCtx) {
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano
     // uno per caso, si passerebbero gli ascoltatori a vicenda.
     ctx.runs.unsubscribeHumanHold();
+    ctx.resume.dispose();
   }
 
   /**

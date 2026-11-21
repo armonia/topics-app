@@ -29,7 +29,7 @@
  * purpose: the card mapper gives them different tones, because one is a wait
  * that dissolves by itself and the other is not.
  */
-export type DispatchBlockKind = "resources" | "pressure" | "spend" | "plan";
+export type DispatchBlockKind = "resources" | "pressure" | "spend" | "plan" | "paused";
 
 export interface DispatchBlock {
   kind: DispatchBlockKind;

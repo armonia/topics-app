@@ -926,6 +926,7 @@ export type QueueReasonKind =
   | 'resource_pressure' // «per risorse»: the machine is over the chosen load/memory threshold
   | 'spend_cap'      // the 24h spend cap is reached: the queue holds until it scrolls or you raise it
   | 'node_unreachable' // the card names a paired node and the node did not answer: it waits THERE, never here
+  | 'project-paused' // the project hit its quota limit: automated work waits for "Continua" or the reset
   | 'plan_window'    // the subscription's five-hour window is nearly gone: the queue waits for the reset
   | 'checklist_frozen' // in review senza domande aperte, ma con la checklist aperta: approvarla non la chiude
   | 'children_parked' // sta CHIEDENDO cosa fare dei suoi step fermi: il chip ne porta il numero
@@ -978,6 +979,9 @@ export interface QueueReason {
   params?: Record<string, string | number>;
 }
 
+/** The chip of a card held by its project's pause (the i18n catalogue renders `key`). */
+export const PROJECT_PAUSED_REASON: QueueReason = { kind: 'project-paused', tone: 'waiting', key: 'board.queue.projectPaused' };
+
 /**
  * Every kind, as data. The union above is the contract; this is the same list
  * a test can walk to prove that each branch has somewhere to be written.
@@ -985,7 +989,7 @@ export interface QueueReason {
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
   'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'resource_pressure', 'spend_cap', 'node_unreachable', 'plan_window',
+  'resource_floor', 'resource_pressure', 'spend_cap', 'node_unreachable', 'project-paused', 'plan_window',
   'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
 ];
 
@@ -1013,6 +1017,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   resource_pressure: ['board.queue.resourcePressure'],
   spend_cap: ['board.queue.spendCap'],
   node_unreachable: ['board.queue.nodeUnreachable'],
+  'project-paused': ['board.queue.projectPaused'],
   plan_window: ['board.queue.planWindow'],
   checklist_frozen: ['board.queue.checklistFrozen.one', 'board.queue.checklistFrozen.many'],
   children_parked: ['board.queue.childrenParked.one', 'board.queue.childrenParked.many'],
@@ -1103,7 +1108,9 @@ export interface QueueContext {
    * For a resume held in the In-progress column it is the block of THAT hold,
    * not the published one (`heldResumeBlock` in `dispatch-block-signal.ts`).
    */
-  dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan'; reason: string } | null;
+  dispatchBlock?: { kind: 'resources' | 'pressure' | 'spend' | 'plan' | 'paused'; reason: string } | null;
+  /** The card's project is paused by its quota limit (read from the project row, never the machine). */
+  projectPaused?: boolean;
   /**
    * THE MEMORY GATE'S TWO NUMBERS, for a card held by the memory queue (its row
    * says `waiting-memory`): the line one more card needs and the lowest free
@@ -1471,6 +1478,11 @@ export function deriveQueueReason(
     return { kind: 'dispatch_off', tone: 'stalled', key: 'board.queue.dispatchOff' };
   }
 
+  // PROJECT PAUSE. The dispatcher skips this card (claim gate) or holds its
+  // resume (`resumeHold`) until "Continua" or the reset: no slot is missing, so
+  // "in coda, la prossima" would be false. Tone `waiting`: it restarts by itself.
+  if (ctx.projectPaused) return PROJECT_PAUSED_REASON;
+
   // Un pesante trattenuto non «aspetta uno slot»: è il tappo. Viene dopo
   // l'interruttore (a dispatch spento non c'è nessuna coda da tappare) e prima
   // della fila, perché «in coda, 0 davanti» su una board immobile è vero alla
@@ -1549,6 +1561,7 @@ function machineBlockReason(
   // machine is over the chosen threshold, and load drops by itself the moment
   // whatever is busy stops. Tone `waiting`, not `stalled`: nobody has to do
   // anything, unlike a full disk or a spend cap a person has to raise.
+  if (block.kind === 'paused') return PROJECT_PAUSED_REASON;
   const kind: QueueReasonKind =
     block.kind === 'spend' ? 'spend_cap'
       : block.kind === 'pressure' ? 'resource_pressure'
