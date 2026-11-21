@@ -1,4 +1,5 @@
 /**
+ * @covers USAGE-30
  * PROJECT PAUSE AT THE RESUME DOOR: an automated resume of a card whose project
  * is paused starts NO turn, and starts by itself when the pause closes.
  *
