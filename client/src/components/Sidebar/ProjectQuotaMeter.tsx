@@ -8,6 +8,7 @@
  */
 import { useT } from '../../hooks/useT';
 import { useProjectQuota } from '../../hooks/useProjectQuota';
+import { useProjectPause } from '../../hooks/useProjectPause';
 import { boardIdForPath } from '../../lib/board';
 import { formatPoints, quotaTone, type QuotaTone } from '../../lib/projectQuotaMeter';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
@@ -19,7 +20,22 @@ const TONE_INK: Record<QuotaTone, string> = { ok: 'text-app-text-faint/70', warn
 export function ProjectQuotaMeter({ projectPath, onFill }: { projectPath: string; onFill?: boolean }) {
   const tr = useT();
   const { quota } = useProjectQuota();
-  const row = quota?.projects.find((p) => p.projectId === boardIdForPath(projectPath));
+  const projectId = boardIdForPath(projectPath);
+  const row = quota?.projects.find((p) => p.projectId === projectId);
+  const pause = useProjectPause(projectId);
+  if (pause.paused) {
+    return (
+      <span
+        data-testid="project-quota-meter"
+        data-tone="over"
+        data-paused="true"
+        title={tr('projectPause.title.' + (pause.reason === 'hold-until-tomorrow' ? 'hold' : 'limit'))}
+        className={`ml-0.5 flex-shrink-0 text-mini leading-none ${onFill ? ON_FILL_TEXT_SOFT : DANGER_TEXT}`}
+      >
+        {tr('projectPause.meter')}
+      </span>
+    );
+  }
   if (!row || row.points24h === null || row.limit === null) return null;
   const tone = quotaTone(row.points24h, row.limit);
   const points = formatPoints(row.points24h);

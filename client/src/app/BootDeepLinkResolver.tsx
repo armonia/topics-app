@@ -6,6 +6,7 @@ import { consumeTabLinkFromUrl, currentTabTarget, openTabInApp, openTabInAppWhen
 import { TAB_PATH_PREFIX, type TabTarget } from '../../../shared/tab-link';
 import { installOsOpenPathBridge, defaultOsOpenDeps } from '../lib/osOpenPath';
 import { usePaneStore } from '../state/pane/store';
+import { consumeProjectLink } from '../lib/projectLink';
 import { hubBookmarkTarget, openHubBookmarkWhenHydrated } from '../lib/hubPlaces';
 
 /**
@@ -116,6 +117,11 @@ export function BootDeepLinkResolver({ isDetached }: { isDetached: boolean }) {
     const t = setTimeout(() => { void consume(); }, 0);
     return () => clearTimeout(t);
   }, [isDetached]);
+  // `/?project=<id>`: the link of the pause alert opens that project.
+  useEffect(() => {
+    if (isDetached) return;
+    consumeProjectLink((message) => toast.warning(message));
+  }, [isDetached, toast]);
   // An old bookmark of the hub (`:3360/#automations` sends here keeping its fragment): the place
   // of Topics that took that page, once the pane store has hydrated (lib/hubPlaces).
   useEffect(() => {

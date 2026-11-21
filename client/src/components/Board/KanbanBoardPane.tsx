@@ -7,6 +7,7 @@
  * Review column (approve → done / reject → in_progress). Talks only to the
  * project-scoped board API (client/src/lib/board.ts).
  */
+import { ProjectPauseStrip } from '../Shared/ProjectPauseStrip';
 import { useHeldDraft } from './useHeldDraft';
 import { DraftCard } from './DraftCard';
 import { useCreatedFlash } from './useCreatedFlash';
@@ -1311,6 +1312,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
+      {hasProject && <ProjectPauseStrip projectPath={projectPath} surface="board" />}
       {showArchived && mode === 'project' && (
         <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-compact leading-4 text-amber-200">
           <Archive className="h-3.5 w-3.5 shrink-0" />
