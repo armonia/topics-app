@@ -5144,6 +5144,12 @@
       "CodiceAuth",
       "isCodiceAuth"
     ],
+    "shared/board-base.ts": [
+      "MAX_FANOUT"
+    ],
+    "shared/board-parking.ts": [
+      "NOTE_UNQUEUED_BY_HUMAN"
+    ],
     "shared/board.test.ts": [
       "carico",
       "leggera",
@@ -5152,10 +5158,6 @@
       "spento",
       "tappo",
       "tutto"
-    ],
-    "shared/board.ts": [
-      "MAX_FANOUT",
-      "NOTE_UNQUEUED_BY_HUMAN"
     ],
     "shared/browser-snapshot-core.ts": [
       "acc",
