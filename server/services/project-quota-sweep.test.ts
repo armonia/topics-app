@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
+import type { ProjectQuotaRow } from "../../shared/usage-shapes";
 import { readProjectQuotaRow } from "./project-pause";
 import { runProjectQuotaPauseSweep } from "./project-quota-sweep";
 
@@ -17,7 +18,7 @@ function makeDb(): Database {
 }
 
 function quotaOf(rows: Array<{ projectId: string | null; points24h: number | null; projectPath?: string | null }>) {
-  return () => ({ quotaHistory: true, projects: rows.map((r) => ({ projectPath: r.projectPath ?? null, points7d: null, weighted24h: 0, weighted7d: 0, ...r })) });
+  return () => ({ quotaHistory: true, projects: rows.map((r) => ({ projectPath: r.projectPath ?? null, points7d: null, weighted24h: 0, weighted7d: 0, limit: null, surfaces: {} as ProjectQuotaRow["surfaces"], topChats: [], ...r })) });
 }
 
 describe("runProjectQuotaPauseSweep", () => {

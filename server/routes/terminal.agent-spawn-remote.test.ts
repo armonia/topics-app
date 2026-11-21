@@ -17,7 +17,7 @@ import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent
 import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
 import { openPauseIfNeeded } from "../services/project-pause";
-import { projectIdOfFolder } from "../usage/project-quota";
+import { projectIdOfFolder } from "../usage/project-folders";
 import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
 import type { AppContext } from "../types";
 

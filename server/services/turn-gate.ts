@@ -20,6 +20,7 @@
  */
 import type { Database } from "bun:sqlite";
 import { projectIsPaused } from "./project-pause";
+import { projectIdOfFolder } from "../usage/project-folders";
 
 export type AutomationSource =
   | "goal-nudge" | "boot-resume" | "process-exit-wake" | "subagent-wake" | "card-outcome-wake"
@@ -36,6 +37,21 @@ export interface GateAnswer { allowed: boolean; reason: "project-paused" | null 
 export function turnGate(db: Database, origin: TurnOrigin, projectId: string | null | undefined, nowMs: number = Date.now()): GateAnswer {
   if (origin.kind === "person" || !projectId) return { allowed: true, reason: null };
   return projectIsPaused(db, projectId, nowMs) ? { allowed: false, reason: "project-paused" } : { allowed: true, reason: null };
+}
+
+/** The project a topic belongs to (null when unknown): the one a gate asks about for a turn that wakes this topic. */
+export function projectIdOfTopic(db: Database, topicId: string | null | undefined): string | null {
+  if (!topicId) return null;
+  try {
+    const r = db.query("SELECT project_path FROM topics WHERE id = ?").get(topicId) as { project_path: string | null } | null;
+    return r?.project_path ? projectIdOfFolder(db, r.project_path) : null;
+  } catch { return null; }
+}
+
+/** `turnGate` for a turn aimed at a topic: resolves the topic's project first. Fail open. */
+export function turnGateForTopic(db: Database, origin: TurnOrigin, topicId: string | null | undefined, nowMs: number = Date.now()): GateAnswer {
+  if (origin.kind === "person") return { allowed: true, reason: null };
+  return turnGate(db, origin, projectIdOfTopic(db, topicId), nowMs);
 }
 
 const held = new Map<string, Map<string, () => void | Promise<void>>>();
