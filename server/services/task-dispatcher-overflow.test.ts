@@ -44,7 +44,8 @@ import {
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
 import { overflowNoteImmediate } from "./dispatch-overflow";
-import { hangBreaker } from "./wake-breaker";
+import { hangBreaker, wakeBreaker } from "./wake-breaker";
+import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
 import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
@@ -150,6 +151,8 @@ function harness(opts: {
   noOrigin?: { mac: string; node: string; startedFrom: string[] };
   /** What pushing a card's own branch answers (default: it reaches origin). */
   ensure?: (branch: string) => { ok: true } | { ok: false; reason: string };
+  /** The `node-run` hook that wakes the PC (default: the lane's own). */
+  hooks?: LifecycleHookRunner;
 } = {}) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
@@ -215,6 +218,7 @@ function harness(opts: {
       plantBranch: async () => ({ planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null }),
       bundleBranch: async ({ branch }) => (opts.noOrigin ? bundleBranch(opts.noOrigin.mac, branch) : null),
       ensureBranchOnOrigin: async ({ branch }) => { pushed.push(branch); return opts.ensure?.(branch) ?? { ok: true }; },
+      ...(opts.hooks ? { hooks: opts.hooks } : {}),
     },
     overflowMachines: machines,
     githubOriginOf: async () => opts.github ?? true,
@@ -738,6 +742,45 @@ describe("overflow: il PC addormentato", () => {
     } finally {
       hangBreaker.success(PC);
     }
+  });
+});
+
+// 21/11: the breaker opened on the PC, and the card the overflow had put there was deferred
+// with its pin until the breaker closed, then went back to the same PC. The system's move is
+// undone at once; a person's pin is not.
+describe("il PC che non si sveglia: la card spostata dal sistema lo lascia, quella fissata a mano lo aspetta", () => {
+  const veto: LifecycleHookRunner = { run: async () => ({ ok: false, reason: "il PC non si sveglia" }) };
+
+  it("spostata dall'overflow, due sveglie fallite: perde il PC senza rinvio, con una nota sola, e il giro dopo va altrove", async () => {
+    const o = { cloudCredit: false, hooks: veto };
+    const h = harness(o);
+    try {
+      h.seed(CARD);
+      await settleTwoRounds(h);
+      expect(h.task(CARD)).toMatchObject({ machineId: PC, overflowedAt: expect.any(String) });
+      // First veto: below the threshold, the card waits for the PC as before. The second opens the breaker.
+      expireWait(h);
+      await h.tick();
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      expect(h.thread(CARD).match(/Tolta dal nodo bloccato: il nodo «PC Windows» non è pronto/g)).toHaveLength(1);
+      expect(h.thread(CARD)).not.toContain("non gli mando altre card");
+      o.cloudCredit = true;
+      await h.tick();
+      expect(h.task(CARD).machineId).toBe(CLOUD);
+    } finally { wakeBreaker.success(PC); }
+  });
+
+  it("fissata a mano sul PC, due sveglie fallite: resta sul PC e aspetta che il freno si chiuda", async () => {
+    const h = harness({ cloudCredit: false, hooks: veto });
+    try {
+      h.seed(CARD, { machineId: PC });
+      await h.tick();
+      expireWait(h);
+      await h.tick();
+      const t = h.task(CARD);
+      expect(t).toMatchObject({ status: "todo", machineId: PC });
+      expect(Date.parse(t.dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
+    } finally { wakeBreaker.success(PC); }
   });
 });
 

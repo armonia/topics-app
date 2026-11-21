@@ -210,6 +210,10 @@ export const NODE_BRANCH_GRACE_POLLS = 3;
 
 /** How long a card waits before trying a silent node again. */
 const NODE_RETRY_MINUTES = 5;
+/** The opening of the one note a card leaves when it leaves a blocked node (`deferForSilentNode`). */
+const NODE_LEFT_NOTE = "Tolta dal nodo bloccato";
+/** "22:25": when a breaker closes, as the card's notes say it. */
+const hourLabel = (ms: number): string => new Date(ms).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 /** Longest wait for a node to archive one retired mirror: past it, the next round tries again. */
 export const MIRROR_CANCEL_TIMEOUT_MS = 10_000;
 
@@ -372,6 +376,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * It NEVER falls back to a local turn - that is the whole point of choosing a
    * machine by hand (KANBAN-76).
    *
+   * Except a card the SYSTEM moved there (`task.overflowedAt`) while a breaker
+   * is open (`untilMs`): deferred with its pin, it sat out the whole window and
+   * then went back to the same node (21/11: deferred 22:10 -> 22:25, breaker
+   * open until 22:25). It leaves the node at once, with no deferral, and
+   * `nodeBlocked` keeps that node out of the next tick's choice. A card a
+   * person pinned there waits for it, the asymmetry of `parkNodeCard`.
+   *
    * Two writes because no single service call does both. `deferForWait` is the
    * only writer of `dispatch_deferred_until`, and it also refunds the attempt
    * the claim had already spent; `setDispatchState` is what puts the SENTINEL
@@ -379,6 +390,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * prose the deferral leaves there.
    */
   function deferForSilentNode(task: Task, why: string, untilMs?: number | null): void {
+    if (untilMs && task.overflowedAt && requeueOffMachine(task.id,
+      `${NODE_LEFT_NOTE}: ${why}; fino alle ${hourLabel(untilMs)} non riceve card. Torna in coda e parte dove c'è posto.`,
+      NODE_LEFT_NOTE)) return;
     try {
       // With the wake breaker open the card waits until it closes, not the fixed 5 minutes:
       // the doubling window (15 min … 4 h) was announced on the card and never applied to it.
@@ -396,6 +410,21 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         }));
       }
     } catch (err) { log(`nodo: rinvio della card ${task.id} non riuscito`, err); }
+  }
+
+  /**
+   * Back to the queue with NO fixed machine, at once: the next tick places the
+   * card wherever it can run, and the attempt the claim spent is refunded.
+   * `false` = the requeue itself failed, and the caller decides what that means.
+   */
+  function requeueOffMachine(taskId: string, note: string, replaces?: string): boolean {
+    try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
+    catch (err) { log(`nodo: la card ${taskId} non è tornata in coda`, err); return false; }
+    try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+    catch (err) { log(`nodo: la card ${taskId} non ha lasciato la macchina fissa`, err); }
+    try { svc.addComment({ taskId, author: "system", kind: "service", content: note, ...(replaces ? { replaces } : {}) }); }
+    catch { /* the requeue stands without its line */ }
+    return true;
   }
 
   /**
@@ -555,10 +584,11 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         host.endRun(task.id, runNo);
         wakeBreaker.failure(machineId);
         const until = wakeBreaker.openUntil(machineId);
-        if (until) {
+        // A card that leaves the node says this in its own note (`deferForSilentNode`): one note, not two.
+        if (until && !task.overflowedAt) {
           try {
             svc.addComment({ taskId: task.id, author: "system", kind: "service",
-              content: `«${name}» non si sveglia da più tentativi: fino alle ${new Date(until).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })} non gli mando altre card (allow-italian: user-facing note).` });
+              content: `«${name}» non si sveglia da più tentativi: fino alle ${hourLabel(until)} non gli mando altre card.` });
           } catch { /* the note never blocks the deferral */ }
         }
         deferForSilentNode(task, `il nodo «${name}» non è pronto: ${verdict.reason}`, until);
@@ -723,16 +753,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // The node does not run this card's model: another machine may. The card
       // goes back to the queue with no fixed machine and says so in its thread.
       if (nodeFailureReason(err) === "model_rejected") {
-        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
-        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo il rifiuto del modello`, e); parkNodeCard(task, `Il nodo «${name}» non esegue il modello della card.`); return; }
-        try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
-        catch (e) { log(`nodo: la card ${task.id} non ha lasciato la macchina fissa`, e); }
-        try {
-          svc.addComment({
-            taskId: task.id, author: "system", kind: "service",
-            content: `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`,
-          });
-        } catch { /* the requeue stands without its line */ }
+        if (!requeueOffMachine(task.id, `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`)) {
+          parkNodeCard(task, `Il nodo «${name}» non esegue il modello della card.`);
+        }
         return;
       }
       // The cloud cannot run THIS card for a reason that waiting does not fix: its repository is out
@@ -742,16 +765,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       const reason = nodeFailureReason(err);
       if (reason === "cloud_repo" || reason === "cloud_account") {
         const why = err instanceof Error ? err.message : String(err);
-        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
-        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo il rifiuto del cloud`, e); parkNodeCard(task, `«${name}» non può lavorare questa card: ${why}`); return; }
-        try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
-        catch (e) { log(`nodo: la card ${task.id} non ha lasciato la macchina fissa`, e); }
-        try {
-          svc.addComment({
-            taskId: task.id, author: "system", kind: "service",
-            content: `«${name}» non può lavorare questa card: ${why}. Tolgo la macchina fissa e la rimetto in coda: parte dove può girare.`,
-          });
-        } catch { /* the requeue stands without its line */ }
+        if (!requeueOffMachine(task.id, `«${name}» non può lavorare questa card: ${why}. Tolgo la macchina fissa e la rimetto in coda: parte dove può girare.`)) {
+          parkNodeCard(task, `«${name}» non può lavorare questa card: ${why}`);
+        }
         return;
       }
       // A 400/422 is the node refusing THIS card (12/11: a model outside its
@@ -1187,17 +1203,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     if (report.deliveryBranch || !task || !task.overflowedAt) return false;
     inFlight.delete(taskId);
     log(`nodo: ${taskId} tornata in coda, limite settimanale del cloud fino a ${new Date(limit.untilMs).toISOString()}`);
-    try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
-    catch (err) { log(`nodo: la card ${taskId} non è tornata in coda dopo il limite`, err); return true; }
-    try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
-    catch (err) { log(`nodo: la card ${taskId} non è tornata sulla macchina locale`, err); }
-    try {
-      svc.addComment({
-        taskId, author: "system", kind: "service",
-        content: `Il Cloud ha risposto col limite settimanale del piano Claude (riprende ${new Date(limit.untilMs).toISOString().slice(0, 16).replace("T", " ")} UTC). ` +
-          "Rimetto la card in coda: finché dura il fermo va sul PC o sul Mac.",
-      });
-    } catch { /* the requeue stands without its line */ }
+    requeueOffMachine(taskId,
+      `Il Cloud ha risposto col limite settimanale del piano Claude (riprende ${new Date(limit.untilMs).toISOString().slice(0, 16).replace("T", " ")} UTC). ` +
+        "Rimetto la card in coda: finché dura il fermo va sul PC o sul Mac.");
     return true;
   }
 

@@ -454,6 +454,21 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     } finally { wakeBreaker.success(MACHINE); }
   });
 
+  it("breaker already open, card the overflow put there: it leaves the node at once, no hook and no deferral (21/11)", async () => {
+    for (const breaker of [wakeBreaker, hangBreaker]) {
+      breaker.failure(MACHINE);
+      breaker.failure(MACHINE);
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.task()).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      breaker.success(MACHINE);
+    }
+  });
+
   it("the veto that opens the breaker defers the card until it closes, not the fixed 5 minutes", async () => {
     wakeBreaker.success(MACHINE);
     wakeBreaker.failure(MACHINE);
