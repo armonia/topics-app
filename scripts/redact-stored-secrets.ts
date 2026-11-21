@@ -16,17 +16,23 @@ import { join } from "node:path";
 import { decodeCol, encodeCol } from "../shared/message-blob";
 import { redactDeep } from "../server/lib/secret-redaction";
 
-export interface RedactionCounts { toolCalls: number; blocks: number; toolOutputs: number }
+export interface RedactionCounts { toolCalls: number; blocks: number; toolOutputs: number; changedMeanwhile: number }
 
-/** Re-encodes a column the way its writer does: `encodeCol` for messages, zstd for the split bodies. */
-function rewrite(db: Database, sql: string, key: string, text: string, compress: boolean): void {
-  const value = compress ? Bun.zstdCompressSync(Buffer.from(text, "utf8"), { level: 3 }) : encodeCol(text);
-  db.prepare(sql).run(value as never, key);
+/**
+ * Re-encodes a column the way its writer does (`encodeCol` for messages, zstd for
+ * the split bodies) and writes it only if the row still holds what was read: the
+ * server keeps writing while this runs, and a turn saved after the read must not
+ * be rolled back to the masked old copy. Returns false when the row had moved on
+ * (a rerun picks it up).
+ */
+export function rewriteIfUnchanged(db: Database, t: { table: string; col: string; key: string; compress: boolean }, key: string, read: unknown, text: string): boolean {
+  const value = t.compress ? Bun.zstdCompressSync(Buffer.from(text, "utf8"), { level: 3 }) : encodeCol(text);
+  return db.prepare(`UPDATE ${t.table} SET ${t.col} = ? WHERE ${t.key} = ? AND ${t.col} IS ?`).run(value as never, key, read as never).changes === 1;
 }
 
 /** Masks the stored secrets in `db`; with `apply` false it only counts the rows it would change. */
 export function redactStoredSecrets(db: Database, apply: boolean): RedactionCounts {
-  const counts: RedactionCounts = { toolCalls: 0, blocks: 0, toolOutputs: 0 };
+  const counts: RedactionCounts = { toolCalls: 0, blocks: 0, toolOutputs: 0, changedMeanwhile: 0 };
   const targets = [
     { table: "messages", col: "tool_calls", key: "id", count: "toolCalls", compress: false },
     { table: "messages", col: "blocks", key: "id", count: "blocks", compress: false },
@@ -41,8 +47,8 @@ export function redactStoredSecrets(db: Database, apply: boolean): RedactionCoun
       try { parsed = JSON.parse(text); } catch { continue; }
       const masked = redactDeep(parsed);
       if (masked === parsed) continue;
+      if (apply && !rewriteIfUnchanged(db, t, k, v, JSON.stringify(masked))) { counts.changedMeanwhile++; continue; }
       counts[t.count]++;
-      if (apply) rewrite(db, `UPDATE ${t.table} SET ${t.col} = ? WHERE ${t.key} = ?`, k, JSON.stringify(masked), t.compress);
     }
   }
   return counts;

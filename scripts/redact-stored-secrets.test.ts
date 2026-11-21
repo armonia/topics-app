@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeCol, encodeCol } from "../shared/message-blob";
-import { backupDatabase, redactStoredSecrets } from "./redact-stored-secrets";
+import { backupDatabase, redactStoredSecrets, rewriteIfUnchanged } from "./redact-stored-secrets";
 
 function synthetic(): Database {
   const db = new Database(":memory:");
@@ -29,7 +29,7 @@ function synthetic(): Database {
 describe("redactStoredSecrets", () => {
   test("a dry run counts and writes nothing", () => {
     const db = synthetic();
-    expect(redactStoredSecrets(db, false)).toEqual({ toolCalls: 1, blocks: 1, toolOutputs: 1 });
+    expect(redactStoredSecrets(db, false)).toEqual({ toolCalls: 1, blocks: 1, toolOutputs: 1, changedMeanwhile: 0 });
     const row = db.query("SELECT tool_calls v FROM messages WHERE id='dirty'").get() as { v: unknown };
     expect(decodeCol(row.v)).toContain("S3gr3t0!");
   });
@@ -44,7 +44,18 @@ describe("redactStoredSecrets", () => {
     expect(decodeCol(out.v)).toContain("Bearer [oscurato]");
     const clean = db.query("SELECT tool_calls v FROM messages WHERE id='clean'").get() as { v: unknown };
     expect(decodeCol(clean.v)).toContain("git log -p");
-    expect(redactStoredSecrets(db, true)).toEqual({ toolCalls: 0, blocks: 0, toolOutputs: 0 });
+    expect(redactStoredSecrets(db, true)).toEqual({ toolCalls: 0, blocks: 0, toolOutputs: 0, changedMeanwhile: 0 });
+  });
+
+  test("a row the server rewrote after the read is left as the server wrote it", () => {
+    const db = synthetic();
+    const read = (db.query("SELECT tool_calls v FROM messages WHERE id='dirty'").get() as { v: unknown }).v;
+    const newer = encodeCol(JSON.stringify([{ id: "a", args: { command: "ls" } }, { id: "c", args: { command: "pwd" } }]));
+    db.prepare("UPDATE messages SET tool_calls = ? WHERE id = 'dirty'").run(newer as never);
+    const target = { table: "messages", col: "tool_calls", key: "id", compress: false };
+    expect(rewriteIfUnchanged(db, target, "dirty", read, "[]")).toBe(false);
+    expect(decodeCol((db.query("SELECT tool_calls v FROM messages WHERE id='dirty'").get() as { v: unknown }).v)).toContain("pwd");
+    expect(rewriteIfUnchanged(db, target, "dirty", newer, "[]")).toBe(true);
   });
 });
 
