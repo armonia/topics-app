@@ -2,6 +2,8 @@ import { existsSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { readJsonStateFile } from "../lib/state-file";
 import { readFileEnd } from "../lib/file-tail";
+import { commandProcessGroup } from "../lib/command-process-groups";
+import { commandLife } from "../schedule/command-life";
 import { watchPidExits } from "../lib/pid-liveness";
 import { commandServiceWatch, finishCommand, requestWakeFor } from "./processes-commands";
 import { addToRecent, flushPendingLine, followLog, resumeFollow } from "./processes-output";
@@ -29,6 +31,17 @@ function loadLogFile(sp: ScriptProcess): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A scheduled command is adopted on the identity of its process group (R12),
+ * never on `ps -o lstart` with a short timeout: under swap that probe fails
+ * and a live command was read as dead and started a second time. A group whose
+ * identity cannot be read is kept, not closed.
+ */
+function adoptionVerdict(r: PersistedScript): "adopt" | "dead" {
+  if (r.cmd?.origin === "job") return commandLife(commandProcessGroup(r.processId)) === "dead" ? "dead" : "adopt";
+  return readoptVerdict({ pid: r.pid, pidLstart: r.pidLstart, probe: pidStartTime });
 }
 
 function loadState() {
@@ -62,7 +75,7 @@ function loadState() {
     const endedCommands: ScriptProcess[] = [];
     if (Array.isArray(data.running)) {
       for (const r of data.running as PersistedScript[]) {
-        if (readoptVerdict({ pid: r.pid, pidLstart: r.pidLstart, probe: pidStartTime }) === "adopt") {
+        if (adoptionVerdict(r) === "adopt") {
           // Process is still alive — re-track it (we can't re-capture stdout,
           // but we can track its PID for port detection and stop)
           const sp: ScriptProcess = {
@@ -125,10 +138,12 @@ function loadState() {
         const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
         for (const file of readdirSync(scriptsDir)) {
           // `.exit` is a command's exit code, beside its log (`command-process.ts`).
-          if (!file.endsWith('.log') && !file.endsWith('.exit')) continue;
-          const processId = file.replace(/\.(log|exit)$/, '');
+          if (!/\.(log|exit|err|in|timeout)$/.test(file)) continue;
+          const processId = file.replace(/\.(log|exit|err|in|timeout)$/, '');
           // Keep logs for running processes
           if (runningScripts.has(processId) || closedNow.has(processId)) continue;
+          // A job's process the registry lost track of but whose group still lives keeps its files: the engine closes its run from them.
+          if (commandProcessGroup(processId)) continue;
           // Check if recent and not old
           const recent = recentScripts.find(s => s.processId === processId);
           if (recent?.completedAt && (now - new Date(recent.completedAt).getTime()) < SEVEN_DAYS) continue;

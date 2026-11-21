@@ -40,7 +40,7 @@ import { isThisServerPrimary } from "../lib/primary-role";
 const projectSlugs = new Map<string, string>();
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
-  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
+  const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
   const taskDispatcher = createTaskDispatcher({
     isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,
@@ -484,6 +484,8 @@ export function bootDispatcher(scope: AfterHeadlessTurns) {
   late.taskDispatcher = taskDispatcher;
 
   const scheduledCardsTimer = scheduleEngine.start(isThisServerPrimary, announceTick);
+  // A command that was running when the server stopped is read again now, not 15 s from now (R12).
+  if (isThisServerPrimary()) tickScheduledCards();
 
   return { scheduledCardsTimer, taskDispatcher };
 }

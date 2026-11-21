@@ -60,6 +60,7 @@ export const API_ROUTER_ORDER = [
   "reasoningTranslationRouter",
   "calendarRouter",
   "heavySlotRouter",
+  "scheduledJobsRouter",
   "agentChannelsRouter",
   "agentConfigRouter",
   "tabsRouter",
