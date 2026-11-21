@@ -1,3 +1,8 @@
+/**
+ * Which security checks open or close an alert card, round after round.
+ *
+ * @covers MACHINE-07
+ */
 import { describe, expect, test } from "bun:test";
 import type { CheckKey, CheckStatus } from "../../shared/machine-health";
 import { alertKey, securityAlerts, WARN_AS_PROBLEM_MS, type MachineRound, type TrackedChecks } from "./machine-security-alerts";
