@@ -71,7 +71,8 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      if [[ $lab == *-prep ]] && prep_queued_over "$run" "$lab" "$PREP_PUSH_S" && ! push_prep "$run" "$id" "$lab" \n          && prep_queued_over "$run" "$lab" "$PREP_STUCK_S"; then
+      if [[ $lab == *-prep ]] && prep_queued_over "$run" "$lab" "$PREP_PUSH_S" && ! push_prep "$run" "$id" "$lab" \
+          && prep_queued_over "$run" "$lab" "$PREP_STUCK_S"; then
         # The push did not start it. Hand every runner of the run back, take the runner that
         # did not serve the prep out of the prep pool for QUARANTINE_S (its label carries the start time, and the
         # first reserve after that puts it back), then cancel the run and start it again so it places itself anew.
