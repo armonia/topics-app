@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.58 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-20 [skip ci]
+- La radice dati vecchia, se e' solo un collegamento, scrive dove punta
+- si capisce di chi è ogni card e da dove arriva
+- La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese
+- Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md
+- La barra della Board sta nello schermo a 1440 anche coi pannelli aperti
+- La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata
+- Lo schizzo della barra dei filtri, nel commento, in inglese
+- Le due estremità dello slider del dettaglio hanno un nome
+- Un sotto-agente parte su Claude Code solo se la persona lo chiede
+- La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px
+- Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px
+- Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza
+
 ## 2.4.57 — 2026-11-20
 
 ### Sotto il cofano

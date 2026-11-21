@@ -1,5 +1,83 @@
 [
   {
+    "version": "2.4.58",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "La radice dati vecchia, se e' solo un collegamento, scrive dove punta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "si capisce di chi è ogni card e da dove arriva",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board sta nello schermo a 1440 anche coi pannelli aperti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo schizzo della barra dei filtri, nel commento, in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due estremità dello slider del dettaglio hanno un nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente parte su Claude Code solo se la persona lo chiede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.57",
     "date": "2026-11-20",
     "sections": {
