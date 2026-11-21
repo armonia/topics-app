@@ -111,6 +111,9 @@ export const PROJECT_WORDS = new Set([
   "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // pem, aws: the key file format and the cloud whose token prefix the secret mask recognises (`server/lib/secret-redaction.ts`);
+  // ubuntu: the distribution of the fixture server the read-only SSH probe reads (`server/lib/machine-security-ssh.test.ts`).
+  "pem", "aws", "ubuntu",
   // callee: the person a call on behalf rings, a field of the voice bridge protocol (`server/services/voice-call/prompts.ts`).
   "callee",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).
