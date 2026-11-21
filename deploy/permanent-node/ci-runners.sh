@@ -130,6 +130,40 @@ RestartSec=10
 WantedBy=multi-user.target
 EOS
 
+# Watchdog (card 06e7894c): on 20/11 runner 0 stayed online and idle for GitHub while a job
+# carrying its label sat queued for 35+ minutes, so its listener had stopped polling. An idle
+# runner (no Runner.Worker) whose listener log has not been written for WATCHDOG_IDLE_MIN
+# minutes gets restarted; a busy one is never touched.
+cat > /usr/local/bin/ci-runner-watchdog.sh <<'EOS'
+#!/bin/bash
+idle_min=${WATCHDOG_IDLE_MIN:-15}
+for i in $(ls /srv | sed -n 's/^runner-//p'); do
+  systemctl is-active --quiet "ci-runner@$i.service" || continue
+  pgrep -u "ci$i" -x Runner.Worker >/dev/null && continue
+  last=$(find "/srv/runner-$i/_diag" -name 'Runner_*.log' -mmin "-$idle_min" 2>/dev/null | head -1)
+  [ -n "$last" ] && continue
+  logger -t ci-runner-watchdog "runner $i: listener log silent for ${idle_min}min, restarting"
+  systemctl restart "ci-runner@$i.service"
+done
+EOS
+chmod 755 /usr/local/bin/ci-runner-watchdog.sh
+cat > /etc/systemd/system/ci-runner-watchdog.service <<'EOS'
+[Unit]
+Description=Restart CI runners whose listener stopped polling
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ci-runner-watchdog.sh
+EOS
+cat > /etc/systemd/system/ci-runner-watchdog.timer <<'EOS'
+[Unit]
+Description=CI runner listener watchdog
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target
+EOS
+
 V=$(curl -fsSL https://api.github.com/repos/actions/runner/releases/latest | jq -r .tag_name | sed 's/^v//')
 tgz=/opt/actions-runner-$V.tar.gz
 [ -f "$tgz" ] || curl -fsSL -o "$tgz" "https://github.com/actions/runner/releases/download/v$V/actions-runner-linux-x64-$V.tar.gz"
@@ -165,6 +199,7 @@ for i in 0 $(seq 1 "$N"); do
 done
 systemctl daemon-reload
 systemctl enable ci-firewall.service >/dev/null
+systemctl enable --now ci-runner-watchdog.timer >/dev/null
 systemctl restart ci-firewall.service  # a re-run must apply the rules it just wrote
 systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
 # A unit changed by a re-run of this script takes effect on restart: only idle runners,

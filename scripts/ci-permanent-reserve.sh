@@ -34,6 +34,10 @@ SETTLE_S=${PERMANENT_SETTLE_S:-4}
 # (measured 20/11: 35+ minutes queued on an online, idle runner holding its label).
 PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
 PREP_POOL=permanent-prep
+# A quarantined runner rejoins the prep pool by itself after this long (card 06e7894c): it is
+# the only prep runner, so a quarantine nobody lifts would switch the whole pool off.
+QUARANTINE_S=${PERMANENT_QUARANTINE_S:-1800}
+QUARANTINE_PREFIX=prep-quarantine-
 RERUN_WAIT_TRIES=${PERMANENT_RERUN_WAIT_TRIES:-12}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
@@ -63,18 +67,33 @@ drop_stale() {  # bookings of runs that are over
       [[ $run =~ ^[0-9]+$ ]] || continue
       if [[ $lab == *-prep ]] && prep_stuck "$run" "$lab"; then
         # Hand every runner of the run back, take the runner that did not serve the prep
-        # out of the prep pool (quarantine: it comes back by hand, after someone looked at
-        # the node), then cancel the run and start it again so it places itself anew.
+        # out of the prep pool for QUARANTINE_S (its label carries the start time, and the
+        # first reserve after that puts it back), then cancel the run and start it again so it places itself anew.
         unbook "$id" "$lab"
         for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
           unbook "$sid" "${lab%-prep}"
         done
         unbook "$id" "$PREP_POOL"
-        echo "::warning::runner $id removed from the $PREP_POOL pool: prep of run $run queued over ${PREP_STUCK_S}s on it; run $run cancelled and rerun" >&2
+        gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$QUARANTINE_PREFIX$(date +%s)\"]}" >/dev/null 2>&1 || true
+        echo "::warning::runner $id removed from the $PREP_POOL pool for ${QUARANTINE_S}s: prep of run $run queued over ${PREP_STUCK_S}s on it; run $run cancelled and rerun" >&2
         restart_run "$run"
       elif [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
         unbook "$id" "$lab"
       fi
+    done
+}
+
+# Put runners whose quarantine has run out back into the prep pool. The pool label goes
+# back first, so a crash between the two calls never strands the runner outside it.
+rejoin_quarantined() {  # <runners json>
+  local id lab
+  jq -r --arg p "$QUARANTINE_PREFIX" '.runners[] | .id as $id | .labels[].name | select(startswith($p)) | "\($id) \(.)"' <<<"$1" |
+    while read -r id lab; do
+      [[ ${lab#"$QUARANTINE_PREFIX"} =~ ^[0-9]+$ ]] || continue
+      [ $(($(date +%s) - ${lab#"$QUARANTINE_PREFIX"})) -ge "$QUARANTINE_S" ] || continue
+      gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$PREP_POOL\"]}" >/dev/null 2>&1 || true
+      unbook "$id" "$lab"
+      echo "::warning::runner $id back in the $PREP_POOL pool after ${QUARANTINE_S}s of quarantine" >&2
     done
 }
 
@@ -120,6 +139,7 @@ reserve() {
   [[ $want =~ ^[0-9]+$ ]] && [ "$want" -gt 0 ] || { echo 0; return 0; }
   all=$(runners) || { echo 0; return 0; }
   drop_stale "$all"
+  rejoin_quarantined "$all"
   all=$(runners) || { echo 0; return 0; }
   # Free = online, idle, one of ours by name (a runner registered by anybody else with
 # the same label is never booked), in the pool, booked by nobody.

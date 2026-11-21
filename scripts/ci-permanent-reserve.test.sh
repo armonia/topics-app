@@ -114,6 +114,18 @@ run release pn-741-1
 ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
 ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
 
+# Quarantine over: runner 1 carries a quarantine label from 31 minutes ago, runner 2 one from
+# 5 minutes ago (both out of the pool). The next reserve puts runner 1 back, runner 2 stays out.
+seed "$FOUR"
+t=$(date +%s)
+run "for i in 1 2; do gh_api DELETE /actions/runners/\$i/labels/permanent; done; gh_api POST /actions/runners/1/labels '{\"labels\":[\"prep-quarantine-$((t - 1860))\"]}'; gh_api POST /actions/runners/2/labels '{\"labels\":[\"prep-quarantine-$((t - 300))\"]}'" >/dev/null
+run reserve permanent 1 pn-760-1 >/dev/null 2>&1
+ok "an expired quarantine puts the runner back in the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep") != null' "$STATE")" true
+ok "...and its quarantine label is gone" "$(jq -r '[.runners[0].labels[].name | select(startswith("prep-quarantine-"))] | length' "$STATE")" 0
+ok "a quarantine of 5 minutes holds" "$(jq -r '.runners[1].labels | map(.name) | index("permanent-prep")' "$STATE")" null
+ok "...the next prep booking takes the rejoined runner" "$(run reserve permanent-prep 1 pn-761-1-prep 2>/dev/null)" 1
+ok "...it is runner 1" "$(booked pn-761-1-prep)" 1
+
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0
 ok "garbage count books nothing" "$(run reserve permanent abc pn-300-1)" 0
