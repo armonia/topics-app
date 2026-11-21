@@ -6,7 +6,7 @@
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export STATE="$tmp/state.json" PERMANENT_SETTLE_S=1
+export STATE="$tmp/state.json" PERMANENT_SETTLE_S=1 PERMANENT_NUDGE_WAIT_S=0
 fail=0
 ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got $2 want $3"; fail=1; fi; }
 
@@ -21,10 +21,18 @@ gh_api() {
       "GET /actions/runners?"*) jq '{runners}' "$STATE" ;;
       "GET /actions/runs/"*/jobs*) jq --arg r "$(basename "$(dirname "${p%%\?*}")")" '{jobs: (.jobs[$r] // [])}' "$STATE" ;;
       "GET /actions/runs/"*) jq --arg r "${p##*/}" '{status: (.runs[$r] // "in_progress")}' "$STATE" ;;
+      "POST /actions/runs/"*/cancel)
+        jq --arg r "$(basename "$(dirname "$p")")" '.runs[$r] = "completed"' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
+      "POST /actions/runs/"*/rerun)
+        jq --arg r "$(basename "$(dirname "$p")")" '.reruns += [$r]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
       "POST /actions/runners/"*/labels)
         id=${p#/actions/runners/}; id=${id%/labels}
         l=$(jq -r '.labels[0]' <<<"$body")
         jq --argjson id "$id" --arg l "$l" '(.runners[] | select(.id == $id) | .labels) += [{name: $l}]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
+        # A prep job flagged starts_on_nudge starts when its prep label is written again.
+        case $l in pn-*-prep) r=${l#pn-}; r=${r%%-*}
+          jq --arg r "$r" '.jobs[$r] |= map(if .starts_on_nudge then .status = "in_progress" else . end)' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE" ;;
+        esac
         # INJECT: another run books the same runner in the same instant
         if [ -n "${INJECT:-}" ]; then
           jq --argjson id "$id" --arg l "$INJECT" '(.runners[] | select(.id == $id) | .labels) += [{name: $l}]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
@@ -47,7 +55,7 @@ seed() {  # <runners spec: "id:status:busy:label ..."> [runs json]
     js=$(jq --argjson id "$id" --arg st "$st" --argjson b "$b" --arg l "$l" \
       '. + [{id: $id, name: "topics-permanent-node-\($id)", status: $st, busy: $b, labels: ([$l] | map({name: .}))}]' <<<"$js")
   done
-  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs, jobs: ($ENV.JOBS // "{}" | fromjson)}' > "$STATE"
+  jq -n --argjson r "$js" --argjson runs "${2:-{\}}" '{runners: $r, runs: $runs, reruns: [], jobs: ($ENV.JOBS // "{}" | fromjson)}' > "$STATE"
 }
 booked() { jq -r --arg l "$1" '[.runners[] | select(any(.labels[]; .name == $l))] | length' "$STATE"; }
 double() { jq '[.runners[] | select([.labels[].name | select(startswith("pn-"))] | length > 1)] | length' "$STATE"; }
@@ -92,6 +100,43 @@ JOBS='{"730":[{"status":"completed","conclusion":"failure","labels":["pn-730-1-p
 run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-730-1\"]}"' >/dev/null
 ok "a failed prep frees the shard booking" "$(run reserve permanent 4 pn-731-1)" 4
 ok "...and its label is gone" "$(booked pn-730-1)" 0
+
+# Run 740: its prepare-e2e has sat queued for 10 minutes on its booked runner, and a label nudge does not start it. Both
+# bookings are released and the run is cancelled; a prep queued 1 minute is left alone.
+old=$(jq -rn 'now - 600 | todate'); new=$(jq -rn 'now - 60 | todate')
+JOBS="{\"740\":[{\"status\":\"queued\",\"created_at\":\"$old\",\"labels\":[\"pn-740-1-prep\"]}],\"750\":[{\"status\":\"queued\",\"created_at\":\"$new\",\"labels\":[\"pn-750-1-prep\"]}]}" seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/4/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-740-1-prep\"]}"; gh_api POST /actions/runners/2/labels "{\"labels\":[\"pn-740-1\"]}"; gh_api POST /actions/runners/3/labels "{\"labels\":[\"pn-750-1-prep\"]}"' >/dev/null
+ok "a prep stuck in the queue frees the whole run" "$(run reserve permanent 4 pn-741-1 2>/dev/null)" 3
+ok "...prep label gone" "$(booked pn-740-1-prep)" 0
+ok "...shard label gone" "$(booked pn-740-1)" 0
+ok "...run cancelled" "$(jq -r '.runs["740"]' "$STATE")" completed
+ok "...and rerun" "$(jq -r '.reruns | join(",")' "$STATE")" 740
+ok "...runner 1 quarantined out of the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep")' "$STATE")" null
+ok "a prep queued only a minute keeps its booking" "$(booked pn-750-1-prep)" 1
+# Next round (run 741 is over): the quarantined runner is not picked for a prep, runner 4 is.
+run release pn-741-1
+ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
+ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
+# Run 770: prep queued 10 minutes, but the label nudge makes it start: no quarantine, no cancel.
+JOBS="{\"770\":[{\"status\":\"queued\",\"starts_on_nudge\":true,\"created_at\":\"$old\",\"labels\":[\"pn-770-1-prep\"]}]}" seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-770-1-prep\"]}"' >/dev/null
+run reserve permanent 4 pn-771-1 >/dev/null 2>&1
+ok "a prep that starts after the nudge keeps its booking" "$(booked pn-770-1-prep)" 1
+ok "...runner 1 stays in the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep") != null' "$STATE")" true
+ok "...run not cancelled" "$(jq -r '.runs["770"] // "none"' "$STATE")" none
+ok "...and not rerun" "$(jq -r '.reruns | length' "$STATE")" 0
+
+# Quarantine over: runner 1 carries a quarantine label from 31 minutes ago, runner 2 one from
+# 5 minutes ago (both out of the pool). The next reserve puts runner 1 back, runner 2 stays out.
+seed "$FOUR"
+t=$(date +%s)
+run "for i in 1 2; do gh_api DELETE /actions/runners/\$i/labels/permanent; done; gh_api POST /actions/runners/1/labels '{\"labels\":[\"prep-quarantine-$((t - 1860))\"]}'; gh_api POST /actions/runners/2/labels '{\"labels\":[\"prep-quarantine-$((t - 300))\"]}'" >/dev/null
+run reserve permanent 1 pn-760-1 >/dev/null 2>&1
+ok "an expired quarantine puts the runner back in the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep") != null' "$STATE")" true
+ok "...and its quarantine label is gone" "$(jq -r '[.runners[0].labels[].name | select(startswith("prep-quarantine-"))] | length' "$STATE")" 0
+ok "a quarantine of 5 minutes holds" "$(jq -r '.runners[1].labels | map(.name) | index("permanent-prep")' "$STATE")" null
+ok "...the next prep booking takes the rejoined runner" "$(run reserve permanent-prep 1 pn-761-1-prep 2>/dev/null)" 1
+ok "...it is runner 1" "$(booked pn-761-1-prep)" 1
 
 seed "$FOUR"
 ok "zero wanted books nothing" "$(run reserve permanent 0 pn-300-1)" 0
