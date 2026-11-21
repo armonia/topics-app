@@ -61,4 +61,4 @@ export function addCommandJob(db: Database, clock: { now: Date }, id: string, pa
       patch.nextRunAt ?? clock.now.toISOString(), clock.now.toISOString(), clock.now.toISOString());
 }
 
-export const runsOf = (db: Database, jobId: string) => db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? ORDER BY created_at, occurrence_key").all(jobId) as Array<Record<string, any>>;
+export const runsOf = (db: Database, jobId: string) => db.query("SELECT * FROM scheduled_job_runs WHERE job_id = ? ORDER BY created_at, occurrence_key").all(jobId) as Array<Record<string, any>>; // allow-any: untyped SQLite row in a test helper
