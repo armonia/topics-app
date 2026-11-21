@@ -328,8 +328,9 @@ describe("giro completo per sistema", () => {
     expect(a.checks.find((c) => c.key === "updates")).toMatchObject({ status: "warn", detail: "1 aggiornamento di sicurezza in attesa da 16 giorni" });
     const b = await probeMachineSecurity(envOf("linux", { "apt list": res("Listing...\n") }, { ...old, "/var/run/reboot-required": NOW - 9 * 86_400_000 }));
     expect(b.checks.find((c) => c.key === "updates")).toMatchObject({ status: "warn", detail: "Riavvio in attesa da 9 giorni per gli aggiornamenti" });
+    // SEC-01: reboot-required older than 24 h warns
     const stale = await probeMachineSecurity(envOf("linux", { "apt list": res("Listing...\n") }, { ...old, "/var/run/reboot-required": NOW - 25 * 3_600_000 }));
-    expect(stale.checks.find((c) => c.key === "updates")?.status).toBe("warn");
+    expect(stale.checks.find((c) => c.key === "updates")).toMatchObject({ status: "warn", detail: "Riavvio in attesa da 1 giorno per gli aggiornamenti" }); // allow-italian: asserts the user-facing sentence
     const fresh = await probeMachineSecurity(envOf("linux", { "apt list": res("Listing...\n") }, { ...old, "/var/run/reboot-required": NOW - 23 * 3_600_000 }));
     expect(fresh.checks.find((c) => c.key === "updates")?.status).toBe("ok");
   });

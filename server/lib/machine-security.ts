@@ -428,7 +428,7 @@ async function linuxUpdates(env: ProbeEnv): Promise<SecurityCheck> {
   if (!ok(apt) && last === null) return unknown("updates", "Aggiornamenti", ok(apt) ? "nessun registro" : whyNoAnswer(apt));
   const pending = ok(apt) ? parseAptSecurityPending(apt.stdout) : 0;
   if (reboot !== null && now - reboot > REBOOT_WARN_MS) {
-    return { key: "updates", status: "warn", detail: clip(`Riavvio in attesa da ${daysBetween(now, reboot)} giorni per gli aggiornamenti`) };
+    return { key: "updates", status: "warn", detail: clip(`Riavvio in attesa da ${plural(daysBetween(now, reboot), "giorno", "giorni")} per gli aggiornamenti`) };
   }
   if (pending > 0 && (last === null || now - last > PENDING_WARN_DAYS * DAY_MS)) {
     return { key: "updates", status: "warn", detail: clip(`${plural(pending, "aggiornamento", "aggiornamenti")} di sicurezza in attesa${last ? ` da ${daysBetween(now, last)} giorni` : ""}`) };
