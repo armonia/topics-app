@@ -73,7 +73,7 @@ test("each machine row carries its shield and the four checks", async ({ page },
   if (dir) {
     for (const width of [375, 768, 1440, 3440]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.waitForTimeout(300);
+      await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(width);
       await page.screenshot({ path: `${dir}/security-${width}.png` });
     }
   }
