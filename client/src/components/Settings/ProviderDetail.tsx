@@ -39,6 +39,7 @@ import { CliAgentRow } from './CliAgentsPanel';
 import { ProviderDefaultModel } from './ProviderDefaultModel';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
+import { ReadableViewChoice } from './ReadableViewChoice';
 import { ClaudePlanUsage } from './ClaudePlanUsage';
 import { Spinner } from '../Shared/Spinner';
 
@@ -377,6 +378,7 @@ export function ProviderDetail(props: ProviderDetailProps) {
                   onSave={props.onSave}
                 />
                 <TurnCheckpointsChoice settings={settings} saving={props.saving} onSave={props.onSave} />
+                <ReadableViewChoice />
               </div>
             )}
           </>

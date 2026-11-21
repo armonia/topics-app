@@ -58,6 +58,7 @@ export const API_ROUTER_ORDER = [
   "providersRouter",
   "appSettingsRouter",
   "reasoningTranslationRouter",
+  "readableViewRouter",
   "calendarRouter",
   "heavySlotRouter",
   "agentChannelsRouter",
