@@ -1,3 +1,6 @@
+/**
+ * @covers MACHINE-03
+ */
 import { describe, expect, test } from "bun:test";
 import type { CheckKey, CheckStatus } from "../../shared/machine-health";
 import { alertKey, securityAlerts, WARN_AS_PROBLEM_MS, type MachineRound, type TrackedChecks } from "./machine-security-alerts";

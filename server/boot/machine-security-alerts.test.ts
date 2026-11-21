@@ -1,3 +1,6 @@
+/**
+ * @covers MACHINE-03
+ */
 import { beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
