@@ -17,6 +17,7 @@ import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 import { createReviewSweep } from "./tasks-review-sweep";
+import { createNothingToLand } from "./tasks-land-nothing";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -407,6 +408,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
+  const nothingToLand = createNothingToLand({ svc, broadcastToAll, opts, explain: explainNothingToLand });
+
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */
   async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
     if (!opts?.mainCiPort) return null;
@@ -710,8 +713,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // "nothing" = the branch has no commits main lacks BY ANCESTRY. That is
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
+        const verifiedEmpty = await nothingToLand.branchHasNoOwnCommits(taskId);
         await reapAfterLand(taskId, "nothing");
-        explainNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia");
+        nothingToLand.settle(projectId, taskId, "il ramo non porta commit che main non abbia", { recheck: landOpts?.recheck, verifiedEmpty });
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -789,7 +793,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
-          explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+          nothingToLand.settle(projectId, taskId, "non c'era nessun ramo da atterrare", { recheck: landOpts?.recheck, verifiedEmpty: true });
         } else if (cur && cur.status === "done" && cur.doneActor === "human") {
           // Same guard as the `conflict` branch, same reason: `landingState`
           // (written below, unconditionally) is enough to surface the "not
