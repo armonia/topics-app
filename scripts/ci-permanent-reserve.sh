@@ -30,6 +30,21 @@ set -uo pipefail
 
 PREFIX=pn-
 SETTLE_S=${PERMANENT_SETTLE_S:-4}
+# A prepare-e2e job queued this long on its booked runner gets a push; if it still does not
+# start after PUSH_WAIT_S, and has waited PREP_STUCK_S in all, the runner is quarantined.
+# Cause measured 20/11 (card 698fd926): the runner's broker session never got the
+# ForceTokenRefreshMessage that reloads its labels, so it was never offered the job carrying
+# the booking label although it was online and idle. Rewriting its labels sends the message.
+PREP_PUSH_S=${PERMANENT_PREP_PUSH_S:-120}
+PUSH_WAIT_S=${PERMANENT_PUSH_WAIT_S:-90}
+PUSH_POLL_S=${PERMANENT_PUSH_POLL_S:-5}
+PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
+PREP_POOL=permanent-prep
+# A quarantined runner rejoins the prep pool by itself after this long (card 06e7894c): it is
+# the only prep runner, so a quarantine nobody lifts would switch the whole pool off.
+QUARANTINE_S=${PERMANENT_QUARANTINE_S:-1800}
+QUARANTINE_PREFIX=prep-quarantine-
+RERUN_WAIT_TRIES=${PERMANENT_RERUN_WAIT_TRIES:-12}
 
 gh_api() {  # <method> <path> [json body]: the GitHub REST API, overridden by the test
   local m=$1 p=$2
@@ -56,10 +71,71 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      if [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
+      if [[ $lab == *-prep ]] && prep_queued_over "$run" "$lab" "$PREP_PUSH_S" && ! push_prep "$run" "$id" "$lab" \
+          && prep_queued_over "$run" "$lab" "$PREP_STUCK_S"; then
+        # The push did not start it. Hand every runner of the run back, take the runner that
+        # did not serve the prep out of the prep pool for QUARANTINE_S (its label carries the start time, and the
+        # first reserve after that puts it back), then cancel the run and start it again so it places itself anew.
+        unbook "$id" "$lab"
+        for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
+          unbook "$sid" "${lab%-prep}"
+        done
+        unbook "$id" "$PREP_POOL"
+        gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$QUARANTINE_PREFIX$(date +%s)\"]}" >/dev/null 2>&1 || true
+        echo "::warning::runner $id removed from the $PREP_POOL pool for ${QUARANTINE_S}s: prep of run $run queued over ${PREP_STUCK_S}s on it; run $run cancelled and rerun" >&2
+        restart_run "$run"
+      elif [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
         unbook "$id" "$lab"
       fi
     done
+}
+
+# Put runners whose quarantine has run out back into the prep pool. The pool label goes
+# back first, so a crash between the two calls never strands the runner outside it.
+rejoin_quarantined() {  # <runners json>
+  local id lab
+  jq -r --arg p "$QUARANTINE_PREFIX" '.runners[] | .id as $id | .labels[].name | select(startswith($p)) | "\($id) \(.)"' <<<"$1" |
+    while read -r id lab; do
+      [[ ${lab#"$QUARANTINE_PREFIX"} =~ ^[0-9]+$ ]] || continue
+      [ $(($(date +%s) - ${lab#"$QUARANTINE_PREFIX"})) -ge "$QUARANTINE_S" ] || continue
+      gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$PREP_POOL\"]}" >/dev/null 2>&1 || true
+      unbook "$id" "$lab"
+      echo "::warning::runner $id back in the $PREP_POOL pool after ${QUARANTINE_S}s of quarantine" >&2
+    done
+}
+
+# Cancel a run and start it again, so its PR is not left with a cancelled CI. A rerun is
+# refused while the run is still winding down, hence the wait for it to complete.
+restart_run() {  # <run id>
+  local i
+  gh_api POST "/actions/runs/$1/cancel" >/dev/null 2>&1 || true
+  for i in $(seq 1 "$RERUN_WAIT_TRIES"); do
+    [ "$(gh_api GET "/actions/runs/$1" 2>/dev/null | jq -r '.status // empty')" = completed ] && break
+    sleep 5
+  done
+  gh_api POST "/actions/runs/$1/rerun" >/dev/null 2>&1 || true
+}
+
+# Take the prep label off the runner and put it back: the label write makes the broker send
+# the runner a ForceTokenRefreshMessage, so it reloads its labels and is offered the job.
+# Waits up to PUSH_WAIT_S; succeeds when the prep job is no longer queued.
+push_prep() {  # <run id> <runner id> <prep label>
+  local waited=0
+  unbook "$2" "$3"
+  gh_api POST "/actions/runners/$2/labels" "{\"labels\":[\"$3\"]}" >/dev/null 2>&1 || true
+  echo "::warning::prep of run $1 queued over ${PREP_PUSH_S}s on runner $2: label rewritten to refresh its session" >&2
+  while [ "$waited" -lt "$PUSH_WAIT_S" ]; do
+    sleep "$PUSH_POLL_S"; waited=$((waited + PUSH_POLL_S))
+    prep_queued_over "$1" "$3" 0 || return 0
+  done
+  return 1
+}
+
+# True when the run's prepare-e2e job on this prep label has sat queued for more than <seconds>.
+prep_queued_over() {  # <run id> <prep label> <seconds>
+  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$3" '
+    any(.jobs[]?; .status == "queued" and any(.labels[]?; . == $l)
+      and (now - (.created_at | fromdateiso8601)) > $max)' >/dev/null 2>&1
 }
 
 # True when the run has jobs on this exact booking label and none is still queued or
@@ -85,6 +161,7 @@ reserve() {
   [[ $want =~ ^[0-9]+$ ]] && [ "$want" -gt 0 ] || { echo 0; return 0; }
   all=$(runners) || { echo 0; return 0; }
   drop_stale "$all"
+  rejoin_quarantined "$all"
   all=$(runners) || { echo 0; return 0; }
   # Free = online, idle, one of ours by name (a runner registered by anybody else with
 # the same label is never booked), in the pool, booked by nobody.
