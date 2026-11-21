@@ -19,6 +19,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - I test degli avvisi di sicurezza dichiarano MACHINE-07
 - pem, aws e ubuntu sono parole del progetto per il cancello dei nomi
 - Nomi inglesi nel test dell'oscuramento dei segreti
+- Nodo fisso: la CI ha la precedenza sulla CPU (ci.slice 500, Topics 100) anche in un nodo rifatto da zero
 
 ## 2.4.61 — 2026-11-21
 
