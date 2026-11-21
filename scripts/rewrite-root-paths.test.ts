@@ -7,6 +7,8 @@
  * behind is a dead link, a board id left behind is a board whose cards
  * vanished. The last test runs the script on a real SQLite file the way the
  * migration does.
+ *
+ * @covers PROJ-ID-01 (the folder is the project: its saved id follows the folder)
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
