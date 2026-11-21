@@ -99,6 +99,9 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // hang: plain English the dictionary lacks, a node that answers the TCP handshake and never the
+  // request behind it (`hangBreaker` in `server/services/task-dispatcher-remote-node.ts`).
+  "hang",
   // earlier, remeasurable: plain English the dictionary lacks, in the CI phase of the board (`supersedeEarlierRounds` in `server/services/ci-supersede.ts`,
   // `ciRemeasurable` in `server/services/ci-evidence.ts`: a run with no verdict that is measured again).
   "earlier", "remeasurable",

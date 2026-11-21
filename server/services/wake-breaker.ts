@@ -11,6 +11,12 @@
  * wakeable for a window that doubles on every further failure (15, 30, 60 min,
  * capped at 4 h). One run that starts closes the breaker. In memory on purpose:
  * a restart gives the node one fresh try, which is the cheap and honest default.
+ *
+ * `createWakeBreaker` is the same algorithm wired a second time, on its own
+ * state, for a node that is already awake and goes mute mid-run
+ * (`task-dispatcher-remote-node.ts`'s `hangBreaker`): the two must not share
+ * one map, or a run that merely STARTS on a node still hung from the last
+ * burial would close a breaker that tracks something else entirely.
  */
 export const WAKE_FAIL_THRESHOLD = 2;
 export const WAKE_OPEN_BASE_MS = 15 * 60_000;
