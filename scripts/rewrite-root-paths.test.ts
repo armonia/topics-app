@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { projectIdForPath } from "../shared/board";
 import { testTmpDir } from "../tests/integration/helpers";
-import { boardRekeys, parseMoves, remap, rewriteText, textPairs, withAliases } from "./rewrite-root-paths";
+import { boardRekeys, parseMoves, remap, rewriteText, spellings, withAliases } from "./rewrite-root-paths";
 
 const HOME = "/home/u";
 const OLD = `${HOME}/.agent-home`;
@@ -39,8 +39,8 @@ describe("the moves", () => {
 
 describe("the text", () => {
   const moves = withAliases(parseMoves(args, "--map"), parseMoves(["--alias", `${LINK}=${OLD}`], "--alias"));
-  const pairs = textPairs(moves, HOME);
-  const rw = (v: string) => rewriteText(v, moves, pairs);
+  const sp = spellings(moves, HOME);
+  const rw = (v: string) => rewriteText(v, sp);
 
   test("every spelling of the folder moves: plain, ~, $HOME, URL-encoded, the former link", () => {
     expect(rw(OLD)).toBe(`${HOME}/.topics/agents/main`);
@@ -52,8 +52,16 @@ describe("the text", () => {
     expect(rw(`ended in ${OLD}`)).toBe(`ended in ${HOME}/.topics/agents/main`);
   });
 
+  test("a home spelled with ~ or $HOME moves wherever the name ends: a code span, a sentence, a list", () => {
+    expect(rw("lives in `~/.agent-home`.")).toBe("lives in `~/.topics/agents/main`.");
+    expect(rw("cd ${HOME}/.agent-home; ls")).toBe("cd ${HOME}/.topics/agents/main; ls");
+    expect(rw("[~/.agent-home/workspace-b]")).toBe("[~/.topics/agents/b]");
+    expect(rw(`see ${OLD}/workspace-b.`)).toBe(`see ${HOME}/.topics/agents/b.`);
+    expect(rw("$HOME/.agent-home:$PATH")).toBe("$HOME/.topics/agents/main:$PATH");
+  });
+
   test("a folder that only shares the prefix stays", () => {
-    expect(rw(`${OLD}-other/x and ${OLD}x`)).toBe(`${OLD}-other/x and ${OLD}x`);
+    expect(rw(`${OLD}-other/x and ${OLD}x and ${OLD}.json and ~/.agent-home_2`)).toBe(`${OLD}-other/x and ${OLD}x and ${OLD}.json and ~/.agent-home_2`);
   });
 });
 

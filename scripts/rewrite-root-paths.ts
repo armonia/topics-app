@@ -76,36 +76,28 @@ export function withAliases(moves: Move[], aliases: Move[]): Move[] {
   return [...moves, ...extra].sort((a, b) => b.from.length - a.from.length);
 }
 
-/** [old, new] string pairs: each folder followed by whatever can end a path, and its other spellings. */
-export function textPairs(moves: Move[], home: string): Array<[string, string]> {
-  const pairs: Array<[string, string]> = [];
-  for (const { from, to } of moves) {
-    for (const end of ["/", '"', "'", " ", "\n", ")", "`", ",", "\t"]) pairs.push([from + end, to + end]);
-    pairs.push([encodeURIComponent(`${from}/`), encodeURIComponent(`${to}/`)]);
-    pairs.push([encodeURIComponent(from) + '"', encodeURIComponent(to) + '"']);
-    const rf = relative(home, from);
-    const rt = relative(home, to);
-    if (!rf.startsWith("..") && !rt.startsWith("..")) {
-      for (const pre of ["~/", "$HOME/"]) pairs.push([`${pre}${rf}/`, `${pre}${rt}/`]);
-    }
+/** Each moved folder as text can spell it (plain, URL-encoded, `~/`, `$HOME/`, `${HOME}/`) -> the same spelling of where it went. */
+export interface Spellings { find: RegExp; to: Map<string, string>; any: string[] }
+
+export function spellings(moves: Move[], home: string): Spellings {
+  const to = new Map<string, string>();
+  for (const m of moves) {
+    to.set(m.from, m.to);
+    to.set(encodeURIComponent(m.from), encodeURIComponent(m.to));
+    const rf = relative(home, m.from);
+    const rt = relative(home, m.to);
+    if (!rf.startsWith("..") && !rt.startsWith("..")) for (const pre of ["~/", "$HOME/", "${HOME}/"]) to.set(pre + rf, pre + rt);
   }
-  return pairs;
+  // Longest first: at the same position the most specific folder wins. The folder ends where the name
+  // stops: not before a letter, digit, `_` or `-` (`.agent-home2`, `.agent-home-old`), nor before `.x`
+  // (`.agent-home.json`); a `.`, `:` or backtick that closes a sentence or a code span does end it.
+  const alts = [...to.keys()].sort((a, b) => b.length - a.length).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return { find: new RegExp(`(?:${alts.join("|")})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9])`, "g"), to, any: [...to.keys()] };
 }
 
-/** A text value with every moved folder in it rewritten; the folder alone is rewritten too. */
-export function rewriteText(v: string, moves: Move[], pairs: Array<[string, string]>): string {
-  if (moves.some((m) => m.from === v)) return remap(v, moves)!;
-  // A folder that ends the text (a pane id is `project:<encoded folder>`) has no
-  // character after it for the pairs to match. First, so that a broader move's
-  // `folder/` pair does not take a more specific folder that ends the text.
-  let next = v;
-  tail: for (const m of moves) {
-    for (const [o, n] of [[m.from, m.to], [encodeURIComponent(m.from), encodeURIComponent(m.to)]] as const) {
-      if (next.endsWith(o)) { next = next.slice(0, -o.length) + n; break tail; }
-    }
-  }
-  for (const [o, n] of pairs) next = next.split(o).join(n);
-  return next;
+/** A text value with every moved folder in it rewritten, in one pass: a new path is never rewritten again. */
+export function rewriteText(v: string, s: Spellings): string {
+  return v.replace(s.find, (m) => s.to.get(m)!);
 }
 
 /** Old board id -> new board id and the old folder, for every folder in `folders` a move covers (and its former spellings). */
@@ -137,7 +129,7 @@ if (import.meta.main) {
     process.exit(2);
   }
   const moves = withAliases(direct, aliases);
-  const pairs = textPairs(moves, home);
+  const sp = spellings(moves, home);
 
   const db = new Database(dbPath);
   db.run("PRAGMA busy_timeout = 10000");
@@ -180,22 +172,18 @@ if (import.meta.main) {
     console.log(`board_aliases: ${rekeys.size} ${dryRun ? "would be recorded" : "recorded"}`);
   }
 
-  // What the scan looks for: each folder bare, plain and URL-encoded, so a value that ENDS with the
-  // folder (a pane id `project:<encoded folder>`, "ended in <folder>") is found too; the pairs all
-  // carry a character after the folder and missed it. rewriteText decides what really changes.
-  const anyOld = [...new Set([
-    ...moves.flatMap((m) => [m.from, encodeURIComponent(m.from)]),
-    ...pairs.map(([o]) => o).filter((o) => !o.startsWith("/") && !o.startsWith("%2F")),
-  ])];
+  // What the scan looks for: every spelling bare, so a value that ENDS with the folder (a pane id
+  // `project:<encoded folder>`, "ended in <folder>") is found too. rewriteText decides what changes.
+  const anyOld = sp.any;
   for (const t of tables) {
     const cols = columns(t).filter((c) => (c.type === "" || /TEXT|CHAR|CLOB|JSON/i.test(c.type))
       && !HISTORY.has(`${t}.${c.name}`)
       && (PATH_KEYS.has(`${t}.${c.name}`) || (c.name !== "id" && !c.name.endsWith("_id") && c.name !== "slug")));
     for (const { name: col } of cols) {
-      const where = `(${anyOld.map(() => `instr("${col}", ?) > 0`).join(" OR ")} OR "${col}" IN (${moves.map(() => "?").join(",")}))`;
+      const where = `(${anyOld.map(() => `instr("${col}", ?) > 0`).join(" OR ")})`;
       let rows: { rid: number; v: string }[];
       try {
-        rows = db.query(`SELECT rowid AS rid, "${col}" AS v FROM "${t}" WHERE ${where}`).all(...anyOld, ...moves.map((m) => m.from)) as { rid: number; v: string }[];
+        rows = db.query(`SELECT rowid AS rid, "${col}" AS v FROM "${t}" WHERE ${where}`).all(...anyOld) as { rid: number; v: string }[];
       } catch { continue; } // WITHOUT ROWID or a virtual table: not ours to rewrite
       if (!rows.length) continue;
       let changed = 0;
@@ -207,7 +195,7 @@ if (import.meta.main) {
         for (let i = 0; i < rows.length; i += BATCH) {
           db.transaction(() => {
             for (const { rid, v } of rows.slice(i, i + BATCH)) {
-              const next = rewriteText(v, moves, pairs);
+              const next = rewriteText(v, sp);
               if (next === v) continue;
               const n = update.run(next, rid).changes;
               changed += n || (merge ? merge.run(rid).changes : 0);
