@@ -180,7 +180,13 @@ if (import.meta.main) {
     console.log(`board_aliases: ${rekeys.size} ${dryRun ? "would be recorded" : "recorded"}`);
   }
 
-  const anyOld = pairs.map(([o]) => o);
+  // What the scan looks for: each folder bare, plain and URL-encoded, so a value that ENDS with the
+  // folder (a pane id `project:<encoded folder>`, "ended in <folder>") is found too; the pairs all
+  // carry a character after the folder and missed it. rewriteText decides what really changes.
+  const anyOld = [...new Set([
+    ...moves.flatMap((m) => [m.from, encodeURIComponent(m.from)]),
+    ...pairs.map(([o]) => o).filter((o) => !o.startsWith("/") && !o.startsWith("%2F")),
+  ])];
   for (const t of tables) {
     const cols = columns(t).filter((c) => (c.type === "" || /TEXT|CHAR|CLOB|JSON/i.test(c.type))
       && !HISTORY.has(`${t}.${c.name}`)
@@ -195,11 +201,16 @@ if (import.meta.main) {
       let changed = 0;
       if (!dryRun) {
         const update = db.prepare(`UPDATE OR IGNORE "${t}" SET "${col}" = ? WHERE rowid = ?`);
+        // A key made of a path (a retired pane) whose new value is already there: the same record
+        // twice, the old one goes. Anywhere else a collision is left and counted.
+        const merge = PATH_KEYS.has(`${t}.${col}`) ? db.prepare(`DELETE FROM "${t}" WHERE rowid = ?`) : null;
         for (let i = 0; i < rows.length; i += BATCH) {
           db.transaction(() => {
             for (const { rid, v } of rows.slice(i, i + BATCH)) {
               const next = rewriteText(v, moves, pairs);
-              if (next !== v) changed += update.run(next, rid).changes;
+              if (next === v) continue;
+              const n = update.run(next, rid).changes;
+              changed += n || (merge ? merge.run(rid).changes : 0);
             }
           })();
         }

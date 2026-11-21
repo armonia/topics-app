@@ -82,6 +82,9 @@ describe("the boards", () => {
     db.run("INSERT INTO topics VALUES (?, ?), (?, ?)", [`id-${OLD}`, `${OLD}/workspace-b`, "t2", "/elsewhere"]);
     db.run("INSERT INTO tasks VALUES (?, ?, ?)", ["k1", projectIdForPath(`${LINK}/workspace-b`), `look at ${OLD}/media/a.png`]);
     db.run("INSERT INTO retirements VALUES ('pane', ?)", [`project:${encodeURIComponent(`${OLD}/workspace-b`)}`]);
+    // the home's own pane, under both spellings: the folder ends the value, and both become the same pane
+    db.run("INSERT INTO retirements VALUES ('pane', ?), ('pane', ?)", [`project:${encodeURIComponent(OLD)}`, `project:${encodeURIComponent(LINK)}`]);
+    db.run("INSERT INTO topics VALUES (?, ?)", ["t3", `ended in ${OLD}`]);
     db.close();
 
     const run = spawnSync("bun", [join(import.meta.dir, "rewrite-root-paths.ts"), "--db", file, ...args, "--alias", `${LINK}=${OLD}`], { encoding: "utf8", env: { ...process.env, HOME } });
@@ -91,12 +94,16 @@ describe("the boards", () => {
     expect(after.query("SELECT id, project_path AS p FROM topics ORDER BY id").all()).toEqual([
       { id: `id-${OLD}`, p: `${HOME}/.topics/agents/b` },
       { id: "t2", p: "/elsewhere" },
+      { id: "t3", p: `ended in ${HOME}/.topics/agents/main` },
     ]);
     expect(after.query("SELECT project_id AS b, description AS d FROM tasks").get()).toEqual({
       b: projectIdForPath(`${HOME}/.topics/agents/b`),
       d: `look at ${HOME}/.topics/agents/main/media/a.png`,
     });
-    expect((after.query("SELECT ref_id AS r FROM retirements").get() as { r: string }).r).toBe(`project:${encodeURIComponent(`${HOME}/.topics/agents/b`)}`);
+    expect(after.query("SELECT ref_id AS r FROM retirements ORDER BY ref_id").all()).toEqual([
+      { r: `project:${encodeURIComponent(`${HOME}/.topics/agents/b`)}` },
+      { r: `project:${encodeURIComponent(`${HOME}/.topics/agents/main`)}` },
+    ]);
     const alias = (id: string) => after.query("SELECT new_id AS n, old_path AS p FROM board_aliases WHERE old_id = ?").get(id);
     const b = projectIdForPath(`${HOME}/.topics/agents/b`);
     expect(alias(projectIdForPath(`${OLD}/workspace-b`))).toEqual({ n: b, p: `${OLD}/workspace-b` });
