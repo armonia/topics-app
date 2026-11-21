@@ -257,7 +257,7 @@ export function resetProfileStatsCache(): void {
 /**
  * The projects the fallback may name in public: not a system folder. A project
  * whose name starts with '.', or whose path runs through a dot folder
- * (the old data root, `~/.claude/jarvis/home`), is an agent's home, not a project
+ * (an agent's home under `~/.topics/agents/`) is not a project
  * someone works on, and its folder name ended up verbatim in the Discord
  * presence («su .<agent home>»). With no other candidate the fallback stays null
  * and the line degrades to quiet or tasks.

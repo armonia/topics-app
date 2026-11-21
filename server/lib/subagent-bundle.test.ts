@@ -5,7 +5,7 @@
  * step that leaves.
  *
  * Two temporary repos stand in for the parent (this Mac) and the node: no
- * `origin` anywhere, the `~/.claude/jarvis/home` case the proposal names.
+ * `origin` anywhere, an agent's home, the case the proposal names.
  *
  * @covers SUBAGENT-26
  */
@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe("subagent-bundle: andata, commit sul ramo, ritorno", () => {
   it("file identici tra il ramo del figlio e quello adottato dal genitore, albero del genitore intatto", async () => {
-    // The parent repo: no `origin`, a plain local checkout, like `~/.claude/jarvis/home`.
+    // The parent repo: no `origin`, a plain local checkout, like an agent's home.
     const parent = tempDir("subagent-parent-");
     git(parent, "init", "-q", "-b", "main");
     writeFileSync(join(parent, "a.txt"), "base\n");
