@@ -16,7 +16,7 @@ import type { AfterRelay } from "./scope";
 import { late } from "./late";
 
 export function bootTimersShutdown(scope: AfterRelay) {
-  const { activeStreams, browserService, budgetGovernor, ctx, dispatchTimer, heartbeatTimer, landingAuditBoot, landingAuditTimer, openBrokerChatTurns, previewBrowser, relayLicenzaTimer, stopUiStateBackup, swapFreezer, taskDispatcher, webrtcBridge, whatIsStillWorking, worktreeGcBoot, worktreeGcTimer, wsHeartbeatTimer } = scope;
+  const { activeStreams, browserService, budgetGovernor, ctx, dispatchTimer, heartbeatTimer, landingAuditBoot, landingAuditTimer, openBrokerChatTurns, previewBrowser, relayLicenzaTimer, scheduleEngine, stopUiStateBackup, swapFreezer, taskDispatcher, webrtcBridge, whatIsStillWorking, worktreeGcBoot, worktreeGcTimer, wsHeartbeatTimer } = scope;
   /**
    * IL GC DI RIPOSO — restituire al sistema la memoria dei picchi passati.
    *
@@ -119,6 +119,8 @@ export function bootTimersShutdown(scope: AfterRelay) {
     }
     shutdownInProgress = true;
     console.log(`\n[Shutdown] Received ${signal}, closing browser service...`);
+    // First of all: no scheduled job starts once the shutdown has begun (R3).
+    scheduleEngine.stop();
     clearInterval(heartbeatTimer);
     clearInterval(wsHeartbeatTimer);
     clearTimeout(late.staleStreamTimer);
