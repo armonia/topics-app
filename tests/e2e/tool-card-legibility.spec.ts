@@ -285,6 +285,12 @@ test.describe.serial("Leggibilità delle card dei tool", () => {
       // …e le misure che le classi dichiarano vengono davvero applicate.
       expect(misura.padTop).toBe('6px');
       expect(misura.fontSize).toBe('11px');
+      // The letters are not the box: once highlighted, the text sits in a
+      // <code> child, which the global `code` rule sized at 0.8125em (~8.9px)
+      // while the box above still read 11px.
+      const letters = row.locator('[data-testid="tool-call-result"] code');
+      await expect(letters).toBeAttached({ timeout: 10_000 });
+      expect(await letters.evaluate((el) => getComputedStyle(el).fontSize)).toBe('11px');
     } finally {
       await deleteTopic(request, fresh.id);
     }

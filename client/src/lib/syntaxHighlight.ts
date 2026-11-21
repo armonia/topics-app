@@ -101,3 +101,24 @@ export function highlightCode(code: string, lang: string): string | null {
     return null;
   }
 }
+
+/**
+ * Guess a fence language for tool output that carries none: valid JSON
+ * (object or array) and unified diffs. Anything else stays plain, because a
+ * wrong guess would colour log lines as code.
+ */
+export function detectResultSyntax(text: string): string {
+  const t = text.trimStart();
+  if (t.length > MAX_HIGHLIGHT_CHARS) return '';
+  const first = t[0];
+  if (first === '{' || first === '[') {
+    try {
+      JSON.parse(t);
+      return 'json';
+    } catch {
+      return '';
+    }
+  }
+  if (/^(diff --git |--- .+\n\+\+\+ |@@ -\d)/.test(t)) return 'diff';
+  return '';
+}

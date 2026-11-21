@@ -914,6 +914,12 @@ non pronto SHALL restare il testo piatto attuale.
 - **WHEN** l'utente espande il body
 - **THEN** il contenuto renderizza come testo monospace piatto (comportamento attuale)
 
+#### Scenario: risultato JSON o diff evidenziato
+- **GIVEN** una tool call completata il cui risultato è JSON valido o un diff git
+- **WHEN** l'utente espande il body
+- **THEN** il risultato mostra token evidenziati, con la lingua dedotta dal contenuto
+- **AND** un risultato non riconosciuto, un JSON rotto o un testo oltre la soglia resta testo piatto
+
 ### Requirement: CHAT-CACHE-01 — I provider SDK marcano il prefisso stabile come cacheabile
 
 Il sistema SHALL marcare con un breakpoint di prompt caching le porzioni ripetute del

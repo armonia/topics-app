@@ -1670,6 +1670,14 @@ pre code {
   padding: 0;
 }
 
+/* A tool card's highlighted text sits in a <code> child, and the global `code`
+   rule above sizes inline code at 0.8125em: the card declared 11px, the letters
+   came out at ~8.9px, and shrank the moment the lazy tokenizers landed. Inside a
+   tool card the code is the block's own text, so it keeps the block's size. */
+.tool-card-code code {
+  font-size: inherit;
+}
+
 /* Code block copy button */
 .code-block-wrapper {
   position: relative;
