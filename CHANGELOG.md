@@ -2,10 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.61 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-21 [skip ci]
+- Revert "merge task 68c5aa1c-6a92-4b12-b71f-eed633f0c107: Approvazione senza commit chiude la card in review"
+
+## 2.4.60 — 2026-11-21
+
+### Sotto il cofano
+- Land senza niente da fondere: la persona approva e la card si chiude; la decisione non si riprova ogni sweep
+- sicurezza presidiata, la sicurezza di server e nodi si vede accanto a loro, apre una card quando diventa rossa, si aggiorna da sola e i segreti non si salvano in chiaro
+
 ## 2.4.59 — 2026-11-21
 
 ### Sotto il cofano
+- Lavori programmati: migrazione rinumerata dopo il conflitto con task-for-you
 - Il land usa il main locale quando origin/main è uno specchio senza storia in comune
+- Lavori programmati: rilievi della revisione (lavoro guasto non blocca gli altri, lavoro cancellato non parte)
 
 ## 2.4.58 — 2026-11-21
 
@@ -65,16 +79,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)
 - trova il checkout dopo uno spostamento e chiude la card già su main (#1371)
 - Quality bar: a skipped placement job is neutral, a skipped e2e shard stays red
+- Lavori programmati: copia della change in openspec
+- Lavori programmati 1/8: un motore solo (tabelle, schedule condiviso, tick, azione card)
+- Lavori programmati: fix lint e export inutilizzato
 - import RecordedHandler in codex.test.ts after the split
+- niente nome di persona
 - Cron di jarvis-channels: esiti e consumi dei giri in Topics (tabella cron_runs)
 - toglie i sette requisiti NOT BUILT, archivia le change costruite, stato in cima alle aperte
+- Lavori programmati: i test dichiarano cosa coprono
 - declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts
 - riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate
 - Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)
+- Lavori programmati: messaggi dello schedule condiviso in inglese
 - pair remaining bg-white/N and amber tone after main realign
 - filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming
 - declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows
 - Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati
+- Lavori programmati: nomi dei tipi senza doppioni client/server
 - Il nodo cloud non prende card che non può eseguire: rifiuti per repository e account tornano subito in coda, un avviso per causa
 - Test dei rifiuti del cloud (file nuovo, forzato: l'exclude locale ignora providers/)
 - Quota history sampler: one series per login, silent while a foreign writer is alive (card 29aa4259)
