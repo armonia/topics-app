@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.4.65",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "bisect a red landed batch instead of bouncing every card",
+          "en": "",
+          "scope": "ci-phase",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Stop relaunching a hung paired node forever",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop duplicate knip.jsonc entries and a closed one-off migration",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.62",
     "date": "2026-11-21",
     "sections": {
