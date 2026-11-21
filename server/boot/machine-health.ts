@@ -18,6 +18,8 @@ import type { MachineSecurityReport } from "../../shared/machine-health";
 import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
+import { probeSshServer, readSshServers, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { runBounded } from "../lib/machine-security-env";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
@@ -84,24 +86,32 @@ export function startMachineHealth(ctx: AppContext): void {
     now: Date.now,
   });
 
+  // Servers without Topics, from the servers file; read on every round so an edit needs no restart.
+  const sshServers = new Map<string, SshServer>();
+  const lastSsh = new Map<string, MachineSecurityReport>();
+
   const targetsNow = (): Array<HealthTarget & { baseUrl: string | null }> => {
     const local = ctx.machineStore.upsertLocal();
     const nodes = ctx.machineStore.list().filter((m) => m.id !== local.id && !!m.baseUrl && !isCloudBaseUrl(m.baseUrl));
     return [
       { id: local.id, name: local.name, kind: "local", baseUrl: null },
       ...nodes.map((m) => ({ id: m.id, name: m.name, kind: "remote" as const, baseUrl: m.baseUrl })),
+      ...[...sshServers].map(([id, s]) => ({ id, name: s.host, kind: "remote" as const, baseUrl: null })),
     ];
   };
   const baseUrlOf = new Map<string, string | null>();
 
   const health = createMachineHealth({
     targets: () => {
+      sshServers.clear();
+      for (const s of readSshServers(ctx.APP_DATA_DIR)) sshServers.set(sshServerId(s), s);
       const all = targetsNow();
       baseUrlOf.clear();
       for (const t of all) baseUrlOf.set(t.id, t.baseUrl);
       return all.map(({ id, name, kind }) => ({ id, name, kind }));
     },
     readMetrics: async (t) => {
+      if (sshServers.has(t.id)) return null;
       if (t.kind === "local") {
         const local = readLocalMetrics();
         return { cpu: local.cpuPct, mem: local.memPct };
@@ -121,6 +131,12 @@ export function startMachineHealth(ctx: AppContext): void {
     },
     probe: async (t): Promise<MachineSecurityReport | null> => {
       if (t.kind === "local") return probeLocal();
+      const ssh = sshServers.get(t.id);
+      if (ssh) {
+        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null);
+        lastSsh.set(t.id, report);
+        return report;
+      }
       const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
       return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
