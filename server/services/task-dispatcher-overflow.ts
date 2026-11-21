@@ -6,7 +6,7 @@
  */
 import { type Task } from "./tasks";
 import { carriedBranch } from "./branch-on-origin";
-import { wakeBreaker } from "./wake-breaker";
+import { nodeBlocked } from "./wake-breaker";
 import { effectiveSlots, machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { providerHold } from "../lib/provider-hold";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
@@ -61,7 +61,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines(); } catch (err) { log("reassign: machine list failed", err); return false; }
     const pinned = machines.find((m) => m.id === t.machineId);
-    if (!pinned || !machineForbidden(pinned, (id) => wakeBreaker.isOpen(id))) return false;
+    if (!pinned || !machineForbidden(pinned, nodeBlocked)) return false;
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const origin = overflowOriginOf(t.projectId);
@@ -70,7 +70,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       githubOrigin: origin.github && !cloudRefusesProject(t.projectId),
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     try {
       const moved = deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: target?.id ?? null } });
@@ -235,7 +235,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     if (!target) return false;
     let moved: Task | null = null;

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.65",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "bisect a red landed batch instead of bouncing every card",
+          "scope": "ci-phase"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.52",
     "date": "2026-11-19",
     "sections": {

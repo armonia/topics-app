@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { MachineSecurityReport } from "../../shared/machine-health";
-import type { RunResult, Runner } from "./machine-security";
+import { FAILED_LOGIN_PATTERN, type RunResult, type Runner } from "./machine-security";
 import { createSshProbeEnv, parseSshServers, probeSshServer, shellQuote, sshArgv } from "./machine-security-ssh";
 
 const server = { host: "srv.example.test", user: "audit", port: 2222 };
@@ -33,7 +33,7 @@ const UBUNTU: Record<string, RunResult> = {
   "'apt' 'list' '--upgradable'": done(APT),
   "'cat' '/var/log/apt/history.log'": done(APT_HISTORY),
   "'ufw' 'status'": done(UFW),
-  "'journalctl' '-u' 'ssh' '-u' 'sshd' '--since' '24 hours ago' '--no-pager'": done(JOURNAL),
+  [["journalctl", "-u", "ssh", "-u", "sshd", "--since", "24 hours ago", "--no-pager", "--grep", FAILED_LOGIN_PATTERN].map(shellQuote).join(" ")]: done(JOURNAL),
 };
 
 describe("MACHINE-08 server list", () => {
