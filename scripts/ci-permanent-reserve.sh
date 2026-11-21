@@ -75,6 +75,8 @@ drop_stale() {  # bookings of runs that are over
         # Nudge first: take the prep label off and put it back, which makes the broker
         # reload the runner's labels, and give the job NUDGE_WAIT_S to start.
         unbook "$id" "$lab"
+        gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$lab\"]}" >/dev/null 2>&1 || true
+        gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$lab\"]}" >/dev/null 2>&1 || true
         sleep "$NUDGE_WAIT_S"
         # Still queued after the nudge and past PREP_STUCK_S: hand every runner of the run
         # back, take this runner out of the prep pool for QUARANTINE_S (its label carries
