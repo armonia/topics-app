@@ -29,8 +29,8 @@ export function parseCounts(output: string): Counts {
 }
 
 if (import.meta.main) {
-  const knip = join(import.meta.dir, "..", "node_modules", ".bin", "knip-bun");
-  const run = Bun.spawnSync([knip, "--production"], { stdout: "pipe", stderr: "pipe" });
+  const deadCodeBin = join(import.meta.dir, "..", "node_modules", ".bin", "knip-bun");
+  const run = Bun.spawnSync([deadCodeBin, "--production"], { stdout: "pipe", stderr: "pipe" });
   const output = run.stdout.toString() + run.stderr.toString();
   const now = parseCounts(output);
   if (run.exitCode !== 0 && now.files + now.exports + now.types === 0) {
