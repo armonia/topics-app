@@ -144,6 +144,32 @@ describe("a new engine on the same state (R12)", () => {
     expect(runsOf(db, "j1").map(run => run.status)).toEqual(["interrupted", "interrupted"]);
   });
 
+  test("the registry closing a row with no code and no Stop (killed, lost with the machine) is `interrupted` and starts again once", () => {
+    const fake = fakeRunner();
+    const { engine, action } = buildEngine(db, fake.runner, clock);
+    addCommandJob(db, clock, "j1");
+    engine.tick();
+    action.ended({ processId: "proc-1", runId: fake.started[0].spec.runId, exitCode: null, stopped: false, timedOut: false });
+    expect(runsOf(db, "j1").map(run => run.status)).toEqual(["interrupted", "pending"]);
+  });
+
+  test("a code written between the first read and the life probe is not a lost command", () => {
+    const fake = fakeRunner();
+    const { engine } = buildEngine(db, fake.runner, clock);
+    addCommandJob(db, clock, "j1");
+    engine.tick();
+    const proc = fake.processes.get("proc-1")!;
+    // The first read finds nothing; by the time the probe runs the command has ended and written its code.
+    const firstRead = fake.runner.report;
+    let reads = 0;
+    fake.runner.report = (processId) => (++reads === 1 ? null : firstRead(processId));
+    fake.runner.life = () => { Object.assign(proc, { exitCode: 0, life: "dead" }); return "dead"; };
+    advance(20);
+    engine.tick();
+    expect(runsOf(db, "j1")[0].status).toBe("ok");
+    expect(fake.started).toHaveLength(1);
+  });
+
   test("a job marked not repeatable is never started again", () => {
     const fake = fakeRunner();
     const { engine } = buildEngine(db, fake.runner, clock);

@@ -145,7 +145,7 @@ export function jobArgv(argv: string[], exitPath: string, stopPath: string, time
     waitForGroupMembersScript(platform),
     "_topics_exit=$1; _topics_stop=$2; _topics_mark=$3; _topics_limit=$4; shift 4",
     "trap ':' TERM",
-    '( sleep "$_topics_limit" & _topics_sleep=$!; trap \'kill "$_topics_sleep" 2>/dev/null; exit 0\' TERM; wait "$_topics_sleep" && { printf 1 > "$_topics_mark"; kill -TERM "-$$"; } ) &',
+    '( trap \'kill "$_topics_sleep" 2>/dev/null; exit 0\' TERM; sleep "$_topics_limit" & _topics_sleep=$!; wait "$_topics_sleep" && { printf 1 > "$_topics_mark"; kill -TERM "-$$"; } ) &',
     "_topics_watchdog=$!",
     `trap 'rc=$?; trap - EXIT; kill "$_topics_watchdog" 2>/dev/null; ${DRAIN_IGNORES_TERM}; wait; _topics_wait_for_group_members; printf "%s\\n" "$rc" > "$_topics_exit"; exit "$rc"' EXIT`,
     `${START_UNLESS_STOPPING} "$_topics_stop" "$@"; exit "$?"`,

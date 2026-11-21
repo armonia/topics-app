@@ -129,7 +129,12 @@ export function createCommandAction(db: Database, door: CommandEngineDoor, optio
         if (!run.processRef) continue;
         const report = runner.report(run.processRef);
         if (report) { closeFromReport(run.id, run.processRef, report); continue; }
-        if (runner.life(run.processRef) === "dead") { interrupt(run, job(run.jobId)); continue; }
+        if (runner.life(run.processRef) === "dead") {
+          // The code may have been written between the first read and the probe: a command that ended well is not lost.
+          const late = runner.report(run.processRef);
+          if (late) closeFromReport(run.id, run.processRef, late); else interrupt(run, job(run.jobId));
+          continue;
+        }
         // Alive, or the probe did not answer: it is left running, and never started a second time.
         applyTimeLimit(run, job(run.jobId), instant);
       }
@@ -150,6 +155,8 @@ export function createCommandAction(db: Database, door: CommandEngineDoor, optio
         if (door.closeIfOpen(run.id, "cancelled", "Stopped.", tailsOf(end.processId))) options.onClosed?.();
         return;
       }
+      // Dead with no code and no Stop of ours (killed, lost with the machine): interrupted, not an error (R12).
+      if (end.exitCode === null && !end.timedOut) { interrupt({ ...run, processRef: end.processId }, job(run.jobId)); return; }
       closeFromReport(run.id, end.processId, { exitCode: end.exitCode, timedOut: end.timedOut });
     },
   };
