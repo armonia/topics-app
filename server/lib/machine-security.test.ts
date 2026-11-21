@@ -435,26 +435,78 @@ describe("Linux firewall written straight into the kernel", () => {
     expect(iptablesBlocksInput("-P INPUT ACCEPT\n-N OUT-GUARD\n-A OUTPUT -j OUT-GUARD\n-A OUT-GUARD -p tcp -j DROP\n")).toBe(false);
   });
 
-  test("nft: an input hook with policy drop or a trailing bare drop blocks, policy accept alone does not", () => {
-    const chain = (head: string, ...rules: string[]) => `table inet filter {\n\tchain input {\n\t\t${head}\n${rules.map((r) => `\t\t${r}\n`).join("")}\t}\n\tchain output {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n}\n`;
-    expect(nftBlocksInput(chain("type filter hook input priority filter; policy drop;", "ct state established,related accept", "tcp dport { 22, 443 } accept"))).toBe(true);
-    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept"))).toBe(false);
-    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept", "counter packets 12 bytes 720 drop"))).toBe(true);
+  test("iptables: a rule on one interface matches only that interface, whatever its target", () => {
+    // Tailscale's chain, jumped first from INPUT, trusts the VPN interface: the DROP after it still guards the rest.
+    expect(iptablesBlocksInput([
+      "-P INPUT ACCEPT", "-N ts-input", "-A INPUT -j ts-input", "-A INPUT -i lo -j ACCEPT",
+      "-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT", "-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT", "-A INPUT -j DROP",
+      "-A ts-input -s 100.64.0.0/10 ! -i tailscale0 -j DROP", "-A ts-input -i tailscale0 -j ACCEPT", "",
+    ].join("\n"))).toBe(true);
+    expect(iptablesBlocksInput("-P INPUT DROP\n-A INPUT -i wg0 -j ACCEPT\n-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT\n")).toBe(true);
+    // A DROP on a bridge or a private interface leaves the public one open.
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-A INPUT -i docker0 -j DROP\n")).toBe(false);
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-A INPUT -i ens10 -j DROP\n")).toBe(false);
   });
 
+  test("iptables: an ACCEPT for every packet lets it through before any later DROP or DROP policy", () => {
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-A INPUT -j ACCEPT\n-A INPUT -j DROP\n")).toBe(false);
+    expect(iptablesBlocksInput("-P INPUT DROP\n-A INPUT -p tcp -j ACCEPT\n")).toBe(false);
+  });
+
+  test("iptables: a goto does not come back, a comment narrows nothing", () => {
+    // Out of the goto target the packet meets INPUT's policy, never the DROP after the goto.
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-N SOME\n-A INPUT -g SOME\n-A INPUT -p tcp -j DROP\n-A SOME -p tcp -m tcp --dport 22 -j ACCEPT\n")).toBe(false);
+    expect(iptablesBlocksInput('-P INPUT ACCEPT\n-A INPUT -m comment --comment "open for now -j DROP" -j ACCEPT\n-A INPUT -j DROP\n')).toBe(false);
+    expect(iptablesBlocksInput("-P INPUT ACCEPT\n-A INPUT -m comment --comment drop-all -j DROP\n")).toBe(true);
+  });
+
+  test("nft: an input hook with policy drop or a trailing bare drop blocks, policy accept alone does not", () => {
+    const chain = (head: string, ...rules: string[]) => `table inet filter {\n\tchain input {\n\t\t${head}\n${rules.map((r) => `\t\t${r}\n`).join("")}\t}\n\tchain output {\n\t\ttype filter hook output priority filter; policy accept;\n\t}\n}\n`;
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy drop;", "ct state established,related accept", "tcp dport { 22, 443 } accept"), "ip")).toBe(true);
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept"), "ip")).toBe(false);
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "tcp dport 22 accept", "counter packets 12 bytes 720 drop"), "ip")).toBe(true);
+    // A bare accept takes every packet: a drop after it is never reached.
+    expect(nftBlocksInput(chain("type filter hook input priority filter; policy accept;", "accept", "drop"), "ip")).toBe(false);
+  });
+
+  test("nft: a table guards only its own address family, inet guards both", () => {
+    const drop = (family: string, policy = "drop") => `table ${family} filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy ${policy};\n\t}\n}\n`;
+    const both = (text: string) => [nftBlocksInput(text, "ip"), nftBlocksInput(text, "ip6")];
+    expect(both(drop("inet"))).toEqual([true, true]);
+    expect(both(drop("ip"))).toEqual([true, false]);
+    expect(both(drop("ip6"))).toEqual([false, true]);
+    // ARP has an input hook too, but it filters ARP frames, not IP packets.
+    expect(both(drop("arp"))).toEqual([false, false]);
+    expect(both(`${drop("ip6")}${drop("ip", "accept")}`)).toEqual([false, true]);
+  });
+
+  // The measured server: ufw inactive, INPUT of both families jumps to the same dropping chain.
+  const NODE_ANSWERS = {
+    "sshd -T": res("passwordauthentication no\n"),
+    "ss -ltnH": res(SS_NODE),
+    "ufw status": res("Status: inactive\n"),
+    "iptables -S": res(IPTABLES_NODE),
+    "ip6tables -S": res(IPTABLES_NODE),
+  };
+  const OPEN = res("-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n");
+
   test("ufw inactive but iptables drops: the access facts say firewall on and the check is ok", async () => {
-    const answers = {
-      "sshd -T": res("passwordauthentication no\n"),
-      "ss -ltnH": res(SS_NODE),
-      "ufw status": res("Status: inactive\n"),
-      "iptables -S": res(IPTABLES_NODE),
-    };
-    const on = await probeMachineSecurity(envOf("linux", answers));
+    const on = await probeMachineSecurity(envOf("linux", NODE_ANSWERS));
     expect(on.access_facts?.firewall).toBe(true);
     expect(on.checks.find((c) => c.key === "access")).toMatchObject({ status: "ok", detail: "Solo chiave SSH, 8 porte aperte, firewall acceso" });
     // Readable rules that let everything in: the firewall is off, not unknown.
-    const off = await probeMachineSecurity(envOf("linux", { ...answers, "iptables -S": res("-P INPUT ACCEPT\n-P FORWARD ACCEPT\n-P OUTPUT ACCEPT\n") }));
+    const off = await probeMachineSecurity(envOf("linux", { ...NODE_ANSWERS, "iptables -S": OPEN, "ip6tables -S": OPEN }));
     expect(off.access_facts?.firewall).toBe(false);
+  });
+
+  test("a firewall on IPv4 alone is off: the ports bound on every address answer over IPv6", async () => {
+    const v4only = await probeMachineSecurity(envOf("linux", { ...NODE_ANSWERS, "ip6tables -S": OPEN }));
+    expect(v4only.access_facts?.firewall).toBe(false);
+    expect(v4only.checks.find((c) => c.key === "access")).toMatchObject({ status: "warn", detail: "Firewall spento, solo chiave SSH, 8 porte aperte" });
+    // An nftables table of the inet family guards both, with nothing in iptables.
+    const bothFamilies = "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy drop;\n\t}\n}\n";
+    const native = await probeMachineSecurity(envOf("linux", { ...NODE_ANSWERS, "iptables -S": OPEN, "ip6tables -S": OPEN, "nft list ruleset": res(bothFamilies) }));
+    expect(native.access_facts?.firewall).toBe(true);
   });
 });
 
@@ -483,13 +535,13 @@ describe("Linux failed logins filtered on the machine", () => {
   });
 
   test("journal with no match exits 1 with '-- No entries --': zero attempts, auth.log not read", async () => {
-    let grepped = false;
+    let authLogRead = false;
     const check = await antivirus({
       journalctl: res("-- No entries --\n", { code: 1 }),
-      grep: () => { grepped = true; return res("", { code: 2 }); },
+      grep: () => { authLogRead = true; return res("", { code: 2 }); },
     });
     expect(check).toMatchObject({ status: "ok", detail: "0 tentativi di accesso respinti in 24 ore" });
-    expect(grepped).toBe(false);
+    expect(authLogRead).toBe(false);
   });
 
   test("journal killed at the deadline: auth.log filtered by grep, only the last 24 hours count", async () => {
@@ -499,7 +551,8 @@ describe("Linux failed logins filtered on the machine", () => {
       grep: (argv) => { seen.push(argv); return res(`${AUTH_LOG}\n`); },
     });
     expect(check).toMatchObject({ status: "ok", detail: "2 tentativi di accesso respinti in 24 ore" });
-    expect(seen[0]).toEqual(["grep", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
+    // -a: a log with NUL bytes (unclean shutdown) is still read as text, not answered with "binary file matches".
+    expect(seen[0]).toEqual(["grep", "-a", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
   });
 
   test("grep exit 1 with nothing printed is zero attempts, not an unreadable log", async () => {

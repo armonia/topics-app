@@ -303,34 +303,38 @@ export function countFailedLogins(text: string, sinceMs?: number): number {
   return pids.size + loose;
 }
 
-/** A rule of `iptables -S` (words after `-A <chain>`): its target, and whether it matches every inbound TCP packet. */
-function iptablesRule(words: string[]): { target: string; everyPacket: boolean } | null {
+/**
+ * A rule of `iptables -S` (words after `-A <chain>`): its target, whether it is
+ * a goto, and whether it matches every inbound TCP packet. Only "-p tcp" leaves
+ * the match open: any other condition narrows it, an input interface included,
+ * since the probe cannot tell the public interface from a VPN or private one.
+ */
+function iptablesRule(words: string[]): { target: string; goto: boolean; everyPacket: boolean } | null {
   const jump = words.findIndex((w) => w === "-j" || w === "-g");
   if (jump < 0 || jump + 1 >= words.length) return null;
-  const target = words[jump + 1];
-  // Only "-p tcp" and an input interface other than loopback leave the match open; anything else narrows it.
-  for (let i = 0; i < jump; i += 2) {
-    const flag = words[i];
-    const value = i + 1 < jump ? words[i + 1] : "";
-    const open = (flag === "-p" && value === "tcp") || (flag === "-i" && value !== "" && value !== "lo");
-    if (!open) return { target, everyPacket: false };
-  }
-  return { target, everyPacket: true };
+  const conditions = words.slice(0, jump).join(" ");
+  return { target: words[jump + 1], goto: words[jump] === "-g", everyPacket: conditions === "" || conditions === "-p tcp" };
 }
 
 /**
- * Whether `iptables -S` drops inbound traffic: the INPUT policy is DROP, or a
- * DROP/REJECT matching every inbound TCP packet is reached from INPUT through
- * jumps, before an ACCEPT or RETURN that would let the packet through. Chains
- * reached only from OUTPUT or FORWARD guard other traffic and do not count.
+ * Whether `iptables -S` (or `ip6tables -S`) drops inbound traffic: the INPUT
+ * policy is DROP, or a DROP/REJECT matching every inbound TCP packet is reached
+ * from INPUT through jumps, before an ACCEPT or RETURN that would let the packet
+ * through. Chains reached only from OUTPUT or FORWARD guard other traffic and
+ * do not count.
  */
 export function iptablesBlocksInput(text: string): boolean {
   const chains = new Map<string, string[][]>();
   let policy = "ACCEPT";
   for (const line of text.split("\n")) {
-    const words = line.trim().split(/\s+/);
+    // A comment changes no match and may hold spaces (or "-j"): it goes before the line is split into words.
+    const words = line.replace(/\s-m comment --comment (?:"(?:[^"\\]|\\.)*"|\S+)/g, "").trim().split(/\s+/);
     if (words[0] === "-P" && words[1] === "INPUT" && words[2]) policy = words[2];
-    else if (words[0] === "-A" && words[1]) chains.set(words[1], [...(chains.get(words[1]) ?? []), words.slice(2)]);
+    else if (words[0] === "-A" && words[1]) {
+      const rules = chains.get(words[1]);
+      if (rules) rules.push(words.slice(2));
+      else chains.set(words[1], [words.slice(2)]);
+    }
   }
   const seen = new Set<string>();
   // null = the packet falls through back to the caller.
@@ -344,7 +348,8 @@ export function iptablesBlocksInput(text: string): boolean {
       if (rule.target === "ACCEPT") return "accept";
       if (rule.target === "RETURN") return null;
       const inner = chains.has(rule.target) ? verdict(rule.target) : null;
-      if (inner) return inner;
+      // A goto does not come back: falling out of its target leaves this chain as well.
+      if (inner || rule.goto) return inner;
     }
     return null;
   };
@@ -353,20 +358,26 @@ export function iptablesBlocksInput(text: string): boolean {
 }
 
 /**
- * Whether `nft list ruleset` drops inbound traffic: a chain on the input hook
- * with policy drop, or with a bare drop/reject rule (a counter in front is
- * allowed) before any bare accept. Jumps are not followed: the rules written by
+ * Whether `nft list ruleset` drops inbound traffic of one address family: a
+ * chain on the input hook, in a table of that family or of `inet` (both), with
+ * policy drop, or with a bare drop/reject rule (a counter in front is allowed)
+ * before any bare accept. Jumps are not followed: the rules written by
  * iptables-nft are read by `iptablesBlocksInput`.
  */
-export function nftBlocksInput(text: string): boolean {
-  for (const m of text.matchAll(/chain\s+\S+\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)) {
-    const lines = m[1].split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.some((l) => /\bhook\s+input\b/.test(l))) continue;
-    if (lines.some((l) => /\bpolicy\s+drop\b/.test(l))) return true;
-    for (const l of lines) {
-      const bare = /^(?:counter(?:\s+packets\s+\d+\s+bytes\s+\d+)?\s+)?(accept|drop|reject)(?:\s+with\s.*)?$/.exec(l)?.[1];
-      if (bare === "accept") break;
-      if (bare) return true;
+export function nftBlocksInput(text: string, family: "ip" | "ip6"): boolean {
+  // The ruleset lists its tables one after the other, each header at the start of a line.
+  for (const table of text.split(/^table\s+/m).slice(1)) {
+    const kind = table.split(/\s/, 1)[0];
+    if (kind !== family && kind !== "inet") continue;
+    for (const m of table.matchAll(/chain\s+\S+\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)) {
+      const lines = m[1].split("\n").map((l) => l.trim()).filter(Boolean);
+      if (!lines.some((l) => /\bhook\s+input\b/.test(l))) continue;
+      if (lines.some((l) => /\bpolicy\s+drop\b/.test(l))) return true;
+      for (const l of lines) {
+        const bare = /^(?:counter(?:\s+packets\s+\d+\s+bytes\s+\d+)?\s+)?(accept|drop|reject)(?:\s+with\s.*)?$/.exec(l)?.[1];
+        if (bare === "accept") break;
+        if (bare) return true;
+      }
     }
   }
   return false;
@@ -531,9 +542,12 @@ async function linuxFirewall(env: ProbeEnv): Promise<boolean | "unknown"> {
   const ufw = await env.run(["ufw", "status"]);
   if (ok(ufw) && /Status:\s*active/i.test(ufw.stdout)) return true;
   // ufw off does not mean no firewall: rules written straight into iptables or nftables guard the machine too.
-  const [ipt, nft] = await Promise.all([env.run(["iptables", "-S"]), env.run(["nft", "list", "ruleset"])]);
-  if ((ok(ipt) && iptablesBlocksInput(ipt.stdout)) || (ok(nft) && nftBlocksInput(nft.stdout))) return true;
-  if (ok(ipt) || ok(nft) || ok(ufw)) return false;
+  // Both address families must drop: a port bound on `*` or `[::]` answers over IPv6 as well.
+  const [v4, v6, nft] = await Promise.all([env.run(["iptables", "-S"]), env.run(["ip6tables", "-S"]), env.run(["nft", "list", "ruleset"])]);
+  const guarded = (rules: RunResult, family: "ip" | "ip6") =>
+    (ok(rules) && iptablesBlocksInput(rules.stdout)) || (ok(nft) && nftBlocksInput(nft.stdout, family));
+  if (guarded(v4, "ip") && guarded(v6, "ip6")) return true;
+  if (ok(v4) || ok(v6) || ok(nft) || ok(ufw)) return false;
   // Not root: the kernel rules are not readable, ufw's own configuration is the only answer left.
   const conf = await env.readFile("/etc/ufw/ufw.conf");
   if (conf !== null) return /^ENABLED=yes/im.test(conf);
@@ -576,7 +590,8 @@ async function failedLoginsLastDay(env: ProbeEnv): Promise<number | null> {
   // With --grep and no match, journalctl prints "-- No entries --" and exits 1, like grep (systemd journalctl.c).
   if (!hidden && (ok(j) || (nothingMatched(j) && /^-- No entries --$/m.test(j.stdout)))) return countFailedLogins(j.stdout);
   // Journal too slow, unreadable or without pattern support: auth.log, filtered on the machine as well.
-  const g = await env.run(["grep", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
+  // -a: after an unclean shutdown auth.log holds NUL bytes, and grep would print "binary file matches" instead of the lines.
+  const g = await env.run(["grep", "-a", "-E", FAILED_LOGIN_PATTERN, "/var/log/auth.log"]);
   if (ok(g)) return countFailedLogins(g.stdout, env.now() - DAY_MS);
   if (nothingMatched(g) && g.stdout.trim() === "") return 0;
   return null;
