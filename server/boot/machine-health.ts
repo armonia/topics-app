@@ -21,6 +21,9 @@ import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
+import { createTaskService } from "../services/tasks";
+import { getAppSettings } from "../services/app-settings";
+import { createSecurityAlertsRound } from "./machine-security-alerts";
 
 /** How long to wait for a node's probe: its commands have 5 s each, in parallel, and the macOS log needs longer. */
 const REMOTE_PROBE_TIMEOUT_MS = 30_000;
@@ -72,6 +75,14 @@ async function isHomePc(machineId: string): Promise<boolean> {
 
 export function startMachineHealth(ctx: AppContext): void {
   const probeLocal = localSecurityProbe(ctx.APP_DATA_DIR);
+  const securityAlerts = createSecurityAlertsRound({
+    db: ctx.db,
+    svc: createTaskService(ctx.db, {}),
+    broadcast: (event) => ctx.broadcastToAll(event as Parameters<typeof ctx.broadcastToAll>[0]),
+    projectId: () => getAppSettings().securityAlertsProjectId,
+    statePath: join(sharedToolingDir(), "machines-security-alerts.json"),
+    now: Date.now,
+  });
 
   const targetsNow = (): Array<HealthTarget & { baseUrl: string | null }> => {
     const local = ctx.machineStore.upsertLocal();
@@ -124,6 +135,7 @@ export function startMachineHealth(ctx: AppContext): void {
       // A row without an address is an old name of this same computer (the network host name changes with the network).
       return row.baseUrl ? row.id : local.id;
     },
+    onRound: securityAlerts,
     filePath: join(sharedToolingDir(), MACHINES_HEALTH_FILE),
     statePath: join(sharedToolingDir(), "machines-health-history.json"),
     now: Date.now,
