@@ -407,29 +407,6 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
-  /**
-   * A land that found nothing to merge. Whoever decided it is not asked again:
-   * the decision (`land_intent`) is dropped, otherwise the review sweep puts the
-   * card back in the CI phase every ten minutes for the same empty land.
-   *
-   * A person's land (no `recheck`) is an explicit approval of a card that
-   * carries no code: it closes, with the note saying why. The automatic land
-   * decided nothing by itself, so there the card stays in review as before.
-   */
-  function settleNothingToLand(projectId: string, taskId: string, reason: string, landOpts?: LandRunOpts): void {
-    try { svc.setLandIntent({ taskId, who: null }); } catch (err) { console.warn(`[land] decisione di land non cancellata per ${taskId}:`, err); }
-    const cur = svc.get(taskId, { projectId })?.task;
-    if (!cur || cur.status !== "review" || landOpts?.recheck) return explainNothingToLand(projectId, taskId, reason);
-    try {
-      svc.addComment({ taskId, author: "system", content: `Niente da fondere (${reason}): approvata da una persona, la card si chiude senza land.` });
-      const done = svc.reviewDecision({ taskId, by: "user", decision: "approve", projectId });
-      broadcastToAll({ type: "task:updated", projectId, task: svc.get(taskId, { projectId })?.task ?? done });
-    } catch (err) {
-      console.warn(`[land] approvazione senza commit non riuscita per ${taskId}:`, err);
-      explainNothingToLand(projectId, taskId, reason);
-    }
-  }
-
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */
   async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
     if (!opts?.mainCiPort) return null;
@@ -734,7 +711,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
         await reapAfterLand(taskId, "nothing");
-        settleNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia", landOpts);
+        explainNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia");
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -812,7 +789,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
-          settleNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare", landOpts);
+          explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
         } else if (cur && cur.status === "done" && cur.doneActor === "human") {
           // Same guard as the `conflict` branch, same reason: `landingState`
           // (written below, unconditionally) is enough to surface the "not

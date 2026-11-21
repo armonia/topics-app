@@ -1,5 +1,49 @@
 [
   {
+    "version": "2.4.61",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-21 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Revert \"merge task 68c5aa1c-6a92-4b12-b71f-eed633f0c107: Approvazione senza commit chiude la card in review\"",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.60",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Land senza niente da fondere: la persona approva e la card si chiude; la decisione non si riprova ogni sweep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "sicurezza presidiata, la sicurezza di server e nodi si vede accanto a loro, apre una card quando diventa rossa, si aggiorna da sola e i segreti non si salvano in chiaro",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.59",
     "date": "2026-11-21",
     "sections": {
@@ -8,7 +52,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Lavori programmati: migrazione rinumerata dopo il conflitto con task-for-you",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il land usa il main locale quando origin/main è uno specchio senza storia in comune",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati: rilievi della revisione (lavoro guasto non blocca gli altri, lavoro cancellato non parte)",
           "en": "",
           "scope": null
         }
@@ -284,7 +338,28 @@
           "scope": null
         },
         {
+          "it": "Lavori programmati: copia della change in openspec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati 1/8: un motore solo (tabelle, schedule condiviso, tick, azione card)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati: fix lint e export inutilizzato",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "import RecordedHandler in codex.test.ts after the split",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "niente nome di persona",
           "en": "",
           "scope": null,
           "breaking": false
@@ -301,6 +376,11 @@
           "breaking": false
         },
         {
+          "it": "Lavori programmati: i test dichiarano cosa coprono",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts",
           "en": "",
           "scope": null,
@@ -314,6 +394,11 @@
         },
         {
           "it": "Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati: messaggi dello schedule condiviso in inglese",
           "en": "",
           "scope": null
         },
@@ -337,6 +422,11 @@
         },
         {
           "it": "Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati: nomi dei tipi senza doppioni client/server",
           "en": "",
           "scope": null
         },
