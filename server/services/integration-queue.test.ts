@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test";
 import { createIntegrationQueue, type IntegrationMeasure } from "./integration-queue";
 
 /** A fake world: `bad` breaks the CI of any batch it is in, `conflicting` cannot be merged. */
-function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number; solo?: string[]; landed?: boolean } = {}) {
+function world(opts: {
+  bad?: string[]; conflicting?: string[]; unmeasured?: boolean; maxBatch?: number; solo?: string[]; landed?: boolean;
+  bisect?: (taskIds: string[]) => { guilty: string[]; why?: Record<string, string> } | null;
+} = {}) {
   const batches: string[][] = [];
   const landed: string[] = [];
   const bounced: Array<{ id: string; why: string }> = [];
@@ -13,6 +16,7 @@ function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: bool
   const notes: Array<{ id: string; text: string }> = [];
   const q = createIntegrationQueue({
     landed: opts.landed,
+    bisect: opts.bisect ? async (_p, ids) => opts.bisect!(ids) : undefined,
     note: (id, text) => { notes.push({ id, text }); },
     maxBatch: opts.maxBatch,
     collectMs: 0,
@@ -39,7 +43,20 @@ function world(opts: { bad?: string[]; conflicting?: string[]; unmeasured?: bool
 }
 
 describe("integration queue, cards already on main", () => {
-  test("a red is not bisected (every card is inside the same commit): each card goes back and reads who landed with it", async () => {
+  test("a lotto of two lands where only the second breaks a cricchetto bisects to it alone: the first stays landed", async () => {
+    const w = world({ landed: true, bad: ["second"], bisect: (ids) => (ids.includes("second") ? { guilty: ["second"], why: { second: "any-budget 399 contro 398" } } : null) });
+    w.hold();
+    for (const id of ["first", "second"]) w.q.request("p", id);
+    w.release();
+    await w.q.idle("p");
+    expect(w.batches).toEqual([["first", "second"]]);
+    expect(w.landed).toEqual(["first"]);
+    expect(w.bounced.map((b) => b.id)).toEqual(["second"]);
+    expect(w.bounced[0]!.why).toBe("any-budget 399 contro 398");
+    expect(w.notes.find((n) => n.id === "first")!.text).toContain("second");
+  });
+
+  test("with no answer on who broke it (no bisect given, or it cannot place the cards), every card of the batch goes back, each reading who landed with it", async () => {
     const w = world({ landed: true, bad: ["c"] });
     w.hold();
     for (const id of ["a", "b", "c"]) w.q.request("p", id);
