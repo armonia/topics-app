@@ -2049,6 +2049,9 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     const stamped: Array<[string, string]> = [];
     const router = createTasksRouter(makeCtx(db, broadcasts), dispatcher, {
       autoMerge,
+      // The branch is verified to carry no commit of its own: the person's empty land closes the card.
+      taskCheckoutRef: async () => ({ cwd: "/repo", commit: null }),
+      ownCommitFiles: async () => [],
       markLandPending: (taskId: string) => { pending.push(taskId); },
       stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
     } as any);
@@ -2143,11 +2146,11 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     expect(t.comments.some((c) => c.content.includes("Land NON riuscito (errore interno)"))).toBe(true);
     expect(b.stamped).toContainEqual([ids[1]!, "unlanded"]);
     // E le vicine hanno girato davvero (qui il banco risponde «niente da
-    // portare»): il loro esito è nel thread e nemmeno loro si chiudono, perché
-    // nessuna ha visto un merge.
+    // portare»): il land lo ha chiesto una persona, quindi si chiudono con la
+    // nota «niente da fondere» e senza ritentare.
     const vicina = svc.get(ids[0]!)!;
-    expect(vicina.task.status).toBe("review");
-    expect(vicina.comments.some((c) => c.content.includes("Niente da atterrare"))).toBe(true);
+    expect(vicina.task.status).toBe("done");
+    expect(vicina.comments.some((c) => c.content.includes("Niente da fondere"))).toBe(true);
   });
 
   test("due click su «Landa» sulla stessa card = UN land", async () => {
@@ -2164,7 +2167,8 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
     // quel click chiudeva la card comunque, senza che niente girasse. Adesso non
     // c'è approvazione da nessuna delle due parti: la card sta dov'è.
     expect(second.status).toBe("review");
-    expect(createTaskService(b.db).get(id!)!.task.status).toBe("review");
+    // The bench answers "nothing to merge": the person's land closes the card once, with no second run.
+    expect(createTaskService(b.db).get(id!)!.task.status).toBe("done");
   });
 
   test("GET …/land su una card mai landata è 404, non un falso «tutto a posto»", async () => {
