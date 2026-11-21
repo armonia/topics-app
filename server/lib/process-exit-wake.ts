@@ -62,6 +62,7 @@ import { launchedSinceRetired, stoppedSubagentChat, wakeVerdict } from "./wake-a
 import { isProviderHeld } from "./provider-hold";
 import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
+import { automation, holdUntilResumed, projectIdOfTopic, turnGateForTopic } from "../services/turn-gate";
 import { sleep } from "./unref-sleep";
 
 /** What the topic is told about a process that ended. */
@@ -258,7 +259,7 @@ export function wakeDelivered(db: Pick<Database, "query">, sessionKey: string, p
  */
 export async function deliverProcessExit(
   deps: ProcessExitWakeDeps, f: ProcessExitFacts & Pick<ProcessExitRequest, "owed">,
-): Promise<"sent" | "delivered" | "no-topic" | "failed" | "capped"> {
+): Promise<"sent" | "delivered" | "no-topic" | "failed" | "capped" | "held"> {
   const pollMs = deps.pollMs ?? 500;
   let heldSaid = false;
   let owedSaid = false;
@@ -279,6 +280,9 @@ export async function deliverProcessExit(
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
     // The turn it waited for read the outcome with `wait_for_process`: delivered there.
     if (f.owed?.() === false) return "delivered";
+    // PROJECT PAUSE: a wake is an automatic turn. Nothing is sent while the
+    // project of the topic is paused; "held" tells `schedule` to park it.
+    if (!turnGateForTopic(deps.db, automation("process-exit-wake"), f.topicId).allowed) return "held";
     // Before the search too: a hold lasts up to an hour.
     if (isProviderHeld(topic.provider || deps.defaultProvider?.() || "claude-code")) {
       if (!heldSaid) deps.log?.(`${f.processId}: the topic's provider is held, the wake waits for the hold to lift`);
@@ -366,6 +370,16 @@ function schedule(d: ProcessExitWakeDeps, r: ProcessExitRequest): void {
   const next = (chains.get(r.topicId) ?? Promise.resolve())
     .then(() => deliverProcessExit(d, r))
     .then((outcome) => {
+      // Held by the project pause: still owed, neither settled nor failed. It is
+      // parked under the project, one slot per command, and asked again on
+      // "Continua". After a restart the parking is gone, but the command is
+      // still owed and `loadState` asks for its wake again at boot.
+      if (outcome === "held") {
+        const projectId = projectIdOfTopic(d.db, r.topicId);
+        if (projectId) holdUntilResumed(projectId, `process-exit-wake:${r.processId}`, () => schedule(d, r));
+        d.log?.(`${r.processId} -> ${r.topicId}: the project is paused, the wake waits for Continua`);
+        return;
+      }
       // A failure stays owed: the next boot tries again.
       if (outcome === "failed") r.fail?.();
       else r.settle?.();

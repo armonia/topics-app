@@ -983,6 +983,15 @@ export interface WSProjectIconMessage {
   path: string;
   version: string | null;
 }
+/** A project's pause opened or closed (USAGE-30). */
+export interface WSProjectQuotaMessage {
+  type: 'project:quota';
+  projectId: string;
+  paused: boolean;
+  reason: 'limit' | 'hold-until-tomorrow' | null;
+  limit: number | null;
+  points24h: number | null;
+}
 /** Scripts list (package.json scripts etc.) changed. */
 export interface WSScriptsUpdatedMessage {
   type: 'scripts:updated';
@@ -1319,6 +1328,7 @@ export type WSMessage =
   | WSGitStatusMessage
   | WSFilesChangedMessage
   | WSProjectIconMessage
+  | WSProjectQuotaMessage
   | WSScriptsUpdatedMessage
   | WSBrowserNavigateMessage
   | WSBrowserOpenNearPaneMessage

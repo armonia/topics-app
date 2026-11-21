@@ -12,10 +12,29 @@ import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
 import { runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 import { isMirrorCard, WAITING_MEMORY, RESUME_SLOT_RETRY_MS, HELD_RESUME_REFRESH_MS, holdKey, RESUME_WAIT_OPENINGS, CHIP_QUEUED, CHIP_WORKING } from "./task-dispatcher-support";
 import { warnIfBusy } from "../lib/sqlite-busy";
+import { onProjectResumed, type TurnOrigin } from "./turn-gate";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createResume(ctx: DispatcherCtx) {
   const { attemptCap, beginDelegated, clock, delegatedPolicy, deps, heldWritten, inFlight, log, noCheckExemptions, recordDelegated, slotWaits, waitingForSlot, shared } = ctx.core;
+
+  /** Cards whose pending resume carries a person's message: the pause never holds it. */
+  const personWrote = new Set<string>();
+  const PAUSED_SENTENCE = "In pausa: limite del progetto";
+
+  // When a pause closes, the held resumes of that project retry NOW instead of
+  // at the next slot timer, and the project's todo cards get a tick.
+  const offResumed = onProjectResumed((projectId) => {
+    for (const [taskId, w] of [...slotWaits]) {
+      let owner: string | null | undefined;
+      try { owner = deps.svc.get(taskId)?.task.projectId; } catch { continue; }
+      if (owner !== projectId) continue;
+      clearTimeout(w.timer);
+      slotWaits.delete(taskId);
+      void resumeInBackground(taskId, w.message, { commentIds: w.commentIds, continuation: !w.message.trim() });
+    }
+    void ctx.tick.tick(projectId).catch((err) => log(`tick after pause for ${projectId} failed`, err));
+  });
 
   // allow-emdash-block: prompt di ripresa e di sollecito, stessa ragione.
   function buildResume(task: Task, humanMessage: string): string {
@@ -89,7 +108,14 @@ export function createResume(ctx: DispatcherCtx) {
    * provider hold, the per-card spend cap): the machine sentences on the card
    * do not describe them.
    */
-  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null; slot?: string } | null {
+  function resumeHold(t: Task, personWrote: boolean): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null; slot?: string } | null {
+    // PROJECT PAUSE, the one door for every automated resume (red bounce, land
+    // retreat, end-of-turn retry, reconcile, the slot timer, a step added under
+    // the card). A person's message is never held. The card stays in progress
+    // with its binding and resumes by itself when the pause closes
+    // (`onProjectResumed` below); nothing is lost or moved to backlog.
+    // Fail open: `projectPaused` swallows a read error.
+    if (!personWrote && deps.svc.projectPaused(t.projectId)) return { reason: PAUSED_SENTENCE, kind: "paused" };
     // The provider wall's own slot rides along (see `taskPlanWait`), so the
     // note of this resume and the one the tick writes for the same wall are
     // the same row.
@@ -121,11 +147,15 @@ export function createResume(ctx: DispatcherCtx) {
    * so the card is in progress with no live turn, which is exactly what the
    * next reconcile poll resumes. Any other error stays the rejection it was.
    */
-  function resumeInBackground(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
+  type ResumeOpts = { continuation?: boolean; commentIds?: string[]; origin?: TurnOrigin };
+  function resumeInBackground(taskId: string, humanMessage: string, opts?: ResumeOpts): Promise<void> {
     return resume(taskId, humanMessage, opts).catch(warnIfBusy(`resume of task ${taskId}`, (msg, err) => log(msg, err)));
   }
 
-  async function resume(taskId: string, humanMessage: string, opts?: { continuation?: boolean; commentIds?: string[] }): Promise<void> {
+  async function resume(taskId: string, humanMessage: string, opts?: ResumeOpts): Promise<void> {
+    // A person's message marks the card until a turn starts: the buffered or
+    // slot-waiting delivery of it comes back through here without the origin.
+    if (opts?.origin?.kind === "person") personWrote.add(taskId);
     const t = deps.svc.get(taskId)?.task;
     if (t && deps.isActive?.() === false && !isMirrorCard(t)) return;
     // The caller (reviewDecision reject) has already moved it to in_progress and
@@ -185,7 +215,7 @@ export function createResume(ctx: DispatcherCtx) {
     // each spawn a `vm_stat` to learn that it is not their turn yet. No note in
     // the thread: a wait of seconds is a chip, not an episode.
       const rampWait = ctx.admission.inResourcesMode() && ctx.admission.rampHeld();
-      const hold = rampWait ? null : resumeHold(t);
+      const hold = rampWait ? null : resumeHold(t, personWrote.has(taskId));
       const floorBlock = hold?.reason ?? null;
       const memoryWait = hold?.kind === "resources"
         && (hold.floor === "memory" || hold.floor === "memory_warmup");
@@ -302,6 +332,7 @@ export function createResume(ctx: DispatcherCtx) {
     // C'è posto: questo turno parte e si prende anche l'eredità di un'attesa
     // ancora pendente su questo task (il suo messaggio, non il suo timer).
     ctx.runs.clearSlotWait(taskId, true);
+    personWrote.delete(taskId);
     const sessionKey = "topic:" + t.assignedTopicId.slice(0, 8);
     let delegatedDeadlineAt: number | undefined;
     if (policy) {
@@ -461,5 +492,5 @@ export function createResume(ctx: DispatcherCtx) {
       ctx.runs.endRun(taskId, runId);
     }
   }
-  return { reattachTask, resume, resumeInBackground };
+  return { reattachTask, resume, resumeInBackground, dispose: () => { offResumed(); personWrote.clear(); } };
 }

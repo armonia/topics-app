@@ -11,7 +11,7 @@ import { isMirrorCard, CHIP_QUEUED, CHIP_BLOCKED, parkedEdgeEvent } from "./task
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createBoardEvents(ctx: DispatcherCtx) {
-  const { commandWaits, deps, evaluateNight, graceMs, graceTimers, heldWritten, inFlight, log, pendingResume, recordDelegated, retryWaits, slotWaits, spendHeldNoted, waitingForSlot, shared } = ctx.core;
+  const { commandWaits, deps, evaluateNight, graceMs, graceTimers, heldWritten, inFlight, log, pendingResume, projectPauseHeldNoted, recordDelegated, retryWaits, slotWaits, spendHeldNoted, waitingForSlot, shared } = ctx.core;
 
   function onEnterTodo(projectId: string, taskId: string): void {
     // A fresh entry into Todo is a fresh wait: the overflow's clock starts over.
@@ -218,11 +218,13 @@ export function createBoardEvents(ctx: DispatcherCtx) {
     waitingForSlot.clear();
     heldWritten.clear();
     spendHeldNoted.clear();
+    projectPauseHeldNoted.clear();
     pendingResume.clear();
     // Senza questa riga un dispatcher spento resterebbe iscritto e continuerebbe
     // a scrivere chip su un DB che non è più il suo — e i test, che ne creano
     // uno per caso, si passerebbero gli ascoltatori a vicenda.
     ctx.runs.unsubscribeHumanHold();
+    ctx.resume.dispose();
   }
 
   /**
