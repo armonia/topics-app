@@ -745,10 +745,21 @@ describe("overflow: il PC addormentato", () => {
   });
 });
 
+/** Both breakers are module state: a test that touches them clears both machines (its last tick may launch on the other one). */
+const clearBreakers = () => { for (const id of [CLOUD, PC]) { wakeBreaker.success(id); hangBreaker.success(id); } };
+/** The overflow's moves onto `machineId` from now on: the thread cannot count them, it merges a note repeated within minutes. */
+function countMovesTo(h: ReturnType<typeof harness>, machineId: string): () => number {
+  const real = h.svc.overflowToMachine.bind(h.svc);
+  let n = 0;
+  h.svc.overflowToMachine = (args) => { if (args.machineId === machineId) n += 1; return real(args); };
+  return () => n;
+}
+
 // 21/11: the breaker opened on the PC, and the card the overflow had put there was deferred
 // with its pin until the breaker closed, then went back to the same PC. The system's move is
-// undone at once; a person's pin is not.
-describe("il PC che non si sveglia: la card spostata dal sistema lo lascia, quella fissata a mano lo aspetta", () => {
+// undone at once, and the overflow never picks a blocked machine, the CLOUD included: picked
+// anyway, the card came back to it every tick for the whole window. A person's pin waits.
+describe("il nodo o il Cloud che non si sveglia: la card spostata dal sistema lo lascia e non ci torna, quella fissata a mano lo aspetta", () => {
   const veto: LifecycleHookRunner = { run: async () => ({ ok: false, reason: "il PC non si sveglia" }) };
 
   it("spostata dall'overflow, due sveglie fallite: perde il PC senza rinvio, con una nota sola, e il giro dopo va altrove", async () => {
@@ -767,20 +778,52 @@ describe("il PC che non si sveglia: la card spostata dal sistema lo lascia, quel
       o.cloudCredit = true;
       await h.tick();
       expect(h.task(CARD).machineId).toBe(CLOUD);
-    } finally { wakeBreaker.success(PC); }
+    } finally { clearBreakers(); }
   });
 
-  it("fissata a mano sul PC, due sveglie fallite: resta sul PC e aspetta che il freno si chiuda", async () => {
-    const h = harness({ cloudCredit: false, hooks: veto });
+  it("spostata sul Cloud, due sveglie fallite e nessun'altra macchina: torna qui e il Cloud non la riprende a ogni giro", async () => {
+    const h = harness({ pcOnline: false, hooks: veto });
     try {
-      h.seed(CARD, { machineId: PC });
-      await h.tick();
+      h.seed(CARD);
+      await settleTwoRounds(h);
       expireWait(h);
       await h.tick();
-      const t = h.task(CARD);
-      expect(t).toMatchObject({ status: "todo", machineId: PC });
-      expect(Date.parse(t.dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
-    } finally { wakeBreaker.success(PC); }
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      expect(h.thread(CARD).match(/Tolta dal nodo bloccato: il nodo «Cloud Claude» non è pronto/g)).toHaveLength(1);
+      const movesToCloud = countMovesTo(h, CLOUD);
+      for (let i = 0; i < 5; i++) { h.advance(10_000); await h.tick(); }
+      expect(movesToCloud()).toBe(0);
+      expect(h.task(CARD)).toMatchObject({ status: "todo", machineId: null });
+    } finally { clearBreakers(); }
+  });
+
+  it("spostata sul Cloud appeso (due corse sepolte di fila): va sul PC libero, mai di nuovo sul Cloud", async () => {
+    const h = harness();
+    hangBreaker.failure(CLOUD);
+    hangBreaker.failure(CLOUD);
+    try {
+      h.seed(CARD, { machineId: CLOUD });
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date(h.now()).toISOString(), CARD]);
+      for (let i = 0; i < 6; i++) { await h.tick(); h.advance(10_000); }
+      expect(h.task(CARD).machineId).toBe(PC);
+      expect(h.created).toEqual([{ baseUrl: "https://pc.local", originTaskId: CARD }]);
+      expect(h.thread(CARD)).not.toContain("Spostata su Cloud Claude");
+    } finally { clearBreakers(); }
+  });
+
+  it("fissata a mano sul PC o sul Cloud, due sveglie fallite: resta lì e aspetta che il freno si chiuda", async () => {
+    for (const machine of [PC, CLOUD]) {
+      const h = harness({ cloudCredit: false, hooks: veto });
+      try {
+        h.seed(CARD, { machineId: machine });
+        await h.tick();
+        expireWait(h);
+        await h.tick();
+        const t = h.task(CARD);
+        expect(t).toMatchObject({ status: "todo", machineId: machine });
+        expect(Date.parse(t.dispatchDeferredUntil!) - Date.now()).toBeGreaterThan(10 * 60_000);
+      } finally { clearBreakers(); }
+    }
   });
 });
 

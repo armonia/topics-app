@@ -115,7 +115,8 @@ export function persistNodeBreakers(path: string): void {
 }
 
 /**
- * Whether either breaker keeps NEW cards away from this node. The overflow and
+ * Whether either breaker keeps NEW cards away from this machine, a node or the
+ * cloud row (`pickOverflowMachine` reads it for both). The overflow and
  * the reassignment read this one answer: a hung node closed only to the launch
  * still got cards moved onto it, which then waited there up to 4 h while other
  * machines had free seats (21/11).

@@ -380,8 +380,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * is open (`untilMs`): deferred with its pin, it sat out the whole window and
    * then went back to the same node (21/11: deferred 22:10 -> 22:25, breaker
    * open until 22:25). It leaves the node at once, with no deferral, and
-   * `nodeBlocked` keeps that node out of the next tick's choice. A card a
-   * person pinned there waits for it, the asymmetry of `parkNodeCard`.
+   * `nodeBlocked` keeps that machine, the cloud included, out of the next
+   * tick's choice (`pickOverflowMachine`). A card a person pinned there waits
+   * for it, the asymmetry of `parkNodeCard`.
    *
    * Two writes because no single service call does both. `deferForWait` is the
    * only writer of `dispatch_deferred_until`, and it also refunds the attempt
