@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.67 — 2026-11-21
+
+### Sotto il cofano
+- Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi
+
 ## 2.4.66 — 2026-11-21
 
 ### Sotto il cofano
