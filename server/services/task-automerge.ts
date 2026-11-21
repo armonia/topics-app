@@ -39,7 +39,7 @@ import { commitIsIn, countOwnCommits, otherLocalBranches } from "./own-commits";
 import { lastLook } from "./landing-last-look";
 import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } from "./branch-status";
 import { landedMergeRange } from "./task-diff-range";
-import { fetchRemoteBase } from "./worktree-base-ref";
+import { resolveLandingBase } from "./worktree-base-ref";
 import { runGit } from "../lib/run-git";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
@@ -539,11 +539,12 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
 
   /**
    * What the land compares and realigns the branch against: `origin/<main>`,
-   * just fetched. With no remote (or no such ref) it stays the local main, as
-   * before. A failed fetch does not stop the land: the local copy of `origin` is used.
+   * just fetched. With no remote (or no such ref, or a remote with no history in
+   * common, see `resolveLandingBase`) it stays the local main. A failed fetch
+   * does not stop the land: the local copy of `origin` is used.
    */
   async function comparisonBase(repoPath: string, mainBranch: string): Promise<string> {
-    return (await fetchRemoteBase(runGit, repoPath, mainBranch)).ref ?? mainBranch;
+    return resolveLandingBase(runGit, repoPath, mainBranch);
   }
 
   /**

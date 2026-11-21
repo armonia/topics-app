@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-11-21
+name: sicurezza-presidiata
+status: approved
+approvata: "2026-11-21 12:50, chat"
+richiesta: "dobbiamo mettere anche dei controlli sulla sicurezza e vulnerabilità multiserver, sia da solido-specflow, sia gestito da topics siccome già lavora sulla sicurezza, e deve anche tenersi aggiornato a riguardo e presidiare i server e nodi in tal senso · dovrebbe essere già visualizzato nel dropdown, e dovremmo vederlo anche in corrispondenza dei nodi e nel loro menu a tendina"

@@ -2,7 +2,8 @@
  * @covers WORKTREE-08
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { resolveWorktreeBaseRef } from "./worktree-base-ref";
+import { resolveLandingBase, resolveWorktreeBaseRef } from "./worktree-base-ref";
+import { defaultRunGit } from "./own-commits";
 import type { GitRunResult } from "./own-commits";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
@@ -151,5 +152,49 @@ describe("worktree-base-ref: il fetch", () => {
     expect(r.baseRef).toBe("HEAD");
     expect(r.fallback).toBe(true);
     expect(calls).toEqual([]);
+  });
+});
+
+/**
+ * The land's base, on real repos: `related` is a clone of its origin, `mirror`
+ * has an origin whose main was rewritten (no commit in common with the local
+ * main), as a public copy published without some folders is.
+ */
+describe("worktree-base-ref: la base del land", () => {
+  let root: string;
+  let related: string;
+  let mirror: string;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "land-base-"));
+    const seed = join(root, "seed");
+    const bare = join(root, "origin.git");
+    related = join(root, "related");
+    initRepo(seed, "main");
+    commit(seed, "a.txt", "base");
+    Bun.spawnSync(["git", "clone", "-q", "--bare", seed, bare], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+    Bun.spawnSync(["git", "clone", "-q", bare, related], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+
+    const published = join(root, "published");
+    const publicBare = join(root, "public.git");
+    initRepo(published, "main");
+    commit(published, "readme.txt", "public copy, history rewritten");
+    Bun.spawnSync(["git", "clone", "-q", "--bare", published, publicBare], { stdout: "pipe", stderr: "pipe", env: gitEnv() });
+    mirror = join(root, "mirror");
+    initRepo(mirror, "main");
+    commit(mirror, "a.txt", "private history");
+    git(mirror, "remote", "add", "origin", publicBare);
+  }, 30_000);
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  test("origin con storia in comune → origin/main", async () => {
+    expect(await resolveLandingBase(defaultRunGit, related, "main")).toBe("origin/main");
+  });
+
+  test("origin senza nessun commit in comune (specchio riscritto) → il main locale", async () => {
+    expect(await resolveLandingBase(defaultRunGit, mirror, "main")).toBe("main");
+    // The remote ref exists: it is the missing common history that decides, not a failed fetch.
+    expect(git(mirror, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/main")).not.toBe("");
   });
 });

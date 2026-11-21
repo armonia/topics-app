@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.59 — 2026-11-21
+
+### Sotto il cofano
+- Il land usa il main locale quando origin/main è uno specchio senza storia in comune
+
 ## 2.4.58 — 2026-11-21
 
 ### Sotto il cofano
