@@ -44,7 +44,7 @@ const REG = {
   ],
   agents: [
     {
-      id: "main", name: "Jarvis", workspace: "/Users/x/.claude/jarvis/home",
+      id: "main", name: "Jarvis", workspace: "/Users/x/.topics/agents/jarvis",
       persona: { "IDENTITY.md": "# IDENTITY\n- **Name:** Jarvis\n- **Vibe:** diretto, conciso, ironico", "SOUL.md": "# SOUL\nAiuta senza essere servile." },
       accounts: [{ channel: "discord", account: "default", token: "Portachiavi: discord/jarvis" }, { channel: "whatsapp", account: "default", token: "store" }],
       chats: [chat("100", "default", { mention: true }), chat("200", "default"), chat("*", "default", { channel: "telegram", senders: ["1"] })],
@@ -52,7 +52,7 @@ const REG = {
       model: { engine: "claude-sonnet-5-5", perChannel: { discord: { "*": "anthropic/claude-opus-5-5" } } },
     },
     {
-      id: "gtm", name: "Visione", workspace: "/Users/x/.claude/jarvis/home/workspace-gtm",
+      id: "gtm", name: "Visione", workspace: "/Users/x/.topics/agents/gtm",
       persona: { "IDENTITY.md": "# IDENTITY\n- **Name:** Visione\n- **Vibe:** operativa e stretta", "SOUL.md": "# SOUL\nMisura, non racconta." },
       accounts: [{ channel: "discord", account: "visione", token: "Portachiavi: discord/visione" }],
       chats: [chat("200", "visione")],

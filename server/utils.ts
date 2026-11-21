@@ -123,9 +123,8 @@ export function createAppContext(baseDir: string): AppContext {
   const PUBLIC_DIR = process.env.TOPICS_PUBLIC_DIR || join(baseDir, "public");
   const UPLOADS_DIR = join(STATE_DIR, "uploads");
   const CONTEXT_DIR = join(STATE_DIR, "context-files");
-  // The app data root (media/, workspace/, agent sessions). One rule, in
-  // lib/data-dir.ts: an explicit variable, else the legacy root when that
-  // install already has one, else the home Topics already owns.
+  // The app data root (media/, workspace/, the agents' homes). One rule, in
+  // lib/data-dir.ts: an explicit variable, else the Topics home.
   const APP_DATA_DIR = resolveAppDataDir();
   // Transcript JSONL delle sessioni scritte prima di SQLite: li leggono ancora
   // la ricerca e la storia di ripiego.
