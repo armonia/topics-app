@@ -33,6 +33,12 @@ SETTLE_S=${PERMANENT_SETTLE_S:-4}
 # A prepare-e2e job that waited this long on its booked runner is not going to start
 # (measured 20/11: 35+ minutes queued on an online, idle runner holding its label).
 PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
+# Cause, read in the runner _diag logs: the booking label was written after the runner's
+# broker session started, and that session only reloads labels on a ForceTokenRefreshMessage,
+# which that runner never got. The broker never offered it the job although GitHub listed
+# it online and idle. Writing a label again sends the message: that is the nudge.
+PREP_NUDGE_S=${PERMANENT_PREP_NUDGE_S:-120}
+NUDGE_WAIT_S=${PERMANENT_NUDGE_WAIT_S:-90}
 PREP_POOL=permanent-prep
 # A quarantined runner rejoins the prep pool by itself after this long (card 06e7894c): it is
 # the only prep runner, so a quarantine nobody lifts would switch the whole pool off.
@@ -65,18 +71,25 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      if [[ $lab == *-prep ]] && prep_stuck "$run" "$lab"; then
-        # Hand every runner of the run back, take the runner that did not serve the prep
-        # out of the prep pool for QUARANTINE_S (its label carries the start time, and the
-        # first reserve after that puts it back), then cancel the run and start it again so it places itself anew.
+      if [[ $lab == *-prep ]] && prep_queued "$run" "$lab" "$PREP_NUDGE_S"; then
+        # Nudge first: take the prep label off and put it back, which makes the broker
+        # reload the runner's labels, and give the job NUDGE_WAIT_S to start.
         unbook "$id" "$lab"
-        for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
-          unbook "$sid" "${lab%-prep}"
-        done
-        unbook "$id" "$PREP_POOL"
-        gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$QUARANTINE_PREFIX$(date +%s)\"]}" >/dev/null 2>&1 || true
-        echo "::warning::runner $id removed from the $PREP_POOL pool for ${QUARANTINE_S}s: prep of run $run queued over ${PREP_STUCK_S}s on it; run $run cancelled and rerun" >&2
-        restart_run "$run"
+        sleep "$NUDGE_WAIT_S"
+        # Still queued after the nudge and past PREP_STUCK_S: hand every runner of the run
+        # back, take this runner out of the prep pool for QUARANTINE_S (its label carries
+        # the start time, and the first reserve after that puts it back), then cancel the
+        # run and start it again so it places itself anew.
+        if prep_queued "$run" "$lab" "$PREP_STUCK_S"; then
+          unbook "$id" "$lab"
+          for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
+            unbook "$sid" "${lab%-prep}"
+          done
+          unbook "$id" "$PREP_POOL"
+          gh_api POST "/actions/runners/$id/labels" "{\"labels\":[\"$QUARANTINE_PREFIX$(date +%s)\"]}" >/dev/null 2>&1 || true
+          echo "::warning::runner $id removed from the $PREP_POOL pool for ${QUARANTINE_S}s: prep of run $run still queued after a label nudge; run $run cancelled and rerun" >&2
+          restart_run "$run"
+        fi
       elif [ "$(gh_api GET "/actions/runs/$run" | jq -r '.status // empty' 2>/dev/null)" = completed ] || run_done_with "$run" "$lab"; then
         unbook "$id" "$lab"
       fi
@@ -109,9 +122,9 @@ restart_run() {  # <run id>
   gh_api POST "/actions/runs/$1/rerun" >/dev/null 2>&1 || true
 }
 
-# True when the run's prepare-e2e job on this prep label has sat queued for PREP_STUCK_S.
-prep_stuck() {  # <run id> <prep label>
-  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$PREP_STUCK_S" '
+# True when the run's prepare-e2e job on this prep label has sat queued for over <seconds>.
+prep_queued() {  # <run id> <prep label> <seconds>
+  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$3" '
     any(.jobs[]?; .status == "queued" and any(.labels[]?; . == $l)
       and (now - (.created_at | fromdateiso8601)) > $max)' >/dev/null 2>&1
 }
