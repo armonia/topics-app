@@ -2,6 +2,24 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.66 — 2026-11-21
+
+### Sotto il cofano
+- Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
+- Il Cloud col freno aperto non riprende la card che ha appena lasciato
+
+## 2.4.65 — 2026-11-21
+
+### Correzioni
+- **ci-phase** · bisect a red landed batch instead of bouncing every card
+
+### Sotto il cofano
+- La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server
+- Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia
+- Stop relaunching a hung paired node forever
+- Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate
+- Drop duplicate knip.jsonc entries and a closed one-off migration
+
 ## 2.4.62 — 2026-11-21
 
 ### Sotto il cofano

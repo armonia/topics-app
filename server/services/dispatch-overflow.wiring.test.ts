@@ -1,6 +1,7 @@
 /**
  * THE OVERFLOW'S WIRING in `server.ts`: what the dispatcher is handed as
- * `overflowMachines`, `githubOriginOf` and `node.ensureBranchOnOrigin`.
+ * `overflowMachines`, `githubOriginOf` and `node.ensureBranchOnOrigin`, and the
+ * node breakers' file that keeps a broken node out across a restart.
  *
  * The dispatcher's own tests inject these three, so none of them can see a
  * server that passes the wrong machine list (the cloud online without an
@@ -92,5 +93,11 @@ describe("server.ts hands those functions to the dispatcher, with the live input
     const beat = server.slice(server.indexOf("function tickHeartbeat()"));
     expect(beat).toContain("void cloudNode.probeEnvironment();");
     expect(beat).toContain("ctx.machineStore.markNodeOffline(cloud.id)");
+  });
+
+  it("the node breakers adopt their file in the state dir before the dispatcher exists (21/11)", () => {
+    const at = server.indexOf("persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));");
+    expect(at, "the breakers forget an open window at every restart").toBeGreaterThan(-1);
+    expect(at).toBeLessThan(server.indexOf("const taskDispatcher = createTaskDispatcher({"));
   });
 });
