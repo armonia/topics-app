@@ -77,6 +77,11 @@
           "it": "Nomi inglesi nel test dell'oscuramento dei segreti",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Nodo fisso: la CI ha la precedenza sulla CPU (ci.slice 500, Topics 100) anche in un nodo rifatto da zero",
+          "en": "",
+          "scope": null
         }
       ]
     }
