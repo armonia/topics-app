@@ -14,6 +14,7 @@ import type { ToolCall, ToolCallDetail } from '../../types';
 import { workKindOf } from './workKind';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 import { deriveToolDetail, goalStepsAsTodo, isGoalStepsTool, isSetGoalTool, pageHost } from '../../../../shared/tool-detail';
+import { toolPhrase } from '../../../../shared/tool-phrase';
 
 export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
   // A failed call opened nothing. The SDK path keeps the detail it built at
@@ -196,7 +197,9 @@ function labelOf(detail: ToolCallDetail, rawName?: string): { name: string; summ
       if (isSetGoalTool(detail.tool) && typeof detail.args?.content === 'string') {
         return { name: 'Goal', summary: detail.args.content };
       }
-      return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
+      // "topics · task_get" told a reader nothing; the sentence does
+      // (`shared/tool-phrase.ts`), and the full name stays on hover.
+      return { name: toolPhrase(rawName ?? detail.tool, detail.tool, detail.args).text, tooltip: `${detail.server} · ${detail.tool}` };
     case 'monitor':
       return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };
     case 'wait':
@@ -235,10 +238,12 @@ function labelOf(detail: ToolCallDetail, rawName?: string): { name: string; summ
     case 'view':
       // While it runs (or inside a task's folded work) the row names the view.
       return { name: 'View', summary: detail.view.title };
-    case 'unknown':
-      // A bare "Tool" row is unreadable — surface the provider's actual tool
-      // name plus a scalar-args digest so the collapsed row stands on its own.
-      return { name: rawName || 'Tool', summary: summarizeArgs(detail.raw.args) };
+    case 'unknown': {
+      // A bare "Tool" row is unreadable — the sentence from its own name
+      // stands on its own; the provider's raw name stays on hover.
+      if (!rawName) return { name: 'Tool', summary: summarizeArgs(detail.raw.args) };
+      return { name: toolPhrase(rawName, rawName, detail.raw.args).text, tooltip: rawName };
+    }
   }
 }
 
