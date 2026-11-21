@@ -1,5 +1,5 @@
 /**
- * The «Verifica di Topics» row in the Automations view: green first, then red
+ * The «Verifica di Topics» row in the Automations view: green first, then red allow-italian: the quoted UI label is the subject
  * with the detail of its three voices (their hours lost and the cause).
  *
  * The round's answer is faked in the page, so the test proves what the view

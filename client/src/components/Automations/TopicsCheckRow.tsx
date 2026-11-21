@@ -1,5 +1,5 @@
 /**
- * The «Verifica di Topics» row: the three voices of the server's self-check
+ * The «Verifica di Topics» row: the three voices of the server's self-check allow-italian: the quoted UI label is the subject
  * round, each with what was measured and its most likely cause. Read from
  * `/api/topics-check` when the view opens and every minute after (the round
  * itself runs every 5 minutes, so a faster read shows nothing new).
