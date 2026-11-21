@@ -409,7 +409,16 @@
         // produzione senza un cancello che le guardasse. Un export morto lì
         // dentro non aveva modo di risultare morto.
         "relay/**/*.ts!",
-        "server.ts!"
+        "server.ts!",
+        // Test-only support files: alive through the tests that import them, so
+        // they are excluded from `project` in `--production` only (`!...!`),
+        // which leaves the normal check:deadcode as sharp as before.
+        "!server/**/*{-test-support,.testkit,.harness,.world,-test-helpers,-parity-helpers}.ts!",
+        "!server/db/test-schema.ts!",
+        "!server/lib/test-node-bin.ts!",
+        "!server/services/tasks-test-db.ts!",
+        "!shared/relay-fake.ts!",
+        "!server/lib/remove-dir-reporting.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
@@ -435,8 +444,6 @@
       // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
       // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
       "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
-      // Test-only support files: alive through the tests that import them, so `--production` must not call them dead (check:deadcode-prod).
-      "ignore": ["server/**/*{-test-support,.testkit,.harness,.world,-test-helpers,-parity-helpers}.ts", "server/db/test-schema.ts", "server/lib/test-node-bin.ts", "server/services/tasks-test-db.ts", "shared/relay-fake.ts", "server/lib/remove-dir-reporting.ts"],
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
@@ -464,8 +471,15 @@
         "src/ui-gallery/*-main.tsx!",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
-      "ignore": ["src/**/test*/**", "src/**/*testSupport.ts", "src/**/*[fF]ixtures.ts", "src/lib/reloadSites.ts", "src/lib/settingsHomes.ts"],
-      "project": ["src/**/*.{ts,tsx}!"]
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        // Production-only exclusions (`!...!`): test support alive through its tests.
+        "!src/**/test*/**!",
+        "!src/**/*testSupport.ts!",
+        "!src/**/*[fF]ixtures.ts!",
+        "!src/lib/reloadSites.ts!",
+        "!src/lib/settingsHomes.ts!"
+      ]
       // `src/hooks/usePushNotifications.ts` stava qui, ignorato perché
       // «deliberatamente non cablato». Era la forma esatta del guasto: il codice
       // per iscriversi esisteva, nessuno lo montava, `push_subscriptions` aveva

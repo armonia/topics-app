@@ -11,7 +11,7 @@
  *   bun run check:deadcode-prod --update   # write the new, lower counts
  *
  * Entries that ship carry `!` in knip.jsonc. Files that live only for tests
- * (harnesses, test kits) are listed in the `ignore` of the root workspace.
+ * (harnesses, test kits) are excluded from `project` with `!...!` in knip.jsonc.
  */
 import { join } from "node:path";
 
