@@ -63,19 +63,22 @@ describe("the boards", () => {
     const aliases = parseMoves(["--alias", `${LINK}=${OLD}`], "--alias");
     const r = boardRekeys([`${OLD}/workspace/general`, "/elsewhere"], moves, aliases);
     const to = projectIdForPath(`${HOME}/.topics/agents/main/workspace/general`);
-    expect(r.get(projectIdForPath(`${OLD}/workspace/general`))).toBe(to);
-    expect(r.get(projectIdForPath(`${LINK}/workspace/general`))).toBe(to);
-    expect(r.get(projectIdForPath(OLD))).toBe(projectIdForPath(`${HOME}/.topics/agents/main`));
+    expect(r.get(projectIdForPath(`${OLD}/workspace/general`))).toEqual({ to, path: `${OLD}/workspace/general` });
+    expect(r.get(projectIdForPath(`${LINK}/workspace/general`))).toEqual({ to, path: `${LINK}/workspace/general` });
+    expect(r.get(projectIdForPath(OLD))?.to).toBe(projectIdForPath(`${HOME}/.topics/agents/main`));
     expect(r.has(projectIdForPath("/elsewhere"))).toBe(false);
   });
 
-  test("on a real database: paths, retired panes and board ids move, ids and other folders stay", () => {
+  test("on a real database: paths, retired panes and board ids move, old ids alias the new boards, ids and other folders stay", () => {
     const dir = testTmpDir("rewrite-root-paths");
     const file = join(dir, "t.db");
     const db = new Database(file);
     db.run("CREATE TABLE topics (id TEXT PRIMARY KEY, project_path TEXT)");
     db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, project_id TEXT, description TEXT)");
     db.run("CREATE TABLE retirements (kind TEXT, ref_id TEXT, PRIMARY KEY (kind, ref_id))");
+    db.run("CREATE TABLE board_aliases (old_id TEXT PRIMARY KEY, new_id TEXT NOT NULL, old_path TEXT, created_at INTEGER NOT NULL)");
+    // an earlier move: the id of the old spelling already pointed at OLD/workspace-b's board
+    db.run("INSERT INTO board_aliases VALUES (?, ?, ?, 1)", ["older-id", projectIdForPath(`${OLD}/workspace-b`), `${OLD}/workspace-b`]);
     db.run("INSERT INTO topics VALUES (?, ?), (?, ?)", [`id-${OLD}`, `${OLD}/workspace-b`, "t2", "/elsewhere"]);
     db.run("INSERT INTO tasks VALUES (?, ?, ?)", ["k1", projectIdForPath(`${LINK}/workspace-b`), `look at ${OLD}/media/a.png`]);
     db.run("INSERT INTO retirements VALUES ('pane', ?)", [`project:${encodeURIComponent(`${OLD}/workspace-b`)}`]);
@@ -94,6 +97,12 @@ describe("the boards", () => {
       d: `look at ${HOME}/.topics/agents/main/media/a.png`,
     });
     expect((after.query("SELECT ref_id AS r FROM retirements").get() as { r: string }).r).toBe(`project:${encodeURIComponent(`${HOME}/.topics/agents/b`)}`);
+    const alias = (id: string) => after.query("SELECT new_id AS n, old_path AS p FROM board_aliases WHERE old_id = ?").get(id);
+    const b = projectIdForPath(`${HOME}/.topics/agents/b`);
+    expect(alias(projectIdForPath(`${OLD}/workspace-b`))).toEqual({ n: b, p: `${OLD}/workspace-b` });
+    expect(alias(projectIdForPath(`${LINK}/workspace-b`))).toEqual({ n: b, p: `${LINK}/workspace-b` });
+    // the older row keeps where it was, and reaches the moved board through the new alias
+    expect(alias("older-id")).toEqual({ n: projectIdForPath(`${OLD}/workspace-b`), p: `${OLD}/workspace-b` });
     after.close();
   });
 });

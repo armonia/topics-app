@@ -16,7 +16,11 @@
  *     every path the DB holds under an OLD folder gives a pair old id -> new id.
  *     `--alias FORM=OLD` names a former spelling of OLD (a link that was
  *     resolved since): its text is rewritten too and the boards keyed on it
- *     are rekeyed, which no earlier rewrite did.
+ *     are rekeyed, which no earlier rewrite did;
+ *   - one `board_aliases` row per rekeyed board (old id -> new id, old path),
+ *     the record `resolveBoardAlias` reads: a link, a script or a message that
+ *     still names the old id lands on the moved board instead of an empty one.
+ *     The `old_path` of the rows already there is history and stays as is.
  *
  * Safe on a live database: a consistent backup first (SQLite online backup),
  * then short transactions of BATCH rows. A row whose new value would collide
@@ -35,6 +39,8 @@ import { projectIdForPath } from "../shared/board";
 const BATCH = 500;
 /** Text columns that are keys AND paths: a closed pane is retired by its id, `project:<encoded path>`. */
 const PATH_KEYS = new Set(["retirements.ref_id"]);
+/** Columns that record where something WAS: rewriting them would erase the record. */
+const HISTORY = new Set(["board_aliases.old_path"]);
 /** Where the DB keeps folders a board can be keyed on. */
 const FOLDER_COLUMNS: Array<[string, string]> = [["projects", "path"], ["topics", "project_path"], ["worktrees", "abs_path"], ["subagents", "cwd"]];
 
@@ -102,13 +108,13 @@ export function rewriteText(v: string, moves: Move[], pairs: Array<[string, stri
   return next;
 }
 
-/** Old board id -> new board id, for every folder in `folders` a move covers (and its former spellings). */
-export function boardRekeys(folders: Iterable<string>, moves: Move[], aliases: Move[]): Map<string, string> {
-  const out = new Map<string, string>();
+/** Old board id -> new board id and the old folder, for every folder in `folders` a move covers (and its former spellings). */
+export function boardRekeys(folders: Iterable<string>, moves: Move[], aliases: Move[]): Map<string, { to: string; path: string }> {
+  const out = new Map<string, { to: string; path: string }>();
   const add = (oldPath: string, newPath: string) => {
     const a = projectIdForPath(oldPath);
     const b = projectIdForPath(newPath);
-    if (a !== b) out.set(a, b);
+    if (a !== b) out.set(a, { to: b, path: oldPath });
   };
   for (const f of new Set([...folders, ...moves.map((m) => m.from)])) {
     const to = remap(f, moves);
@@ -157,7 +163,7 @@ if (import.meta.main) {
   let left = 0;
   for (const t of tables) {
     if (!columns(t).some((c) => c.name === "project_id")) continue;
-    for (const [from, to] of rekeys) {
+    for (const [from, { to }] of rekeys) {
       const n = (db.query(`SELECT count(*) AS n FROM "${t}" WHERE project_id = ?`).get(from) as { n: number }).n;
       if (!n) continue;
       const done = dryRun ? n : db.query(`UPDATE OR IGNORE "${t}" SET project_id = ? WHERE project_id = ?`).run(to, from).changes;
@@ -167,9 +173,17 @@ if (import.meta.main) {
     }
   }
 
+  if (tables.includes("board_aliases")) {
+    // REPLACE: an older alias of the same id pointed at a board that is moving too.
+    const put = db.prepare("INSERT OR REPLACE INTO board_aliases (old_id, new_id, old_path, created_at) VALUES (?, ?, ?, ?)");
+    if (!dryRun) db.transaction(() => { for (const [from, { to, path }] of rekeys) put.run(from, to, path, Date.now()); })();
+    console.log(`board_aliases: ${rekeys.size} ${dryRun ? "would be recorded" : "recorded"}`);
+  }
+
   const anyOld = pairs.map(([o]) => o);
   for (const t of tables) {
     const cols = columns(t).filter((c) => (c.type === "" || /TEXT|CHAR|CLOB|JSON/i.test(c.type))
+      && !HISTORY.has(`${t}.${c.name}`)
       && (PATH_KEYS.has(`${t}.${c.name}`) || (c.name !== "id" && !c.name.endsWith("_id") && c.name !== "slug")));
     for (const { name: col } of cols) {
       const where = `(${anyOld.map(() => `instr("${col}", ?) > 0`).join(" OR ")} OR "${col}" IN (${moves.map(() => "?").join(",")}))`;

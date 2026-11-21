@@ -32,7 +32,9 @@ a daily job was about to delete the link and silently move the app data root.
 - **Saved paths follow.** `scripts/rewrite-root-paths.ts --map OLD=NEW [--alias]`
   rewrites every text column and rekeys the boards (a board id is a hash of its
   folder): 44 cards of Jarvis' board and 52 of a board orphaned by the earlier
-  rewrite come back.
+  rewrite come back. Each rekeyed board leaves a `board_aliases` row (old id ->
+  new id), so a link or a message that still names the old id lands on the
+  moved board, not on an empty one.
 
 Outside this repo, same night, same map (tracks in `tasks.md`): channel service
 config and jobs, guest wall policy, launchd jobs, scripts and docs, the 62
