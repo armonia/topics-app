@@ -267,3 +267,16 @@ describe("shutdown", () => {
 });
 
 afterEach(() => { db.close(); });
+
+describe("a job with broken data (review finding)", () => {
+  test("does not hold back the healthy ones", () => {
+    setClock("2026-03-02T10:00:00Z");
+    const executor = fakeCommand();
+    const engine = createScheduleEngine(db, { executors: { command: executor.executor }, now: () => clock });
+    addJob("bad", { kind: "cron", expr: "nope", tz: "UTC" }, { kind: "command", command: "echo" } as JobAction, "2026-03-02T09:00:00Z");
+    addJob("good", { kind: "every", minutes: 10 }, { kind: "command", command: "echo" } as JobAction, "2026-03-02T09:50:00Z");
+    expect(() => engine.tick()).not.toThrow();
+    expect((db.query("SELECT enabled FROM scheduled_jobs WHERE id='bad'").get() as { enabled: number }).enabled).toBe(0);
+    expect(statuses("good").length).toBeGreaterThan(0);
+  });
+});

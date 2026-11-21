@@ -95,6 +95,10 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     if (claimed !== 1) return null;
     const job = readJob(run.jobId);
     const executor = job ? options.executors[job.action.kind] : undefined;
+    if (job && (job.deletedAt || (!job.enabled && job.schedule.kind !== "at"))) {
+      finish(run.id, "cancelled", at, "The job was turned off or deleted before the run started.");
+      return null;
+    }
     if (!job || !executor) {
       finish(run.id, "failed_to_start", at, job ? `No executor for action ${job.action.kind}.` : "The job is gone.");
       return null;
@@ -231,7 +235,15 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
     failStaleStarting(instant);
     const due = db.query("SELECT id FROM scheduled_jobs WHERE enabled = 1 AND deleted_at IS NULL AND next_run_at <= ? ORDER BY next_run_at, id")
       .all(instant.toISOString()) as { id: string }[];
-    for (const { id } of due) processDue(id, instant, previousTick, out);
+    for (const { id } of due) {
+      try {
+        processDue(id, instant, previousTick, out);
+      } catch (error) {
+        // A job with broken data must not hold the others back: it is switched off and the failure is recorded.
+        db.prepare("UPDATE scheduled_jobs SET enabled = 0, next_run_at = NULL, updated_at = ? WHERE id = ?").run(instant.toISOString(), id);
+        console.error("[schedule] job switched off after an error", id, error);
+      }
+    }
     advancePending(instant, out);
     return out;
   }
