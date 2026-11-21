@@ -89,7 +89,8 @@ describe("scheduled commands on the registry", () => {
     engine.tick();
     const [started] = runsOf(db, "j1");
     expect(started.status).toBe("running");
-    const group = commandProcessGroup(started.process_ref)!;
+    expect(started.process_ref).not.toBeNull();
+    const group = commandProcessGroup(started.process_ref!)!;
     expect(processGroupAlive(group.pgid)).toBe(true);
     engine.cancelOpenRuns("j1", "The job was deleted.");
     const until = Date.now() + 15_000;
