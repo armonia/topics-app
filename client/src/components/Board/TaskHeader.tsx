@@ -13,8 +13,9 @@ import { STATUS_CHIP } from '@/lib/statusVisual';
 import { MorphText } from '../Shared/MorphText';
 import { useToast } from '../Shared/Toast';
 import { channelChip } from './channelChip';
-import { creatorChip } from './createdByLabel';
-import { CreatorChipView } from './CreatorChipView';
+import { OriginChipView } from './OriginChipView';
+import { ownerChip } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { ChannelChipView } from './ChannelChipView';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { showsStoppedChip } from './stoppedChip';
@@ -57,9 +58,10 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
   tr: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   const toast = useToast();
+  const personName = useOwnerName();
   const channel = task ? channelChip(task, tr) : null;
-  // Jarvis as the agent: the same avatar the card shows, beside the channel chip.
-  const creator = task ? creatorChip(task, tr) : null;
+  // Whose work it is: the same chip the card shows, beside the channel chip.
+  const owner = task ? ownerChip(task, tr, personName) : null;
   return (
       <div className="border-b border-app-border px-3 py-3">
         {task?.parentTaskId && onOpenTask && (
@@ -110,11 +112,11 @@ export function IdentityCard({ blockedChip, blockerAnchorRef, blockerCandidates,
             ) : null}
           </div>
         )}
-        {/* Jarvis (the agent) and the channel he follows this work in (Discord,
-            WhatsApp), two separate chips on a line of its own so the project name above never gives up width for it. */}
-        {(channel || creator?.jarvis) && (
+        {/* Whose work it is and the channel it came from (Discord, WhatsApp),
+            two chips on a line of their own so the project name above never gives up width for them. */}
+        {owner && (
           <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
-            {creator?.jarvis && <CreatorChipView chip={creator} notify={toast.error} />}
+            <OriginChipView chip={owner} notify={toast.error} />
             {channel && <ChannelChipView chip={channel} notify={toast.error} full />}
           </div>
         )}

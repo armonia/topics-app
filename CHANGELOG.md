@@ -2,6 +2,28 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.58 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-20 [skip ci]
+- La radice dati vecchia, se e' solo un collegamento, scrive dove punta
+- si capisce di chi è ogni card e da dove arriva
+- La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese
+- Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md
+- La barra della Board sta nello schermo a 1440 anche coi pannelli aperti
+- La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata
+- Lo schizzo della barra dei filtri, nel commento, in inglese
+- Le due estremità dello slider del dettaglio hanno un nome
+- Un sotto-agente parte su Claude Code solo se la persona lo chiede
+- La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px
+- Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px
+- Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza
+
+## 2.4.57 — 2026-11-20
+
+### Sotto il cofano
+- Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore
+
 ## 2.4.56 — 2026-11-20
 
 ### Sotto il cofano
@@ -10,10 +32,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Persist board aliases so an old board id reaches the moved project (card 266a3e1e)
 - Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main
 - Preview recapture: wait for the seeded deep link long enough under load
+- Il test degli aiuti per le immagini delle domande dice cosa copre (ASK-01)
 - Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda
+- La spec delle domande con immagini aspetta lo stato di invio, non 600 ms
 - una board aperta attraverso un link tiene le sue card
 - la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione
 - i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore
+- La spec delle domande con immagini aspetta che il pannello si chiuda e la riga tenga la scelta
+- La spec delle domande con immagini porta ogni immagine in vista prima di controllare che sia caricata
 - baseline follows the scores that rose tonight [skip ci]
 
 ## 2.4.55 — 2026-11-20
@@ -36,6 +62,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts
 - riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate
 - Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)
+- pair remaining bg-white/N and amber tone after main realign
 - filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming
 - declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows
 - Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati
@@ -48,6 +75,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)
 - cards parked for an unresolvable project folder return to todo by themselves
 - Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud
+- La domanda porta l'immagine, anche nelle opzioni (M2)
 - Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary
 - Test schema: for_you columns in migration order
 
@@ -267,6 +295,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - topics/tawny-marble (card 7749cf36) (#1247)
 - CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
 - Usage ledger: external calls (delegate jobs) name their project and count in it
+- light-theme pairs for tints and tones, icons instead of text glyphs
+- drawer step count no longer carries the arrow glyph
+- fallback chip locator without the arrow glyph
 - Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
 - ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
 - il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme

@@ -1,5 +1,99 @@
 [
   {
+    "version": "2.4.58",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "La radice dati vecchia, se e' solo un collegamento, scrive dove punta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "si capisce di chi è ogni card e da dove arriva",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board sta nello schermo a 1440 anche coi pannelli aperti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo schizzo della barra dei filtri, nel commento, in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due estremità dello slider del dettaglio hanno un nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente parte su Claude Code solo se la persona lo chiede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.57",
+    "date": "2026-11-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.56",
     "date": "2026-11-20",
     "sections": {
@@ -33,7 +127,17 @@
           "scope": null
         },
         {
+          "it": "Il test degli aiuti per le immagini delle domande dice cosa copre (ASK-01)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec delle domande con immagini aspetta lo stato di invio, non 600 ms",
           "en": "",
           "scope": null
         },
@@ -54,6 +158,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "La spec delle domande con immagini aspetta che il pannello si chiuda e la riga tenga la scelta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec delle domande con immagini porta ogni immagine in vista prima di controllare che sia caricata",
+          "en": "",
+          "scope": null
         },
         {
           "it": "baseline follows the scores that rose tonight [skip ci]",
@@ -167,6 +281,12 @@
           "scope": null
         },
         {
+          "it": "pair remaining bg-white/N and amber tone after main realign",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming",
           "en": "",
           "scope": null,
@@ -227,6 +347,11 @@
         },
         {
           "it": "Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La domanda porta l'immagine, anche nelle opzioni (M2)",
           "en": "",
           "scope": null
         },
@@ -1242,6 +1367,24 @@
           "it": "Usage ledger: external calls (delegate jobs) name their project and count in it",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "light-theme pairs for tints and tones, icons instead of text glyphs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "drawer step count no longer carries the arrow glyph",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fallback chip locator without the arrow glyph",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)",
