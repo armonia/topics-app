@@ -1,5 +1,374 @@
 [
   {
+    "version": "2.4.58",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "La radice dati vecchia, se e' solo un collegamento, scrive dove punta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "si capisce di chi è ogni card e da dove arriva",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board sta nello schermo a 1440 anche coi pannelli aperti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo schizzo della barra dei filtri, nel commento, in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due estremità dello slider del dettaglio hanno un nome",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un sotto-agente parte su Claude Code solo se la persona lo chiede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.57",
+    "date": "2026-11-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.56",
+    "date": "2026-11-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Old board id resolves to the moved project's board (card 266a3e1e)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare what the board alias test covers",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Persist board aliases so an old board id reaches the moved project (card 266a3e1e)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Preview recapture: wait for the seeded deep link long enough under load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test degli aiuti per le immagini delle domande dice cosa copre (ASK-01)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec delle domande con immagini aspetta lo stato di invio, non 600 ms",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "una board aperta attraverso un link tiene le sue card",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La spec delle domande con immagini aspetta che il pannello si chiuda e la riga tenga la scelta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec delle domande con immagini porta ogni immagine in vista prima di controllare che sia caricata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "baseline follows the scores that rose tonight [skip ci]",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.55",
+    "date": "2026-11-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "spread nullable jobs safely in one-shot test",
+          "en": "",
+          "scope": "automations",
+          "breaking": false
+        },
+        {
+          "it": "Translate permissions.ts header comment to English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dichiara @covers nello spec sidebar-row-touch-768",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Land waits while main is red; file-tree yield test uses the JS walk; Playwright install retries on apt 503 (card 878779bd)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "move Codex spawn_agent ask-user tests to their own file",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Board settings warn when a registered project cannot have a worktree (#1358)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics/ivory-sloop (card 10508340) (#1339)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Per-project quota: correct count (nested transcripts, per-model weight, cards keep their project, one folder one project, single calls), surfaces, 24h limit and a meter in the sidebar and the Dashboard, with no pause",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "trova il checkout dopo uno spostamento e chiude la card già su main (#1371)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Quality bar: a skipped placement job is neutral, a skipped e2e shard stays red",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "import RecordedHandler in codex.test.ts after the split",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Cron di jarvis-channels: esiti e consumi dei giri in Topics (tabella cron_runs)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "toglie i sette requisiti NOT BUILT, archivia le change costruite, stato in cima alle aperte",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "pair remaining bg-white/N and amber tone after main realign",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nodo cloud non prende card che non può eseguire: rifiuti per repository e account tornano subito in coda, un avviso per causa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test dei rifiuti del cloud (file nuovo, forzato: l'exclude locale ignora providers/)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quota history sampler: one series per login, silent while a foreign writer is alive (card 29aa4259)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revisione automatica PR: niente raffica all'accensione, una revisione per giro, card in review sui difetti, esito letto da claude -p",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un solo avviso per causa anche quando l'account si scopre dopo il primo rifiuto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "change mostrato-nel-messaggio (M1 spec delta)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cards parked for an unresolvable project folder return to todo by themselves",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La domanda porta l'immagine, anche nelle opzioni (M2)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test schema: for_you columns in migration order",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.54",
     "date": "2026-11-19",
     "sections": {
@@ -8,9 +377,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "Windows temp cleanup in spawn-child ask tests no longer fails on EBUSY",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Narrow machine-like owner credentials to node by traces, not by name (#1367)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "a drop under 5 points is read noise, not a weekly reset",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -42,7 +423,14 @@
     "date": "2026-11-19",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "refuse ask_user_question for a Codex spawn_agent child too",
+          "en": "",
+          "scope": "subagent",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -74,7 +462,20 @@
     "date": "2026-11-19",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "refuse ask_user_question for CLI spawn_agent children, not just native ones",
+          "en": "",
+          "scope": "subagent",
+          "breaking": false
+        },
+        {
+          "it": "never surface the ask-user panel for a spawned child, not just refuse its answer",
+          "en": "",
+          "scope": "subagent",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -129,6 +530,18 @@
           "it": "the re-measure drops the verdict the gate still retains for that commit",
           "en": "",
           "scope": "review-sweep",
+          "breaking": false
+        },
+        {
+          "it": "one-shot jobs are tasks, not rows of the automations list",
+          "en": "",
+          "scope": "automations",
+          "breaking": false
+        },
+        {
+          "it": "rm guard ignores redirections, -- and $TMPDIR when checking temp targets",
+          "en": "",
+          "scope": "native",
           "breaking": false
         },
         {
@@ -207,6 +620,11 @@
           "scope": null
         },
         {
+          "it": "machine-health: a node whose build cannot read its memory gets it from its process list",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "allow the two words the CI phase names use, check:identifier-language failed the PR",
           "en": "",
           "scope": "gates",
@@ -232,6 +650,12 @@
           "it": "Primary epoch: a node records the primary that paired it, and only that device carries a higher epoch in, under the machine id declared at pairing; no ceiling, no id from a header, loopback adopts nothing",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "righe e tessere a 44px anche a 768 con puntatore touch",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "count the Plan loader as span > canvas, the relative :has never matched (#1299)",
@@ -457,6 +881,17 @@
           "scope": null
         },
         {
+          "it": "Guardia rm: $TMPDIR tra apici singoli resta letterale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ignore malformed remote entries",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Only the chosen primary can write a node's pairing channel",
           "en": "",
           "scope": null
@@ -585,6 +1020,18 @@
           "it": "Primary epoch: the primary sends its epoch to nodes and the receiver adopts the higher one; the gate sits inside the dispatcher tick; empty header means not declared",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "every card of a plan made here stays visible under active filters",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the sidebar 'open elsewhere' row only counts windows it can focus, and a failed focus no longer opens the chat here",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -723,6 +1170,12 @@
           "scope": null
         },
         {
+          "it": "the 'in another window' card leaves the grid, only the sidebar row stays",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper",
           "en": "",
           "scope": null,
@@ -769,9 +1222,21 @@
           "scope": null
         },
         {
+          "it": "a card created from this window stays visible under active filters",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "la riga subordinata del progetto torna a centrare la tab",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)",
@@ -831,6 +1296,12 @@
           "scope": null
         },
         {
+          "it": "la card con l'agente al lavoro mostra il loader, non il glifo in corso",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)",
           "en": "",
           "scope": null,
@@ -870,6 +1341,12 @@
           "breaking": false
         },
         {
+          "it": "i glifi di stato si cercano fra i visibili (il menu del composer ne ha di nascosti)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)",
           "en": "",
           "scope": null,
@@ -890,6 +1367,24 @@
           "it": "Usage ledger: external calls (delegate jobs) name their project and count in it",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "light-theme pairs for tints and tones, icons instead of text glyphs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "drawer step count no longer carries the arrow glyph",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fallback chip locator without the arrow glyph",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)",
@@ -927,6 +1422,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "un selettore di vista (kanban, lista, card) e raggruppamento a due livelli per board",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)",
           "en": "",
           "scope": null
@@ -938,6 +1439,24 @@
         },
         {
           "it": "righe di tool, sottoagenti e card sulla stessa griglia (#1227)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "English wording in canSendToAgent/canDecideReview comments",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a comment on an archived node card stays a note",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le spec che aprivano il Piano passano dal selettore di vista (Card)",
           "en": "",
           "scope": null,
           "breaking": false
@@ -1020,6 +1539,46 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Evidence of a delivery: open at the top of the drawer, full-screen viewer with zoom and before/after divider",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidence thumbnails keep a fixed box; viewer layer test and spec names in English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Declare PREVIEW-02 for the full-screen evidence tests",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidence button gets an accessible name; spec waits for the frame to take its shape",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidence divider: pointer capture is best effort",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidence divider follows the drag with window listeners",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Evidence spec moves the divider through its range input",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rebase fixup: evidence block in the extracted thread rows",
+          "en": "",
+          "scope": null
         },
         {
           "it": "write the health file where the tray reads it, not in the server's data folder",
@@ -2684,6 +3243,23 @@
           "breaking": false
         }
       ]
+    }
+  },
+  {
+    "version": "2.3.107",
+    "date": "2026-11-14",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "four misleading buttons (send/note, archive, closed-by-human, approve with unmerged branch)",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
     }
   },
   {

@@ -49,19 +49,22 @@ import {
   readBoardShowDone, writeBoardPreference, type BoardLayout,
 } from './boardGeometry';
 import { laneDropId } from './boardLanes';
-import { DoneToggle, GroupSelectors, ViewSelector } from './BoardViewControls';
+import { DensitySlider, DoneToggle, GroupSelectors, ViewSelector } from './BoardViewControls';
 import { GroupedBoard } from './GroupedBoard';
-import { effectiveLevels, groupTasks, leavesOf, NO_VALUE, type GroupKey, type GroupNode } from './boardGrouping';
-import { useBoardViewState } from './useBoardViewState';
+import { effectiveLevels, firstLevelFor, groupTasks, leavesOf, NO_VALUE, type GroupKey, type GroupNode } from './boardGrouping';
+import { effectiveDensity, useBoardViewState } from './useBoardViewState';
 import { draftLaneOf } from './draftPreview';
 import { useCollapsedProjects } from './useCollapsedProjects';
-import { QUICK_FILTERS, countQuickFiltersWithoutCreator, taskMatchesQuick, type QuickFilter } from './quickFilters';
+import { OriginFilterBar } from './OriginFilterBar';
+import { WorkflowView } from './WorkflowView';
+import { ownerLabel } from './ownerChip';
+import { useOwnerName } from '../../hooks/useOwnerName';
 import { useColumnClearance } from './columnClearance';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjectLabels } from '../../lib/boardProjectsStore';
 import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { CREATED_FLASH_MS, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, TOOLBAR_ICON_W, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
-import { taskMatchesFilters } from './taskFilter';
+import { BOARD_PRESET_STORAGE_KEY, initialBoardFilters, taskMatchesFilters } from './taskFilter';
 import { boardCollision } from './format';
 import { FloatingTaskComposer } from './FloatingTaskComposer';
 import { Card, Column } from './Card';
@@ -301,18 +304,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // waiting to drift.
   const storageKey = `board:filters-${mode === 'all' ? 'all' : projectId}`;
   const [filters, setFilters] = useState<BoardFilters>(() => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      // `labels` è arrivato dopo: un filtro salvato da una versione precedente
-      // non ce l'ha, e senza il default `filters.labels.length` esploderebbe al
-      // primo render su ogni board già usata.
-      const parsed = stored ? JSON.parse(stored) : null;
-      return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], ...(parsed ?? {}) };
-    } catch { return { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] }; }
+    try { return initialBoardFilters(localStorage.getItem(storageKey), localStorage.getItem(BOARD_PRESET_STORAGE_KEY)); }
+    catch { return initialBoardFilters(null, null); }
   });
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify(filters)); } catch { /* private mode */ }
+    try { localStorage.setItem(storageKey, JSON.stringify({ ...filters, v: 2 })); } catch { /* private mode */ }
   }, [filters, storageKey]);
+  const personName = useOwnerName();
 
   useEffect(() => {
     let alive = true;
@@ -366,10 +364,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
   // The view and the grouping are kept PER BOARD (the global one and each project).
-  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy } = useBoardViewState(mode === 'all' ? 'all' : projectId);
+  const { detail, setDetail, groupBy: groupByPref, thenBy: thenByPref, setGroupBy, setThenBy, density: densityPref, setDensity } = useBoardViewState(mode === 'all' ? 'all' : projectId);
+  const cardDensity = effectiveDensity(densityPref, detail);
   const planVisible = detail === 'plan';
-  // One-click filter above the board, in AND with the search filters and with every view.
-  const [quick, setQuick] = useState<QuickFilter | null>(null);
   // The cards view has no columns; the row below it keeps the grid shape.
   const boardLayout: BoardLayout = detail === 'list' ? 'list' : 'grid';
   // The levels the view can really draw (the kanban never groups by status; a project board has no project level).
@@ -403,7 +400,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Ghost card of what the composer is about to create (card 058ea722), held until the real one arrives.
   const { draft, setDraft, holdCreated } = useHeldDraft(tasks);
 
-  const { justCreated, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
+  const { justCreated, pinnedIds, clearPinned, flashCreated, scrollTarget, setScrollTarget, keepClearRef, onCreatedHere } = useCreatedFlash(holdCreated, refetch);
 
   // Live updates. In 'all' mode any task event is relevant; in 'project' mode
   // only events for this project (or project-less broadcasts) trigger a refetch.
@@ -523,14 +520,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // comparatore (e a `planDrop`, che lì non scrive posizioni).
   const orderScope: OrderScope = mode === 'all' ? 'cross-project' : 'board';
 
-  // The cards the search filters let through, before the quick filter: its counts read from here.
-  const filtered = useMemo(() => tasks.filter((task) => taskMatchesFilters(task, filters)), [tasks, filters]);
-  // The counts ignore the creator toggle: with «mine» on, «Jarvis» and «Agents» would read 0 for a filter that is not broken.
-  const quickCounts = useMemo(
-    () => countQuickFiltersWithoutCreator(tasks, filters),
-    [tasks, filters],
+  // The cards every filter lets through. Cards created from this window are
+  // exempt until the filters change (see `pinnedIds`): «My work» hides cards
+  // in progress, and a card just written must not vanish under the hand.
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => pinnedIds.has(task.id) || taskMatchesFilters(task, filters, { personName })),
+    [tasks, filters, pinnedIds, personName],
   );
-  const visibleTasks = useMemo(() => (quick ? filtered.filter((task) => taskMatchesQuick(task, quick)) : filtered), [filtered, quick]);
+  useEffect(() => { clearPinned(); }, [filters, clearPinned]);
   const byStatus = useMemo(() => groupByStatus(visibleTasks, orderScope), [visibleTasks, orderScope]);
 
   /**
@@ -837,7 +834,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     nameOfProject: (id) => projectNameById.get(id) ?? id,
     statusOrder: TASK_STATUSES,
     keepEmptyProject: draftProject,
-  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject]);
+    personName,
+  }) : []), [grouped, groupSource, groupLevels, projectNameById, draftProject, personName]);
   const draftLeafPath = useMemo(
     () => (draftProject ? leavesOf(groups.filter((g) => g.key === draftProject))[0]?.path ?? null : null),
     [groups, draftProject],
@@ -846,7 +844,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     if (key === NO_VALUE) return tr('board.group.none');
     switch (level) {
       case 'status': return STATUS_LABEL[key as TaskStatus] ?? key;
-      case 'closer': return tr(`board.quick.${key}`);
+      case 'owner': return ownerLabel(key, tr);
       case 'priority': return PRIORITY_LABEL[Number(key)] ?? key;
       default: return key;
     }
@@ -901,10 +899,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         projectPath={projectPathById.get(t.projectId)}
         live={liveUsage.get(t.id)}
         awaiting={awaitingHuman.has(t.id) || !!t.awaitingAnswer}
-        density="compact"
+        density={cardDensity}
       />
     );
-  }, [tasksById, openTask, refetch, onOpenTopic, cardError, onCardError, resolveSession, projectId, settings, projectPathById, liveUsage, awaitingHuman]);
+  }, [tasksById, openTask, refetch, onOpenTopic, cardError, onCardError, resolveSession, projectId, settings, projectPathById, liveUsage, awaitingHuman, cardDensity]);
   // One workflow column, on the flat board or inside a project lane.
   const renderColumn = (
     { id: columnKey, base: status, label: columnLabel }: (typeof boardColumns)[number],
@@ -925,6 +923,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // When a group header already names the project, the eyebrow would repeat it on every card.
       showProject={mode === 'all' && !lane?.projectKnown}
       layout={boardLayout}
+      density={cardDensity}
       viewKey={`${mode === 'all' ? 'all' : projectId}:${showArchived ? 'archive' : 'live'}${lane ? `:${lane.path}` : ''}`}
       cardError={cardError}
       onCardError={onCardError}
@@ -1158,7 +1157,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (colonne su fondo diverso), e la riga in piu' disegnava un confine che
           si vedeva gia' da solo. Le strisce che compaiono sotto (errore,
           archivio, impostazioni) portano il proprio bordo quando servono. */}
-      <div className="relative shrink-0">
+      {/* `@container`: the view labels follow the PANE's width, not the window's.
+          At 1440px with the sidebar and the file pane open the board is ~950px
+          wide, and `xl:` (a viewport query) kept the labels on and pushed the
+          grouping and the actions past the right edge. */}
+      <div className="relative shrink-0 @container">
       {/* `overflow-y-hidden`: a bar is fixed chrome and never scrolls vertically
           (KANBAN-MOBILE-01). `overflow-x: auto` alone turns the other axis into
           `auto` as well (CSS Overflow 3), so any child reaching past the 36px
@@ -1180,11 +1183,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           <>
             <button
               onClick={() => setMode('project')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'project' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.thisProject')}</button>
             <button
               onClick={() => setMode('all')}
-              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`flex ${TOOLBAR_CONTROL_H} items-center rounded px-2 text-compact leading-4 ${mode === 'all' ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             >{tr('board.toolbar.allProjects')}</button>
           </>
         )}
@@ -1208,10 +1211,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             `boardLayout` above and `layout` on `Column`). Same spot, same
             style as the archive toggle below — not a second menu. */}
         <ViewSelector value={detail} onChange={setDetail} />
-        <GroupSelectors
-          view={detail} hasProjects={mode === 'all'}
-          groupBy={groupByPref} thenBy={thenByPref} onGroupBy={setGroupBy} onThenBy={setThenBy}
-        />
+        {detail !== 'workflow' && <>
+          <DensitySlider value={cardDensity} onChange={setDensity} />
+          <GroupSelectors
+            view={detail} hasProjects={mode === 'all'}
+            groupBy={firstLevelFor(detail, groupByPref)} thenBy={thenByPref} onGroupBy={setGroupBy} onThenBy={setThenBy}
+          />
+        </>}
         <DoneToggle showDone={showDone} onShowDone={setShowDone} />
         <div className="ml-auto flex items-center gap-2">
           {hasProject && mode === 'project' && <ScheduledCardsControl projectId={projectId} />}
@@ -1244,7 +1250,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               // `py-0.5` it was 21px tall, and under a finger the 44px band its
               // `.tap-expand-y` projected ran over the layout toggle beside it.
               className={`flex ${TOOLBAR_CONTROL_H} items-center gap-1 rounded px-2 text-mini disabled:cursor-wait disabled:opacity-60 ${
-                orchestratorTopic ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/10 hover:text-app-text'
+                orchestratorTopic ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text'
               }`}
             >
               {/* THE NOTES, not the speech bubble. The bubble said "you can
@@ -1271,7 +1277,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
               data-testid="board-archived-toggle"
               aria-pressed={showArchived}
               onClick={() => setShowArchived((v) => !v)}
-              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+              className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showArchived ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
               title={showArchived ? tr('board.archive.hide') : tr('board.archive.show')}
             ><Archive className="h-3.5 w-3.5" /></button>
           )}
@@ -1286,7 +1292,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onClick={toggleSettings}
             aria-expanded={showSettings}
             aria-haspopup="menu"
-            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-white/5'}`}
+            className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} place-items-center rounded ${showSettings ? 'bg-black/10 dark:bg-white/15 text-app-text' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
             title={tr('board.toolbar.dispatchSettings')}
           ><Settings className="h-3.5 w-3.5" /></button>
         </div>
@@ -1301,7 +1307,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       <div className="shrink-0 px-2 pb-1.5 empty:hidden sm:hidden"><BrakeChip band /></div>
-      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
+      {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-800 dark:text-rose-300">{error}</div>}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -1309,7 +1315,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <div data-testid="board-archived-banner" className="flex shrink-0 items-center gap-2 bg-amber-400/10 px-3 py-1.5 text-compact leading-4 text-amber-200">
           <Archive className="h-3.5 w-3.5 shrink-0" />
           <span>{tr('board.archive.banner', { count: tasks.length, restore: taskActionWord('restore', tr).label })}</span>
-          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-white/10">{tr('board.archive.hide')}</button>
+          <button onClick={() => setShowArchived(false)} className="ml-auto rounded px-2 py-0.5 text-amber-100 hover:bg-black/5 dark:hover:bg-white/10">{tr('board.archive.hide')}</button>
         </div>
       )}
       {/* THE SETTINGS ARE A DROPDOWN, anchored to the ⚙ (KANBAN-75), not a band
@@ -1364,15 +1370,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
           (the drawer positions itself; out of flow, the board re-expands). */}
       <div ref={drawerHostRef} className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <div role="group" aria-label={tr('board.quick.label')} data-testid="board-quick-filters" className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
-            {QUICK_FILTERS.map((q) => (
-              <button key={q} type="button" data-testid={`board-quick-${q}`} aria-pressed={quick === q}
-                onClick={() => setQuick((cur) => (cur === q ? null : q))}
-                className={`flex ${TOOLBAR_CONTROL_H} shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-compact leading-4 coarse:min-w-11 ${quick === q ? 'border-primary bg-primary/15 text-app-text' : 'border-app-border text-app-text-secondary hover:bg-white/5'}`}
-              >{tr(`board.quick.${q}`)}<span data-testid={`board-quick-count-${q}`} className="tabular-nums text-app-text-muted">{quickCounts[q]}</span></button>
-            ))}
-          </div>
-          {planVisible ? (
+          {detail !== 'workflow' && <OriginFilterBar tasks={tasks} filters={filters} onChange={setFilters} personName={personName} />}
+          {detail === 'workflow' ? (
+            <WorkflowView columns={boardColumns} tasks={tasks} rules={workflow?.rules ?? null} onOpenKanban={() => setDetail('grid')} onOpenSettings={hasProject ? toggleSettings : undefined} />
+          ) : planVisible ? (
             /* A DndContext with no sensors: the board's card is a sortable, and
                here nothing is dragged. The cards are the board's own, compact. */
             <DndContext sensors={NO_SENSORS}>
@@ -1477,7 +1478,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                         {dragPreview.badges.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             {dragPreview.badges.map((b) => (
-                              <span key={b} className="rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
+                              <span key={b} className="rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary">{b}</span>
                             ))}
                           </div>
                         )}

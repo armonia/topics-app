@@ -207,7 +207,7 @@ export const E2E_HOME = join(E2E_DATA_DIR, ".home");
  * start-test-server.sh isolates HOME, and Playwright looks for its browsers
  * under the home directory, so a server booted without these variables looks
  * in an empty `<DATA_DIR>/.home/...` cache. The preview photo is taken by the
- * server's own WebKit (KANBAN-95), which has no CHROMIUM_PATH-style pin:
+ * server's own WebKit (KANBAN-119), which has no CHROMIUM_PATH-style pin:
  * handing the real cache down as PLAYWRIGHT_BROWSERS_PATH is what makes it
  * findable. The executable sits at `<cache>/webkit-<rev>/<binary>` on every
  * platform. Returns "" if nothing found — the server surfaces a clear error

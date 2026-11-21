@@ -103,7 +103,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // se quella manca — cioè se il server non è riuscito a calcolarla. Restano
   // perché un chip vuoto sarebbe peggio, ma «in coda» da solo è esattamente la
   // parola che non dice niente.
-  queued: { textKey: 'board.dispatch.queued', cls: 'bg-white/10 text-app-text-heading' },
+  queued: { textKey: 'board.dispatch.queued', cls: 'bg-black/5 dark:bg-white/10 text-app-text-heading' },
   // The agent DECLARED an external-condition wait: back in the queue, slot freed,
   // re-dispatched when its window elapses. NOT a delivery — never in review. The
   // reason rides in task.dispatchError → shown as the chip tooltip.
@@ -139,7 +139,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // red: it is not a failure, it is an empty hand.
   delivered_empty: {
     textKey: 'board.dispatch.deliveredEmpty',
-    cls: 'bg-white/10 text-app-text-secondary',
+    cls: 'bg-black/5 dark:bg-white/10 text-app-text-secondary',
     titleKey: 'board.dispatch.deliveredEmpty.title',
   },
   // Parked in backlog after a dispatch ended badly. 'failed' = the agent genuinely
@@ -157,7 +157,7 @@ export const DISPATCH_CHIP: Record<string, { textKey: string; cls: string; title
   // Il motivo NON è scritto qui: come per 'failed'/'blocked' viaggia in
   // `task.dispatchError` («Fermato da te: … Rimetti il task in Todo per
   // ripartire») e diventa il tooltip. Un titolo fisso lo coprirebbe.
-  [PARKED_STOPPED]: { textKey: 'board.dispatch.stopped', cls: 'bg-white/10 text-app-text-secondary', Icon: Square },
+  [PARKED_STOPPED]: { textKey: 'board.dispatch.stopped', cls: 'bg-black/5 dark:bg-white/10 text-app-text-secondary', Icon: Square },
   // 'waited_out' = la SERIE di attese dichiarate ha sfondato il tetto. Il task è
   // in Backlog e non riparte da solo, ma non ha fallito niente: aspettava, e
   // quello che aspettava non è arrivato. Perciò indigo come 'in attesa' (è la
@@ -452,12 +452,23 @@ export interface BoardFilters {
   initiator: string[];
   /** `Task.runComputerName` - where that delegated run executed. */
   runComputer: string[];
-  /** Who opened the card: all, mine (a person's) or others (an agent or a schedule). Absent = all. */
-  creator?: CreatorFilter;
+  /** Who follows the card (`cardOrigin.ts`): `me`, `board`, `session`, `scheduled`, `agent:<id>`. Empty = everyone. */
+  owners?: string[];
+  /** The channel paths the work came from (`cardOrigin.ts`, `channelPath`). Empty = any. */
+  channels?: string[];
+  /** Out of sight: the cards an agent is working right now (the In Progress column). */
+  hideInProgress?: boolean;
+  /** Only the cards that wait on the person (an answer, a review, a decision). */
+  needsMe?: boolean;
 }
 
-export type CreatorFilter = 'all' | 'mine' | 'others';
+/** What «My work» sets: the person's own cards and the board agents', nothing in progress. */
+export const MY_WORK_PRESET = { owners: ['me', 'board'], channels: [] as string[], hideInProgress: true } as const;
+
+/** The empty filters: every axis open. */
+export const NO_FILTERS: BoardFilters = { priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], owners: [], channels: [], hideInProgress: false, needsMe: false };
 
 /** What the ONE field owns: every axis except the project, which keeps its own
- *  control (it already has a search box and an inline chip strip of its own). */
-export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'creator'>;
+ *  control (it already has a search box and an inline chip strip of its own),
+ *  and the origin axes, which have their own bar (`OriginFilterBar`). */
+export type BoardFieldFilters = Omit<BoardFilters, 'projectId' | 'owners' | 'channels' | 'hideInProgress' | 'needsMe'>;

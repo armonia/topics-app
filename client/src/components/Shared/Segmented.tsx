@@ -29,6 +29,8 @@ export interface SegmentedProps<T extends string> {
   testId?: string;
   disabled?: boolean;
   className?: string;
+  /** The value is not known (still being read, or the read failed): no choice is marked, none is claimed. */
+  unset?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export function SegmentedControl<T extends string>({
   testId,
   disabled = false,
   className = '',
+  unset = false,
   optionAttributes = tipOnData,
 }: SegmentedProps<T> & {
   /** What an option's radio carries beyond its role: where its tooltip text lives. */
@@ -75,13 +78,13 @@ export function SegmentedControl<T extends string>({
       className={`relative grid flex-shrink-0 rounded-md bg-black/5 p-0.5 dark:bg-white/10 ${disabled ? 'opacity-40' : ''} ${className}`}
       style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}
     >
-      <span
+      {!unset && <span
         aria-hidden="true"
         className="control-slide pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 rounded bg-app-bg shadow-sm ring-1 ring-black/5 dark:bg-white/15 dark:ring-white/10"
         style={{ width: `calc((100% - 4px) / ${count})`, transform: `translateX(${index * 100}%)` }}
-      />
+      />}
       {options.map((o, i) => {
-        const checked = i === index;
+        const checked = !unset && i === index;
         const Icon = o.icon;
         // `min-h-6`: a segment is at least 24 tall with the mouse (WCAG
         // 2.5.8). Text segments were 21, icon segments 17 (usability audit,
@@ -95,7 +98,7 @@ export function SegmentedControl<T extends string>({
             aria-checked={checked}
             aria-label={Icon ? o.label : undefined}
             {...optionAttributes(o)}
-            tabIndex={checked ? 0 : -1}
+            tabIndex={checked || (unset && i === 0) ? 0 : -1}
             disabled={disabled}
             data-testid={testId ? `${testId}-${o.value}` : undefined}
             onClick={() => { if (!checked) onChange(o.value); }}

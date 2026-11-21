@@ -558,6 +558,16 @@ export function createReconcile(ctx: DispatcherCtx) {
         ctx.queue.emit(t);
       }
     } catch (err) { log("rientro delle card fermate dalla macchina fallito", err); }
+    // 1-quater-ter) A card parked because its board mapped to no project
+    //    directory returns once the directory is found again.
+    try {
+      for (const t of deps.svc.sweepUnresolvedProjectParked({
+        resolvable: (projectId) => acceso(projectId) && !!deps.resolveProject(projectId),
+      })) {
+        log(`cartella del progetto di nuovo trovata: ${t.id} rimessa in coda`);
+        ctx.queue.emit(t);
+      }
+    } catch (err) { log("rientro delle card senza cartella fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si

@@ -32,9 +32,9 @@ describe('groupTasks, one level', () => {
     expect(groups.map((g) => g.key)).toEqual(['amy', 'bob', NO_VALUE]);
     expect(groups.map((g) => g.count)).toEqual([3, 1, 1]);
   });
-  test('closer: fixed order, no value last', () => {
-    const keys = groupTasks(tasks, ['closer'], ctx).map((g) => g.key);
-    expect(keys).toEqual(['me', 'jarvis', 'agents', 'scheduled', NO_VALUE]);
+  test('owner: the person, then the main agent, other agents, schedules', () => {
+    const keys = groupTasks(tasks, ['owner'], ctx).map((g) => g.key);
+    expect(keys).toEqual(['me', 'agent:jarvis', 'agent:other', 'scheduled']);
   });
   test('priority: urgent first', () => {
     expect(groupTasks(tasks, ['priority'], ctx).map((g) => g.key)).toEqual(['4', '2']);
@@ -78,7 +78,13 @@ describe('effectiveLevels', () => {
     expect(effectiveLevels('status', 'project', 'grid')).toEqual([]);
     expect(effectiveLevels('project', 'project', 'list')).toEqual(['project']);
     expect(effectiveLevels('none', 'project', 'list')).toEqual([]);
-    expect(effectiveLevels('project', 'closer', 'plan')).toEqual(['project', 'closer']);
+    expect(effectiveLevels('project', 'owner', 'plan')).toEqual(['project', 'owner']);
+  });
+  test('the cards view is grouped by owner until another level is chosen; the workflow view has no groups', () => {
+    expect(effectiveLevels('none', 'none', 'plan')).toEqual(['owner']);
+    expect(effectiveLevels('none', 'priority', 'plan')).toEqual(['owner', 'priority']);
+    expect(groupKeysFor('plan')).not.toContain('none');
+    expect(effectiveLevels('project', 'owner', 'workflow')).toEqual([]);
   });
 });
 
@@ -87,7 +93,7 @@ describe('menus and paths', () => {
     expect(groupKeysFor('grid')).not.toContain('status');
     expect(groupKeysFor('list')).toContain('status');
     expect(groupKeysFor('list', false)).not.toContain('project');
-    expect(effectiveLevels('project', 'closer', 'list', false)).toEqual([]);
+    expect(effectiveLevels('project', 'owner', 'list', false)).toEqual([]);
   });
   test('the project of a path, at either level', () => {
     expect(projectOfPath(`p1${PATH_SEPARATOR}amy`, ['project', 'assignee'])).toBe('p1');

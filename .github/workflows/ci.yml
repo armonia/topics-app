@@ -1517,6 +1517,17 @@ jobs:
           retention-days: 14
           overwrite: true
 
+      - name: Upload board filter shots
+        # The Board's origin filters, owner chips, density and Workflow view at four widths in both themes.
+        if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: board-filtri-shots-${{ matrix.shard }}
+          path: test-results/board-filtri/
+          if-no-files-found: ignore
+          retention-days: 3
+          overwrite: true
+
       - name: Upload swap-freeze evidence
         if: ${{ always() && needs.changes.outputs.e2e != 'false' }}
         uses: actions/upload-artifact@v4

@@ -42,6 +42,8 @@ import type { ChatMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { mergeTaskTimeline, type TimelineItem } from './taskTimeline';
 import { deliveryNotesToFold } from './taskDeliveryNotes';
+import { AskBox } from './AskBox';
+import { stripMarkdown } from '../../lib/stripMarkdown';
 import { usePaneAlive } from '../../state/paneLiveness';
 import { addBoardProject, projectNameFromId, useBoardProjects, UNKNOWN_PROJECT_NAME } from '../../lib/boardProjectsStore';
 import { GroupLayout } from '../Layout/GroupLayout';
@@ -1320,7 +1322,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
           <button
             data-testid="task-load-retry"
             onClick={() => { void load(); }}
-            className="rounded-md border border-app-border px-3 py-1.5 text-compact leading-4 text-app-text-heading hover:bg-white/10"
+            className="rounded-md border border-app-border px-3 py-1.5 text-compact leading-4 text-app-text-heading hover:bg-black/5 dark:hover:bg-white/10"
           >
             {tr('board.task.loadRetry')}
           </button>
@@ -1367,6 +1369,30 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               threadScrollRef={threadScrollRef} timeline={timeline} tr={tr} uploading={uploading}
               details={
                 <>
+                  {task.status === 'review' && (
+                    <div className="-mx-3 -mt-3 mb-3 px-3 pt-3">
+                      <AskBox
+                        question={pending ? stripMarkdown(pending.question) : (task.humanAsk ?? null)}
+                        forYou={task.forYou ?? null}
+                        options={pending ? replyOptions : []}
+                        busy={sending || busy || uploading}
+                        onAnswer={(opt) => void answerOption(opt)}
+                      />
+                      {/* The same two exits on every card in Review, whatever the question. */}
+                      <div data-testid="task-review-bar" className="mt-1.5 flex flex-wrap gap-1.5">
+                        <button type="button" disabled={busy || sending} data-testid="task-resend-note"
+                          onClick={() => commentRef.current?.focus()}
+                          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+                          {tr('board.task.resendWithNote')}
+                        </button>
+                        <button type="button" disabled={busy || sending} data-testid="task-close-undone"
+                          onClick={() => { setBusy(true); boardApi.archive(projectId, taskId).then(() => { setError(null); void load(); onChanged(); }).catch(showError).finally(() => setBusy(false)); }}
+                          className="rounded border border-app-border px-2.5 py-1.5 text-compact leading-4 text-app-text-secondary hover:bg-white/10 disabled:opacity-50 coarse:min-h-11">
+                          {tr('board.task.closeUndone')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
                     cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
                     changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
@@ -1423,7 +1449,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                 <p className="text-compact leading-4 text-app-text-muted">{tr('board.task.noWorkspaceTabs')}</p>
                 <button
                   onClick={() => { setWorkspaceOpen(true); browser.addBrowserTab(); }}
-                  className="rounded bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-white/20"
+                  className="rounded bg-black/5 dark:bg-white/10 px-2.5 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
                 >{tr('board.task.openTab')}</button>
               </div>
             )}

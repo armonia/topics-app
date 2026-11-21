@@ -2,7 +2,7 @@
  * task-dispatcher-tick.ts: the dispatch pass over one board.
  */
 import { UNASSIGNED_PROJECT_ID, type Task } from "./tasks";
-import { MAX_FANOUT } from "../../shared/board";
+import { MAX_FANOUT, UNRESOLVED_PROJECT_PARK_REASON } from "../../shared/board";
 import { publishDispatchBlock } from "./dispatch-block-signal";
 import { isMirrorCard, HEAVY_HOLD_MAX_MS, holdKey, CHIP_QUEUED, CHIP_FAILED, CHIP_BLOCKED, describeIntruders } from "./task-dispatcher-support";
 import { isNodeChildRun } from "./node-child-run";
@@ -219,9 +219,7 @@ export function createTick(ctx: DispatcherCtx) {
             taskId: t.id,
             requeue: false,
             parkState: CHIP_BLOCKED,
-            reason:
-              "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " +
-              "Apri il progetto in una tab (o registralo) e riporta il task in Todo.",
+            reason: UNRESOLVED_PROJECT_PARK_REASON,
           }, { announce: !announced });
           announced = true;
         } catch { /* task may have moved */ }

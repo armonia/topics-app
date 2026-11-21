@@ -2,10 +2,89 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.58 — 2026-11-21
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-20 [skip ci]
+- La radice dati vecchia, se e' solo un collegamento, scrive dove punta
+- si capisce di chi è ogni card e da dove arriva
+- La riscrittura dei percorsi vecchi ha il suo comando, il collegamento un nome inglese
+- Gli screenshot della Board si fanno anche su questo Mac, col motore della app; i feedback del 20/11 nel DESIGN.md
+- La barra della Board sta nello schermo a 1440 anche coi pannelli aperti
+- La barra della Board tiene margine per i font piu' larghi della CI; la Board del 20/11 e' approvata
+- Lo schizzo della barra dei filtri, nel commento, in inglese
+- Le due estremità dello slider del dettaglio hanno un nome
+- Un sotto-agente parte su Claude Code solo se la persona lo chiede
+- La riga dei filtri è alta come quella dello scheletro: le colonne non saltano di 4 px
+- Al dito il selettore «Il mio lavoro | Tutto» e lo slider del dettaglio sono bersagli da 44 px
+- Il selettore «Il mio lavoro | Tutto» torna come approvato; è lo scheletro a copiarne l'altezza
+
+## 2.4.57 — 2026-11-20
+
+### Sotto il cofano
+- Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore
+
+## 2.4.56 — 2026-11-20
+
+### Sotto il cofano
+- Old board id resolves to the moved project's board (card 266a3e1e)
+- Declare what the board alias test covers
+- Persist board aliases so an old board id reaches the moved project (card 266a3e1e)
+- Project quota: strings into the main catalogues, quota row field topicId, migrations manifest regenerated after merging main
+- Preview recapture: wait for the seeded deep link long enough under load
+- Il test degli aiuti per le immagini delle domande dice cosa copre (ASK-01)
+- Avvio fallito: la card dice il motivo; modello sconosciuto rifiutato alla creazione con l'elenco dei validi; motore non pronto = coda
+- La spec delle domande con immagini aspetta lo stato di invio, non 600 ms
+- una board aperta attraverso un link tiene le sue card
+- la spec dell'anteprima card non usa piu' un nome di famiglia nudo, ora rifiutato alla creazione
+- i punti di tre giorni fa contano nella settimana, non nelle 24 ore del misuratore
+- La spec delle domande con immagini aspetta che il pannello si chiuda e la riga tenga la scelta
+- La spec delle domande con immagini porta ogni immagine in vista prima di controllare che sia caricata
+- baseline follows the scores that rose tonight [skip ci]
+
+## 2.4.55 — 2026-11-20
+
+### Sotto il cofano
+- **automations** · spread nullable jobs safely in one-shot test
+- Translate permissions.ts header comment to English
+- dichiara @covers nello spec sidebar-row-touch-768
+- Land waits while main is red; file-tree yield test uses the JS walk; Playwright install retries on apt 503 (card 878779bd)
+- move Codex spawn_agent ask-user tests to their own file
+- Board settings warn when a registered project cannot have a worktree (#1358)
+- topics/ivory-sloop (card 10508340) (#1339)
+- Per-project quota: correct count (nested transcripts, per-model weight, cards keep their project, one folder one project, single calls), surfaces, 24h limit and a meter in the sidebar and the Dashboard, with no pause
+- Pass beforeMerge to tryMerge only when there is something to check; test red-main refusal and repair-card pass (card 98fc16ec)
+- trova il checkout dopo uno spostamento e chiude la card già su main (#1371)
+- Quality bar: a skipped placement job is neutral, a skipped e2e shard stays red
+- import RecordedHandler in codex.test.ts after the split
+- Cron di jarvis-channels: esiti e consumi dei giri in Topics (tabella cron_runs)
+- toglie i sette requisiti NOT BUILT, archivia le change costruite, stato in cima alle aperte
+- declare @covers SUBAGENT-23 on codex.subagent-ask.test.ts
+- riallinea le 50 change aperte al codice, promuove i delta con @covers, archivia le costruite e chiude le superate
+- Link Supporto e community nel menu utente (invito Discord in un solo punto, spec USERMENU-11)
+- pair remaining bg-white/N and amber tone after main realign
+- filter read noise before the window check (a dip just before the window no longer inflates the return); meter table naming
+- declare @covers SUBAGENT-23 on permission.test.ts; gate scripts read the right path on Windows
+- Revisione automatica delle PR aperte: giro su modello economico, off finché repo e workflow sono impostati
+- Il nodo cloud non prende card che non può eseguire: rifiuti per repository e account tornano subito in coda, un avviso per causa
+- Test dei rifiuti del cloud (file nuovo, forzato: l'exclude locale ignora providers/)
+- Quota history sampler: one series per login, silent while a foreign writer is alive (card 29aa4259)
+- Revisione automatica PR: niente raffica all'accensione, una revisione per giro, card in review sui difetti, esito letto da claude -p
+- Un solo avviso per causa anche quando l'account si scopre dopo il primo rifiuto
+- change mostrato-nel-messaggio (M1 spec delta)
+- Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)
+- cards parked for an unresolvable project folder return to todo by themselves
+- Rilancio della CI: gli e2e rossi (browser nativo, domande) non toccano il nodo cloud
+- La domanda porta l'immagine, anche nelle opzioni (M2)
+- Review card readable: Ti chiede block, Rimanda/Chiudi bar, plain-words summary
+- Test schema: for_you columns in migration order
+
 ## 2.4.54 — 2026-11-19
 
 ### Sotto il cofano
+- Windows temp cleanup in spawn-child ask tests no longer fails on EBUSY
 - Narrow machine-like owner credentials to node by traces, not by name (#1367)
+- a drop under 5 points is read noise, not a weekly reset
 
 ## 2.4.53 — 2026-11-19
 
@@ -15,6 +94,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.52 — 2026-11-19
 
+### Correzioni
+- **subagent** · refuse ask_user_question for a Codex spawn_agent child too
+
 ### Sotto il cofano
 - Name the pairing e2e fixture in plain English
 - a secondary server still works the node-run mirror cards from its primary
@@ -22,6 +104,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Give node pairing credentials their own scope instead of owner (#1364)
 
 ## 2.4.51 — 2026-11-19
+
+### Correzioni
+- **subagent** · refuse ask_user_question for CLI spawn_agent children, not just native ones
+- **subagent** · never surface the ask-user panel for a spawned child, not just refuse its answer
 
 ### Sotto il cofano
 - Remote children: gh's login is a mac-only resource too (SUBAGENT-28) (#1353)
@@ -40,6 +126,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Correzioni
 - **review-sweep** · the re-measure drops the verdict the gate still retains for that commit
+- **automations** · one-shot jobs are tasks, not rows of the automations list
+- **native** · rm guard ignores redirections, -- and $TMPDIR when checking temp targets
 - **ui** · keep task/orchestrator drawer opaque under native-frost below 1024px
 - scheda del task trasparente sulla Board stretta (#1292)
 
@@ -55,11 +143,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Two-server test: an anonymous caller on an exempt nodes path adopts nothing either
 - **delivery-survives-reload** · cover the route's call to supersedeEarlierRounds
 - review card: the envelope gate knows the five headings by name, and a subtask gets no review-card warning
+- machine-health: a node whose build cannot read its memory gets it from its process list
 - **gates** · allow the two words the CI phase names use, check:identifier-language failed the PR
 - Primary epoch: the model proxy never adopts, an adopted epoch is at most one above and logged, a failed write leaves the role unchanged; the node client sends the epoch from one place and a real pairing proves the node adopts it
 - Two-server test: the anonymous claim declares the next epoch, so the one-step ceiling cannot hide an adoption before authentication
 - storia di CPU e memoria in linea nella riga, card del giorno come riga di stato, barre senza valore tolte (#1294)
 - Primary epoch: a node records the primary that paired it, and only that device carries a higher epoch in, under the machine id declared at pairing; no ceiling, no id from a header, loopback adopts nothing
+- righe e tessere a 44px anche a 768 con puntatore touch
 - count the Plan loader as span > canvas, the relative :has never matched (#1299)
 - **mcp** · pin the tool surface every profile sees in a golden file
 - **mcp** · split topics-mcp-server.ts into one module per tool family
@@ -100,6 +190,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - mark the approval word list as data the agents write
 - Card preview: the isolated server no longer inherits the live server's ports
 - Card preview: drop every TOPICS_* setting of the live server, not just its ports
+- Guardia rm: $TMPDIR tra apici singoli resta letterale
+- ignore malformed remote entries
 - Only the chosen primary can write a node's pairing channel
 - A pairing takes a node's channel only with an epoch above the node's
 - topics/prompt-pyre (card e830b367) (#1312)
@@ -128,6 +220,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - engine-free-account declares what it covers; English-only comment wording
 - provider-hold: re-arm probe covers earlier resets of the same window, and a stale probe re-arms nothing
 - Primary epoch: the primary sends its epoch to nodes and the receiver adopts the higher one; the gate sits inside the dispatcher tick; empty header means not declared
+- every card of a plan made here stays visible under active filters
+- the sidebar 'open elsewhere' row only counts windows it can focus, and a failed focus no longer opens the chat here
 
 ## 2.4.47 — 2026-11-18
 
@@ -163,6 +257,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - numeri da una fonte sola, ogni percentuale dice di cosa, agenti per nodo, quote per modello
 - ogni riga della panoramica dice quali agenti girano, per quale progetto e in che stato
 - Primary role and epoch: a non-primary server keeps dispatcher, scheduled cards and hub off; nodes, model proxy and tunnel refuse a lower epoch
+- the 'in another window' card leaves the grid, only the sidebar row stays
 - la prova della riga Thinking tradotta in un file suo, con video; il righello dei turni condiviso in un helper
 - il test della riga delle fasce misura con i font del Mac
 - consumo per progetto con conto giusto, avviso sul telefono e freno al budget
@@ -171,7 +266,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - spawn dell'helper dichiarati (scadenza, motivo), trattino della regex annotato, registro dei tipi in uscita a 109
 - stato chat degli agenti; machine-agents: il dash lungo nella regex diventa escape (cancello check:emdash rosso su main)
 - Piano consumi: limite di default di 10 punti per progetto e una conferma sola che sblocca tutto
+- a card created from this window stays visible under active filters
 - Traduzione del reasoning: il wrapper dell'handler vive nel suo modulo e chat-handler resta a 800 righe; due rossi di main (nome vecchio gateway in una proposal) sistemati
+- la riga subordinata del progetto torna a centrare la tab
 - apple-adapter: tipo del processo figlio con stderr ignorato (typecheck del server)
 - topics/transient-bay (card 6d1e962f) (#1271)
 - Traduzione del ragionamento: requisito REASONING-TRANSLATE-01 nelle spec della chat, @covers sui test, binari di sistema dichiarati a knip
@@ -185,6 +282,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - ssh del nodo cloud senza marcatura DSCP: IPQoS=none
 - ssh del nodo cloud con DSCP af41, scp senza marcatura
 - harness-sync: anche ssh_opts usa DSCP af41
+- la card con l'agente al lavoro mostra il loader, non il glifo in corso
 - accettato picomatch GHSA-fc5q-39xc-vjpf finché non esce una patch (#1241)
 - Un figlio finito è detto una volta sola; la riga della sidebar dice cosa si aspetta (#1237)
 - Marcatore persistente per le chat di sistema degli agenti (system_chats)
@@ -192,10 +290,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Manifest delle migrazioni rigenerato
 - stima rivista a metà, 3/4 e fine giro; tempi in min, ore e giorni (#1235)
 - il testo lungo via /send arriva intero come paste (TERM-SEND-01)
+- i glifi di stato si cercano fra i visibili (il menu del composer ne ha di nascosti)
 - una riga per cosa, sottoagenti vuoti nascosti, barra provata col dato vero (#1243)
 - topics/tawny-marble (card 7749cf36) (#1247)
 - CI evidence: zero own commits is SKIPPED, not NOT MEASURED (#1260)
 - Usage ledger: external calls (delegate jobs) name their project and count in it
+- light-theme pairs for tints and tones, icons instead of text glyphs
+- drawer step count no longer carries the arrow glyph
+- fallback chip locator without the arrow glyph
 - Chi ha consumato: unire due persone dello stesso umano, stati di caricamento ed errore, etichetta dei record, e2e con video (USAGE-27) (#1262)
 - ogni scheda riempie la larghezza, grafici sulla storia che c'è, etichette uguali su tutti i nodi, niente tagli sul dato chiave
 - il test della riga di stato misura con i font del Mac, non con la stima delle altre piattaforme
@@ -206,9 +308,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **board** · un turno di chat non promuove card che la chat ha aperto per sé (#1230)
 
 ### Sotto il cofano
+- un selettore di vista (kanban, lista, card) e raggruppamento a due livelli per board
 - Il loader si trasforma davvero quando l'AI cambia azione, anche nella tray (#1222)
 - Pannello delle domande a scelte: resta dentro la pane e scorre dentro di sé (#1229)
 - righe di tool, sottoagenti e card sulla stessa griglia (#1227)
+- English wording in canSendToAgent/canDecideReview comments
+- a comment on an archived node card stays a note
+- le spec che aprivano il Piano passano dal selettore di vista (Card)
 - Tab e riga di una chat col turno chiuso dicono cosa aspettano (sottoagente, processo, lavoro) (#1225)
 - il loader non si ferma più quando apri il menu (#1232)
 - an unreachable node says so in three words, not with the transport's timeout message
@@ -227,6 +333,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Widen the sidebar 'action' toggle touch area to 44px
 - Make the card preview commands a 44px always-visible target under a coarse pointer
 - name the OS tools the security probes read, and spell out a regex the linter counts as hard
+- Evidence of a delivery: open at the top of the drawer, full-screen viewer with zoom and before/after divider
+- Evidence thumbnails keep a fixed box; viewer layer test and spec names in English
+- Declare PREVIEW-02 for the full-screen evidence tests
+- Evidence button gets an accessible name; spec waits for the frame to take its shape
+- Evidence divider: pointer capture is best effort
+- Evidence divider follows the drag with window listeners
+- Evidence spec moves the divider through its range input
+- Rebase fixup: evidence block in the extracted thread rows
 - write the health file where the tray reads it, not in the server's data folder
 
 ## 2.4.39 — 2026-11-17
@@ -647,6 +761,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - il turno adottato dopo un riavvio chiude il tentativo che aveva aperto (#976)
 - topics/ghostly-peacock (card c2908b93) (#971)
+
+## 2.3.107 — 2026-11-14
+
+### Correzioni
+- **board** · four misleading buttons (send/note, archive, closed-by-human, approve with unmerged branch)
 
 ## 2.3.106 — 2026-11-14
 

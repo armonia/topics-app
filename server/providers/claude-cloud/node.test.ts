@@ -333,7 +333,7 @@ describe("nodo cloud", () => {
     } finally { setCloudApiBase("http://fake.test"); }
   });
 
-  test("account senza ambiente cloud attivo: createRun rifiuta con cloud_setup, nessuna sessione, e il nodo non risulta pronto", async () => {
+  test("account senza ambiente cloud attivo: createRun rifiuta con cloud_account, nessuna sessione, e il nodo non risulta pronto", async () => {
     const creates: string[] = [];
     const api = new CloudApi(async () => ({ accessToken: "t", orgUuid: "o" }), async (url, init) => {
       if (url.endsWith("/v1/environment_providers")) {
@@ -346,7 +346,7 @@ describe("nodo cloud", () => {
     expect(node.environmentReady()).toBeNull();
     const err = await node.createRun({ body: { ...body, originTaskId: "senzaambiente1", originUrl: origin } }).then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(CloudSetupError);
-    expect((err as CloudSetupError).reason).toBe("cloud_setup");
+    expect((err as CloudSetupError).reason).toBe("cloud_account");
     expect((err as Error).message).toContain("nessun ambiente cloud attivo");
     expect(creates).toEqual([]);
     expect(node.environmentReady()).toEqual({ ok: false, reason: "nessun ambiente cloud attivo sull'account" });

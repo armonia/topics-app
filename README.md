@@ -168,6 +168,7 @@ containers. Copy `.env.example` to `.env`.
 | `AI_PROVIDER` | Pins one provider | auto |
 | `CLAUDE_MODEL` · `OPENAI_MODEL` | Model ids | — |
 | `STT_PROVIDER` · `STT_LANGUAGE` | Dictation engine and language | `auto` |
+| `REVIEW_PR_REPO` · `REVIEW_PR_WORKFLOW` | Repo whose new PRs get an automatic review, and the `revisione-pr` workflow file. Both empty = off | — |
 
 **Picking the default provider.** With `AI_PROVIDER` unset your keys decide:
 `ANTHROPIC_API_KEY` → `claude`, else `OPENAI_API_KEY` → `openai`, else

@@ -25,6 +25,8 @@ export interface BrowserMarkerPage {
   name?: string;
   /** When it landed (epoch ms); absent on rows without timestamps. */
   at?: number;
+  /** The file or photo this opening left in the message (SHOWN-01). */
+  media?: string;
 }
 
 export interface BrowserMarker {
@@ -51,6 +53,7 @@ export function browserOpenOf(tc: ToolCall): (BrowserMarkerPage & { contextId?: 
     url: detail.url,
     ...(detail.title ? { title: detail.title } : {}),
     ...(detail.name ? { name: detail.name } : {}),
+    ...(detail.media ? { media: detail.media } : {}),
     ...(typeof at === 'number' ? { at } : {}),
     ...(detail.contextId ? { contextId: detail.contextId } : {}),
     ...(typeof detail.visible === 'boolean' ? { visible: detail.visible } : {}),
@@ -132,4 +135,17 @@ export function markerFaviconUrl(url: string, appProtocol: string): string | und
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Everything the openings of a marker showed, once each and in order: four
+ * proposals opened one after the other in one context are four pictures, not
+ * the last one only.
+ */
+export function markerMedia(marker: BrowserMarker): string[] {
+  const seen: string[] = [];
+  for (const page of marker.pages) {
+    if (page.media && !seen.includes(page.media)) seen.push(page.media);
+  }
+  return seen;
 }

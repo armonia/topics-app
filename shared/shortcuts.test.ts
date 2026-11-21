@@ -1,7 +1,7 @@
 /**
  * The keyboard-shortcut registry, and the Rust module generated from it.
  *
- * @covers CMD-01, LAYOUT-41, CHAT-WAIT-03
+ * @covers CMD-01, LAYOUT-41, CHAT-WAIT-03, BROWSER-FIND-02, BROWSER-FIND-03
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -151,5 +151,20 @@ describe('shortcut registry', () => {
     const { always } = generatedArms();
     expect(always).toContain('j');
     expect(renderRustModule()).toContain('"j"');
+  });
+
+  // BROWSER-FIND-02 / BROWSER-FIND-03. Same trap as the zoom chord: the generated
+  // table only proves coherence with the registry, so the find chords are named
+  // here. The Rust half (`find_chords_are_forwarded_and_swallowed` in chords.rs)
+  // is not walked by the coverage gate, and this is the channel that declares it.
+  it("the find and next/previous-result chords are forwarded past a focused browser pane", () => {
+    const { always } = generatedArms();
+    expect(always).toContain("f");
+    expect(always).toContain("g");
+    const rows = SHORTCUT_GROUPS.flatMap(g => g.shortcuts).filter(
+      s => s.keys.includes(MOD) && (s.keys.includes("F") || s.keys.includes("G")),
+    );
+    expect(rows.length).toBe(4);
+    for (const r of rows) expect(r.native?.chars?.length).toBe(1);
   });
 });

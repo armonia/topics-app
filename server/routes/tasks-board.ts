@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AppContext } from "../types";
+import { canonicalBoardIdForPath } from "../lib/board-alias";
 import { titoloMigliore } from "../services/task-title";
 import { isLandedWork, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, pressedADeadQuickReply, type TaskStatus } from "../../shared/board";
 import { findDuplicateGroups } from "../../shared/task-similarity";
@@ -27,7 +28,7 @@ import { isTaskLabel } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { ScheduledCardsError, type ScheduledCardsService } from "../schedule/cards-service";
 import { invalidateProbeCache } from "../services/url-probe-cache";
-import { STALE_TASK_MODEL_ERROR, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
+import { staleTaskModelError, isStaleModelChange, taskModelIsCurrent } from "../services/task-model-catalog";
 import { decodeMemoryQueueRef } from "../services/dispatch-memory-reference";
 import { knownTopicId, resolveCreatedBy, resolveCreatedSource } from "../lib/created-by";
 import { readOwnWorkflowRules, readWorkflowRules, writeWorkflowRules } from "../services/board-workflow";
@@ -348,7 +349,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
           if (!settings.deployCommand) {
             let dirs: string[] = [];
             try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
-            const path = dirs.find((d) => projectIdForPath(d) === projectId);
+            const path = dirs.find((d) => projectIdForPath(d) === projectId || canonicalBoardIdForPath(d) === projectId);
             if (path) deployCommandSuggestion = deploySuggestionFromPackageJson(path);
           }
           // `admissionHolds`: same nature as the two above - a fact, not a
@@ -530,7 +531,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       }
       if (method === "POST") {
         const body = (await readJSON(req)) as any;
-        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(STALE_TASK_MODEL_ERROR, 400);
+        if (!taskModelIsCurrent(body?.model, opts?.taskModelSnapshot?.() ?? null)) return json(staleTaskModelError(body?.model, opts?.taskModelSnapshot?.() ?? null), 400);
         try {
           const effectiveProjectId = resolveBoardId(projectId, body?.text, body?.description);
           // Absent = the board's default machine (see `TaskService.create`);
@@ -1460,7 +1461,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // 200, ed è indistinguibile dall'aver funzionato. Vedi task-patch.ts.
         const parsed = parseTaskPatch(body, "human", acceptPreview);
         if (!parsed.ok) return json(unapplicableFieldsBody(parsed.errors), 400);
-        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(STALE_TASK_MODEL_ERROR, 400);
+        if (isStaleModelChange(parsed.patch.model, () => svc.get(taskId, { projectId })?.task.model, opts)) return json(staleTaskModelError(parsed.patch.model, opts?.taskModelSnapshot?.() ?? null), 400);
         // THE MACHINE MUST EXIST. `machine_id` has a FK to `machines`, so an
         // unknown id would surface as a 500 with SQLite's own words; and a
         // TYPO would be worse than an error - the card would sit in the queue

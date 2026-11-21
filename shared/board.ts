@@ -489,6 +489,24 @@ export const PARKED_STOPPED = 'stopped';
  */
 export const PARKED_WAITED_OUT = 'waited_out';
 
+/**
+ * The park reason written when a board cannot be mapped back to a project
+ * directory. It doubles as the marker `sweepUnresolvedProjectParked` matches
+ * on, so only cards parked for exactly this cause come back by themselves.
+ */
+export const UNRESOLVED_PROJECT_PARK_REASON =
+  "Auto-dispatch fermato: la cartella del progetto di questa board non si trova. " + // allow-italian: stored reason, matched by value
+  "La card torna in Todo da sola appena si ritrova."; // allow-italian: stored reason, matched by value
+
+/**
+ * The text this park wrote before the automatic return existed. Rows carrying
+ * it were parked for good by a person's decision as much as by the cause, so
+ * the sweep never matches it; only the hand gesture clears it.
+ */
+export const LEGACY_UNRESOLVED_PROJECT_PARK_REASON =
+  "Auto-dispatch fermato: non riesco a risalire alla directory del progetto per questa board. " + // allow-italian: stored reason, matched by value
+  "Apri il progetto in una tab (o registralo) e riporta il task in Todo."; // allow-italian: stored reason, matched by value
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Machine notes stamped with the HUMAN's signature.
 // ─────────────────────────────────────────────────────────────────────────────

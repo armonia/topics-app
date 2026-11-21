@@ -874,6 +874,27 @@ describe("handleMessage", () => {
     }
   });
 
+  test("open_browser_pane: what was shown rides in the text before the context, and the road note leads (SHOWN-01, SHOWN-03)", async () => {
+    const orig = globalThis.fetch;
+    (globalThis as any).fetch = stubFetch(async () =>
+      new Response(
+        JSON.stringify({ url: "/api/media?path=x", title: "", visible: true, contextId: "topic-1", media: "/m/a b.png", note: "Nobody is looking at this chat's pane." }),
+        { status: 200 },
+      ),
+    );
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 79, method: "tools/call", params: { name: "open_browser_pane", arguments: { url: "/m/a b.png" } } },
+        ARGS,
+      );
+      const text = (resp!.result as any).content[0].text as string;
+      expect(text.startsWith("Nobody is looking")).toBe(true);
+      expect(text.endsWith("[media: /m/a b.png] [contextId: topic-1]")).toBe(true);
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+  });
+
   test("open_browser_pane: a foreign-port warning LEADS the text, it does not trail it (task f9cf765e)", async () => {
     const orig = globalThis.fetch;
     (globalThis as any).fetch = stubFetch(async () =>
@@ -1934,6 +1955,27 @@ describe("callAskUserQuestion", () => {
     expect(JSON.parse(String(seen.init?.body))).toEqual({ questions, legMs: 25_000 });
     // The result the model reads mirrors the built-in AskUserQuestion shape.
     expect(JSON.parse(text)).toEqual({ answers: { Auth: "OAuth" } });
+  });
+
+  test("a picture that is not on disk is refused, and the error names it", async () => {
+    let called = false;
+    const fetchImpl = stubFetch(async () => { called = true; return new Response("{}", { status: 200 }); });
+    await expect(
+      callAskUserQuestion(
+        { baseUrl: "http://x", sessionKey: "s" },
+        { questions: [{ question: "Which?", options: [{ label: "A", image: "/nowhere/ghost-proposal.png" }, { label: "B" }] }] },
+        fetchImpl,
+      ),
+    ).rejects.toThrow("/nowhere/ghost-proposal.png");
+    expect(called).toBe(false);
+  });
+
+  test("pictures that exist go to the server untouched", async () => {
+    const seen: { body?: string } = {};
+    const fetchImpl = stubFetch(async (_u, init) => { seen.body = String(init?.body); return new Response(JSON.stringify({ answers: { Q: "A" } }), { status: 200 }); });
+    const qs = [{ question: "Q", images: [import.meta.path], options: [{ label: "A", image: import.meta.path }, { label: "B" }] }];
+    await callAskUserQuestion({ baseUrl: "http://x", sessionKey: "s" }, { questions: qs }, fetchImpl);
+    expect(JSON.parse(seen.body!).questions).toEqual(qs);
   });
 
   test("carries metadata through when the server returns it", async () => {

@@ -43,6 +43,7 @@ import { createNodeBranchPlanter } from "../services/node-branch-plant";
 import { projectPathOfAnyId } from "../lib/project-identity";
 import { CloudApi } from "../providers/claude-cloud/api";
 import { credentialsFor } from "../providers/claude-cloud/creds";
+import { recordSystemNotice } from "../attention/system-notices";
 import { CLOUD_NODE_BASE_URL, CLOUD_NODE_HOST, CLOUD_NODE_NAME, CLOUD_NODE_TOKEN, cloudCredentialsPresent, createCloudNodeClient, isCloudBaseUrl } from "../providers/claude-cloud/node";
 import type { AfterRouters1 } from "./scope";
 import { late } from "./late";
@@ -324,6 +325,8 @@ export function bootDispatchPrep(scope: AfterRouters1) {
       return projectId ? projectPathForNode(projectId) ?? null : null;
     },
     statePath: join(ctx.STATE_DIR, "claude-cloud-runs.json"),
+    // One notice per cause, in the system notices where the other configuration alerts go.
+    notify: (n) => recordSystemNotice({ key: "claude-cloud", cycle: n.key, title: n.title, body: n.body }),
   });
 
   // ONE road to a node for everything that talks to one: the card lane below and

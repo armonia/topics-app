@@ -264,12 +264,14 @@ export interface Task {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
+  /** The always-on agent that chat belongs to (`shared/agent-home.ts`), when it is an agent's chat. */
+  openerAgent?: string;
   /**
    * The Jarvis channel the work came from, only while that chat exists: the linked
    * channel chat (`channel_topic_id`), else the opener chat when it is a channel chat.
-   * Display only: it grants nothing and wakes nothing.
+   * `agent` is the agent answering in it. Display only: it grants nothing and wakes nothing.
    */
-  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace; agent?: string };
   /**
    * The workflow column the card sits in when it is not the default one of its
    * status (today only `ci`; `shared/workflow.ts`).

@@ -95,6 +95,8 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await page.goto("/");
     await page.evaluate(() => {
       for (const k of Object.keys(localStorage)) if (k.startsWith("topics.board.")) localStorage.removeItem(k);
+      // The suite reads every card: «All», not the «My work» a board opens on (see playwright.config.ts).
+      localStorage.setItem("topics.board.preset", "all");
     });
     await page.reload();
     await openGlobalBoard(page);
@@ -134,8 +136,8 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await page.getByTestId("board-view-list").click();
     await pick(page, "board-group-by", "Progetto");
     await pick(page, "board-then-by", "Assegnatario");
-    await page.getByTestId("board-quick-me").click();
-    await expect(page.getByTestId("board-quick-me")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("board-needs-me").click();
+    await expect(page.getByTestId("board-needs-me")).toHaveAttribute("aria-pressed", "true");
 
     const zeta = lane(page, ID_B);
     await expect(zeta).toBeVisible();
@@ -147,21 +149,18 @@ test.describe("Selettore di vista e raggruppamento a due livelli", () => {
     await page.screenshot({ path: testInfo.outputPath("serve-te.png") });
   });
 
-  test("la vista a card raggruppa senza colonne di stato e conta i gruppi", async ({ page }, testInfo) => {
+  test("la vista «Chi la segue» raggruppa per proprietario, senza colonne di stato", async ({ page }, testInfo) => {
     await freshBoard(page);
     await page.getByTestId("board-view-plan").click();
-    await pick(page, "board-group-by", "Chi la chiude");
     const plan = page.getByTestId("plan-view");
     await expect(plan).toBeVisible();
     await expect(plan.getByTestId("kanban-column-todo")).toHaveCount(0);
-    // «Needs you» leads the groups, and holds the one card that waits for the person.
-    const first = plan.locator('[data-testid="board-group"]').first();
-    await expect(first).toHaveAttribute("data-group-path", "me");
-    await expect(first.locator(`[data-task-card="${asked}"]`)).toBeVisible();
-    await expect(first.getByTestId("board-group-count")).toHaveText("1");
-    await page.screenshot({ path: testInfo.outputPath("card-per-chi-la-chiude.png") });
-    // A card opened through the API belongs to «Agents», the next group, with its own count.
-    const agents = plan.locator('[data-testid="board-group"][data-group-path="agents"]');
-    await expect(agents.locator(`[data-task-card="${bob}"]`)).toBeVisible();
+    // Grouped by whose work it is without choosing anything.
+    await expect(page.getByTestId("board-group-by")).toContainText("Di chi è");
+    // Cards opened through the API with no named agent are the board's own work, one group.
+    const board = plan.locator('[data-testid="board-group"][data-group-path="board"]');
+    await expect(board.locator(`[data-task-card="${bob}"]`)).toBeVisible();
+    await expect(board.locator(`[data-task-card="${asked}"]`)).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("card-per-chi-la-segue.png") });
   });
 });
