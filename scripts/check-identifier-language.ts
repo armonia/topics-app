@@ -86,6 +86,9 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // ubuntu, aws, pem: product and format names used as test fixture identifiers
+  // (`server/lib/machine-security-ssh.test.ts`, `server/lib/secret-redaction.test.ts`).
+  "ubuntu", "aws", "pem",
   // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
   // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
