@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.66 — 2026-11-21
+
+### Sotto il cofano
+- Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
+- Il Cloud col freno aperto non riprende la card che ha appena lasciato
+
 ## 2.4.65 — 2026-11-21
 
 ### Correzioni

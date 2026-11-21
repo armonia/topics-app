@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.66",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il Cloud col freno aperto non riprende la card che ha appena lasciato",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.65",
     "date": "2026-11-21",
     "sections": {
