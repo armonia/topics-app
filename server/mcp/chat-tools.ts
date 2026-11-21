@@ -24,7 +24,7 @@ async function postChatReadSSE(
   message: string,
   fetchImpl: typeof fetch,
   topicId: string,
-): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame }> {
+): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame; held?: true }> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...bridgeAuthHeaders(args) };
   let resp: Response;
   try {
@@ -55,6 +55,12 @@ async function postChatReadSSE(
       throw new Error("send_chat_message: c'è già un turno in volo su questa topic — riprova quando ha finito");
     }
     throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}. ${beforeResending(topicId)}`);
+  }
+  // The target's project is paused (quota brake): the route keeps the message
+  // and sends it on "Continua". No stream comes back, and no reply to wait for.
+  if (resp.status === 202) {
+    const answer = (await resp.json().catch(() => null)) as { held?: unknown } | null;
+    if (answer?.held === true) return { text: "", complete: false, held: true };
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -253,6 +259,9 @@ export async function callSendChatMessage(
     throw new Error("send_chat_message: refusing to message your own session — reply normally instead");
   }
   const read = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl, toolArgs.topic_id);
+  if (read.held) {
+    return `send_chat_message: the project of topic ${toolArgs.topic_id} is paused, so the message is held and goes out by itself when the project is resumed. Its reply will not come back to this call: do not send it again, see read_chat_messages(topic_id="${toolArgs.topic_id}") later.`;
+  }
   if (read.complete && read.end) throw new Error(unfinishedTurn(read.end, read.text, toolArgs.topic_id));
   const reply = read.complete
     ? read.text
