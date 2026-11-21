@@ -11,7 +11,7 @@ import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThrea
 import { ChecksInterruptedError, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured, ciRemeasurable } from "../services/ci-evidence";
+import { ciNotMeasured, ciRemeasurable, ciRowOfThisHead } from "../services/ci-evidence";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
 /** How many pre-review check runs may execute at once (see `createChecksGate`). */
@@ -617,7 +617,10 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
           ciRuns = await readCi();
         }
         // One row per declared CI check, whatever the reader answered.
-        runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
+        runs.push(...ciChecks.map((c) => {
+          const row = ciRuns.find((r) => r.cmd === c.cmd);
+          return row ? ciRowOfThisHead(row, c, ref.commit) : ciNotMeasured(c, "the CI evidence reader returned no row for it");
+        }));
         throwIfStopping();
       }
       const ok = runs.length === checks.length && runs.every((r) => r.ok);

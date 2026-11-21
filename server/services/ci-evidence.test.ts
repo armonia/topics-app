@@ -284,6 +284,30 @@ describe("awaitCiEvidence with the e2e row", () => {
     expect(row.tail).toContain("actions/runs/10");
   });
 
+  // The barra of the inherited-green card: the new head's run is queued while the
+  // previous head has a green run on the same pull request.
+  test("a green run of the previous head next to a queued run of ours is never a pass", async () => {
+    const clock = fakeClock();
+    const previous = "b".repeat(40);
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [
+        run({ id: 5, head_sha: previous }),
+        run({ id: 11, status: "queued", conclusion: null }),
+      ] }),
+      jobs: async (_repo, runId) => ({ ok: true, value: runId === 5 ? green : [] }),
+    });
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(row.ok).toBe(false);
+    expect(row.notMeasured).toBe(true);
+  });
+
+  test("a CI row names the head of the run it was read from", async () => {
+    const { port } = fakePort();
+    const row = await e2eRow(input, { port, now: fakeClock().now, sleep: fakeClock().sleep, stopping: () => false });
+    expect(row.ok).toBe(true);
+    expect(row.ciCommit).toBe(SHA);
+  });
+
   test("no run after the grace and a conflicting pull request end the wait before the deadline", async () => {
     const clock = fakeClock();
     const start = clock.now();
