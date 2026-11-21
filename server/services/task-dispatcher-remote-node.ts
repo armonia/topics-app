@@ -18,7 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
-import { wakeBreaker } from "./wake-breaker";
+import { wakeBreaker, hangBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
@@ -169,6 +169,19 @@ export function isNodeSessionKey(sessionKey: string): boolean {
  * its hysteresis against.
  */
 export const NODE_DEAD_POLLS = 30;
+
+/**
+ * A node that is reachable enough to ACCEPT a run (the hook and `createRun`
+ * both answer) but then never answers a single poll of it: a hung process,
+ * port open, nothing behind it. Its own breaker, never the shared
+ * `wakeBreaker` — that one closes the moment `createRun` succeeds, which a
+ * hung node does just as readily as a healthy one, so sharing the map would
+ * let every relaunch wipe the very failure it just recorded and the loop
+ * would never trip (measured 21/11: burial, instant relaunch, burial again,
+ * for hours, on the Windows node, starving every other board behind it).
+ * Cleared only by a poll that actually comes back.
+ */
+export { hangBreaker };
 /**
  * How many CONSECUTIVE polls of a LIVE run must answer with a cloud account
  * error (`cloud_setup`) before the card is parked with that cause. Not one: a
@@ -443,6 +456,13 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const blockedUntil = wakeBreaker.openUntil(machineId);
     if (blockedUntil) {
       deferForSilentNode(task, `il nodo «${name}» non si sveglia da più tentativi`, blockedUntil);
+      return;
+    }
+    // Same read, same reason, for the OTHER breaker: a node that accepted the
+    // last two runs and then answered neither.
+    const hungUntil = hangBreaker.openUntil(machineId);
+    if (hungUntil) {
+      deferForSilentNode(task, `il nodo «${name}» non risponde più da due corse di fila`, hungUntil);
       return;
     }
     // The node resolves the project by its git ORIGIN, never by id or path:
@@ -829,6 +849,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   function buryRun(taskId: string, node: NodeSlot): void {
     const name = nodeName(node.machineId);
     log(`nodo: corsa ${node.runId} su «${name}» sepolta dopo ${NODE_DEAD_POLLS} giri falliti di fila (task ${taskId})`);
+    // The node did not answer for a whole burial, same signal as a wake that
+    // never brought it up: the shared breaker opens after the SECOND one, so
+    // the next dispatch does not hand the very next card to a machine that
+    // just proved it is not there (measured 21/11: 30 rounds, bury, reassign,
+    // repeat, for hours, while other boards starved behind the same node).
+    hangBreaker.failure(node.machineId);
     // A card that meanwhile went to review, done or the archive is NEVER
     // requeued: the requeue put it back in todo and the node-run hook woke a
     // paid server for a card already closed (10/11, topics-node-p1). The run
@@ -1262,6 +1288,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       }
       node.fails = 0;
       node.setupFails = 0;
+      // The node just answered a poll: whatever closed the breaker before, it
+      // is reachable again, and the next card may go to it.
+      hangBreaker.success(node.machineId);
       if (!node.primed && report.status === "review" && isPreviousDelivery(taskId, report)) {
         if (await retirePreviousMirror(taskId, node)) continue;
         node.retireFails = (node.retireFails ?? 0) + 1;

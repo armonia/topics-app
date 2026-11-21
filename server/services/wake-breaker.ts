@@ -11,6 +11,12 @@
  * wakeable for a window that doubles on every further failure (15, 30, 60 min,
  * capped at 4 h). One run that starts closes the breaker. In memory on purpose:
  * a restart gives the node one fresh try, which is the cheap and honest default.
+ *
+ * `createWakeBreaker` is the same algorithm wired a second time, on its own
+ * state, for a node that is already awake and goes mute mid-run
+ * (`task-dispatcher-remote-node.ts`'s `hangBreaker`): the two must not share
+ * one map, or a run that merely STARTS on a node still hung from the last
+ * burial would close a breaker that tracks something else entirely.
  */
 export const WAKE_FAIL_THRESHOLD = 2;
 export const WAKE_OPEN_BASE_MS = 15 * 60_000;
@@ -45,3 +51,19 @@ export function createWakeBreaker(clock: () => number = Date.now) {
 
 /** The one breaker the dispatcher and the remote-node launcher share. */
 export const wakeBreaker = createWakeBreaker();
+
+/**
+ * A node that accepts runs and then answers no poll of them: its own state,
+ * written by `task-dispatcher-remote-node.ts` (see `createWakeBreaker` above).
+ */
+export const hangBreaker = createWakeBreaker();
+
+/**
+ * Whether either breaker keeps NEW cards away from this node. The overflow and
+ * the reassignment read this one answer: a hung node closed only to the launch
+ * still got cards moved onto it, which then waited there up to 4 h while other
+ * machines had free seats (21/11).
+ */
+export function nodeBlocked(machineId: string): boolean {
+  return wakeBreaker.isOpen(machineId) || hangBreaker.isOpen(machineId);
+}

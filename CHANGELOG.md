@@ -7,6 +7,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - a capo vero nella condizione del prep fermo (un \n letterale passava «n» come argomento in più)
 - Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep
+- Land senza niente da fondere: chiude la card solo se il ramo è verificato vuoto; la decisione non si riprova (logica in tasks-land-nothing.ts)
+- tasks-land-nothing: tipo del broadcast dal core
 - Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)
 - MACHINE-08: servers without Topics measured over read-only SSH
 - SEC-02: mask secrets in tool arguments and output before storing and before replaying to the model
