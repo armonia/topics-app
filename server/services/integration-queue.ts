@@ -64,9 +64,18 @@ export interface IntegrationQueueDeps {
   /**
    * The cards are ALREADY on main (the `after` rule of the CI phase): the measure reads main as it is,
    * so cutting the batch in halves would measure the same commit again and again. A green means "main
-   * is fine with these", a red goes back to every card of the batch (each one reads who else landed with it).
+   * is fine with these".
    */
   landed?: boolean;
+  /**
+   * A red `landed` batch of more than one card: who actually broke it, read from the commit each card
+   * landed as (not rebuilt). `null` = no answer (the port is missing, a commit could not be placed, the
+   * verdict is still pending): every card of the batch goes back, each one reading who else landed with
+   * it. Found: only `guilty` goes back, with its own `why` when one is given; the rest lands as green
+   * (`land`, not `note`+nothing — they are done, not merely informed). 21/11: a batch of two where only
+   * the second broke `any-budget` sent BOTH back, one of them for nothing (card b348e97b).
+   */
+  bisect?(projectId: string, taskIds: string[], why: string): Promise<{ guilty: string[]; why?: Record<string, string> } | null>;
   /**
    * How long an idle queue waits for more cards before measuring: approvals come
    * in bursts (a person goes down the review column), and one CI run for the
@@ -165,12 +174,31 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
         return;
       }
       if (deps.landed) {
-        // Nothing to bisect: every card of the batch is inside the commit that went red.
+        const why0 = out.why ?? `la CI di ${sha} è rossa`;
+        const found = deps.bisect
+          ? await deps.bisect(projectId, out.measured, why0).catch((err) => { log(`[integration] bisect fallito: ${String(err)}`); return null; })
+          : null;
+        const guilty = found && found.guilty.length && found.guilty.every((id) => out.measured.includes(id)) ? new Set(found.guilty) : null;
+        if (guilty) {
+          for (const id of out.measured) {
+            limit.delete(id);
+            if (!deps.stillWanted(projectId, id)) continue;
+            if (guilty.has(id)) {
+              await deps.bounce(projectId, id, found!.why?.[id] ?? why0).catch((err) => log(`[integration] rimando fallito per ${id}: ${String(err)}`));
+              continue;
+            }
+            const culprits = [...guilty].map((x) => x.slice(0, 8)).join(", ");
+            note(id, `CI rossa su ${sha}: l'ha rotta un'altra card del lotto (${culprits}), non questa. Resta atterrata.`);
+            await deps.land(projectId, id).catch((err) => log(`[integration] land fallito per ${id}: ${String(err)}`));
+          }
+          return;
+        }
+        // No answer on who broke it: every card of the batch goes back, each one reading who landed with it.
         for (const id of out.measured) {
           limit.delete(id);
           if (!deps.stillWanted(projectId, id)) continue;
           const others = out.measured.filter((x) => x !== id).map((x) => x.slice(0, 8));
-          const why = (out.why ?? `la CI di ${sha} è rossa`)
+          const why = why0
             + (others.length ? `\n\nÈ atterrata insieme a ${others.length === 1 ? "un'altra card" : `altre ${others.length} card`} (${others.join(", ")}): il rosso può essere di una di loro. Guarda se il test che fallisce tocca il tuo lavoro; se è chiaramente di un'altra, scrivilo con human_ask invece di cambiare codice che non è tuo.` : "");
           await deps.bounce(projectId, id, why).catch((err) => log(`[integration] rimando fallito per ${id}: ${String(err)}`));
         }
