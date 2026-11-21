@@ -46,7 +46,7 @@ export function effectiveLimit(row: ProjectQuotaRow | null): number | null {
   return row ? row.limit24hPct : DEFAULT_LIMIT_24H_PCT;
 }
 
-export interface PauseState {
+export interface ProjectPauseState {
   paused: boolean;
   /** Why, for the card/strip text; null when not paused or when the reading could not be trusted. */
   reason: "limit" | "hold-until-tomorrow" | null;
@@ -57,7 +57,7 @@ export interface PauseState {
  * points. `points24h: null` (no quota history, a read that failed) always
  * answers `{ paused: false, reason: null }` — fail open.
  */
-export function pauseState(row: ProjectQuotaRow | null, points24h: number | null, nowMs: number = Date.now()): PauseState {
+export function pauseState(row: ProjectQuotaRow | null, points24h: number | null, nowMs: number = Date.now()): ProjectPauseState {
   if (row?.holdUntil != null && nowMs < row.holdUntil) return { paused: true, reason: "hold-until-tomorrow" };
   if (points24h === null) return { paused: false, reason: null };
   const limit = effectiveLimit(row);
@@ -181,7 +181,7 @@ export function pauseUntilTomorrow(db: Database, projectId: string, nowMs: numbe
   upsert(db, projectId, { pausedAt: nowIso(), holdUntil: nextLocalMidnight(nowMs), continuedUntilPct: null });
 }
 
-export interface ProjectPauseInfo extends PauseState {
+export interface ProjectPauseInfo extends ProjectPauseState {
   projectId: string;
   limit: number | null;
   points24h: number | null;

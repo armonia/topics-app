@@ -54,7 +54,7 @@ export function sendOwnerAlert(argv: string[] | null, text: string, opts: SendOw
   const resolve = opts.resolve ?? resolveExecutable;
   const [name, ...rest] = argv;
   const executable = resolve(name!);
-  const result = spawn(executable, rest, { input: text, stdio: ["pipe", "ignore", "pipe"] });
+  const result = spawn(executable, rest, { input: text, stdio: ["pipe", "ignore", "pipe"], timeout: 15_000 });
   if (result.error || (result.status !== null && result.status !== 0)) {
     const detail = result.error?.message ?? result.stderr?.toString().trim() ?? `exit ${result.status}`;
     console.warn(`[project-pause-alerts] owner alert failed (${executable}): ${detail}`);
