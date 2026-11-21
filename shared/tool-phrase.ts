@@ -1,18 +1,18 @@
 /**
- * The readable name of a tool call: today a row outside the specific detail
- * types (`shared/tool-detail.ts`) reads as "topics · task_get" — the server
- * and the bare tool name. This turns that into a sentence ("Legge la card
- * 458c16a6") and a category to pick the right icon from: lettura, scrittura,
- * ricerca, rete, browser, shell. "Board" tool calls already get their own
- * `task_card` detail (`shared/tool-detail.ts`'s `taskToolCall`) before they
- * ever reach here, so this module only covers what is left generic.
+ * The readable name of a tool call. Today a row outside the specific detail
+ * types (`shared/tool-detail.ts`) reads as "topics · task_get": the server
+ * and the bare tool name. This turns that into a sentence (Italian, like the
+ * rest of the chat UI) and a `ToolCategory` to pick the right icon from:
+ * read, write, search, network, browser, shell. Board tool calls already get
+ * their own `task_card` detail (`shared/tool-detail.ts`'s `taskToolCall`)
+ * before they ever reach here, so this module only covers what is left generic.
  *
- * Covers the Topics bridge + browser tools deterministically (a closed,
- * known list: no model needed). A third-party MCP tool this does not name
- * falls back to a humanized version of its own name — still no model: an
- * unknown tool deserves "Elenca agenti" guessed from its name, not a paid
- * call for every tool a server happens to expose. The model fallback this
- * card's other traces use for shapes stays reserved for VALUES, not names.
+ * Covers the Topics bridge + browser tools deterministically: a closed,
+ * known list, no model needed. A third-party MCP tool this does not name
+ * falls back to a humanized version of its own name, still no model: an
+ * unknown tool deserves a readable guess from its own name, not a paid call
+ * for every tool a server happens to expose. The model fallback this card's
+ * other traces use for shapes stays reserved for VALUES, never for names.
  */
 import { classifyToolAction } from './agent-action';
 

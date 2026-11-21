@@ -7,7 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import path from "node:path";
-import { readableViewFallback } from "./readable-view-fallback";
+import type { AIProvider } from "../providers";
+import { completeWith, readableViewFallback } from "./readable-view-fallback";
 
 const MIGRATION_SQL = fs.readFileSync(
   path.join(import.meta.dir, "../db/migrations/20261121111141-readable-view-cache.sql"),
@@ -49,6 +50,23 @@ describe("readableViewFallback — cache by structural signature", () => {
     await readableViewFallback({ db, complete }, "mcp__gateway__odd", { a: 1 });
     await readableViewFallback({ db, complete }, "mcp__gateway__odd", { a: 2 });
     expect(calls).toBe(1);
+  });
+
+  test("completeWith wires a real AIProvider's complete() with the readable-view purpose and model", async () => {
+    let seenPrompt = "";
+    let seenOptions: { model?: string; purpose?: string } = {};
+    const provider = {
+      complete: async (messages: Array<{ content: string }>, options: { model?: string; purpose?: string }) => {
+        seenPrompt = messages[0]?.content ?? "";
+        seenOptions = options;
+        return { content: '{"kind":"counter","label":"N","path":"n"}' };
+      },
+    } as unknown as AIProvider;
+    const db = freshDb();
+    const got = await readableViewFallback({ db, complete: completeWith(provider, "claude-haiku-5-5") }, "mcp__x__y", { n: 3 });
+    expect(got).toEqual({ kind: "counter", label: "N", value: "3" });
+    expect(seenPrompt).toContain("n: number");
+    expect(seenOptions).toEqual({ model: "claude-haiku-5-5", purpose: "readable-view" });
   });
 
   test("a different shape (different keys) is a different signature: a fresh model call", async () => {
