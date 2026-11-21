@@ -30,6 +30,7 @@
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
 import { resultKey, type SubAgentResult } from "../lib/subagent-result";
 import type { WakeLaunch } from "../lib/wake-adoption";
+import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -128,8 +129,6 @@ export function subagentResultCard(r: SubAgentResult) {
     ...(r.branch ? { branch: r.branch } : {}),
   };
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
 export function createSubagentWake(deps: SubagentWakeDeps) {
   const debounceMs = deps.debounceMs ?? SUBAGENT_WAKE_DEBOUNCE_MS;
