@@ -152,7 +152,6 @@
         "scripts/install-db-snapshot.ts!",
     "scripts/new-migration.ts!",           // `bun run migration:new <slug>` — crea la migration col prefisso timestamp
     "scripts/token-before-after.ts!",  // misura i token prima e dopo sul DB vero (card 65deecdf)
-    "scripts/restore-archived-completed-at.ts!", // riporta a done le card archiviate riaperte senza toccare completed_at (card 600feca6)
         // Congela la coda di review dell'11/08 come fixture della derivazione
         // delle etichette (`bun run scripts/build-review-queue-fixture.ts`).
         // Si rilancia solo per rigenerare il file: legge il DB vero e git, quindi
@@ -208,14 +207,6 @@
         // on the socket it measures.
         "scripts/ws-catchup-probe.ts!",
         "scripts/effort-variance.ts!",
-        // Le due migrazioni una tantum sul DB della board, entrambe in sola
-        // lettura finche' non ricevono `--apply`: `bun run
-        // scripts/migrate-uuid-board-ids.ts [<file>.db] [--apply]` sposta i
-        // task nati sotto l'UUID del progetto sulla board vera, e `bun run
-        // scripts/canonicalizza-progetti.ts [--apply]` fonde i progetti
-        // sdoppiati da un symlink. Si lanciano a mano, non le importa nessuno.
-        "scripts/migrate-uuid-board-ids.ts!",
-        "scripts/canonicalizza-progetti.ts!",
         // La rimisura del cancello sui rapporti di consegna: `bun run
         // scripts/delivery-claims-audit.ts [--db <file>] [--code <codice>]
         // [--list] [--json]`. Sola lettura sul DB della board e su git, si
@@ -257,15 +248,6 @@
         // that put them there: `bun scripts/stay-local-audit.ts [--db <file>]`.
         // Writes nothing, run by hand, imported only by its own test.
         "scripts/stay-local-audit.ts!",
-        // La fusione dei progetti sdoppiati da un symlink, a mano e in due
-        // tempi: `bun scripts/canonicalizza-progetti.ts` elenca, `--esegui` lo
-        // fa davvero. Nessuno la importa, e non deve partire da sola.
-        "scripts/canonicalizza-progetti.ts!",
-        // La migrazione una-tantum delle card nate con l'UUID del progetto al
-        // posto dell'id di board: `bun scripts/migrate-uuid-board-ids.ts`
-        // elenca, `--esegui` riscrive. Si lancia a mano una volta sola, e
-        // nessuno la importa.
-        "scripts/migrate-uuid-board-ids.ts!",
         "scripts/token-live.ts!",         // diagnostica a mano: `bun scripts/token-live.ts [filtro] [--watch]`
         "scripts/orphan-park-dryrun.ts!", // `bun run orphan:dryrun` — prova a vuoto sul db vero
         // `bun run browser:dryrun [--tutti]` — la spazzata dei chromium orfani

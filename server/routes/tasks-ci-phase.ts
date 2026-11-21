@@ -435,9 +435,47 @@ export function createCiPhase(deps: CiPhaseDeps) {
     }
   }
 
+  /**
+   * Who broke a red `landed` batch: each card already landed as its own push to main, and that push
+   * already ran the board's CI once — read it back, in landing order, instead of rebuilding anything.
+   * The oldest red one is the culprit; a later commit is red too (it carries the bug forward) but is not
+   * what broke it. `null` when the port is missing, a card's commit cannot be placed among main's recent
+   * pushes, or the verdict needed is not in yet (pending): the caller falls back to bouncing everyone.
+   */
+  async function bisectAfterLand(projectId: string, taskIds: string[]): Promise<{ guilty: string[]; why: Record<string, string> } | null> {
+    if (!deps.mainCiPort) return null;
+    const port = await deps.mainCiPort(projectId).catch(() => null);
+    if (!port) return null;
+    const marks = taskIds.map((id) => ({ id, commit: readAfter(id)?.commit ?? null }));
+    if (marks.some((m) => !m.commit)) return null;
+    const recent = await port.recent().catch(() => null);
+    if (!recent || !recent.length) return null;
+    const oldestFirst = [...recent].reverse();
+    const located: Array<{ id: string; sha: string; at: number }> = [];
+    for (const m of marks) {
+      let found: { sha: string; at: number } | null = null;
+      for (const c of oldestFirst) {
+        if (await port.entersAt(m.commit!, c.sha).catch(() => false)) { found = c; break; }
+      }
+      if (!found) return null; // not among main's recent pushes: cannot place it, let the fallback decide
+      located.push({ id: m.id, sha: found.sha, at: found.at });
+    }
+    located.sort((a, b) => a.at - b.at);
+    for (const l of located) {
+      const v = await port.verdict(l.sha).catch(() => null);
+      if (!v || v.state === "pending" || v.state === "none") return null; // not an answer yet: no guess
+      if (v.state === "fail") {
+        const jobs = v.failed.length ? ` (${v.failed.join(", ")})` : "";
+        return { guilty: [l.id], why: { [l.id]: `la CI del push su main \`${l.sha.slice(0, 8)}\` è rossa${jobs}${v.url ? `: ${v.url}` : ""}` } };
+      }
+    }
+    return null; // every landed commit of the batch measured green on its own push: no culprit to name here
+  }
+
   const afterQueue = createIntegrationQueue({
     landed: true,
     collectMs: deps.integrationCollectMs,
+    bisect: (projectId, taskIds) => bisectAfterLand(projectId, taskIds),
     measure: (projectId, taskIds) => measureCards(projectId, taskIds, {
       commitOf: (id) => readAfter(id)?.commit ?? null,
       repoOf: async (id) => readAfter(id)?.repo ?? (await deps.integrationRepo?.(id).catch(() => null)) ?? null,

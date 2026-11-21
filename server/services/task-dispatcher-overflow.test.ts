@@ -44,6 +44,7 @@ import {
 import { CloudSetupError } from "../providers/claude-cloud/api";
 import { NODE_DEAD_POLLS, NODE_SETUP_POLLS } from "./task-dispatcher-remote-node";
 import { overflowNoteImmediate } from "./dispatch-overflow";
+import { hangBreaker } from "./wake-breaker";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { NodeError } from "./node-client";
 import { bundleBranch, plantCarriedBranch } from "./branch-on-origin";
@@ -707,6 +708,36 @@ describe("overflow: il PC addormentato", () => {
     h.seed(CARD);
     await settleTwoRounds(h);
     expect(h.task(CARD).machineId).toBeNull();
+  });
+
+  // 21/11: a PC that accepted runs and answered no poll still got cards moved onto it, which then
+  // waited there for hours while other machines had free seats. The hang breaker keeps new ones away.
+  it("un PC svegliabile ma appeso (due corse sepolte di fila) non riceve card nuove", async () => {
+    hangBreaker.failure(PC);
+    hangBreaker.failure(PC);
+    try {
+      const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
+      h.seed(CARD);
+      await settleTwoRounds(h);
+      expect(h.task(CARD).machineId).toBeNull();
+      expect(h.created).toEqual([]);
+    } finally {
+      hangBreaker.success(PC);
+    }
+  });
+
+  it("una card già legata al PC appeso torna libera invece di aspettarlo", async () => {
+    hangBreaker.failure(PC);
+    hangBreaker.failure(PC);
+    try {
+      const h = harness({ cloudCredit: false, pcOnline: false, pcWakeable: true });
+      h.seed(CARD, { machineId: PC });
+      await settleTwoRounds(h);
+      expect(h.task(CARD).machineId).not.toBe(PC);
+      expect(h.created).toEqual([]);
+    } finally {
+      hangBreaker.success(PC);
+    }
   });
 });
 
