@@ -15,6 +15,7 @@ import { createAppSettingsRouter } from "../routes/app-settings";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { createCalendarRouter } from "../routes/calendar";
 import { createHeavySlotRouter } from "../routes/heavy-slot";
+import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
 import { createProfileRouter } from "../routes/profile";
@@ -33,7 +34,7 @@ import type { AfterTasksRouter } from "./scope";
 import { late } from "./late";
 
 export function bootRoutersSecond(scope: AfterTasksRouter) {
-  const { browserService, claudeSessionTracker, ctx, nodeClient, retirementConsequences, taskDispatcher, tasksRouter, tickScheduledCards, worktreeGc, worktreeOfTask } = scope;
+  const { browserService, claudeSessionTracker, ctx, nodeClient, retirementConsequences, scheduleEngine, scheduledJobs, taskDispatcher, tasksRouter, tickScheduledCards, worktreeGc, worktreeOfTask } = scope;
   const pushRouter = createPushRouter(ctx);
 
   // La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
@@ -78,6 +79,12 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // The machine-wide queue for heavy commands, asked by every harness on this Mac.
   const heavySlotRouter = createHeavySlotRouter(ctx);
+
+  // The scheduled jobs: create, change, run now, history (R25).
+  const scheduledJobsRouter = createScheduledJobsRouter(ctx, scheduledJobs, {
+    pauseStarts: () => scheduleEngine.pauseStarts(), resumeStarts: () => scheduleEngine.resumeStarts(),
+    isPaused: () => scheduleEngine.isPaused(), inFlight: () => scheduleEngine.inFlight(),
+  });
 
   // The titles of the agents' Discord and WhatsApp chats, read from jarvis-channels.
   const agentChannelsRouter = createAgentChannelsRouter(ctx);
@@ -201,5 +208,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }

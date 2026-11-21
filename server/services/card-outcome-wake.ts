@@ -17,6 +17,7 @@
  */
 import type { TaskStatus } from "../../shared/board";
 import type { WakeLaunch } from "../lib/wake-adoption";
+import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -90,8 +91,6 @@ export interface CardOutcomeWakeDeps {
   /** A card never seen before counts as a fresh outcome only if its row changed this recently. */
   freshMs?: number;
 }
-
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
 export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
   const now = deps.now ?? Date.now;
