@@ -47,6 +47,7 @@ import { SourcesFooter, Verdict } from './AutomationsHead';
 import { DecideList } from './DecideList';
 import { useAutomationsKeys } from './useAutomationsKeys';
 import { useAutomationsData, type AutomationsData } from './useAutomationsData';
+import { TopicsCheckRow } from './TopicsCheckRow';
 import { BUTTON, SECTION, SECTION_COUNT, SECTION_REST, SYSTEM_ICON, makeClock, scheduleWords, type Clock } from './automationsUi';
 
 // The view's strings travel with its chunk, before its first render.
@@ -240,6 +241,7 @@ function AutomationsView() {
                 {query.trim() ? tr('auto.emptyQuery', { q: query.trim() }) : tr('auto.empty')}
               </p>
             )}
+            <TopicsCheckRow />
             {status !== 'ok' && (
               <DecideList
                 rows={decide}

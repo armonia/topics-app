@@ -14,6 +14,7 @@ import { createProvidersRouter } from "../routes/providers";
 import { createAppSettingsRouter } from "../routes/app-settings";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { createCalendarRouter } from "../routes/calendar";
+import { createTopicsCheckRouter } from "../routes/topics-check";
 import { createHeavySlotRouter } from "../routes/heavy-slot";
 import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
@@ -76,6 +77,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
   const calendarRouter = createCalendarRouter(ctx);
+  const topicsCheckRouter = createTopicsCheckRouter(ctx);
 
   // The machine-wide queue for heavy commands, asked by every harness on this Mac.
   const heavySlotRouter = createHeavySlotRouter(ctx);
@@ -208,5 +210,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }
