@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.59",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il land usa il main locale quando origin/main è uno specchio senza storia in comune",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.58",
     "date": "2026-11-21",
     "sections": {
@@ -7,6 +23,16 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Il test di detectResultSyntax dichiara CHAT-TOOL-04, e la spec dice dei risultati JSON e diff",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il testo colorato delle tool card resta a 11px, come il blocco che lo contiene",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "aggiorna durate shard dal nightly del 2026-11-20 [skip ci]",
           "en": "",
@@ -87,6 +113,11 @@
       "internal": [
         {
           "it": "Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Toglie il BOM da syntaxHighlight.ts e dal suo test",
           "en": "",
           "scope": null
         }
@@ -186,6 +217,12 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "move HighlightedPre out of ToolCards to stay under the bloat threshold",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
         {
           "it": "spread nullable jobs safely in one-shot test",
           "en": "",
@@ -585,6 +622,12 @@
           "it": "Comments in English (check:comment-language)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "highlight JSON and unified-diff tool/shell output automatically",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "mark the quoted Italian log line, the comment-language gate counted it as new Italian",
