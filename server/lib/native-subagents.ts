@@ -35,6 +35,7 @@ import { internalAbortRequest, internalRequest } from "./abort-cause";
 import { profileInstructions, type AgentProfile } from "./agent-profiles";
 import { isSqliteBusy, writeWhenFree } from "./sqlite-busy";
 import { engineToolsOfProfile } from "./subagent-tool-policy";
+import { sleep } from "./unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
@@ -274,8 +275,6 @@ const openTurn = new Map<string, OpenTurn>();
 const stopTurns = new Map<string, string | null>();
 /** Children the boot is adopting: a turn a restart may have cut, not yet read. */
 const adopting = new Set<string>();
-
-const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
 // ── Spawn ────────────────────────────────────────────────────────────────────
 

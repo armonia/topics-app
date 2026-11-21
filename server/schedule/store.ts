@@ -5,15 +5,28 @@ import type { ScheduledStatus } from "../../shared/scheduled-cards";
 export type RunStatus = "pending" | "starting" | "running" | "ok" | "error" | "timeout" | "cancelled" | "skipped" | "missed" | "failed_to_start" | "interrupted";
 export type MissedCause = "down" | "stall" | "provider" | "cap" | "paused";
 
-/** `command` and `agent` arrive in the next tracks; the engine already carries their kind. */
+/** What a `command` job runs: an argv (no shell), the text it reads on stdin, a hard time limit that is always written. */
+export interface CommandAction {
+  kind: "command";
+  argv: string[];
+  stdin: string | null;
+  /** Absolute directory; when absent the project of the job. */
+  cwd: string | null;
+  env: Record<string, string>;
+  timeoutSec: number;
+}
+
+/** `agent` arrives in a later track; the engine already carries its kind. */
 export type JobAction =
   | { kind: "card"; text: string; status: ScheduledStatus; labels: string[] }
-  | { kind: "command"; [key: string]: unknown }
+  | CommandAction
   | { kind: "agent"; [key: string]: unknown };
 
 export interface JobPolicy {
   /** Overrides the default catch-up window for this job. */
   windowMs?: number;
+  /** False: a run lost with its process is never started again (R12). Absent means it can be. */
+  repeatable?: boolean;
 }
 
 export interface ScheduledJobRow {
@@ -26,6 +39,7 @@ export interface RunRow {
   id: string; job_id: string; occurrence_key: string; scheduled_for: string; status: RunStatus;
   cause: string | null; reason: string | null; missed_count: number; task_id: string | null;
   process_ref: string | null; created_at: string; started_at: string | null; finished_at: string | null;
+  exit_code: number | null; stdout_tail: string | null; stderr_tail: string | null;
 }
 
 export interface ScheduledJob {
@@ -36,6 +50,7 @@ export interface ScheduledJob {
 export interface ScheduledRun {
   id: string; jobId: string; occurrenceKey: string; scheduledFor: Date; status: RunStatus;
   cause: string | null; reason: string | null; missedCount: number; taskId: string | null;
+  processRef: string | null; startedAt: Date | null; exitCode: number | null;
 }
 
 export function parseJob(row: ScheduledJobRow): ScheduledJob {
@@ -54,5 +69,6 @@ export function parseRun(row: RunRow): ScheduledRun {
   return {
     id: row.id, jobId: row.job_id, occurrenceKey: row.occurrence_key, scheduledFor: new Date(row.scheduled_for),
     status: row.status, cause: row.cause, reason: row.reason, missedCount: row.missed_count, taskId: row.task_id,
+    processRef: row.process_ref, startedAt: row.started_at ? new Date(row.started_at) : null, exitCode: row.exit_code ?? null,
   };
 }

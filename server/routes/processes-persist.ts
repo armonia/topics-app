@@ -67,6 +67,10 @@ function persisted(sp: ScriptProcess): PersistedScript {
 /** Where a process's log lives. Exported for the tests. */
 export const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.log`);
 export const exitPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.exit`);
+/** A scheduled command keeps its stderr, the text it reads on stdin and the mark of its own time limit beside its log (R11, R13). */
+export const stderrPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.err`);
+export const stdinPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.in`);
+export const timeoutMarkPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.timeout`);
 
 /**
  * `ps -o lstart=` per un pid, sincrono. `undefined` se il pid non c'e' piu'.
