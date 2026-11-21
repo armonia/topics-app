@@ -21,7 +21,8 @@
 # - persistent runners: caches in each HOME (bun, Playwright browsers) survive between
 #   jobs, and no admin token lives here to re-register ephemeral ones;
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
-# - ci.slice with a low CPU weight and a memory ceiling: Topics cards come first;
+# - ci.slice with a high CPU weight (500) and a memory ceiling: on this box the CI comes first on CPU
+#   and Topics (100) takes the machine when the CI is idle (decision of 10/11, applied 22/11);
 # - a job-completed hook kills what a job left running in the runner's cgroup.
 set -euo pipefail
 : "${REG_TOKEN:?registration token}"
@@ -76,14 +77,14 @@ EOS
 
 cat > /etc/systemd/system/ci.slice <<'EOS'
 [Unit]
-Description=CI runners (Topics comes first)
+Description=CI runners (CI comes first on CPU, Topics when idle)
 [Slice]
-CPUWeight=20
+CPUWeight=500
 MemoryHigh=22G
 MemoryMax=26G
 EOS
 mkdir -p /etc/systemd/system/topics.service.d
-printf '[Service]\nCPUWeight=500\n' > /etc/systemd/system/topics.service.d/precedenza.conf
+printf '[Service]\nCPUWeight=100\n' > /etc/systemd/system/topics.service.d/precedenza.conf
 # The node answers only on loopback (the Mac comes through the ssh tunnel): a server made
 # from an older recipe listened on *:3333, on the public address.
 printf '[Service]\nEnvironment=SERVER_HOST=127.0.0.1\n' > /etc/systemd/system/topics.service.d/locale.conf
@@ -166,7 +167,8 @@ done
 systemctl daemon-reload
 systemctl enable ci-firewall.service >/dev/null
 systemctl restart ci-firewall.service  # a re-run must apply the rules it just wrote
-systemctl set-property --runtime topics.service CPUWeight=500 2>/dev/null || true
+# Same value as precedenza.conf: a runtime property outranks every drop-in, so it must never disagree.
+systemctl set-property --runtime topics.service CPUWeight=100 2>/dev/null || true
 # A unit changed by a re-run of this script takes effect on restart: only idle runners,
 # a busy one would lose its job (the next re-run catches it).
 for i in 0 $(seq 1 "$N"); do

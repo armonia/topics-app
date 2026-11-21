@@ -21,8 +21,8 @@ con i nodi pronti; dopo un riallineamento del codice lo forza. Cosa e dove sta i
 NODO PERMANENTE (Attilio, Discord 10/11 23:31): topics-permanent-node, un cx53 sempre acceso nel progetto topics-nodes,
 fa da runner della CI di topics-app e da nodo di Topics sul posto 1. Finché esiste, il pool non accende
 nodi a richiesta (e `hetzner-tetto puo` li rifiuta comunque): il posto 1 è lui, mai cancellato, e le card
-che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. Topics ha la precedenza anche sulla CPU
-(ci.slice con peso basso, deploy/permanent-node/ci-runners.sh).
+che vi entrano sono 2 mentre la CI lavora, 4 quando è ferma. La CI ha la precedenza sulla CPU, Topics
+prende il server quando la CI è ferma (ci.slice a 500, topics.service a 100, deploy/permanent-node/ci-runners.sh).
 
 Posti, non server: il posto N è la riga `machines` con base_url http://127.0.0.1:(3400+N), stabile fra
 una vita e l'altra (stesso hostname = stessa riga). Ogni vita è un server Hetzner nel progetto
