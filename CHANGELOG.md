@@ -5,6 +5,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.58 — 2026-11-21
 
 ### Sotto il cofano
+- Il test di detectResultSyntax dichiara CHAT-TOOL-04, e la spec dice dei risultati JSON e diff
+- Il testo colorato delle tool card resta a 11px, come il blocco che lo contiene
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-20 [skip ci]
 - La radice dati vecchia, se e' solo un collegamento, scrive dove punta
 - si capisce di chi è ogni card e da dove arriva
@@ -23,6 +25,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Il menu del profilo si apre con chi sei in cima: le righe non scivolano più sotto il puntatore
+- Toglie il BOM da syntaxHighlight.ts e dal suo test
 
 ## 2.4.56 — 2026-11-20
 
@@ -45,6 +48,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.55 — 2026-11-20
 
 ### Sotto il cofano
+- move HighlightedPre out of ToolCards to stay under the bloat threshold
 - **automations** · spread nullable jobs safely in one-shot test
 - Translate permissions.ts header comment to English
 - dichiara @covers nello spec sidebar-row-touch-768
@@ -137,6 +141,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Primary role, proven on two real servers: the secondary claims no card by any road, and a stale epoch is refused on every door
 - accept Windows absolute paths for previews and comment media
 - Comments in English (check:comment-language)
+- highlight JSON and unified-diff tool/shell output automatically
 - **delivery-survives-reload** · mark the quoted Italian log line, the comment-language gate counted it as new Italian
 - Primary epoch: a higher epoch is adopted only after the caller is authenticated and names a known machine; a state file that cannot be written no longer stops the boot
 - **red-bounce** · wait for the bounce, not for a red row that the bounce erases
