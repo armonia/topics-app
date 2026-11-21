@@ -1083,7 +1083,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const producedNothing = planted.planted
       ? !!fresh && planted.commitCount === 0
       : !branch && !report.reason && !report.dispatchError;
-    if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log }, fresh, name)) return;
+    if (fresh && producedNothing && returnEmptyNodeRunToTodo({ svc, releaseAndEmit, emit, log, nameOf: nodeName }, fresh, name)) return;
     const reason = planted.planted
       ? `Consegnato dal nodo «${name}»: il ramo \`${branch}\` è stato piantato in questo checkout` +
         (planted.commit ? ` su \`${planted.commit.slice(0, 8)}\`.` : ".")

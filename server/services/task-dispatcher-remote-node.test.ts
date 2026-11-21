@@ -1403,6 +1403,16 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
   });
 
+  it("seconda corsa vuota di fila (salto di un altro nodo ancora attivo): resta qui 6 ore, non va su un terzo nodo (21/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ?, overflow_skip_machine = 'altro', overflow_skip_until = ? WHERE id = ?", [new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    expect([h.task().status, h.task().stayLocal, h.comments().some((c) => c.content.startsWith("Anche la corsa su"))]).toEqual(["todo", true, true]);
+  });
+
   it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {
     const { h } = plantedHarness({ commit: null, files: [] });
     h.seed();
