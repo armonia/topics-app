@@ -2,6 +2,8 @@
 import { httpJson } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
 import { sleep } from "./bridge-shared";
+import { existsSync } from "node:fs";
+import { askImagePath, questionImageRefs } from "../../shared/ask-images";
 
 /**
  * How long ONE poll leg may block server-side. We send it rather than let the
@@ -98,6 +100,13 @@ export async function callAskUserQuestion(
   const legMs = opts.legMs ?? ASK_LEG_MS;
   if (!Array.isArray(toolArgs?.questions) || toolArgs.questions.length === 0) {
     throw new Error("ask_user_question: 'questions' (non-empty array) is required");
+  }
+  // A picture that is not on disk is refused HERE, by name: the panel would
+  // otherwise show a broken square and the person could not choose by looking.
+  for (const ref of questionImageRefs(toolArgs.questions as Parameters<typeof questionImageRefs>[0])) {
+    if (!existsSync(askImagePath(ref))) {
+      throw new Error(`ask_user_question: image not found: ${ref}. Write the file first (an absolute path to an existing image) and ask again`);
+    }
   }
   // Shape validation is intentionally light here — the server-side detector
   // (ask-user-detector.ts) is the single source of truth for clamping options,

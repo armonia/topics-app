@@ -2,7 +2,7 @@
 
 ### Requirement: USAGE-28 — Il consumo di un progetto si legge in quota della settimana, dalla salita vera degli account
 
-`GET /api/usage/projects/quota` SHALL dire, per progetto, quanti punti della settimana Claude (100 = un account intero per una settimana) ha speso nelle ultime 24 ore e negli ultimi 7 giorni. I punti SHALL venire dalla regola di USAGE-27: la salita oraria della quota settimanale di ogni account Claude (un calo è un reset e conta il valore nuovo) divisa sulle chiamate di quell'ora per peso. Una chiamata SHALL appartenere al progetto della cartella in cui gira (chat native, sottoagenti, card, transcript di Claude Code anche aperti fuori da Topics, `usage_records`); una worktree conta per il suo progetto; ciò che non è di nessun progetto resta «fuori dai progetti».
+`GET /api/usage/projects/quota` SHALL dire, per progetto, quanti punti della settimana Claude (100 = un account intero per una settimana) ha speso nelle ultime 24 ore e negli ultimi 7 giorni. I punti SHALL venire dalla regola di USAGE-27: la salita oraria della quota settimanale di ogni account Claude (un calo è un reset e conta il valore nuovo) divisa sulle chiamate di quell'ora per peso. Una chiamata SHALL appartenere al progetto della cartella in cui gira (chat native, sottoagenti, card, transcript di Claude Code anche aperti fuori da Topics, `usage_records`); una worktree conta per il suo progetto; ciò che non è di nessun progetto resta «fuori dai progetti». Il peso di una chiamata SHALL essere il suo prezzo di listino per il modello che l'ha servita. Una card SHALL restare sul progetto del suo task anche se la sua worktree non esiste più, e due scritture della stessa cartella SHALL essere un progetto solo. Ogni chiamata SHALL portare la sua superficie (card, chat, sottoagenti di card, sottoagenti di chat, fuori da Topics, chiamate singole) e la risposta SHALL dare per progetto punti 24h e 7gg, limite, divisione per superficie e le chat più pesanti. Il progetto SHALL mostrare «punti/limite» sulla sua riga nella sidebar (ambra dall'80% del limite, rosso sopra) e in una tabella nella Dashboard, senza nessuna pausa.
 
 #### Scenario: due progetti nella stessa ora
 - **GIVEN** un'ora in cui la quota di un account sale di 10 punti, con chiamate di peso 300 nel progetto A (chat nativa e un suo sottoagente) e 100 nel progetto B (transcript di Claude Code in una worktree di B)
@@ -14,6 +14,8 @@
 - **THEN** la risposta SHALL dire `quotaHistory: false` e dare i token pesati, senza punti
 
 ### Requirement: USAGE-29 — Ogni progetto ha un limite di default, e superarlo chiede una conferma esplicita
+
+Il limite (10 punti nelle 24 ore, cambiabile per progetto dal suo menu, «Nessuno» per toglierlo) è della consegna 1 e si legge nel misuratore; la pausa che ne segue è della consegna 2.
 
 Ogni progetto SHALL avere un limite di 10 punti nelle ultime 24 ore, di default e senza configurare niente (cambiabile per progetto dal suo menu, «Nessuno» per toglierlo). Superato il limite, il progetto SHALL entrare in pausa: il dispatcher NON SHALL avviare card del progetto (restano in Todo con «In pausa: limite del progetto»), `spawn_agent` in una sessione del progetto SHALL rispondere col motivo invece di far nascere un figlio, la spinta d'obiettivo NON SHALL ripartire da sola. Il messaggio scritto da una persona SHALL partire sempre e un turno in corso SHALL finire. Un errore di lettura SHALL lasciar passare (fail-open).
 

@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, LEGACY_CLAUDE_CODE_TASK_CUTOFF, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable } from './task-coding-models';
+import { availableTaskModels, effectiveTopicsRouting, isTopicsModelServed, LEGACY_CLAUDE_CODE_TASK_CUTOFF, reusedSessionRouteConflict, reusedSessionRouting, TOPICS_ROUTING_DEFAULT, topicsRoute, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, TaskProviderPendingError, topicsRoutingAvailable } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -395,5 +395,16 @@ describe('topicsRoute, the one reading of the preference', () => {
     expect(reusedSessionRouting('claude-code:claude-opus-5-5', { topicsRouting: false }, true)).toBe(true);
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, null)).toBeNull();
     expect(reusedSessionRouteConflict('claude-code:claude-opus-5-5', { provider: 'claude-code', topicsRouting: false }, true)).toBe('switch-off');
+  });
+});
+
+describe('a known model whose engine is not ready waits instead of failing', () => {
+  test('loading engine listing the model: pending error naming the model', () => {
+    const snap = { defaultProvider: 'claude-code', providers: [{ name: 'claude-code', status: 'loading', models: ['claude-opus-5'], requirements: [] }] } as unknown as ProvidersSnapshot;
+    expect(() => taskProviderForModel('claude-opus-5', snap)).toThrow(TaskProviderPendingError);
+  });
+  test('an unknown model lists the valid ones', () => {
+    const snap = { defaultProvider: 'claude-code', providers: [{ name: 'claude-code', status: 'ready', models: ['claude-opus-5'], requirements: [] }] } as unknown as ProvidersSnapshot;
+    expect(() => taskProviderForModel('sonnet', snap)).toThrow('Available models: claude-opus-5');
   });
 });

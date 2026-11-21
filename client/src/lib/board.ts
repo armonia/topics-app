@@ -13,6 +13,7 @@
 // in scope locale, e qui sotto servono, quindi l'import gemello non è ridondante.
 export { MAX_FANOUT, TASK_STATUSES, PARKED_STOPPED, PARKED_WAITED_OUT, isAgentWorking, isThreadSpeech, parseStatusEvent, hasPlanApproveOption, parseQuestionBlock, showsLandingDebt, showsDeployProposal } from '../../../shared/board';
 // The board's columns (`shared/workflow.ts`): which ones, and which a card is in.
+import type { ForYou } from '../../../shared/for-you';
 import type { BoardWorkflow, WorkflowRules, WorkflowRulesRow } from '../../../shared/workflow';
 export { STAGE_CI, WORKFLOW_COLUMNS, columnOfTask } from '../../../shared/workflow';
 /** `GET /boards/:id/workflow`: the columns (the same for every board) plus the rules. */
@@ -678,12 +679,16 @@ export interface BoardTask {
   openerTopicId?: string;
   /** That chat's name. */
   openerName?: string;
-  /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists. */
-  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace };
+  /** The always-on agent that chat belongs to (`shared/agent-home.ts`), when it is an agent's chat. */
+  openerAgent?: string;
+  /** The Jarvis channel the work came from (Discord, WhatsApp, Telegram), only while its chat exists; `agent` answers in it. */
+  channel?: { topicId: string; name: string; kind: ChannelKind; place?: ChannelPlace; agent?: string };
   /** The workflow column when it is not the default one of the status (`shared/workflow.ts`); absent/null = the default column. */
   stage?: string | null;
   /** The question for the person the delivery carried. */
   humanAsk?: string;
+  /** The plain-words summary the system wrote for the person (see `shared/for-you.ts`). */
+  forYou?: ForYou;
   /** Who decided the work goes to main ('human' | 'auto'): the card is in, or will return to, the CI phase. */
   landIntent?: "human" | "auto";
   landIntentCommit?: string;

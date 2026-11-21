@@ -1,13 +1,23 @@
-import { taskModelSelection, taskExecutionOptions } from "../../shared/task-coding-models";
+import { taskModelSelection, taskExecutionOptions, availableTaskModels } from "../../shared/task-coding-models";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { claudeModelGenerations } from "../providers/claude-models";
-import { MODEL_TIERS } from "./task-model-picker";
 
 /** The 400 a card gets when its model is stale or unknown (MP-TASK-03). */
 export const STALE_TASK_MODEL_ERROR = {
   error: "Il modello scelto non è nel catalogo attuale o appartiene a una generazione superata.",
   code: "invalid_task_model",
 } as const;
+
+/** The 400 body naming the refused model and the ones that would pass. */
+export function staleTaskModelError(model: unknown, snapshot: ProvidersSnapshot | null) {
+  const available = availableTaskModels(snapshot);
+  return {
+    ...STALE_TASK_MODEL_ERROR,
+    error: `${STALE_TASK_MODEL_ERROR.error} Modello rifiutato: "${String(model ?? "").trim()}". Disponibili: ${available.join(", ") || "nessuno"}.`,
+    model: typeof model === "string" ? model.trim() : null,
+    available,
+  };
+}
 
 /**
  * Whether a requested task model is NOT known to be retired: it occurs in the
@@ -31,7 +41,6 @@ export function taskModelIsCurrent(value: unknown, snapshot: ProvidersSnapshot |
   if (!snapshot) return true;
 
   const selection = taskModelSelection(raw);
-  if (selection.model && (MODEL_TIERS as readonly string[]).includes(selection.model.replace(/\[1m\]$/, ""))) return true;
   const catalogs = taskExecutionOptions(snapshot).map(({ name, models }) => ({ name, models }));
   // Topics native is the routing switch, not a menu row, but it still executes cards.
   for (const entry of snapshot.providers) {

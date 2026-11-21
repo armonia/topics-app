@@ -24,7 +24,7 @@ import type {
 import { pointObject, describeImage } from "./integrations/moondream-client";
 import { playwrightOps, type BrowserOps } from "./browser-ops-adapter";
 import { listChromeCookieHosts } from "./integrations/chrome-cookies";
-import { toServableUrl, isMediaRef, getLocalFileServing } from "./browser-local-file-url";
+import { toServableUrl, isMediaRef, getLocalFileServing, mediaRefOfOwnOrigin } from "./browser-local-file-url";
 import {
   serialize,
   diff,
@@ -146,6 +146,9 @@ export function resolveAgentNavUrl(
   // giudicare una seconda volta — è la NOSTRA, e va solo messa nella forma che
   // chi naviga sa risolvere. Senza questo ramo finiva sulla guardia, che su un
   // relativo dice «invalid URL» e lascia di nuovo una pane bianca.
+  // An absolute address of THIS server's media route is the same document as
+  // the relative reference: fold it, then it takes the branch below.
+  url = mediaRefOfOwnOrigin(url) ?? url;
   if (isMediaRef(url)) {
     if (form === "relative") return url;
     const origin = getLocalFileServing()?.origin;

@@ -165,14 +165,17 @@ describe('view preferences', () => {
     expect(readBoardGroupBy()).toBe('project');
     store.set(BOARD_GROUP_BY_STORAGE_KEY, 'bogus');
     expect(readBoardGroupBy()).toBe('none');
+    // `closer` was renamed `owner`: a board grouped by it before stays grouped.
+    store.set(BOARD_GROUP_BY_STORAGE_KEY, 'closer');
+    expect(readBoardGroupBy()).toBe('owner');
   });
 
   test('the choice is kept per board; a board that never chose reads the old global key', () => {
     install(fake);
     writeBoardPreference(BOARD_GROUP_BY_STORAGE_KEY, 'project');
-    writeBoardPreference(`${BOARD_GROUP_BY_STORAGE_KEY}:b1`, 'closer');
+    writeBoardPreference(`${BOARD_GROUP_BY_STORAGE_KEY}:b1`, 'owner');
     writeBoardPreference(`${BOARD_THEN_BY_STORAGE_KEY}:b1`, 'priority');
-    expect(readBoardGroupBy('b1')).toBe('closer');
+    expect(readBoardGroupBy('b1')).toBe('owner');
     expect(readBoardThenBy('b1')).toBe('priority');
     expect(readBoardGroupBy('b2')).toBe('project');
     expect(readBoardThenBy('b2')).toBe('none');

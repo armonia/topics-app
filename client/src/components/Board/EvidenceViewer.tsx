@@ -193,7 +193,7 @@ export function EvidenceViewer({ slides, start = 0, onClose }: {
   });
   const slide = slides[i];
   if (!slide) return null;
-  const btn = 'absolute top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20';
+  const btn = 'absolute top-1/2 -translate-y-1/2 rounded-full bg-[rgb(255_255_255/0.1)] p-3 text-white hover:bg-[rgb(255_255_255/0.2)]';
   return createPortal(
     <div
       ref={panelRef}
@@ -207,7 +207,7 @@ export function EvidenceViewer({ slides, start = 0, onClose }: {
       {slides.length > 1 && (
         <div data-testid="lightbox-posizione" className="absolute left-1/2 top-4 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-compact leading-4 text-white">{i + 1} / {slides.length}</div>
       )}
-      <button onClick={onClose} title={tr('board.preview.close')} aria-label={tr('board.preview.close')} data-testid="lightbox-close" className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"><X className="h-5 w-5" /></button>
+      <button onClick={onClose} title={tr('board.preview.close')} aria-label={tr('board.preview.close')} data-testid="lightbox-close" className="absolute right-4 top-4 z-10 rounded-full bg-[rgb(255_255_255/0.1)] p-2 text-white hover:bg-[rgb(255_255_255/0.2)]"><X className="h-5 w-5" /></button>
       {prev && <button onClick={(e) => { e.stopPropagation(); prev(); }} title={tr('board.preview.prev')} aria-label={tr('board.preview.prev')} data-testid="lightbox-prev" className={`${btn} left-4 z-10`}><ChevronLeft className="h-6 w-6" /></button>}
       {next && <button onClick={(e) => { e.stopPropagation(); next(); }} title={tr('board.preview.next')} aria-label={tr('board.preview.next')} data-testid="lightbox-next" className={`${btn} right-4 z-10`}><ChevronRight className="h-6 w-6" /></button>}
       {slide.kind === 'single' ? <ZoomStage key={slide.path} path={slide.path} /> : <CompareFrame key={i} slide={slide} />}

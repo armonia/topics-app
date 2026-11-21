@@ -54,14 +54,25 @@ function loadProbeInvoke(
   states: string[],
   origin = 'https://x.com',
   href = `${origin}/`,
+  /** How many probes still see the previous document (same origin, already loaded). */
+  staleProbes = 0,
 ): { invoke: Invoke; calls: Array<[string, unknown]> } {
   const calls: Array<[string, unknown]> = [];
   const queue = [...states];
+  let stamp = '';
   const invoke: Invoke = async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === 'browser_eval_js') {
+      const js = (args as { js: string }).js;
+      // The stamp the op leaves on the page it is about to leave.
+      if (js.startsWith('window.__topicsVerifyMark =')) {
+        stamp = js.slice(js.indexOf('=') + 1).trim().replace(/^"|"$/g, '');
+        return '' as never;
+      }
       const ready = queue.length > 1 ? queue.shift() : queue[0];
-      return JSON.stringify({ origin, href, ready }) as never;
+      // Until the view really navigates it still carries the old stamp.
+      const marker = staleProbes-- > 0 ? stamp : undefined;
+      return JSON.stringify({ origin, href, ready, marker }) as never;
     }
     return '' as never;
   };
@@ -71,11 +82,23 @@ function loadProbeInvoke(
 test('browser_open navigates and answers only once the document has settled', async () => {
   const { invoke, calls } = loadProbeInvoke(['complete']);
   const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'https://x.com' }, invoke);
-  expect(calls[0]).toEqual(['browser_navigate', { id: 'ctx', url: 'https://x.com' }]);
+  expect(calls[1]).toEqual(['browser_navigate', { id: 'ctx', url: 'https://x.com' }]);
   // The probe is the proof the op waited instead of answering on the request.
-  expect(calls[1][0]).toBe('browser_eval_js');
+  expect(calls[2][0]).toBe('browser_eval_js');
   expect(out).toEqual({
     result: { ok: true, url: 'https://x.com/', requested: 'https://x.com', ready: true },
+  });
+});
+
+test('browser_open A then B on the same origin does not take the page of A as loaded', async () => {
+  // The old document is already past 'loading' and on the same origin: only the
+  // stamp left on it tells it from the new one.
+  const { invoke, calls } = loadProbeInvoke(['complete'], 'https://x.com', 'https://x.com/b', 3);
+  const out = await executeNativeBrowserOp('ctx', 'browser_open', { url: 'https://x.com/b' }, invoke);
+  const probes = calls.filter(([c, a]) => c === 'browser_eval_js' && !(a as { js: string }).js.startsWith('window.__topicsVerifyMark ='));
+  expect(probes.length).toBe(4);
+  expect(out).toEqual({
+    result: { ok: true, url: 'https://x.com/b', requested: 'https://x.com/b', ready: true },
   });
 });
 

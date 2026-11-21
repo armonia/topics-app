@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { AlertTriangle, ChevronRight, Check, ChevronDown, Clock, Server, Sparkles, Tag, UserRound } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Check, ChevronDown, Clock, ListTree, Server, Sparkles, Tag, Timer, UserRound } from 'lucide-react';
 import { Spinner } from '../Shared/Spinner';
-import { boardApi, subtaskWorkChip, type TaskLabel, type BoardTask, STATUS_LABEL, subtaskQueueChip, subtaskOpenable, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS } from '../../lib/board';
+import { boardApi, subtaskWorkChip, type TaskLabel, type BoardTask, STATUS_GLYPH_PX, STATUS_LABEL, subtaskQueueChip, subtaskOpenable, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS } from '../../lib/board';
 import { autoGrow, fmtMs, fmtTok, fmtUpdatedAt, descSummary, fmtCount } from './format';
 import { Menu } from '../Shared/Menu';
 import { StatusIcon, QueueReasonChip } from './atoms';
@@ -59,7 +59,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
   };
   return (
     <div>
-      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5" style={{ paddingLeft: depth * 10 }}>
+      <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-black/5 dark:hover:bg-white/5" style={{ paddingLeft: depth * 10 }}>
         {hasKids ? (
           <button onClick={toggle} className="shrink-0 text-app-text-muted hover:text-app-text-heading" title={open ? tr('common.collapse') : tr('common.expand')}>
             <ChevronRight className={`h-2.5 w-2.5 transition-transform ${open ? 'rotate-90' : ''}`} />
@@ -98,7 +98,7 @@ export function SubtaskNode({ projectId, node, depth, onOpenTask }: {
             className="flex shrink-0 text-app-text-muted"
           ><UserRound className="h-2.5 w-2.5" /></span>
         ))}
-        {hasKids && <span className="shrink-0 text-mini text-app-text-muted">↳ {node.subtaskDoneCount}/{node.subtaskCount}</span>}
+        {hasKids && <span className="inline-flex shrink-0 items-center gap-1 text-mini text-app-text-muted"><ListTree size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{node.subtaskDoneCount}/{node.subtaskCount}</span>}
       </div>
       {open && kids?.map((k) => (
         <SubtaskNode key={k.id} projectId={projectId} node={k} depth={depth + 1} onOpenTask={onOpenTask} />
@@ -143,7 +143,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
   return (
     <div className="border-b border-app-border px-3 py-2">
         {/* Meta row — compact chips that wrap, card-style: priority,
-            model · ⏱ effort (ONE chip, like the card), plan-first,
+            model · timer effort (ONE chip, like the card), plan-first,
             blocked-by + reuse. Editable selectors keep their portaled Menus. */}
         {task && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -159,7 +159,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 ? tr('task.priority.auto')
                 : tr('task.priority.change')}
               className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-mini ${
-                !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25' : 'bg-white/5 text-app-text-secondary hover:bg-white/10'
+                !priorityAwaitingAgent(task) && task.priority >= 3 ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25' : 'bg-black/5 dark:bg-white/5 text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/10'
               }`}
             >
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[task.priority] ?? PRIORITY_DOT[2]}`} />
@@ -196,7 +196,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                   : task.labels.some((l) => l.label === 'decisione') // allow-italian: the label vocabulary IS the data, compared by value
                     ? tr('task.close.decision')
                     : tr('task.close.none')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-black/10 dark:hover:bg-white/20"
             >
               <Tag className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.labels.length ? task.labels.map((l) => l.label).join(', ') : tr('board.task.labelsChip')}</span>
@@ -240,10 +240,10 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                     cache: task.agentCacheReadTokens > 0 ? tr('task.model.cachePart', { n: fmtTok(task.agentCacheReadTokens) }) : '',
                   })
                 : `${modelTrigger.line}. ${tr('task.model.hint')}`}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-black/10 dark:hover:bg-white/20"
             >
               <Sparkles className="h-3 w-3 shrink-0 text-app-text-muted" />
-              <span className="truncate">{modelTrigger.line}{(task.agentMs > 0 || task.agentTokens > 0) && ` · ⏱ ${fmtMs(task.agentMs)}${task.agentTokens > 0 ? ` · ${fmtTok(task.agentTokens)} tok` : ''}`}</span>
+              <span className="truncate">{modelTrigger.line}</span>{(task.agentMs > 0 || task.agentTokens > 0) && <span className="inline-flex shrink-0 items-center gap-1"><Timer size={STATUS_GLYPH_PX} className="shrink-0" aria-hidden />{fmtMs(task.agentMs)}{task.agentTokens > 0 && ` · ${fmtTok(task.agentTokens)} tok`}</span>}
               {/* Unknown tier shows nothing here: "auto" lives only next to the input fields (card 067a1f5b). */}
               {shownEffort && <span data-testid="task-effort-badge" className="shrink-0 rounded bg-app-hover/60 px-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{shownEffort}</span>}
               {!task.assignedTopicId && <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" />}
@@ -274,7 +274,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
               data-testid="task-node-chip"
               disabled={nodePickerLocked}
               title={nodePickerLocked ? tr('board.task.node.runningTitle') : tr('board.task.node.title')}
-              className="flex min-w-0 items-center gap-1.5 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
+              className="flex min-w-0 items-center gap-1.5 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-secondary hover:bg-black/10 dark:hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white/10"
             >
               <Server className="h-3 w-3 shrink-0 text-app-text-muted" />
               <span className="truncate">{task.machineId ? machineLabel(machines, task.machineId) : tr('board.task.node.chipLocal')}</span>
@@ -333,7 +333,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 data-testid="task-subtask-work-chip"
                 data-kind="parent-turn"
                 title={tr('task.work.hint', { what: workChip.title })}
-                className="flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-white/20"
+                className="flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted hover:bg-black/10 dark:hover:bg-white/20"
               >
                 <UserRound className="h-3 w-3 shrink-0" />
                 <span className="max-w-[14rem] truncate">{workChip.label}</span>
@@ -345,7 +345,7 @@ export function MetadataCard({ boardDispatchModel, busy, changeModel, changeNode
                 title={workChip.title}
                 className={workChip.kind === 'unattended'
                   ? `flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-mini ${STATUS_CHIP.danger}`
-                  : 'flex min-w-0 items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
+                  : 'flex min-w-0 items-center gap-1 rounded bg-black/5 dark:bg-white/10 px-1.5 py-0.5 text-mini text-app-text-muted'}
               >
                 {workChip.kind === 'unattended'
                   ? <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -385,7 +385,7 @@ export function DescriptionCard({ cancelKey, descDraft, descOpen, editingDesc, l
             onBlur={saveDesc}
             onKeyDown={cancelKey}
             placeholder={tr('board.task.descPlaceholder')}
-            className="block w-full resize-none overflow-hidden rounded bg-white/5 px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading outline-none"
+            className="block w-full resize-none overflow-hidden rounded bg-black/5 dark:bg-white/5 px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading outline-none"
           />
         ) : task?.description ? (
           <>
@@ -421,7 +421,7 @@ export function DescriptionCard({ cancelKey, descDraft, descOpen, editingDesc, l
                 data-testid="task-desc-body"
                 onClick={() => { setDescDraft(task.description ?? ''); setEditingDesc(true); }}
                 title={tr('board.task.editDescTitle')}
-                className={`reveal-in mt-1.5 cursor-text rounded px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading hover:bg-white/5 ${COMPACT_MD_CLS}`}
+                className={`reveal-in mt-1.5 cursor-text rounded px-1.5 py-0.5 text-body-lg leading-5 text-app-text-heading hover:bg-black/5 dark:hover:bg-white/5 ${COMPACT_MD_CLS}`}
               ><ChatMarkdown components={{}}>{task.description}</ChatMarkdown></div>
             )}
           </>
@@ -486,7 +486,7 @@ export function SubtasksCard({ addSubtask, addingSub, children, doneCount, onOpe
                 onChange={(e) => setSubDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
                 placeholder={tr('board.task.addSubtaskPlaceholder')}
-                className="w-full rounded bg-white/5 px-2 py-1 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
+                className="w-full rounded bg-black/5 dark:bg-white/5 px-2 py-1 text-compact leading-4 text-app-text outline-none placeholder:text-app-placeholder disabled:opacity-60"
               />
               {addingSub && <Spinner size="sm" tone="current" className="absolute right-1.5 top-1.5 text-app-text-secondary" />}
             </div>

@@ -19,7 +19,9 @@ interface FilterPanelProps {
  *  "let the agent decide" makes no sense, so it's dropped. */
 export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterPanelProps) {
   const tr = useT();
-  const reset = () => onFiltersChange({ priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [], creator: 'all' });
+  // The reset clears the search field's axes and the project; who follows the
+  // card and the channel have their own bar (`OriginFilterBar`) and stay.
+  const reset = () => onFiltersChange({ ...filters, priority: [], assignedTo: [], text: '', projectId: [], labels: [], person: [], computer: [], initiator: [], runComputer: [] });
 
   const assignees = Array.from(new Set(tasks.map((t) => t.assignedTo).filter(Boolean) as string[])).sort();
   // Built from `lastActorPersonName`/`lastActorDeviceName` - the same
@@ -32,7 +34,7 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
   const initiators = Array.from(new Set(tasks.map(runInitiatorName).filter(Boolean))).sort();
   const runComputers = Array.from(new Set(tasks.map((t) => t.runComputerName).filter(Boolean) as string[])).sort();
 
-  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) + (filters.creator && filters.creator !== 'all' ? 1 : 0) > 0;
+  const anyActive = filters.priority.length + filters.assignedTo.length + filters.projectId.length + filters.labels.length + filters.person.length + filters.computer.length + filters.initiator.length + filters.runComputer.length + (filters.text ? 1 : 0) > 0;
 
   // The shell of every filter control lives in `constants.ts`: the search box
   // here, the labels chip below, the token field and the project picker all
@@ -60,18 +62,6 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
         runComputers={runComputers}
       />
 
-      {/* WHO OPENED THE CARDS: one button that cycles all, mine, others. The
-          margin keeps it off the search field when the row is narrow. With a
-          finger it is 44 wide at least: the shortest label alone measured 41. */}
-      <button
-        type="button"
-        data-testid="filter-creator"
-        data-creator={filters.creator ?? 'all'}
-        title={tr('board.filter.creatorTitle')}
-        onClick={() => onFiltersChange({ ...filters, creator: (filters.creator ?? 'all') === 'all' ? 'mine' : filters.creator === 'mine' ? 'others' : 'all' })}
-        className={`ml-1 flex ${TOOLBAR_CONTROL_H} shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-2 text-mini coarse:min-w-11 ${filterFocusRingClass} ${(filters.creator ?? 'all') === 'all' ? 'text-app-text-muted' : 'bg-white/10 text-app-text'} hover:bg-white/10 hover:text-app-text`}
-      >{tr(`board.filter.creator.${filters.creator ?? 'all'}`)}</button>
-
       {/* Reset - only when something is active */}
       {anyActive && (
         <button
@@ -82,7 +72,7 @@ export function InlineFilters({ filters, onFiltersChange, tasks, mode }: FilterP
           // 16px target, the smallest on the row. Same inset ring as the
           // shells: being the smallest target, it is also the one the global
           // offset outline overflows worst.
-          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-white/10 hover:text-app-text`}
+          className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${filterFocusRingClass} text-app-text-muted hover:bg-black/5 dark:hover:bg-white/10 hover:text-app-text`}
         >
           <X className="h-3 w-3" />
         </button>

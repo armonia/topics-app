@@ -715,6 +715,25 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         } catch { /* the requeue stands without its line */ }
         return;
       }
+      // The cloud cannot run THIS card for a reason that waiting does not fix: its repository is out
+      // of the GitHub app's reach, or the account is refused (no environment, token refused). The
+      // card goes back to the queue with no fixed machine, at once, and says the real cause: it
+      // runs where it can, and the cloud is not chosen again for it until the answer changes.
+      const reason = nodeFailureReason(err);
+      if (reason === "cloud_repo" || reason === "cloud_account") {
+        const why = err instanceof Error ? err.message : String(err);
+        try { releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true }); }
+        catch (e) { log(`nodo: la card ${task.id} non è tornata in coda dopo il rifiuto del cloud`, e); parkNodeCard(task, `«${name}» non può lavorare questa card: ${why}`); return; }
+        try { emit(svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+        catch (e) { log(`nodo: la card ${task.id} non ha lasciato la macchina fissa`, e); }
+        try {
+          svc.addComment({
+            taskId: task.id, author: "system", kind: "service",
+            content: `«${name}» non può lavorare questa card: ${why}. Tolgo la macchina fissa e la rimetto in coda: parte dove può girare.`,
+          });
+        } catch { /* the requeue stands without its line */ }
+        return;
+      }
       // A 400/422 is the node refusing THIS card (12/11: a model outside its
       // catalog, retried every 5 minutes for half an hour as a silent node).
       if (nodeFailureReason(err) === "rejected") {
@@ -1212,7 +1231,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         // `lastNodeRun`: the next dispatch cancels it before starting another.
         // Parked only after `NODE_SETUP_POLLS` such answers in a row: a single
         // credential read that times out is not the account.
-        if (nodeFailureReason(err) === "cloud_setup" && task) {
+        if ((nodeFailureReason(err) === "cloud_setup" || nodeFailureReason(err) === "cloud_account") && task) {
           node.setupFails = (node.setupFails ?? 0) + 1;
           if (node.setupFails >= NODE_SETUP_POLLS) {
             const still = inFlight.get(taskId);

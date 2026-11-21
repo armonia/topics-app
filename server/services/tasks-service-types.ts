@@ -368,6 +368,8 @@ export interface TaskService {
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /** Cards parked `waited_out` by a MACHINE wait (node down, PC asleep), put back in todo after a doubling delay, up to `MACHINE_RETRY_CAP` times. */
   sweepMachineWaitedOut(args?: { eligible?: (projectId: string) => boolean }): Task[];
+  /** Cards parked only because their board could not be mapped to a project directory, put back in todo once `resolvable(projectId)` says it maps again. */
+  sweepUnresolvedProjectParked(args: { resolvable: (projectId: string) => boolean }): Task[];
   /**
    * Cards that sat in backlog past `UNOWNED_BACKLOG_MS` with nobody on them
    * (`UNOWNED_BACKLOG_SQL`). Each one is returned ONCE per round: the sweep

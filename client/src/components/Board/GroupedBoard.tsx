@@ -71,7 +71,7 @@ export function GroupedBoard({ groups, levels, columns, showColumnCounts, wide, 
           testId={top && level === 'project' ? 'board-lane-header' : 'board-group-header'}
         >
           <span data-testid="board-group-count" title={tr('board.group.total', { n: node.count })}
-            className="shrink-0 rounded-full bg-white/10 px-1.5 text-mini tabular-nums text-app-text-secondary">{node.count}</span>
+            className="shrink-0 rounded-full bg-black/5 dark:bg-white/10 px-1.5 text-mini tabular-nums text-app-text-secondary">{node.count}</span>
           {showColumnCounts && top && <LaneCounts lane={countsOf(node, columns)} columns={columns} />}
         </ProjectGroupHeader>
         {!folded && (node.children.length ? node.children.map((c) => section(c, depth + 1)) : renderLeaf(node))}

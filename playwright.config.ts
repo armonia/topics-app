@@ -306,7 +306,9 @@ export default defineConfig({
     baseURL: E2E_BASE,
     // The board hides Done by default (a board of live work); the suite reads cards in
     // Done, so a test starts with the column shown. board-group-density checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }] }] },
+    // Same for the origin preset: a board opens on «My work», which hides cards in progress
+    // and the agents' cards; the suite starts on «All» and board-origin-filters checks the default.
+    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }] }] },
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome
@@ -544,7 +546,7 @@ export default defineConfig({
       // Due spec, stesso telefono: la prima misura la CHROME (cosa c'è in alto e
       // in basso), la seconda il BORDO (chi si prende il trascinamento che parte
       // dal margine dello schermo, il cassetto o la cronologia).
-      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts"],
+      testMatch: ["**/mobile-chrome-bar.spec.ts", "**/mobile-edge-swipe-no-history.spec.ts", "**/mobile-no-tab-strip.spec.ts", "**/shown-in-message.spec.ts"],
       use: {
         browserName: "chromium",
         // GPU on the PC under pw-remote, nothing elsewhere: tests/e2e/helpers/remote-gpu.ts
@@ -656,6 +658,8 @@ export default defineConfig({
         "**/project-row-hub.spec.ts",
         // The palette's entries for the hub's places and the board's brake chip, same reason as the bell.
         "**/palette-hub.spec.ts",
+        // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
+        "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",

@@ -1223,7 +1223,13 @@ export async function runAgentTurn(
       // Fired BEFORE the call, because the handler is what blocks: it long
       // polls for the answer, so anything published afterwards would arrive
       // once the wait is already over.
-      const askSchema = detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
+      //
+      // `opts.allowTool` only exists for a child (subagent policy or remote-node
+      // spec), whose chat nobody watches: showing the panel here and denying the
+      // call a few lines below (CHILD_FORBIDDEN_TOOL) still left the box sitting
+      // in the hidden topic, because the broadcast ran first. A child's question
+      // never reaches the screen at all; it comes back as a denied tool result.
+      const askSchema = opts.allowTool ? null : detectUserInputRequest({ name: t.name!, input: t.input ?? {} });
       if (askSchema) handler.onUserInputRequired?.(t.id!, t.name!, askSchema);
       // `bash`'s own cwd, resolved the same way `recordTurnCreatedPaths` does,
       // so a relative `rm` (`rm -rf scratch`, run from the turn's temp folder)

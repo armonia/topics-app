@@ -44,7 +44,7 @@ export function columnWidthClass(layout: BoardLayout, isReview: boolean, reviewH
 }
 
 /** The column frame, minus the width: the same box in the board and in the skeleton. */
-export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border bg-white/5';
+export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border bg-black/5 dark:bg-white/5';
 
 /** The columns row in the kanban grid (snap classes are added by the board). */
 export const COLUMNS_ROW_GRID = 'flex h-full min-w-0 gap-2 overflow-x-auto px-2 py-3 sm:gap-3 sm:px-3';
@@ -60,12 +60,14 @@ export const BOARD_SHOW_DONE_STORAGE_KEY = 'topics.board.showDone';
 export const BOARD_COLLAPSED_PROJECTS_STORAGE_KEY = 'topics.board.collapsedProjects';
 
 /** What cards can be grouped by. `none` = flat. */
-export const GROUP_KEYS = ['none', 'project', 'status', 'assignee', 'closer', 'priority'] as const;
+export const GROUP_KEYS = ['none', 'project', 'status', 'assignee', 'owner', 'priority'] as const;
 export type BoardGroupBy = (typeof GROUP_KEYS)[number];
 /** Where the second grouping level («then by») is kept. */
 export const BOARD_THEN_BY_STORAGE_KEY = 'topics.board.thenBy';
 
 export function parseGroupKey(raw: string | null | undefined): BoardGroupBy {
+  // `closer` was the grouping before `owner` replaced it: a stored choice keeps working.
+  if (raw === 'closer') return 'owner';
   return (GROUP_KEYS as readonly string[]).includes(raw ?? '') ? (raw as BoardGroupBy) : 'none';
 }
 
@@ -81,7 +83,15 @@ export function readStoredForBoard(key: string, boardId: string): string | null 
   try { return localStorage.getItem(boardStorageKey(key, boardId)) ?? localStorage.getItem(key); }
   catch { return null; }
 }
-export type BoardDensity = 'full' | 'compact';
+/** How much of each card is drawn, from the least to the most: the slider's stops. */
+export const BOARD_DENSITIES = ['title', 'compact', 'full'] as const;
+export type BoardDensity = (typeof BOARD_DENSITIES)[number];
+/** Where the reader's density is kept, per board; nothing stored = the view's default. */
+export const BOARD_DENSITY_STORAGE_KEY = 'topics.board.density';
+
+export function parseBoardDensity(raw: string | null | undefined): BoardDensity | null {
+  return (BOARD_DENSITIES as readonly string[]).includes(raw ?? '') ? (raw as BoardDensity) : null;
+}
 
 /** The stored grouping, defaulting to the flat board. */
 export function readBoardGroupBy(boardId = 'all'): BoardGroupBy {

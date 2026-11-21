@@ -37,6 +37,9 @@ import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { projectIdOfFolder } from "../usage/project-folders";
+import { readProjectLimit, setProjectLimit } from "../usage/project-limit";
+import { QUOTA_LIMIT_CHOICES } from "../../shared/usage-shapes";
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -57,7 +60,7 @@ let iconAllowCache: { at: number; dirs: Set<string>; db: unknown } | null = null
 const ICON_VERSIONS_MAX_PATHS = 512;
 
 export function createProjectsRouter(ctx: AppContext): RouteHandler {
-  const { json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
+  const { db, json, readJSON, matchRoute, errorResponse, projectStore, broadcastToAll, broadcastProject, broadcastToProjectViewers } = ctx;
 
   /**
    * La riga intera esce SOLO verso chi la vede: `broadcastProject` chiede
@@ -337,6 +340,29 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
         ),
       );
       return json({ target });
+    }
+
+    // GET /api/projects/quota-limit?path=<abs>: the project's own 24h quota
+    // limit (project quota, USAGE-29). `null` = no limit; a project
+    // that was never configured reads the default.
+    if (method === "GET" && pathname === "/api/projects/quota-limit") {
+      const raw = url.searchParams.get("path");
+      if (!raw) return errorResponse(400, "path required");
+      return json({ limit: readProjectLimit(db, projectIdOfFolder(db, raw)) });
+    }
+
+    // POST /api/projects/quota-limit {path, limit}: writes the choice from the
+    // project's menu. `limit: null` clears it.
+    if (method === "POST" && pathname === "/api/projects/quota-limit") {
+      const body = await readJSON(req);
+      if (!body || typeof body.path !== "string" || !body.path) return errorResponse(400, "path required");
+      const limit = body.limit;
+      if (!QUOTA_LIMIT_CHOICES.includes(limit as number | null)) {
+        return errorResponse(400, `limit must be one of ${QUOTA_LIMIT_CHOICES.join(", ")}`);
+      }
+      const projectId = projectIdOfFolder(db, body.path);
+      setProjectLimit(db, projectId, limit as number | null);
+      return json({ limit: readProjectLimit(db, projectId) });
     }
 
     // POST /api/projects

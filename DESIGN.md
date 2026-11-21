@@ -144,6 +144,11 @@ barra dei menu.
 
 - La barra della tray («perfetta», 23/10): si lavora solo sul menu a tendina se segnalato.
 - La scala dei testi e i token del CSS: si aggiungono ruoli, non si spostano valori.
+- Il chip di Jarvis sulla card (avatar blu con l'iniziale e il nome, 15/11 «Jarvis resta com'è»):
+  ora è il chip del proprietario quando l'agente è Jarvis, stesso aspetto.
+- La Board del 20/11 («va bene così»): barra «Il mio lavoro | Tutto» con i chip dei proprietari e il
+  menu dei canali, chip proprietario e canale sulla card, slider del dettaglio, viste «Kanban, Lista,
+  Chi la segue, Workflow» con icone; etichette e campo di ricerca seguono la larghezza della board.
 
 ## Feedback di Attilio
 
@@ -158,3 +163,8 @@ barra dei menu.
   non un prototipo o foto in chat; se Topics non le mostra bene, quello è il primo lavoro.
 - 12/11 tray bocciata dopo un «prima/dopo» identico → due immagini uguali vogliono dire che la
   versione nuova non è stata catturata.
+- 20/11 «dalla Board devo poter comprendere facilmente ciò che vedo», «tutto questo rumore in
+  ogni direzione va sistemato» → ogni card dice di chi è (tu, la board, l'agente per nome, una
+  sessione, una programmata) e da quale canale; la Board si apre sul lavoro che segui tu.
+- 20/11 «la modalità card non ha senso» → ogni vista ha un nome che dice cosa mostra e un'icona
+  chiara («Chi la segue», «Workflow»), mai un nome generico.

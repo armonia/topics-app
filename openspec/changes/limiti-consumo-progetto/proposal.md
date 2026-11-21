@@ -2,6 +2,13 @@
 
 # Consumo per progetto: conto giusto, limite di default e conferma sincronizzata
 
+## Due consegne
+Il lavoro si consegna in due pezzi, perché il conto va misurato prima di frenare qualcosa con esso:
+1. **Conto e misuratore, senza nessuna pausa** (questa consegna, USAGE-28 e la parte «limite» di USAGE-29). Il conto per progetto giusto (transcript annidati, peso per modello, card che restano sul loro progetto, cartelle sotto un solo nome, chiamate singole sul progetto della loro chat), la divisione per superficie, la tabella `project_quota` col limite (default 10 punti nelle 24 ore, selettore nel menu del progetto), il misuratore «punti/limite» sulla riga del progetto e nella Dashboard. Niente stato di pausa, niente tasto, niente avviso.
+2. **Freno, pausa che si chiude, conferma** (consegna successiva: USAGE-29 per la parte pausa, USAGE-30). Il dispatcher e `spawn_agent` che si fermano sopra il limite, «Continua» e «Pausa fino a domani» sincronizzati, l'avviso fuori dall'app. Parte da ciò che è già scritto sul ramo `topics/tidy-totem` (`project-pause*.ts`, `project-quota-sweep.ts`, rotte `quota/continue` e `quota/hold`) e riusa il limite e il conto di questa consegna.
+
+La migrazione `project_quota` porta già le colonne della pausa (`paused_at`, `continued_until_pct`, `hold_until`): in questa consegna restano vuote e nessun codice le legge.
+
 ## Da decidere
 Niente: deciso da Attilio il 18/11 alle 01:22 («fai 10% a progetto. poi l'ok ad andare avanti dovrebbe essere sincronizzato e sbloccare tutto del progetto»). Nessuna spesa, nessun dato che esce oltre a una riga verso il canale che il proprietario configura.
 
