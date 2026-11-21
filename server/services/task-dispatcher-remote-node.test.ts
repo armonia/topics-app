@@ -29,7 +29,7 @@
  * @covers GUEST-17
  */
 import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,16 @@ import type { TaskFile } from "../../shared/task-labels";
 import type { NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
+import { hangBreaker } from "./task-dispatcher-remote-node";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
+
+// Both breakers are shared singletons across every test in this file: a burial
+// in one `it` must never leave the next one looking at a node the test itself
+// never touched.
+afterEach(() => {
+  wakeBreaker.success(MACHINE);
+  hangBreaker.success(MACHINE);
+});
 
 describe("la card parte sul nodo, non qui", () => {
   it("nessun worktree, nessun discorso, nessun turno: solo la corsa sul nodo", async () => {
@@ -846,6 +855,32 @@ describe("un nodo è alive finché i suoi POLL rispondono", () => {
     await poll(h, 3);
     expect(h.calls.slice(callsBefore).filter((c) => c === "read:run-1")).toEqual([]);
     expect(h.task().deliveryBranch).toBeNull();
+  });
+
+  it("due corse sepolte di fila aprono la breccia: la terza non parte sullo stesso nodo muto (21/11)", async () => {
+    // The node accepts every run (the hook and `createRun` both answer) but
+    // never answers a single poll: the exact shape measured on the Windows
+    // PC, port open, healthz silent. Without a breaker on this signal the
+    // dispatcher buried and relaunched the same hung node forever.
+    const h = harness({ readRun: () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" })) });
+    h.seed();
+    await dispatch(h);
+
+    // First burial: the freed card still gets one more try (run 2).
+    await poll(h, NODE_DEAD_POLLS);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(false);
+
+    // Second burial in a row, same node, zero successful poll in between:
+    // the breach opens, and run 3 does not start.
+    await poll(h, NODE_DEAD_POLLS);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(true);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(h.task().status).toBe("todo");
+
+    // A tick later, still within the open window: still no third run.
+    await poll(h, 1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
   });
 });
 
