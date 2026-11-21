@@ -1,5 +1,7 @@
 /**
- * @covers MACHINE-03
+ * The board side of the security alerts: a red check opens one card, a green one closes it.
+ *
+ * @covers MACHINE-07
  */
 import { beforeEach, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
