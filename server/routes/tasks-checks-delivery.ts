@@ -598,11 +598,19 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
             broadcastToAll({ type: "task:updated", projectId, task: t });
           } catch { /* a link lost does not stop the gate */ }
         };
+        // A row that describes another head is checked HERE, before the
+        // remeasure loop below: as a transient NOT MEASURED it is read again
+        // on this head instead of closing the round.
         const readCi = () => ref.commit && opts?.ciEvidence
-          ? opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait }).catch((err: unknown) => {
-            if (err instanceof ChecksInterruptedError) throw err;
-            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`, true);
-          })
+          ? opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait })
+            .then((rows) => rows.map((row) => {
+              const check = ciChecks.find((c) => c.cmd === row.cmd);
+              return check ? ciRowOfThisHead(row, check, ref.commit) : row;
+            }))
+            .catch((err: unknown) => {
+              if (err instanceof ChecksInterruptedError) throw err;
+              return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`, true);
+            })
           : Promise.resolve(unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
         let ciRuns = await readCi();
         // A ROUND WITHOUT A VERDICT IS MEASURED AGAIN, NOT HANDED BACK. Only a
@@ -617,10 +625,7 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
           ciRuns = await readCi();
         }
         // One row per declared CI check, whatever the reader answered.
-        runs.push(...ciChecks.map((c) => {
-          const row = ciRuns.find((r) => r.cmd === c.cmd);
-          return row ? ciRowOfThisHead(row, c, ref.commit) : ciNotMeasured(c, "the CI evidence reader returned no row for it");
-        }));
+        runs.push(...ciChecks.map((c) => ciRuns.find((r) => r.cmd === c.cmd) ?? ciNotMeasured(c, "the CI evidence reader returned no row for it")));
         throwIfStopping();
       }
       const ok = runs.length === checks.length && runs.every((r) => r.ok);
