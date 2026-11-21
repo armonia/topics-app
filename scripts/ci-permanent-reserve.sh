@@ -30,8 +30,14 @@ set -uo pipefail
 
 PREFIX=pn-
 SETTLE_S=${PERMANENT_SETTLE_S:-4}
-# A prepare-e2e job that waited this long on its booked runner is not going to start
-# (measured 20/11: 35+ minutes queued on an online, idle runner holding its label).
+# A prepare-e2e job queued this long on its booked runner gets a push; if it still does not
+# start after PUSH_WAIT_S, and has waited PREP_STUCK_S in all, the runner is quarantined.
+# Cause measured 20/11 (card 698fd926): the runner's broker session never got the
+# ForceTokenRefreshMessage that reloads its labels, so it was never offered the job carrying
+# the booking label although it was online and idle. Rewriting its labels sends the message.
+PREP_PUSH_S=${PERMANENT_PREP_PUSH_S:-120}
+PUSH_WAIT_S=${PERMANENT_PUSH_WAIT_S:-90}
+PUSH_POLL_S=${PERMANENT_PUSH_POLL_S:-5}
 PREP_STUCK_S=${PERMANENT_PREP_STUCK_S:-300}
 PREP_POOL=permanent-prep
 # A quarantined runner rejoins the prep pool by itself after this long (card 06e7894c): it is
@@ -65,9 +71,9 @@ drop_stale() {  # bookings of runs that are over
     while read -r id lab; do
       run=${lab#"$PREFIX"}; run=${run%%-*}
       [[ $run =~ ^[0-9]+$ ]] || continue
-      if [[ $lab == *-prep ]] && prep_stuck "$run" "$lab"; then
-        # Hand every runner of the run back, take the runner that did not serve the prep
-        # out of the prep pool for QUARANTINE_S (its label carries the start time, and the
+      if [[ $lab == *-prep ]] && prep_queued_over "$run" "$lab" "$PREP_PUSH_S" && ! push_prep "$run" "$id" "$lab" \n          && prep_queued_over "$run" "$lab" "$PREP_STUCK_S"; then
+        # The push did not start it. Hand every runner of the run back, take the runner that
+        # did not serve the prep out of the prep pool for QUARANTINE_S (its label carries the start time, and the
         # first reserve after that puts it back), then cancel the run and start it again so it places itself anew.
         unbook "$id" "$lab"
         for sid in $(jq -r --arg l "${lab%-prep}" '.runners[] | select(any(.labels[]; .name == $l)) | .id' <<<"$all"); do
@@ -109,9 +115,24 @@ restart_run() {  # <run id>
   gh_api POST "/actions/runs/$1/rerun" >/dev/null 2>&1 || true
 }
 
-# True when the run's prepare-e2e job on this prep label has sat queued for PREP_STUCK_S.
-prep_stuck() {  # <run id> <prep label>
-  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$PREP_STUCK_S" '
+# Take the prep label off the runner and put it back: the label write makes the broker send
+# the runner a ForceTokenRefreshMessage, so it reloads its labels and is offered the job.
+# Waits up to PUSH_WAIT_S; succeeds when the prep job is no longer queued.
+push_prep() {  # <run id> <runner id> <prep label>
+  local waited=0
+  unbook "$2" "$3"
+  gh_api POST "/actions/runners/$2/labels" "{\"labels\":[\"$3\"]}" >/dev/null 2>&1 || true
+  echo "::warning::prep of run $1 queued over ${PREP_PUSH_S}s on runner $2: label rewritten to refresh its session" >&2
+  while [ "$waited" -lt "$PUSH_WAIT_S" ]; do
+    sleep "$PUSH_POLL_S"; waited=$((waited + PUSH_POLL_S))
+    prep_queued_over "$1" "$3" 0 || return 0
+  done
+  return 1
+}
+
+# True when the run's prepare-e2e job on this prep label has sat queued for more than <seconds>.
+prep_queued_over() {  # <run id> <prep label> <seconds>
+  gh_api GET "/actions/runs/$1/jobs?per_page=100" 2>/dev/null | jq -e --arg l "$2" --argjson max "$3" '
     any(.jobs[]?; .status == "queued" and any(.labels[]?; . == $l)
       and (now - (.created_at | fromdateiso8601)) > $max)' >/dev/null 2>&1
 }

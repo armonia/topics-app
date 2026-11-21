@@ -6,7 +6,7 @@
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export STATE="$tmp/state.json" PERMANENT_SETTLE_S=1
+export STATE="$tmp/state.json" PERMANENT_SETTLE_S=1 PERMANENT_PUSH_WAIT_S=2 PERMANENT_PUSH_POLL_S=1
 fail=0
 ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got $2 want $3"; fail=1; fi; }
 
@@ -29,6 +29,10 @@ gh_api() {
         id=${p#/actions/runners/}; id=${id%/labels}
         l=$(jq -r '.labels[0]' <<<"$body")
         jq --argjson id "$id" --arg l "$l" '(.runners[] | select(.id == $id) | .labels) += [{name: $l}]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
+        # PUSH_WORKS: rewriting a prep label wakes the runner, so its queued prep job starts
+        if [ -n "${PUSH_WORKS:-}" ] && [[ $l == pn-*-prep ]]; then
+          jq --arg l "$l" '.jobs |= map_values(map(if (.labels | index($l)) then .status = "in_progress" else . end))' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
+        fi
         # INJECT: another run books the same runner in the same instant
         if [ -n "${INJECT:-}" ]; then
           jq --argjson id "$id" --arg l "$INJECT" '(.runners[] | select(.id == $id) | .labels) += [{name: $l}]' "$STATE" > "$STATE.n" && mv "$STATE.n" "$STATE"
@@ -114,6 +118,15 @@ run release pn-741-1
 ok "the next prep booking skips the quarantined runner" "$(run reserve permanent-prep 1 pn-742-1-prep 2>/dev/null)" 1
 ok "...it took runner 4" "$(jq -r '[.runners[] | select(any(.labels[]; .name == "pn-742-1-prep")) | .id] | join(",")' "$STATE")" 4
 
+# Run 770: same stuck prep, but rewriting the label wakes the runner and the job starts:
+# no quarantine, no cancel, no rerun, and the bookings stay.
+JOBS="{\"770\":[{\"status\":\"queued\",\"created_at\":\"$old\",\"labels\":[\"pn-770-1-prep\"]}]}" seed "$FOUR"
+run 'gh_api POST /actions/runners/1/labels "{\"labels\":[\"permanent-prep\"]}"; gh_api POST /actions/runners/1/labels "{\"labels\":[\"pn-770-1-prep\"]}"' >/dev/null
+PUSH_WORKS=1 run reserve permanent 4 pn-771-1 >/dev/null 2>&1
+ok "a push that starts the prep keeps its booking" "$(booked pn-770-1-prep)" 1
+ok "...no cancel" "$(jq -r '.runs["770"] // "none"' "$STATE")" none
+ok "...no rerun" "$(jq -r '.reruns | length' "$STATE")" 0
+ok "...runner stays in the prep pool" "$(jq -r '.runners[0].labels | map(.name) | index("permanent-prep") != null' "$STATE")" true
 # Quarantine over: runner 1 carries a quarantine label from 31 minutes ago, runner 2 one from
 # 5 minutes ago (both out of the pool). The next reserve puts runner 1 back, runner 2 stays out.
 seed "$FOUR"
