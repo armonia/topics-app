@@ -1,5 +1,87 @@
 [
   {
+    "version": "2.4.62",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "a capo vero nella condizione del prep fermo (un \\n letterale passava «n» come argomento in più)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "MACHINE-08: servers without Topics measured over read-only SSH",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "SEC-02: mask secrets in tool arguments and output before storing and before replaying to the model",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un check di sicurezza rosso apre una card sola e la chiude quando torna verde (MACHINE-07)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Singular day in reboot-required warning (SEC-01 T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "runsOf restituisce RunRow invece di Record<string, any>",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pulizia dei segreti cerca il DB dove sta davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La pulizia dei segreti non riporta indietro le righe scritte nel frattempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test degli avvisi di sicurezza dichiarano MACHINE-07",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "pem, aws e ubuntu sono parole del progetto per il cancello dei nomi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi inglesi nel test dell'oscuramento dei segreti",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.61",
     "date": "2026-11-21",
     "sections": {
@@ -12,6 +94,27 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "The board id helper of the root-paths rewrite has English names",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un prep fermo riceve prima la spinta (etichetta riscritta), poi la quarantena; via il watchdog del listener",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Lavori programmati 2/8: comandi a orario e API /api/scheduled-jobs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lavori programmati 2/8: rilievi della revisione (morto senza codice = interrotto, codice scritto durante la sonda, trap del watchdog)",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Revert \"merge task 68c5aa1c-6a92-4b12-b71f-eed633f0c107: Approvazione senza commit chiude la card in review\"",
@@ -39,6 +142,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "The root-paths rewrite moves a home spelled with ~ or $HOME wherever its name ends",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -52,7 +160,33 @@
       "perf": [],
       "internal": [
         {
+          "it": "Agenti e dati dell'app vivono nella casa di Topics, una sola radice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The root-paths rewrite test names the requirement it proves (PROJ-ID-01)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A rekeyed board leaves its record, so the old id still lands on the moved board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "la quarantena del runner prep rientra da sola dopo 30 min; watchdog sul listener dei runner del nodo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Lavori programmati: migrazione rinumerata dopo il conflitto con task-for-you",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The rewrite finds a folder that ends the value, and merges a pane retired twice",
           "en": "",
           "scope": null
         },
@@ -449,6 +583,18 @@
           "it": "Revisione automatica PR: niente raffica all'accensione, una revisione per giro, card in review sui difetti, esito letto da claude -p",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "rilascia la prenotazione del nodo permanente se il prep resta in coda oltre 5 minuti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "prep fermo oltre 5 minuti, il runner esce dalla pool permanent-prep e la run viene rilanciata",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Un solo avviso per causa anche quando l'account si scopre dopo il primo rifiuto",

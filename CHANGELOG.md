@@ -2,10 +2,32 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.62 — 2026-11-21
+
+### Sotto il cofano
+- a capo vero nella condizione del prep fermo (un \n letterale passava «n» come argomento in più)
+- Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep
+- Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)
+- MACHINE-08: servers without Topics measured over read-only SSH
+- SEC-02: mask secrets in tool arguments and output before storing and before replaying to the model
+- Un check di sicurezza rosso apre una card sola e la chiude quando torna verde (MACHINE-07)
+- Singular day in reboot-required warning (SEC-01 T4)
+- runsOf restituisce RunRow invece di Record<string, any>
+- I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client
+- La pulizia dei segreti cerca il DB dove sta davvero
+- La pulizia dei segreti non riporta indietro le righe scritte nel frattempo
+- I test degli avvisi di sicurezza dichiarano MACHINE-07
+- pem, aws e ubuntu sono parole del progetto per il cancello dei nomi
+- Nomi inglesi nel test dell'oscuramento dei segreti
+
 ## 2.4.61 — 2026-11-21
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-11-21 [skip ci]
+- The board id helper of the root-paths rewrite has English names
+- un prep fermo riceve prima la spinta (etichetta riscritta), poi la quarantena; via il watchdog del listener
+- Lavori programmati 2/8: comandi a orario e API /api/scheduled-jobs
+- Lavori programmati 2/8: rilievi della revisione (morto senza codice = interrotto, codice scritto durante la sonda, trap del watchdog)
 - Revert "merge task 68c5aa1c-6a92-4b12-b71f-eed633f0c107: Approvazione senza commit chiude la card in review"
 
 ## 2.4.60 — 2026-11-21
@@ -13,11 +35,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Land senza niente da fondere: la persona approva e la card si chiude; la decisione non si riprova ogni sweep
 - sicurezza presidiata, la sicurezza di server e nodi si vede accanto a loro, apre una card quando diventa rossa, si aggiorna da sola e i segreti non si salvano in chiaro
+- The root-paths rewrite moves a home spelled with ~ or $HOME wherever its name ends
 
 ## 2.4.59 — 2026-11-21
 
 ### Sotto il cofano
+- Agenti e dati dell'app vivono nella casa di Topics, una sola radice
+- The root-paths rewrite test names the requirement it proves (PROJ-ID-01)
+- A rekeyed board leaves its record, so the old id still lands on the moved board
+- la quarantena del runner prep rientra da sola dopo 30 min; watchdog sul listener dei runner del nodo
 - Lavori programmati: migrazione rinumerata dopo il conflitto con task-for-you
+- The rewrite finds a folder that ends the value, and merges a pane retired twice
 - Il land usa il main locale quando origin/main è uno specchio senza storia in comune
 - Lavori programmati: rilievi della revisione (lavoro guasto non blocca gli altri, lavoro cancellato non parte)
 
@@ -100,6 +128,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Test dei rifiuti del cloud (file nuovo, forzato: l'exclude locale ignora providers/)
 - Quota history sampler: one series per login, silent while a foreign writer is alive (card 29aa4259)
 - Revisione automatica PR: niente raffica all'accensione, una revisione per giro, card in review sui difetti, esito letto da claude -p
+- rilascia la prenotazione del nodo permanente se il prep resta in coda oltre 5 minuti
+- prep fermo oltre 5 minuti, il runner esce dalla pool permanent-prep e la run viene rilanciata
 - Un solo avviso per causa anche quando l'account si scopre dopo il primo rifiuto
 - change mostrato-nel-messaggio (M1 spec delta)
 - Ciò che l'agente mostra resta nel messaggio: media nel segno dell'apertura, indirizzi giusti, strada per sottoagenti/card/terminale, frasi nuove (M1)
