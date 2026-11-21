@@ -156,6 +156,8 @@ export interface MachineHealthDeps {
   attemptsToday: (sinceMs: number) => Array<{ machineId: string | null; createdAt: string }>;
   /** Which machine of the file the id written on the card belongs to; `null` = none (e.g. cloud, not listed). */
   attribute: (machineId: string | null) => string | null;
+  /** Called after each round with the security reading of every machine (the alerts); its failure never stops the round. */
+  onRound?: (machines: Record<string, { name: string; security: MachineSecurity }>) => Promise<void>;
   filePath: string;
   statePath: string;
   now: () => number;
@@ -249,6 +251,10 @@ export function createMachineHealth(deps: MachineHealthDeps) {
     for (const id of [...security.keys()]) if (!ids.has(id)) security.delete(id);
     await writeJsonAtomic(deps.filePath, snapshot(targets));
     await save();
+    if (deps.onRound) {
+      const now = Object.fromEntries(targets.map((t) => [t.id, { name: t.name, security: security.get(t.id) ?? emptySecurity() }]));
+      await deps.onRound(now).catch((err) => deps.log?.(`[machines-health] alerts skipped: ${(err as Error).message}`));
+    }
   }
 
   return {

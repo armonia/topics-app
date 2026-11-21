@@ -21,8 +21,8 @@ import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = "main" | "gtm";
 const AGENTS: Record<AgentId, { name: string; workspace: string; account: string }> = {
-  main: { name: "Jarvis", workspace: "~/.claude/jarvis/home", account: "default" },
-  gtm: { name: "Visione", workspace: "~/.claude/jarvis/home/workspace-gtm", account: "visione" },
+  main: { name: "Jarvis", workspace: "~/.topics/agents/jarvis", account: "default" },
+  gtm: { name: "Visione", workspace: "~/.topics/agents/gtm", account: "visione" },
 };
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 

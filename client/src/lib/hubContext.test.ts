@@ -9,9 +9,6 @@
 import { describe, expect, test } from 'bun:test';
 import { CHECK_STALE_MS, checkStart, contextCheck, contextView, doctorVerdict, fileAgeDays, fileGroups, harnessWeights, plainRule, unlistedRef } from './hubContext';
 import { shortTokens } from './formatTokens';
-import { LEGACY_DATA_DIR_NAME } from '../../../shared/legacy-data-dir';
-
-const OLD_HOME = LEGACY_DATA_DIR_NAME;
 
 const HUB = {
   at: 1_793_901_551_906,
@@ -36,7 +33,7 @@ const HUB = {
     items: [
       { a: { file: '~/.claude/CLAUDE.md', text: 'niente closers' }, b: { file: '~/.claude/output-styles/kind.md', text: 'chiudi con un prossimo passo' }, why: 'una vieta i closers, l\'altra li chiede' },
       { a: { file: '~/x' }, b: { file: '~/y', text: 'y' }, why: 'senza testo da un lato' },
-      { a: { file: `~/${OLD_HOME}/AGENTS.md`, text: 'a' }, b: { file: `~/${OLD_HOME}/workspace-gtm/AGENTS.md`, text: '`b`' }, why: 'due AGENTS.md diversi' },
+      { a: { file: `~/.topics/agents/jarvis/AGENTS.md`, text: 'a' }, b: { file: `~/.topics/agents/gtm/AGENTS.md`, text: '`b`' }, why: 'due AGENTS.md diversi' },
     ],
     running: false,
   },
@@ -58,7 +55,7 @@ describe('harnessWeights', () => {
     const w = harnessWeights(live);
     expect(w.map((h) => h.name)).toEqual(['Jarvis', 'Visione', 'Codex', 'jcode', 'Claude Code']);
     expect(w.find((h) => h.name === 'Jarvis')!.extra).toEqual({ tokens: 11816, home: false });
-    const v = contextView({ ...HUB, files: [{ id: 'agents', label: 'AGENTS.md', path: `~/${OLD_HOME}/workspace-gtm/AGENTS.md`, group: 'Jarvis', loaders: ['Jarvis · gtm', 'Jarvis · main', 'Jarvis (via claude)'], tokens: 10 }], totals: { byLoader: live } })!;
+    const v = contextView({ ...HUB, files: [{ id: 'agents', label: 'AGENTS.md', path: `~/.topics/agents/gtm/AGENTS.md`, group: 'Jarvis', loaders: ['Jarvis · gtm', 'Jarvis · main', 'Jarvis (via claude)'], tokens: 10 }], totals: { byLoader: live } })!;
     expect(v.files[0]!.readers).toEqual(['Visione', 'Jarvis']);
     expect(v.files[0]!.loaders).toEqual(['Visione', 'Jarvis', 'Jarvis (via claude)']);
   });
@@ -117,9 +114,9 @@ describe('contextView', () => {
     expect(a).toBe('rules · Jarvis');
     expect(b).toBe('rules · Visione');
     expect(v.check.items[1]!.b.text).toBe('b');
-    expect(unlistedRef(`~/${OLD_HOME}/USER.md`)).toEqual({ kind: 'profile', owner: 'Jarvis', name: 'USER' });
-    expect(unlistedRef(`~/${OLD_HOME}/workspace-studio-x/AGENTS.md`).owner).toBe('studio-x');
-    expect(unlistedRef(`~/${OLD_HOME}/workspace/AGENTS.md`).owner).toBe('Jarvis');
+    expect(unlistedRef('~/.topics/agents/jarvis/USER.md')).toEqual({ kind: 'profile', owner: 'Jarvis', name: 'USER' });
+    expect(unlistedRef('~/.topics/agents/studio-x/AGENTS.md').owner).toBe('studio-x');
+    expect(unlistedRef('~/.topics/agents/jarvis/workspace/AGENTS.md').owner).toBe('Jarvis');
     expect(unlistedRef('~/Projects/acme-web/AGENTS.md')).toEqual({ kind: 'rules', owner: 'acme-web', name: 'AGENTS' });
     expect(unlistedRef('subagent:oracle.md')).toEqual({ kind: 'other', owner: '', name: 'oracle' });
   });

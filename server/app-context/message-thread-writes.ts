@@ -1,6 +1,7 @@
 /** Message rows written to SQLite: appends, partial turns and tool-call updates. */
 import type { Database } from "bun:sqlite";
 import { toolCallsColumnForRow, toolCallsForDisk } from "../../shared/lean-tool-call";
+import { redactDeep } from "../lib/secret-redaction";
 import { decodeCol } from "../../shared/message-blob";
 import { hasMachineMark } from "../../shared/prompt-number";
 import { isReusableHeadstone } from "../lib/empty-turn-headstone";
@@ -35,7 +36,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
+          $tool_calls: toolCallsColumnForRow(redactDeep(msg.toolCalls), msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: msg.partial ? 1 : 0,
           $streamed_at: msg.streamedAt || null,
@@ -128,7 +129,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
           $role: msg.role,
           $content: msg.content || '',
           $thinking: msg.thinking || null,
-          $tool_calls: toolCallsColumnForRow(msg.toolCalls, msg.blocks),
+          $tool_calls: toolCallsColumnForRow(redactDeep(msg.toolCalls), msg.blocks),
           $media: msg.media ? JSON.stringify(msg.media) : null,
           $partial: 0,
           $streamed_at: null,
@@ -331,7 +332,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       $id: msg.id,
       $content: 'content' in updates ? (msg.content || '') : null,
       $thinking: 'thinking' in updates ? (msg.thinking || null) : null,
-      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(msg.toolCalls, updates.blocks) : null,
+      $tool_calls: 'toolCalls' in updates ? toolCallsColumnForRow(redactDeep(msg.toolCalls), updates.blocks) : null,
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -452,7 +453,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       // Owns tool_calls only — see updateToolCallResult.
       $content: null,
       $thinking: null,
-      $tool_calls: mode === 'clear' ? '[]' : toolCallsForDisk(msg.toolCalls),
+      $tool_calls: mode === 'clear' ? '[]' : toolCallsForDisk(redactDeep(msg.toolCalls)),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,
@@ -500,7 +501,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
         // buffer) must never overwrite the assistant's text.
         $content: null,
         $thinking: null,
-        $tool_calls: toolCallsForDisk(msg.toolCalls),
+        $tool_calls: toolCallsForDisk(redactDeep(msg.toolCalls)),
         $media: msg.media ? JSON.stringify(msg.media) : null,
         $partial: msg.partial ? 1 : 0,
         $streamed_at: msg.streamedAt || null,
@@ -561,7 +562,7 @@ export function createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMess
       $id: msg.id,
       $content: null,
       $thinking: null,
-      $tool_calls: toolCallsColumnForRow(msg.toolCalls, nextBlocks ?? msg.blocks),
+      $tool_calls: toolCallsColumnForRow(redactDeep(msg.toolCalls), nextBlocks ?? msg.blocks),
       $media: msg.media ? JSON.stringify(msg.media) : null,
       $partial: msg.partial ? 1 : 0,
       $streamed_at: msg.streamedAt || null,

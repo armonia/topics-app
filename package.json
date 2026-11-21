@@ -124,7 +124,7 @@
     "bench:ai-bridge": "bun run scripts/ai-bridge-replay-bench.ts",
     "orphan:dryrun": "bun run scripts/orphan-park-dryrun.ts",
     "browser:dryrun": "bun run scripts/browser-orphan-dryrun.ts",
-    "migrate:legacy-root": "bun run scripts/rewrite-legacy-root-paths.ts",
+    "migrate:root-paths": "bun run scripts/rewrite-root-paths.ts",
     "typecheck": "bun run scripts/slot.ts typecheck -- 'bun run scripts/parallel.ts \"bun run typecheck:client\" \"bun run typecheck:tests:client\" \"bun run typecheck:server\" \"bun run typecheck:e2e\" \"bun run typecheck:relay\"'",
     "typecheck:client": "cd client && node node_modules/typescript7/bin/tsc -b",
     "typecheck:tests:client": "cd client && node node_modules/typescript7/bin/tsc -p tsconfig.test.json",

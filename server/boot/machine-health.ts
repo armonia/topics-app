@@ -18,9 +18,14 @@ import type { MachineSecurityReport } from "../../shared/machine-health";
 import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
+import { probeSshServer, readSshServers, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { runBounded } from "../lib/machine-security-env";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
 import { isCloudBaseUrl } from "../providers/claude-cloud/node";
+import { createTaskService } from "../services/tasks";
+import { getAppSettings } from "../services/app-settings";
+import { createSecurityAlertsRound } from "./machine-security-alerts";
 
 /** How long to wait for a node's probe: its commands have 5 s each, in parallel, and the macOS log needs longer. */
 const REMOTE_PROBE_TIMEOUT_MS = 30_000;
@@ -72,6 +77,18 @@ async function isHomePc(machineId: string): Promise<boolean> {
 
 export function startMachineHealth(ctx: AppContext): void {
   const probeLocal = localSecurityProbe(ctx.APP_DATA_DIR);
+  const securityAlerts = createSecurityAlertsRound({
+    db: ctx.db,
+    svc: createTaskService(ctx.db, {}),
+    broadcast: (event) => ctx.broadcastToAll(event as Parameters<typeof ctx.broadcastToAll>[0]),
+    projectId: () => getAppSettings().securityAlertsProjectId,
+    statePath: join(sharedToolingDir(), "machines-security-alerts.json"),
+    now: Date.now,
+  });
+
+  // Servers without Topics, from the servers file; read on every round so an edit needs no restart.
+  const sshServers = new Map<string, SshServer>();
+  const lastSsh = new Map<string, MachineSecurityReport>();
 
   const targetsNow = (): Array<HealthTarget & { baseUrl: string | null }> => {
     const local = ctx.machineStore.upsertLocal();
@@ -79,18 +96,22 @@ export function startMachineHealth(ctx: AppContext): void {
     return [
       { id: local.id, name: local.name, kind: "local", baseUrl: null },
       ...nodes.map((m) => ({ id: m.id, name: m.name, kind: "remote" as const, baseUrl: m.baseUrl })),
+      ...[...sshServers].map(([id, s]) => ({ id, name: s.host, kind: "remote" as const, baseUrl: null })),
     ];
   };
   const baseUrlOf = new Map<string, string | null>();
 
   const health = createMachineHealth({
     targets: () => {
+      sshServers.clear();
+      for (const s of readSshServers(ctx.APP_DATA_DIR)) sshServers.set(sshServerId(s), s);
       const all = targetsNow();
       baseUrlOf.clear();
       for (const t of all) baseUrlOf.set(t.id, t.baseUrl);
       return all.map(({ id, name, kind }) => ({ id, name, kind }));
     },
     readMetrics: async (t) => {
+      if (sshServers.has(t.id)) return null;
       if (t.kind === "local") {
         const local = readLocalMetrics();
         return { cpu: local.cpuPct, mem: local.memPct };
@@ -110,6 +131,12 @@ export function startMachineHealth(ctx: AppContext): void {
     },
     probe: async (t): Promise<MachineSecurityReport | null> => {
       if (t.kind === "local") return probeLocal();
+      const ssh = sshServers.get(t.id);
+      if (ssh) {
+        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null);
+        lastSsh.set(t.id, report);
+        return report;
+      }
       const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
       return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
@@ -124,6 +151,7 @@ export function startMachineHealth(ctx: AppContext): void {
       // A row without an address is an old name of this same computer (the network host name changes with the network).
       return row.baseUrl ? row.id : local.id;
     },
+    onRound: securityAlerts,
     filePath: join(sharedToolingDir(), MACHINES_HEALTH_FILE),
     statePath: join(sharedToolingDir(), "machines-health-history.json"),
     now: Date.now,

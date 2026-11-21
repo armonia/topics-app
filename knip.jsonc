@@ -78,6 +78,7 @@
         // command - but its publishing rules live next to it in
         // `build-client-publish.ts`, which its test does import.
         "scripts/backfill-card-channel.ts!", // lancio a mano: bun run scripts/backfill-card-channel.ts [--apply] (collega le card aperte al canale di Jarvis)
+        "scripts/redact-stored-secrets.ts!", // lancio a mano: bun run scripts/redact-stored-secrets.ts [--apply] [--db PATH] (SEC-02: oscura i segreti già salvati, dopo il backup)
         "scripts/build-client.ts!",
         "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
         "scripts/assert-sig.ts!", // invoked by .github/workflows/tauri-release.yml (publish job)

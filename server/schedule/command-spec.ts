@@ -1,14 +1,14 @@
 /** What a `command` job may say, checked once at the door and again when it launches (R11, R13). */
 import { isAbsolute } from "node:path";
 import { ScheduleError } from "../../shared/schedule";
-import type { CommandAction } from "./store";
+import type { CommandJobAction } from "./store";
 
 /** The time limit written on a job that names none (R13). */
 export const DEFAULT_COMMAND_TIMEOUT_SEC = 3600;
 const MAX_ARGV_ITEMS = 256;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function normalizeCommandAction(input: unknown): CommandAction {
+export function normalizeCommandAction(input: unknown): CommandJobAction {
   const value = (input ?? {}) as Record<string, unknown>;
   const argv = value.argv;
   if (!Array.isArray(argv) || !argv.length || argv.length > MAX_ARGV_ITEMS || !argv.every(item => typeof item === "string" && !item.includes("\0")) || !(argv[0] as string).trim()) {
