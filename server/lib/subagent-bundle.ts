@@ -23,7 +23,7 @@
  * parent's checkout is left with no new ref, no new file, no new commit on
  * any branch it had.
  *
- * It works on a repo with no `origin` (the `~/.claude/jarvis/home` case):
+ * It works on a repo with no `origin` (an agent's home is one):
  * `bundleBranch` already falls back to a whole-history bundle when there is
  * no `origin/HEAD` to diff against.
  */

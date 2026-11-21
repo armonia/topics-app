@@ -6,7 +6,7 @@ export type RunStatus = "pending" | "starting" | "running" | "ok" | "error" | "t
 export type MissedCause = "down" | "stall" | "provider" | "cap" | "paused";
 
 /** What a `command` job runs: an argv (no shell), the text it reads on stdin, a hard time limit that is always written. */
-export interface CommandAction {
+export interface CommandJobAction {
   kind: "command";
   argv: string[];
   stdin: string | null;
@@ -19,7 +19,7 @@ export interface CommandAction {
 /** `agent` arrives in a later track; the engine already carries its kind. */
 export type JobAction =
   | { kind: "card"; text: string; status: ScheduledStatus; labels: string[] }
-  | CommandAction
+  | CommandJobAction
   | { kind: "agent"; [key: string]: unknown };
 
 export interface JobPolicy {

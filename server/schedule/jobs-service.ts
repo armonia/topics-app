@@ -38,7 +38,7 @@ export interface CreateInput {
 }
 export type UpdateInput = Omit<CreateInput, "id" | "createdBy">;
 
-export interface JobView {
+export interface ScheduledJobView {
   id: string; name: string; projectId: string | null; schedule: JobSchedule; action: JobAction; deliver: unknown;
   policy: JobPolicy; enabled: boolean; nextRunAt: string | null; createdBy: string; createdAt: string; updatedAt: string;
   lastRun: RunView | null;
@@ -87,7 +87,7 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
     };
   }
 
-  function view(row: ScheduledJobRow): JobView {
+  function view(row: ScheduledJobRow): ScheduledJobView {
     const job = parseJob(row);
     const last = lastRunOf(row.id);
     return {
@@ -135,17 +135,17 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
   };
 
   return {
-    list(filter: { projectId?: string } = {}): JobView[] {
+    list(filter: { projectId?: string } = {}): ScheduledJobView[] {
       const rows = filter.projectId
         ? db.query("SELECT * FROM scheduled_jobs WHERE deleted_at IS NULL AND project_id = ? ORDER BY created_at, id").all(filter.projectId)
         : db.query("SELECT * FROM scheduled_jobs WHERE deleted_at IS NULL ORDER BY created_at, id").all();
       return (rows as ScheduledJobRow[]).map(view);
     },
 
-    get(id: string): JobView { return view(live(id)); },
+    get(id: string): ScheduledJobView { return view(live(id)); },
 
     /** With an id and an initial state given, so an importer can bring jobs over as they were (R31). */
-    create(input: CreateInput): JobView {
+    create(input: CreateInput): ScheduledJobView {
       const name = parseName(input.name);
       const enabled = input.enabled === undefined ? true : input.enabled;
       if (typeof enabled !== "boolean") throw new JobsError("enabled must be true or false.");
@@ -170,7 +170,7 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
     },
 
     /** A change never turns a recurring job into a one-time one or the other way, and never changes the kind of its action. */
-    update(id: string, input: UpdateInput): JobView {
+    update(id: string, input: UpdateInput): ScheduledJobView {
       const row = live(id);
       const current = parseJob(row);
       const name = input.name === undefined ? current.name : parseName(input.name);
@@ -215,7 +215,7 @@ export function createJobsService(db: Database, options: JobsServiceOptions) {
      * as they are, so the job goes on at its usual times afterwards. The new time
      * cannot pass the occurrence after the next: that would skip one.
      */
-    postpone(id: string, input: { until?: unknown; minutes?: unknown }): JobView {
+    postpone(id: string, input: { until?: unknown; minutes?: unknown }): ScheduledJobView {
       const row = live(id);
       const job = parseJob(row);
       if (!job.enabled || !job.nextRunAt) throw new JobsError("Only a job that is waiting for its next occurrence can be postponed.", 409);
