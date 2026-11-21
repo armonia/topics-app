@@ -16,7 +16,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { projectIdForPath } from "../shared/board";
 import { testTmpDir } from "../tests/integration/helpers";
-import { boardRekeys, parseMoves, remap, rewriteText, spellings, withAliases } from "./rewrite-root-paths";
+import { movedBoardIds, parseMoves, remap, rewriteText, spellings, withAliases } from "./rewrite-root-paths";
 
 const HOME = "/home/u";
 const OLD = `${HOME}/.agent-home`;
@@ -69,7 +69,7 @@ describe("the boards", () => {
   test("a moved folder's board id follows it, and so does the id of its former spelling", () => {
     const moves = parseMoves(args, "--map");
     const aliases = parseMoves(["--alias", `${LINK}=${OLD}`], "--alias");
-    const r = boardRekeys([`${OLD}/workspace/general`, "/elsewhere"], moves, aliases);
+    const r = movedBoardIds([`${OLD}/workspace/general`, "/elsewhere"], moves, aliases);
     const to = projectIdForPath(`${HOME}/.topics/agents/main/workspace/general`);
     expect(r.get(projectIdForPath(`${OLD}/workspace/general`))).toEqual({ to, path: `${OLD}/workspace/general` });
     expect(r.get(projectIdForPath(`${LINK}/workspace/general`))).toEqual({ to, path: `${LINK}/workspace/general` });

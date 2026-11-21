@@ -101,7 +101,7 @@ export function rewriteText(v: string, s: Spellings): string {
 }
 
 /** Old board id -> new board id and the old folder, for every folder in `folders` a move covers (and its former spellings). */
-export function boardRekeys(folders: Iterable<string>, moves: Move[], aliases: Move[]): Map<string, { to: string; path: string }> {
+export function movedBoardIds(folders: Iterable<string>, moves: Move[], aliases: Move[]): Map<string, { to: string; path: string }> {
   const out = new Map<string, { to: string; path: string }>();
   const add = (oldPath: string, newPath: string) => {
     const a = projectIdForPath(oldPath);
@@ -142,7 +142,7 @@ if (import.meta.main) {
     if (!tables.includes(t)) continue;
     for (const { v } of db.query(`SELECT DISTINCT "${c}" AS v FROM "${t}" WHERE "${c}" IS NOT NULL`).all() as { v: string }[]) folders.push(v);
   }
-  const rekeys = boardRekeys(folders, direct, aliases);
+  const movedIds = movedBoardIds(folders, direct, aliases);
 
   if (!dryRun) {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -155,7 +155,7 @@ if (import.meta.main) {
   let left = 0;
   for (const t of tables) {
     if (!columns(t).some((c) => c.name === "project_id")) continue;
-    for (const [from, { to }] of rekeys) {
+    for (const [from, { to }] of movedIds) {
       const n = (db.query(`SELECT count(*) AS n FROM "${t}" WHERE project_id = ?`).get(from) as { n: number }).n;
       if (!n) continue;
       const done = dryRun ? n : db.query(`UPDATE OR IGNORE "${t}" SET project_id = ? WHERE project_id = ?`).run(to, from).changes;
@@ -168,8 +168,8 @@ if (import.meta.main) {
   if (tables.includes("board_aliases")) {
     // REPLACE: an older alias of the same id pointed at a board that is moving too.
     const put = db.prepare("INSERT OR REPLACE INTO board_aliases (old_id, new_id, old_path, created_at) VALUES (?, ?, ?, ?)");
-    if (!dryRun) db.transaction(() => { for (const [from, { to, path }] of rekeys) put.run(from, to, path, Date.now()); })();
-    console.log(`board_aliases: ${rekeys.size} ${dryRun ? "would be recorded" : "recorded"}`);
+    if (!dryRun) db.transaction(() => { for (const [from, { to, path }] of movedIds) put.run(from, to, path, Date.now()); })();
+    console.log(`board_aliases: ${movedIds.size} ${dryRun ? "would be recorded" : "recorded"}`);
   }
 
   // What the scan looks for: every spelling bare, so a value that ENDS with the folder (a pane id
