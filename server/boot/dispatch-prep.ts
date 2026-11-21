@@ -14,6 +14,9 @@ import { configureChannelOriginCards } from "../lib/channel-origin-cards";
 import { createCardAction } from "../schedule/card-action";
 import { createScheduledCardsService } from "../schedule/cards-service";
 import { createScheduleEngine, type TickResult } from "../schedule/engine";
+import { createCommandAction } from "../schedule/command-action";
+import { createRegistryRunner } from "../schedule/command-runner";
+import { createJobsService } from "../schedule/jobs-service";
 import { createExternalSessionsService } from "../services/external-sessions";
 import { type AgentWorktreeDeps } from "../services/worktree-for-agent";
 import { isChecksHold as isChecksHoldOf } from "../services/checks-lights";
@@ -114,7 +117,28 @@ export function bootDispatchPrep(scope: AfterRouters1) {
 
   const scheduleNow = () => late.scheduledCardTestNow ?? new Date();
   const scheduledCards = createScheduledCardsService(ctx.db, scheduleNow);
-  const scheduleEngine = createScheduleEngine(ctx.db, { executors: { card: createCardAction(ctx.db, dispatcherSvc) }, now: scheduleNow });
+  // The command action closes runs through the engine, which is built with the action: the door is read at call time.
+  const engineDoor = { closeIfOpen: (...args: Parameters<ReturnType<typeof createScheduleEngine>["closeIfOpen"]>) => scheduleEngine.closeIfOpen(...args) };
+  let tickAfterCloseQueued = false;
+  const jobRunner = createRegistryRunner();
+  const commandAction = createCommandAction(ctx.db, engineDoor, {
+    runner: jobRunner,
+    projectPath: (projectId) => projectId ? projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null : null,
+    now: scheduleNow,
+    // A job that was waiting on this run restarts right away (R9); never from inside the tick that closed it.
+    onClosed: () => {
+      if (tickAfterCloseQueued) return;
+      tickAfterCloseQueued = true;
+      setTimeout(() => { tickAfterCloseQueued = false; tickScheduledCards(); }, 0).unref?.();
+    },
+  });
+  const scheduleEngine = createScheduleEngine(ctx.db, { executors: { card: createCardAction(ctx.db, dispatcherSvc), command: commandAction.executor }, now: scheduleNow });
+  // The registry reports a scheduled command's end; the ones that ended while the server was down close now.
+  jobRunner.onEnd((end) => commandAction.ended(end));
+  const scheduledJobs = createJobsService(ctx.db, {
+    engine: scheduleEngine, now: scheduleNow,
+    projectPath: (projectId) => projectPathOfAnyId(ctx.db, (storeId) => ctx.projectStore.get(storeId)?.path, projectId) ?? null,
+  });
 
   /** Announces the cards a tick created, the same way a person's new card is. */
   function announceTick(result: TickResult) {
@@ -540,5 +564,5 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 
-  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, repoRootForCard, scheduleEngine, scheduledCards, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
+  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, repoRootForCard, scheduleEngine, scheduledCards, scheduledJobs, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
 }

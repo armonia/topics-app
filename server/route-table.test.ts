@@ -62,6 +62,7 @@ const GOLDEN_ORDER = [
   "reasoningTranslationRouter",
   "calendarRouter",
   "heavySlotRouter",
+  "scheduledJobsRouter",
   "agentChannelsRouter",
   "agentConfigRouter",
   "tabsRouter",
