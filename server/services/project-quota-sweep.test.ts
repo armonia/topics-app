@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import type { ProjectQuotaRow } from "../../shared/usage-shapes";
 import { readProjectQuotaRow } from "./project-pause";
-import { runProjectQuotaPauseSweep } from "./project-quota-sweep";
+import { resetPausePointsForTests, runProjectQuotaPauseSweep } from "./project-quota-sweep";
 
 const MIGRATION = await Bun.file(join(import.meta.dir, "../db/migrations/20261119000000-project-quota.sql")).text();
 
@@ -48,5 +48,19 @@ describe("runProjectQuotaPauseSweep", () => {
   test("a quota read that throws skips the round instead of crashing it", () => {
     const db = makeDb();
     expect(() => runProjectQuotaPauseSweep(db, { computeQuota: () => { throw new Error("boom"); }, log: () => {} })).not.toThrow();
+  });
+
+  test("logs, per paused project, the points burned after the pause opened", () => {
+    resetPausePointsForTests();
+    const db = makeDb();
+    const lines: string[] = [];
+    const sweep = (points: number) => runProjectQuotaPauseSweep(db, { computeQuota: quotaOf([{ projectId: "p", points24h: points, projectPath: "/p" }]), log: (m) => lines.push(m) });
+    sweep(10.5); // opens
+    sweep(12.0); // turns already running burn 1.5 more
+    expect(lines.at(-1)).toContain("1.50 points burned since the pause opened");
+    sweep(2); // window back under the limit: closes, no more lines
+    const n = lines.length;
+    sweep(2);
+    expect(lines).toHaveLength(n);
   });
 });

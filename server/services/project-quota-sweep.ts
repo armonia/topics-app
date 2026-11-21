@@ -12,7 +12,18 @@
  */
 import type { Database } from "bun:sqlite";
 import { projectQuota, type ProjectQuotaOptions } from "../usage/project-quota";
-import { reconcilePause } from "./project-pause";
+import { projectIsPaused, reconcilePause } from "./project-pause";
+
+/**
+ * Points a project had when its pause opened, kept in process memory on
+ * purpose: it only feeds a log line (a MEASUREMENT of how much turns already
+ * in flight keep burning, not a brake), so a restart simply starts the count
+ * from the first sweep that sees the pause.
+ */
+const pointsAtOpen = new Map<string, number>();
+
+/** Test seam. */
+export function resetPausePointsForTests(): void { pointsAtOpen.clear(); }
 
 export interface ProjectQuotaSweepDeps {
   /** Injected for tests; defaults to the real `projectQuota`. */
@@ -43,6 +54,7 @@ export function runProjectQuotaPauseSweep(db: Database, deps: ProjectQuotaSweepD
       const t = reconcilePause(db, row.projectId, row.points24h, now);
       if (t === "opened") deps.onPauseOpened?.(row.projectId, row.points24h, row.projectPath);
       else if (t === "closed") deps.onPauseClosed?.(row.projectId, row.points24h, row.projectPath);
+      logBurnedSincePause(db, row.projectId, row.points24h, t, log);
     } catch (err) {
       log(`[project-quota] pause check failed for ${row.projectId}: ${(err as Error).message}`);
     }
@@ -53,9 +65,23 @@ export function runProjectQuotaPauseSweep(db: Database, deps: ProjectQuotaSweepD
     const stale = db.query("SELECT project_id FROM project_quota WHERE paused_at IS NOT NULL").all() as Array<{ project_id: string }>;
     for (const { project_id } of stale) {
       if (seen.has(project_id)) continue;
-      if (reconcilePause(db, project_id, 0, now) === "closed") deps.onPauseClosed?.(project_id, 0, null);
+      const t = reconcilePause(db, project_id, 0, now);
+      if (t === "closed") deps.onPauseClosed?.(project_id, 0, null);
+      logBurnedSincePause(db, project_id, 0, t, log);
     }
   } catch (err) {
     log(`[project-quota] stale pause check failed: ${(err as Error).message}`);
   }
+}
+
+/**
+ * One log line per paused project: the points burned AFTER the pause opened
+ * (current minus the points at opening). Shows whether turns already running
+ * when the brake closed still weigh on the quota.
+ */
+function logBurnedSincePause(db: Database, projectId: string, points24h: number | null, t: "opened" | "closed" | null, log: (m: string) => void): void {
+  if (t === "closed" || points24h === null || !projectIsPaused(db, projectId)) { pointsAtOpen.delete(projectId); return; }
+  if (t === "opened" || !pointsAtOpen.has(projectId)) pointsAtOpen.set(projectId, points24h);
+  const burned = points24h - pointsAtOpen.get(projectId)!;
+  log(`[project-quota] paused ${projectId}: ${burned.toFixed(2)} points burned since the pause opened (now ${points24h.toFixed(2)})`);
 }

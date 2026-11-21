@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import {
   CONTINUE_GRACE_PCT, DEFAULT_LIMIT_24H_PCT, continueProject, nextLocalMidnight, openPauseIfNeeded,
-  pauseState, pauseUntilTomorrow, projectIsPaused, projectPauseInfo, readProjectQuotaRow, setProjectLimit,
+  pauseState, pauseUntilTomorrow, projectIsPaused, reconcilePause, projectPauseInfo, readProjectQuotaRow, setProjectLimit,
 } from "./project-pause";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
@@ -102,6 +102,61 @@ describe("projectIsPaused — the per-tick gate's cheap check", () => {
     expect(projectIsPaused(db, null)).toBe(false);
     db.close();
     expect(projectIsPaused(db, "p")).toBe(false);
+  });
+});
+
+describe("the pause CLOSES: what every gate reads (projectIsPaused) flips back", () => {
+  const T0 = 1_700_000_000_000;
+
+  test("Continua", () => {
+    const db = makeDb();
+    openPauseIfNeeded(db, "p", 50, T0);
+    expect(projectIsPaused(db, "p", T0)).toBe(true);
+    continueProject(db, "p", 50);
+    expect(projectIsPaused(db, "p", T0)).toBe(false);
+  });
+
+  test("midnight after 'Pausa fino a domani', even with the points still over the limit", () => {
+    const db = makeDb();
+    pauseUntilTomorrow(db, "p", T0);
+    const midnight = nextLocalMidnight(T0);
+    expect(projectIsPaused(db, "p", midnight - 1)).toBe(true);
+    // The gate honours the hold's own end before any sweep has run.
+    expect(projectIsPaused(db, "p", midnight + 1)).toBe(false);
+    // The sweep then reopens it only if the project is still over its limit.
+    expect(reconcilePause(db, "p", 50, midnight + 1)).toBeNull();
+    expect(projectIsPaused(db, "p", midnight + 1)).toBe(true);
+  });
+
+  test("midnight with the points back under the limit: the sweep closes it", () => {
+    const db = makeDb();
+    pauseUntilTomorrow(db, "p", T0);
+    const midnight = nextLocalMidnight(T0);
+    expect(reconcilePause(db, "p", 2, midnight + 1)).toBe("closed");
+    expect(projectIsPaused(db, "p", midnight + 1)).toBe(false);
+  });
+
+  test("limit removed ('Nessuno') or raised above the consumption", () => {
+    const db = makeDb();
+    openPauseIfNeeded(db, "p", 30, T0);
+    setProjectLimit(db, "p", null);
+    expect(reconcilePause(db, "p", 30, T0)).toBe("closed");
+    expect(projectIsPaused(db, "p", T0)).toBe(false);
+
+    const db2 = makeDb();
+    openPauseIfNeeded(db2, "p", 30, T0);
+    setProjectLimit(db2, "p", 40);
+    expect(reconcilePause(db2, "p", 30, T0)).toBe("closed");
+    expect(projectIsPaused(db2, "p", T0)).toBe(false);
+  });
+
+  test("the window falls back under the limit", () => {
+    const db = makeDb();
+    openPauseIfNeeded(db, "p", 12, T0);
+    expect(reconcilePause(db, "p", 12, T0)).toBeNull(); // still over: stays paused
+    expect(projectIsPaused(db, "p", T0)).toBe(true);
+    expect(reconcilePause(db, "p", 6, T0)).toBe("closed");
+    expect(projectIsPaused(db, "p", T0)).toBe(false);
   });
 });
 
