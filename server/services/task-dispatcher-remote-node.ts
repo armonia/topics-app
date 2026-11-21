@@ -18,7 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
-import { wakeBreaker, createWakeBreaker } from "./wake-breaker";
+import { wakeBreaker, hangBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
 import type { Task, TaskService } from "./tasks";
@@ -181,7 +181,7 @@ export const NODE_DEAD_POLLS = 30;
  * for hours, on the Windows node, starving every other board behind it).
  * Cleared only by a poll that actually comes back.
  */
-export const hangBreaker = createWakeBreaker();
+export { hangBreaker };
 /**
  * How many CONSECUTIVE polls of a LIVE run must answer with a cloud account
  * error (`cloud_setup`) before the card is parked with that cause. Not one: a
