@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.59",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il land usa il main locale quando origin/main è uno specchio senza storia in comune",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.58",
     "date": "2026-11-21",
     "sections": {
