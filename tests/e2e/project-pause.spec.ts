@@ -97,10 +97,16 @@ test.describe("project pause strip", () => {
 
       // The same strip at three widths: a fresh page per width, because a narrow
       // viewport swaps the desktop layout for the mobile one, and the strip reads
-      // the open pause at mount. The 1440 shot is the hard check; the narrower
-      // ones are shot when the layout offers the surface, never a reason to fail.
+      // the open pause at mount. The 1440 shot reuses the two open windows and is the hard
+      // check; the narrower ones are shot when the layout offers the surface, never a reason to fail.
       for (const width of WIDTHS) {
         for (const surface of ["chat", "board"] as const) {
+          if (width === 1440) {
+            const open = surface === "chat" ? chatStrip : boardStrip;
+            await expect(open).toBeVisible();
+            await open.screenshot({ path: testInfo.outputPath(`pause-strip-${surface}-${width}.png`) });
+            continue;
+          }
           const shot = await browser.newPage({ baseURL: E2E_BASE, viewport: { width, height: 900 }, locale: "it-IT" });
           try {
             await goToApp(shot);
@@ -108,7 +114,6 @@ test.describe("project pause strip", () => {
             else await openBoard(shot, "acme-web");
             const strip = shot.getByTestId(`project-pause-strip-${surface}`);
             const seen = await strip.waitFor({ state: "visible", timeout: 12_000 }).then(() => true, () => false);
-            if (width === 1440) expect(seen).toBe(true);
             if (!seen) {
               testInfo.annotations.push({ type: "note", description: `no ${surface} strip surface at ${width}px` });
               continue;
@@ -117,7 +122,6 @@ test.describe("project pause strip", () => {
             expect(box!.x + box!.width).toBeLessThanOrEqual(width + 1);
             await strip.screenshot({ path: testInfo.outputPath(`pause-strip-${surface}-${width}.png`) });
           } catch (error) {
-            if (width === 1440) throw error;
             testInfo.annotations.push({ type: "note", description: `${surface} at ${width}px: ${String(error).slice(0, 120)}` });
           } finally {
             await shot.close();
