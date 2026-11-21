@@ -983,7 +983,7 @@ export interface WSProjectIconMessage {
   path: string;
   version: string | null;
 }
-/** A project's pause opened or closed (limiti-consumo-progetto, USAGE-30). */
+/** A project's pause opened or closed (USAGE-30). */
 export interface WSProjectQuotaMessage {
   type: 'project:quota';
   projectId: string;
