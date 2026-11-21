@@ -19,6 +19,16 @@
           "scope": null
         },
         {
+          "it": "Land senza niente da fondere: chiude la card solo se il ramo è verificato vuoto; la decisione non si riprova (logica in tasks-land-nothing.ts)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tasks-land-nothing: tipo del broadcast dal core",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)",
           "en": "",
           "scope": null
