@@ -262,6 +262,7 @@ export interface AppBehaviorSettings {
    *  `null` = the default, 60. */
   browserStoreReapAfterDays: number | null;
   firstRunDoneAt: string | null;
+  securityAlertsProjectId: string | null;
 }
 
 /**
