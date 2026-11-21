@@ -1,5 +1,5 @@
 /**
- * THE OWNER'S OWN CHANNEL, outside the app (limiti-consumo-progetto, USAGE-30).
+ * THE OWNER'S OWN CHANNEL, outside the app (project quota limits, USAGE-30).
  *
  * `TOPICS_OWNER_ALERT_COMMAND` names a CLI as a JSON array of argv elements
  * (OUTBOUND-02): the recipient, subject and body never arrive as one shell
@@ -53,11 +53,11 @@ export function sendOwnerAlert(argv: string[] | null, text: string, opts: SendOw
   const spawn = opts.spawn ?? spawnSync;
   const resolve = opts.resolve ?? resolveExecutable;
   const [name, ...rest] = argv;
-  const exe = resolve(name!);
-  const result = spawn(exe, rest, { input: text, stdio: ["pipe", "ignore", "pipe"] });
+  const executable = resolve(name!);
+  const result = spawn(executable, rest, { input: text, stdio: ["pipe", "ignore", "pipe"] });
   if (result.error || (result.status !== null && result.status !== 0)) {
     const detail = result.error?.message ?? result.stderr?.toString().trim() ?? `exit ${result.status}`;
-    console.warn(`[project-pause-alerts] owner alert failed (${exe}): ${detail}`);
+    console.warn(`[project-pause-alerts] owner alert failed (${executable}): ${detail}`);
   }
 }
 
@@ -70,7 +70,7 @@ export interface AlertTextInput {
 
 /** The one line the owner's channel gets, once per pause. */
 export function pauseAlertText(i: AlertTextInput): string {
-  const pts = i.points24h !== null ? i.points24h.toFixed(1) : "?";
+  const points = i.points24h !== null ? i.points24h.toFixed(1) : "?";
   const limit = i.limit !== null ? i.limit : "?";
-  return `${i.projectName}: in pausa, ${pts} punti sul limite di ${limit} nelle 24 ore. ${i.link}`; // allow-italian: outbound message text, product default language
+  return `${i.projectName}: in pausa, ${points} punti sul limite di ${limit} nelle 24 ore. ${i.link}`; // allow-italian: outbound message text, product default language
 }

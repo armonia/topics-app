@@ -1,5 +1,5 @@
 /**
- * THE PERIODIC OPENER (limiti-consumo-progetto, USAGE-29): the only place that
+ * THE PERIODIC OPENER (project quota limits, USAGE-29): the only place that
  * ever computes live quota points and decides to OPEN a pause. Every per-tick
  * gate (the dispatcher, `spawn_agent`) reads the materialized result instead
  * (`project-pause.ts:projectIsPaused`, one indexed row) — never this sweep's

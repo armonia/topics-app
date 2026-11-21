@@ -1,5 +1,5 @@
 /**
- * THE PROJECT'S QUOTA BRAKE (limiti-consumo-progetto, USAGE-29/30).
+ * THE PROJECT'S QUOTA BRAKE (project quota limits, USAGE-29/30).
  *
  * A project pauses when its last-24h points (`server/usage/project-quota.ts`)
  * go past its limit — 10 by default, with no configuration at all. Pausing is
@@ -41,7 +41,7 @@ export interface ProjectQuotaRow {
   holdUntil: number | null;
 }
 
-/** The configured limit: an absent row is the default; a row with `limit24hPct: null` has no limit ("Nessuno"). */
+/** The configured limit: an absent row is the default; a row with `limit24hPct: null` has no limit ("None"). */
 export function effectiveLimit(row: ProjectQuotaRow | null): number | null {
   return row ? row.limit24hPct : DEFAULT_LIMIT_24H_PCT;
 }
@@ -110,7 +110,7 @@ function upsert(db: Database, projectId: string, patch: Partial<Omit<ProjectQuot
   const row = readProjectQuotaRow(db, projectId);
   // A row born here (pause/continue writes one before any person ever opened
   // the project's menu) has to carry the DEFAULT limit explicitly: once the
-  // row exists, `effectiveLimit` reads a null column as "Nessuno", and that
+  // row exists, `effectiveLimit` reads a null column as "None", and that
   // meaning belongs to a person's choice alone, never to a row the brake
   // created for itself.
   const next: Omit<ProjectQuotaRow, "projectId"> = {
@@ -128,7 +128,7 @@ function upsert(db: Database, projectId: string, patch: Partial<Omit<ProjectQuot
   );
 }
 
-/** The project's chosen limit, written from its menu. `null` = "Nessuno" (no limit). */
+/** The project's chosen limit, written from its menu. `null` = "None" (no limit). */
 export function setProjectLimit(db: Database, projectId: string, limit24hPct: number | null): void {
   upsert(db, projectId, { limit24hPct });
 }
