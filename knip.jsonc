@@ -44,19 +44,19 @@
       // (`scripts/mcp-cap-bench/`, `decompose.ts` + `prefix-probe.ts`,
       // `scripts/webrtc-probe.ts`).
       "entry": [
-        "server.ts",
+        "server.ts!",
         // The entry the SHIPPED binary is compiled from (scripts/build-server-sidecar.sh):
         // it picks between being the server and being the ai-bridge daemon.
         "server/sidecar-entry.ts!",
         "server/ai-bridge.mjs!", // spawned as a detached daemon
         "server/pty-bridge.mjs!", // idem
-        "server/lib/serial-queue-survivor.ts!", // spawned as a child process by serial-queue.test.ts
+        "server/lib/serial-queue-survivor.ts", // spawned as a child process by serial-queue.test.ts
         "cli/topics.ts!", // the `topics` CLI binary
         // Loaded by bun before EVERY `bun test` of this repo (`preload` in
         // bunfig.toml:30). Nothing imports it, and it is the one place below
         // the scripts that every entrance to the suite goes through: it is
         // where the gate semaphore is taken for a hand-typed `bun test`.
-        "tests/setup/bun-test-preload.ts!",
+        "tests/setup/bun-test-preload.ts",
         // Il Worker del relay: è il `main` di `relay/wrangler.jsonc`, cioè
         // codice che sta IN PRODUZIONE su Cloudflare. Knip ha un plugin
         // `wrangler` che leggerebbe quel `main` da solo, e qui non si accende
@@ -359,7 +359,7 @@
         // declaration and the dead-code gate was red on main for it.
         "scripts/canonicalizza-progetti.ts!",
         "scripts/migrate-uuid-board-ids.ts!",
-        "scripts/*.test.ts!",             // run by `bun test ./scripts` in test:unit
+        "scripts/*.test.ts",             // run by `bun test ./scripts` in test:unit
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
         // would re-grant the amnesty this narrowing exists to remove: any dead
@@ -374,8 +374,8 @@
         // `*.fixture.ts` = processo finto lanciato da un test con `bun <path>`
         // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
         // riferimento è una stringa di path.
-        "server/**/*.fixture.ts!",
-        "scripts/**/*.fixture.ts!",
+        "server/**/*.fixture.ts",
+        "scripts/**/*.fixture.ts",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "relay/*.test.ts",     // idem, via `./relay` in `test:unit`
@@ -395,22 +395,31 @@
         // (`join(import.meta.dir, ...)`), che knip non puo' seguire: senza
         // questa riga risulta «file morto» e tiene rosso il cancello per
         // tutti. Il `!` dice «e' un entrypoint anche se nessuno lo importa».
-        "server/routes/files.git-commit-harness.ts!",
+        "server/routes/files.git-commit-harness.ts",
         // `bun run review:open-prs` - prepares review prompts for every open PR
         // on a read-only mirror clone. Run by hand (or from a cron), not imported.
         "scripts/review-open-prs.ts!"
       ],
       "project": [
-        "server/**/*.{ts,mjs}",
-        "shared/**/*.ts",
-        "cli/**/*.ts",
+        "server/**/*.{ts,mjs}!",
+        "shared/**/*.ts!",
+        "cli/**/*.ts!",
         "scripts/**/*.ts",
         // `relay/` è un Worker DEPLOYATO, e fino al 15/08/2026 stava fuori da
         // qui, fuori da ogni tsconfig e fuori da eslint: 1.703 righe in
         // produzione senza un cancello che le guardasse. Un export morto lì
         // dentro non aveva modo di risultare morto.
-        "relay/**/*.ts",
-        "server.ts"
+        "relay/**/*.ts!",
+        "server.ts!",
+        // Test-only support files: alive through the tests that import them, so
+        // they are excluded from `project` in `--production` only (`!...!`),
+        // which leaves the normal check:deadcode as sharp as before.
+        "!server/**/*{-test-support,.testkit,.harness,.world,-test-helpers,-parity-helpers}.ts!",
+        "!server/db/test-schema.ts!",
+        "!server/lib/test-node-bin.ts!",
+        "!server/services/tasks-test-db.ts!",
+        "!shared/relay-fake.ts!",
+        "!server/lib/remove-dir-reporting.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la
@@ -447,24 +456,31 @@
     },
     "client": {
       "entry": [
-        "src/main.tsx",
-        "vite.config.ts",
-        "vite.landing.config.ts",
+        "src/main.tsx!",
+        "vite.config.ts!",
+        "vite.landing.config.ts!",
         // Il boot della demo della landing: lo compila vite.landing.config.ts
         // da un percorso scritto come stringa, che knip non segue.
-        "src/demo/boot.ts",
+        "src/demo/boot.ts!",
         // La galleria dello strato UI e l'anteprima collegata: le aprono
         // client/ui.html e client/app.html, che knip non legge.
-        "vite.ui.config.ts",
-        "src/ui-gallery/main.tsx",
-        "src/ui-gallery/app-main.tsx",
+        "vite.ui.config.ts!",
+        "src/ui-gallery/main.tsx!",
+        "src/ui-gallery/app-main.tsx!",
         // Le due demo (client/sarim.html e client/consorzio.html): senza, knip
         // dava per inutilizzata tutta la galleria che solo loro montano.
-        "src/ui-gallery/sarim-main.tsx",
-        "src/ui-gallery/consorzio-main.tsx",
+        "src/ui-gallery/*-main.tsx!",
         "src/**/*.{test,spec}.{ts,tsx}"
       ],
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        // Production-only exclusions (`!...!`): test support alive through its tests.
+        "!src/**/test*/**!",
+        "!src/**/*testSupport.ts!",
+        "!src/**/*[fF]ixtures.ts!",
+        "!src/lib/reloadSites.ts!",
+        "!src/lib/settingsHomes.ts!"
+      ]
       // `src/hooks/usePushNotifications.ts` stava qui, ignorato perché
       // «deliberatamente non cablato». Era la forma esatta del guasto: il codice
       // per iscriversi esisteva, nessuno lo montava, `push_subscriptions` aveva
