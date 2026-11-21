@@ -502,6 +502,28 @@ describe("overflow: slots 0 svuota la macchina", () => {
   });
 });
 
+describe("a card pinned to a machine at its seats", () => {
+  function runningOverride(h: ReturnType<typeof harness>, n: number) {
+    h.svc.countRunningOnMachine = () => n;
+  }
+  it("stays in todo, no attempt spent, nothing sent to the node", async () => {
+    const h = harness({ floor: false, pcSlots: 2 });
+    h.seed(CARD, { machineId: PC });
+    runningOverride(h, 2);
+    await settleTwoRounds(h);
+    expect(h.task(CARD).status).toBe("todo");
+    expect(h.task(CARD).dispatchAttempts ?? 0).toBe(0);
+    expect(h.created).toEqual([]);
+  });
+  it("starts as soon as a seat is free", async () => {
+    const h = harness({ floor: false, pcSlots: 2 });
+    h.seed(CARD, { machineId: PC });
+    runningOverride(h, 1);
+    await settleTwoRounds(h);
+    expect(h.created.length).toBe(1);
+  });
+});
+
 describe("overflow: il ramo della card, l'origin, il modello", () => {
   it("sul Mac la card con un ramo base fa nascere il worktree da lì, non da main", async () => {
     const h = harness({ floor: false });
