@@ -22,7 +22,7 @@ describe("scheduled_cards to scheduled_jobs", () => {
              ('b', '${PID}', 'Paused one', 'backlog', '[]', '*/5 * * * *', 'UTC', 0, '2026-10-20T00:00:00.000Z', 'c', 'u', 'gone')`);
     db.run(`INSERT INTO scheduled_card_instances (id, scheduled_card_id, task_id, occurrence_key, created_at) VALUES ('i1', 'a', 't1', '2026-10-19T09:00', '2026-10-19T07:00:00.000Z')`);
 
-    db.run(readFileSync(join(dir, "20261120100000-scheduled-jobs.sql"), "utf8"));
+    db.run(readFileSync(join(dir, "20261121105631-scheduled-jobs.sql"), "utf8"));
 
     const jobs = db.query("SELECT id, project_id, enabled, next_run_at, deleted_at, schedule_json, action_json FROM scheduled_jobs ORDER BY id").all() as Array<Record<string, unknown>>;
     expect(jobs.map(j => [j.id, j.enabled, j.next_run_at, j.deleted_at])).toEqual([
@@ -33,7 +33,7 @@ describe("scheduled_cards to scheduled_jobs", () => {
     expect(JSON.parse(jobs[0].action_json as string)).toEqual({ kind: "card", text: "Check the deploy", status: "todo", labels: ["feature"] });
     expect(db.query("SELECT job_id, task_id, status FROM scheduled_job_runs").all()).toEqual([{ job_id: "a", task_id: "t1", status: "ok" }]);
     // running it twice changes nothing
-    db.run(readFileSync(join(dir, "20261120100000-scheduled-jobs.sql"), "utf8"));
+    db.run(readFileSync(join(dir, "20261121105631-scheduled-jobs.sql"), "utf8"));
     expect((db.query("SELECT COUNT(*) AS n FROM scheduled_jobs").get() as { n: number }).n).toBe(2);
   });
 });

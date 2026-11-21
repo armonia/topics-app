@@ -26,7 +26,7 @@ describe("card a calendario", () => {
   };
   beforeEach(() => {
     db = freshDb();
-    for (const file of ["20261014225051-scheduled-cards.sql", "20261120100000-scheduled-jobs.sql"]) {
+    for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql"]) {
       db.run(readFileSync(join(import.meta.dir, "../db/migrations", file), "utf8"));
     }
     current = new Date("2026-10-19T06:00:00.000Z");
