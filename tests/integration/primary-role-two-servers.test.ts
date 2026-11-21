@@ -441,7 +441,7 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
     const schedule = await api<{ id: string }>(serverB, "POST", `/api/boards/${cronBoard}/scheduled-cards`, {
       text: "scheduled card", status: "todo", labels: [], cron: "* * * * *", timeZone: "UTC",
     });
-    withDb(serverB, (db) => db.run("UPDATE scheduled_cards SET next_run_at = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), schedule.id]));
+    withDb(serverB, (db) => db.run("UPDATE scheduled_jobs SET next_run_at = ? WHERE id = ?", [new Date(Date.now() - 60_000).toISOString(), schedule.id]));
 
     await Bun.sleep(QUIET_WINDOW_MS);
 
@@ -449,12 +449,12 @@ ${logOf(serverB)}`).toMatchObject({ primary_machine_id: machineA, epoch: 2 });
       const t = await readCard(serverB, card);
       return { claimed: claimed(t), status: t.status, dispatchState: t.dispatchState, dispatchError: t.dispatchError };
     };
-    const fired = withDb(serverB, (db) => db.query("SELECT last_run_at FROM scheduled_cards WHERE id = ?").get(schedule.id) as { last_run_at: string | null });
+    const fired = withDb(serverB, (db) => db.query("SELECT COUNT(*) AS runs FROM scheduled_job_runs WHERE job_id = ?").get(schedule.id) as { runs: number });
     const summary = {
       todo: (await view(todoCard)).claimed,
       blockerDone: (await view(dependent)).claimed,
       manualStart: (await view(held)).claimed,
-      scheduledFired: fired.last_run_at !== null,
+      scheduledFired: fired.runs > 0,
     };
     if (Object.values(summary).some(Boolean)) {
       console.error(JSON.stringify({ todo: await view(todoCard), dependent: await view(dependent), held: await view(held), fired }, null, 2));

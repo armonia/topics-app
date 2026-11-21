@@ -11,7 +11,9 @@ import { existsSync } from "fs";
 import { setTerminalMemPressure, setChildAdmissionPreview, liveTerminalCwds } from "../routes/terminal";
 import { createTaskService, projectIdForPath } from "../services/tasks";
 import { configureChannelOriginCards } from "../lib/channel-origin-cards";
-import { createScheduledCards } from "../services/scheduled-cards";
+import { createCardAction } from "../schedule/card-action";
+import { createScheduledCardsService } from "../schedule/cards-service";
+import { createScheduleEngine, type TickResult } from "../schedule/engine";
 import { createExternalSessionsService } from "../services/external-sessions";
 import { type AgentWorktreeDeps } from "../services/worktree-for-agent";
 import { isChecksHold as isChecksHoldOf } from "../services/checks-lights";
@@ -110,20 +112,27 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // Cards born from a channel chat follow that chat's turns (97e3951f).
   configureChannelOriginCards(ctx.db, dispatcherSvc);
 
-  const scheduledCards = createScheduledCards(ctx.db, dispatcherSvc, () => late.scheduledCardTestNow ?? new Date());
+  const scheduleNow = () => late.scheduledCardTestNow ?? new Date();
+  const scheduledCards = createScheduledCardsService(ctx.db, scheduleNow);
+  const scheduleEngine = createScheduleEngine(ctx.db, { executors: { card: createCardAction(ctx.db, dispatcherSvc) }, now: scheduleNow });
 
-  function tickScheduledCards(): { created: string[]; skipped: string[] } {
+  /** Announces the cards a tick created, the same way a person's new card is. */
+  function announceTick(result: TickResult) {
+    for (const taskId of result.created) {
+      const task = dispatcherSvc.get(taskId)?.task;
+      if (!task) continue;
+      ctx.broadcastToAll({ type: "task:created", projectId: task.projectId, task });
+      if (task.status === "todo") late.taskDispatcher.onEnterTodo(task.projectId, task.id);
+    }
+  }
+
+  function tickScheduledCards(): TickResult {
     try {
-      const result = scheduledCards.tick();
-      for (const taskId of result.created) {
-        const task = dispatcherSvc.get(taskId)?.task;
-        if (!task) continue;
-        ctx.broadcastToAll({ type: "task:created", projectId: task.projectId, task });
-        if (task.status === "todo") late.taskDispatcher.onEnterTodo(task.projectId, task.id);
-      }
+      const result = scheduleEngine.tick();
+      announceTick(result);
       return result;
-    } catch (error) { console.warn("[scheduled-cards] tick failed:", error); }
-    return { created: [], skipped: [] };
+    } catch (error) { console.warn("[scheduled-jobs] tick failed:", error); }
+    return { created: [], skipped: [], started: [] };
   }
 
   // A delivery note that was waiting on git when the previous process stopped
@@ -531,5 +540,5 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 
-  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, repoRootForCard, scheduledCards, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
+  return { DISPATCH_AUTONOMY, agentWorktreeDeps, cloudEnabled, cloudNode, deliveryIsOnMain, deliveryOnlyWaitsOnChecks, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, isChecksHold, landingQueue, listKnownDeliveryRepoRoots, memSignal, memoryOwners, memoryPressureSignal, nodeBranchPlanter, nodeClient, projectPathForNode, recordDispatchMemoryHistory, remoteNodeRoad, announceTick, repoRootForCard, scheduleEngine, scheduledCards, swapFreezeLedger, taskAttemptStore, tickScheduledCards, turniInVolo, worktreeGc, worktreeOfTask };
 }
