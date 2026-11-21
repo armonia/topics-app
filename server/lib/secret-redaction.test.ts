@@ -32,8 +32,8 @@ describe("redactSecrets", () => {
   });
 
   test("a PEM private key goes whole, markers stay", () => {
-    const pem = `-----BEGIN OPENSSH ${KEY}-----\nb3BlbnNzaC1rZXk=\nQQ==\n-----END OPENSSH ${KEY}-----`;
-    const out = redactSecrets(`cat key\n${pem}\ndone`);
+    const privateKey = `-----BEGIN OPENSSH ${KEY}-----\nb3BlbnNzaC1rZXk=\nQQ==\n-----END OPENSSH ${KEY}-----`;
+    const out = redactSecrets(`cat key\n${privateKey}\ndone`);
     expect(out).not.toContain("b3BlbnNzaC1rZXk");
     expect(out).toContain(`-----END OPENSSH ${KEY}-----`);
     expect(out.endsWith("\ndone")).toBe(true);
@@ -45,8 +45,8 @@ describe("redactSecrets", () => {
 
   test("known token prefixes", () => {
     const gh = "ghp_" + "a".repeat(36);
-    const aws = "AKIA" + "B".repeat(16);
-    expect(redactSecrets(`export T=${gh} K=${aws}`)).toBe(`export T=${REDACTED} K=${REDACTED}`);
+    const awsKey = "AKIA" + "B".repeat(16);
+    expect(redactSecrets(`export T=${gh} K=${awsKey}`)).toBe(`export T=${REDACTED} K=${REDACTED}`);
     expect(redactSecrets("sk-ant-" + "x".repeat(30))).toBe(REDACTED);
   });
 
