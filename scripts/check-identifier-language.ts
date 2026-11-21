@@ -89,6 +89,8 @@ export const PROJECT_WORDS = new Set([
   // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
   // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
+  // iptables, nft: the Linux kernel firewall tools the same probe reads when ufw is off (`iptablesBlocksInput`, `nftBlocksInput`).
+  "iptables", "nft",
   // requeue: putting a task back in `todo` for the dispatcher to claim fresh
   // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
   // the project's own word for it, already used as a parameter name project-wide.
