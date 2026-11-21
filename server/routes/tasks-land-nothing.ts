@@ -2,13 +2,14 @@
  * A land that found nothing to merge: when a person's approval closes the card,
  * and why the same empty land is never asked twice.
  */
+import type { TasksCore } from "./tasks-scope";
 import type { TaskService } from "../services/tasks";
 import type { TasksRouterOpts } from "./tasks-opts";
 import { ownCommitFiles } from "./tasks-git";
 
 export interface NothingToLandDeps {
   svc: TaskService;
-  broadcastToAll: (msg: unknown) => void;
+  broadcastToAll: TasksCore["broadcastToAll"];
   opts: Pick<TasksRouterOpts, "taskCheckoutRef" | "ownCommitFiles"> | undefined;
   /** The old behaviour: a note, the card stays in review. */
   explain: (projectId: string, taskId: string, reason: string) => void;
