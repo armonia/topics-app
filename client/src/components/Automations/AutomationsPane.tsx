@@ -80,8 +80,17 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
 
 export function AutomationsPane() {
   const present = useHubEverRead();
-  if (!present) return null;
+  if (!present) return <TopicsCheckOnly />;
   return <AutomationsView />;
+}
+
+/** Without the hub the view is the self-check alone: nothing of the hub is read or drawn. */
+function TopicsCheckOnly() {
+  return (
+    <div className="h-full min-h-0 overflow-auto bg-app-bg px-5 pb-6 pt-4 @max-2xl:px-3" data-testid="automations-pane">
+      <TopicsCheckRow />
+    </div>
+  );
 }
 
 function AutomationsView() {
