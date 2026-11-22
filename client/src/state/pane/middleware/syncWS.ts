@@ -244,7 +244,10 @@ export function initWSSync(
   };
 }
 
-/** Test/diagnostic helper — returns the last server_seq the middleware applied. */
+/**
+ * Test/diagnostic helper — returns the last server_seq the middleware applied.
+ * @internal
+ */
 export function __getLastAppliedServerSeq(): number {
   return lastAppliedServerSeq;
 }

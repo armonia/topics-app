@@ -874,7 +874,10 @@ async function readFeedIfChanged(read?: { ttlMs: number }): Promise<BoardTask[]>
   return tasks;
 }
 
-/** Tests only: forget the held feed. */
+/**
+ * Tests only: forget the held feed.
+ * @internal
+ */
 export function __resetFeedRevalidation(): void {
   lastFeed = null;
 }

@@ -135,7 +135,10 @@ export function installPaneAttachTraceSink(clientId: () => string): void {
 }
 
 // ─── test-only ─────────────────────────────────────────────────────────────
-/** Test-only: plug a transport and reset the queue. */
+/**
+ * Test-only: plug a transport and reset the queue.
+ * @internal
+ */
 export function __setPaneAttachTraceSendForTests(next: TraceSend | null): void {
   send = next;
   queue.length = 0;
@@ -145,17 +148,26 @@ export function __setPaneAttachTraceSendForTests(next: TraceSend | null): void {
   if (timer) clearTimeout(timer);
   timer = null;
 }
-/** Test-only: flush now instead of waiting for the timer. */
+/**
+ * Test-only: flush now instead of waiting for the timer.
+ * @internal
+ */
 export async function __flushPaneAttachTraceForTests(): Promise<void> {
   if (timer) clearTimeout(timer);
   timer = null;
   await flush();
 }
-/** Test-only: the delay the next retry will wait. */
+/**
+ * Test-only: the delay the next retry will wait.
+ * @internal
+ */
 export function __retryDelayForTests(): number {
   return retryDelay;
 }
-/** Test-only: what is still waiting to be sent. */
+/**
+ * Test-only: what is still waiting to be sent.
+ * @internal
+ */
 export function __queuedPaneAttachTraceForTests(): TraceEvent[] {
   return [...queue];
 }

@@ -203,7 +203,10 @@ export function applyActionFrame(frame: ActionFrameLite, topicOf: (sessionKey: s
   if (isAgentAction(frame.action)) agentActionActions.note(topicId, frame.action);
 }
 
-/** Tests only: back to the boot state. */
+/**
+ * Tests only: back to the boot state.
+ * @internal
+ */
 export function __resetAgentActions(): void {
   for (const t of timers.values()) clearTimeout(t);
   timers.clear();

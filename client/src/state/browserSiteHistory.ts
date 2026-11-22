@@ -309,7 +309,10 @@ export function subscribeSites(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-/** Solo per i test. */
+/**
+ * Solo per i test.
+ * @internal
+ */
 export function __resetSiteHistory(): void {
   sites = [];
   pages = [];

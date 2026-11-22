@@ -110,7 +110,10 @@ export function getTabId(): string {
   return tabId;
 }
 
-/** Test-only: reset the tabId so each test starts fresh. */
+/**
+ * Test-only: reset the tabId so each test starts fresh.
+ * @internal
+ */
 export function __resetTabIdForTests(): void {
   tabId = '';
   started = false;

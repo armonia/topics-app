@@ -35,7 +35,10 @@ export function configureNotificationRegistry(opts: {
   topicArchived = opts.isTopicArchived;
 }
 
-/** Tests only. */
+/**
+ * Tests only.
+ * @internal
+ */
 export function __resetNotificationRegistry(): void {
   topicArchived = null;
 }

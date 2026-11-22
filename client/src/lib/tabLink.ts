@@ -71,7 +71,10 @@ export const UNVERIFIED_TAB_MESSAGE =
 const VERIFY_RETRY_DELAY_MS = 1500;
 let verifyRetryDelayMs = VERIFY_RETRY_DELAY_MS;
 
-/** Solo per i test: accorcia l'attesa fra i due tentativi. */
+/**
+ * Solo per i test: accorcia l'attesa fra i due tentativi.
+ * @internal
+ */
 export function __setTabLinkRetryDelayForTests(ms: number): void {
   verifyRetryDelayMs = ms;
 }
@@ -350,7 +353,10 @@ const knownSubjects = new Map<string, Promise<SubjectCheck>>();
  *  quello dopo — un rosso che non parla del codice. */
 const pendingAcks = new Set<() => void>();
 
-/** Solo per i test: dimentica le verifiche fatte e annulla gli ack in volo. */
+/**
+ * Solo per i test: dimentica le verifiche fatte e annulla gli ack in volo.
+ * @internal
+ */
 export function __resetTabLinkStateForTests(): void {
   knownSubjects.clear();
   for (const cancel of [...pendingAcks]) cancel();

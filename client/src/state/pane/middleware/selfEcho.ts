@@ -91,17 +91,26 @@ export function isSelfEcho(server_seq: number): boolean {
   return false;
 }
 
-/** Test/diagnostic helper. */
+/**
+ * Test/diagnostic helper.
+ * @internal
+ */
 export function __getPendingAcks(): number[] {
   return [...acks.keys()];
 }
 
-/** Test/diagnostic helper — returns the TTL-free self-ack high-water mark. */
+/**
+ * Test/diagnostic helper — returns the TTL-free self-ack high-water mark.
+ * @internal
+ */
 export function __getLastEmittedServerSeq(): number {
   return lastEmittedServerSeq;
 }
 
-/** Test-only: reset all self-echo state. Not exported from the barrel. */
+/**
+ * Test-only: reset all self-echo state. Not exported from the barrel.
+ * @internal
+ */
 export function __resetSelfEchoForTests(): void {
   resetSelfEcho();
 }

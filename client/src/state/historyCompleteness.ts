@@ -174,7 +174,10 @@ export function requestHistoryCompletion(sessionKey: string, mode: HistoryComple
   return completer(sessionKey, mode);
 }
 
-/** For tests: forget every session and the completer. */
+/**
+ * For tests: forget every session and the completer.
+ * @internal
+ */
 export function __resetHistoryCompleteness(): void {
   bySession.clear();
   listeners.clear();

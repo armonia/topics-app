@@ -49,7 +49,10 @@ export function clearTaskTabNavigate(contextId: string): void {
   notify();
 }
 
-/** Test seam: drop every pending request. */
+/**
+ * Test seam: drop every pending request.
+ * @internal
+ */
 export function __resetTaskTabNavigate(): void {
   pending = EMPTY;
   notify();

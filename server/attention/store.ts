@@ -239,7 +239,10 @@ let loadedFrom: Database | "memory" | null = null;
 /** The person's sockets and what each has in front, for the epoch born seen. */
 const focus = new Map<string, { subject: string | null; awake: boolean }>();
 
-/** Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would. */
+/**
+ * Tests only: forget everything; `keepRows` keeps the in-memory table, as a restart would.
+ * @internal
+ */
 export function resetAttentionStore(opts: { keepRows?: boolean } = {}): void {
   for (const e of entries.values()) if (e.graceTimer) clearTimeout(e.graceTimer);
   entries.clear();

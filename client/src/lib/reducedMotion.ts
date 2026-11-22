@@ -46,7 +46,10 @@ export function prefersReducedMotion(): boolean {
   return mq?.matches ?? false;
 }
 
-/** Solo per i test: dimentica il `MediaQueryList` memorizzato. */
+/**
+ * Solo per i test: dimentica il `MediaQueryList` memorizzato.
+ * @internal
+ */
 export function resetReducedMotionCache(): void {
   mq = undefined;
 }

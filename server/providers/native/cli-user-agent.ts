@@ -57,7 +57,10 @@ export function claudeCliUserAgent(versionsDir = join(homedir(), ".local", "shar
   return `claude-cli/${cached} (external, cli)`;
 }
 
-/** Forget the cached version, for tests. */
+/**
+ * Forget the cached version, for tests.
+ * @internal
+ */
 export function _resetClaudeCliUserAgent(): void {
   cached = null;
 }

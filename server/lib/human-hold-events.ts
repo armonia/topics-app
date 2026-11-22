@@ -93,7 +93,10 @@ export function emitHumanHoldChange(change: HumanHoldChange): void {
   }
 }
 
-/** Solo per i test: svuota la lista fra un caso e l'altro. */
+/**
+ * Solo per i test: svuota la lista fra un caso e l'altro.
+ * @internal
+ */
 export function resetHumanHoldListeners(): void {
   listeners.length = 0;
   lastReleasedAt.clear();

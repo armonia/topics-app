@@ -81,7 +81,10 @@ function subscribe(cb: () => void): () => void {
 
 const snapshot = () => current;
 
-/** Tests only: the log as the readers see it. */
+/**
+ * Tests only: the log as the readers see it.
+ * @internal
+ */
 export const _readProxyActivityForTests = (): ProxyActivity | null => current;
 
 /** The log as last read, or null: not read yet, the proxy silent, or `enabled` false. */
@@ -91,7 +94,10 @@ export function useProxyActivity(enabled: boolean): ProxyActivity | null {
   return enabled ? value : null;
 }
 
-/** Tests only: a fake fetch and clock, and a clean store. */
+/**
+ * Tests only: a fake fetch and clock, and a clean store.
+ * @internal
+ */
 export function _resetProxyActivityForTests(next: ProxyActivityDeps): void {
   stopTimer?.();
   stopTimer = null;

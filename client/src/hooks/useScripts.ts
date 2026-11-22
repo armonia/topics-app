@@ -154,7 +154,10 @@ function markVisible(visible: boolean) {
   updateInterval();
 }
 
-/** Test seam: the shared store, driven without React. */
+/**
+ * Test seam: the shared store, driven without React.
+ * @internal
+ */
 export const __scriptsStoreForTests = {
   subscribe,
   getSnapshot,

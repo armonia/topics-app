@@ -171,6 +171,7 @@ let _runnerAsync: KeychainRunnerAsync = defaultAsyncRunner;
  * Tests inject a fake `security`; `null` restores the real one. Without
  * `runAsync` the asynchronous path answers through the same fake, so a fake
  * written once serves both; a test that tells the two paths apart passes both.
+ * @internal
  */
 export function setKeychainRunnerForTests(run: KeychainRunner | null, runAsync?: KeychainRunnerAsync): void {
   _runner = run ?? defaultRunner;

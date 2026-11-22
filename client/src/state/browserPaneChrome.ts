@@ -244,7 +244,10 @@ export function useBrowserPaneChrome(paneId: string | undefined): BrowserPaneChr
   );
 }
 
-/** Test hook: forget every pane. */
+/**
+ * Test hook: forget every pane.
+ * @internal
+ */
 export function __resetBrowserPaneChrome(): void {
   registry.clear();
   listeners.clear();

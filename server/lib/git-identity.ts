@@ -54,7 +54,10 @@ const FALLBACK_ENV: Readonly<Record<string, string>> = {
  */
 const cache = new Map<string, Promise<boolean>>();
 
-/** Solo per i test: dimentica ciò che si è misurato. */
+/**
+ * Solo per i test: dimentica ciò che si è misurato.
+ * @internal
+ */
 export function resetGitIdentityCache(): void {
   cache.clear();
 }

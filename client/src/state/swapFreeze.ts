@@ -84,13 +84,25 @@ export function useSwapFreeze(q: { topicId?: string | null; terminalId?: string 
   return pickSwapFreeze(useSwapFreezeViews(), q);
 }
 
-/** Test seam: feed a frame as the socket would. */
+/**
+ * Test seam: feed a frame as the socket would.
+ * @internal
+ */
 export const _adoptForTests = adopt;
-/** Test seam: what a mounted component would read, without React. */
+/**
+ * Test seam: what a mounted component would read, without React.
+ * @internal
+ */
 export const _readForTests = (): SwapFreezeView[] => views;
-/** Test seam: subscribe as the hook does. */
+/**
+ * Test seam: subscribe as the hook does.
+ * @internal
+ */
 export const _subscribeForTests = subscribe;
-/** Test seam: one test's frames must not reach the next one. */
+/**
+ * Test seam: one test's frames must not reach the next one.
+ * @internal
+ */
 export function _resetForTests(): void {
   views = EMPTY;
 }

@@ -376,12 +376,16 @@ export function bootstrapPaneStore(): void {
 /**
  * Test-only — invoke the fallback schedule without wiring the full bootstrap.
  * The 500 ms timer runs as in production; tests fake the timer.
+ * @internal
  */
 export function __scheduleInitialLoadFallbackForTests(): void {
   scheduleInitialLoadFallback();
 }
 
-/** Test-only — disarm a pending retry so it cannot fire inside the next case. */
+/**
+ * Test-only — disarm a pending retry so it cannot fire inside the next case.
+ * @internal
+ */
 export function __stopInitialLoadFallbackForTests(): void {
   if (fallbackTimer !== null) {
     clearTimeout(fallbackTimer);

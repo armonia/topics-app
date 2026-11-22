@@ -101,7 +101,10 @@ export function useOpenTabSheet(key: string): OpenTabSheet | null {
   );
 }
 
-/** Test hook. */
+/**
+ * Test hook.
+ * @internal
+ */
 export function __resetTabSheet(): void {
   current = null;
   swallowKey = null;

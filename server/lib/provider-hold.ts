@@ -115,7 +115,9 @@ export function configureProviderHoldStore(path: string, nowMs: number = Date.no
 }
 
 /** Tests only: forget the file and the outage seen so far, so one test's
- *  state does not reach the next. */
+ *  state does not reach the next.
+ * @internal
+ */
 export function resetProviderHoldStore(): void {
   storePath = null;
   outage.expired = 0;

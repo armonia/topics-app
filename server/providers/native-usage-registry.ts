@@ -126,7 +126,10 @@ export function listNativeUsage(): NativeSessionUsage[] {
   return out;
 }
 
-/** Solo per i test: il registro vive quanto il processo. */
+/**
+ * Solo per i test: il registro vive quanto il processo.
+ * @internal
+ */
 export function resetNativeUsage(): void {
   totals.clear();
 }

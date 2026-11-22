@@ -94,7 +94,10 @@ const PULSE_MS: Record<HapticStrength, number> = { light: 10, medium: 20, heavy:
 let iosSwitch: HTMLInputElement | null = null;
 let iosLabel: HTMLLabelElement | null = null;
 
-/** Solo per i test: dimentica gli elementi creati, così ogni caso riparte pulito. */
+/**
+ * Solo per i test: dimentica gli elementi creati, così ogni caso riparte pulito.
+ * @internal
+ */
 export function __resetHaptics(): void { iosSwitch = null; iosLabel = null; }
 
 function iosHapticSwitch(): HTMLLabelElement | null {

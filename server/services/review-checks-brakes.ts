@@ -399,7 +399,10 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   };
 }
 
-/** Test seam: the spacing is process-wide, a test file is not. */
+/**
+ * Test seam: the spacing is process-wide, a test file is not.
+ * @internal
+ */
 export function _resetReleaseSpacing(): void {
   lastRelease = null;
   waitingSince.clear();
@@ -450,7 +453,10 @@ export async function stopReviewChecks(kill: (pid: number) => Promise<void> = ki
   return live.length;
 }
 
-/** Test seam: a stop is for the life of the process, a test file is not. */
+/**
+ * Test seam: a stop is for the life of the process, a test file is not.
+ * @internal
+ */
 export function _resetReviewChecksStop(): void {
   stopping = false;
 }
@@ -611,7 +617,10 @@ export function forgetDelivery(taskId: string): void {
   for (const key of [...interruptionsByDelivery.keys()]) if (key.startsWith(`${taskId}@`)) interruptionsByDelivery.delete(key);
 }
 
-/** Test seam: the counts are process-wide, a test file is not. */
+/**
+ * Test seam: the counts are process-wide, a test file is not.
+ * @internal
+ */
 export function _resetSwapBrake(): void {
   interruptionsByDelivery.clear();
   interruptedTasks.clear();

@@ -62,7 +62,10 @@ export function consumeScrollToMessage(topicId: string): void {
   targets.delete(topicId);
 }
 
-/** Test hook. */
+/**
+ * Test hook.
+ * @internal
+ */
 export function _clearAllScrollTargets(): void {
   targets.clear();
 }

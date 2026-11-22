@@ -152,12 +152,18 @@ function compactionPart(scope: string): string {
   return i < 0 ? "" : scope.slice(i + 1);
 }
 
-/** Dimentica una sessione (chiusura del topic, reset esplicito). */
+/**
+ * Dimentica una sessione (chiusura del topic, reset esplicito).
+ * @internal
+ */
 export function resetInlineSent(sessionKey: string): void {
   states.delete(sessionKey);
 }
 
-/** Solo per i test: svuota tutto. */
+/**
+ * Solo per i test: svuota tutto.
+ * @internal
+ */
 export function __clearInlineSentStateForTests(): void {
   states.clear();
 }
