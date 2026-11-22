@@ -2,12 +2,20 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.76 — 2026-11-22
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-22 [skip ci]
+
 ## 2.4.75 — 2026-11-22
 
 ### Sotto il cofano
+- Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)
 - Close the six reasons not to reattach a node run after a restart
+- Memory stores tests cover the SYSTEM-PAGE-01 requirement
 - Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
 - Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them
 - readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
 
 ## 2.4.74 — 2026-11-22
@@ -47,9 +55,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
 - Il nodo riceve intera la revisione anche dopo un riavvio
 - Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Memory stores: list, search, edit and archive every agent/project deposit
 - Commenti di node-run-brief a posto per il gate della lingua
 - Fix the reattach-on-restart path for a still-open node run
 - Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Rename Italian test identifier to pass check:identifier-language
 - Unblock check:comment-language on node-run-brief after the main realign
 - Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
 - un problema sotto il tetto resta capped, non torna curato a giri alterni
