@@ -20,6 +20,13 @@ export const EXPOSURE_TIMEOUT_MS = 3_000;
 /** The control port gets more tries: one lost SYN must not discard the whole measure. */
 export const CONTROL_ATTEMPTS = 3;
 export const PORT_ATTEMPTS = 2;
+/** How long the last good measure of a host stands in for a round where 22 did not answer. */
+export const LAST_MEASURE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
+const lastMeasure = new Map<string, { open: number[]; at: number }>();
+
+/** Forgets the remembered measures (tests). */
+export function resetLastMeasures(): void { lastMeasure.clear(); }
 
 /** `true` if a TCP connection to `host:port` is accepted within the deadline. */
 export type PortProbe = (host: string, port: number, timeoutMs: number) => Promise<boolean>;
@@ -88,10 +95,20 @@ export function withProviderFirewall(report: MachineSecurityReport, open: number
   return { ...report, status: worstStatus(checks), checks, access_facts: rebuilt };
 }
 
-/** Measures `host` and applies the result; the report as it came when the measure is not reliable. */
-export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe): Promise<MachineSecurityReport> {
+/**
+ * Measures `host` and applies the result. When the round is unreliable (22 silent) the last good
+ * measure of the same host is reused while it is younger than LAST_MEASURE_MAX_AGE_MS; with none,
+ * the report stays as the node wrote it.
+ */
+export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe, now: number = Date.now()): Promise<MachineSecurityReport> {
   const declared = report.access_facts?.ports;
   if (!host || !declared) return report;
   const open = await measureOpenPorts(host, declared, probe);
-  return open === null ? report : withProviderFirewall(report, open);
+  if (open !== null) {
+    lastMeasure.set(host, { open, at: now });
+    return withProviderFirewall(report, open);
+  }
+  const kept = lastMeasure.get(host);
+  if (!kept || now - kept.at > LAST_MEASURE_MAX_AGE_MS) return report;
+  return withProviderFirewall(report, kept.open.filter((p) => declared.includes(p)));
 }

@@ -220,7 +220,7 @@ describe("parser Linux e comuni", () => {
     expect(countFailedLogins(iso, NOW - 86_400_000)).toBe(1);
   });
 
-  test("failed logins: Ubuntu 24 journal lines (sshd-session, pam_unix) count once per process", () => {
+  test("failed logins: OpenSSH 9.8+ journal lines (sshd-session, pam_unix) count once per process", () => {
     const text = [
       "Nov 21 03:01:00 h sshd-session[901]: Invalid user admin from 203.0.113.7 port 1",
       "Nov 21 03:01:02 h sshd-session[901]: pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=203.0.113.7",
