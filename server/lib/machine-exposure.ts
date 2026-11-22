@@ -23,10 +23,9 @@ export const PORT_ATTEMPTS = 2;
 /** How long the last good measure of a host stands in for a round where 22 did not answer. */
 export const LAST_MEASURE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
-const lastMeasure = new Map<string, { open: number[]; at: number }>();
+type MeasureMemory = Map<string, { open: number[]; at: number }>;
 
-/** Forgets the remembered measures (tests). */
-export function resetLastMeasures(): void { lastMeasure.clear(); }
+const sharedMemory: MeasureMemory = new Map();
 
 /** `true` if a TCP connection to `host:port` is accepted within the deadline. */
 export type PortProbe = (host: string, port: number, timeoutMs: number) => Promise<boolean>;
@@ -100,15 +99,15 @@ export function withProviderFirewall(report: MachineSecurityReport, open: number
  * measure of the same host is reused while it is younger than LAST_MEASURE_MAX_AGE_MS; with none,
  * the report stays as the node wrote it.
  */
-export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe, now: number = Date.now()): Promise<MachineSecurityReport> {
+export async function applyExposure(report: MachineSecurityReport, host: string | null, probe: PortProbe = tcpPortProbe, now: number = Date.now(), memory: MeasureMemory = sharedMemory): Promise<MachineSecurityReport> {
   const declared = report.access_facts?.ports;
   if (!host || !declared) return report;
   const open = await measureOpenPorts(host, declared, probe);
   if (open !== null) {
-    lastMeasure.set(host, { open, at: now });
+    memory.set(host, { open, at: now });
     return withProviderFirewall(report, open);
   }
-  const kept = lastMeasure.get(host);
+  const kept = memory.get(host);
   if (!kept || now - kept.at > LAST_MEASURE_MAX_AGE_MS) return report;
   return withProviderFirewall(report, kept.open.filter((p) => declared.includes(p)));
 }

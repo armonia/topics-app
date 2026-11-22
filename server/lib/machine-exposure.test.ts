@@ -2,7 +2,7 @@
  * @covers MACHINE-05
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { applyExposure, isPublicIpv4, LAST_MEASURE_MAX_AGE_MS, resetLastMeasures, measureOpenPorts, poolIpOf, tcpPortProbe, type PortProbe } from "./machine-exposure";
+import { applyExposure, isPublicIpv4, LAST_MEASURE_MAX_AGE_MS, measureOpenPorts, poolIpOf, tcpPortProbe, type PortProbe } from "./machine-exposure";
 import { composeAccess } from "./machine-security";
 import type { AccessFacts, MachineSecurityReport } from "../../shared/machine-health";
 
@@ -28,7 +28,8 @@ function reportOf(facts: AccessFacts): MachineSecurityReport {
 const answering = (open: number[]): PortProbe => async (_host, port) => open.includes(port);
 
 describe("porte viste da fuori", () => {
-  beforeEach(resetLastMeasures);
+  let memory: NonNullable<Parameters<typeof applyExposure>[4]>;
+  beforeEach(() => { memory = new Map(); });
 
   test("senza la misura, ufw spento e otto porte sono un avviso", () => {
     const c = composeAccess(HETZNER_FACTS);
@@ -37,7 +38,7 @@ describe("porte viste da fuori", () => {
   });
 
   test("firewall del provider: risponde solo la 22 e la misura vince su ufw", async () => {
-    const out = await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.10", answering([22]));
+    const out = await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.10", answering([22]), Date.now(), memory);
     const access = out.checks.find((c) => c.key === "access")!;
     expect(access.status).toBe("ok");
     expect(access.detail).toBe("Solo chiave SSH, firewall del provider: aperta solo la 22");
@@ -46,7 +47,7 @@ describe("porte viste da fuori", () => {
 
   test("se una porta rischiosa risponde da fuori resta un avviso", async () => {
     const facts: AccessFacts = { ...HETZNER_FACTS, ports: [5432, 9100] };
-    const out = await applyExposure(reportOf(facts), "203.0.113.10", answering([22, 5432]));
+    const out = await applyExposure(reportOf(facts), "203.0.113.10", answering([22, 5432]), Date.now(), memory);
     const access = out.checks.find((c) => c.key === "access")!;
     expect(access.status).toBe("warn");
     expect(access.detail).toContain("Porta 5432 aperta alla rete");
@@ -55,20 +56,18 @@ describe("porte viste da fuori", () => {
   test("se la 22 non risponde la misura non prova nulla: il rapporto resta quello del nodo", async () => {
     const original = reportOf(HETZNER_FACTS);
     expect(await measureOpenPorts("203.0.113.10", HETZNER_FACTS.ports!, answering([]))).toBeNull();
-    expect(await applyExposure(original, "203.0.113.10", answering([]))).toBe(original);
+    expect(await applyExposure(original, "203.0.113.10", answering([]), Date.now(), memory)).toBe(original);
     expect(original.status).toBe("warn");
   });
 
   test("a silent 22 after a good round keeps the last measure, until it is too old", async () => {
-    resetLastMeasures();
     const t0 = 1_000_000;
-    await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.20", answering([22]), t0);
-    const soon = await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.20", answering([]), t0 + 60_000);
+    await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.20", answering([22]), t0, memory);
+    const soon = await applyExposure(reportOf(HETZNER_FACTS), "203.0.113.20", answering([]), t0 + 60_000, memory);
     expect(soon.checks.find((c) => c.key === "access")!.detail).toBe("Solo chiave SSH, firewall del provider: aperta solo la 22");
     const stale = reportOf(HETZNER_FACTS);
-    expect(await applyExposure(stale, "203.0.113.20", answering([]), t0 + LAST_MEASURE_MAX_AGE_MS + 1)).toBe(stale);
-    resetLastMeasures();
-    expect(await applyExposure(stale, "203.0.113.20", answering([]), t0)).toBe(stale);
+    expect(await applyExposure(stale, "203.0.113.20", answering([]), t0 + LAST_MEASURE_MAX_AGE_MS + 1, memory)).toBe(stale);
+    expect(await applyExposure(stale, "203.0.113.20", answering([]), t0, new Map())).toBe(stale);
   });
 
   test("the control port gets three tries: 22 answering only on the third still counts", async () => {
