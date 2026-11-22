@@ -15,13 +15,20 @@ import { gitEnv } from "../../tests/setup/bun-test-preload";
 const BAD_WORD = "forbiddenword";
 let dir: string;
 
+/** CI runners have no git identity: the commits made here carry one explicitly. */
+const IDENTITY = {
+  GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
+  GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.invalid",
+};
+
 function git(cwd: string, ...args: string[]) {
-  const r = spawnSync("git", args, { cwd, env: { ...process.env, ...gitEnv }, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd, env: { ...process.env, ...gitEnv, ...IDENTITY }, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
   return r.stdout.trim();
 }
 
 beforeEach(() => {
+  Object.assign(process.env, IDENTITY);
   dir = mkdtempSync(join(tmpdir(), "prepush-land-"));
   const repo = join(dir, "repo");
   git(dir, "init", "-q", "-b", "main", repo);
