@@ -6,7 +6,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
-import { prePushRefuses } from "./land-prepush-message";
+import { prePushVerdict } from "./land-prepush-message";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
@@ -62,7 +62,8 @@ describe("land: pre-push refusing the title", () => {
       cwd: repo, encoding: "utf8", input: `refs/heads/main ${sha} refs/heads/main ${git(repo, "rev-parse", "HEAD^1")}\n`,
     });
     expect(`${probe.status} ${probe.error ?? ""} ${probe.stderr}`).toBe("1  ");
-    expect(await prePushRefuses(repo, git(repo, "rev-parse", "HEAD^1"), sha)).toBe(true);
+    const verdict = await prePushVerdict(repo, git(repo, "rev-parse", "HEAD^1"), sha);
+    expect(verdict.detail.length > 0 && verdict.refused ? "refused" : verdict.detail).toBe("refused");
   });
 
   test("a refused title is replaced by the bare id prefix", async () => {

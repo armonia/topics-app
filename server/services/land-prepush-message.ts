@@ -12,27 +12,33 @@ import { runGit } from "../lib/run-git";
 
 const HOOK_DEADLINE_MS = 60_000;
 
-/** Runs the repo's pre-push hook over `base..sha`. True only when the hook answers with a refusal. */
-export async function prePushRefuses(cwd: string, base: string, sha: string): Promise<boolean> {
+/** True only when the hook answers with a refusal. */
+async function prePushRefuses(cwd: string, base: string, sha: string): Promise<boolean> {
+  return (await prePushVerdict(cwd, base, sha)).refused;
+}
+
+/** Runs the repo's pre-push hook over `base..sha`; `detail` says what happened, for a test that expected a refusal. */
+export async function prePushVerdict(cwd: string, base: string, sha: string): Promise<{ refused: boolean; detail: string }> {
+  const no = (detail: string) => ({ refused: false, detail });
   // `--git-path hooks/...` ignores `core.hooksPath` on older git, so the setting is read first.
   const configured = await runGit(cwd, ["config", "--path", "--get", "core.hooksPath"], { timeoutMs: 10_000 });
   let dir = configured.code === 0 ? configured.stdout.trim() : "";
   if (dir !== "" && !isAbsolute(dir)) dir = join(cwd, dir);
   if (dir === "") {
     const where = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { timeoutMs: 10_000 });
-    if (where.code !== 0) return false;
+    if (where.code !== 0) return no(`git-path ${where.code} ${where.stderr}`);
     dir = where.stdout.trim();
   }
-  if (dir === "") return false;
+  if (dir === "") return no("no hooks dir");
   const hook = join(dir, "pre-push");
-  if (!existsSync(hook)) return false;
+  if (!existsSync(hook)) return no(`no hook at ${hook}`);
   const r = await runBounded([hook, "origin", "origin"], {
     cwd,
     stderr: "pipe",
     timeoutMs: HOOK_DEADLINE_MS,
     stdinData: `refs/heads/main ${sha} refs/heads/main ${base}\n`,
   });
-  return !r.spawnFailed && r.exitCode === 1;
+  return { refused: !r.spawnFailed && r.exitCode === 1, detail: `${hook} exit=${r.exitCode} spawnFailed=${r.spawnFailed} ${r.spawnError ?? ""} ${r.stderr}` };
 }
 
 /**
