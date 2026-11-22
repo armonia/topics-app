@@ -116,14 +116,17 @@ async function archiveTip(repoPath: string, branch: string, sha: string, run: Gi
 }
 
 /**
- * One pass over one repository. `lifeOf` answers for the cards of the boards
- * that use this repository; it is the only source of «finished».
+ * One pass over one repository. `readLives` answers for the cards of the
+ * boards that use this repository; it is the only source of «finished», and it
+ * is asked AGAIN right before each delete: a card reopened while the pass was
+ * archiving and fetching (a pass can walk hundreds of branches) keeps its branch.
  */
 export async function sweepFinishedBranchesOnOrigin(
   repoPath: string,
-  lifeOf: (branch: string) => BranchLife,
+  readLives: () => (branch: string) => BranchLife,
   run: GitRunner = sweepGit,
 ): Promise<FinishedBranchSweep | null> {
+  const lifeOf = readLives();
   const origin = await readOrigin(repoPath, run);
   if (!origin) return null;
   const out: FinishedBranchSweep = { deleted: [], archived: {}, problems: [] };
@@ -150,7 +153,13 @@ export async function sweepFinishedBranchesOnOrigin(
     leases.push([branch, sha]);
   }
   for (let i = 0; i < leases.length; i += DELETE_BATCH) {
-    const batch = leases.slice(i, i + DELETE_BATCH);
+    const now = readLives();
+    const batch = leases.slice(i, i + DELETE_BATCH).filter(([b]) => {
+      if (now(b) === "finished") return true;
+      out.problems.push(`${b}: its card reopened during the pass, branch kept`);
+      return false;
+    });
+    if (!batch.length) continue;
     // --no-verify: a deletion publishes no object, and the pre-push hooks only
     // inspect objects. On this Mac they made a delete exit 1 once and run past
     // the 60 s cap twice, and each of those kept a finished branch on origin.
@@ -197,22 +206,34 @@ export function branchLives(
 
 /**
  * `branchLives` over the board's database: every branch a card delivered on,
- * restarted from, left behind or tried in an attempt. From EVERY board, not
- * one repository's: a card of one board can run in another board's repo. A
- * land still `unpushed` is not finished yet: deleting its branch before main
- * reaches origin would make GitHub close its pull request instead of marking
- * it merged.
+ * restarted from, started from, left behind or tried in an attempt. From EVERY
+ * board, not one repository's: a card of one board can run in another board's
+ * repo.
+ *
+ * Never finished:
+ *  - a land still `unpushed`: deleting its branch before main reaches origin
+ *    would make GitHub close its pull request instead of marking it merged;
+ *  - a run for ANOTHER machine's card (a node's mirror: `node-run:` key, or a
+ *    `base_branch`, which only mirrors carry and which an archived mirror keeps
+ *    after giving its key back). Nodes boot this same sweep on their own
+ *    database, and there the mirror of round 1 is archived while the card it
+ *    mirrors is still open on the machine that owns it, which restarts the next
+ *    round from that very branch. The owner's own pass deletes it, when its card
+ *    is closed.
  */
 export function readBranchLives(db: { prepare(sql: string): { all(): unknown[] } }): (branch: string) => BranchLife {
   const finished = (t: string) =>
-    `((${t}archived = 1 OR ${t}status = 'done') AND COALESCE(${t}landing_state, '') <> 'unpushed')`;
+    `((${t}archived = 1 OR ${t}status = 'done')
+      AND COALESCE(${t}landing_state, '') <> 'unpushed'
+      AND COALESCE(${t}claude_task_id, '') NOT LIKE 'node-run:%'
+      AND COALESCE(${t}base_branch, '') = '')`;
   const rows = db.prepare(
-    `SELECT ${finished("")} AS finished, delivery_branch AS b1, prior_branch AS b2, past_delivery_branches AS b3
+    `SELECT ${finished("")} AS finished, delivery_branch AS b1, prior_branch AS b2, past_delivery_branches AS b3, base_branch AS b4
        FROM tasks
      UNION ALL
-     SELECT ${finished("t.")}, a.branch, NULL, NULL
+     SELECT ${finished("t.")}, a.branch, NULL, NULL, NULL
        FROM task_attempts a JOIN tasks t ON t.id = a.task_id
       WHERE a.branch IS NOT NULL`,
-  ).all() as Array<{ finished: number; b1: string | null; b2: string | null; b3: string | null }>;
-  return branchLives(rows.map((r) => ({ finished: Number(r.finished) === 1, branches: [r.b1, r.b2, r.b3] })));
+  ).all() as Array<{ finished: number; b1: string | null; b2: string | null; b3: string | null; b4: string | null }>;
+  return branchLives(rows.map((r) => ({ finished: Number(r.finished) === 1, branches: [r.b1, r.b2, r.b3, r.b4] })));
 }

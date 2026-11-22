@@ -125,14 +125,14 @@ export function bootDeliveryAudit(scope: AfterReattach) {
    * the same repositories.
    */
   async function sweepFinishedBranches(): Promise<void> {
-    const lifeOf = readBranchLives(ctx.db);
+    const readLives = () => readBranchLives(ctx.db);
     const seen = new Set<string>();
     for (const p of ctx.projectStore.list()) {
       const path = p.path;
       if (!path || seen.has(path) || !existsSync(path)) continue;
       seen.add(path);
       try {
-        const done = await sweepFinishedBranchesOnOrigin(path, lifeOf);
+        const done = await sweepFinishedBranchesOnOrigin(path, readLives);
         if (!done) continue;
         if (done.deleted.length) {
           console.log(`[origin-branches] ${done.deleted.length} rami di card chiuse tolti da origin, ${Object.keys(done.archived).length} tenuti come tag archive/ { repo: ${path} }`);

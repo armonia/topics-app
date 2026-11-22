@@ -50,7 +50,7 @@ function branch(cwd: string, name: string, opts: { merge?: boolean } = {}) {
   return tip;
 }
 const onOrigin = (origin: string) => git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n").filter(Boolean).sort();
-const lives = (m: Record<string, BranchLife>) => (b: string) => m[b] ?? null;
+const lives = (m: Record<string, BranchLife>) => () => (b: string) => m[b] ?? null;
 
 describe("rami di card chiuse su origin", () => {
   test("card chiusa: il ramo dentro main va via senza tag, quello fuori main lascia prima il tag archive/", async () => {
@@ -126,11 +126,24 @@ describe("rami di card chiuse su origin", () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  test("card riaperta mentre il giro archiviava: il ramo resta, il tag no danno", async () => {
+    const { root, origin, work } = setup();
+    try {
+      branch(work, "topics/reopened");
+      let reads = 0;
+      const readLives = () => { reads++; return (b: string): BranchLife => (b === "topics/reopened" && reads === 1 ? "finished" : "open"); };
+      const r = await sweepFinishedBranchesOnOrigin(work, readLives);
+      expect(r?.deleted).toEqual([]);
+      expect(r?.problems.join()).toContain("reopened during the pass");
+      expect(onOrigin(origin)).toEqual(["main", "topics/reopened"]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test("senza origin non tocca niente", async () => {
     const root = mkdtempSync(join(tmpdir(), "fboo-"));
     try {
       spawnSync("git", ["init", "-q", "-b", "main", root], { env: gitEnv() });
-      expect(await sweepFinishedBranchesOnOrigin(root, () => "finished")).toBeNull();
+      expect(await sweepFinishedBranchesOnOrigin(root, () => () => "finished")).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -156,6 +169,22 @@ describe("vita di un ramo letta dal database della board", () => {
     // Delivered by a done card, tried again by an open one: the open one wins.
     expect(lifeOf("topics/landed")).toBe("open");
     expect(lifeOf("fix/by-hand")).toBeNull();
+  });
+
+  test("sul nodo la copia specchio archiviata non chiude il ramo della card vera", () => {
+    const db = freshDb();
+    const card = (id: string, cols: Record<string, string | number>) => {
+      const all = { id, project_id: "p", text: id, status: "done", archived: 1, created_at: "2026-11-22", updated_at: "2026-11-22", ...cols };
+      db.prepare(`INSERT INTO tasks (${Object.keys(all).join(",")}) VALUES (${Object.keys(all).map(() => "?").join(",")})`).run(...Object.values(all));
+    };
+    // Round 1 mirror, key given back on resend: only base_branch says it is a mirror.
+    card("m1", { delivery_branch: "topics/node-wt", base_branch: "topics/carried" });
+    // A mirror still holding its key.
+    card("m2", { claude_task_id: "node-run:abc", delivery_branch: "topics/node-wt2" });
+    const lifeOf = readBranchLives(db);
+    expect(lifeOf("topics/carried")).toBe("open");
+    expect(lifeOf("topics/node-wt")).toBe("open");
+    expect(lifeOf("topics/node-wt2")).toBe("open");
   });
 });
 
