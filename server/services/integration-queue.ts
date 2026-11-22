@@ -38,6 +38,11 @@ export interface IntegrationMeasure {
   commit?: string | null;
   /** What failed or why nothing was measured: the CI log for a red. */
   why?: string;
+  /**
+   * Set when the measure could not happen because of the board's own machinery (the push or the draft
+   * pull request failed), not because the CI stayed silent. A landed card is not sent back to anyone for it.
+   */
+  fault?: string;
 }
 
 export interface IntegrationQueueDeps {
@@ -58,6 +63,12 @@ export interface IntegrationQueueDeps {
    * from outside looks like a land that never ends. Alone, the unproven card costs one round and only itself.
    */
   solo?(projectId: string, taskId: string): boolean;
+  /**
+   * A landed card whose measure failed for the board's own fault `MAX_FAULTED` rounds in a row: the mark is
+   * closed and one warning goes out, the card does not move. Without it the card was measured again at
+   * every sweep, forever and silently.
+   */
+  abandon?(projectId: string, taskId: string, why: string): void;
   note?(taskId: string, text: string): void;
   log?(line: string): void;
   maxBatch?: number;
@@ -111,6 +122,9 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
   /** Rounds in a row a card came back unmeasured: each one is a CI run paid for no verdict. */
   const silent = new Map<string, number>();
   const MAX_SILENT = 2;
+  /** Rounds in a row a landed card could not be measured for a fault of the board's own. */
+  const faulted = new Map<string, number>();
+  const MAX_FAULTED = 3;
 
   const lane = (projectId: string) => {
     let l = waiting.get(projectId);
@@ -146,7 +160,7 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     } finally {
       measuring.delete(projectId);
     }
-    if (out.verdict !== "unmeasured") for (const id of batch) silent.delete(id);
+    if (out.verdict !== "unmeasured") for (const id of batch) { silent.delete(id); faulted.delete(id); }
     for (const c of out.conflicts) {
       if (!deps.stillWanted(projectId, c.taskId)) continue;
       log(`[integration] ${c.taskId.slice(0, 8)} in conflitto: torna all'agente`);
@@ -213,6 +227,20 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     }
     if (out.verdict === "unmeasured") {
       for (const id of out.measured.length ? out.measured : batch) {
+        if (out.fault && deps.landed) {
+          // The work is on main and the fault is ours: the card stays where it is, with the reason on it.
+          silent.delete(id);
+          const n = (faulted.get(id) ?? 0) + 1;
+          faulted.set(id, n);
+          if (n >= MAX_FAULTED && deps.abandon) {
+            faulted.delete(id);
+            log(`[integration] ${id.slice(0, 8)} not measured ${n} rounds in a row for a board fault, mark closed: ${out.fault}`);
+            deps.abandon(projectId, id, out.fault);
+            continue;
+          }
+          note(id, `CI non misurata: ${out.fault}. Il lavoro è già su main e la card resta chiusa; la misura non è partita per un guasto della board, non per colpa del codice.`);
+          continue;
+        }
         const n = (silent.get(id) ?? 0) + 1;
         silent.set(id, n);
         if (n >= MAX_SILENT && deps.giveUp) {
