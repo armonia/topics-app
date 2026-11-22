@@ -19,6 +19,7 @@ import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type 
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
 import { probeSshServer, readSshServers, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { probeUnavailableReport } from "../lib/machine-security";
 import { runBounded } from "../lib/machine-security-env";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
@@ -73,6 +74,22 @@ async function isHomePc(machineId: string): Promise<boolean> {
     const slots = (JSON.parse(await readFile(join(sharedToolingDir(), "node-pool", "state.json"), "utf8")) as { slots?: Record<string, { machine_id?: string }> }).slots ?? {};
     return !Object.values(slots).some((slot) => slot.machine_id === machineId);
   } catch { return true; }
+}
+
+/** The node's security report; a 404 means its build predates the route, which is an answer worth recording. */
+async function fetchNodeProbe(ctx: AppContext, id: string, baseUrl: string): Promise<MachineSecurityReport | null> {
+  const token = readNodeToken(ctx.STATE_DIR, id);
+  if (!token) return null;
+  try {
+    const res = await fetch(`${baseUrl}/api/system/machine-security`, {
+      headers: { Accept: "application/json", Cookie: `${NODE_SESSION_COOKIE}=${token}` },
+      signal: AbortSignal.timeout(REMOTE_PROBE_TIMEOUT_MS),
+    });
+    if (res.status === 404) return probeUnavailableReport(Date.now());
+    return res.ok ? ((await res.json()) as MachineSecurityReport) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function startMachineHealth(ctx: AppContext): void {
@@ -137,7 +154,7 @@ export function startMachineHealth(ctx: AppContext): void {
         lastSsh.set(t.id, report);
         return report;
       }
-      const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
+      const report = await fetchNodeProbe(ctx, t.id, baseUrlOf.get(t.id) ?? "");
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
       return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
     },
