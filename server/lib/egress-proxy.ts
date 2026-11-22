@@ -65,11 +65,11 @@ const reportedDetours = new Set<string>();
  * destroys the others.
  */
 export async function connectFirstReachable(host: string, port: number, opts: DialOptions = {}): Promise<net.Socket> {
-  const ips = await (opts.resolve ?? systemResolve)(host);
+  const addresses = await (opts.resolve ?? systemResolve)(host);
   const dial = opts.dial ?? systemDial;
   const attemptDelayMs = opts.attemptDelayMs ?? ATTEMPT_DELAY_MS;
   const timeoutMs = opts.timeoutMs ?? CONNECT_TIMEOUT_MS;
-  if (ips.length === 0) throw new Error(`${host}: the resolver returned no address`);
+  if (addresses.length === 0) throw new Error(`${host}: the resolver returned no address`);
 
   return new Promise<net.Socket>((resolve, reject) => {
     const pending = new Set<net.Socket>();
@@ -89,32 +89,32 @@ export async function connectFirstReachable(host: string, port: number, opts: Di
     };
 
     const deadline = setTimeout(() => {
-      finish(null, new Error(`${host}:${port}: no address answered within ${timeoutMs} ms (${ips.join(", ")})`));
+      finish(null, new Error(`${host}:${port}: no address answered within ${timeoutMs} ms (${addresses.join(", ")})`));
     }, timeoutMs);
 
     const attempt = () => {
       clearTimeout(stagger);
-      if (settled || next >= ips.length) return;
-      const ip = ips[next++]!;
+      if (settled || next >= addresses.length) return;
+      const ip = addresses[next++]!;
       const socket = dial(ip, port);
       pending.add(socket);
       socket.once("connect", () => {
-        if (ip !== ips[0] && !reportedDetours.has(host)) {
+        if (ip !== addresses[0] && !reportedDetours.has(host)) {
           reportedDetours.add(host);
-          console.warn(`[egress-proxy] ${host}:${port}: first address ${ips[0]} failed or was slow, connected through ${ip}`);
+          console.warn(`[egress-proxy] ${host}:${port}: first address ${addresses[0]} failed or was slow, connected through ${ip}`);
         }
         finish(socket);
       });
       socket.once("error", (e) => {
         pending.delete(socket);
         failures.push(`${ip}: ${e.message}`);
-        if (pending.size === 0 && next >= ips.length) {
+        if (pending.size === 0 && next >= addresses.length) {
           finish(null, new Error(`${host}:${port}: every address failed (${failures.join("; ")})`));
         } else {
           attempt();
         }
       });
-      if (next < ips.length) stagger = setTimeout(attempt, attemptDelayMs);
+      if (next < addresses.length) stagger = setTimeout(attempt, attemptDelayMs);
     };
 
     attempt();
@@ -215,8 +215,12 @@ export function startEgressProxy(opts: { dial?: DialOptions } = {}): Promise<Egr
       server.on("error", (e) => console.warn(`[egress-proxy] server error: ${e.message}`));
       server.unref();
       const { port } = server.address() as net.AddressInfo;
+      // Built field by field: the secret is generated here and lives only in memory.
+      const url = new URL(`http://127.0.0.1:${port}`);
+      url.username = PROXY_USER;
+      url.password = secret;
       resolve({
-        url: `http://${PROXY_USER}:${secret}@127.0.0.1:${port}`,
+        url: url.href.replace(/\/$/, ""),
         close: () => new Promise<void>((done) => server.close(() => done())),
       });
     });

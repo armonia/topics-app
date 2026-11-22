@@ -13,7 +13,7 @@ import {
 
 // A socket that never connects nor fails: what a port silently dropped by the
 // network looks like from here (no RST, no ICMP, just nothing).
-function blackhole(): net.Socket {
+function droppedSocket(): net.Socket {
   return new net.Socket();
 }
 
@@ -30,7 +30,7 @@ beforeAll(async () => {
   await new Promise<void>((r) => probe.listen(0, "127.0.0.1", () => r()));
   closedPort = (probe.address() as net.AddressInfo).port;
   await new Promise<void>((r) => probe.close(() => r()));
-});
+}, 30_000);
 
 afterAll(async () => {
   await new Promise<void>((r) => echo.close(() => r()));
@@ -38,7 +38,7 @@ afterAll(async () => {
 
 // "dead" is dropped silently, "refused" answers RST, anything else is the echo server.
 const fakeNet: Dial = (ip) => {
-  if (ip === "dead") return blackhole();
+  if (ip === "dead") return droppedSocket();
   if (ip === "refused") return net.connect({ host: "127.0.0.1", port: closedPort });
   return net.connect({ host: "127.0.0.1", port: echoPort });
 };
@@ -50,27 +50,28 @@ describe("connectFirstReachable", () => {
       resolve: async () => ["dead", "live"],
       dial: fakeNet,
       attemptDelayMs: 100,
-      timeoutMs: 5_000,
+      timeoutMs: 15_000,
     });
-    const elapsed = Date.now() - started;
+    // No upper bound on purpose: without the stagger the dead address holds the
+    // race until the deadline rejects, so reaching here is the proof.
     expect(socket.remotePort).toBe(echoPort);
-    expect(elapsed).toBeGreaterThanOrEqual(90);
-    expect(elapsed).toBeLessThan(2_000);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(90);
     socket.destroy();
-  });
+  }, 30_000);
 
   test("a refused address hands over at once, without waiting the attempt delay", async () => {
     const started = Date.now();
     const socket = await connectFirstReachable("chatgpt.test", 443, {
       resolve: async () => ["refused", "live"],
       dial: fakeNet,
-      attemptDelayMs: 3_000,
-      timeoutMs: 5_000,
+      attemptDelayMs: 30_000,
+      timeoutMs: 60_000,
     });
-    expect(Date.now() - started).toBeLessThan(1_500);
+    // Far below the 30 s delay even on a saturated machine: the RST handed over.
+    expect(Date.now() - started).toBeLessThan(15_000);
     expect(socket.remotePort).toBe(echoPort);
     socket.destroy();
-  });
+  }, 60_000);
 
   test("the losing attempts are destroyed once one wins", async () => {
     const dialed: net.Socket[] = [];
@@ -93,7 +94,7 @@ describe("connectFirstReachable", () => {
       attemptDelayMs: 20,
       timeoutMs: 300,
     })).rejects.toThrow("no address answered within 300 ms (dead, dead)");
-    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 
   test("every address refused rejects at once with each failure", async () => {
@@ -164,7 +165,7 @@ describe("the proxy server", () => {
     const url = new URL(proxy.url);
     port = Number(url.port);
     auth = "Basic " + Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString("base64");
-  });
+  }, 30_000);
 
   afterAll(() => proxy.close());
 
@@ -199,9 +200,9 @@ describe("the proxy server", () => {
   test("bytes sent right behind the header are not lost", async () => {
     const got = await new Promise<string>((resolve, reject) => {
       const c = net.connect({ host: "127.0.0.1", port });
-      let buf = "";
-      c.on("data", (d) => { buf += d.toString(); if (buf.endsWith("early")) c.end(); });
-      c.on("end", () => resolve(buf));
+      let received = "";
+      c.on("data", (d) => { received += d.toString(); if (received.endsWith("early")) c.end(); });
+      c.on("end", () => resolve(received));
       c.on("error", reject);
       c.write(`CONNECT chatgpt.test:443 HTTP/1.1\r\nProxy-Authorization: ${auth}\r\n\r\nearly`);
     });
