@@ -44,8 +44,17 @@ param(
   # After a restart the daemon needs a moment to bind the port again: counting
   # silence from the instant it would plausibly be back avoids restarting it a
   # second time while it is still booting.
-  [int]$GraceAfterRestartSec = 60
+  [int]$GraceAfterRestartSec = 60,
+  # Optional JSON file whose keys override the defaults above (same names as the
+  # parameters). Keeps machine-specific values out of the repo.
+  [string]$ConfigFile = ""
 )
+
+. (Join-Path $PSScriptRoot "win-node-watchdog-logic.ps1")
+if ($ConfigFile -and (Test-Path $ConfigFile)) {
+  $cfg = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+  foreach ($p in $cfg.PSObject.Properties) { Set-Variable -Name $p.Name -Value $p.Value }
+}
 
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
@@ -95,9 +104,7 @@ function Stop-Daemon {
       Start-Sleep -Seconds 3
     } catch { }
   }
-  foreach ($name in $ProcessNames) {
-    Get-Process $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  }
+  Get-ProcessesToStop -ProcessNames $ProcessNames | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 function Start-Daemon {
@@ -115,16 +122,17 @@ Log "watchdog up: port $Port, poll ${PollSeconds}s, stale after ${StaleMinutes}m
 $lastOk = Get-Date
 
 while ($true) {
-  if (Test-Healthz) {
+  $ok = Test-Healthz
+  $decision = Get-WatchdogDecision -HealthzOk $ok -Now (Get-Date) -LastOk $lastOk -StaleMinutes $StaleMinutes
+  if ($decision -eq "ok") {
     $lastOk = Get-Date
   } else {
-    $silentMin = ((Get-Date) - $lastOk).TotalMinutes
-    Log "healthz silent for $([Math]::Round($silentMin, 1)) min"
-    if ($silentMin -ge $StaleMinutes) {
+    Log "healthz silent for $([Math]::Round(((Get-Date) - $lastOk).TotalMinutes, 1)) min"
+    if ($decision -eq "restart") {
       Log "restart: silent for over $StaleMinutes min"
       Stop-Daemon
       Start-Daemon
-      $lastOk = (Get-Date).AddSeconds($GraceAfterRestartSec)
+      $lastOk = Get-LastOkAfterRestart -Now (Get-Date) -GraceAfterRestartSec $GraceAfterRestartSec
     }
   }
   Start-Sleep -Seconds $PollSeconds
