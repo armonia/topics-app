@@ -186,6 +186,9 @@ describe("una corsa sul nodo sopravvive al riavvio del server", () => {
     await flush();
 
     expect(h.svc.nodeRunOf(TASK)).toBe("run-2");
+    // The slot of run-2 is still held right after the boot, before any poll: a later poll
+    // would also read run-2 by adopting the card as an orphan, so it cannot prove this.
+    expect(afterRestart.isInFlight(TASK)).toBe(true);
     expect(h.task().status).toBe("in_progress");
     expect(h.calls.filter((c) => c === "read:run-1")).toHaveLength(1);
     expect(h.calls).not.toContain("cancel:run-2");
@@ -232,6 +235,7 @@ describe("una corsa sul nodo sopravvive al riavvio del server", () => {
       await afterRestart.reconcile({ reason: "boot" });
       await flush();
 
+      expect(afterRestart.isInFlight(TASK)).toBe(true);
       expect(h.task().status).toBe("in_progress");
       expect(h.comments().some((c) => c.content.includes(RESTART_NOTE))).toBe(false);
       expect(h.calls).not.toContain("cancel:run-2");

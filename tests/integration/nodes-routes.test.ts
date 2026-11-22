@@ -548,6 +548,9 @@ describe("nodes routes: ingress of a mirrored card", () => {
       const { runId } = await created.json() as { runId: string };
 
       expect((await call("GET", `/api/nodes/delegated-runs/${runId}`, undefined, DELEGATED_HEADERS)).status).toBe(200);
+      ctx.db.run("UPDATE tasks SET status = 'in_progress', archived = 1 WHERE id = ?", [runId]);
+      const archived = await (await call("GET", `/api/nodes/delegated-runs/${runId}`, undefined, DELEGATED_HEADERS)).json() as { status: string; archived: boolean };
+      expect(archived).toMatchObject({ status: "in_progress", archived: true });
       expect((await call("GET", "/api/nodes/delegated-runs/not-this-run", undefined, DELEGATED_HEADERS)).status).toBe(404);
       expect((await call("DELETE", "/api/nodes/delegated-runs/not-this-run", undefined, DELEGATED_HEADERS)).status).toBe(404);
       expect((await call("GET", "/api/nodes/delegated-runs/not-this-run/bundle", undefined, DELEGATED_HEADERS)).status).toBe(404);

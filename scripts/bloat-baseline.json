@@ -730,9 +730,9 @@
     "tests/integration/auth-routes.test.ts": 1734,
 
     "tests/integration/nodes-routes.test.ts": {
-      "lines": 806,
+      "lines": 809,
       "why": [
-        "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 789 on main -> 806, +17 the GET of an archived run answers `archived` with the status still in_progress, which is what tells a restart on the origin side apart a run still going from a card archived over here. Its bench is one node checkout and one origin board booted in beforeAll, which a second file would boot again."
+        "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 789 on main -> 809, +20 the GET of an archived run, plain and delegated, answers `archived` with the status still in_progress, which is what tells a restart on the origin side apart a run still going from a card archived over here. Its bench is one node checkout and one origin board booted in beforeAll, which a second file would boot again."
       ]
     },
 
