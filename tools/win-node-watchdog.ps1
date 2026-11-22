@@ -66,8 +66,9 @@ if ($ConfigFile -and (Test-Path $ConfigFile)) {
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $logPath = Join-Path $LogDir "watchdog-$(Get-Date -Format yyyy-MM-dd).log"
-$daemonLogPath = Join-Path $LogDir "daemon-stdout.log"
-if (-not $DaemonLogPath) { $DaemonLogPath = $daemonLogPath }
+# Names differ by more than case on purpose: PowerShell variables are case-insensitive.
+$stdoutLogPath = Join-Path $LogDir "daemon-stdout.log"
+if (-not $DaemonLogPath) { $DaemonLogPath = $stdoutLogPath }
 
 function Log($line) {
   $stamped = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $line"
@@ -124,13 +125,13 @@ function Save-Evidence {
 }
 
 function Start-Daemon {
-  Log "restart: starting '$StartCommand $($StartArgs -join ' ')', stdout/stderr -> $daemonLogPath"
+  Log "restart: starting '$StartCommand $($StartArgs -join ' ')', stdout/stderr -> $stdoutLogPath"
   if ($StartCommand -match '\.ps1$') {
     Start-Process powershell -ArgumentList (@("-File", $StartCommand) + $StartArgs) `
-      -RedirectStandardOutput $daemonLogPath -RedirectStandardError "$daemonLogPath.err" -WindowStyle Hidden
+      -RedirectStandardOutput $stdoutLogPath -RedirectStandardError "$stdoutLogPath.err" -WindowStyle Hidden
   } else {
     Start-Process $StartCommand -ArgumentList $StartArgs `
-      -RedirectStandardOutput $daemonLogPath -RedirectStandardError "$daemonLogPath.err" -WindowStyle Hidden
+      -RedirectStandardOutput $stdoutLogPath -RedirectStandardError "$stdoutLogPath.err" -WindowStyle Hidden
   }
 }
 

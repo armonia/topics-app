@@ -82,4 +82,8 @@ Describe "win-node-watchdog decision" {
     Invoke-WatchdogRestart -Collect { } -Stop { [void]$order.Add("stop") } -Rotate { [void]$order.Add("rotate") } -Start { [void]$order.Add("start") }
     ($order -join ",") | Should Be "stop,rotate,start"
   }
+  It "keeps the stdout log variable distinct from the configurable DaemonLogPath (PowerShell is case-insensitive)" {
+    $src = Get-Content (Join-Path $PSScriptRoot "win-node-watchdog.ps1") -Raw
+    $src | Should Not Match '(?m)^\$daemonLogPath'
+  }
 }
