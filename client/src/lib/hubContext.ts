@@ -5,7 +5,7 @@
  * Code, Codex, jcode, Jarvis), the files that make it, the sources read on
  * demand, the duplicated lines, the rules with an old date, and the hub's last
  * check for rules that contradict each other. Pure functions over the hub's
- * JSON (~/.claude/jarvis/tools/usage-hub/src/context.mjs): defensive, a field
+ * JSON (<harness-home>/tools/usage-hub/src/context.mjs): defensive, a field
  * the hub renamed is dropped, never thrown on.
  *
  * Names stay the hub's own labels («CLAUDE.md globale», «TOOLS.md»); a path is
