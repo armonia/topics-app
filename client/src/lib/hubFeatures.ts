@@ -5,7 +5,7 @@
  * do) with who has it, Jarvis's own status, whether Jarvis is behind (it does
  * not have it fully and at least three others do) and the news the hub's
  * watcher found on it. Pure functions over the hub's JSON
- * (~/.claude/jarvis/tools/usage-hub/src/features.mjs): defensive, a field the
+ * (<harness-home>/tools/usage-hub/src/features.mjs): defensive, a field the
  * hub renamed is dropped, never thrown on.
  */
 

@@ -910,7 +910,7 @@ export function parseJsonlLine(line: string): JsonlEvent | null {
  * Canonical transcript path for a Claude Code session:
  *   <home>/.claude/projects/<encoded-cwd>/<claudeSessionId>.jsonl
  * where the cwd encoding replaces every character outside [A-Za-z0-9] with `-`
- * (verified against real dirs: `/Users/x/.claude/jarvis` → `-Users-x--claude-jarvis`).
+ * (verified against real dirs: `<home>/<harness-home>` → the dashed form).
  * Lets the tracker tail a terminal session's transcript WITHOUT waiting for a
  * SessionStart hook that may never fire. Pure — home is injected.
  */

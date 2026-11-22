@@ -2,7 +2,7 @@
  * Readers of the hub's live topics (state/hubLive.ts): waiting items, alerts,
  * red gates, automations, services and quotas, for the places of Topics that
  * show them (openspec/changes/hub-smistamento). Pure functions over the hub's
- * JSON: the hub owns the shapes (~/.claude/jarvis/tools/usage-hub/src/server.mjs),
+ * JSON: the hub owns the shapes (<harness-home>/tools/usage-hub/src/server.mjs),
  * so everything here is defensive and drops what it does not recognise instead
  * of throwing on a field the hub renamed.
  */
