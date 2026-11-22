@@ -697,7 +697,7 @@ export const UI_STATE_INIT_EXCLUDED_PREFIXES = [
   "dev-storage-probe-result",
 ] as const;
 
-/** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
+/** @internal the init-filter test checks it stays the JS twin of the SQL WHERE. Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
 export function isExcludedFromUiStateInit(key: string): boolean {
   return UI_STATE_INIT_EXCLUDED_PREFIXES.some((p) => key.startsWith(p));
 }

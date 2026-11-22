@@ -7,20 +7,20 @@ import { parseCreatedBy } from "../../shared/created-by";
 
 import { agentCardGaps, incompleteCardNotice } from "../../shared/agent-card-contract";
 
-
 import { WORKFLOW_COLUMNS } from "../../shared/workflow";
 
 import { createTasksShared, MACHINE_RETRY_CAP, STATUSES, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman, VALID_EFFORT, clampInt, TaskServiceError, GLOBAL_SETTINGS_KEY } from "./tasks/shared";
 export {
-  MACHINE_RETRY_CAP, UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman,
+  UNASSIGNED_PROJECT_ID, AUTO_PROJECT_ID, commentAsksHuman,
   TaskServiceError,
 };
+/** @internal tests import it through the barrel */
+export { MACHINE_RETRY_CAP };
 import { createCommentsMethods } from "./tasks/comments";
 import { createLandMethods } from "./tasks/land";
 import { createDeliveryMethods } from "./tasks/delivery";
 import { createWorktreeMethods } from "./tasks/worktree";
 import { createStatusMethods } from "./tasks/status";
-export { parseChecksJson, parseChecksProgress, deliveryNotesInFlight } from "./tasks/shared";
 
 // The statuses and the thread's shape live in `shared/board.ts`, so the client
 // reads them from the same declaration instead of rewriting them. `export type
@@ -64,10 +64,7 @@ export type Actor = "human" | "agent";
  *   backlog — where "still" is a card's NORMAL look. The stall was
  *   indistinguishable from rest, and only a human could unstick it.
  */
-export {
-  ARCHIVE_PARKED_LABEL, LAND_ACTION_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL,
-  isLandActionLabel, isPublishActionLabel,
-} from "../../shared/board";
+export { LAND_ACTION_LABEL, isLandActionLabel, isPublishActionLabel } from "../../shared/board";
 
 export type { Task, UpdateTaskPatch } from "./task-shapes";
 
@@ -911,3 +908,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   // (`server/attention/card-sync.ts`): the store announces review and park.
   return withCardAttention(db, service, commentAsksHuman);
 }
+/** @internal tests import these through the barrel */
+export { parseChecksJson, parseChecksProgress, deliveryNotesInFlight } from "./tasks/shared";
+/** @internal tests import these through the barrel */
+export { ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL } from "../../shared/board";

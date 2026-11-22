@@ -384,7 +384,7 @@ function writeLiveQuotaIfChanged(sessionKey: string, jobs: number): boolean {
   return writeLiveQuota(sessionKey, n);
 }
 
-/** Il numero letto dagli shim, per i test e per chi vuole verificare a mano. */
+/** @internal dev tooling only, called by scripts/job-quota-live-demo.ts. Il numero letto dagli shim, per i test e per chi vuole verificare a mano. */
 export function readLiveQuota(sessionKey: string): number | null {
   try {
     const testo = readFileSync(join(quotaChannelDir(sessionKey), "jobs"), "utf8");

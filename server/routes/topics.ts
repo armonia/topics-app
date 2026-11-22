@@ -75,9 +75,7 @@ import { createChatAbortRoutes } from "./topics-abort";
 import { createToolResponseRoutes } from "./topics-tool-response";
 import { createCommandRoutes } from "./topics-commands";
 
-
-export { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue, purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
-export { topicPreviewText } from "./topics-preview";
+export { purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
 
 /**
  * `paneAttachedTo` — «una pane viva sta guardando questo contextId?». Il
@@ -289,7 +287,6 @@ export function createTopicsRouter(
 
   const { db } = ctx;
 
-
   // Auto-naming endpoint extracted to its own router  // Auto-naming endpoint extracted to its own router; it needs two closure
   // helpers injected (they close over this scope), so it's instantiated here.
   const autoNameRouter = createAutoNameRouter(ctx, { resolveProvider, detectProjectPathFromMessages });
@@ -471,7 +468,6 @@ export function createTopicsRouter(
       }
       return json({ topics: listShape(loadTopics({ archived: false }).topics), workspaceProjects: getWorkspaceProjects() });
     }
-
 
     // Streaming-session snapshot for cross-reload loading hydration. The client
     // (useSignalsSync) polls this so a chat that was mid-reply when the page
@@ -758,7 +754,6 @@ export function createTopicsRouter(
         // line (mid-write) is deliberately left for the sweep to re-read whole.
         const lastNl = text.lastIndexOf("\n");
         const importOffset = lastNl >= 0 ? Buffer.byteLength(text.slice(0, lastNl + 1), "utf-8") : 0;
-
 
         // INTO A CHAT THAT ALREADY HAS IT. A chat that lost its binding (the
         // boot sweep of a server before #903 forgot every session whose
@@ -1379,3 +1374,7 @@ export function createTopicsRouter(
     return null;
   };
 }
+/** @internal tests import these through the barrel */
+export { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue } from "./topics-ui-state";
+/** @internal tests import these through the barrel */
+export { topicPreviewText } from "./topics-preview";

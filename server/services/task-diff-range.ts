@@ -124,6 +124,7 @@ function lines(out: string): string[] {
  * committato, che è la risposta giusta per una card che ha appena cominciato.
  *
  * `null` = non misurabile (HEAD staccato, git in errore) — mai una gamma a caso.
+ * @internal range-only view of worktreeRange, asserted by the range tests
  */
 export async function worktreeOwnRange(
   cwd: string,

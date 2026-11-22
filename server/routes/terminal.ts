@@ -40,20 +40,20 @@ import { NOT_A_SUBAGENT, isRosterDependentRoute, reconcileSessions, rosterWarmin
 import { createSession } from "./terminal-session-create";
 import { liveChildrenOf, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
 import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
-export { noteSubAgentStopHook, retireIdleSubAgents } from "../lib/subagent-runtime";
+export { noteSubAgentStopHook } from "../lib/subagent-runtime";
 /** @internal */
 export { _forgetSubAgentMemory } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
-export type { TerminalSession } from "./terminal-state";
-export { setSubAgentExitHandler, boardAgentCap, setChildAdmissionPreview, boardSpawnMode, liveCliChildren, seedPromptForSession, seedPromptFingerprintForSession } from "./terminal-children";
+
+export { setSubAgentExitHandler, setChildAdmissionPreview, liveCliChildren } from "./terminal-children";
 /** @internal */
 export { _setAgentProfilesHome, _setSeedPromptHandlerForTests } from "./terminal-children";
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
-export { getPtyBridgeRuntimeStatus, bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge, disconnectBridge } from "./terminal-bridge-socket";
+export { getPtyBridgeRuntimeStatus, disconnectBridge } from "./terminal-bridge-socket";
 /** @internal */
 export { _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
-export { resolveTerminalSend } from "./terminal-bridge-send";
+
 /** @internal */
 export { _resetRosterReconciled } from "./terminal-bridge-roster";
 export { autoNameClaudeSession } from "./terminal-session-create";
@@ -97,14 +97,12 @@ export function resumeIdForNewSession(
   return id;
 }
 
-
 // Idempotency cache for POST /api/terminal/sessions retries.
 // Client sends X-Idempotency-Key on reopen (paneId:closedAt) so a transient
 // 5xx on the HEAD probe doesn't spawn duplicate pty sessions when the client
 // retries the POST. 60 s TTL — long enough to cover any realistic retry.
 // Logic + tests live in ../lib/idempotency-cache; this is the route's singleton.
 const idempotencyCache = createIdempotencyCache();
-
 
 export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTracker): RouteHandler {
   const { json, readJSON, errorResponse, matchRoute } = ctx;
@@ -1113,7 +1111,6 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
   };
 }
 
-
 export function handleTerminalWebSocket(ws: any, sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) {
@@ -1209,3 +1206,13 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
     },
   };
 }
+/** @internal tests import these through the barrel */
+export { retireIdleSubAgents } from "../lib/subagent-runtime";
+/** @internal tests import these through the barrel */
+export { boardAgentCap, boardSpawnMode, seedPromptForSession, seedPromptFingerprintForSession } from "./terminal-children";
+/** @internal tests import these through the barrel */
+export { bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge } from "./terminal-bridge-socket";
+/** @internal tests import these through the barrel */
+export { resolveTerminalSend } from "./terminal-bridge-send";
+/** @internal tests import these through the barrel */
+export type { TerminalSession } from "./terminal-state";

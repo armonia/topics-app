@@ -74,6 +74,7 @@ export function topicsHome(env: NodeJS.ProcessEnv = process.env, home: string = 
  *
  * Pure (home injected for tests). Returns the isolated home to use, or null when
  * `baseDir` is a normal checkout and production defaults must stand.
+ * @internal imported by the server.ts boot, which knip --production does not credit
  */
 export function worktreeIsolationHome(baseDir: string, home: string): string | null {
   const worktreesRoot = join(home, ".topics", "worktrees") + sep;
@@ -100,6 +101,7 @@ export function worktreeIsolationHome(baseDir: string, home: string): string | n
  * `null` come valore vuol dire «togli questa variabile». Un server isolato non
  * ha nessuna ragione di servire il tunnel: quello e' il canale del relay verso
  * l'installazione VERA.
+ * @internal imported by the server.ts boot, which knip --production does not credit
  */
 export function worktreeIsolationEnv(
   env: Record<string, string | undefined>,
@@ -271,6 +273,7 @@ function lockPredatesBoot(acquiredAt: string): boolean {
  *         non e' un errore: viene recuperato in modo trasparente con una riga
  *         di log strutturata (c'era una StaleLockError mai lanciata da
  *         nessuno — rimossa).
+ * @internal imported by the server.ts boot, which knip --production does not credit
  */
 export function acquireLock(): LockFile {
   ensureHomeDir();

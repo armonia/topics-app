@@ -627,6 +627,7 @@ export async function probeVm(
  *
  * On 2026-09-10 it held 26 GB of 32. Not an edge case invented out of caution:
  * the measurement of the one night this machine locked up.
+ * @internal measurement helper the capacity tests drive
  */
 export function compressorGB(
   run: () => string | null = readVmStatSync,
@@ -638,27 +639,11 @@ export function compressorGB(
 }
 
 /**
- * HOW MANY PAGES THE MACHINE HAS SWAPPED OUT SINCE BOOT, cumulative, or `null`.
- *
- * A counter, not a rate: the difference between two readings over the elapsed
- * time is the rate, the same shape `fleet-usage.ts` already uses for CPU. And
- * the same trap applies - a reading with no previous base is NOT zero, it is
- * "I do not know".
- *
- * Reported and not gated, deliberately: see the note on the compressor below.
- */
-export function swapoutPages(
-  run: () => string | null = readVmStatSync,
-): number | null {
-  const out = run();
-  return out ? parseVmStat(out).swapouts : null;
-}
-
-/**
  * Il pavimento come predicato puro: prende i GB disponibili e risponde sì/no.
  * Separato dalla sonda apposta — è la forma che il task chiedeva, la stessa di
  * `machineTooLoaded`, e permette di provarlo nei DUE versi senza riempire la
  * RAM di una macchina vera.
+ * @internal pure floor predicate the capacity tests drive both ways
  */
 export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_MEM_FLOOR_GB): boolean {
   if (availableGB == null || !Number.isFinite(availableGB)) return false;
@@ -864,6 +849,7 @@ export function dispatchResourceVerdict(
  * The same verdict as a bare sentence, for every caller that only writes it.
  * The dispatcher reads `dispatchResourceVerdict`: it needs the kind to key the
  * wait and the exemption to declare it.
+ * @internal bare-sentence form of dispatchResourceVerdict, driven by the capacity tests
  */
 export function dispatchResourceBlock(
   ...args: Parameters<typeof dispatchResourceVerdict>

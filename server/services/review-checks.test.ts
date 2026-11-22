@@ -16,7 +16,6 @@ import {
   runReviewChecks,
   serializeReviewChecks,
   failureTail,
-  tailOf,
   MAX_CHECKS,
   NOT_MEASURED_EXIT,
   type CheckRun,
@@ -86,18 +85,6 @@ describe("serializeReviewChecks", () => {
   test("lista vuota = NULL, cioè gate spento", () => {
     expect(serializeReviewChecks([])).toBeNull();
     expect(serializeReviewChecks([{ name: "x", cmd: "  " }])).toBeNull();
-  });
-});
-
-describe("tailOf", () => {
-  test("tiene la coda, che è dove sta l'errore", () => {
-    const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
-    const tail = tailOf(text, 3);
-    expect(tail).toBe("riga 97\nriga 98\nriga 99");
-  });
-
-  test("output corto resta intero", () => {
-    expect(tailOf("solo questa\n", 10)).toBe("solo questa");
   });
 });
 
@@ -187,7 +174,7 @@ describe("failureTail", () => {
 
   test("with no noise it behaves exactly like the plain tail", () => {
     const text = Array.from({ length: 100 }, (_, i) => `riga ${i}`).join("\n");
-    expect(failureTail(text, 3)).toBe(tailOf(text, 3));
+    expect(failureTail(text, 3)).toBe(text.split("\n").slice(-3).join("\n"));
   });
 });
 

@@ -113,10 +113,10 @@ function scheduledWait(body: unknown): { reason: string; minutes: number } | nul
   return { reason: b.wait_reason.trim(), minutes: b.wait_minutes };
 }
 
-export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
-export { matchGuestTaskAction } from "./tasks-guests";
+export { runGitCap, ownCommitFiles, ownBranchFiles } from "./tasks-git";
+
 export type { TasksRouterOpts } from "./tasks-opts";
-export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
+export { emitReviewReadyEdge } from "./tasks-shared";
 
 /**
  * How many CLOSED cards the global feed carries.
@@ -133,7 +133,6 @@ export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
  */
 const DONE_FEED_LIMIT = 120;
 
-
 /**
  * Cap for AGENT-authored comments (the session surface only — humans are
  * uncapped). Generous enough for 2-3 dense sentences or a question block,
@@ -141,16 +140,9 @@ const DONE_FEED_LIMIT = 120;
  */
 const AGENT_COMMENT_MAX_CHARS = 600;
 
-
-
-
 /** `/api/all-boards/publish-status` answers from here for a short while; a publish empties it. */
 const PUBLISH_STATUS_TTL_MS = 30_000;
 let publishStatusCache: { key: string; until: number; body: { projects: unknown[] } } | null = null;
-
-
-
-
 
 export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, opts?: TasksRouterOpts): RouteHandler {
   const { db, json, readJSON, matchRoute, broadcastToAll, broadcastToTopicSubscribers, getTopicBySessionKey, isPathAllowed } = ctx;
@@ -202,11 +194,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
   };
 
-
   const reap = createTasksReap(core);
   Object.assign(late, reap);
   const { sweepRemoteDelivery, reapAttemptWorkspace, captureDelivery, capturaConsegna, triggerUrlProbe } = reap;
-
 
   const checks = createTasksChecksDelivery(core, late);
   Object.assign(late, checks);
@@ -1513,3 +1503,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   resumePendingDeliveries();
   return tasksRouter;
 }
+/** @internal tests import these through the barrel */
+export { ownChangesBetween } from "./tasks-git";
+/** @internal tests import these through the barrel */
+export { matchGuestTaskAction } from "./tasks-guests";
+/** @internal tests import these through the barrel */
+export { pendingQuestion } from "./tasks-shared";

@@ -430,6 +430,7 @@ export function tallyVotes(votes: readonly JudgeVote[]): {
  * mediana: vedi `JUDGE_VOTES` per la misura che ha deciso il numero, e
  * `medianOf` per perché mediana e non «il più frequente». Le chiamate sono
  * indipendenti anche nel fallire — una che esplode non porta giù le altre.
+ * @internal dev tooling only, called by scripts/effort-variance.ts
  */
 export async function pickTaskPlan(
   task: { text: string; description?: string | null },

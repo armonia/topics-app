@@ -5,7 +5,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */
@@ -476,16 +476,6 @@ describe("il pavimento sulla memoria", () => {
       + "Pages occupied by compressor:             314558.\n"
       + "Swapouts:                                 258707.";
     expect(compressorGB(() => healthy)!).toBeCloseTo(5.15, 1);
-
-    // The CUMULATIVE swapouts are identical in the two samples, and it is the
-    // most eloquent fact of the night: since the crisis ended the machine has
-    // not swapped a single page. A counter, not a rate: the difference between
-    // two readings is the rate, and a reading with no previous base is not
-    // zero, it is "I do not know" - the same rule as `makeInstantCpu`.
-    expect(swapoutPages(() => thatNight)).toBe(258707);
-    expect(swapoutPages(() => healthy)).toBe(258707);
-    expect(swapoutPages(() => "niente")).toBeNull();
-    expect(swapoutPages(() => null)).toBeNull();
   });
 
   test("nessun tetto sul compressore: il cancello ha UN solo segnale sulla memoria", () => {

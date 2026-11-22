@@ -280,6 +280,7 @@ export interface AheadSplit {
  * falso allarme che il controllo esiste per non dare.
  *
  * `null` = non contabile, come le altre.
+ * @internal dev tooling only, called by scripts/board-doctor.ts
  */
 export async function splitAheadCommits(
   repoPath: string,
