@@ -19,6 +19,7 @@ import { createHeavySlotRouter } from "../routes/heavy-slot";
 import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
+import { createAgentPermissionsRouter } from "../routes/agent-permissions";
 import { createAgentsRouter } from "../routes/agents";
 import { createMemoryStoresRouter } from "../routes/memory-stores";
 import { createSystemHealthRouter } from "../routes/system-health";
@@ -96,6 +97,10 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
   const agentConfigRouter = createAgentConfigRouter(ctx);
+
+  // What the channel engine applies for each agent (policy, owners, trusted,
+  // senders/denied) and its own log of stopped turns (AGENTS-NAV-01).
+  const agentPermissionsRouter = createAgentPermissionsRouter(ctx);
 
   // The agents registry: who exists, and creating a new one.
   const agentsRouter = createAgentsRouter(ctx);
@@ -222,5 +227,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentPermissionsRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }
