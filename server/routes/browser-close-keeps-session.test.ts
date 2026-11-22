@@ -13,12 +13,13 @@
  * questo test lo blocca se torna.
  * @covers BROWSER-CHAT-01
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, beforeAll, afterAll } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createBrowserRouter } from "./browser";
 import {
   saveStorageState,
   loadStorageState,
+  saveLastUrl,
   loadLastUrl,
 } from "../browser-state-store";
 
@@ -78,6 +79,12 @@ function harness() {
   };
   return { del, destroyed };
 }
+
+// Every test starts from the same seeded session (the data dir is torn down in afterAll).
+beforeEach(async () => {
+  await saveStorageState(CTX, FIXTURE as never);
+  saveLastUrl(CTX, "https://example.com/dashboard");
+});
 
 describe("DELETE /api/browsers/:id", () => {
   test("distrugge il contesto ma lascia intatto il barattolo della sessione condivisa", async () => {
