@@ -2202,6 +2202,7 @@ const EN = {
   'chat.machineStop.stall': 'Stopped: the turn was recycled because it looked stuck',
   'chat.turnInterrupted.providerError': 'the provider answered with an error',
   'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry; it resumes on its own',
+  'chat.turnInterrupted.creditExhausted': 'plan quota and API credit are used up; it resumes on its own when they come back',
   'chat.turnInterrupted.toolBudget': 'the turn used up the server budget of tool rounds; it resumes once by itself',
   'chat.turnInterrupted.refusal': 'the model refused the request',
   // Cause only, as for the watchdog: only the direct answer to the person's
