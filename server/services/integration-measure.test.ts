@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { CheckRun } from "../../shared/board";
 import { measureIntegration, type IntegrationMeasureDeps } from "./integration-measure";
-import { ownChangesBetween } from "../routes/tasks";
+import { ownChangesBetween } from "../routes/tasks-git";
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });

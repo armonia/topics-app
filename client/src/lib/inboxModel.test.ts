@@ -8,7 +8,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { historyDayKey, inboxModel, markAllSeenItems, quietItemsOf } from './inboxModel';
-import { chromeAttentionTotal } from '../state/attentionTotal';
+import { chromeAttentionSubjects } from '../state/attentionTotal';
 import type { AttentionSnapshot } from '../../../shared/attention';
 import type { Topic, TerminalSessionInfo } from '../types';
 
@@ -79,7 +79,7 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
   });
 
   test('the panel lists exactly what the chrome counts', () => {
-    expect(model.waiting.length + model.finished.length).toBe(chromeAttentionTotal(rows, topics, [term('s1')]));
+    expect(model.waiting.length + model.finished.length).toBe(chromeAttentionSubjects(rows, topics, [term('s1')]).length);
   });
 
   test('«Mark all seen» sends the finished rows only: with three finished and two waiting the number is 2', () => {
@@ -88,7 +88,7 @@ describe('inboxModel: «Waiting for you» and «Finished»', () => {
     expect(items.map((i) => i.subject).sort()).toEqual(['topic:a', 'topic:b', 'topic:c']);
     const after = new Map(three);
     for (const i of items) after.set(i.subject, { ...three.get(i.subject)!, seenEpoch: i.epoch, lit: false });
-    expect(chromeAttentionTotal(after, topics, [])).toBe(2);
+    expect(chromeAttentionSubjects(after, topics, []).length).toBe(2);
   });
 });
 
@@ -106,7 +106,7 @@ describe('inboxModel: the quiet line', () => {
     expect(model.finished).toEqual([]);
     expect(model.working.map((q) => q.subject).sort()).toEqual(['topic:x', 'topic:y', 'topic:z']);
     expect(model.working.find((q) => q.subject === 'topic:z')?.firstTask).toBeNull();
-    expect(chromeAttentionTotal(rows, topics, [])).toBe(0);
+    expect(chromeAttentionSubjects(rows, topics, []).length).toBe(0);
   });
 
   test('the first task named is the first one that is not a recurring cron', () => {

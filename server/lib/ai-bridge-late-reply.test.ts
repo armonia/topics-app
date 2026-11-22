@@ -28,7 +28,8 @@ const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
 process.env.TOPICS_AI_BRIDGE_SOCKET = SOCK;
 process.env.TOPICS_DATA_DIR = dataDir;
 
-const { AiBridgeClient, BridgeAckStalled } = await import("./ai-bridge-client");
+const { AiBridgeClient } = await import("./ai-bridge-client");
+const { BridgeAckStalled } = await import("./ai-bridge-errors");
 
 type Frame = { type?: string; rid?: number; id?: string };
 let server: net.Server | null = null;

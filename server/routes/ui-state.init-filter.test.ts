@@ -18,7 +18,6 @@ import { Database } from "bun:sqlite";
 import {
   createUiStateRouter,
   loadAllUiState,
-  isExcludedFromUiStateInit,
   UI_STATE_INIT_EXCLUDED_PREFIXES,
 } from "./ui-state";
 import type { AppContext } from "../types";
@@ -66,11 +65,11 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(meta["pane-store-v2"].server_seq).toBe(1);
   });
 
-  test("la finestra browser di una topic non viaggia nello snapshot", () => {
+  test("a topic's browser window does not travel in the snapshot", () => {
     // Same shape as the per-task keys, one level up: one row per topic that has
     // opened its window, and the client GETs it by itself.
     expect(Object.keys(loadAllUiState(db).data)).not.toContain("topic-browser:tp-1");
-    expect(isExcludedFromUiStateInit("topic-browser:tp-1")).toBe(true);
+    expect(Object.keys(loadAllUiState(db).meta)).not.toContain("topic-browser:tp-1");
   });
 
   test("un task che si CHIAMA come il prefisso ma non lo è resta nello snapshot", () => {
@@ -85,10 +84,14 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(Object.keys(loadAllUiState(db).data).sort()).toEqual(["pane-store-v2", "theme"]);
   });
 
-  test("isExcludedFromUiStateInit è il gemello JS del WHERE", () => {
-    for (const p of UI_STATE_INIT_EXCLUDED_PREFIXES) expect(isExcludedFromUiStateInit(`${p}abc`)).toBe(true);
-    expect(isExcludedFromUiStateInit("pane-store-v2")).toBe(false);
-    expect(isExcludedFromUiStateInit("theme")).toBe(false);
+  test("every excluded prefix is really filtered by the SQL, and the kept keys are not", () => {
+    // The prefix list is the single source for the WHERE: a row under each
+    // prefix must be left out of the snapshot, whatever the list holds today.
+    for (const [i, p] of UI_STATE_INIT_EXCLUDED_PREFIXES.entries()) putRow(`${p}abc`, { x: 1 }, 100 + i);
+    const keys = Object.keys(loadAllUiState(db).data);
+    for (const p of UI_STATE_INIT_EXCLUDED_PREFIXES) expect(keys).not.toContain(`${p}abc`);
+    expect(keys).toContain("pane-store-v2");
+    expect(keys).toContain("theme");
   });
 });
 

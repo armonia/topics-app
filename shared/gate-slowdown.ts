@@ -48,6 +48,7 @@ export function clampSlowdown(factor: number): number {
   return round1(Math.min(MAX_SLOWDOWN_FACTOR, Math.max(1, factor)));
 }
 
+/** @knipignore used by scripts/test-unit-shards.ts, outside the production graph */
 export function gateSlowdownLine(factor: number, reason: string): string {
   return `${GATE_SLOWDOWN_PREFIX} x${clampSlowdown(factor).toFixed(1)}: ${reason}`;
 }

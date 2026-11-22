@@ -169,17 +169,6 @@ export function automaticChatTarget(
   return stored === true && model?.startsWith('claude-') ? 'topics' : defaultProvider;
 }
 
-/** Whether the switch ON runs this runtime and model through the engine: the
- * same answer as `topicsRoute` with the preference ON. A null provider means
- * Automatic, routable while the engine is ready. */
-export function topicsRoutingAvailable(
-  provider: string | null,
-  model: string | null | undefined,
-  snapshot?: ProvidersSnapshot | null,
-): boolean {
-  return topicsRoute(true, { provider, model }, snapshot, 'chat').via === 'topics';
-}
-
 /** AICTRL-04 + MSEL-06: a stored value wins. Only a card created before the
  * routing-column migration keeps `claude-code:<model>` as an unset OFF choice;
  * newer cards use the task default. A persisted legacy session has its own OFF

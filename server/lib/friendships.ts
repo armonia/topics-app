@@ -231,13 +231,14 @@ export function friends(db: Db, me: string): string[] {
   return relations(db, me).filter((e) => e.state === "friends").map((e) => e.personId);
 }
 
-/** Requests waiting for MY answer, newest first. */
+/** @knipignore used by client/src/demo/scenario.ts, outside the production graph. Requests waiting for MY answer, newest first. */
 export function incoming(db: Db, me: string): Array<{ id: string; since: number }> {
   return relations(db, me).filter((e) => e.state === "pending_in")
     .map((e) => ({ id: e.personId, since: e.since }));
 }
 
 /**
+ * @knipignore used by client/src/demo/scenario.ts, outside the production graph
  * Requests I sent that have not been answered, newest first.
  *
  * `declined_out` is NOT in here, and that is deliberate: a refused request

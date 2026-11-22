@@ -15,7 +15,7 @@ import { t } from '../../lib/i18n';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import { admissionVerdict } from '../../../../shared/machine-budget';
-import { CHECKS_MEM_FLOOR_DEFAULT_GB } from '../../lib/board';
+import { CHECKS_MEM_FLOOR_DEFAULT_GB } from '../../../../shared/checks-memory-floor';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,

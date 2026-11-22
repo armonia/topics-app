@@ -1,7 +1,7 @@
 /**
  * @covers EXTSESS-01, EXTSESS-02, EXTSESS-03, EXTSESS-09
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,6 @@ import {
   resolveOwningProject,
   isTopicsOwnedSession,
   scanExternalClaudeSessions,
-  clearExternalSessionCache,
 } from "./external-claude-sessions";
 
 const line = (o: object) => JSON.stringify(o);
@@ -129,8 +128,6 @@ describe("scanExternalClaudeSessions", () => {
     nowMs: NOW,
   };
 
-  beforeEach(() => clearExternalSessionCache());
-
   test("reports a bare terminal session with project, branch and last activity", () => {
     const sessions = scanExternalClaudeSessions({
       ...base,
@@ -230,7 +227,6 @@ describe("scanExternalClaudeSessions", () => {
 });
 
 describe("the census at 600 transcripts in the window", () => {
-  beforeEach(() => clearExternalSessionCache());
 
   test("bench: after the first pass no pass goes over 100 ms, a few transcripts changing each time", () => {
     // Real files, the tail the scanner reads (64 KB) and more. 711 were in the

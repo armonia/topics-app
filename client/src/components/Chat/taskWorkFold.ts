@@ -35,11 +35,6 @@ import { resolveToolDetail } from './toolDetail';
 import { isActiveTool, summarizeToolGroup, type ToolGroupSummary } from './toolGrouping';
 import { coalesceBrowserOpens, type BrowserMarker } from './browserOpens';
 
-/** One stretch of the transcript, once a turn is split by what it is FOR. */
-export type TurnSegment =
-  | { kind: 'salient'; message: ChatMessage }
-  | { kind: 'work'; messages: ChatMessage[] };
-
 /** Every tool call the message carries, in the order it ran. */
 export function toolsOf(msg: ChatMessage): ToolCall[] {
   const fromBlocks = blocksOf(msg)
@@ -74,26 +69,6 @@ export function isMachineWork(msg: ChatMessage): boolean {
     if (tc.userResponse) return false;
   }
   return true;
-}
-
-/**
- * Split a turn (or a whole transcript) into what is said and what was done.
- *
- * Consecutive work messages join one segment; anything salient closes it. The
- * order of the input is the order of the output, always.
- */
-export function partitionTurn(messages: ChatMessage[]): TurnSegment[] {
-  const segments: TurnSegment[] = [];
-  for (const message of messages) {
-    if (!isMachineWork(message)) {
-      segments.push({ kind: 'salient', message });
-      continue;
-    }
-    const last = segments[segments.length - 1];
-    if (last && last.kind === 'work') last.messages.push(message);
-    else segments.push({ kind: 'work', messages: [message] });
-  }
-  return segments;
 }
 
 export interface WorkSummary extends ToolGroupSummary {

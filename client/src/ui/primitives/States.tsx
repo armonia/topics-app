@@ -14,6 +14,7 @@ const LINE_WIDTHS = ['w-11/12', 'w-4/5', 'w-2/3', 'w-5/6', 'w-3/5'];
  * A place whose content is on its way: one line that says what is loading,
  * then the shape of the text to come. `data-loading` marks it, so a test can
  * tell a slow place from an empty one.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function LoadingState({ title, lines = 3, className }: { title: string; lines?: number; className?: string }) {
   return (
@@ -35,6 +36,7 @@ export function LoadingState({ title, lines = 3, className }: { title: string; l
  * with a red glyph, one plain line, an optional sentence, the way on, and the
  * technical details in a quiet box for whoever has to report it.
  * `data-error` marks it.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function ErrorState({ title, body, action, details, className }: {
   title: string;

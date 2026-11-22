@@ -1004,14 +1004,6 @@ export function setClosed(subject: string, flags: { archived?: boolean; deleted?
   }
   return recompose(subject, { live: true });
 }
-
-/** The topic of a board agent (rule 2): its card is the subject. */
-export function setDispatched(subject: string, dispatched: boolean): AttentionSnapshot {
-  const e = entryOf(subject);
-  e.live.dispatched = dispatched;
-  return recompose(subject, { live: true });
-}
-
 export type ProcessEndCause = "session-end" | "pty-exit" | "cli-exit" | "reaper" | "lifetime-cap" | "crash" | "swap-kill" | "restart";
 
 /**

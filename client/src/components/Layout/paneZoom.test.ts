@@ -17,12 +17,7 @@ import { describe, test, expect } from 'bun:test';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
 import { isLeaf, isSplit, type LayoutNode } from '../../state/layout/layoutTree';
 import {
-  applyZoomWeights,
-  cellKeysForPanes,
-  liveCellKeys,
-  pruneZoom,
-  type ZoomGridItem,
-  type ZoomRow,
+  applyZoomWeights, cellKeysForPanes, liveCellKeys, type ZoomGridItem, type ZoomRow,
 } from './paneZoom';
 
 /** Two rows: [standalone | solo:B] over [solo:C]. */
@@ -198,21 +193,5 @@ describe('liveCellKeys', () => {
   test('a key repeated in another row counts once', () => {
     const repeated: ZoomRow[] = [{ itemKeys: ['standalone'] }, { itemKeys: ['standalone', 'solo:C'] }];
     expect([...liveCellKeys(repeated, ITEM_MAP)]).toEqual(['standalone', 'solo:C']);
-  });
-});
-
-describe('pruneZoom', () => {
-  test('a cell that died drops out of the set', () => {
-    const kept = pruneZoom(new Set(['standalone', 'solo:B']), new Set(['standalone', 'solo:C']));
-    expect([...kept]).toEqual(['standalone']);
-  });
-
-  test('nothing to drop hands back the SAME set, by reference', () => {
-    const keys = new Set(['standalone', 'solo:B']);
-    expect(pruneZoom(keys, new Set(['standalone', 'solo:B', 'solo:C']))).toBe(keys);
-  });
-
-  test('the anchor gone leaves an empty set, which is what closes the zoom', () => {
-    expect(pruneZoom(new Set(['standalone']), new Set(['solo:C'])).size).toBe(0);
   });
 });

@@ -7,7 +7,7 @@
  * @covers HUBBR-13
  */
 import { describe, expect, test } from 'bun:test';
-import { agentsOutsideTopics, hubIconPath, hubWork } from './agentsJobsHub';
+import { hubIconPath, hubWork } from './agentsJobsHub';
 import { agentsJobs } from './agentsJobs';
 
 const NOW = new Date(2026, 10, 5, 15, 0, 0).getTime();
@@ -68,12 +68,6 @@ describe('hubWork', () => {
     expect(w.paused.get('j-q')).toEqual({ why: 'Claude frenato', until: NOW + 60 * MIN });
     expect(hubIconPath(w.icons, 'Acme Web')).toBe('/api/hub/project-icon?name=acme-web');
     expect(hubIconPath(w.icons, 'studio-x')).toBeNull();
-  });
-
-  test('the count of agents outside Topics, and nothing from an answer that is not the hub', () => {
-    expect(agentsOutsideTopics(LIVE)).toBe(6);
-    expect(hubWork(null, null)).toMatchObject({ sessions: [], subagents: [], workflows: [] });
-    expect(agentsOutsideTopics('down')).toBe(0);
   });
 });
 
