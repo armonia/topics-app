@@ -413,12 +413,12 @@ export function voices(samples: readonly Sample[], settings: TopicsCheckSettings
   return [cardsVoice, seatsVoice, proofsVoice];
 }
 
-type Runner = typeof runBounded;
+export type Runner = typeof runBounded;
 
-/** Runs the 5-minute proofs, each under the wall-clock cap; a non-zero exit or a timeout is red. */
-export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number, run: Runner = runBounded): Promise<ProofResult[]> {
+/** Runs the proofs of one tier (the 5-minute ones by default), each under the wall-clock cap; a non-zero exit or a timeout is red. */
+export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number, run: Runner = runBounded, tier: CheckSpec["tier"] = "5min"): Promise<ProofResult[]> {
   const shell = process.platform === "win32" ? ["cmd", "/c"] : ["sh", "-c"];
-  return Promise.all(checks.filter((c) => c.tier === "5min").map(async (c): Promise<ProofResult> => {
+  return Promise.all(checks.filter((c) => c.tier === tier).map(async (c): Promise<ProofResult> => {
     const r = await run([...shell, c.command], timeoutSec * 1000);
     if (r.timedOut) return { name: c.name, ok: false, reason: `oltre ${timeoutSec} s` };
     if (r.missing) return { name: c.name, ok: false, reason: "comando non avviabile" };

@@ -7,6 +7,7 @@ import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
 import { createCures, cureDepsOf } from "../services/topics-check-cures";
+import { startTopicsCheckDaily } from "../services/topics-check-daily";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
@@ -164,6 +165,11 @@ export function bootPostListen(scope: AfterRelay) {
   const cures = createCures(cureDepsOf(ctx.db, dispatcherSvc, taskDispatcher));
   // The cures change real cards: the e2e server keeps them off.
   startTopicsCheck(ctx.db, (sample, s) => (process.env.TOPICS_E2E !== "1" ? cures.run(sample, s.thresholds, s.investigation) : []));
+  // Once a day, one model reading of what the counts cannot see; independent of the round above, and off in the
+  // e2e server, where the call would be paid.
+  if (process.env.TOPICS_E2E !== "1") {
+    startTopicsCheckDaily(ctx.db, (inv, title, body) => cures.openDaily(inv, title, body));
+  }
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
   if (process.env.TOPICS_E2E !== "1") startQuotaSampler();

@@ -463,3 +463,26 @@ describe("what the view says", () => {
     expect(summarizeCures()).toEqual({ cured: [], investigated: [], capped: [] });
   });
 });
+
+describe("the daily reading's card", () => {
+  test("it opens in backlog under the investigation prefix, goes to the views, and counts in the day's cap", () => {
+    const h = setup();
+    const r = h.cures.openDaily(ON_BOARD, "Topics check: x", "body");
+    expect(r.outcome).toBe("opened");
+    const row = h.db.query("SELECT status, claude_task_id AS cid FROM tasks WHERE id = ?").get(r.cardId!) as { status: string; cid: string };
+    expect(row.status).toBe("backlog");
+    expect(row.cid).toStartWith("topics-check:");
+    expect(h.emitted).toContain(r.cardId!);
+    // Two more investigations fill the cap of 3; the daily card is the first of them.
+    h.card("a"); h.card("b"); h.card("c");
+    h.cures.run(sample([stuck("a", "attempts"), stuck("b", "spend"), stuck("c", "no-project")]), T, ON_BOARD);
+    expect(h.opened().length).toBe(3);
+  });
+
+  test("a full cap or no board opens nothing", () => {
+    const h = setup();
+    expect(h.cures.openDaily(OFF, "t", "b")).toEqual({ outcome: "off", cardId: null });
+    h.cures.openDaily({ boardId: "inv", perDay: 1 }, "t", "b");
+    expect(h.cures.openDaily({ boardId: "inv", perDay: 1 }, "t2", "b")).toEqual({ outcome: "capped", cardId: null });
+  });
+});

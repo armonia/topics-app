@@ -139,13 +139,17 @@ export function createCures(deps: CureDeps) {
       .get(boardId, `${INVESTIGATION_KEY}%`, keyAt, p.key, today());
   }
 
+  /** Investigation cards (any kind) opened on `day`: what the cap counts. */
+  const openedToday = (boardId: string, day: string): number =>
+    (db.query("SELECT COUNT(*) AS n FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND substr(created_at, 1, 10) = ?")
+      .get(boardId, `${INVESTIGATION_KEY}%`, day) as { n: number }).n;
+
   /** One investigation card for this key, within the day's cap. */
   function investigate(p: Problem, inv: InvestigationSettings): CureOutcome {
     if (!inv.boardId) return "off";
     const day = today();
     if (investigated(p, inv.boardId)) return "skipped";
-    const opened = (db.query("SELECT COUNT(*) AS n FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND substr(created_at, 1, 10) = ?")
-      .get(inv.boardId, `${INVESTIGATION_KEY}%`, day) as { n: number }).n;
+    const opened = openedToday(inv.boardId, day);
     if (opened >= inv.perDay) {
       const line = `Tetto di ${inv.perDay} indagini al giorno raggiunto: non apro un'altra card per questo problema.`; // allow-italian: board comment
       // The cap stays in the report for as long as it holds; the line on the card is written once a day.
@@ -161,7 +165,22 @@ export function createCures(deps: CureDeps) {
     return "investigated";
   }
 
+  /**
+   * The card of a red daily reading: it takes the investigation board, the `topics-check:` key prefix and the
+   * day's cap like any investigation card, so it can never be a second path to an unbounded stream of cards.
+   */
+  function openDaily(inv: InvestigationSettings, title: string, body: string): { outcome: "opened" | "capped" | "off"; cardId: string | null } {
+    if (!inv.boardId) return { outcome: "off", cardId: null };
+    const day = today();
+    const opened = openedToday(inv.boardId, day);
+    if (opened >= inv.perDay) return { outcome: "capped", cardId: null };
+    const card = svc.create({ projectId: inv.boardId, status: "backlog", idempotencyKey: `${INVESTIGATION_KEY}${day}:daily`, text: title, description: body });
+    deps.emit(card);
+    return { outcome: "opened", cardId: card.id };
+  }
+
   return {
+    openDaily,
     /** One round over the last sample. A failure on one problem never stops the others. */
     run(sample: Sample, t: Thresholds, inv: InvestigationSettings): CureReport[] {
       const reports: CureReport[] = [];
