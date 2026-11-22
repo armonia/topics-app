@@ -1111,10 +1111,7 @@ export function readNativeChildOutput(row: SubagentRow, since: number): { events
   return { events, nextOffset: rows.length, source: "chat" };
 }
 
-/**
- * Test seam: forget what this process drives.
- * @internal
- */
+/** @internal Test seam: forget what this process drives. */
 export function _resetNativeSubagents(): void {
   driving.clear();
   drivenKeys.clear();

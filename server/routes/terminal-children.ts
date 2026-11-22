@@ -294,10 +294,7 @@ export function seedPromptFingerprintForSession(sessionType: string | undefined,
 type SeedPromptHandlerForTests = (childId: string, prompt: string, acceptSnippet?: string) => void | Promise<void>;
 let seedPromptHandlerForTests: SeedPromptHandlerForTests | null = null;
 
-/**
- * Replace the asynchronous PTY seeder in route tests so they can inspect its inputs.
- * @internal
- */
+/** @internal Replace the asynchronous PTY seeder in route tests so they can inspect its inputs. */
 export function _setSeedPromptHandlerForTests(handler: SeedPromptHandlerForTests | null): void {
   seedPromptHandlerForTests = handler;
 }

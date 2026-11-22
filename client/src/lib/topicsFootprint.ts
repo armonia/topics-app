@@ -115,10 +115,7 @@ let _lastSampleKey: string | null = null;
  *  riflettere un cambio reale entro un minuto. */
 const EMA_ALPHA = 0.25;
 
-/**
- * Reimposta lo smorzamento (utile nei test).
- * @internal
- */
+/** @internal Reimposta lo smorzamento (utile nei test). */
 export function _resetTopicsFootprintSmoothing(): void {
   _smoothedServerMB = null;
   _lastSampleKey = null;

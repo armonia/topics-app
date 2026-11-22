@@ -81,10 +81,7 @@ export function useProviderHold(): ProviderHold | null {
   return useSyncExternalStore(subscribe, () => current, () => current);
 }
 
-/**
- * Test seam: feed a frame as the socket would.
- * @internal
- */
+/** @internal Test seam: feed a frame as the socket would. */
 export const _adoptForTests = adopt;
 
 /**
@@ -96,16 +93,10 @@ export const _adoptForTests = adopt;
  */
 export const _readForTests = (): ProviderHold | null => current;
 
-/**
- * Test seam: subscribe as the hook does, to watch the store announce a change.
- * @internal
- */
+/** @internal Test seam: subscribe as the hook does, to watch the store announce a change. */
 export const _subscribeForTests = subscribe;
 
-/**
- * Test seam: drop any hold and its timer, so one test cannot leak into the next.
- * @internal
- */
+/** @internal Test seam: drop any hold and its timer, so one test cannot leak into the next. */
 export function _resetForTests(): void {
   if (expiry !== null) {
     clearTimeout(expiry);

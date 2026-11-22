@@ -131,10 +131,7 @@ export function useTopicTask(topicId: string | undefined): TopicTaskRef | undefi
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
-/**
- * Solo per i test: riporta lo store allo stato di boot.
- * @internal
- */
+/** @internal Solo per i test: riporta lo store allo stato di boot. */
 export function __resetTaskSessions(): void {
   state = {};
   perTopic.clear();

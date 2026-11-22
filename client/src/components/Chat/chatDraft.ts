@@ -7,10 +7,7 @@
  */
 let warnedOnce = false;
 
-/**
- * Reset between tests; production never calls this.
- * @internal
- */
+/** @internal Reset between tests; production never calls this. */
 export function __resetDraftWarnOnce(): void {
   warnedOnce = false;
 }

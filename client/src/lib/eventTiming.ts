@@ -299,10 +299,7 @@ export function useInteractionTiming(): InteractionSnapshot {
   return useSyncExternalStore(subscribeEventTiming, getEventTimingSnapshot, getEventTimingSnapshot);
 }
 
-/**
- * Test-only: drop the observer and start from a blank store.
- * @internal
- */
+/** @internal Test-only: drop the observer and start from a blank store. */
 export function resetEventTimingForTests(): void {
   if (activeObserver?.disconnect) {
     try {

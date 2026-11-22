@@ -154,10 +154,7 @@ function subscribe(cb: () => void): () => void {
 
 const read = () => snapshot;
 
-/**
- * The same set, read outside React (tests, and any non-component caller).
- * @internal
- */
+/** @internal The same set, read outside React (tests, and any non-component caller). */
 export function onScreenSessions(): ReadonlySet<string> {
   return snapshot;
 }

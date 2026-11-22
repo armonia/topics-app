@@ -89,10 +89,7 @@ export function registerFleetScriptSource(fn: () => FleetScriptRef[]): void {
   scriptSource = fn;
 }
 
-/**
- * Test seam: forget every registration (unit tests register their own).
- * @internal
- */
+/** @internal Test seam: forget every registration (unit tests register their own). */
 export function _resetFleetSockets(): void {
   sockets.clear();
   sessionSource = null;

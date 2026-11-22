@@ -132,10 +132,7 @@ const browserStorage: QueueStorage = {
 
 let storage: QueueStorage = typeof localStorage === 'undefined' ? memoryStorage() : browserStorage;
 
-/**
- * Solo per i test: sostituisce lo storage e azzera cache e ascoltatori.
- * @internal
- */
+/** @internal Solo per i test: sostituisce lo storage e azzera cache e ascoltatori. */
 export function __setQueueStorage(next: QueueStorage | null): void {
   storage = next ?? (typeof localStorage === 'undefined' ? memoryStorage() : browserStorage);
   cache.clear();

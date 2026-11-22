@@ -114,10 +114,7 @@ export function nomeInstallazione(): string | null {
   return null;
 }
 
-/**
- * Test-only: empties the cache, so two cases never share a name.
- * @internal
- */
+/** @internal Test-only: empties the cache, so two cases never share a name. */
 export function __scordaNomeInstallazione(): void {
   memoria = null;
 }

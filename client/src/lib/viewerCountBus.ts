@@ -82,10 +82,7 @@ export function hasViewerChannel(contextId: string): boolean {
   return (channels.get(contextId) ?? 0) > 0;
 }
 
-/**
- * Test-only: forget everything.
- * @internal
- */
+/** @internal Test-only: forget everything. */
 export function resetViewerCountBusForTests(): void {
   listeners.clear();
   channels.clear();

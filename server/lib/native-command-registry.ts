@@ -43,10 +43,7 @@ export function nativeCommandByPid(pid: number): NativeCommandEntry | undefined 
   return entries.get(pid);
 }
 
-/**
- * Test seam: the registry is process-wide, a test file is not.
- * @internal
- */
+/** @internal Test seam: the registry is process-wide, a test file is not. */
 export function _resetNativeCommands(): void {
   entries.clear();
 }

@@ -61,10 +61,7 @@ export function declaredWindowForModel(model: string | null | undefined): number
   return declared.get(model.toLowerCase());
 }
 
-/**
- * Test seam: forget everything anybody published.
- * @internal
- */
+/** @internal Test seam: forget everything anybody published. */
 export function resetDeclaredWindows(): void {
   declared.clear();
   byProvider.clear();

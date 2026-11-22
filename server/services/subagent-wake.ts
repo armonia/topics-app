@@ -346,10 +346,7 @@ export function startSubagentWakes(deps: SubagentWakeDeps): SubagentWake {
   return wake;
 }
 
-/**
- * Test seam: forget the started wake.
- * @internal
- */
+/** @internal Test seam: forget the started wake. */
 export function _resetSubagentWakes(): void {
   wake = null;
   waiting.length = 0;

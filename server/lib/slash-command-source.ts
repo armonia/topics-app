@@ -254,10 +254,7 @@ export function recordCliSlashCommands(sessionKey: string, line: unknown): void 
   recordEngineCommands(sessionKey, list, { provider: "claude-code", projectPath: typeof cwd === "string" ? cwd : null });
 }
 
-/**
- * Forget every recorded list. For tests.
- * @internal
- */
+/** @internal Forget every recorded list. For tests. */
 export function resetCliSlashCommands(): void {
   cliCommandsBySession.clear();
   latestCliCommands = null;

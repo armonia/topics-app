@@ -38,10 +38,7 @@ export function rememberedAgentType(t: RememberedTerminal | undefined): Terminal
   return t && (TERMINAL_AGENT_TYPES as readonly string[]).includes(t.type) ? (t.type as TerminalAgentType) : undefined;
 }
 
-/**
- * Test seam.
- * @internal
- */
+/** @internal Test seam. */
 export function __resetTerminalMemory(): void {
   memory.clear();
 }

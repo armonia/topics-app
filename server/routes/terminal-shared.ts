@@ -19,10 +19,7 @@ export let _tracker: ClaudeSessionTracker | null = null;
  * @internal
  */
 export function _setTerminalTrackerForTests(tracker: ClaudeSessionTracker | null): void { _tracker = tracker; }
-/**
- * Test seam: the live panes, to put one in front of a hook without a bridge.
- * @internal
- */
+/** @internal Test seam: the live panes, to put one in front of a hook without a bridge. */
 export function _terminalSessionsForTests(): Map<string, TerminalSession> { return sessions; }
 
 /** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its

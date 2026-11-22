@@ -89,10 +89,7 @@ export function subscribeExtraTopics(fn: () => void): () => void {
   };
 }
 
-/**
- * Tests only: back to boot.
- * @internal
- */
+/** @internal Tests only: back to boot. */
 export function __resetTopicSubscriptions(): void {
   counts.clear();
   subs.clear();

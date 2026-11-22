@@ -567,10 +567,7 @@ export function flushPaneStoreNow(): Promise<void> {
 }
 
 // ─── test-only exports ────────────────────────────────────────────────────
-/**
- * Test/diagnostic — returns the inflight entries keyed by remote key.
- * @internal
- */
+/** @internal Test/diagnostic — returns the inflight entries keyed by remote key. */
 export function __getInflightKeys(): string[] {
   return [...inflight.keys()];
 }
@@ -595,18 +592,12 @@ export function __stopServerSyncForTests(): void {
   pendingAfterClose = false;
   started = false;
 }
-/**
- * Test-only — resets the inflight Map.
- * @internal
- */
+/** @internal Test-only — resets the inflight Map. */
 export function __resetInflightForTests(): void {
   for (const entry of inflight.values()) entry.controller.abort();
   inflight.clear();
 }
-/**
- * Test-only — directly invoke the inflight-aware PUT (bypasses debounce).
- * @internal
- */
+/** @internal Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
 export function __pushSnapshotForTests(
   key: string,
   snapshot: unknown,
@@ -615,10 +606,7 @@ export function __pushSnapshotForTests(
 ): Promise<void> {
   return pushSnapshot(key, snapshot, snapshotSeq, baseSeq);
 }
-/**
- * Test-only — the URL a teardown flush would PUT to for a given base seq.
- * @internal
- */
+/** @internal Test-only — the URL a teardown flush would PUT to for a given base seq. */
 export function __teardownFlushUrlForTests(baseServerSeq: number): string {
   return teardownFlushUrl(baseServerSeq);
 }

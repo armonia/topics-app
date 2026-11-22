@@ -197,10 +197,7 @@ export function msSinceLocalSettingsChange(): number {
   return Date.now() - lastLocalChange;
 }
 
-/**
- * Solo per i test: riporta il modulo allo stato di boot.
- * @internal
- */
+/** @internal Solo per i test: riporta il modulo allo stato di boot. */
 export function __resetSettingsSyncState(): void {
   hydrated = false;
   lastLocalChange = 0;

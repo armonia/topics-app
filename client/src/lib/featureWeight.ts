@@ -204,18 +204,12 @@ export function roughBytes(value: unknown): number {
   }
 }
 
-/**
- * Test seam: svuota il registro.
- * @internal
- */
+/** @internal Test seam: svuota il registro. */
 export function _resetFeatureWeights(): void {
   proprietari.clear();
 }
 
-/**
- * Test seam: quanti proprietari sono registrati adesso.
- * @internal
- */
+/** @internal Test seam: quanti proprietari sono registrati adesso. */
 export function _countFeatureWeightOwners(): number {
   return proprietari.size;
 }

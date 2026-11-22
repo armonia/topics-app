@@ -349,10 +349,7 @@ export function resolveFindPane(
   return known(focusedPanelId) ? focusedPanelId : (focusedTabIds[0] ?? focusedPanelId ?? null);
 }
 
-/**
- * Test hook.
- * @internal
- */
+/** @internal Test hook. */
 export function _resetFindRegistry(): void {
   for (const t of debounce.values()) clearTimeout(t);
   finders.clear(); fallbacks.clear(); states.clear(); listeners.clear(); searchSeq.clear(); debounce.clear(); focusBefore.clear(); inflight.clear();

@@ -94,10 +94,7 @@ export function startInteractionReport(): void {
   }
 }
 
-/**
- * Test-only: stop listening and allow a fresh start.
- * @internal
- */
+/** @internal Test-only: stop listening and allow a fresh start. */
 export function resetInteractionReportForTests(): void {
   reporting = false;
   pageLoadId = '';

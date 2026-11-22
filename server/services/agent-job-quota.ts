@@ -349,10 +349,7 @@ const OWNER_MARKER = ".owner-db";
 const lastWritten = new Map<string, number>();
 let lastGcAt = Number.NEGATIVE_INFINITY;
 
-/**
- * Test seam: forget what was written and when the channels were last swept.
- * @internal
- */
+/** @internal Test seam: forget what was written and when the channels were last swept. */
 export function _resetJobQuotaState(): void {
   lastWritten.clear();
   lastGcAt = Number.NEGATIVE_INFINITY;

@@ -339,10 +339,7 @@ export function isResident(key: string): boolean {
   return resident.has(key);
 }
 
-/**
- * Solo per i test: rimette il registro allo stato di boot.
- * @internal
- */
+/** @internal Solo per i test: rimette il registro allo stato di boot. */
 export function __resetResidency(injected?: ResidencyClock): void {
   disposeMemorySubscription?.();
   disposeMemorySubscription = undefined;
@@ -358,10 +355,7 @@ export function __resetResidency(injected?: ResidencyClock): void {
   clock = injected ?? realClock;
 }
 
-/**
- * Solo per la diagnostica in dev e per i test: cosa sta trattenendo cosa.
- * @internal
- */
+/** @internal Solo per la diagnostica in dev e per i test: cosa sta trattenendo cosa. */
 export function __residencyDebug(): {
   resident: string[];
   pendingRemoval: string[];

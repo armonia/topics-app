@@ -223,10 +223,7 @@ export function requestBoardTasksRefresh(): void {
   refresher?.();
 }
 
-/**
- * Solo per i test: riporta lo store allo stato di boot.
- * @internal
- */
+/** @internal Solo per i test: riporta lo store allo stato di boot. */
 export function __resetBoardTasks(): void {
   tasks = [];
   loaded = false;

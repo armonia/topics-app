@@ -382,10 +382,7 @@ export function __scheduleInitialLoadFallbackForTests(): void {
   scheduleInitialLoadFallback();
 }
 
-/**
- * Test-only — disarm a pending retry so it cannot fire inside the next case.
- * @internal
- */
+/** @internal Test-only — disarm a pending retry so it cannot fire inside the next case. */
 export function __stopInitialLoadFallbackForTests(): void {
   if (fallbackTimer !== null) {
     clearTimeout(fallbackTimer);

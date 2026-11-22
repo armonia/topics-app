@@ -59,10 +59,7 @@ export function subscribeServerTurn(sessionKey: string, listener: () => void): (
   };
 }
 
-/**
- * Only for tests: how many turn listeners remain.
- * @internal
- */
+/** @internal Only for tests: how many turn listeners remain. */
 export function __serverTurnSubscriberCount(sessionKey: string): number {
   return turnSubscribers.get(sessionKey)?.size ?? 0;
 }
@@ -221,10 +218,7 @@ export function noteStopHeard(sessionKey: string): void {
   if (t && t.turnId > 0) noteStop(sessionKey, { boot: t.boot, turnId: t.turnId });
 }
 
-/**
- * Only for tests: forget everything.
- * @internal
- */
+/** @internal Only for tests: forget everything. */
 export function __resetServerTurns(): void {
   turns.clear();
   turnSubscribers.clear();
