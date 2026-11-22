@@ -36,7 +36,10 @@ const SECTION_ICON: Record<ConfigureSection, typeof Bot> = {
   tools: Wrench, memory: Brain, model: Sparkles, context: Settings2, files: Archive,
 };
 
-const STOPPED_REASONS = ['da_un_nostro_bot', 'senza_menzione', 'bot_senza_menzione', 'gruppo_spento'] as const;
+const STOPPED_REASONS = [
+  'da_un_nostro_bot', 'senza_menzione', 'bot_senza_menzione', 'gruppo_spento',
+  'gruppo_non_ammesso', 'dm_non_ammesso', 'menziona_altri', 'mittente_non_ammesso',
+] as const;
 const PAGE_SIZE = 10;
 
 function parseIdentity(text: string): { name: string; job: string; rest: string } {
@@ -191,7 +194,7 @@ function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: {
             className="ml-1 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
           >
             <option value="">{tr('agentConfig.permissions.register.filterReasonAll')}</option>
-            {STOPPED_REASONS.map((r) => <option key={r} value={r}>{tr(`agentConfig.permissions.reason.${r}` as 'agentConfig.permissions.reason.senza_menzione')}</option>)}
+            {STOPPED_REASONS.map((r) => <option key={r} value={r}>{tr(`agentConfig.permissions.reason.${r}`)}</option>)}
           </select>
         </label>
       </div>
@@ -207,7 +210,7 @@ function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: {
                 {Mark && <Mark className="h-3 w-3 flex-shrink-0" aria-hidden />}
                 <span className="min-w-0 flex-1 truncate text-app-text">{r.chatTitle ?? titles[r.chat] ?? r.chat}</span>
                 <span className="flex-shrink-0 font-semibold text-app-text">{agentName(r.agent)}</span>
-                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${r.reason}` as 'agentConfig.permissions.reason.senza_menzione') || r.reason}</span>
+                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${r.reason}`) || r.reason}</span>
               </li>
             );
           })}

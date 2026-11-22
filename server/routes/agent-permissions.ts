@@ -30,7 +30,7 @@ export function createAgentPermissionsRouter(
       const reason = url.searchParams.get("reason") || undefined;
       const page = Number(url.searchParams.get("page") ?? "1") || 1;
       const pageSize = Number(url.searchParams.get("pageSize") ?? "20") || 20;
-      const result = readStoppedLog(dbPath(), { agent, reason, page, pageSize });
+      const result = readStoppedLog(dbPath(), paths().home, { agent, reason, page, pageSize });
       const titles = readChannelTitles(dbPath());
       return ctx.json({ ...result, rows: result.rows.map((r) => ({ ...r, chatTitle: titles[r.chat] ?? null })) });
     }

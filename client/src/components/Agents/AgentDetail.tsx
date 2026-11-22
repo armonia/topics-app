@@ -96,7 +96,7 @@ function Activity({ agent, onSection }: { agent: Agent; onSection: (s: Configure
               <li key={`${s.created}:${i}`} data-testid="agent-activity-stopped-row" className="flex min-w-0 flex-wrap items-center gap-1.5 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
                 <ChannelMark channel={s.channel ?? ''} />
                 <span className="min-w-0 flex-1 truncate text-app-text">{s.chatTitle ?? s.chat}</span>
-                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${s.reason}` as 'agentConfig.permissions.reason.senza_menzione') || s.reason}</span>
+                <span className="w-full basis-full truncate sm:w-auto sm:basis-auto">{tr(`agentConfig.permissions.reason.${s.reason}`) || s.reason}</span>
               </li>
             ))}
           </ul>

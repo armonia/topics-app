@@ -159,6 +159,10 @@ const AGENTS_EN: Dict = {
   'agentConfig.permissions.reason.senza_menzione': 'missing the required mention',
   'agentConfig.permissions.reason.bot_senza_menzione': 'bot with no required mention',
   'agentConfig.permissions.reason.gruppo_spento': 'group turned off',
+  'agentConfig.permissions.reason.gruppo_non_ammesso': 'group not allowed',
+  'agentConfig.permissions.reason.dm_non_ammesso': 'direct message not allowed',
+  'agentConfig.permissions.reason.menziona_altri': 'mentions someone else',
+  'agentConfig.permissions.reason.mittente_non_ammesso': 'sender not allowed',
 };
 
 export default AGENTS_EN;

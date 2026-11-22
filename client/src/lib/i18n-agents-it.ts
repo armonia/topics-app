@@ -159,6 +159,10 @@ const AGENTS_IT: Dict = {
   'agentConfig.permissions.reason.senza_menzione': 'senza la menzione richiesta',
   'agentConfig.permissions.reason.bot_senza_menzione': 'bot senza la menzione richiesta',
   'agentConfig.permissions.reason.gruppo_spento': 'gruppo spento',
+  'agentConfig.permissions.reason.gruppo_non_ammesso': 'gruppo non ammesso',
+  'agentConfig.permissions.reason.dm_non_ammesso': 'messaggio diretto non ammesso',
+  'agentConfig.permissions.reason.menziona_altri': 'menziona qualcun altro',
+  'agentConfig.permissions.reason.mittente_non_ammesso': 'mittente non ammesso',
 };
 
 export default AGENTS_IT;

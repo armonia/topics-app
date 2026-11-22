@@ -64,35 +64,51 @@ describe("readAgentPermissions", () => {
 });
 
 describe("readStoppedLog", () => {
+  /** `rino` has no declared account (the default), `visione` owns account `visione`. */
+  function fixtureHome(): string {
+    const home = mkdtempSync(join(tmpdir(), "stopped-log-home-"));
+    dirs.push(home);
+    writeFileSync(join(home, "engine.json"), JSON.stringify({
+      agents: { rino: { workspace: "/x/rino" }, visione: { workspace: "/x/visione", account: "visione" } },
+    }));
+    return home;
+  }
+
+  /** The real engine schema: `log (t INTEGER NOT NULL, what TEXT NOT NULL, detail TEXT)`,
+   *  `detail` as `<channel>:<account>:<chat> <sender>`, optionally followed by ` «message»`. */
   function fixtureDb(): string {
     const dir = mkdtempSync(join(tmpdir(), "stopped-log-"));
     dirs.push(dir);
     const path = join(dir, "channels.sqlite");
     const db = new Database(path);
-    db.run("CREATE TABLE log (id INTEGER PRIMARY KEY, created INTEGER, chat TEXT, agent TEXT, what TEXT)");
-    db.run("INSERT INTO log (created, chat, agent, what) VALUES (3, '1', 'rino', 'fermato:senza_menzione')");
-    db.run("INSERT INTO log (created, chat, agent, what) VALUES (2, '1', 'rino', 'fermato:bot_senza_menzione')");
-    db.run("INSERT INTO log (created, chat, agent, what) VALUES (1, '2', 'gtm', 'fermato:gruppo_spento')");
-    db.run("INSERT INTO log (created, chat, agent, what) VALUES (0, '1', 'rino', 'inviato')");
+    db.run("CREATE TABLE log (t INTEGER NOT NULL, what TEXT NOT NULL, detail TEXT)");
+    db.run("INSERT INTO log (t, what, detail) VALUES (3, 'fermato:senza_menzione', 'discord:visione:100 7')");
+    db.run("INSERT INTO log (t, what, detail) VALUES (2, 'fermato:bot_senza_menzione', 'discord:default:200 8')");
+    db.run("INSERT INTO log (t, what, detail) VALUES (1, 'fermato:gruppo_spento', 'whatsapp:default:300@g.us 9@s.whatsapp.net «ciao»')");
+    db.run("INSERT INTO log (t, what, detail) VALUES (0, 'inviato', 'discord:visione:100 7')");
     db.close();
     return path;
   }
 
-  test("three fermato: rows and one of another kind: three entries, newest first", () => {
-    const page = readStoppedLog(fixtureDb());
+  test("three fermato: rows and one of another kind: three entries, newest first, agent resolved from account", () => {
+    const page = readStoppedLog(fixtureDb(), fixtureHome());
     expect(page.total).toBe(3);
     expect(page.rows.map((r) => r.reason)).toEqual(["senza_menzione", "bot_senza_menzione", "gruppo_spento"]);
-    expect(page.rows[0]).toMatchObject({ chat: "1", agent: "rino", reason: "senza_menzione" });
+    expect(page.rows[0]).toMatchObject({ chat: "100", agent: "visione", reason: "senza_menzione" });
+    expect(page.rows[1]).toMatchObject({ chat: "200", agent: "rino", reason: "bot_senza_menzione" });
+    expect(page.rows[2]).toMatchObject({ chat: "300@g.us", agent: "rino", reason: "gruppo_spento" });
+    expect(JSON.stringify(page.rows)).not.toContain("ciao");
   });
 
   test("filters by agent and by reason", () => {
     const path = fixtureDb();
-    expect(readStoppedLog(path, { agent: "gtm" }).rows).toHaveLength(1);
-    expect(readStoppedLog(path, { reason: "gruppo_spento" }).rows).toHaveLength(1);
+    const home = fixtureHome();
+    expect(readStoppedLog(path, home, { agent: "visione" }).rows).toHaveLength(1);
+    expect(readStoppedLog(path, home, { reason: "gruppo_spento" }).rows).toHaveLength(1);
   });
 
   test("a missing database, an empty page, no error", () => {
-    expect(readStoppedLog(join(tmpdir(), "nowhere.sqlite"))).toEqual({ rows: [], total: 0, page: 1, pageSize: 20 });
+    expect(readStoppedLog(join(tmpdir(), "nowhere.sqlite"), fixtureHome())).toEqual({ rows: [], total: 0, page: 1, pageSize: 20 });
   });
 
   test("a database with no log table, an empty page, no error", () => {
@@ -100,6 +116,6 @@ describe("readStoppedLog", () => {
     dirs.push(dir);
     const path = join(dir, "channels.sqlite");
     new Database(path).close();
-    expect(readStoppedLog(path)).toEqual({ rows: [], total: 0, page: 1, pageSize: 20 });
+    expect(readStoppedLog(path, fixtureHome())).toEqual({ rows: [], total: 0, page: 1, pageSize: 20 });
   });
 });
