@@ -24,7 +24,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import {
-  countUnseenNotifications,
   listNotifications,
   markGroupNotificationsSeen,
   markTargetNotificationsSeen,
@@ -55,6 +54,14 @@ afterAll(() => {
 
 function wipe(): void {
   getDatabase().run("DELETE FROM notification_log");
+}
+
+/** The bell number: unseen SUBJECTS (rows sharing a group key count once), read straight from the table. */
+function countUnseenNotifications(): number {
+  const r = getDatabase()
+    .query("SELECT COUNT(DISTINCT COALESCE(group_key, id)) AS c FROM notification_log WHERE seen_at IS NULL")
+    .get() as { c: number } | null;
+  return r?.c ?? 0;
 }
 
 /** Unseen ROWS, as opposed to `countUnseenNotifications`, which counts subjects. */
@@ -283,7 +290,7 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
  *
  * @covers NOTIF-SEEN-01
  */
-describe("markTargetNotificationsSeen — task e terminali, non solo le chat", () => {
+describe("markTargetNotificationsSeen - task e terminali, non solo le chat", () => {
   test("a card leaving review clears its own review row and nothing else", () => {
     wipe();
     recordNotification({ kind: "task-review", title: "mia", body: "", targetKind: "task", targetId: "task-1", dedupeKey: "task-review:task-1" });

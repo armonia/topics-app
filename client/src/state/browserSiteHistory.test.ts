@@ -9,20 +9,7 @@
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
 import {
-  recordSiteVisit,
-  noteSiteMeta,
-  forgetSite,
-  rankSites,
-  frecency,
-  siteKeyOf,
-  sitesSnapshot,
-  subscribeSites,
-  MAX_SITES,
-  MAX_PAGES,
-  VISIT_DEDUPE_MS,
-  pagesSnapshot,
-  clearPageHistory,
-  __resetSiteHistory,
+  recordSiteVisit, noteSiteMeta, forgetSite, rankSites, frecency, siteKeyOf, sitesSnapshot, subscribeSites, MAX_SITES, MAX_PAGES, VISIT_DEDUPE_MS, pagesSnapshot, __resetSiteHistory,
 } from './browserSiteHistory';
 
 const T0 = Date.parse('2026-05-10T12:00:00Z');
@@ -175,12 +162,5 @@ describe('cronologia di navigazione (pagine)', () => {
     recordSiteVisit('https://b.dev/due', T0 + 60_000);
     expect(forgetSite('a.dev')).toBe(true);
     expect(pagesSnapshot().map((p) => p.url)).toEqual(['https://b.dev/due']);
-  });
-
-  test('svuotare la cronologia lascia in piedi i siti', () => {
-    recordSiteVisit('https://a.dev/uno', T0);
-    clearPageHistory();
-    expect(pagesSnapshot()).toEqual([]);
-    expect(sitesSnapshot()).toHaveLength(1);
   });
 });

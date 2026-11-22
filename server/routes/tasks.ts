@@ -113,10 +113,9 @@ function scheduledWait(body: unknown): { reason: string; minutes: number } | nul
   return { reason: b.wait_reason.trim(), minutes: b.wait_minutes };
 }
 
-export { runGitCap, ownChangesBetween, ownCommitFiles, ownBranchFiles } from "./tasks-git";
-export { matchGuestTaskAction } from "./tasks-guests";
+export { runGitCap, ownCommitFiles, ownBranchFiles } from "./tasks-git";
 export type { TasksRouterOpts } from "./tasks-opts";
-export { emitReviewReadyEdge, pendingQuestion } from "./tasks-shared";
+export { emitReviewReadyEdge } from "./tasks-shared";
 
 /**
  * How many CLOSED cards the global feed carries.

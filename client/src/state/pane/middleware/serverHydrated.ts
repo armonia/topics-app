@@ -119,7 +119,7 @@ export function useServerHydrated(): boolean {
   );
 }
 
-/** Test-only — reset the flag back to false. Not exported via the barrel. */
+/** @internal Test-only — reset the flag back to false. Not exported via the barrel. */
 export function __resetServerHydratedForTests(): void {
   serverHydrated = false;
   listeners.clear();

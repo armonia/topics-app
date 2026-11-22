@@ -46,7 +46,7 @@ export function isNestedInTopicsPane(): boolean {
   return cached;
 }
 
-/** Test-only: drop the cached answer so the next call re-reads the globals. */
+/** @internal Test-only: drop the cached answer so the next call re-reads the globals. */
 export function __resetNestedPaneForTests(): void {
   cached = null;
 }

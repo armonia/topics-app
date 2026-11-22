@@ -105,7 +105,7 @@ export function useSessionFlagValue(sessionKey: string, read: (sessionKey: strin
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
 
-/** Tests only: back to the boot state. */
+/** @internal Tests only: back to the boot state. */
 export function __resetSessionFlags(): void {
   maps = { loading: {}, streaming: {}, thinking: {}, stopped: {} };
   perSession.clear();

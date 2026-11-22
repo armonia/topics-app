@@ -11,7 +11,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { boardAttention, boardLitCards } from '../../state/attentionRollups';
-import { chromeAttentionTotal } from '../../state/attentionTotal';
+import { chromeAttentionSubjects } from '../../state/attentionTotal';
 import type { AttentionSnapshot } from '../../../../shared/attention';
 
 function card(id: string, over: Partial<AttentionSnapshot>): AttentionSnapshot {
@@ -45,7 +45,7 @@ describe('board tab: review + parked + a wait mid-turn', () => {
 
   test('the general board counts the same cards the Dock counts', () => {
     const rows = rowsOf(card('r', { state: 'needs-you', reason: 'review', lit: true }), card('w', { state: 'needs-you', reason: 'question', lit: true }));
-    expect(boardAttention(rows, cards, null).count).toBe(chromeAttentionTotal(rows, {}, []));
+    expect(boardAttention(rows, cards, null).count).toBe(chromeAttentionSubjects(rows, {}, []).length);
   });
 
   test('a card the list does not hold yet counts on the general board only', () => {

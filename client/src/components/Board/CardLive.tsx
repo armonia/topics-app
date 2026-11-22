@@ -2,8 +2,8 @@ import { Timer } from 'lucide-react';
 import { STATUS_GLYPH_PX } from '../../lib/board';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useT, useLocale } from '../../hooks/useT';
-import { fmtLive, fmtModel, fmtTok, liveToolLabel } from './format';
-import type { LiveTool, LiveUsage, RetryWait } from './constants';
+import { fmtLive, fmtModel, fmtTok } from './format';
+import type { LiveUsage, RetryWait } from './constants';
 import { TaskActionLoader } from '../Layout/StreamingIndicator';
 import type { LoaderActivity } from '../Layout/squareLoader';
 import { startVisibleInterval } from '../../state/documentVisibility';
@@ -56,35 +56,6 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
         className="shrink-0 rounded bg-amber-500/25 px-1.5 py-px text-mini font-medium text-amber-100 hover:bg-amber-500/40 disabled:opacity-50"
       >{tr('board.card.retryNow')}</button>
     </span>
-  );
-}
-
-/**
- * "Bash · bun run test:unit · 3m": the running tool and for how long, ticking.
- *
- * WHILE THE COMMAND IS FROZEN THE CLOCK STOPS, and so does the interval. A
- * stopwatch running over a process Topics has SIGSTOPped tells the person the
- * command is making progress, which is the opposite of what happened; and a
- * one-second repaint under a canvas that just painted itself is the kind of
- * cost the freeze exists to avoid. The line says `congelato` instead.
- */
-export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?: boolean }) {
-  const tr = useT();
-  const [, force] = useState(0);
-  useEffect(() => {
-    if (frozen) return;
-    return startVisibleInterval(() => force((n) => n + 1), 1000);
-  }, [frozen]);
-  // eslint-disable-next-line react-hooks/purity -- live tool line: re-renders every 1s (interval above) and reads the clock each render on purpose
-  const since = fmtLive(Math.max(0, Date.now() - tool.since));
-  const label = liveToolLabel(tool);
-  const text = frozen ? `${label} · ${tr('swapFreeze.frozenShort')}` : `${label} · ${since}`;
-  return (
-    <p
-      data-testid="card-live-tool"
-      className="mt-1 truncate text-compact leading-4 md:text-mini tabular-nums text-app-text-muted"
-      title={frozen ? tr('swapFreeze.frozenShort') : tr('board.card.liveToolTitle', { tool: label, since })}
-    >{text}</p>
   );
 }
 

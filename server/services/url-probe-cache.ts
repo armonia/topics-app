@@ -79,7 +79,7 @@ export function invalidateProbeCache(url: string): void {
   probeCache.delete(url);
 }
 
-/** Espulsi tutti i record scaduti (utile per i test). */
+/** @internal Espulsi tutti i record scaduti (utile per i test). */
 export function __clearProbeCacheForTests(): void {
   probeCache.clear();
 }

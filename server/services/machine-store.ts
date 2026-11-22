@@ -52,6 +52,11 @@ export interface MachineStore {
    */
   touchNode(id: string): Machine | null;
   /**
+   * What a node said about itself on the last probe: its real version (written to the row) and the
+   * coding models it can run (kept in memory, re-read every probe). `null` when the row is gone.
+   */
+  recordReported(id: string, input: { version?: string | null; models?: string[] | null }): Machine | null;
+  /**
    * Say a node is offline NOW, whatever its last heartbeat: the cloud row has
    * no heartbeat of its own, and an account without an active cloud environment
    * must not read as a machine the overflow can send cards to. `null` = no
@@ -125,6 +130,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       UPDATE machines SET status = 'online', last_heartbeat_at = $now, last_seen_at = $now, updated_at = $now
       WHERE id = $id
     `),
+    setVersion: db.prepare(`UPDATE machines SET daemon_version = ? WHERE id = ?`),
     markNodeOffline: db.prepare(`
       UPDATE machines SET status = 'offline', updated_at = $now WHERE id = $id AND status != 'offline'
     `),
@@ -132,6 +138,9 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     countTasks: db.prepare(`SELECT COUNT(*) as n FROM tasks WHERE machine_id = ?`),
     delete: db.prepare(`DELETE FROM machines WHERE id = ?`),
   };
+
+  // Models a node reported: volatile on purpose, the next probe (30 s) refills it.
+  const reportedModels = new Map<string, string[]>();
 
   function rowToMachine(row: any): Machine {
     let warnings: Record<string, string> = {};
@@ -151,6 +160,7 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
       acknowledgedWarnings: warnings,
       baseUrl: row.base_url ?? null,
       slots: row.slots ?? null,
+      ...(reportedModels.has(row.id) ? { models: reportedModels.get(row.id)! } : {}),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -226,6 +236,12 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
     },
     touchNode(id) {
       stmts.touchNode.run({ $id: id, $now: new Date().toISOString() });
+      const row = stmts.getById.get(id);
+      return row ? rowToMachine(row) : null;
+    },
+    recordReported(id, input) {
+      if (input.version) stmts.setVersion.run(input.version, id);
+      if (input.models) reportedModels.set(id, [...input.models]);
       const row = stmts.getById.get(id);
       return row ? rowToMachine(row) : null;
     },

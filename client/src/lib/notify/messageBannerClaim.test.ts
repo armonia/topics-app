@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  BANNER_CLAIM_KEY,
-  bannerClaimKey,
-  claimBannerIn,
-  parseLedger,
-  type ClaimStorage,
+  BANNER_CLAIM_KEY, claimBannerIn, parseLedger, type ClaimStorage,
 } from './messageBannerClaim';
 
 /** Uno storage vero quanto basta: una mappa. Rappresenta il `localStorage`
@@ -152,33 +148,5 @@ describe('parseLedger', () => {
     expect(parseLedger(s.raw(), NOW).length).toBe(200);
     // Le più vecchie cadono, le recenti restano protette.
     expect(claimBannerIn(s, 'msg-259', 'winB', NOW)).toBe(false);
-  });
-});
-
-describe('bannerClaimKey', () => {
-  it('usa il messageId quando c è', () => {
-    expect(bannerClaimKey({ messageId: 'm-7', topicId: 't', role: 'assistant' })).toBe('m-7');
-  });
-
-  it('senza messageId (server vecchio) ripiega su topic+ruolo+corpo', () => {
-    const a = bannerClaimKey({ topicId: 't1', role: 'assistant', content: 'ciao' });
-    const b = bannerClaimKey({ topicId: 't1', role: 'assistant', preview: 'ciao' });
-    expect(a).toBe(b);
-    expect(a).toBe('t1:assistant:ciao');
-  });
-
-  it('il ripiego distingue topic diversi e corpi diversi', () => {
-    const k = (o: Parameters<typeof bannerClaimKey>[0]) => bannerClaimKey(o);
-    expect(k({ topicId: 't1', role: 'assistant', content: 'a' }))
-      .not.toBe(k({ topicId: 't2', role: 'assistant', content: 'a' }));
-    expect(k({ topicId: 't1', role: 'assistant', content: 'a' }))
-      .not.toBe(k({ topicId: 't1', role: 'assistant', content: 'b' }));
-  });
-
-  it('il ripiego dedup-a comunque due finestre sullo stesso frame legacy', () => {
-    const s = sharedStorage();
-    const frame = { topicId: 't1', role: 'assistant', preview: 'stessa cosa' };
-    expect(claimBannerIn(s, bannerClaimKey(frame), 'winA', NOW)).toBe(true);
-    expect(claimBannerIn(s, bannerClaimKey(frame), 'winB', NOW)).toBe(false);
   });
 });

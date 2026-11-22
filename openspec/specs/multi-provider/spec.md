@@ -319,3 +319,20 @@ The provider name of a configured endpoint SHALL be derived from its identifier 
 #### Scenario: A damaged declared window is not displayed
 - **WHEN** an endpoint declares a window that is zero, negative or not a number
 - **THEN** the window shown falls back to the static table instead of the declared value.
+
+### Requirement: MP-NET-01 — One unreachable address of a provider host does not stall Codex
+
+When a provider host resolves to several addresses and the network silently drops one of them, a Codex turn SHALL still reach the host through the others, without the user editing system files or using administrator rights. Topics SHALL start the Codex CLI with HTTPS routed through a loopback-only CONNECT proxy that tries every address of the host, starting the next one after a short attempt delay and at once when an address refuses, and keeps the first that connects. The proxy SHALL accept only clients presenting the per-process secret Topics gave its own children, SHALL offer no plain HTTP forwarding, and SHALL step aside when the user already configured a proxy. When no address answers, the turn SHALL fail with Codex's own error instead of hanging.
+
+#### Scenario: The first address of chatgpt.com is dropped
+- **GIVEN** chatgpt.com resolves to a dropped address and a working one
+- **WHEN** a Codex turn connects
+- **THEN** the connection is made through the working address within one attempt delay.
+
+#### Scenario: A local process without the secret
+- **WHEN** a client connects to the proxy without the secret or with a wrong one
+- **THEN** it receives 407 and nothing is dialed.
+
+#### Scenario: The user has their own proxy
+- **WHEN** HTTPS_PROXY or ALL_PROXY is already set for Topics
+- **THEN** Codex is started with the user's proxy and not with Topics' one.

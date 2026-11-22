@@ -46,13 +46,6 @@ export function isActivePhase(p: ClaudeSessionPhase): boolean {
 export const BUSY_SPINNER_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running',
 ];
-
-const BUSY_SPINNER_SET = new Set<ClaudeSessionPhase>(BUSY_SPINNER_PHASES);
-
-export function isBusySpinnerPhase(p: ClaudeSessionPhase): boolean {
-  return BUSY_SPINNER_SET.has(p);
-}
-
 /**
  * Le fasi che sono LAVORO IN CORSO, per l'unico scopo di datare l'inizio del
  * turno (`turnStartedAt`). Sono le stesse tre che il client tratta come
