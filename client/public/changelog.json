@@ -21,6 +21,22 @@
     }
   },
   {
+    "version": "2.4.68",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Bloat baseline: only the overflow test entry, with its reason",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.67",
     "date": "2026-11-21",
     "sections": {
@@ -28,6 +44,17 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "a card pinned to a machine at its seats waits in todo without spending an attempt",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Record the new size of the overflow test file in the bloat baseline",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi",
           "en": "",
