@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { Server } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { nodesOf, reloadMachines, useMachines } from '../../state/machinesStore';
-import { healthOf, useMachineHealth } from '../../state/machineHealthStore';
+import { healthOf, isCloudNode, useMachineHealth } from '../../state/machineHealthStore';
 import { SecurityRow } from '../Sidebar/MachineSecurityMark';
 import { RemoteNodeRequests } from './RemoteNodeRequests';
 import { apiFetch } from '../../lib/shell/net';
@@ -243,6 +243,8 @@ function NodeSlots() {
         <SecurityRow
           key={`${m.id}:${m.slots ?? ''}`}
           entry={healthOf(health, m.id)}
+          name={m.name}
+          measured={!isCloudNode(m)}
           className="flex items-center justify-between gap-3 text-compact text-app-text"
           rowProps={{ 'data-testid': `node-row-${m.id}` }}
         >
@@ -253,7 +255,7 @@ function NodeSlots() {
                 {mark}
               </span>
               <label className="flex flex-shrink-0 items-center gap-2">
-                <span className="text-mini text-app-text-muted">{t('settings.machines.slots.label')}</span>
+                <span className="text-mini text-app-text-muted"><span className="sr-only">{m.name}: </span>{t('settings.machines.slots.label')}</span>
                 <input
                   type="number"
                   min={0}

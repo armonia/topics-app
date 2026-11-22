@@ -21,6 +21,7 @@ import FIND_IT from './i18n-find-it';
 import ATTENTION_IT from './i18n-attention-it';
 import SYSTEM_HEALTH_IT from './i18n-system-health-it';
 import PROCESSES_IT from './i18n-processes-it';
+import SECURITY_IT from './i18n-security-it';
 
 const IT: Dict = {
   ...SPEND_IT,
@@ -29,6 +30,7 @@ const IT: Dict = {
   ...ATTENTION_IT,
   ...SYSTEM_HEALTH_IT,
   ...PROCESSES_IT,
+  ...SECURITY_IT,
   // The row, the card's quota and the palette entry of «Account e quote»;
   // the view's own strings come with its chunk (`i18n-accounts-it.ts`).
   'accounts.open': 'Account e quote',
@@ -2808,16 +2810,6 @@ const IT: Dict = {
   'devices.hubSpend': '{eur} € su {cap} € questo mese',
   'devices.hubActionFailed': 'Non riuscito: {why}',
   'devices.nodeOnline': 'in linea',
-  'security.mark': 'Sicurezza: {status}',
-  'security.status.ok': 'tutto a posto',
-  'security.status.warn': 'da guardare',
-  'security.status.problem': 'problema',
-  'security.status.unknown': 'non ancora misurata',
-  'security.check.updates': 'Aggiornamenti',
-  'security.check.disk': 'Disco',
-  'security.check.access': 'Accessi',
-  'security.check.antivirus': 'Antivirus',
-  'security.noRound': 'Nessuna misura per questa macchina.',
   'devices.nodeSeen': 'ultimo battito {when}',
   'devices.youAreHere': 'stai qui',
   'devices.ofPerson': 'di {nome}',

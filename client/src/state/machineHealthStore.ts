@@ -48,3 +48,8 @@ export function useMachineHealth(): MachineHealthEntry[] | null {
 export function healthOf(all: MachineHealthEntry[] | null, id: string | null): MachineHealthEntry | null {
   return (all ?? []).find((m) => (id === null ? m.kind === 'local' : m.id === id)) ?? null;
 }
+
+/** The cloud node is a placeholder row (its base URL is a scheme, not an address): no round ever measures it. Mirrors `CLOUD_NODE_BASE_URL` on the server. */
+export function isCloudNode(node: { baseUrl: string | null }): boolean {
+  return !!node.baseUrl?.startsWith('claude-cloud://');
+}

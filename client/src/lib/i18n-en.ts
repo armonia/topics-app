@@ -21,6 +21,7 @@ import FIND_EN from './i18n-find-en';
 import ATTENTION_EN from './i18n-attention-en';
 import SYSTEM_HEALTH_EN from './i18n-system-health-en';
 import PROCESSES_EN from './i18n-processes-en';
+import SECURITY_EN from './i18n-security-en';
 
 const EN = {
   ...SPEND_EN,
@@ -29,6 +30,7 @@ const EN = {
   ...ATTENTION_EN,
   ...SYSTEM_HEALTH_EN,
   ...PROCESSES_EN,
+  ...SECURITY_EN,
   // The row, the card's quota and the palette entry of «Account e quote»;
   // the view's own strings come with its chunk (`i18n-accounts-en.ts`).
   'accounts.open': 'Accounts and quotas',
@@ -2533,16 +2535,6 @@ const EN = {
   'devices.hubSpend': '{eur} € of {cap} € this month',
   'devices.hubActionFailed': 'Not done: {why}',
   'devices.nodeOnline': 'online',
-  'security.mark': 'Security: {status}',
-  'security.status.ok': 'all good',
-  'security.status.warn': 'needs attention',
-  'security.status.problem': 'problem',
-  'security.status.unknown': 'not measured yet',
-  'security.check.updates': 'Updates',
-  'security.check.disk': 'Disk',
-  'security.check.access': 'Access',
-  'security.check.antivirus': 'Antivirus',
-  'security.noRound': 'No measurement for this machine yet.',
   'devices.nodeSeen': 'last beat {when}',
   'devices.youAreHere': 'you are here',
   'devices.ofPerson': 'of {nome}',

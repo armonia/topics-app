@@ -36,7 +36,7 @@ import { HubMachineRows } from './HubMachineRows';
 import { nodeRequestsLabel } from './formLevelTails';
 import { deviceRevokedLine, deviceSeenLine, deviceWhen } from '@/lib/deviceAudit';
 import { nodesOf, useMachines } from '@/state/machinesStore';
-import { healthOf, useMachineHealth } from '@/state/machineHealthStore';
+import { healthOf, isCloudNode, useMachineHealth } from '@/state/machineHealthStore';
 import { SecurityRow } from './MachineSecurityMark';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
@@ -157,7 +157,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
       {devices && (
         <div className="max-h-[280px] overflow-y-auto py-1">
           {computer && (
-            <SecurityRow entry={healthOf(health, null)} className={ROW} rowProps={{ 'data-testid': 'device-row', 'data-connected': 'true' }}>
+            <SecurityRow entry={healthOf(health, null)} name={tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')} className={ROW} rowProps={{ 'data-testid': 'device-row', 'data-connected': 'true' }}>
               {(mark) => (
                 <>
                   <Monitor size={12} className="flex-shrink-0 text-app-text-muted" />
@@ -175,7 +175,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
           {/* The PC and the Hetzner server, as the hub sees them (lib/hubMachines.ts). */}
           <HubMachineRows />
           {nodes.map((n) => (
-            <SecurityRow key={n.id} entry={healthOf(health, n.id)} className={ROW} rowProps={{ 'data-testid': 'device-node-row', 'data-connected': n.status === 'online' ? 'true' : 'false' }}>
+            <SecurityRow key={n.id} entry={healthOf(health, n.id)} name={n.name} measured={!isCloudNode(n)} className={ROW} rowProps={{ 'data-testid': 'device-node-row', 'data-connected': n.status === 'online' ? 'true' : 'false' }}>
               {(mark) => (
                 <>
                   <Server size={12} className="flex-shrink-0 text-app-text-muted" />
