@@ -63,6 +63,26 @@ describe("assemblePersona", () => {
     expect(persona.text).toContain("Lone agent");
   });
 
+  test("the agent layer breaks its weight down to the file it came from", () => {
+    const home = tmp();
+    const ws = tmp();
+    writeFileSync(join(ws, "IDENTITY.md"), "# Scout\n");
+    writeFileSync(join(ws, "SOUL.md"), "Never names a real person in a commit.");
+    writeFileSync(join(ws, "AGENTS.md"), "Run the gates before delivering.");
+
+    const persona = assemblePersona("scout", ws, paths(home));
+    const agentLayer = persona.layers.find((l) => l.name === "agent")!;
+
+    expect(agentLayer.files).toEqual([
+      { name: "SOUL.md", tokens: agentLayer.files![0].tokens },
+      { name: "AGENTS.md", tokens: agentLayer.files![1].tokens },
+    ]);
+    expect(agentLayer.files!.reduce((sum, f) => sum + f.tokens, 0)).toBeLessThanOrEqual(agentLayer.tokens);
+
+    // A layer with no second file (identity) carries no breakdown at all.
+    expect(persona.layers.find((l) => l.name === "identity")!.files).toBeUndefined();
+  });
+
   test("missing files mean empty layers, never a throw", () => {
     const home = tmp();
     const ws = join(tmpdir(), "does-not-exist-" + Math.random());
