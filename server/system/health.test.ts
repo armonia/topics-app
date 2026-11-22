@@ -1,0 +1,93 @@
+// @covers SYSTEM-PAGE-01
+import { describe, expect, test } from "bun:test";
+import type { MemoryStore } from "../memory/stores";
+import { collectHealth, HEALTH_PROBLEM_TYPES, type HealthInput, type HealthProblemType } from "./health";
+
+function store(over: Partial<MemoryStore> & { id: string }): MemoryStore {
+  return {
+    kind: "agent",
+    ownerAgentId: null,
+    path: "/x",
+    index: { path: "/x/MEMORY.md", lines: 3, chars: 80, overLimit: false },
+    cards: [{ file: "a.md", name: "a", description: "", type: "note" }],
+    receivedBy: ["alpha"],
+    readableBy: [],
+    ...over,
+  };
+}
+
+const healthy = (): HealthInput => ({
+  agents: [
+    { id: "alpha", name: "Alpha", missingPersonaFiles: [], hasOwnRules: false },
+    { id: "beta", name: "Beta", missingPersonaFiles: [], hasOwnRules: false },
+  ],
+  stores: [store({ id: "agent:alpha", ownerAgentId: "alpha" })],
+  jobs: [{ id: "j1", name: "Nightly", agentId: "alpha" }],
+  chats: [{ id: "c1", name: "Release notes" }],
+  contradictions: [],
+  tools: [{ name: "github", ok: true }],
+  sharedRulesPresent: true,
+});
+
+/** One of every kind of problem at once. */
+const broken = (): HealthInput => ({
+  agents: [
+    { id: "alpha", name: "Alpha", missingPersonaFiles: ["IDENTITY.md"], hasOwnRules: true },
+    { id: "beta", name: "Beta", missingPersonaFiles: [], hasOwnRules: false },
+  ],
+  stores: [
+    store({ id: "agent:beta", ownerAgentId: "beta", receivedBy: [] }),
+    store({ id: "agent:alpha", ownerAgentId: "alpha", index: null }),
+    store({ id: "project:p", kind: "project", index: { path: "/p", lines: 900, chars: 90000, overLimit: true } }),
+  ],
+  jobs: [{ id: "j1", name: "Nightly", agentId: null }],
+  chats: [{ id: "c1", name: "  " }],
+  contradictions: [{ id: "k1", sources: ["base", "user rules"], about: "reply language" }],
+  tools: [{ name: "github", ok: false, reason: "connection refused" }],
+  sharedRulesPresent: false,
+});
+
+describe("collectHealth", () => {
+  test("a healthy system has no problems", () => {
+    expect(collectHealth(healthy())).toEqual([]);
+  });
+
+  test("every type has a sentence and a destination", () => {
+    const problems = collectHealth(broken());
+    const seen = new Set(problems.map((p) => p.type));
+    expect([...seen].sort()).toEqual((Object.keys(HEALTH_PROBLEM_TYPES) as HealthProblemType[]).sort());
+    for (const p of problems) {
+      expect(p.sentence.length).toBeGreaterThan(10);
+      expect(p.destination.section).toBeTruthy();
+    }
+  });
+
+  test("a problem with an owner opens that agent", () => {
+    const byType = (t: HealthProblemType) => collectHealth(broken()).find((p) => p.type === t);
+    expect(byType("memory-unreceived")?.destination).toEqual({ section: "memory", agentId: "beta", ref: "agent:beta" });
+    expect(byType("persona-file-missing")?.destination).toEqual({ section: "identity", agentId: "alpha" });
+    expect(byType("rules-single-agent")?.destination.agentId).toBe("alpha");
+    expect(byType("job-without-agent")?.destination).toEqual({ section: "jobs", ref: "j1" });
+  });
+
+  test("a job whose agent no longer exists counts as without agent", () => {
+    const input = healthy();
+    input.jobs = [{ id: "j2", name: "Ghost", agentId: "gone" }];
+    expect(collectHealth(input).map((p) => p.type)).toEqual(["job-without-agent"]);
+  });
+
+  test("fixing the data removes the problem on the next read", () => {
+    const input = broken();
+    const before = collectHealth(input).length;
+    input.jobs = [{ id: "j1", name: "Nightly", agentId: "alpha" }];
+    const after = collectHealth(input);
+    expect(after.length).toBe(before - 1);
+    expect(after.some((p) => p.type === "job-without-agent")).toBe(false);
+  });
+
+  test("rules present in two agents or shared are not a problem", () => {
+    const input = broken();
+    input.sharedRulesPresent = true;
+    expect(collectHealth(input).some((p) => p.type === "rules-single-agent")).toBe(false);
+  });
+});

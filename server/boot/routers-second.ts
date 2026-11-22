@@ -21,6 +21,7 @@ import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
 import { createAgentsRouter } from "../routes/agents";
 import { createMemoryStoresRouter } from "../routes/memory-stores";
+import { createSystemHealthRouter } from "../routes/system-health";
 import { createProfileRouter } from "../routes/profile";
 import { createPublicProfileHandler } from "../routes/public-profile";
 import { createClaudeHooksRouter } from "../routes/claude-hooks";
@@ -101,6 +102,9 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // Memory stores (T6): every agent's own memory folder plus project memories found, read/searched/edited from one place.
   const memoryStoresRouter = createMemoryStoresRouter(ctx);
+
+  // System health (T7): every problem of the agents system in one list.
+  const systemHealthRouter = createSystemHealthRouter(ctx);
 
   const profileRouter = createProfileRouter(ctx);
 
@@ -218,5 +222,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }
