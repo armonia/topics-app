@@ -351,6 +351,7 @@ export const RECOMMENDED_OPTION_RULE =
  * cercandovi la costante: un test che cerca la costante che ha appena
  * interpolato non può fallire, e questo invece deve fallire il giorno in cui
  * qualcuno riscrive il testo a mano dentro un envelope.
+ * @internal Test oracle: read by the registry and envelope contract tests.
  */
 export function extractPreviewRule(envelope: string): string | null {
   const lines = envelope.split('\n');
