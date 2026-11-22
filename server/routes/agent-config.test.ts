@@ -7,7 +7,8 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { applyEdit, readRegistry, type Paths } from "./agent-config";
+import { applyEdit, defaultPaths, readRegistry, type Paths } from "./agent-config";
+import { registryHome } from "../agents/registry";
 
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
@@ -18,7 +19,7 @@ function fixture(): Paths {
   const ws = join(home, "ws"); const visionWs = join(ws, "gtm");
   mkdirSync(visionWs, { recursive: true });
   writeFileSync(join(ws, "IDENTITY.md"), "# Jarvis\n"); writeFileSync(join(visionWs, "IDENTITY.md"), "# Visione\n");
-  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: visionWs } } }));
+  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: visionWs, account: "visione" } } }));
   writeFileSync(join(home, "config.json"), JSON.stringify({
     channels: { discord: { default: { token: "keychain:d/j" }, visione: { token: "keychain:d/v" } }, telegram: { token: "keychain:t" } },
     rules: {
@@ -61,6 +62,54 @@ describe("readRegistry", () => {
     expect(text).toContain("discord:77: regola scritta 2 volte");
     expect(text).not.toContain("engine.json");
     expect(text).toContain("1 lavori a orario senza agente");
+  });
+
+  test("a second agent with its own account keeps its own chats, not the default's", () => {
+    const p = fixture();
+    const { agents } = readRegistry(p);
+    const [jarvis, visione] = agents;
+    expect(visione.chats.every((c) => c.account === "visione")).toBe(true);
+    expect(jarvis.chats.every((c) => c.account !== "visione")).toBe(true);
+  });
+
+  test("a Discord account nobody declares is an issue, not a silent default", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-config-"));
+    dirs.push(home);
+    const wsA = join(home, "ws", "a"); const wsB = join(home, "ws", "b");
+    mkdirSync(wsA, { recursive: true }); mkdirSync(wsB, { recursive: true });
+    writeFileSync(join(wsA, "IDENTITY.md"), "# Prima\n"); writeFileSync(join(wsB, "IDENTITY.md"), "# Seconda\n");
+    // "b" never declares `account`: its own Discord account ("orphan") has no owner.
+    writeFileSync(join(home, "engine.json"), JSON.stringify({ agents: { a: { workspace: wsA }, b: { workspace: wsB } } }));
+    writeFileSync(join(home, "config.json"), JSON.stringify({
+      channels: { discord: { default: { token: "keychain:d" }, orphan: { token: "keychain:o" } } },
+      rules: { groups: [] },
+    }));
+    const { issues } = readRegistry({ home, expand: (x) => x });
+    const text = issues.map((i) => i.text).join("\n");
+    expect(text).toContain('account Discord "orphan"');
+    expect(text).not.toContain('"default"');
+  });
+
+  test("a single agent owns every account without ambiguity: no issue", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-config-"));
+    dirs.push(home);
+    const wsA = join(home, "ws", "a");
+    mkdirSync(wsA, { recursive: true });
+    writeFileSync(join(wsA, "IDENTITY.md"), "# Sola\n");
+    writeFileSync(join(home, "engine.json"), JSON.stringify({ agents: { a: { workspace: wsA } } }));
+    writeFileSync(join(home, "config.json"), JSON.stringify({
+      channels: { discord: { whatever: { token: "keychain:o" } } },
+      rules: { groups: [] },
+    }));
+    const { issues } = readRegistry({ home, expand: (x) => x });
+    expect(issues.map((i) => i.text).join("\n")).not.toContain("account Discord");
+  });
+});
+
+describe("defaultPaths", () => {
+  test("agrees with the registry's own home resolver (both routes must see the same agents)", () => {
+    expect(defaultPaths({ FOO: "bar" }).home).toBe(registryHome({ FOO: "bar" }));
+    expect(defaultPaths({ JARVIS_CHANNELS_HOME: "/x" }).home).toBe(registryHome({ JARVIS_CHANNELS_HOME: "/x" }));
   });
 });
 

@@ -1,6 +1,8 @@
 /**
- * Agents registry: one card per always-on agent (Jarvis, Visione) built from
- * the files jarvis-channels runs on, and the few edits Attilio makes there.
+ * Agents registry: one card per always-on agent, built from the files
+ * jarvis-channels runs on, and the few edits made there. The agents
+ * themselves (id, name, workspace) are not listed here: they are read from
+ * `engine.json`'s `agents.<id>.workspace`, see `server/agents/registry.ts`.
  *
  *   GET  /api/agent-config              → { agents, health, issues }
  *   POST /api/agent-config/chat         { channel, chat, account?, active?, mention? }
@@ -13,44 +15,26 @@
  * chat edit restarts the service, but only when no turn is in flight
  * (inflight.json empty), otherwise it says it applies at the next restart.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
-import { basename, join } from "path";
+import { join } from "path";
 import { runBounded } from "../lib/bounded-spawn";
+import { readIdentity, registryHome } from "../agents/registry";
+import { readJson as readJsonFile, safeWrite } from "../agents/config-files";
 import type { AppContext, RouteHandler } from "../types";
 
-export type AgentId = "main" | "gtm";
-const AGENTS: Record<AgentId, { name: string; workspace: string; account: string }> = {
-  main: { name: "Jarvis", workspace: "~/.topics/agents/jarvis", account: "default" },
-  gtm: { name: "Visione", workspace: "~/.topics/agents/gtm", account: "visione" },
-};
+export type AgentId = string;
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 export interface Paths { home: string; expand: (p: string) => string }
+/** Same home as `/api/agents` (`registryHome`): the two routes must always
+ *  agree on where the agents live. */
 export function defaultPaths(env: Record<string, string | undefined> = process.env): Paths {
-  const home = env.JARVIS_CHANNELS_HOME?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels");
-  return { home, expand: (p) => p.replace(/^~(?=\/|$)/, homedir()) };
+  return { home: registryHome(env), expand: (p) => p.replace(/^~(?=\/|$)/, homedir()) };
 }
 
 type Json = Record<string, any>;
-const readJson = (p: string): any => JSON.parse(readFileSync(p, "utf8"));
-
-/** Backup then atomic write; returns the backup path. */
-export function safeWrite(file: string, data: string, home: string, now = new Date()): string | null {
-  const dir = join(home, "backups");
-  mkdirSync(dir, { recursive: true });
-  let backup: string | null = null;
-  if (existsSync(file)) {
-    backup = join(dir, `${basename(file)}.${now.toISOString().replace(/[:.]/g, "-")}`);
-    copyFileSync(file, backup);
-  }
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, data);
-  renameSync(tmp, file);
-  return backup;
-}
-
-const agentOfAccount = (acc: string | undefined): AgentId => (acc === "visione" ? "gtm" : "main");
+const readJson = (p: string): any => readJsonFile(p);
 
 /** The registry: everything an agent is, read from config.json, engine.json, jobs.json and its workspace. */
 export function readRegistry(paths: Paths) {
@@ -62,18 +46,45 @@ export function readRegistry(paths: Paths) {
   const routes: Json[] = rules.agents ?? [];
   const issues: { agent: AgentId | null; text: string }[] = [];
 
-  const agents = (Object.keys(AGENTS) as AgentId[]).map((id) => {
-    const a = AGENTS[id];
-    const ws = paths.expand(engine.agents?.[id]?.workspace ?? a.workspace);
+  const ids = (Object.keys(engine.agents ?? {}) as AgentId[]).filter((id) => !!engine.agents[id]?.workspace);
+  // Which account belongs to which agent, and who takes everything no agent
+  // claims (`engine.agents.<id>.account`, optional). The first agent with
+  // none declared is the default.
+  const accountOwners = new Map<string, AgentId>();
+  let defaultAgent: AgentId | null = null;
+  for (const id of ids) {
+    const owned = engine.agents[id]?.account;
+    if (owned) accountOwners.set(owned, id);
+    else if (!defaultAgent) defaultAgent = id;
+  }
+  defaultAgent ??= ids[0] ?? "";
+  const agentOfAccount = (acc: string | undefined): AgentId =>
+    acc && accountOwners.has(acc) ? accountOwners.get(acc)! : defaultAgent;
+
+  // With more than one agent, an account nobody declares is ambiguous: it
+  // still falls to the default agent so chats keep working, but silently
+  // handing it over hides exactly the case that breaks a second agent (its
+  // own account loses its chats the moment it forgets to declare it). One
+  // agent alone has no such ambiguity: every account is obviously its own.
+  if (ids.length > 1) {
+    for (const key of Object.keys(cfg.channels?.discord ?? {})) {
+      if (key === "default" || accountOwners.has(key)) continue;
+      issues.push({ agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}` });
+    }
+  }
+
+  const agents = ids.map((id) => {
+    const ws = paths.expand(engine.agents[id].workspace);
+    const name = readIdentity(ws).name || id;
     const persona = Object.fromEntries(PERSONA_FILES.map((f) => {
       const p = join(ws, f);
       return [f, existsSync(p) ? readFileSync(p, "utf8") : ""];
     }));
     const accounts = Object.entries(cfg.channels ?? {}).flatMap(([ch, v]: [string, any]) => {
       if (ch === "discord") return Object.keys(v ?? {}).filter((k) => agentOfAccount(k) === id).map((k) => ({ channel: ch, account: k, token: String(v[k]?.token ?? "").replace(/^keychain:/, "Portachiavi: ") }));
-      return id === "main" ? [{ channel: ch, account: "default", token: String(v?.token ?? v?.store ?? "").replace(/^keychain:/, "Portachiavi: ") }] : [];
+      return id === defaultAgent ? [{ channel: ch, account: "default", token: String(v?.token ?? v?.store ?? "").replace(/^keychain:/, "Portachiavi: ") }] : [];
     });
-    const routedToSales = new Set(routes.filter((r) => r.agent === "gtm" && r.chat).map((r) => `${r.channel}:${r.chat}`));
+    const routedToOthers = new Set(routes.filter((r) => r.agent && r.agent !== defaultAgent && r.chat).map((r) => `${r.channel}:${r.chat}`));
     const routedChats = new Set(routes.filter((r) => r.agent === id && r.chat).map((r) => `${r.channel}:${r.chat}`));
     const chats = groups
       .filter((g) => agentOfAccount(g.account) === id)
@@ -81,38 +92,38 @@ export function readRegistry(paths: Paths) {
         channel: g.channel as string, chat: g.chat as string, account: (g.account ?? "default") as string,
         active: !!g.active, mention: !!g.mention, senders: (g.senders ?? []) as string[], denied: (g.denied ?? []) as string[],
         hasSystem: !!g.system, system: (g.system ?? "") as string, routed: routedChats.has(`${g.channel}:${g.chat}`),
-        twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToSales.has(`${g.channel}:${g.chat}`),
+        twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToOthers.has(`${g.channel}:${g.chat}`),
       }));
     const agentJobs = jobs
-      .filter((j) => (j.run?.kind === "agent" ? (j.run.agent ?? "main") : "main") === id)
+      .filter((j) => (j.run?.kind === "agent" ? (j.run.agent ?? defaultAgent) : defaultAgent) === id)
       .map((j) => ({
         id: j.id as string, name: j.name as string, paused: !!j.paused, kind: j.run?.kind as string,
         schedule: j.schedule?.kind === "cron" ? j.schedule.expr : j.schedule?.kind === "every" ? `ogni ${j.schedule.minutes} min` : j.schedule?.at ?? "",
         rawSchedule: (j.schedule ?? null) as Json | null,
         model: (j.run?.model as string) ?? null, deliver: j.deliver ? `${j.deliver.channel}:${j.deliver.chat}` : null,
       }));
-    const models = id === "main" ? rules.models ?? {} : {};
-    return { id, name: a.name, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
+    const models = id === defaultAgent ? rules.models ?? {} : {};
+    return { id, name, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
   });
 
-  // Incoherences: one chat with different rules for Jarvis and Visione, models written in several forms.
+  // Incoherences: one chat with different rules for different agents, models written in several forms.
   const byChat = new Map<string, Json[]>();
   for (const g of groups) byChat.set(`${g.channel}:${g.chat}`, [...(byChat.get(`${g.channel}:${g.chat}`) ?? []), g]);
   for (const [k, list] of byChat) {
-    // `*` is a per-account default (Visione's is off on purpose), not a duplicate.
+    // `*` is a per-account default (an agent's own may be off on purpose), not a duplicate.
     if (list.length < 2 || k.endsWith(":*")) continue;
-    if (routes.some((r) => r.agent === "gtm" && `${r.channel}:${r.chat}` === k)) continue;
+    if (routes.some((r) => r.agent && r.agent !== defaultAgent && `${r.channel}:${r.chat}` === k)) continue;
     const diff = list.some((g) => g.mention !== list[0].mention || g.active !== list[0].active);
-    issues.push({ agent: null, text: `${k}: regola scritta ${list.length} volte (Jarvis e Visione)${diff ? ", con menzione/attiva diverse" : ""}` });
+    issues.push({ agent: null, text: `${k}: regola scritta ${list.length} volte (${ids.length} agenti)${diff ? ", con menzione/attiva diverse" : ""}` });
   }
   for (const [ch, m] of Object.entries(rules.models ?? {}) as [string, Json][]) {
     // engine.json's model is only the fallback for turns no rule names (engine.rs), so a channel
     // rule that differs from it is not a conflict.
     const forms = Object.keys(m).filter((k) => k !== "*").map((k) => k.replace(/^\+|@.*$/g, ""));
-    if (new Set(forms).size < forms.length) issues.push({ agent: "main", text: `modelli ${ch}: lo stesso numero scritto in più forme` });
+    if (new Set(forms).size < forms.length) issues.push({ agent: defaultAgent, text: `modelli ${ch}: lo stesso numero scritto in più forme` });
   }
   const implicit = jobs.filter((j) => j.run?.kind === "agent" && !j.run.agent).length;
-  if (implicit) issues.push({ agent: "main", text: `${implicit} lavori a orario senza agente scritto (vanno a Jarvis per difetto)` });
+  if (implicit) issues.push({ agent: defaultAgent, text: `${implicit} lavori a orario senza agente scritto (vanno all'agente predefinito)` });
   return { agents, issues };
 }
 
@@ -156,11 +167,11 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
     return { file, backup: safeWrite(file, JSON.stringify(jobs, null, 2) + "\n", paths.home), restart: false };
   }
   if (e.kind === "persona") {
-    if (!(e.agent in AGENTS)) throw new Error("unknown agent");
+    const engine: Json = existsSync(join(paths.home, "engine.json")) ? readJson(join(paths.home, "engine.json")) : {};
+    if (!engine.agents?.[e.agent]?.workspace) throw new Error("unknown agent");
     if (!(PERSONA_FILES as readonly string[]).includes(e.file)) throw new Error("file not editable from here");
     if (typeof e.text !== "string" || e.text.trim().length < 20) throw new Error("text empty or too short");
-    const engine: Json = existsSync(join(paths.home, "engine.json")) ? readJson(join(paths.home, "engine.json")) : {};
-    const ws = paths.expand(engine.agents?.[e.agent]?.workspace ?? AGENTS[e.agent].workspace);
+    const ws = paths.expand(engine.agents[e.agent].workspace);
     const file = join(ws, e.file);
     return { file, backup: safeWrite(file, e.text.endsWith("\n") ? e.text : e.text + "\n", paths.home), restart: false };
   }
