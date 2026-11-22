@@ -67,6 +67,8 @@ export interface OverflowMachine {
   refused?: boolean;
   /** Free RAM the node last reported, in MB (optional heartbeat field). */
   freeMemoryMb?: number;
+  /** Coding model ids the node reported it runs; absent = not reported, which never excludes it. */
+  models?: readonly string[];
 }
 
 /** Free RAM kept for the node's own use, and what one working card takes (measured). */
@@ -83,6 +85,31 @@ export function effectiveSlots(m: OverflowMachine): number {
   const byRam = Math.floor((m.freeMemoryMb - NODE_RESERVE_MB) / CARD_WORKING_MB);
   return Math.max(0, Math.min(declared, byRam));
 }
+
+/**
+ * Does this machine lack the card's model? Only a node that REPORTED its models and a full model id
+ * outside that list says yes: an alias (`sonnet`), an empty choice and a node that never reported
+ * all read as «can run», because refusing on a guess would strand cards.
+ */
+export function machineLacksModel(m: OverflowMachine, selection: string | null | undefined): boolean {
+  if (m.kind !== "node" || !m.models || m.models.length === 0) return false;
+  const model = (selection ?? "").trim().toLowerCase().split(":").at(-1)!.trim();
+  if (!model || model === "auto" || model === "opus" || model === "sonnet" || model === "haiku") return false;
+  return !m.models.some((id) => id.toLowerCase() === model);
+}
+
+/**
+ * Is this text a machine saying «I have no coding agent for that model»? It is a verdict on the
+ * machine, not a failed start: the same card starts fine elsewhere. Matches the node's own words,
+ * also those of a node that retried twice before parking.
+ */
+export function isModelUnavailable(text: unknown): boolean {
+  const s = text instanceof Error ? text.message : typeof text === "string" ? text : "";
+  return /No coding agent is available for model/i.test(s);
+}
+
+/** How long a machine that lacked a model stays skipped for that card. */
+export const MODEL_SKIP_MS = 6 * 60 * 60_000;
 
 /** What the overflow knows about one card when it chooses where to send it. */
 export interface OverflowChoice {
@@ -132,13 +159,13 @@ export function pickOverflowMachine(
   // in 47 h). The cloud's breakers open too (its `node-run` hook, its buried runs),
   // and the remote lane takes an overflowed card off a blocked machine at once on
   // the word of this filter: chosen anyway, the card came back every tick (21/11).
-  const online = machines.filter((m) => m.online && room(m) && !opts.wakeBlocked?.(m.id));
+  const online = machines.filter((m) => m.online && room(m) && !opts.wakeBlocked?.(m.id) && !machineLacksModel(m, opts.model));
   if (opts.cloudCredit && opts.githubOrigin && cloudRunsModel(opts.model)) {
     const cloud = online.find((m) => m.kind === "cloud");
     if (cloud) return cloud;
   }
   return online.find((m) => m.kind === "node")
-    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m))
+    ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m) && !machineLacksModel(m, opts.model))
     ?? null;
 }
 
@@ -252,6 +279,8 @@ export interface OverflowMachineRow {
   status: string;
   /** Declared cards-at-once, when the person set one. */
   slots?: number | null;
+  /** Models the node reported on its last probe. */
+  models?: readonly string[] | null;
 }
 
 /**
@@ -274,7 +303,7 @@ export function overflowMachinesFrom(input: {
     if (!m.baseUrl) continue;
     out.push(input.isCloud(m.baseUrl)
       ? { id: m.id, name: m.name, kind: "cloud", online: input.cloudEnabled && m.status === "online" && input.environmentOk !== false, ...(input.environmentOk === false ? { refused: true } : {}) }
-      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}) });
+      : { id: m.id, name: m.name, kind: "node", online: m.status === "online", wakeable: input.wakeable, ...(m.slots != null ? { slots: m.slots } : {}), ...(m.models ? { models: m.models } : {}) });
   }
   return out;
 }

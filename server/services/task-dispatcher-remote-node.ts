@@ -18,6 +18,7 @@
  * with a fake node, a fake clock and no repository at all
  * (`task-dispatcher-remote-node.test.ts`).
  */
+import { isModelUnavailable, MODEL_SKIP_MS } from "./dispatch-overflow";
 import { wakeBreaker, hangBreaker } from "./wake-breaker";
 import { awaitsHuman } from "../../shared/workflow";
 import { NODE_UNREACHABLE_ERROR } from "../../shared/board";
@@ -418,10 +419,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * card wherever it can run, and the attempt the claim spent is refunded.
    * `false` = the requeue itself failed, and the caller decides what that means.
    */
-  function requeueOffMachine(taskId: string, note: string, replaces?: string): boolean {
+  function requeueOffMachine(taskId: string, note: string, replaces?: string, skipMachineId?: string): boolean {
     try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
     catch (err) { log(`nodo: la card ${taskId} non è tornata in coda`, err); return false; }
-    try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null } })); }
+    // The skip names THAT machine for a while: the overflow does not send the card back there, any other seat is fair game.
+    const skip = skipMachineId ? { machineId: skipMachineId, until: new Date(Date.now() + MODEL_SKIP_MS).toISOString() } : null;
+    try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null, ...(skip ? { overflowSkip: skip } : {}) } })); }
     catch (err) { log(`nodo: la card ${taskId} non ha lasciato la macchina fissa`, err); }
     try { svc.addComment({ taskId, author: "system", kind: "service", content: note, ...(replaces ? { replaces } : {}) }); }
     catch { /* the requeue stands without its line */ }
@@ -754,7 +757,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       // The node does not run this card's model: another machine may. The card
       // goes back to the queue with no fixed machine and says so in its thread.
       if (nodeFailureReason(err) === "model_rejected") {
-        if (!requeueOffMachine(task.id, `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`)) {
+        if (!requeueOffMachine(task.id, `Il nodo «${name}» non esegue il modello di questa card. Tolgo la macchina fissa e la rimetto in coda: parte dove il modello c'è.`, undefined, machineId)) {
           parkNodeCard(task, `Il nodo «${name}» non esegue il modello della card.`);
         }
         return;
@@ -1328,6 +1331,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         inFlight.delete(taskId);
         lastNodeRun.delete(taskId);
         const why = report.reason || report.dispatchError || "nessun motivo riportato";
+        // The node has no agent for this card's model: a verdict on the node, not a failed start. The card
+        // leaves it (no attempt spent, nothing parked) and the node is skipped for it.
+        if (isModelUnavailable(why) && requeueOffMachine(taskId, `Il nodo «${nodeName(node.machineId)}» non ha il modello di questa card. La rimetto in coda: parte su un'altra macchina.`, undefined, node.machineId)) continue;
         parkNodeCard(task, `Il nodo «${nodeName(node.machineId)}» ha parcheggiato la corsa: ${why}`);
         continue;
       }

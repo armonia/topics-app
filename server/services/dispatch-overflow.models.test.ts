@@ -1,0 +1,26 @@
+import { describe, expect, it } from "bun:test";
+import { isModelUnavailable, machineLacksModel, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
+
+const node = (over: Partial<OverflowMachine>): OverflowMachine => ({ id: "n1", name: "n1", kind: "node", online: true, ...over });
+const opts = (model: string | null) => ({ cloudCredit: false, githubOrigin: false, model, load: () => 0 });
+
+describe("a node that lacks the card's model", () => {
+  it("is not chosen, and the next node is", () => {
+    const old = node({ id: "old", models: ["claude-opus-5", "claude-sonnet-5"] });
+    const fresh = node({ id: "fresh", models: ["claude-sonnet-5-5"] });
+    expect(pickOverflowMachine([old, fresh], opts("claude-sonnet-5-5"))?.id).toBe("fresh");
+    expect(pickOverflowMachine([old], opts("claude-sonnet-5-5"))).toBeNull();
+  });
+
+  it("is still chosen when it never reported its models, or the model is an alias", () => {
+    expect(machineLacksModel(node({}), "claude-sonnet-5-5")).toBe(false);
+    expect(machineLacksModel(node({ models: ["claude-opus-5"] }), "sonnet")).toBe(false);
+    expect(machineLacksModel(node({ models: ["claude-opus-5"] }), null)).toBe(false);
+    expect(machineLacksModel(node({ models: ["claude-opus-5"] }), "claude-code:claude-sonnet-5-5")).toBe(true);
+  });
+
+  it("reads the node's refusal wording as a verdict on the machine", () => {
+    expect(isModelUnavailable('Avvio agent fallito ripetutamente. Motivo: No coding agent is available for model "claude-sonnet-5-5".')).toBe(true);
+    expect(isModelUnavailable(new Error("git worktree failed"))).toBe(false);
+  });
+});
