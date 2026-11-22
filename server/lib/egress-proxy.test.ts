@@ -13,7 +13,7 @@ import {
 
 // A socket that never connects nor fails: what a port silently dropped by the
 // network looks like from here (no RST, no ICMP, just nothing).
-function blackhole(): net.Socket {
+function droppedSocket(): net.Socket {
   return new net.Socket();
 }
 
@@ -38,7 +38,7 @@ afterAll(async () => {
 
 // "dead" is dropped silently, "refused" answers RST, anything else is the echo server.
 const fakeNet: Dial = (ip) => {
-  if (ip === "dead") return blackhole();
+  if (ip === "dead") return droppedSocket();
   if (ip === "refused") return net.connect({ host: "127.0.0.1", port: closedPort });
   return net.connect({ host: "127.0.0.1", port: echoPort });
 };
@@ -199,9 +199,9 @@ describe("the proxy server", () => {
   test("bytes sent right behind the header are not lost", async () => {
     const got = await new Promise<string>((resolve, reject) => {
       const c = net.connect({ host: "127.0.0.1", port });
-      let buf = "";
-      c.on("data", (d) => { buf += d.toString(); if (buf.endsWith("early")) c.end(); });
-      c.on("end", () => resolve(buf));
+      let received = "";
+      c.on("data", (d) => { received += d.toString(); if (received.endsWith("early")) c.end(); });
+      c.on("end", () => resolve(received));
       c.on("error", reject);
       c.write(`CONNECT chatgpt.test:443 HTTP/1.1\r\nProxy-Authorization: ${auth}\r\n\r\nearly`);
     });
