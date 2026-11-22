@@ -32,7 +32,10 @@ export function warnThrottled(key: string, ...args: unknown[]): void {
   console.warn(...args);
 }
 
-/** Number of remembered keys, for tests. */
+/**
+ * Number of remembered keys, for tests.
+ * @internal
+ */
 export function warnThrottledSize(): number {
   return lastWarnAt.size;
 }

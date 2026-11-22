@@ -981,6 +981,7 @@ export interface QueueReason {
 /**
  * Every kind, as data. The union above is the contract; this is the same list
  * a test can walk to prove that each branch has somewhere to be written.
+ * @internal
  */
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',

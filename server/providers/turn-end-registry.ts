@@ -125,7 +125,10 @@ export function resetTurnEndRegistry(): void {
   lastTurnEnd.clear();
 }
 
-/** Solo per i test/diagnostica: quante fini non ritirate ci sono. */
+/**
+ * Solo per i test/diagnostica: quante fini non ritirate ci sono.
+ * @internal
+ */
 export function turnEndRegistrySize(): number {
   return lastTurnEnd.size;
 }

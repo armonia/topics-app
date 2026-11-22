@@ -90,7 +90,10 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "gpt-o3-mini": price(1.1, 4.4),
 };
 
-/** The ids of the table, for the test that checks every one resolves to its own row. */
+/**
+ * The ids of the table, for the test that checks every one resolves to its own row.
+ * @internal
+ */
 export function pricedModelIds(): string[] {
   return Object.keys(PRICE_TABLE);
 }

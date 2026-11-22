@@ -123,7 +123,10 @@ function remember(path: string, mtimeMs: number, size: number, parsed: Parsed): 
   }
 }
 
-/** Drop the cache (tests). */
+/**
+ * Drop the cache (tests).
+ * @internal
+ */
 export function clearResumableCache(): void {
   cache.clear();
 }

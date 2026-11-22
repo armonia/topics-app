@@ -98,7 +98,10 @@ function markLastMessage(params: Anthropic.MessageCreateParams): void {
   }
 }
 
-/** Quanti breakpoint porta questo payload. Esposta per i test e per una diagnostica onesta. */
+/**
+ * Quanti breakpoint porta questo payload. Esposta per i test e per una diagnostica onesta.
+ * @internal
+ */
 export function countCacheBreakpoints(params: Anthropic.MessageCreateParams): number {
   let n = 0;
   const bump = (v: unknown) => {
