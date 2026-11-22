@@ -1,11 +1,12 @@
 /**
- * ONE AGENT'S PAGE (AGENTS-02): Attività by default, Configura on its own
+ * ONE AGENT'S PAGE (AGENTS-02): Activity by default, Configure on its own
  * tab — never both stacked on the same screen, which is what the old
  * `AgentProfiles` view did and what this page replaces.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Bot } from 'lucide-react';
 import { useT } from '../../hooks/useT';
+import { apiFetch } from '../../lib/shell/net';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { AgentConfigure, CONFIGURE_SECTIONS, type ConfigureSection } from './AgentConfigure';
 import type { Registry } from '../../state/agentRegistry';
@@ -13,16 +14,43 @@ import type { Registry } from '../../state/agentRegistry';
 type Agent = Registry['agents'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
 
-/** Attività's own numbers (messages, cost, turnaround) would come from the channel bridge's
- *  turns, which carry no timestamp or cost column this repo reads anywhere today — adding that
- *  would mean guessing an external schema, which is how a dashboard ends up showing an invented
- *  number. Until the bridge exposes one, this stays honest about what it shows: jobs and sessions,
- *  not messages/cost/7 days (named as the open gap in the delivery, not hidden behind a fake KPI). */
+/** Per-channel counts come from the channel bridge's turns (`/api/agent-channels/activity`).
+ *  Those carry no cost or timing, so none is shown: the page says so instead of inventing one. */
+interface ActivityRow { agent: string; channel: string; handled: number; failed: number; quota: number; merged: number; lastError: string | null }
+
+function useAgentActivity(agentId: string): ActivityRow[] {
+  const [rows, setRows] = useState<ActivityRow[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void apiFetch('/api/agent-channels/activity', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { rows?: ActivityRow[] } | null) => { if (alive && body?.rows) setRows(body.rows.filter((r) => r.agent === agentId)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [agentId]);
+  return rows;
+}
+
 function Activity({ agent }: { agent: Agent }) {
   const tr = useT();
   const activeJobs = agent.jobs.filter((j) => !j.paused);
+  const rows = useAgentActivity(agent.id);
   return (
     <div data-testid="agent-activity" className="space-y-4">
+      <div data-testid="agent-activity-turns" className="space-y-1">
+        <h2 className="text-body font-semibold text-app-text">{tr('agents.activity.title')}</h2>
+        {rows.length === 0 && <p className="text-mini text-app-text-muted">{tr('agents.activity.none')}</p>}
+        <ul className="space-y-1">
+          {rows.map((r) => (
+            <li key={r.channel} data-testid="agent-activity-row" className="rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+              <span className="font-semibold text-app-text">{r.channel}</span>
+              {' · '}{tr('agents.activity.counts', { handled: r.handled, failed: r.failed, quota: r.quota, merged: r.merged })}
+              {r.lastError && <span className={`block break-words ${DANGER_TEXT}`}>{r.lastError}</span>}
+            </li>
+          ))}
+        </ul>
+        <p className="text-mini text-app-text-muted">{tr('agents.activity.noCost')}</p>
+      </div>
       <p className="text-prose text-app-text-secondary">
         {tr('agentConfig.jobsAside', { on: activeJobs.length, n: agent.jobs.length })}
       </p>

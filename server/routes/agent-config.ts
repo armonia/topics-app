@@ -263,6 +263,13 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
   }
   if (e.kind === "route") {
     if (e.agent !== null && typeof e.agent !== "string") throw new Error("agent must be an id or null");
+    for (const k of ["channel", "chat"] as const) {
+      if (typeof e[k] !== "string" || !e[k].trim()) throw new Error(`${k} must be a non-empty string`);
+    }
+    if (e.agent !== null) {
+      const engine: Json = existsSync(join(paths.home, "engine.json")) ? readJson(join(paths.home, "engine.json")) : {};
+      if (!engine.agents?.[e.agent]) throw new Error("unknown agent");
+    }
     const file = join(paths.home, "config.json");
     const cfg: Json = readJson(file);
     cfg.rules ??= {};

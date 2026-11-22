@@ -1,9 +1,9 @@
 /**
  * CONFIGURE, ON ITS OWN PAGE (AGENTS-NAV-01, AGENTS-02).
  *
- * A column of sections — Identità, Mestiere, Canali e chat, Persone, Lavori
- * a orario, Strumenti, Memoria, Modello e account, Contesto ricevuto, File e
- * backup — each with its own address (`agentsNav.ts`), so a reload stays on
+ * A column of sections (Identity, Craft, Channels and chats, People, Scheduled
+ * jobs, Tools, Memory, Model and account, Received context, Files and
+ * backup), each with its own address (`agentsNav.ts`), so a reload stays on
  * the same section instead of landing back on the first one. On a phone the
  * column is a list that opens the section (`sm:` breakpoint): there is no
  * room for both at once.

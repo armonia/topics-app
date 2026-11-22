@@ -1,15 +1,15 @@
 /**
  * AGENTS NAVIGATION (openspec agenti-e-sistema, AGENTS-NAV-01).
  *
- * Panoramica Agenti (AGENTS-01): a card per agent with channel marks and
+ * Agents overview (AGENTS-01): a card per agent with channel marks and
  * chat count, a channel-less agent saying so with a link to add one, and a
- * "Nuovo agente" card. Configure, on its own page (AGENTS-02): Attività is
+ * "New agent" card. Configure, on its own page (AGENTS-02): Activity is
  * the default, Configure opens separately with a column of sections that
  * survives a reload. Creating an agent (AGENTS-03) writes only IDENTITY.md
  * and shows up without a restart. Channels as a tree (AGENTS-04): channel ->
  * server -> category -> chat -> thread, inherited values say so, an edit
- * narrows to its own node, and Configure > Identità lists what is inherited
- * as one row each with Vedi/Sovrascrivi.
+ * narrows to its own node, and Configure > Identity lists what is inherited
+ * as one row each with See/Override.
  *
  * `/api/agent-config`, `/api/agent-channels` and `/api/agent-channels/places`
  * are faked with `page.route`: the real jarvis-channels files are never
@@ -94,7 +94,7 @@ test("panoramica degli agenti (AGENTS-01)", async ({ page }, info) => {
   await expect(scoutCard.getByTestId("agent-overview-no-channels")).toContainText("Nessun canale");
   await expect(page.getByTestId("agent-overview-new")).toBeVisible();
 
-  // a 375 px le schede sono una colonna, senza scorrimento orizzontale
+  // at 375 px the cards are one column, with no horizontal scroll
   await page.setViewportSize({ width: 375, height: 800 });
   const box = await page.getByTestId("agent-overview-cards").boundingBox();
   expect(box!.width).toBeLessThanOrEqual(375);
@@ -166,7 +166,7 @@ test("canali come albero, ereditato senza ripetizioni (AGENTS-04)", async ({ pag
   await expect(page.getByTestId("channel-tree-chat")).toHaveCount(3); // 2 discord + 1 whatsapp
   await expect(page.getByTestId("channel-tree-inherit-tag").first()).toContainText("come Discord");
 
-  // cambio "se citato" sul canale 101: solo quel canale cambia, diventa "suo"
+  // set "when mentioned" on channel 101: only that channel changes and it becomes its own
   const chat101 = page.getByTestId("channel-tree-chat").filter({ hasText: "#segnalazioni" });
   await chat101.getByTestId("agent-chat-mention").click();
   await expect.poll(() => posts.find((p) => p.kind === "chat" && p.body.chat === "101")?.body).toMatchObject({ channel: "discord", chat: "101", mention: false });

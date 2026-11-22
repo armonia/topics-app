@@ -209,6 +209,28 @@ describe("applyEdit", () => {
   });
 });
 
+describe("route edit validation", () => {
+  test("rejects an agent that is not in engine.agents, leaving config.json untouched", async () => {
+    const p = fixture();
+    const before = readFileSync(join(p.home, "config.json"), "utf8");
+    expect(() => applyEdit(p, { kind: "route", channel: "discord", chat: "77", agent: "ghost" })).toThrow("unknown agent");
+    const res = await createAgentConfigRouter(ctx(), () => p)(
+      new Request("http://x/api/agent-config/route", { method: "POST", body: JSON.stringify({ channel: "discord", chat: "77", agent: "ghost" }) }),
+      new URL("http://x/api/agent-config/route"), "/api/agent-config/route", "POST",
+    );
+    expect(res?.status).toBe(400);
+    expect(readFileSync(join(p.home, "config.json"), "utf8")).toBe(before);
+  });
+
+  test("rejects an empty or non-string channel or chat", () => {
+    const p = fixture();
+    const before = readFileSync(join(p.home, "config.json"), "utf8");
+    expect(() => applyEdit(p, { kind: "route", channel: "", chat: "77", agent: "gtm" })).toThrow("channel must be");
+    expect(() => applyEdit(p, { kind: "route", channel: "discord", chat: 77 as unknown as string, agent: "gtm" })).toThrow("chat must be");
+    expect(readFileSync(join(p.home, "config.json"), "utf8")).toBe(before);
+  });
+});
+
 describe("GET /api/agent-config/persona", () => {
   test("assembles the five layers for a known agent", async () => {
     const p = fixture();

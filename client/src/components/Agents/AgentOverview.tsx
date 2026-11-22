@@ -1,7 +1,7 @@
 /**
  * PANORAMICA AGENTI (AGENTS-01): a card per agent with its channel marks and
- * chat count, a «Da sistemare» list (T7's `/api/system/agents-health`, linked
- * into the right Configure section) and a «Nuovo agente» card. At 375px the
+ * chat count, a "To fix" list (T7's `/api/system/agents-health`, linked
+ * into the right Configure section) and a "New agent" card. At 375px the
  * cards stack in one column — no horizontal scroll (the acceptance scenario
  * tests this width specifically).
  */

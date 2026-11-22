@@ -1,14 +1,14 @@
 /**
  * CONFIGURE › CANALI E CHAT, AS A TREE (AGENTS-04).
  *
- * canale → server Discord (o «Gruppi»/«Privati» per WhatsApp) → categoria
- * (quando c'è) → chat → thread. Ogni chat che non cambia nulla rispetto al
- * default del canale (la riga `chat: "*"`) dice "come il canale"; cambiando
- * un valore diventa "suo" — mai una copia del valore ripetuta altrove.
+ * channel -> Discord server (or groups/privates for WhatsApp) -> category
+ * (when present) -> chat -> thread. A chat that changes nothing from the
+ * channel default (the `chat: "*"` row) says "like the channel"; changing a
+ * value makes it its own, never a copy of the value repeated elsewhere.
  *
- * I nomi di server/categoria/thread vengono dal motore dei canali
- * (`/api/agent-channels/places`, letto da `channels.sqlite`); senza quel
- * dato il livello semplicemente non c'è, mai un segnaposto inventato.
+ * Server/category/thread names come from the channel engine
+ * (`/api/agent-channels/places`, read from `channels.sqlite`); without that
+ * data the level simply is not there, never an invented placeholder.
  */
 import { useMemo, useState } from 'react';
 import { ChevronRight, Pencil } from 'lucide-react';

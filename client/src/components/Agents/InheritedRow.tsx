@@ -1,10 +1,10 @@
 /**
- * ONE ROW PER INHERITED CONCEPT (AGENTS-04, feedback "niente ripetizioni").
+ * ONE ROW PER INHERITED CONCEPT (AGENTS-04, feedback: no repetition).
  *
- * Configure › Identità lists what the agent gets from the system (anima,
- * regole dell'utente, strumenti, memoria) as a single row each, not the
- * whole inherited text repeated: «Vedi» expands it in place, the second
- * action (Sovrascrivi, Escludi or Filtra) jumps to where it is actually
+ * Configure > Identity lists what the agent gets from the system (soul,
+ * user rules, tools, memory) as a single row each, not the
+ * whole inherited text repeated: "See" expands it in place, the second
+ * action (Override, Exclude or Filter) jumps to where it is actually
  * edited — this row never edits it itself.
  */
 import { useState } from 'react';
@@ -15,7 +15,7 @@ export function InheritedRow({
   title, badge, detail, actionLabel, onAction,
 }: {
   title: string;
-  /** What the value is today: "dalla base del sistema" / "suo" / any short status. */
+  /** What the value is today: the UI status label (inherited from the system base, own, or any short status). */
   badge: string;
   /** Rendered under the row when «Vedi» is open — the inherited content itself. */
   detail?: React.ReactNode;
