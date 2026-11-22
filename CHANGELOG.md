@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.75 — 2026-11-22
+
+### Sotto il cofano
+- Close the six reasons not to reattach a node run after a restart
+- Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
+- Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
+
 ## 2.4.74 — 2026-11-22
 
 ### Novità
@@ -25,13 +33,27 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il filtro degli strumenti dell'agente arriva davvero al turno nativo
 - La Verifica di Topics si legge anche sul telefono senza l'hub
 - Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
+- Reattach a still-open node run after a server restart instead of always queueing
 - Direct unit tests for the filter chain the turn runs
 - Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone
 - Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio
 - Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto
+- Drop the placeholder requirement id from the node-restart reattach suite
+- Register the node-restart reattach line growth in the bloat baseline
+- Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine
+- Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)
+- topics-check-daily: lint
 - fast gira anche sul nodo Windows
+- Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
 - Il nodo riceve intera la revisione anche dopo un riavvio
+- Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Commenti di node-run-brief a posto per il gate della lingua
+- Fix the reattach-on-restart path for a still-open node run
 - Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Unblock check:comment-language on node-run-brief after the main realign
+- Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
+- un problema sotto il tetto resta capped, non torna curato a giri alterni
+- Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo
 
 ## 2.4.73 — 2026-11-22
 
