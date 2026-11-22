@@ -1,4 +1,8 @@
-/** A finished card's branch leaves origin; open, unknown and moved branches stay. */
+/**
+ * A finished card's branch leaves origin; open, unknown and moved branches stay.
+ *
+ * @covers WORKTREE-17
+ */
 import { test, expect, describe } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
