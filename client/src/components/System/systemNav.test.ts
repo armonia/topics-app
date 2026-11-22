@@ -1,3 +1,6 @@
+/**
+ * @covers SYSTEM-PAGE-01
+ */
 import { describe, expect, test } from 'bun:test';
 import { healthTarget, systemSectionFromHash } from './systemNav';
 

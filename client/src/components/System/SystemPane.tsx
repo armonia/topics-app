@@ -14,7 +14,7 @@ import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { SystemHealth } from './SystemHealth';
 import { SystemHarness } from './SystemHarness';
 import { SystemTools } from './SystemTools';
-import { SystemMemories } from './SystemMemories';
+import { SystemMemory } from './SystemMemory';
 import { SystemLog } from './SystemLog';
 import { SYSTEM_SECTIONS, readSystemSection, systemSectionFromHash, writeSystemSection, type SystemSection } from './systemNav';
 
@@ -53,7 +53,7 @@ export function SystemPane() {
         {section === 'health' && <SystemHealth problems={problems} reload={reload} />}
         {section === 'harness' && <SystemHarness />}
         {section === 'tools' && <SystemTools />}
-        {section === 'memory' && <SystemMemories />}
+        {section === 'memory' && <SystemMemory />}
         {section === 'log' && <SystemLog />}
       </main>
     </div>

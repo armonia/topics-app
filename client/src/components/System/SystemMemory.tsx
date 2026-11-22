@@ -32,7 +32,7 @@ interface Open { storeId: string; file: string; content: string }
 
 const cardUrl = (storeId: string, file: string) => `/api/memory-stores/${encodeURIComponent(storeId)}/cards/${encodeURIComponent(file)}`;
 
-export function SystemMemories() {
+export function SystemMemory() {
   const tr = useT();
   const { reg } = useAgentRegistry();
   const [stores, setStores] = useState<Store[] | null>(null);
