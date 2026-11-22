@@ -1,6 +1,7 @@
 /**
  * `GET  /api/memory-stores`                         → { stores, problems } (T6, see `../memory/stores.ts`)
  * `GET  /api/memory-stores/search?q=<word>`         → { results } (SYSTEM-05: one deposit search, no external service)
+ * `GET  /api/memory-stores/turn?agent=<id>`          → [{ store, path, content }]: the indexes that agent receives, scope applied
  * `GET  /api/memory-stores/:id/cards/:file`         → { content }
  * `POST /api/memory-stores/:id/cards/:file`         { content } → write with backup
  * `POST /api/memory-stores/:id/cards/:file/archive` → move the card into the store's ARCHIVE.md, with backup
@@ -10,6 +11,7 @@
  * a known store's own folder first, so the request body is never the
  * authority over which folder gets written to.
  */
+import { readFileSync } from "fs";
 import { readAgents, registryHome } from "../agents/registry";
 import { homedir } from "os";
 import type { AppContext, RouteHandler } from "../types";
@@ -21,6 +23,7 @@ import {
   readMemoryStoresConfig,
   searchStores,
   storeProblems,
+  storesForTurn,
   topicsAgentsHome,
   writeCard,
   type MemoryStore,
@@ -55,6 +58,23 @@ export function createMemoryStoresRouter(ctx: Pick<AppContext, "json">, deps: Me
     if (method === "GET" && pathname === "/api/memory-stores/search") {
       const q = url.searchParams.get("q") ?? "";
       return ctx.json({ results: searchStores(loadStores(deps), q) });
+    }
+
+    if (method === "GET" && pathname === "/api/memory-stores/turn") {
+      const agentId = url.searchParams.get("agent") ?? "";
+      if (!agentId) return ctx.json({ error: "agent required" }, 400);
+      const blocks: { store: string; path: string; content: string }[] = [];
+      for (const store of storesForTurn(agentId, loadStores(deps))) {
+        if (!store.index) continue;
+        let content = "";
+        try {
+          content = readFileSync(store.index.path, "utf8");
+        } catch {
+          continue;
+        }
+        if (content.trim()) blocks.push({ store: store.id, path: store.index.path, content });
+      }
+      return ctx.json(blocks);
     }
 
     const cardMatch = /^\/api\/memory-stores\/([^/]+)\/cards\/([^/]+)(\/archive)?$/.exec(pathname);

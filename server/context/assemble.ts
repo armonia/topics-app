@@ -34,8 +34,6 @@ import { globalOrchestratorBoardSnapshot } from "../services/global-orchestrator
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { nativeWorkingDir, readClaudeMemoryIndex, readUserRulesSource, skillsBlock } from "../lib/native-parity";
 import { skillDirs } from "../lib/slash-command-source";
-import { readAgents, registryHome, resolveAgentIdForWorkspace } from "../agents/registry";
-import { claudeProjectsHome, discoverStores, readMemoryStoresConfig, storesForTurn, topicsAgentsHome } from "../memory/stores";
 
 import { contextWindowFor } from "../usage/context-window";
 import type {
@@ -274,7 +272,6 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
       // like a carve-out for the coordinator and was one only on paper.
       pushLanguageBlock(systemBlocks);
       pushMemoryBlocks(systemBlocks, topic, ctx, isEnabled);
-      pushAgentStoreBlocks(systemBlocks, ctx.resolveTopicCwd(topic), isEnabled);
       pushPinnedMessagesBlock(systemBlocks, topic, ctx, isEnabled, historyOverride);
       if (planMode) pushPlanModeBlock(systemBlocks);
     }
@@ -726,42 +723,6 @@ function pushMemoryBlocks(
       countInBudget: true,
       sourceUri: topicPath,
       editable: true,
-      injectedByTopicsApp: true,
-    });
-  }
-}
-
-/**
- * The memory indexes of the agent whose folder this turn runs in: its own
- * store plus every store it was granted "shared". `storesForTurn` applies the
- * scope, so another agent's store and any "readonly" grant never arrive here.
- * An ordinary topic (no agent owns its folder) gets nothing.
- */
-function pushAgentStoreBlocks(blocks: SystemBlock[], cwd: string | null, isEnabled: (id: string) => boolean): void {
-  const home = registryHome();
-  const agents = readAgents(home, (p) => p.replace(/^~(?=\/|$)/, homedir()));
-  const agentId = resolveAgentIdForWorkspace(cwd, agents);
-  if (!agentId) return;
-  const stores = discoverStores(agents, {
-    topicsAgentsHome: topicsAgentsHome(),
-    claudeProjectsHome: claudeProjectsHome(),
-    config: readMemoryStoresConfig(home),
-  });
-  for (const store of storesForTurn(agentId, stores)) {
-    if (!store.index) continue;
-    const content = readSafe(store.index.path) ?? "";
-    if (!content.trim()) continue;
-    const id = `memory:store:${store.id}`;
-    blocks.push({
-      id,
-      label: `Memory index (${store.id})`,
-      category: "memory",
-      content,
-      tokens: estimateTokens(content),
-      enabled: isEnabled(id),
-      countInBudget: true,
-      sourceUri: store.index.path,
-      editable: false,
       injectedByTopicsApp: true,
     });
   }
