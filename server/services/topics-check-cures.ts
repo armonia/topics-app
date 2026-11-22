@@ -21,9 +21,17 @@ export type { CureOutcome, CureReport };
 /** Key prefix of the investigation cards: the daily cap counts the cards that carry it. */
 const INVESTIGATION_KEY = "topics-check:";
 
+/** The author on a requeue/park note, so `unknownRetries` can count only its own tries. */
+const UNKNOWN_CURE_AUTHOR = "topics-check";
+/** Fresh shots an "unknown" card gets before it is parked for a human to look at it. */
+export const UNKNOWN_RETRY_CAP = 2;
+/** Same walk as `chainRoot` in topics-check.ts, read fresh at cure time: the sample that classified the card as
+ * chain-parked can be minutes old, and the root it found in backlog may already be done or gone. */
+const MAX_CHAIN_DEPTH = 20;
+
 export interface CureDeps {
   db: Database;
-  svc: Pick<TaskService, "get" | "update" | "addComment" | "create">;
+  svc: Pick<TaskService, "get" | "update" | "addComment" | "create" | "release">;
   /** The dispatcher's own reassignment of a card pinned to a machine that cannot run it; true = the card moved. */
   reassign: (task: Task) => boolean;
   /** Publishes a changed card to the open views. */
@@ -87,6 +95,23 @@ export function createCures(deps: CureDeps) {
 
   const note = (taskId: string, content: string) => svc.addComment({ taskId, author: "system", kind: "service", content });
 
+  /** True once the blocker chain starting at `id` bottoms out at a done or archived card: nothing is left to wait on. False while it still bottoms out at a card parked in backlog, or runs past `MAX_CHAIN_DEPTH`. */
+  function chainCleared(id: string): boolean {
+    let cur: string | null = id;
+    for (let i = 0; cur && i < MAX_CHAIN_DEPTH; i++) {
+      const row = db.query("SELECT status, archived, blocked_by_task_id AS next FROM tasks WHERE id = ?").get(cur) as { status: string; archived: number; next: string | null } | null;
+      if (!row || row.archived || row.status === "done") return true;
+      if (row.status === "backlog") return false;
+      cur = row.next;
+    }
+    return false;
+  }
+
+  /** How many times `topics-check` already requeued this card for "unknown": the readable cap before it parks it instead. */
+  const unknownRetries = (taskId: string): number =>
+    (db.query("SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND author = ? AND content LIKE 'Rimessa in coda%'")
+      .get(taskId, UNKNOWN_CURE_AUTHOR) as { n: number }).n;
+
   /** The card as the database has it now; null when it is gone or archived. */
   function read(taskId: string): CardState | null {
     const task = svc.get(taskId)?.task;
@@ -120,6 +145,33 @@ export function createCures(deps: CureDeps) {
         const pinned = svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(now() + EMPTY_RUN_PIN_MS).toISOString() } });
         deps.emit(pinned);
         note(task.id, "La card rimbalzava fra i nodi: la tengo qui, «solo Mac», per 6 ore."); // allow-italian: board comment
+        return true;
+      }
+      case "chain-parked": {
+        // The sample is minutes old: re-check the chain now, not what it said then.
+        if (bound || !task.blockedByTaskId || !chainCleared(task.blockedByTaskId)) return false;
+        const released = svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { blockedByTaskId: null } });
+        deps.emit(released);
+        note(task.id, "La card a monte della catena è finita: tolgo il blocco, può riprendere."); // allow-italian: board comment
+        return true;
+      }
+      case "unknown": {
+        // A live run or a card bound to its node is not ours to requeue or park.
+        if (runOpen || bound) return false;
+        const tries = unknownRetries(task.id);
+        if (tries < UNKNOWN_RETRY_CAP) {
+          const requeued = svc.release({
+            taskId: task.id, requeue: true, by: UNKNOWN_CURE_AUTHOR,
+            reason: `Rimessa in coda (giro ${tries + 1} di ${UNKNOWN_RETRY_CAP}): nessun turno vivo e nessuna domanda aperta, forse una ripartenza basta.`, // allow-italian: board comment
+          });
+          deps.emit(requeued);
+          return true;
+        }
+        const parked = svc.release({
+          taskId: task.id, requeue: false, by: UNKNOWN_CURE_AUTHOR,
+          reason: `Tolta dalla coda dopo ${UNKNOWN_RETRY_CAP} tentativi a vuoto: nessun turno vivo e nessuna domanda aperta, serve un occhio umano.`, // allow-italian: board comment
+        });
+        deps.emit(parked);
         return true;
       }
       default:
