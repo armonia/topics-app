@@ -604,7 +604,10 @@
       "splitMembri"
     ],
     "client/src/components/Settings/pianoState.test.ts": [
-      "codici"
+      "MotivoLicenza",
+      "chiavi",
+      "codici",
+      "muti"
     ],
     "client/src/components/Settings/pianoState.ts": [
       "POSTI_MAX_ACQUISTO",
@@ -2738,6 +2741,9 @@
     "server/lib/auth-gate.ts": [
       "MUTATING"
     ],
+    "server/lib/boot-catena-ripresa.test.ts": [
+      "blocchi"
+    ],
     "server/lib/boot-partial-sweep.test.ts": [
       "figli",
       "notif",
@@ -3259,6 +3265,7 @@
     ],
     "server/lib/ripresa-boot.test.ts": [
       "RigaDaValutare",
+      "guasto",
       "interrotto",
       "prosa"
     ],
@@ -3694,6 +3701,9 @@
     ],
     "server/providers/normalize-history.test.ts": [
       "turni"
+    ],
+    "server/providers/prompt-cache.test.ts": [
+      "dopoUna"
     ],
     "server/providers/registry-acp.test.ts": [
       "acpConfig",
@@ -4253,7 +4263,9 @@
     ],
     "server/services/dispatch-capacity.test.ts": [
       "dbConImpostazioni",
+      "disco",
       "finto",
+      "processi",
       "strutturale"
     ],
     "server/services/dispatch-capacity.ts": [
@@ -5164,6 +5176,7 @@
       "rec"
     ],
     "shared/licenza-motivi.ts": [
+      "MOTIVI_LICENZA",
       "MotivoLicenza"
     ],
     "shared/media-kind.ts": [

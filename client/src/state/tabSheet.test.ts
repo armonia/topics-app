@@ -12,7 +12,7 @@ import { closeTabSheet, openTabSheet, swallowNextOpen, useOpenTabSheet } from '.
  * call (`useSyncExternalStore`) is answered by a stand-in dispatcher that returns
  * the live snapshot, so the real store code runs and nothing is mocked.
  */
-function openSheet(key: string) {
+function useOpenSheetNow(key: string) {
   const internals = (React as unknown as Record<string, { H: unknown }>)
     .__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
   const prev = internals.H;
@@ -43,16 +43,16 @@ describe('tab sheet store', () => {
   test('opening another tab closes this one', () => {
     openTabSheet('a', 'commands');
     openTabSheet('b', 'commands');
-    expect(openSheet('b')?.key).toBe('b');
-    expect(openSheet('a')).toBeNull();
+    expect(useOpenSheetNow('b')?.key).toBe('b');
+    expect(useOpenSheetNow('a')).toBeNull();
   });
 
   test('closing names a key: another sheet is left alone', () => {
     openTabSheet('a', 'address');
     closeTabSheet('b');
-    expect(openSheet('a')?.key).toBe('a');
+    expect(useOpenSheetNow('a')?.key).toBe('a');
     closeTabSheet();
-    expect(openSheet('a')).toBeNull();
+    expect(useOpenSheetNow('a')).toBeNull();
   });
 
   test('the request that follows the closing press is dropped, the next gesture re-arms', () => {
@@ -64,17 +64,17 @@ describe('tab sheet store', () => {
     // The same press, still being dispatched, does not disarm it.
     host.press('pointerdown', firstPress);
     openTabSheet('a', 'commands');
-    expect(openSheet('a')).toBeNull();
+    expect(useOpenSheetNow('a')).toBeNull();
     // A press that produced no request (a drag) disarms it for the next one.
     swallowNextOpen('a', host as unknown as Document, firstPress);
     host.press('pointerdown');
     openTabSheet('a', 'commands');
-    expect(openSheet('a')?.key).toBe('a');
+    expect(useOpenSheetNow('a')?.key).toBe('a');
   });
 
   test('the swallow is for one key only', () => {
     swallowNextOpen('a', null);
     openTabSheet('b', 'commands');
-    expect(openSheet('b')?.key).toBe('b');
+    expect(useOpenSheetNow('b')?.key).toBe('b');
   });
 });

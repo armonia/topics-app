@@ -22,19 +22,12 @@ const held = (gb: number | null): (() => HeldMemory) => () =>
 const working = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
   ({ cardGB: 0, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true, ...over });
 
-/** The sentence of the live verdict: what these cases judge (`null` = nothing holds). */
-const dispatchResourceBlock = (...args: Parameters<typeof dispatchResourceVerdict>): string | null =>
-  dispatchResourceVerdict(...args).reason;
-
-/** The floor as a yes/no on an available-GB figure, through the live verdict (a full window at `gb`, our work running, no card price). */
+// Wrappers over the live verdict and parseVmStat, so the cases keep their old shape.
+const dispatchResourceBlock = (...args: Parameters<typeof dispatchResourceVerdict>): string | null => dispatchResourceVerdict(...args).reason;
 const memoryTooTight = (gb: number | null, floorGB = DISPATCH_MEM_FLOOR_GB): boolean =>
   dispatchResourceVerdict("/x", () => 999, held(gb != null && Number.isFinite(gb) ? gb : null), true, working({ floorGB })).kind === "memory";
-
-/** Compressor GB and cumulative swapouts as the live `parseVmStat` reads them (null = not measurable). */
 const compressorGB = (run: () => string | null): number | null => {
-  const out = run();
-  if (!out) return null;
-  const vm = parseVmStat(out);
+  const vm = parseVmStat(run() ?? "");
   return vm.pageSize && vm.compressorPages != null ? (vm.compressorPages * vm.pageSize) / 1e9 : null;
 };
 const swapoutPages = (run: () => string | null): number | null => {
