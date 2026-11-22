@@ -1,5 +1,6 @@
+// @covers AGENTS-TOOLS-01
 import { describe, expect, test } from "bun:test";
-import { ALL_TOOLS_FILTER, allowedNames, filterByName, parseAgentToolFilter, resolveAgentToolFilter } from "./tool-filter";
+import { ALL_TOOLS_FILTER, filterByName, parseAgentToolFilter, resolveAgentToolFilter } from "./tool-filter";
 import { buildAgentToolsInventory } from "../lib/agent-tools";
 import type { AgentToolsSettings } from "../../shared/agent-tools";
 import type { McpFleetStatus } from "../../shared/session-environment";
@@ -34,14 +35,13 @@ describe("resolveAgentToolFilter", () => {
   });
 });
 
-describe("allowedNames / filterByName", () => {
+describe("filterByName", () => {
   test("'all' keeps everything, in catalog order", () => {
-    expect(allowedNames(ALL_TOOLS_FILTER, ["kept", "dropped"])).toEqual(["kept", "dropped"]);
+    expect(filterByName(ALL_TOOLS_FILTER, [{ name: "kept" }, { name: "dropped" }])).toEqual([{ name: "kept" }, { name: "dropped" }]);
   });
 
   test("'selected' drops everything not named", () => {
     const filter = { mode: "selected" as const, servers: ["kept"] };
-    expect(allowedNames(filter, ["kept", "dropped"])).toEqual(["kept"]);
     expect(filterByName(filter, [{ name: "kept" }, { name: "dropped" }])).toEqual([{ name: "kept" }]);
   });
 });

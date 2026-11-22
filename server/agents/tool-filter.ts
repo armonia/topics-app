@@ -23,13 +23,6 @@ export function resolveAgentToolFilter(
   return settings.agentFilters[agentId] ?? ALL_TOOLS_FILTER;
 }
 
-/** Every catalog name this filter keeps, in the catalog's own order. */
-export function allowedNames(filter: AgentToolFilter, catalogNames: string[]): string[] {
-  if (filter.mode === "all") return catalogNames;
-  const kept = new Set(filter.servers);
-  return catalogNames.filter((name) => kept.has(name));
-}
-
 /** Filters any named catalog items (MCP servers, skills, CLIs) down to what the filter allows. */
 export function filterByName<T extends { name: string }>(filter: AgentToolFilter, items: T[]): T[] {
   if (filter.mode === "all") return items;
