@@ -1,5 +1,5 @@
 import { STOP_CAUSES } from "../../shared/ws-outbound";
-import { CREDIT_EXHAUSTED_RE } from "./native/retry";
+import { CREDIT_EXHAUSTED_RE } from "../../shared/credit-exhausted";
 /**
  * WHY a turn ended — said once, with ACP's vocabulary.
  *
