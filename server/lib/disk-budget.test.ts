@@ -1,7 +1,7 @@
 /**
  * Pure math, so every case is an exact number: no fixture folder, no `du`.
  *
- * @covers disk-budget
+ * @covers SYSTEM-DISK-01
  */
 import { describe, expect, test } from "bun:test";
 import { diskBudgetConfig, evaluateDiskBudget } from "./disk-budget";

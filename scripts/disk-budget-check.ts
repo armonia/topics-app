@@ -75,6 +75,14 @@ const dbBytes = ["topics.db", "topics.db-wal", "topics.db-shm"]
   .filter(existsSync)
   .reduce((sum, p) => sum + du(p), 0);
 
+// With no database the ratio is 0 and any weight beside it reads "within
+// budget": that happens when run from a worktree, whose dataDir does not exist.
+// Stop and say where it looked instead.
+if (dbBytes === 0) {
+  console.error(`disk-budget: no live database in ${dataDir}; run it from the live checkout or set DATA_DIR`);
+  process.exit(2);
+}
+
 const prunedLogs = pruneExpiredLogs(join(home, "logs"), process.env);
 
 /** Folders outside the database that the data folder actually grows with. */

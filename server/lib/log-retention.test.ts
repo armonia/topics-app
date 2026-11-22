@@ -1,5 +1,5 @@
 /**
- * @covers log-retention
+ * @covers SYSTEM-DISK-01
  */
 import { describe, expect, test } from "bun:test";
 import { expiredLogFiles, logRetentionDays } from "./log-retention";
