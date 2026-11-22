@@ -62,7 +62,10 @@ export async function createRelayIdentity(): Promise<{ relayId: string; segreto:
   };
 }
 
-/** Signs a proof with WebCrypto. The tests use it to play the host; the machine uses the sync twin in `relay-client.ts`. */
+/**
+ * Signs a proof with WebCrypto. The tests use it to play the host; the machine uses the sync twin in `relay-client.ts`.
+ * @internal
+ */
 export async function createHostProof(segreto: string, relayId: string, timestamp = Date.now()): Promise<string> {
   const privateKeyBytes = toArrayBuffer(daBase64url(segreto));
   const signingKey = await crypto.subtle.importKey("pkcs8", privateKeyBytes, SIGNING_ALGORITHM, true, ["sign"]);

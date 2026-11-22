@@ -99,7 +99,8 @@ test("a connect still in flight when the path moves is dropped, and the caller w
   const oldBridge = fakeBridge(OLD_PATH);
   const newBridge = fakeBridge(NEW_PATH);
   await Promise.all([oldBridge.listening, newBridge.listening]);
-  const { ensureBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
 
   _setPtyBridgeSocketPath(OLD_PATH);
   const stale = ensureBridge();
@@ -115,7 +116,8 @@ test("a connect still in flight when the path moves is dropped, and the caller w
 
 test("a connect that fails after the path moved spawns no bridge on the new path", async () => {
   fs.writeFileSync(NOT_A_SOCKET, "");
-  const { ensureBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
   _setPtyBridgeSocketPath(NOT_A_SOCKET);
   const stale = ensureBridge();
   _setPtyBridgeSocketPath(`${ROOT}/nobody.sock`);

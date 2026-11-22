@@ -115,7 +115,7 @@ let _lastSampleKey: string | null = null;
  *  riflettere un cambio reale entro un minuto. */
 const EMA_ALPHA = 0.25;
 
-/** Reimposta lo smorzamento (utile nei test). */
+/** @internal Reimposta lo smorzamento (utile nei test). */
 export function _resetTopicsFootprintSmoothing(): void {
   _smoothedServerMB = null;
   _lastSampleKey = null;
@@ -174,14 +174,4 @@ export function computeTopicsFootprint(input: TopicsUsageInput): TopicsFootprint
     memPartial: totalMB !== null && (deviceMB === null || serverSmoothedMB === null || devicePartial),
     cpuPartial: totalCpu !== null && (deviceCpu === null || serverCpu === null || devicePartial),
   };
-}
-
-/**
- * Etichetta breve per la metrica usata nel lato server.
- * Usata nei tooltip per dire "footprint" vs "RSS (stima alta)".
- */
-export function serverMetricLabel(metric: ServerMemMetric): string {
-  if (metric === 'footprint') return 'footprint';
-  if (metric === 'mixed') return 'footprint parziale';
-  return 'RSS (stima alta)';
 }

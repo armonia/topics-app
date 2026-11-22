@@ -107,13 +107,6 @@ function liveAgents(raw: unknown): Map<string, LiveAgent> {
   return out;
 }
 
-/** How many agents the hub sees at work outside Topics: the hub's own count, less the Topics tabs. */
-export function agentsOutsideTopics(live: unknown): number {
-  let n = 0;
-  for (const a of liveAgents(live).values()) if (!a.inTopics) n++;
-  return n;
-}
-
 const runnerOf = (a: LiveAgent | undefined): string | null => {
   if (!a) return null;
   const k = (a.harness ?? a.provider ?? '').toLowerCase();

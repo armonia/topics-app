@@ -5,7 +5,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceVerdict, effectiveDispatchCap, freeDiskGB, parseVmStat, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */
@@ -21,6 +21,19 @@ const held = (gb: number | null): (() => HeldMemory) => () =>
  */
 const working = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
   ({ cardGB: 0, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true, ...over });
+
+// Wrappers over the live verdict and parseVmStat, so the cases keep their old shape.
+const dispatchResourceBlock = (...args: Parameters<typeof dispatchResourceVerdict>): string | null => dispatchResourceVerdict(...args).reason;
+const memoryTooTight = (gb: number | null, floorGB = DISPATCH_MEM_FLOOR_GB): boolean =>
+  dispatchResourceVerdict("/x", () => 999, held(gb != null && Number.isFinite(gb) ? gb : null), true, working({ floorGB })).kind === "memory";
+const compressorGB = (run: () => string | null): number | null => {
+  const vm = parseVmStat(run() ?? "");
+  return vm.pageSize && vm.compressorPages != null ? (vm.compressorPages * vm.pageSize) / 1e9 : null;
+};
+const swapoutPages = (run: () => string | null): number | null => {
+  const out = run();
+  return out ? parseVmStat(out).swapouts : null;
+};
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -188,7 +201,7 @@ describe("il pavimento sulle risorse", () => {
    * Memoria fissata, e non e' pigrizia: questi casi giudicano il DISCO, e
    * `dispatchResourceBlock` legge di sua iniziativa anche la RAM della macchina
    * che esegue la suite. Lasciandola vera, il verde di «con spazio non blocca»
-   * dipenderebbe da quanti Chrome sono aperti mentre gira il test — misurato il
+   * dipenderebbe da quanti Chrome sono aperti mentre gira il test, misurato il
    * 2026-08-16: 12,09 GB disponibili contro un pavimento di 12, cioe' a un
    * decimo dal rosso. E' lo stesso difetto gia' pagato in tasks.test.ts, dove
    * un test misurava il TMPDIR di chi lo lanciava.

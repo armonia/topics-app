@@ -16,7 +16,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   browserWsMessageSchema,
   parseBrowserWsMessage,
-  isBrowserWsMessage,
   type BrowserWsMessage,
 } from '../../shared/browser-ws-messages';
 
@@ -156,30 +155,6 @@ describe('parseBrowserWsMessage — malformed payloads', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain('metadata.timestamp');
-    }
-  });
-});
-
-describe('isBrowserWsMessage — backward-compat boolean guard', () => {
-  test('returns true for valid messages', () => {
-    expect(isBrowserWsMessage({ type: 'take_control' })).toBe(true);
-    expect(
-      isBrowserWsMessage({ type: 'agent_active', active: true }),
-    ).toBe(true);
-  });
-
-  test('returns false for invalid messages', () => {
-    expect(isBrowserWsMessage(null)).toBe(false);
-    expect(isBrowserWsMessage({ type: 'frame' })).toBe(false); // missing fields
-    expect(isBrowserWsMessage({ type: 'unknown' })).toBe(false);
-  });
-
-  test('narrows the type on true', () => {
-    const value: unknown = { type: 'agent_active', active: false };
-    if (isBrowserWsMessage(value)) {
-      // If the type-guard works, this compiles without `as`.
-      const _msg: BrowserWsMessage = value;
-      expect(_msg.type).toBe('agent_active');
     }
   });
 });

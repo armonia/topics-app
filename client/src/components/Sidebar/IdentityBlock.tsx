@@ -59,6 +59,7 @@ import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
 import { workSignals } from './workSignals';
 import { activeAgentCount, useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
+import { useOutsideAgents } from '../../state/atWork';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
@@ -187,7 +188,9 @@ function UserCard({ identity, commands, alarm }: {
   // the SAME rows the menu lists, through one function (active-agent-row): a
   // chat waiting on its job is one of them.
   const agentRows = useActiveAgentRows(roster, topics);
-  const activeAgents = activeAgentCount(agentRows);
+  // WHO IS AT WORK, one number (`state/atWork`): the bell's foot and System's
+  // «Agenti e lavori» say the same, the hub's agents outside Topics included.
+  const activeAgents = activeAgentCount(agentRows) + useOutsideAgents();
   const agentsTitle = tr('statusBar.signals.working', { n: activeAgents });
   const load = useLoad();
   // THE HOTTEST QUOTA, only from 80%: a signal when it matters, no fixed row (hub-smistamento).

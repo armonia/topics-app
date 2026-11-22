@@ -165,30 +165,6 @@ export function listNotifications(opts: { limit?: number; before?: string } = {}
 }
 
 /**
- * How many SUBJECTS are still unseen: the number on the bell.
- *
- * Subjects, not rows. Rows sharing a `group_key` (two replies in the same chat,
- * a reply and an error in it) are one thing to look at, and seeing one sees
- * them all (the cascade below): counting them apart made the bell say 2 where
- * the dock, which counts subjects too, said 1. A row with no group answers
- * only for itself, so it counts as its own subject.
- */
-export function countUnseenNotifications(): number {
-  try {
-    const db = getDatabase();
-    const r = db
-      .query("SELECT COUNT(DISTINCT COALESCE(group_key, id)) AS c FROM notification_log WHERE seen_at IS NULL")
-      .get() as
-      | { c: number }
-      | null;
-    return r?.c ?? 0;
-  } catch (err) {
-    console.warn("[notification-log] count failed:", (err as Error)?.message || err);
-    return 0;
-  }
-}
-
-/**
  * Segna VISTO. Tre forme, e la terza è quella che chiude un difetto già pagato:
  *
  *  · `upTo`  → tutte le righe fino a quell'istante (è quello che fa l'apertura

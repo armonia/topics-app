@@ -68,6 +68,24 @@ describe("nodeRunDescription", () => {
     expect(capped.length).toBeLessThan(MAX_REVIEW_CHARS + 1_500);
   });
 
+  it("una nota di avanzamento dell'agente, scritta dopo la revisione, non prende il posto della revisione", () => {
+    // 22/11: the run restarted after the agent's own «Riparto dal codice…» note, which was then taken for // allow-italian: quoted note text
+    // the review, and the reviewer's list reached the node cut to 2.000 characters.
+    const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(400)}REVISIONE-FINE`;
+    expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
+    const out = nodeRunDescription("d", [
+      comment({ author: "agent:a1", kind: "delivery", content: "CONSEGNA PRECEDENTE" }),
+      comment({ author: "user", content: review }),
+      comment({ author: "agent:b2", content: "Riparto dal codice già nel ramo" }),
+    ]);
+    expect(out).toContain("REVISIONE-FINE");
+    expect(out).not.toContain("[...cut");
+    expect(out).toContain("Riparto dal codice");
+    // A thread where only agents spoke keeps the old rule: the newest comment travels whole.
+    const agentsOnly = nodeRunDescription("", [comment({ author: "agent:b2", content: review })]);
+    expect(agentsOnly).toContain("REVISIONE-FINE");
+  });
+
   it("la revisione più recente non consuma il budget: la consegna precedente resta anche con una revisione lunga", () => {
     // A 10.000-character review used to spend the thread budget and push the previous delivery out.
     const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(700)}REVISIONE-FINE`;

@@ -6,7 +6,6 @@
  * `tasks.ts`, so no sibling module has to import from `tasks.ts` itself).
  */
 
-import { parseForYou } from "../../../shared/for-you";
 import type { Database } from "bun:sqlite";
 import type { ServiceOpts, TaskService } from "../tasks";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -196,7 +195,7 @@ export function trackDeliveryNote(p: Promise<void>): void {
 }
 
 /**
- * Resolves once every delivery note already on its way has been written or
+ * @internal Test seam: resolves once every delivery note already on its way has been written or
  * dropped. A note that needs git is written after the update returns, so a test
  * that reads it, or checks it is absent, waits here first: an absence read too
  * early would pass for the wrong reason.
@@ -1285,25 +1284,28 @@ function cardCommentsFor(ids: readonly string[]): Map<string, CardComment[]> {
     return out;
   }
 
-function buildBatch(rows: readonly any[]): TaskBatch {
+function buildBatch(rows: readonly any[], opts: { reasonsOnly?: boolean } = {}): TaskBatch {
     const ids = rows.map((r) => r.id as string);
+    // `reasonsOnly`: the caller reads only `queueReasonOf`, so the facts a card face draws (labels,
+    // comments, the open question, preview images) are not paid for.
+    const light = opts.reasonsOnly === true;
     const b: TaskBatch = {
       nowIso: new Date().toISOString(),
-      labels: labelsFor(ids),
+      labels: light ? new Map() : labelsFor(ids),
       waitingOn: new Map(),
       topics: new Map(),
       blockers: new Map(),
       parentStatus: new Map(),
       retryCap: new Map(),
       openChildren: new Map(),
-      comments: cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
+      comments: light ? new Map() : cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
       // Only the two columns where a hold can be open, so a board of closed
       // cards pays nothing: a review card already carries its comments and the
       // client reads the question straight out of those.
-      awaiting: awaitingAnswerFor(
+      awaiting: light ? new Set() : awaitingAnswerFor(
         rows.filter((r) => r.status === "todo" || r.status === "in_progress").map((r) => r.id as string),
       ),
-      previewImages: previewImagesFor(ids),
+      previewImages: light ? new Map() : previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
       // Only the In-progress cards no agent is in: the `no_agent` branch.
@@ -1624,7 +1626,7 @@ function mapRow(r: any, b: TaskBatch): Task {
       // A pin with a deadline (`stay_local_until`, set after an empty node run)
       // reads as unmarked once the deadline is past.
       stayLocal: !!r.stay_local && !(r.stay_local_until && r.stay_local_until <= now()),
-      ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: r.overflow_skip_machine } : {}),
+      ...(r.overflow_skip_machine && r.overflow_skip_until && r.overflow_skip_until > now() ? { overflowSkipMachine: String(r.overflow_skip_machine).split(",").at(-1), overflowSkipMachines: String(r.overflow_skip_machine).split(",") } : {}),
       // Only while it still runs where the overflow sent it.
       ...(r.overflowed_at && r.machine_id ? { overflowedAt: r.overflowed_at } : {}),
       ...(r.base_branch ? { baseBranch: r.base_branch } : {}),
@@ -1642,7 +1644,6 @@ function mapRow(r: any, b: TaskBatch): Task {
       // the default workflow sends the same row as before.
       ...(r.stage ? { stage: r.stage } : {}),
       ...(r.human_ask ? { humanAsk: r.human_ask } : {}),
-      ...(r.for_you ? { forYou: parseForYou(r.for_you) } : {}),
       ...(r.land_intent ? { landIntent: r.land_intent } : {}),
       ...(r.land_intent_commit ? { landIntentCommit: r.land_intent_commit } : {}),
       // Delegation metadata is rare. Absence means an ordinary owner run, not
@@ -1676,6 +1677,9 @@ function mapRow(r: any, b: TaskBatch): Task {
       queueReason: queueReasonOf(r, b),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
+      // Only when the column is really there: the list projection does not select it, and a
+      // hard `?? null` would turn "not asked for" into "no tip was ever sent back".
+      ...(r.prior_commit ? { priorCommit: r.prior_commit as string } : {}),
       // Da quando aspetta una risposta umana (migration 20260816214500).
       reviewAt: r.review_at ?? null,
       // L'ENTITÀ DEL LAVORO, sulla card e non dietro un clic: la colonna review

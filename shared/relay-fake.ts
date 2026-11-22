@@ -33,7 +33,7 @@
 export const SEGRETO_FINTO =
   "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgPN0xJEJQHryNVNIAcHLcIKtPEIHlbfBEqJJKEp5oS1qhRANCAAS13rXmQrJrKewNAprhokBvpa7GIjO3fUKZUsAXjYgg3mRoE8UQ-M_OuwI8-FITEeuWNJIHOQF-LEVSLFUFdHWH";
 import {
-  RELAY_PROTOCOL_VERSION, leggiMessaggio, haContenutoOpaco,
+  RELAY_PROTOCOL_VERSION, leggiMessaggio,
   componiStream, creaCapoCanale, creaContatoreStream, creaRiassemblatore, leggiFramePayload,
   ricaricaPer, scriviFrame,
   type EsitoInvio, type EsitoTubo, type LatoTubo, type MessaggioRelay, type MotivoStream,
@@ -91,7 +91,7 @@ export function creaRelayFinto(opts: FakeRelayOpts = {}) {
       ricevi(raw: unknown) {
         const m = leggiMessaggio(raw);
         if (!m) return nega(capo, "bad-version");
-        visto.push({ t: m.t, ...(haContenutoOpaco(m) ? {} : {}) });
+        visto.push({ t: m.t });
 
         if (m.t === "hello") {
           const atteso = opts.tokenValidi?.[m.installationId];

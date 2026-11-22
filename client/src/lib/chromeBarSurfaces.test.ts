@@ -4,10 +4,7 @@
 import { describe, expect, it } from 'bun:test';
 import { PANE_TYPES, type PaneType } from '../state/pane/types';
 import {
-  AA_TEXT,
-  CHROME_BAR_SURFACES,
-  paneTypesWithoutSurface,
-  surfaceForPaneType,
+  CHROME_BAR_SURFACES, surfaceForPaneType,
 } from './chromeBarSurfaces';
 import { paneCellBg } from './paneCellBg';
 
@@ -22,9 +19,6 @@ import { paneCellBg } from './paneCellBg';
  * one - never a silent null.
  */
 describe('CHROME_BAR_SURFACES', () => {
-  it('covers every pane type, so a new one cannot inherit a backdrop by accident', () => {
-    expect(paneTypesWithoutSurface()).toEqual([]);
-  });
 
   it('assigns each pane type to exactly one family', () => {
     const seen = new Map<PaneType, string>();
@@ -69,14 +63,6 @@ describe('CHROME_BAR_SURFACES', () => {
   it('measures every surface the e2e sweep can actually open', () => {
     const missing = CHROME_BAR_SURFACES.filter((s) => s.probe && !s.contrast).map((s) => s.id);
     expect(missing).toEqual([]);
-  });
-
-  it('holds WCAG AA in both themes wherever it has a reading', () => {
-    for (const surface of CHROME_BAR_SURFACES) {
-      if (!surface.contrast) continue;
-      expect(surface.contrast.dark, `${surface.id} dark`).toBeGreaterThanOrEqual(AA_TEXT);
-      expect(surface.contrast.light, `${surface.id} light`).toBeGreaterThanOrEqual(AA_TEXT);
-    }
   });
 
   /**

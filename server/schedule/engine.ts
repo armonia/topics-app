@@ -189,7 +189,7 @@ export function createScheduleEngine(db: Database, options: EngineOptions) {
 
       const lostCount = lost.length + (truncated ? 1 : 0);
       if (lostCount > 0) {
-        insertRun(job, `missed:${lost[0]?.toISOString() ?? first.toISOString()}`, lost[0] ?? first, "missed", { cause, missed: lostCount }, instant);
+        insertRun(job, `missed:${lost[0]?.toISOString() ?? first.toISOString()}`, lost[0] ?? first, "missed", { cause: busy ? "overlap" : cause, missed: lostCount }, instant);
       }
       if (chosen) {
         if (busy) {

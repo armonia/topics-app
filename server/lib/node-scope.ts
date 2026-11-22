@@ -16,7 +16,7 @@
  *    (GET /api/nodes/runs/:id, also the heartbeat probe of
  *    `services/node-heartbeat.ts`), `cancelRun` (DELETE /api/nodes/runs/:id),
  *    `fetchBundle` (GET /api/nodes/runs/:id/bundle), `codingModels`
- *    (GET /api/providers/snapshot). The delegated-runs and delegated-requests
+ *    (GET /api/providers/snapshot), `readVersion` (GET /api/version, the heartbeat's read of the node's real version). The delegated-runs and delegated-requests
  *    calls ride on a delegated credential or on no identity at all
  *    (`isIdentityExemptPath`), never on this cookie; pair/request and
  *    pair/status are identity exempt too.
@@ -37,6 +37,7 @@ type Db = Pick<Database, "query">;
 const EXACT = new Set([
   "POST /api/nodes/runs",
   "GET /api/providers/snapshot",
+  "GET /api/version",
   "GET /api/system/machine-metrics",
   "GET /api/system/machine-security",
   "GET /api/system/machine-readout",

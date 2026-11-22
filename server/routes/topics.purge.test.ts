@@ -2,7 +2,7 @@
  * @covers TOPIC-PURGE-01
  */
 import { describe, expect, it } from "bun:test";
-import { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue } from "./topics";
+import { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue } from "./topics-ui-state";
 
 /**
  * Unit coverage for the archive/delete purge helper. The regression it guards:

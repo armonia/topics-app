@@ -1,9 +1,56 @@
 [
   {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "nome inglese per il ref simbolico",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.74",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [
+        {
+          "text": "security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09",
+          "scope": "machines"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.71",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "security mark hit area 24px (usability audit target-size)",
+          "scope": "machines"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.65",
     "date": "2026-11-21",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "text": "security shield beside each node and its four checks in the row (MACHINE-06)",
+          "scope": "machines"
+        }
+      ],
       "fixes": [
         {
           "text": "bisect a red landed batch instead of bouncing every card",

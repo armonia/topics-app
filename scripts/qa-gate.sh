@@ -135,7 +135,10 @@ STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eol chec
          check:identifier-language check:sleeps check:tmp-canonical
          check:api-door
          check:untraced-tests check:module-mock-restore check:gates-orfani check:spec-coverage
-         check:migrations check:security check:deadcode)
+         check:migrations check:security check:deadcode check:deadcode-prod)
+
+# Before the lanes start: the list is exactly what the gates are about to miss.
+misura untracked-files ./scripts/untracked-files.sh
 
 echo "== guard rail statici, tipi e lint (in parallelo) =="
 (for c in "${STATICI[@]}"; do misura "$c" bun run "$c"; done) &
@@ -147,6 +150,7 @@ wait
 misura check:deadcode-blindspots bun run check:deadcode-blindspots
 
 # Il riepilogo nell'ordine di sempre: statici, blindspots, tipi, lint.
+riferisci untracked-files
 for c in "${STATICI[@]}" check:deadcode-blindspots typecheck lint; do
   riferisci "$c"
 done

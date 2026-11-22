@@ -85,3 +85,24 @@ describe("readCardThreads", () => {
     }
   });
 });
+
+describe("createAgentChannelsRouter", () => {
+  /** @covers AGENTS-NAV-01 */
+  test("GET /api/agent-channels/places answers with the chat->server map, keyed by raw id", async () => {
+    const { createAgentChannelsRouter } = await import("./agent-channels");
+    const dir = mkdtempSync(join(tmpdir(), "agent-channels-"));
+    try {
+      const path = join(dir, "c.sqlite");
+      const db = new Database(path);
+      db.run("CREATE TABLE turns (id INTEGER PRIMARY KEY, chat TEXT, thread TEXT, meta TEXT)");
+      db.run(`INSERT INTO turns (chat, meta) VALUES ('c1', '{"chat_title":"#zeno","guild_title":"Armonia"}')`);
+      db.close();
+      const ctx = { json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }) };
+      const router = createAgentChannelsRouter(ctx, () => path);
+      const res = await router(new Request("http://x/api/agent-channels/places"), new URL("http://x/api/agent-channels/places"), "/api/agent-channels/places", "GET");
+      expect(await res!.json()).toEqual({ places: { c1: { server: "Armonia" } } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

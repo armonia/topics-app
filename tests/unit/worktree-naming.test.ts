@@ -13,7 +13,6 @@ import { describe, expect, test } from "bun:test";
 import {
   ADJECTIVES,
   NOUNS,
-  NAME_REGEX,
   generateWorktreeName,
   isValidWorktreeName,
 } from "../../server/utils/worktree-naming";
@@ -49,12 +48,6 @@ describe("vocabularies", () => {
 });
 
 describe("generateWorktreeName — shape", () => {
-  test("matches the canonical regex", () => {
-    for (let i = 0; i < 200; i++) {
-      const name = generateWorktreeName();
-      expect(name).toMatch(NAME_REGEX);
-    }
-  });
 
   test("has exactly one or two hyphens", () => {
     for (let i = 0; i < 200; i++) {

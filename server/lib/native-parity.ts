@@ -54,12 +54,6 @@ export function readUserRulesSource(home = homedir()): UserRules | null {
   const content = readClaudeMd(file, home);
   return content === null ? null : { path: file, content };
 }
-
-/** The rules text alone: the shape the older callers use. */
-export function readUserRules(home = homedir()): string | null {
-  return readUserRulesSource(home)?.content ?? null;
-}
-
 function readSmall(file: string): string | null {
   try {
     if (!existsSync(file) || statSync(file).size > MAX_RULES_BYTES) return null;
@@ -71,7 +65,7 @@ function readSmall(file: string): string | null {
  * `~/.claude/CLAUDE.md`, with one pass of `@path` imports expanded.
  *
  * The expansion is not a luxury: the tool rules ALL arrive from one
- * `@~/.claude/jarvis/agents/_shared/TOOLS.md`, so without it the block would
+ * `@<harness-home>/agents/_shared/TOOLS.md`, so without it the block would
  * say half of it and nobody would know which half. One level only: arbitrary
  * depth is a way to pull a whole tree into context without meaning to.
  */
@@ -100,9 +94,11 @@ export function nativeWorkingDir(topicCwd: string | null | undefined): string {
   return topicCwd || process.env.TOPICS_WORKSPACE || homedir();
 }
 
-/** Claude Code's own limits: past these the index it injects is truncated. */
-const MEMORY_INDEX_MAX_LINES = 200;
-const MEMORY_INDEX_MAX_CHARS = 25_000;
+/** Claude Code's own limits: past these the index it injects is truncated.
+ *  Exported for `server/memory/stores.ts`, which flags a store whose index
+ *  grew past the same limit: one number, not a second copy to drift. */
+export const MEMORY_INDEX_MAX_LINES = 200;
+export const MEMORY_INDEX_MAX_CHARS = 25_000;
 
 /**
  * The folder where Claude Code keeps the auto-memory for `cwd`, computed the way
@@ -182,12 +178,12 @@ function askGitRoot(cwd: string, entry: GitRoot): Promise<void> {
     .finally(() => { entry.asking = null; });
 }
 
-/** Every ask about a remembered folder still running, answered. */
+/** @internal Every ask about a remembered folder still running, answered. */
 export async function settleGitRootAsksForTests(): Promise<void> {
   await Promise.all([...gitRoots.values()].map((entry) => entry.asking));
 }
 
-/** Everything forgotten. */
+/** @internal Everything forgotten. */
 export function forgetGitRootsForTests(): void {
   gitRoots.clear();
 }

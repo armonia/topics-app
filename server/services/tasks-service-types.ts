@@ -554,6 +554,8 @@ export interface TaskService {
    * A card waiting for a silent node is in Todo, so it counts.
    */
   countOnMachine(machineId: string): number;
+  /** Cards already running on the machine (in progress), not counting `exceptTaskId`. */
+  countRunningOnMachine(machineId: string, exceptTaskId?: string): number;
   /**
    * C'è un task `heavy` con un agente vivo su questa macchina adesso?
    *

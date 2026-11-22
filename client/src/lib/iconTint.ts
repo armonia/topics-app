@@ -136,35 +136,6 @@ export function contrastRatio(a: RGB, b: RGB): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/**
- * Il colore che si vede DAVVERO quando `tint` è steso su `surface` a `ratio`
- * di opacità. Il contrasto va misurato su questo, non sulla tinta pura: dare per
- * buono il colore dichiarato invece del composito è l'errore che ha già fatto
- * passare un cancello di contrasto cieco all'opacity.
- */
-export function compositeOver(tint: RGB, surface: RGB, ratio: number): RGB {
-  const t = Math.max(0, Math.min(1, ratio));
-  return {
-    r: tint.r * t + surface.r * (1 - t),
-    g: tint.g * t + surface.g * (1 - t),
-    b: tint.b * t + surface.b * (1 - t),
-  };
-}
-
-const WHITE: RGB = { r: 255, g: 255, b: 255 };
-const NEAR_BLACK: RGB = { r: 17, g: 20, b: 26 };
-
-/**
- * Quale dei due inchiostri regge su questo fondo, e con che rapporto. Il
- * chiamante può alzare le mani (o togliere la tinta) se `ratio` non arriva a
- * 4,5: qui non si nasconde un contrasto insufficiente, si riporta.
- */
-export function bestTextTone(bg: RGB): { tone: 'light' | 'dark'; ratio: number } {
-  const light = contrastRatio(WHITE, bg);
-  const dark = contrastRatio(NEAR_BLACK, bg);
-  return light >= dark ? { tone: 'light', ratio: light } : { tone: 'dark', ratio: dark };
-}
-
 // ── Campionamento dell'icona (DOM) ──────────────────────────────────────────
 
 /** Esiti già noti, per URL. Un'icona si campiona una volta per sessione. */

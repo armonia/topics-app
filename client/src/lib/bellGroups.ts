@@ -4,9 +4,11 @@
  * tab out, in the one order the person reads them:
  *
  *   1. «Decide»: what only the person can do. The waits of Topics
- *      (questions, permissions, plans, reviews) and the hub's «waiting for
- *      you» items, in one list: the ones with a deadline first (the nearest
- *      first), then whoever has waited longest.
+ *      (questions, permissions, plans, reviews), the hub's «waiting for
+ *      you» items and the automations that need you (the same ones the
+ *      Automations row counts, workflows at a gate included), in one list:
+ *      the ones with a deadline first (the nearest first), then whoever has
+ *      waited longest.
  *   2. «Broken»: failed automations, services with a problem or stopped, the
  *      PC that cannot be reached.
  *   3. «Quotas and accounts»: a subscription that runs out before its reset
@@ -18,14 +20,20 @@
  *
  * An empty group is not there at all. Without the hub the hub's parts are
  * empty, so the panel is the Topics inbox of before.
+ *
+ * ONE LEDGER: the bell's button, the «Ora» tab, the Dock and the tray all say
+ * how many rows these groups hold (`bellTotal`), nothing else. Before, the Dock
+ * counted the lit subjects of Topics, the button the «Decide» group alone and
+ * the tab every row: three numbers for one list (153, 104, 224 on 22/11).
  */
 import type { InboxItem } from './inboxModel';
 import {
-  automationSummary, firingAlerts, quotaLines, servicesDown, waitingItems,
+  firingAlerts, quotaLines, servicesDown, waitingItems,
   type AccountEvent, type Contradiction, type FailedJob, type FiringAlert, type QuotaLine, type ServiceDown, type WaitingItem,
 } from './hubSystem';
 import type { HubLiveState } from '../state/hubLive';
 import { machineAlerts, quotaOutlooks, type MachineAlert, type QuotaOutlook } from './hubSignals';
+import type { AutomationWait } from './hubGates';
 
 export const BELL_GROUP_ORDER = ['decide', 'broken', 'quota', 'look', 'finished'] as const;
 export type BellGroupKey = (typeof BELL_GROUP_ORDER)[number];
@@ -42,6 +50,7 @@ const PROJECT_BUDGET_SOURCE = 'soglia-progetto'; // allow-italian: the hub's wir
 export type BellEntry =
   | { source: 'topics'; key: string; item: InboxItem }
   | { source: 'waiting'; key: string; item: WaitingItem }
+  | { source: 'automation'; key: string; automation: AutomationWait }
   | { source: 'failed'; key: string; job: FailedJob }
   | { source: 'service'; key: string; service: ServiceDown }
   | { source: 'quota'; key: string; quota: QuotaLine }
@@ -59,6 +68,8 @@ export interface BellGroup {
 /** What the hub contributes to the bell; every list empty when there is no hub. */
 export interface BellHub {
   waiting: WaitingItem[];
+  /** The automations that need you (`needsYou` of the hub's automations), workflows at a gate included. */
+  automations: AutomationWait[];
   failed: FailedJob[];
   services: ServiceDown[];
   quotas: QuotaLine[];
@@ -71,7 +82,7 @@ export interface BellHub {
   contradictions: Contradiction[];
 }
 
-export const NO_HUB: BellHub = { waiting: [], failed: [], services: [], quotas: [], outlooks: [], machines: [], alerts: [], accounts: [], contradictions: [] };
+export const NO_HUB: BellHub = { waiting: [], automations: [], failed: [], services: [], quotas: [], outlooks: [], machines: [], alerts: [], accounts: [], contradictions: [] };
 
 const isFull = (q: QuotaLine) => q.used >= QUOTA_BELL_AT || (q.fiveHour ?? 0) >= QUOTA_BELL_AT;
 
@@ -101,28 +112,12 @@ export function urgentAccountEvents(events: readonly AccountEvent[], now: number
   return events.filter((e) => e.kind === 'token' || (e.kind === 'limit' && e.account === null && now - e.at < URGENT_LIMIT_MS));
 }
 
-/**
- * What the hub adds to the bell's button: the items that wait for the person
- * (they make it amber) and the warnings (grey, with the figure). The live
- * topics, and the proxy's urgent account events (`state/proxyActivity`, read
- * every minute in the background): the failed automations are the summary's
- * counter, the list behind it is read when the panel opens.
- */
-export function hubBadgeCounts(live: HubLiveState, accounts: readonly AccountEvent[] = [], now = Date.now()): { decide: number; alerts: number } {
-  const parts = liveBellHub(live);
-  const broken = automationSummary(live.automations?.data)?.broken ?? 0;
-  const urgent = urgentAccountEvents(accounts, now).length;
-  return {
-    decide: parts.waiting.length,
-    alerts: broken + parts.services.length + parts.quotas.length + parts.outlooks.length + parts.machines.length + parts.alerts.length + urgent,
-  };
-}
-
 /** «Decide»: deadlines first (nearest first), then the longest wait. */
-function decideEntries(topics: readonly InboxItem[], hub: readonly WaitingItem[]): BellEntry[] {
+function decideEntries(topics: readonly InboxItem[], hub: readonly WaitingItem[], automations: readonly AutomationWait[]): BellEntry[] {
   const ranked: { entry: BellEntry; due: number | null; since: number }[] = [
     ...topics.map((item) => ({ entry: { source: 'topics' as const, key: item.subject, item }, due: null, since: item.since })),
     ...hub.map((item) => ({ entry: { source: 'waiting' as const, key: `hub:${item.id}`, item }, due: item.due, since: item.since ?? Number.MAX_SAFE_INTEGER })),
+    ...automations.map((automation) => ({ entry: { source: 'automation' as const, key: `automation:${automation.key}`, automation }, due: null, since: automation.since ?? Number.MAX_SAFE_INTEGER })),
   ];
   return ranked
     .sort((a, b) => {
@@ -138,7 +133,7 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
   const budget = hub.alerts.filter((a) => a.source === PROJECT_BUDGET_SOURCE);
   const pace = hub.alerts.filter((a) => a.source !== PROJECT_BUDGET_SOURCE);
   const groups: BellGroup[] = [
-    { key: 'decide', entries: decideEntries(model.waiting, hub.waiting) },
+    { key: 'decide', entries: decideEntries(model.waiting, hub.waiting, hub.automations) },
     {
       key: 'broken',
       entries: [
@@ -168,6 +163,20 @@ export function bellGroups(model: { waiting: readonly InboxItem[]; finished: rea
     { key: 'finished', entries: model.finished.map((item): BellEntry => ({ source: 'topics', key: item.subject, item })) },
   ];
   return groups.filter((g) => g.entries.length > 0);
+}
+
+/** THE ONE NUMBER: how many rows «Ora» lists. The button, the tab, the Dock and the tray all say this. */
+export function bellTotal(groups: readonly BellGroup[]): number {
+  return groups.reduce((n, g) => n + g.entries.length, 0);
+}
+
+/** The colour of the button's pill: amber when something waits for an answer, blue for the finished, grey for warnings alone. */
+export type BellTone = 'needs-you' | 'lit' | 'quiet';
+
+export function bellTone(groups: readonly BellGroup[]): BellTone {
+  if (groups.some((g) => g.key === 'decide')) return 'needs-you';
+  if (groups.some((g) => g.key === 'finished')) return 'lit';
+  return 'quiet';
 }
 
 /** The words a time of the bell needs: the panel passes its `tr`, a test a stub. */

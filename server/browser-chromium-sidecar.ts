@@ -113,18 +113,6 @@ function linuxCandidates(): Candidate[] {
   ];
 }
 
-/**
- * THE CANDIDATE IDS, in the order they get looked at.
- *
- * Exposed because the ORDER is a security decision, not a detail:
- * `pickChromiumEngine` takes the first that exists, and before 20/09 on this
- * machine that was Dia, the user's own browser. A test pins it, and to do so
- * it needs to read the list without touching the disk.
- */
-export function candidateIdsFor(platform: NodeJS.Platform): string[] {
-  return candidatesForPlatform(platform).map((c) => c.id);
-}
-
 function candidatesForPlatform(platform: NodeJS.Platform): Candidate[] {
   if (platform === "darwin") return macCandidates();
   if (platform === "win32") return windowsCandidates();

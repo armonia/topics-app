@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { ChildWorkMeter } from '../Board/ChildWorkMeter';
 import {
-  Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
+  Bot, Check, ChevronDown, CircleAlert, CircleCheck, CircleX, ClipboardCheck, CloudOff, Eye, Gauge, GitPullRequest, Hand,
   MessageCircleQuestion, MessageSquare, PauseCircle, Settings, ShieldAlert, SquareCheck, TerminalSquare,
   type LucideIcon,
 } from 'lucide-react';
@@ -34,11 +34,17 @@ import type { WSMessage } from '../../types';
 import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
-import { retryHub, useBellDiary, useBellHub, useProxyEvents } from '../../hooks/useBellHub';
+import { retryHub, useBellDiary, useProxyEvents } from '../../hooks/useBellPanel';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { rereadBellExtras } from '../../state/bellExtras';
 import { chatApi } from '../../lib/api';
 import { sendAttentionSeenItems } from '../../state/attention';
-import { markAllSeenItems, type InboxItem, type InboxModel, type InboxQuietItem } from '../../lib/inboxModel';
-import { BELL_GROUP_PREVIEW, bellGroups, type BellGroup, type BellGroupKey } from '../../lib/bellGroups';
+import { markAllSeenItems, quietItemsOf, type InboxItem, type InboxModel, type InboxQuietItem } from '../../lib/inboxModel';
+import { useActiveAgentRows } from '../../state/signals';
+import { useOutsideAgents } from '../../state/atWork';
+import { useAttentionRows } from '../../state/attention';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { BELL_GROUP_PREVIEW, type BellGroup, type BellGroupKey } from '../../lib/bellGroups';
 import type { HubLiveTopic } from '../../state/hubLive';
 import type { HistoryFilter } from '../../lib/bellHistory';
 import { openDeepLinkInApp } from '../../lib/deepLinkEntry';
@@ -110,13 +116,22 @@ export default function InboxPanel({ model, onWSMessage, onClose, tabRequest = n
   const history = useNotificationHistory(onWSMessage);
   const reloadHistory = history.reload;
   useEffect(() => { if (tab === 'history') reloadHistory(); }, [tab, reloadHistory]);
-  const { hub, present, answering, downSince, unread, jarvis } = useBellHub();
+  // THE LEDGER the button counts: the same groups, so «Ora» says the button's number.
+  const { bell } = useTabNotifications();
+  const { groups, total: nowCount } = bell;
+  const { present, answering, downSince, unread, jarvis } = bell.hub;
+  // WHO IS AT WORK, the foot: the same rows and the same number as the identity
+  // pill and System's «Agenti e lavori» (`state/atWork`), outside Topics included.
+  const agentRows = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const attention = useAttentionRows();
+  const working = useMemo(() => quietItemsOf(agentRows.working, attention), [agentRows, attention]);
+  const outside = useOutsideAgents();
+  // Opening reads the hub's lists again (the automations included): what the panel shows is fresh.
+  useEffect(() => { if (answering) void rereadBellExtras(); }, [answering]);
   const diary = useBellDiary(tab === 'history');
   const proxy = useProxyEvents(present && tab === 'history');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>('all');
   const showAccounts = useCallback(() => { setHistoryFilter('accounts'); setTab('history'); }, []);
-  const groups = useMemo(() => bellGroups(model, hub), [model, hub]);
-  const nowCount = groups.reduce((n, g) => n + g.entries.length, 0);
 
   // The focus goes to the first row on open, so ↓/Enter work at once. NOT IN ONE CALL. The `Menu` places its panel in a layout effect and shows
   // it on the commit after (`visibility: hidden` until measured), and this
@@ -283,7 +298,7 @@ export default function InboxPanel({ model, onWSMessage, onClose, tabRequest = n
           />
         )}
       </div>
-      <QuietLine working={model.working} hub={present ? (answering ? 'live' : 'down') : null} downSince={downSince} />
+      <QuietLine working={working} outside={outside} hubDown={present && !answering} downSince={downSince} onClose={onClose} />
     </div>
   );
 }
@@ -516,24 +531,32 @@ function FinishedRow({ item, first, onOpen, onMarkSeen }: { item: InboxItem; fir
 const KNOWN_TASK_KINDS = new Set(['bash', 'agent', 'workflow', 'monitor', 'cron', 'command', 'wake', 'subagent']);
 
 /**
- * THE FOOT OF THE PANEL: «3 at work», grey, no number on the button, opens in
- * place; on its right whether the hub answers («hub live», «hub stopped»).
- * A chat waiting on the job it launched is at work like one that answers: one
- * count, and its row names the job. Outside the list, so it stays in view
- * while the groups scroll. Without anybody at work and without the hub there
- * is no foot at all.
+ * THE FOOT OF THE PANEL: «14 at work», grey, no number on the button, opens
+ * in place. The number is the identity pill's and System's (`state/atWork`):
+ * the sessions of Topics at work, listed, and the hub's agents outside Topics
+ * as one last row that opens «Agenti e lavori», where they are listed. A chat
+ * waiting on the job it launched is at work like one that answers. On the
+ * right, only when the hub stopped answering, since when: a hub that answers
+ * is not news. Without anybody at work and with the hub fine there is no foot.
  */
-function QuietLine({ working, hub, downSince }: { working: InboxQuietItem[]; hub: 'live' | 'down' | null; downSince: number | null }) {
+function QuietLine({ working, outside, hubDown, downSince, onClose }: {
+  working: InboxQuietItem[];
+  outside: number;
+  hubDown: boolean;
+  downSince: number | null;
+  onClose: () => void;
+}) {
   const tr = useT();
   const now = useSharedNow();
   const { isTouch } = useMobile();
   const [open, setOpen] = useState(false);
-  if (working.length === 0 && hub === null) return null;
-  const busy = working.length > 0;
+  const total = working.length + outside;
+  if (total === 0 && !hubDown) return null;
+  const busy = total > 0;
   return (
     // The number as an attribute too: what the line says is copy, and a test
     // that reads copy freezes it (tests/e2e/CONVENTIONS.md).
-    <div className="border-t border-app-border flex-shrink-0" data-testid={busy ? 'inbox-quiet' : 'bell-footer'} data-working={working.length} data-hub={hub ?? undefined}>
+    <div className="border-t border-app-border flex-shrink-0" data-testid={busy ? 'inbox-quiet' : 'bell-footer'} data-working={total} data-hub={hubDown ? 'down' : undefined}>
       {open && busy && (
         <ul className="py-1 border-b border-app-border/60 max-h-48 overflow-y-auto">
           {working.map((q) => {
@@ -560,6 +583,23 @@ function QuietLine({ working, hub, downSince }: { working: InboxQuietItem[]; hub
               </li>
             );
           })}
+          {outside > 0 && (
+            <li>
+              <button
+                type="button"
+                data-inbox-row=""
+                tabIndex={-1}
+                onClick={() => { onClose(); openUserMenu('agents'); }}
+                className={`w-full flex items-center gap-2 pl-5 pr-3 ${isTouch ? 'min-h-11' : 'min-h-8'} text-left hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors`}
+                data-testid="inbox-quiet-outside"
+                data-count={outside}
+              >
+                <Bot size={13} className="flex-shrink-0 text-app-text-tertiary" aria-hidden="true" />
+                <span className="text-compact text-app-text truncate">{tr('inbox.quiet.outside', { n: outside })}</span>
+                <span className="text-compact text-app-text-muted truncate ml-auto flex-shrink min-w-0">{tr('inbox.quiet.outsideOpen')}</span>
+              </button>
+            </li>
+          )}
         </ul>
       )}
       <button
@@ -572,8 +612,8 @@ function QuietLine({ working, hub, downSince }: { working: InboxQuietItem[]; hub
         className={`w-full flex items-center gap-2 ${isTouch ? 'min-h-11 px-3.5 text-prose' : 'min-h-[34px] px-3 text-compact'} text-left text-app-text-secondary enabled:hover:bg-app-hover focus-visible:bg-app-hover outline-none transition-colors disabled:cursor-default`}
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${busy ? 'bg-green-500' : 'bg-app-text-muted'}`} aria-hidden="true" />
-        <span className="flex-1 truncate tabular-nums">{busy ? tr('inbox.quiet.working', { n: working.length }) : tr('bell.footer.idle')}</span>
-        {hub && <span className="flex-shrink-0 text-app-text-muted" data-testid="bell-footer-hub">{hub === 'live' ? tr('bell.footer.hubLive') : hubDownLabel(downSince, now, tr)}</span>}
+        <span className="flex-1 truncate tabular-nums">{busy ? tr('inbox.quiet.working', { n: total }) : tr('bell.footer.idle')}</span>
+        {hubDown && <span className="flex-shrink-0 text-app-text-muted" data-testid="bell-footer-hub">{hubDownLabel(downSince, now, tr)}</span>}
         {busy && <ChevronDown size={13} className={`flex-shrink-0 text-app-text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />}
       </button>
     </div>
