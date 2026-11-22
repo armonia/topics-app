@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useT } from '../../hooks/useT';
-import { apiFetch } from '../../lib/shell/net';
+import { readJson } from '../../lib/readJson';
 import { useChannelPlaces, type ChannelPlace } from '../../state/agentGroups';
 import type { Registry } from '../../state/agentRegistry';
 import type { ConfigureSection } from './configureSections';
@@ -22,7 +22,7 @@ function useFetchedSummary(agentId: string): Fetched {
   useEffect(() => {
     let alive = true;
     const patch = (p: Partial<Fetched>) => { if (alive) setFetched((f) => ({ ...f, ...p })); };
-    const get = (url: string) => apiFetch(url, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const get = (url: string) => readJson(url, { cache: 'no-store' }) as Promise<any>;
     void get(`/api/agent-tools?agent=${encodeURIComponent(agentId)}`).then((b: { filter?: { mode?: string } } | null) => b && patch({ tools: b.filter?.mode === 'selected' ? 'selected' : 'all' }));
     void get('/api/memory-stores').then((b: { stores?: { owners?: string[] }[] } | null) => b && patch({ memory: (b.stores ?? []).filter((s) => !s.owners || s.owners.includes(agentId)).length }));
     void get(`/api/agent-config/persona?agent=${encodeURIComponent(agentId)}`).then((b: { layers?: { tokens: number }[] } | null) => b?.layers && patch({ contextTokens: b.layers.reduce((s, l) => s + l.tokens, 0) }));

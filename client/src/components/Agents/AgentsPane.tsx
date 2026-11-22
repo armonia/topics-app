@@ -8,6 +8,9 @@ import { useEffect, useState } from 'react';
 import { Bot, ChevronRight, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { useT } from '../../hooks/useT';
+import { addCatalogue } from '../../lib/i18n';
+import AGENTS_IT from '../../lib/i18n-agents-it';
+import AGENTS_EN from '../../lib/i18n-agents-en';
 import { useAgo } from './useAgo';
 import { useAgentGroups, useChannelTitles } from '../../state/agentGroups';
 import { agentSessionName } from '../../lib/agentSessions';
@@ -26,6 +29,9 @@ import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks'
 import type { AgentAction } from '../../../../shared/agent-action';
 
 type Tr = ReturnType<typeof useT>;
+
+addCatalogue('it', AGENTS_IT);
+addCatalogue('en', AGENTS_EN);
 
 // Working is the sky of in_progress, not green: green is "done", and an agent
 // at work is not done (`lib/statusVisual.ts`).

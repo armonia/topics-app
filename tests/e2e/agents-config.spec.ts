@@ -123,7 +123,7 @@ test("the registry of Jarvis and Visione reads and writes through /api/agent-con
   await page.getByTestId("agent-detail-back").click();
   await page.getByTestId("agent-overview-card").filter({ hasText: "Visione" }).click();
   await expect(page.getByTestId("agent-activity")).toBeVisible();
-  await expect(page.getByTestId("agent-job")).toContainText("Giro prospect");
+  await expect(page.getByTestId("agent-activity-job")).toContainText("Giro prospect");
   await page.getByTestId("agent-detail-tab-configure").click();
   await page.getByTestId("agent-configure-section").filter({ hasText: "Canali e chat" }).click();
   await expect(page.getByTestId("channel-tree-chat")).toHaveCount(1);
