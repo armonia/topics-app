@@ -244,15 +244,15 @@ export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number
   }));
 }
 
-/** The samples of the last 7 days, oldest first. */
-export function readSamples(db: Database): Sample[] {
-  return (db.query("SELECT sample_json FROM topics_check_samples ORDER BY at").all() as { sample_json: string }[]).map((r) => JSON.parse(r.sample_json) as Sample);
+/** The samples taken at or after `sinceMs` (default: everything kept), oldest first. */
+export function readSamples(db: Database, sinceMs = 0): Sample[] {
+  return (db.query("SELECT sample_json FROM topics_check_samples WHERE at >= ? ORDER BY at").all(sinceMs) as { sample_json: string }[]).map((r) => JSON.parse(r.sample_json) as Sample);
 }
 
 export type RoundState = "waiting" | "stale" | "live";
 
 /** No sample yet is `waiting`; a last sample older than two intervals is `stale`. Neither is ever green. */
-export function roundState(samples: readonly Sample[], now: number): { state: RoundState; ageMin: number | null } {
+export function roundState(samples: readonly { at: number }[], now: number): { state: RoundState; ageMin: number | null } {
   const lastAt = samples.reduce<number | null>((a, s) => (a === null || s.at > a ? s.at : a), null);
   if (lastAt === null) return { state: "waiting", ageMin: null };
   const age = Math.max(0, now - lastAt);
@@ -262,8 +262,12 @@ export function roundState(samples: readonly Sample[], now: number): { state: Ro
 export interface TopicsCheckRound {
   /** One round: sample, run the proofs, store, trim. Returns the voices. A round already in flight is joined, never doubled. */
   tick(): Promise<Voice[]>;
-  current(): Voice[];
+  /** What the view shows, from one read of only the window the voices use. */
+  current(): { at: number | null; state: RoundState; ageMin: number | null; voices: Voice[] };
 }
+
+/** The oldest sample `voices` can use: its widest window, with one interval of slack. */
+const oldestUsed = (now: number, s: TopicsCheckSettings) => now - s.thresholds.seatsWindowHours * HOUR_MS - SAMPLE_INTERVAL_MS;
 
 export function createTopicsCheck(opts: { db: Database; now?: () => number; settings?: () => TopicsCheckSettings; run?: Runner }): TopicsCheckRound {
   const { db } = opts;
@@ -276,14 +280,19 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
     const sample: Sample = { ...sampleTopics(db, at, s.thresholds), checks: await runProofs(s.checks, s.thresholds.checkTimeoutSec, opts.run) };
     db.query("INSERT OR REPLACE INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(at, JSON.stringify(sample));
     db.query("DELETE FROM topics_check_samples WHERE at < ?").run(at - KEEP_SAMPLES_MS);
-    return voices(readSamples(db), s);
+    return voices(readSamples(db, oldestUsed(at, s)), s);
   };
   return {
     tick() {
       inFlight ??= run().finally(() => { inFlight = null; });
       return inFlight;
     },
-    current: () => voices(readSamples(db), settings()),
+    current() {
+      const s = settings();
+      const at = now();
+      const lastAt = (db.query("SELECT MAX(at) AS at FROM topics_check_samples").get() as { at: number | null }).at;
+      return { at: lastAt, ...roundState(lastAt === null ? [] : [{ at: lastAt }], at), voices: voices(readSamples(db, oldestUsed(at, s)), s) };
+    },
   };
 }
 

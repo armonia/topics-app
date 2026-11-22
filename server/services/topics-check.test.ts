@@ -29,7 +29,7 @@ function db(): Database {
   d.run("PRAGMA foreign_keys = OFF");
   d.run("DROP TABLE machines");
   d.run("PRAGMA foreign_keys = ON");
-  for (const f of ["020-machines.sql", "20261109090000-machine-slots.sql", "20261122100000-topics-check.sql"]) {
+  for (const f of ["020-machines.sql", "20261109090000-machine-slots.sql", "20261122100000-topics-check.sql", "20261122110000-task-comments-created-at-index.sql"]) {
     // The settings column is already in the harness's app_settings; only the table is new here.
     d.run(readFileSync(join(MIG, f), "utf8").replace(/INSERT OR IGNORE INTO schema_migrations[^;]*;/, "").replace(/ALTER TABLE app_settings[^;]*;/, ""));
   }
@@ -225,6 +225,29 @@ describe("the round", () => {
     } finally { globalThis.fetch = realFetch; }
     expect(modelCalls).toBe(0);
     expect(readSamples(d)).toHaveLength(288);
+  });
+  test("real volumes: the moves read searches an index, a round stays under 50 ms, and the view reads only its window", async () => {
+    const d = db();
+    d.run("BEGIN");
+    for (let i = 0; i < 200; i++) card(d, `v${i}`, i % 2 ? "todo" : "in_progress", (i % 20) * H);
+    const insertComment = d.query("INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES (?, ?, 'system', ?, ?)");
+    for (let i = 0; i < 66_393; i++) insertComment.run(`k${i}`, `v${i % 200}`, i % 50 === 0 ? "Spostata su n1: posto libero." : "nota", iso(NOW - (i % 90_000) * 60_000));
+    const insertSample = d.query("INSERT INTO topics_check_samples (at, sample_json) VALUES (?, ?)");
+    const body = JSON.stringify(sample(0, { todo: 3 }));
+    for (let i = 0; i < 2016; i++) insertSample.run(NOW - i * SAMPLE_INTERVAL_MS, body);
+    d.run("COMMIT");
+    const plan = (d.query("EXPLAIN QUERY PLAN SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    expect(plan).toContain("idx_task_comments_created_at");
+    expect(plan).not.toMatch(/SCAN task_comments/);
+    const round = createTopicsCheck({ db: d, now: () => NOW + SAMPLE_INTERVAL_MS, run: async () => OK });
+    await round.tick();
+    const started = performance.now();
+    const view = await round.tick().then(() => round.current());
+    const ms = performance.now() - started;
+    console.log(`round + view at real volumes: ${ms.toFixed(1)} ms`);
+    expect(ms).toBeLessThan(50);
+    expect(view.state).toBe("live");
+    expect(readSamples(d, NOW - 12 * H).length).toBeLessThan(150);
   });
   test("the proofs run under the configured cap, 30 s by default", async () => {
     const caps: number[] = [];
