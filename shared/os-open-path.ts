@@ -37,6 +37,7 @@ import type { TabTarget } from './tab-link';
  * Il criterio della lista: i file che si aprono LAVORANDO su un progetto. Non
  * i formati di cui esiste un'app migliore (immagini, pdf, video, archivi):
  * rubare a Anteprima il doppio click su un .png non è un servizio.
+ * @internal
  */
 export const DEV_FILE_EXTENSIONS: readonly string[] = [
   'md', 'markdown', 'mdx', 'txt',

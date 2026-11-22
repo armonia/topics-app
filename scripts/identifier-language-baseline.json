@@ -7467,9 +7467,6 @@
       "testo",
       "trovato"
     ],
-    "tests/unit/ghost-script.test.ts": [
-      "WPATH"
-    ],
     "tests/unit/icon-only-buttons-have-a-name.test.ts": [
       "chiusura",
       "colpevoli",

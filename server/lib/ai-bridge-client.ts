@@ -770,7 +770,9 @@ export function getAiBridgeClient(): AiBridgeClient {
 /** Test-only: drop the cached singleton so the next getAiBridgeClient() picks up
  *  a fresh socket/store from the current env. Prevents a prior test file's client
  *  (with a different TOPICS_AI_BRIDGE_SOCKET) leaking into a later one when many
- *  broker tests share one `bun test` process. No-op effect in production. */
+ *  broker tests share one `bun test` process. No-op effect in production.
+ * @internal
+ */
 export function __resetAiBridgeClientForTests(): void {
   try { singleton?.dispose(); } catch { /* best effort */ }
   singleton = null;

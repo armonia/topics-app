@@ -2,7 +2,7 @@
  * @covers BROWSER-FIND-01
  */
 import { describe, expect, test } from 'bun:test';
-import { stepMatchIndex, formatMatchCounter, formatFindCounter } from './findInPageModel';
+import { stepMatchIndex, formatFindCounter } from './findInPageModel';
 import IT_DICT from '../../lib/i18n-it';
 import EN_DICT from '../../lib/i18n-en';
 import { interpolate, t } from '../../lib/i18n';
@@ -54,27 +54,6 @@ describe('stepMatchIndex', () => {
   test('numeri non finiti non producono NaN a video', () => {
     expect(stepMatchIndex(Number.NaN, 5, true)).toBe(1);
     expect(stepMatchIndex(2, Number.NaN, true)).toBe(0);
-  });
-});
-
-describe('formatMatchCounter', () => {
-  test('«n/m» come lo legge l\'utente', () => {
-    expect(formatMatchCounter(3, 12)).toBe('3/12');
-  });
-
-  test('niente da trovare = «0/0», qualunque indice resti appeso', () => {
-    expect(formatMatchCounter(0, 0)).toBe('0/0');
-    expect(formatMatchCounter(7, 0)).toBe('0/0');
-    expect(formatMatchCounter(1, -2)).toBe('0/0');
-  });
-
-  test('un totale c\'è ma nessun ⏎ è stato premuto: «0/12»', () => {
-    expect(formatMatchCounter(0, 12)).toBe('0/12');
-  });
-
-  test('l\'indice non può sfondare il totale nemmeno per un giro', () => {
-    expect(formatMatchCounter(14, 12)).toBe('12/12');
-    expect(formatMatchCounter(-1, 12)).toBe('0/12');
   });
 });
 

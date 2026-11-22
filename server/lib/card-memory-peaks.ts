@@ -50,7 +50,7 @@ export function cardMemPeakGB(taskId: string): number | null {
   return peaks.find((p) => p.taskId === taskId)?.gb ?? null;
 }
 
-/** Test seam: every case starts from an empty ledger. */
+/** @internal Test seam: every case starts from an empty ledger. */
 export function _resetCardMemPeaks(): void {
   peaks.length = 0;
 }

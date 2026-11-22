@@ -38,6 +38,7 @@ export type MotivoLicenza =
  *
  * `satisfies` lo lega al tipo: se un motivo nuovo non finisce anche qui, non
  * compila.
+ * @internal
  */
 export const MOTIVI_LICENZA = [
   "no_token", "no_verification_key", "malformed",

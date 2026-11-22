@@ -684,6 +684,7 @@ export function forgetTopicWindow(topicId: string): void {
  * `cache`, `loaded` and the write timers are module singletons, and under
  * `bun test` every file runs in the SAME process: a file that opens a window
  * leaves its residue to whoever comes next.
+ * @internal
  */
 export function __resetTopicWindows(): void {
   writes.cancelAll();

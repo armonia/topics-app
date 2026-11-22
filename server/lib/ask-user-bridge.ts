@@ -497,6 +497,7 @@ export function cancelAsk(sessionKey: string, reason = "cancelled"): void {
  * told, nothing announced, no buffered answer handed on. For the tests that
  * cross that boundary (a question must survive it on its row); production
  * never calls it, a restart does it for real.
+ * @internal
  */
 export function _dropAskStateLikeARestart(): void {
   for (const w of waiters.values()) clearTimeout(w.timer);

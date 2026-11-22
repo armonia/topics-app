@@ -182,12 +182,12 @@ function askGitRoot(cwd: string, entry: GitRoot): Promise<void> {
     .finally(() => { entry.asking = null; });
 }
 
-/** Every ask about a remembered folder still running, answered. */
+/** @internal Every ask about a remembered folder still running, answered. */
 export async function settleGitRootAsksForTests(): Promise<void> {
   await Promise.all([...gitRoots.values()].map((entry) => entry.asking));
 }
 
-/** Everything forgotten. */
+/** @internal Everything forgotten. */
 export function forgetGitRootsForTests(): void {
   gitRoots.clear();
 }
