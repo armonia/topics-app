@@ -40,6 +40,21 @@ Allora nella cartella dell'agente esiste solo IDENTITY.md
 E il contesto ricevuto dall'agente nuovo contiene la base e le regole dell'utente, e il suo nome
 E l'agente compare nella panoramica senza riavviare il server
 
+## Scenario: canali come albero, ereditato senza ripetizioni (AGENTS-04)
+Dato un agente con un canale Discord (un server, una categoria, due canali, un thread) e un gruppo WhatsApp
+Quando apro Configura › Canali e chat
+Allora vedo l'albero canale → server → categoria → canale → thread, con il marchio del canale in testa
+E un canale che non cambia nulla mostra «come il server» accanto a ogni valore, non una copia del valore
+Quando cambio «se citato» sul canale
+Allora solo quel canale e i suoi thread cambiano, e il valore dice «suo»
+E in Configura › Identità l'ereditato è una riga per cosa (anima, regole, strumenti, memoria) con «Vedi» e «Sovrascrivi» o «Filtra»
+
+## Scenario: memorie spiegate e cercabili (SYSTEM-05)
+Dati due depositi con una scheda che contiene la stessa parola
+Quando apro Sistema › Memorie e cerco quella parola
+Allora i risultati mostrano le due schede col loro deposito, e aprendone una vedo tipo, data, collegamenti e il testo
+E in cima la pagina spiega in tre frasi indice, schede e dove vale una memoria
+
 ## Scenario: harness e contraddizioni (SYSTEM-01)
 Dati la base, le regole dell'utente e due agenti
 Quando apro Sistema › Harness
