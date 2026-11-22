@@ -19,8 +19,16 @@ describe("a node that lacks the card's model", () => {
     expect(machineLacksModel(node({ models: ["claude-opus-5"] }), "claude-code:claude-sonnet-5-5")).toBe(true);
   });
 
+  it("reads a prefixed model against the list, and leaves Codex and Muse cards alone", () => {
+    const n = node({ models: ["claude-sonnet-5-5"] });
+    expect(machineLacksModel(n, "claude-code:claude-sonnet-5-5")).toBe(false);
+    expect(machineLacksModel(n, "codex:gpt-5")).toBe(false);
+    expect(machineLacksModel(n, "muse:whatever")).toBe(false);
+  });
+
   it("reads the node's refusal wording as a verdict on the machine", () => {
     expect(isModelUnavailable('Avvio agent fallito ripetutamente. Motivo: No coding agent is available for model "claude-sonnet-5-5".')).toBe(true);
+    expect(isModelUnavailable('The selected coding runtime Claude Code cannot run model "claude-sonnet-5-5".')).toBe(true);
     expect(isModelUnavailable(new Error("git worktree failed"))).toBe(false);
   });
 });

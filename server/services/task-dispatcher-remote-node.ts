@@ -423,7 +423,9 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     try { releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true }); }
     catch (err) { log(`nodo: la card ${taskId} non è tornata in coda`, err); return false; }
     // The skip names THAT machine for a while: the overflow does not send the card back there, any other seat is fair game.
-    const skip = skipMachineId ? { machineId: skipMachineId, until: new Date(Date.now() + MODEL_SKIP_MS).toISOString() } : null;
+    // Skips accumulate (one id per node, comma-joined in the one column): two nodes that both refuse must not trade the card forever.
+    const skipped = skipMachineId ? [...new Set([...(svc.get(taskId)?.task?.overflowSkipMachines ?? []), skipMachineId])] : [];
+    const skip = skipMachineId ? { machineId: skipped.join(","), until: new Date(Date.now() + MODEL_SKIP_MS).toISOString() } : null;
     try { emit(svc.update({ taskId, actor: "agent", by: "dispatcher", patch: { machineId: null, ...(skip ? { overflowSkip: skip } : {}) } })); }
     catch (err) { log(`nodo: la card ${taskId} non ha lasciato la macchina fissa`, err); }
     try { svc.addComment({ taskId, author: "system", kind: "service", content: note, ...(replaces ? { replaces } : {}) }); }

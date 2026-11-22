@@ -68,6 +68,24 @@ describe("lo slot remoto non resta zombie", () => {
     expect(t.machineId).toBeNull();
   });
 
+  it("a node with no agent for the model: the card leaves it unparked, no attempt spent, and each refusal adds a skipped node", async () => {
+    const h = harness({
+      readRun: () => Promise.resolve(report({
+        status: "backlog",
+        dispatchState: "failed",
+        reason: 'No coding agent is available for model "claude-sonnet-5-5".',
+      })),
+    });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflow_skip_machine = ?, overflow_skip_until = ? WHERE id = ?", ["other-node", "2999-01-01T00:00:00.000Z", TASK]);
+    await dispatch(h);
+    await poll(h);
+
+    const t = h.task();
+    expect(t.machineId ?? null).toBeNull();
+    expect(t.overflowSkipMachines).toEqual(["other-node", MACHINE]);
+  });
+
   it("PATCH umano a todo su una card con slot remoto ancora aperto: la corsa si cancella, lo slot si libera e la card riparte con una corsa nuova", async () => {
     const h = harness({
       readRun: () => Promise.resolve(report({ status: "backlog", dispatchState: "blocked" })),

@@ -136,11 +136,11 @@ export function createOverflow(ctx: DispatcherCtx) {
   /** Is there a seat on some OTHER online machine right now, origin aside -
    *  cheap enough to ask before deciding whether a cold origin cache is worth
    *  waiting out. */
-  function anyOverflowSeatElsewhere(localId: string | null, skipMachineId?: string | null): boolean {
+  function anyOverflowSeatElsewhere(localId: string | null, skipMachineIds?: readonly string[] | null): boolean {
     if (!deps.overflowMachines) return false;
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines(); } catch { return false; }
-    return machines.some((m) => m.id !== localId && m.id !== skipMachineId && m.online && machineLoad(m.id) < effectiveSlots(m));
+    return machines.some((m) => m.id !== localId && !skipMachineIds?.includes(m.id) && m.online && machineLoad(m.id) < effectiveSlots(m));
   }
   function overflowBranchReady(t: Task): boolean | null {
     const branch = carriedBranch(t);
@@ -226,7 +226,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     // Its own branch reaches origin first; `null` = the push is under way.
     if (overflowBranchReady(t) !== true) return false;
     let machines: OverflowMachine[] = [];
-    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && m.id !== t.overflowSkipMachine); } catch (err) { log("overflow: machine list failed", err); return false; }
+    try { machines = deps.overflowMachines().filter((m) => m.id !== localId && !t.overflowSkipMachines?.includes(m.id)); } catch (err) { log("overflow: machine list failed", err); return false; }
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const target = pickOverflowMachine(machines, {
