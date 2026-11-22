@@ -84,10 +84,14 @@ export function AutomationsPane() {
   return <AutomationsView />;
 }
 
-/** Without the hub the view is the self-check alone: nothing of the hub is read or drawn. */
+/**
+ * Without the hub the view is the self-check alone: nothing of the hub is read or drawn.
+ * It is a container like the full view, or the `@max-2xl` rules of the section header never
+ * apply and a phone keeps the desktop header, note included.
+ */
 function TopicsCheckOnly() {
   return (
-    <div className="h-full min-h-0 overflow-auto bg-app-bg px-5 pb-6 pt-4 @max-2xl:px-3" data-testid="automations-pane">
+    <div className="@container h-full min-h-0 overflow-auto bg-app-bg px-5 pb-6 pt-4 @max-2xl:px-3" data-testid="automations-pane">
       <TopicsCheckRow />
     </div>
   );
