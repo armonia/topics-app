@@ -271,7 +271,7 @@ export function scanExternalClaudeSessions(opts: ScanOptions): ExternalClaudeSes
   return out;
 }
 
-/** Drop every cached parse (tests). */
+/** @internal Drop every cached parse (tests). */
 export function clearExternalSessionCache(): void {
   factsCache.clear();
 }

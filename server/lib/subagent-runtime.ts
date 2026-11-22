@@ -386,7 +386,7 @@ export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}
   return retired;
 }
 
-/** Test seam: forget what this process remembers of its children, as a restart does. */
+/** @internal Test seam: forget what this process remembers of its children, as a restart does. */
 export function _forgetSubAgentMemory(): void {
   childRuntime.clear();
   deliveredResultKeys.clear();

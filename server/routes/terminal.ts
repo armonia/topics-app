@@ -40,16 +40,24 @@ import { NOT_A_SUBAGENT, isRosterDependentRoute, reconcileSessions, rosterWarmin
 import { createSession } from "./terminal-session-create";
 import { liveChildrenOf, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
 import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
-export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
+export { noteSubAgentStopHook, retireIdleSubAgents } from "../lib/subagent-runtime";
+/** @internal */
+export { _forgetSubAgentMemory } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
 export type { TerminalSession } from "./terminal-state";
-export { setSubAgentExitHandler, boardAgentCap, setChildAdmissionPreview, boardSpawnMode, liveCliChildren, _setAgentProfilesHome, seedPromptForSession, seedPromptFingerprintForSession, _setSeedPromptHandlerForTests } from "./terminal-children";
+export { setSubAgentExitHandler, boardAgentCap, setChildAdmissionPreview, boardSpawnMode, liveCliChildren, seedPromptForSession, seedPromptFingerprintForSession } from "./terminal-children";
+/** @internal */
+export { _setAgentProfilesHome, _setSeedPromptHandlerForTests } from "./terminal-children";
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
-export { getPtyBridgeRuntimeStatus, _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath, bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge, disconnectBridge } from "./terminal-bridge-socket";
+export { getPtyBridgeRuntimeStatus, bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge, disconnectBridge } from "./terminal-bridge-socket";
+/** @internal */
+export { _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 export { resolveTerminalSend } from "./terminal-bridge-send";
+/** @internal */
 export { _resetRosterReconciled } from "./terminal-bridge-roster";
 export { autoNameClaudeSession } from "./terminal-session-create";
+/** @internal */
 export { _setTerminalTrackerForTests, _terminalSessionsForTests } from "./terminal-shared";
 export { noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
 

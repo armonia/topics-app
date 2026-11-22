@@ -11,7 +11,7 @@ import { join } from "path";
 
 const defaultSessionsDir = () => join(homedir(), ".claude", "sessions");
 let sessionsDirInUse = defaultSessionsDir();
-/** Test seam: a test must never write next to the live CLI files. `null` restores the default. */
+/** @internal Test seam: a test must never write next to the live CLI files. `null` restores the default. */
 export function _setClaudeSessionsDirForTests(dir: string | null): void { sessionsDirInUse = dir ?? defaultSessionsDir(); }
 
 export function liveClaudeSessionId(pid: number, sessionsDir = sessionsDirInUse): string | null {

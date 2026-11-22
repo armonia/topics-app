@@ -30,7 +30,7 @@ export function announceTurnEnded(sessionKey: string): void {
   }
 }
 
-/** How many listeners are subscribed. For the tests that check nobody leaks one. */
+/** @internal How many listeners are subscribed. For the tests that check nobody leaks one. */
 export function turnEndedListenerCount(): number {
   return listeners.size;
 }

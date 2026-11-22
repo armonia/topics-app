@@ -39,7 +39,3 @@ export function extractAfterWakePhrase(
   if (idx === -1) return null;
   return normTranscript.slice(idx + normPhrase.length).trim();
 }
-
-export function containsWakePhrase(transcript: string, wakePhrase: string = DEFAULT_WAKE_PHRASE): boolean {
-  return extractAfterWakePhrase(transcript, wakePhrase) !== null;
-}
