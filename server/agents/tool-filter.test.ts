@@ -58,25 +58,25 @@ describe("parseAgentToolFilter", () => {
 
 describe("buildAgentToolsInventory — the catalog shows who uses what", () => {
   test("an agent with no filter is listed against every server", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings(),
       fleet: TWO_SERVER_FLEET,
       clis: [],
       agents: [{ id: "jarvis", name: "Jarvis" }],
     });
-    expect(inv.mcp.map((m) => m.name)).toEqual(["kept", "dropped"]);
-    for (const m of inv.mcp) expect(m.agents).toEqual(["jarvis"]);
+    expect(inventory.mcp.map((m) => m.name)).toEqual(["kept", "dropped"]);
+    for (const m of inventory.mcp) expect(m.agents).toEqual(["jarvis"]);
   });
 
   test("an agent with 'selected' appears only next to the server it kept (SYSTEM-02)", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings({ jarvis: { mode: "selected", servers: ["kept"] } }),
       fleet: TWO_SERVER_FLEET,
       clis: [],
       agents: [{ id: "jarvis", name: "Jarvis" }],
     });
-    const kept = inv.mcp.find((m) => m.name === "kept")!;
-    const dropped = inv.mcp.find((m) => m.name === "dropped")!;
+    const kept = inventory.mcp.find((m) => m.name === "kept")!;
+    const dropped = inventory.mcp.find((m) => m.name === "dropped")!;
     expect(kept.agents).toEqual(["jarvis"]);
     expect(dropped.agents).toEqual([]);
   });
@@ -84,7 +84,7 @@ describe("buildAgentToolsInventory — the catalog shows who uses what", () => {
 
 describe("buildAgentToolsInventory — what the turn itself receives", () => {
   test("THE BARRA: an agent with 'solo questi' and one server kept gets ONLY that server's tools in its turn", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings({ jarvis: { mode: "selected", servers: ["kept"] } }),
       fleet: TWO_SERVER_FLEET,
       clis: [],
@@ -92,23 +92,23 @@ describe("buildAgentToolsInventory — what the turn itself receives", () => {
     });
     // A turn that ignored the filter would receive both servers: this is the
     // line a mutation on the filtering code turns red.
-    expect(inv.mcp.map((m) => m.name)).toEqual(["kept"]);
+    expect(inventory.mcp.map((m) => m.name)).toEqual(["kept"]);
   });
 
   test("an agent without a filter still receives every server in its turn", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings(),
       fleet: TWO_SERVER_FLEET,
       clis: [],
       agentId: "visione",
     });
-    expect(inv.mcp.map((m) => m.name)).toEqual(["kept", "dropped"]);
+    expect(inventory.mcp.map((m) => m.name)).toEqual(["kept", "dropped"]);
   });
 });
 
 describe("buildAgentToolsInventory — token weight is measured, not guessed", () => {
   test("an active server's tokens come from its real tool schemas", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings(),
       fleet: TWO_SERVER_FLEET,
       clis: [],
@@ -117,17 +117,17 @@ describe("buildAgentToolsInventory — token weight is measured, not guessed", (
         { name: "mcp__dropped__do", description: "d", input_schema: { type: "object", properties: {} } },
       ],
     });
-    const kept = inv.mcp.find((m) => m.name === "kept")!;
+    const kept = inventory.mcp.find((m) => m.name === "kept")!;
     expect(kept.tokens).toBeGreaterThan(0);
-    expect(inv.tokenWeight.alwaysOn).toBeGreaterThan(0);
+    expect(inventory.tokenWeight.alwaysOn).toBeGreaterThan(0);
   });
 
   test("a parked server has no measurable tokens", () => {
-    const inv = buildAgentToolsInventory({
+    const inventory = buildAgentToolsInventory({
       settings: settings(),
       fleet: { ...TWO_SERVER_FLEET, servers: [{ name: "parked", transport: "stdio", state: "excluded", tools: [], skills: [] }] },
       clis: [],
     });
-    expect(inv.mcp[0].tokens).toBeNull();
+    expect(inventory.mcp[0].tokens).toBeNull();
   });
 });
