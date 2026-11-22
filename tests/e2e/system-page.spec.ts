@@ -103,12 +103,13 @@ test("strumenti: chi usa quale server (SYSTEM-02)", async ({ page }) => {
   await page.getByTestId("system-nav-tools").click();
 
   const mail = page.getByTestId("agent-tools-users-mail-server");
-  await expect(mail.getByTestId("agent-tools-user")).toHaveCount(1);
-  await expect(mail).toContainText("Alpha");
-  await expect(mail).not.toContainText("Beta");
-  await expect(page.getByTestId("agent-tools-users-docs-server").getByTestId("agent-tools-user")).toHaveCount(2);
+  const allowed = (box: ReturnType<typeof page.getByTestId>) => box.locator('[data-testid="agent-tools-user"]:not([data-access="none"])');
+  await expect(allowed(mail)).toHaveCount(1);
+  await expect(allowed(mail)).toContainText("Alpha");
+  await expect(mail.locator('[data-access="none"]')).toContainText("Beta");
+  await expect(allowed(page.getByTestId("agent-tools-users-docs-server"))).toHaveCount(2);
   await expect(page.getByTestId("system-tools-weight")).toBeVisible();
-  await mail.getByTestId("agent-tools-user").first().click();
+  await mail.getByTestId("agent-tools-limit").first().click();
   await expect(page.getByTestId("agents-pane")).toBeVisible({ timeout: 10_000 });
 });
 
@@ -118,7 +119,7 @@ test("una memoria che nessuno riceve (SYSTEM-03)", async ({ page }) => {
   await stage(page);
   await page.getByTestId("system-nav-memory").click();
 
-  const lost = page.getByTestId("memory-store").filter({ hasText: "agent:gtm" });
+  const lost = page.locator('[data-testid="memory-store"][data-store="agent:gtm"]');
   await expect(lost.getByTestId("memory-store-unreceived")).toBeVisible();
   await lost.getByTestId("memory-store-fix").click();
   await expect(page.getByTestId("agents-pane")).toBeVisible({ timeout: 10_000 });
@@ -154,8 +155,8 @@ test("memorie spiegate e cercabili (SYSTEM-05)", async ({ page }, info) => {
   await page.getByTestId("memory-search-go").click();
   const groups = page.getByTestId("memory-result-store");
   await expect(groups).toHaveCount(2);
-  await expect(groups.filter({ hasText: "agent:main" })).toContainText("alpha-note");
-  await expect(groups.filter({ hasText: "project:demo" })).toContainText("beta-note");
+  await expect(page.locator('[data-testid="memory-result-store"][data-store="agent:main"]')).toContainText("alpha-note");
+  await expect(page.locator('[data-testid="memory-result-store"][data-store="project:demo"]')).toContainText("beta-note");
 
   await page.getByTestId("memory-result").first().click();
   await expect(page.getByTestId("memory-card-type")).toContainText("feedback");

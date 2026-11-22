@@ -16,7 +16,7 @@ import { contextView } from '../../lib/hubContext';
 import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { BTN } from '../Agents/AgentConfigPieces';
 import { harnessLayers, memoryIndexTokens, type PersonaWeights } from './harnessLayers';
-import { openAgentPlace } from './systemNav';
+import { openAgentPlace, openSystemPlace } from './systemNav';
 
 const ContextLevel = lazy(async () => {
   const { ContextLevel: Body } = await import('../Sidebar/ContextLevel');
@@ -26,7 +26,8 @@ const ContextLevel = lazy(async () => {
 interface ToolsWeight { tokenWeight?: { alwaysOn?: number; onDemand?: number } }
 interface StoresAnswer { stores?: { index: { chars: number } | null; receivedBy: string[] }[] }
 
-function Layer({ id, title, hint, weight, children }: { id: string; title: string; hint: string; weight: string; children?: ReactNode }) {
+function Layer({ id, title, hint, weight, where, children }: { id: string; title: string; hint: string; weight: string; where: ReactNode; children?: ReactNode }) {
+  const tr = useT();
   return (
     <li data-testid={`harness-layer-${id}`} className="rounded border border-app-border p-3">
       <div className="flex items-baseline gap-2">
@@ -35,6 +36,9 @@ function Layer({ id, title, hint, weight, children }: { id: string; title: strin
       </div>
       <p className="mt-0.5 text-mini text-app-text-muted">{hint}</p>
       {children}
+      <p className="mt-1.5 text-mini text-app-text-muted">
+        {tr('system.harness.changeAt')}: <span data-testid={`harness-where-${id}`}>{where}</span>
+      </p>
     </li>
   );
 }
@@ -74,15 +78,18 @@ export function SystemHarness() {
   if (!reg || !personas) return <p className="text-prose text-app-text-muted">{tr('system.reading')}</p>;
   const layers = harnessLayers(personas, tools, memory);
   const tokens = (n: number) => tr('system.harness.tokens', { n: shortTokens(n, locale) });
+  const link = (label: string, go: () => void, id: string) => (
+    <button type="button" data-testid={`harness-where-link-${id}`} onClick={go} className="underline hover:text-primary">{label}</button>
+  );
   const contradictions = reg.issues.filter((i) => i.type === 'source-contradiction');
   return (
     <section data-testid="system-harness" className="max-w-3xl space-y-4">
       <h2 className="text-body font-semibold text-app-text">{tr('system.harness.title')}</h2>
       <p className="text-prose text-app-text-secondary">{tr('system.harness.intro')}</p>
       <ol className="space-y-2">
-        <Layer id="base" title={tr('system.harness.base')} hint={tr('system.harness.baseHint')} weight={tokens(layers.base)} />
-        <Layer id="rules" title={tr('system.harness.rules')} hint={tr('system.harness.rulesHint')} weight={tokens(layers.rules)} />
-        <Layer id="agent" title={tr('system.harness.agent')} hint={tr('system.harness.agentHint')} weight={tr('system.harness.perAgent')}>
+        <Layer id="base" title={tr('system.harness.base')} hint={tr('system.harness.baseHint')} weight={tokens(layers.base)} where={tr('system.harness.where.base')} />
+        <Layer id="rules" title={tr('system.harness.rules')} hint={tr('system.harness.rulesHint')} weight={tokens(layers.rules)} where={tr('system.harness.where.rules')} />
+        <Layer id="agent" title={tr('system.harness.agent')} hint={tr('system.harness.agentHint')} weight={tr('system.harness.perAgent')} where={link(tr('system.harness.where.agent'), () => (layers.agents[0] ? openAgentPlace(layers.agents[0].id) : window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'agents' } }))), 'agent')}>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {layers.agents.length === 0 && <span className="text-mini text-app-text-muted">{tr('system.harness.noAgents')}</span>}
             {layers.agents.map((a) => (
@@ -95,9 +102,10 @@ export function SystemHarness() {
         <Layer
           id="tools" title={tr('system.harness.tools')} hint={tr('system.harness.toolsHint')}
           weight={layers.tools ? tr('system.harness.toolsWeight', { on: shortTokens(layers.tools.alwaysOn, locale), demand: shortTokens(layers.tools.onDemand, locale) }) : tr('system.harness.unknown')}
+          where={link(tr('system.harness.where.tools'), () => openSystemPlace('tools'), 'tools')}
         />
-        <Layer id="memory" title={tr('system.harness.memory')} hint={tr('system.harness.memoryHint')} weight={layers.memory === null ? tr('system.harness.unknown') : tokens(layers.memory)} />
-        <Layer id="turn" title={tr('system.harness.turn')} hint={tr('system.harness.turnHint')} weight={tr('system.harness.grows')} />
+        <Layer id="memory" title={tr('system.harness.memory')} hint={tr('system.harness.memoryHint')} weight={layers.memory === null ? tr('system.harness.unknown') : tokens(layers.memory)} where={link(tr('system.harness.where.memory'), () => openSystemPlace('memory'), 'memory')} />
+        <Layer id="turn" title={tr('system.harness.turn')} hint={tr('system.harness.turnHint')} weight={tr('system.harness.grows')} where={tr('system.harness.where.turn')} />
       </ol>
 
       <div>

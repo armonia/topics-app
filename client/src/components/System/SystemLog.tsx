@@ -13,7 +13,7 @@ import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 const POLL_MS = 5_000;
 const LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 
-interface Tail { path: string; exists: boolean; lines: { level: string; agent: string | null; text: string }[] }
+interface Tail { path: string; exists: boolean; lines: { time: string | null; level: string; agent: string | null; chat: string | null; text: string }[] }
 
 export function SystemLog() {
   const tr = useT();
@@ -51,7 +51,12 @@ export function SystemLog() {
       ) : (
         <ol data-testid="log-lines" className="max-h-[60vh] overflow-auto rounded border border-app-border p-2 font-mono text-mini">
           {tail.lines.map((l, i) => (
-            <li key={i} data-level={l.level} className={`whitespace-pre-wrap break-words ${l.level === 'error' ? DANGER_TEXT : l.level === 'warn' ? WARNING_TEXT : 'text-app-text-secondary'}`}>{l.text}</li>
+            <li key={i} data-level={l.level} className={`flex flex-wrap gap-x-2 break-words ${l.level === 'error' ? DANGER_TEXT : l.level === 'warn' ? WARNING_TEXT : 'text-app-text-secondary'}`}>
+              <span data-testid="log-time" className="tabular-nums text-app-text-muted">{l.time ? l.time.slice(11) : ''}</span>
+              <span data-testid="log-agent-name" className="font-medium">{(l.agent && reg?.agents.find((a) => a.id === l.agent)?.name) || l.agent || ''}</span>
+              <span data-testid="log-chat">{l.chat ?? ''}</span>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">{l.text}</span>
+            </li>
           ))}
         </ol>
       )}

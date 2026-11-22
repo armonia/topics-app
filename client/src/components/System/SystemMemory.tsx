@@ -14,7 +14,7 @@ import { WARNING_TEXT } from '../../lib/popoverStyles';
 import { useAgentRegistry } from '../../state/agentRegistry';
 import { refreshSystemHealth } from '../../state/systemHealth';
 import { BTN, FIELD, SAVE } from '../Agents/AgentConfigPieces';
-import { parseCard } from './memoryCard';
+import { parseCard, storeLabel } from './memoryCard';
 import { openAgentPlace } from './systemNav';
 
 interface Store {
@@ -42,6 +42,7 @@ export function SystemMemory() {
   const [open, setOpen] = useState<Open | null>(null);
   const [draft, setDraft] = useState('');
   const [note, setNote] = useState<string | null>(null);
+  const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
 
   const load = useCallback(async () => {
     const body = await readJson('/api/memory-stores', { cache: 'no-store' }) as { stores?: Store[]; problems?: Problem[] } | null;
@@ -50,6 +51,13 @@ export function SystemMemory() {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- the read starts on mount; the state is set when the fetch resolves
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    let alive = true;
+    void readJson('/api/projects').then((b) => { const list = (b as { projects?: { name: string; path: string }[] } | null)?.projects; if (alive && list) setProjects(list); });
+    return () => { alive = false; };
+  }, []);
+
+  const label = (storeId: string) => storeLabel(storeId, reg?.agents ?? [], projects);
   const nameOf = (id: string) => reg?.agents.find((a) => a.id === id)?.name || id;
   const search = async (e: FormEvent) => {
     e.preventDefault();
@@ -101,8 +109,8 @@ export function SystemMemory() {
         <div data-testid="memory-results" className="space-y-3">
           {results.length === 0 && <p className="text-prose text-app-text-muted">{tr('system.memory.noResults')}</p>}
           {[...byStore.entries()].map(([storeId, list]) => (
-            <div key={storeId} data-testid="memory-result-store">
-              <h3 className="mb-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{storeId}</h3>
+            <div key={storeId} data-testid="memory-result-store" data-store={storeId}>
+              <h3 className="mb-1 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{label(storeId)}</h3>
               <ul className="space-y-1">
                 {list.map((r) => (
                   <li key={r.file}>
@@ -122,7 +130,7 @@ export function SystemMemory() {
         <div data-testid="memory-card" className="space-y-2 rounded border border-app-border p-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-mini text-app-text-muted">
             <span className="font-medium text-app-text">{open.file}</span>
-            <span data-testid="memory-card-store">{open.storeId}</span>
+            <span data-testid="memory-card-store">{label(open.storeId)}</span>
             <span data-testid="memory-card-type">{tr('system.memory.type')}: {parsed.type || tr('system.memory.none')}</span>
             <span data-testid="memory-card-date">{tr('system.memory.date')}: {parsed.date ?? tr('system.memory.none')}</span>
           </div>
@@ -158,8 +166,8 @@ export function SystemMemory() {
               return (
                 <li key={s.id} data-testid="memory-store" data-store={s.id} className="rounded border border-app-border p-2.5">
                   <div className="flex flex-wrap items-baseline gap-x-3">
-                    <span className="text-prose font-medium text-app-text">{s.id}</span>
-                    <span className="text-mini text-app-text-muted">{tr('system.memory.cardCount', { n: s.cards.length })}</span>
+                    <span className="text-prose font-medium text-app-text">{label(s.id)}</span>
+                    <span className="text-mini text-app-text-muted">{tr(s.cards.length === 1 ? 'system.memory.cardOne' : 'system.memory.cardCount', { n: s.cards.length })}</span>
                     <span className="text-mini text-app-text-muted">{s.index ? tr('system.memory.indexLines', { n: s.index.lines }) : tr('system.memory.noIndex')}</span>
                   </div>
                   <p className="text-mini text-app-text-secondary">
