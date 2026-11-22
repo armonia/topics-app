@@ -86,7 +86,7 @@ async function stage(page: Page) {
   }) }));
   await page.route("**/api/agent-tools**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ filter: { mode: "all", servers: [] }, servers: [{ name: "fs" }, { name: "web" }] }) }));
   await page.route("**/api/memory-stores", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stores: [] }) }));
-  await page.route("**/api/agent-permissions", (r) => {
+  await page.route((url) => url.pathname === "/api/agent-permissions", (r) => {
     const agentId = new URL(r.request().url()).searchParams.get("agent");
     const body = agentId === "main"
       ? {
@@ -276,8 +276,9 @@ test("permessi agenti e registro dei fermati (AGENTS-05)", async ({ page }, info
   await expect(page.getByTestId("agent-permissions")).toBeVisible();
   // policy, owners and trusted are one inherited row each, the list opens with «Vedi»
   await expect(page.getByTestId("agent-inherited-row")).toHaveCount(3);
-  await page.getByTestId("agent-inherited-view").nth(1).click();
-  await expect(page.getByTestId("agent-inherited-detail").nth(1)).toContainText("+391234567890");
+  const secondInheritedRow = page.getByTestId("agent-inherited-row").nth(1);
+  await secondInheritedRow.getByTestId("agent-inherited-view").click();
+  await expect(secondInheritedRow.getByTestId("agent-inherited-detail")).toContainText("+391234567890");
 
   // the chat's senders/denied, with «Sovrascrivi» pointing back at the chat that owns them
   await expect(page.getByTestId("agent-permissions-chats")).toContainText("Escluso");
@@ -289,9 +290,24 @@ test("permessi agenti e registro dei fermati (AGENTS-05)", async ({ page }, info
   await expect(page.getByTestId("agent-permissions-register")).toBeVisible();
   await expect(page.getByTestId("agent-permissions-stopped-row")).toHaveCount(1);
 
-  // at 375 px, no horizontal scroll
+  // at 375 px, a link into a Configure section opens it in one tap, same as on desktop
   await page.setViewportSize({ width: 375, height: 800 });
+  await page.getByTestId("agent-detail-tab-activity").click();
+  await page.getByTestId("agent-activity-stopped-seeall").click();
+  await expect(page.getByTestId("agent-permissions")).toBeVisible();
+
   const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflowX).toBeLessThanOrEqual(1);
   await page.screenshot({ path: info.outputPath("agenti-permessi-375.png") });
+
+  // at 768 px, the stopped-turns register's filters and pagination stay inside the column
+  await page.setViewportSize({ width: 768, height: 900 });
+  // a single page of results means no pagination controls at all
+  await expect(page.getByTestId("agent-permissions-register-prev")).toHaveCount(0);
+  const registerBox = await page.getByTestId("agent-permissions-register").boundingBox();
+  const reasonFilterBox = await page.getByTestId("agent-permissions-reason-filter").boundingBox();
+  expect(reasonFilterBox!.x + reasonFilterBox!.width).toBeLessThanOrEqual(registerBox!.x + registerBox!.width + 1);
+  const overflowX768 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflowX768).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: info.outputPath("agenti-permessi-768.png") });
 });

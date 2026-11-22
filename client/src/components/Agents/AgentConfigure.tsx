@@ -177,21 +177,21 @@ function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: {
     <div data-testid="agent-permissions-register" className="space-y-2">
       <h3 className="text-prose font-semibold text-app-text">{tr('agentConfig.permissions.register.title')}</h3>
       <div className="flex flex-wrap gap-2">
-        <label className="text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterAgent')}
+        <label className="max-w-full min-w-0 text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterAgent')}
           <select
             data-testid="agent-permissions-agent-filter" value={agentFilter}
             onChange={(e) => { setAgentFilter(e.target.value); setPage(1); }}
-            className="ml-1 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
+            className="ml-1 max-w-full min-w-0 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
           >
             <option value="">{tr('agentConfig.permissions.register.filterAgentAll')}</option>
             {allAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </label>
-        <label className="text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterReason')}
+        <label className="max-w-full min-w-0 text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterReason')}
           <select
             data-testid="agent-permissions-reason-filter" value={reasonFilter}
             onChange={(e) => { setReasonFilter(e.target.value); setPage(1); }}
-            className="ml-1 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
+            className="ml-1 max-w-full min-w-0 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
           >
             <option value="">{tr('agentConfig.permissions.register.filterReasonAll')}</option>
             {STOPPED_REASONS.map((r) => <option key={r} value={r}>{tr(`agentConfig.permissions.reason.${r}`)}</option>)}
@@ -216,11 +216,13 @@ function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: {
           })}
         </ul>
       )}
-      <div className="flex items-center gap-2 text-mini text-app-text-secondary">
-        <button type="button" data-testid="agent-permissions-register-prev" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className={BTN}>{tr('agentConfig.permissions.register.prev')}</button>
-        <span>{tr('agentConfig.permissions.register.page', { page, pages })}</span>
-        <button type="button" data-testid="agent-permissions-register-next" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className={BTN}>{tr('agentConfig.permissions.register.next')}</button>
-      </div>
+      {pages > 1 && (
+        <div className="flex items-center gap-2 text-mini text-app-text-secondary">
+          <button type="button" data-testid="agent-permissions-register-prev" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className={BTN}>{tr('agentConfig.permissions.register.prev')}</button>
+          <span className="whitespace-nowrap">{tr('agentConfig.permissions.register.page', { page, pages })}</span>
+          <button type="button" data-testid="agent-permissions-register-next" disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className={BTN}>{tr('agentConfig.permissions.register.next')}</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -446,7 +448,11 @@ export function AgentConfigure({
   const tr = useT();
   const titles = useChannelTitles();
   const places = useChannelPlaces();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  // Reaching a non-default section (an onSection link, not the plain tab
+  // switch which always defaults to 'identity') means the content, not the
+  // section list, is the intended target: open it directly on phone, same
+  // as a link does on desktop.
+  const [mobileOpen, setMobileOpen] = useState(section !== 'identity');
 
   const content = (() => {
     switch (section) {
