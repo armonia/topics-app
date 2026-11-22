@@ -1,6 +1,6 @@
 # Accettazione: il sistema degli agenti in due repo
 
-Questa change è un piano: oggi non si esegue niente. La barra è quella che le tracce di `tasks.md` devono far uscire verde, scritta una volta e rigirata sempre uguale. Ogni riga è un comando che esce non-zero se fallisce, o una misura con la sua soglia. I comandi che non esistono ancora sono creati dalla traccia indicata.
+T0 è fatta (22/11); il resto è un piano, una card per traccia. La barra è quella che le tracce di `tasks.md` devono far uscire verde, scritta una volta e rigirata sempre uguale. Ogni riga è un comando che esce non-zero se fallisce, o una misura con la sua soglia. I comandi che non esistono ancora sono creati dalla traccia indicata.
 
 ## Barra in `topics-app` (CI più pre-push)
 
@@ -12,8 +12,8 @@ Questa change è un piano: oggi non si esegue niente. La barra è quella che le 
 ## Barra sulla macchina (`ops/verifica-due-repo`, nel repo dei dati: legge una macchina sola)
 
 Esce 0 quando:
-- **Regola git-crypt presente.** `git check-attr filter` = git-crypt per ogni file di `history/`, `channels/`, `agent-home/`, `hub/`, `launchd/`, `topics-config/`, `keychain-names.md`, `ops/`; nessun file con nome tipo token, cookie, `.key`, `.env`, `.sqlite`, `media/`, `node_modules` nel repo dei dati; `git bundle verify` esce 0 per ogni bundle, nessuno oltre 100 MB nel push.
-- **Tutto ciò che va catturato è catturato.** Ogni voce di `ops/catturato.txt` (canali, 63 plist, configurazione di `~/.topics`, nomi del Keychain, case di `jarvis` e `gtm`, memorie dei progetti propri) è nel repo dei dati dopo `sync.sh --commit`; `sync.sh --dry-run` non cambia nulla (test).
+- **Regola git-crypt presente.** `git check-attr filter` = git-crypt per ogni file di `history/`, `channels/`, `agent-home/`, `hub/`, `launchd/`, `topics-config/`, `keychain-names.md`, `ops/` (i link simbolici restano fuori dal conto: git-crypt non li cifra, salva solo il percorso del bersaglio; 49 al 22/11, nessuno con un segreto); nessun gitlink; nessun file con nome tipo token, cookie, `.key`, `.env`, `.sqlite`, `media/`, `node_modules` nel repo dei dati; `git bundle verify` esce 0 per ogni bundle, nessuno oltre 100 MB nel push.
+- **Tutto ciò che va catturato è catturato.** Ogni voce di `ops/catturato.txt` (canali, 63 plist, configurazione di `~/.topics`, nomi del Keychain, case di `jarvis` e `gtm`, memorie dei progetti propri) è nel repo dei dati dopo `sync.sh --commit`; `sync.sh --dry-run` non cambia nulla (`bash sync-test.sh` nel repo dei dati, verde dal 22/11).
 - **Nessun git di sistema fuori dall'elenco.** `find` sulle radici di `ops/radici.txt` (non l'intera home: in `~/Projects` ci sono decine di repo di clienti) trova solo `topics-app`, `jarvis-private` e i prodotti di `ops/prodotti.txt`; il repo pubblico `jarvis` è privato e poi archiviato.
 - **Servizi sani.** Ogni plist caricato ha il programma su disco; `jc health` esce 0 e un turno locale risponde; `curl` su `:3336` risponde e una chiamata vera passa dal proxy; `gateway_list` risponde; ogni hook di `settings.json` risolve; il server di Topics risponde.
 - **Nessun riferimento ai percorsi vecchi** (elencati in `ops/vecchi-percorsi.txt`) in plist, `jobs.json`, `config.json`, hook, `~/bin` e prompt letti dagli agenti; un campionatore launchd con un suo log lo conferma per 24 ore (nessun processo li ha in `argv`, `cwd` o file aperti): la verifica legge quel log e fallisce se è più corto di 24 ore.
