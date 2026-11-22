@@ -122,26 +122,3 @@ export function createAgent(
 
   return { id, name, job, workspace };
 }
-
-/**
- * One-time backfill: writes `agents.<id>.account` for every agent the
- * mapping names, but only where it is still missing (an agent that already
- * declares one is left alone). The channel engine does not reject extra
- * fields, so this is additive. Backed up first (`safeWrite`). Meant for an
- * operator to run once after upgrading from a hard-coded roster, via
- * `scripts/backfill-agent-account.ts` — never called from a route.
- */
-export function backfillAgentAccounts(home: string, accounts: Record<string, string>): Record<string, string> {
-  const engineFile = join(home, "engine.json");
-  const engine: EngineConfig = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
-  engine.agents = engine.agents ?? {};
-  const written: Record<string, string> = {};
-  for (const [id, account] of Object.entries(accounts)) {
-    if (!engine.agents[id]) throw new Error(`agent ${id} not found`);
-    if (engine.agents[id].account) continue;
-    engine.agents[id].account = account;
-    written[id] = account;
-  }
-  if (Object.keys(written).length) safeWrite(engineFile, `${JSON.stringify(engine, null, 2)}\n`, home);
-  return written;
-}
