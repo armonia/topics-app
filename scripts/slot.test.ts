@@ -19,6 +19,12 @@ import { join } from "node:path";
 import { shellInvocation } from "./shell-invocation.ts";
 
 const SLOT = join(import.meta.dir, "slot.ts");
+
+// Portable one-liners: `sleep` and `exit N` are POSIX shell, cmd.exe has neither, and a
+// double-quoted `bun -e` body (no inner double quotes) parses the same in both.
+const sleepMs = (ms: number) => `bun -e "setTimeout(()=>{},${ms})"`;
+const exitWith = (code: number) => `bun -e "process.exit(${code})"`;
+const NOOP = exitWith(0);
 let dir = "";
 
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "slot-test-")); });
@@ -78,7 +84,7 @@ describe("the command always runs", () => {
   test("the exit code is the command's, not the wrapper's", async () => {
     // A gate that fails must still fail. Swallowing this is how a red suite
     // would start reporting green through the throttle.
-    expect((await slot("exit 7")).code).toBe(7);
+    expect((await slot(exitWith(7))).code).toBe(7);
   });
 
   test("with the throttle switched off it still runs", async () => {
@@ -90,9 +96,9 @@ describe("the command always runs", () => {
   test("with the throttle off it does not claim a slot it never took", async () => {
     // 15/09/2026: board checks under `CI` ran with the semaphore off, and the
     // card still read "0 s in the queue" from this line, as if it had worked.
-    const off = await slot("true", { slots: 0 });
+    const off = await slot(NOOP, { slots: 0 });
     expect(off.err).not.toContain("[slot] acquired");
-    const on = await slot("true", { slots: 1 });
+    const on = await slot(NOOP, { slots: 1 });
     expect(on.err).toContain("[slot] acquired");
   });
 
@@ -172,8 +178,8 @@ describe("it actually excludes", () => {
     // names, so what is measured is the count and not the per-name lock below.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1", { slots: 1, label: "alpha" }),
-      slot("sleep 1", { slots: 1, label: "beta" }),
+      slot(sleepMs(1000), { slots: 1, label: "alpha" }),
+      slot(sleepMs(1000), { slots: 1, label: "beta" }),
     ]);
     const elapsed = Date.now() - started;
     expect(a.code).toBe(0);
@@ -184,8 +190,8 @@ describe("it actually excludes", () => {
   test("two slots let two DIFFERENT gates through together", async () => {
     const started = Date.now();
     await Promise.all([
-      slot("sleep 1", { slots: 2, label: "alpha" }),
-      slot("sleep 1", { slots: 2, label: "beta" }),
+      slot(sleepMs(1000), { slots: 2, label: "alpha" }),
+      slot(sleepMs(1000), { slots: 2, label: "beta" }),
     ]);
     expect(Date.now() - started).toBeLessThan(1_900);
   }, 20_000);
@@ -197,8 +203,8 @@ describe("it actually excludes", () => {
     // wait the second one runs anyway rather than blocking a gate.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1", { slots: 2, label: "lint" }),
-      slot("sleep 1", { slots: 2, label: "lint", maxWaitMs: 15_000 }),
+      slot(sleepMs(1000), { slots: 2, label: "lint" }),
+      slot(sleepMs(1000), { slots: 2, label: "lint", maxWaitMs: 15_000 }),
     ]);
     expect(a.code).toBe(0);
     expect(b.code).toBe(0);
