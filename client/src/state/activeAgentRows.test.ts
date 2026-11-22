@@ -13,7 +13,7 @@
  * @covers STATUSLINE-05, BGVIS-03, ATTN-01
  */
 import { describe, expect, test } from "bun:test";
-import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalCount, visibleTopicSignalIds } from "./signals";
+import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalIds } from "./signals";
 import type { AttentionSnapshot, AttentionState } from "../../../shared/attention";
 import type { Topic } from "../types";
 
@@ -42,7 +42,7 @@ describe("visibleTopicSignalIds", () => {
     const topics = { a: topic("a"), b: topic("b", true), c: topic("c") };
     const ids = new Set(["a", "b", "c", "ghost"]);
     expect(visibleTopicSignalIds(ids, topics)).toEqual(["a", "c"]);
-    expect(visibleTopicSignalCount(ids, topics)).toBe(2);
+    expect(visibleTopicSignalIds(ids, topics).length).toBe(2);
   });
 });
 

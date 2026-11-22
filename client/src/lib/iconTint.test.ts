@@ -3,15 +3,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  bestTextTone,
-  pickSectorPalette,
-  compositeOver,
-  contrastRatio,
-  fromHex,
-  pickDominantColor,
-  relativeLuminance,
-  toHex,
-  type RGB,
+  pickSectorPalette, contrastRatio, fromHex, pickDominantColor, relativeLuminance, toHex, type RGB,
 } from './iconTint';
 
 /** Costruisce un blocco RGBA da una lista di pixel `[r,g,b,a]`. */
@@ -108,72 +100,6 @@ describe('luminanza e contrasto', () => {
     const a = rgb(0x18, 0x1b, 0x21);
     const b = rgb(0xff, 0xff, 0xff);
     expect(contrastRatio(a, b)).toBeCloseTo(contrastRatio(b, a), 9);
-  });
-});
-
-describe('compositeOver — il colore che si vede DAVVERO', () => {
-  const surface = rgb(0x18, 0x1b, 0x21); // --bg-surface
-
-  test('a opacità 0 resta la superficie, a 1 resta la tinta', () => {
-    const tint = rgb(220, 38, 38);
-    expect(compositeOver(tint, surface, 0)).toEqual(surface);
-    expect(compositeOver(tint, surface, 1)).toEqual(tint);
-  });
-
-  test('una tinta al 22% NON porta con sé la luminanza della tinta pura', () => {
-    const tint = rgb(255, 240, 60); // giallo acceso
-    const pure = relativeLuminance(tint);
-    const seen = relativeLuminance(compositeOver(tint, surface, 0.22));
-    expect(seen).toBeLessThan(pure / 4);
-  });
-
-  test('il rapporto va calcolato sul composito, non sulla tinta', () => {
-    const tint = rgb(255, 240, 60);
-    const composite = compositeOver(tint, surface, 0.22);
-    const onPure = contrastRatio(rgb(255, 255, 255), tint);
-    const onComposite = contrastRatio(rgb(255, 255, 255), composite);
-    // Sul giallo puro il bianco è illeggibile; sul composito scuro regge.
-    expect(onPure).toBeLessThan(1.5);
-    expect(onComposite).toBeGreaterThan(4.5);
-  });
-
-  test('opacità fuori scala viene clampata', () => {
-    const tint = rgb(200, 100, 50);
-    expect(compositeOver(tint, surface, -1)).toEqual(surface);
-    expect(compositeOver(tint, surface, 9)).toEqual(tint);
-  });
-});
-
-describe('bestTextTone', () => {
-  test('su fondo scuro sceglie l\'inchiostro chiaro', () => {
-    const { tone, ratio } = bestTextTone(rgb(0x18, 0x1b, 0x21));
-    expect(tone).toBe('light');
-    expect(ratio).toBeGreaterThan(4.5);
-  });
-
-  test('su fondo chiaro sceglie l\'inchiostro scuro', () => {
-    const { tone, ratio } = bestTextTone(rgb(0xf2, 0xf2, 0xf0));
-    expect(tone).toBe('dark');
-    expect(ratio).toBeGreaterThan(4.5);
-  });
-
-  test('riporta il rapporto invece di nasconderlo quando nessuno dei due basta', () => {
-    // Il grigio peggiore è quello in cui i due inchiostri pareggiano: lì il
-    // massimo ottenibile è ~4,35:1, cioè sotto AA. La funzione non lo maschera.
-    const { ratio } = bestTextTone(rgb(121, 121, 121));
-    expect(ratio).toBeLessThan(4.5);
-    expect(ratio).toBeGreaterThan(4);
-  });
-
-  test('restituisce sempre il MIGLIORE dei due, non un default', () => {
-    for (let v = 0; v <= 255; v += 15) {
-      const bg = rgb(v, v, v);
-      const { tone, ratio } = bestTextTone(bg);
-      const other = tone === 'light'
-        ? contrastRatio(rgb(17, 20, 26), bg)
-        : contrastRatio(rgb(255, 255, 255), bg);
-      expect(ratio).toBeGreaterThanOrEqual(other - 1e-9);
-    }
   });
 });
 

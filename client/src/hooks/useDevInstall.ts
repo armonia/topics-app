@@ -39,7 +39,7 @@ function probeDevInstall(): Promise<boolean> {
   return devInstallProbe;
 }
 
-/** Test-only: forget the memoized probe. */
+/** @internal Test-only: forget the memoized probe. */
 export function __resetDevInstallForTests(): void {
   devInstallProbe = null;
 }

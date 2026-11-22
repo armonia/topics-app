@@ -1,4 +1,4 @@
-/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88, HUBBR-20 */
+/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88, HUBBR-20, CHECK-01 */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -8,6 +8,7 @@ import { clearPlanUsage, clearProviderHold, holdForApiDown, liftApiDownHold, lif
 import { taskProviderForModel } from "../../shared/task-coding-models";
 import type { ProvidersSnapshot } from "../../shared/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
+import { PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 function freshDb(): Database {
@@ -252,6 +253,15 @@ describe("a hold longer than a day", () => {
     await h.dispatcher.tick(PID); await flush();
     expect(said()).toHaveLength(1);
     expect(h.starts).toHaveLength(0);
+  });
+
+  // The self-check recognises a spent plan by this sentence (CHECK-01): the chip the dispatcher writes has to carry it.
+  test("the chip carries PLAN_SPENT_NOTE, the sentence the self-check looks for", async () => {
+    const h = harness();
+    h.task("note-bound", codingModel);
+    sixDays();
+    await h.dispatcher.tick(PID); await flush();
+    expect(h.svc.get("note-bound")!.task.dispatchError ?? "").toContain(PLAN_SPENT_NOTE);
   });
 
   /**

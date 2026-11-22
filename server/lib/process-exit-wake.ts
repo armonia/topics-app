@@ -392,7 +392,7 @@ export function startProcessExitWakes(d: ProcessExitWakeDeps): void {
   for (const r of waiting.splice(0)) schedule(d, r);
 }
 
-/** Every wake scheduled so far has settled. For tests. */
+/** @internal Every wake scheduled so far has settled. For tests. */
 export async function processExitWakesIdle(): Promise<void> {
   while (chains.size) await Promise.all([...chains.values()]);
 }

@@ -171,6 +171,14 @@ export interface NodeRunReport {
    * would read «the node delivered no branch» over a session that failed.
    */
   reason?: string | null;
+  /**
+   * The run's card was ARCHIVED on the node (its board DELETE archives the subtree and
+   * leaves the status alone, so an archived run still reports `in_progress`). Without this
+   * bit a reattach after a restart follows a card nobody will ever move again. An older
+   * node, or the Claude cloud, does not send it: absent reads as "not archived", which is
+   * what every caller assumed before.
+   */
+  archived?: boolean;
 }
 
 export type BundleResult = { empty: true } | { empty: false; bytes: Uint8Array };
@@ -214,6 +222,8 @@ export interface NodeClient {
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
+  /** The app version the node really runs (`/api/version`); `null` when it does not say. */
+  readVersion(input: { baseUrl: string; token: string }): Promise<string | null>;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -527,6 +537,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
         reason: typeof out.reason === "string" ? out.reason : null,
+        archived: out.archived === true,
       };
     },
 
@@ -563,6 +574,15 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         { method: "DELETE", headers: headersFor(token, delegatedHeaders(delegation)) },
         "cancel run",
       );
+    },
+
+    async readVersion({ baseUrl, token }) {
+      const out = await callJson<{ version?: unknown }>(
+        `${baseUrl}/api/version`,
+        { method: "GET", headers: headersFor(token) },
+        "read version",
+      );
+      return typeof out.version === "string" && out.version ? out.version : null;
     },
 
     async codingModels({ baseUrl, token }) {

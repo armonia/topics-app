@@ -23,7 +23,6 @@ import {
   readUnitEvidence,
   UNIT_STEP,
   repoFromRemote,
-  pushRejectedAsNonFastForward,
   type AwaitCiDeps,
   type GithubJob,
   type GithubPort,
@@ -97,8 +96,6 @@ describe("readE2eEvidence", () => {
     expect(repoFromRemote("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
     expect(repoFromRemote("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
     expect(repoFromRemote("git@gitlab.com:a/b.git")).toBeNull();
-    expect(pushRejectedAsNonFastForward("!\trefs/x:refs/heads/b\t[rejected] (non-fast-forward)")).toBe(true);
-    expect(pushRejectedAsNonFastForward("=\trefs/x:refs/heads/b\t[up to date]")).toBe(false);
   });
 });
 

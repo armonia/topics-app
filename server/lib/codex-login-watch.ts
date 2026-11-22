@@ -81,7 +81,7 @@ export function releaseCodexHoldIfLoginChanged(nowMs: number = Date.now(), path:
   return true;
 }
 
-/** Tests only: forget the remembered login. */
+/** @internal Tests only: forget the remembered login. */
 export function resetCodexLoginWatch(): void {
   heldUnder = null;
 }

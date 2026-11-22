@@ -50,16 +50,6 @@ export function mergeBuckets(b: TopicBuckets): Record<string, Topic> {
   return { ...b.archived, ...b.live };
 }
 
-/** A map sorted by its flag: how both caches are written, and how a
- *  `topics-cache` written before the split (live and archived mixed) is read. */
-export function splitByArchived(map: Record<string, Topic>): TopicBuckets {
-  const out = emptyBuckets();
-  for (const [id, topic] of Object.entries(map)) {
-    (topic.archived ? out.archived : out.live)[id] = topic;
-  }
-  return out;
-}
-
 /**
  * Put each topic in the bucket its flag says, and out of the other one.
  * Returns the SAME object when nothing changed, and keeps the identity of a

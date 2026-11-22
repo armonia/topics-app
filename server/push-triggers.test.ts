@@ -17,7 +17,7 @@
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { buildAnnouncement, classifyTurnEnd, isTopicSilenced, type AnnounceFact } from "./push-triggers";
-import { configureAttentionStore, getAttention, openHold, resetAttentionStore, setCard, setClosed, setDispatched, turnEnded, turnStarted } from "./attention/store";
+import { configureAttentionStore, getAttention, openHold, resetAttentionStore, setCard, setClosed, turnEnded, turnStarted } from "./attention/store";
 import { avvisoPerTurno } from "./lib/cancelled-notice";
 import type { NotificationRecordInput } from "../shared/notification-log";
 
@@ -356,13 +356,6 @@ describe("announce gates in the store", () => {
   test("an archived topic never lights: no row, no push", () => {
     setClosed("topic:arch", { archived: true });
     finish("arch");
-    expect(rows).toHaveLength(0);
-    expect(pushes).toHaveLength(0);
-  });
-
-  test("a board agent's topic never lights: its card speaks", () => {
-    setDispatched("topic:tp1", true);
-    finish("tp1");
     expect(rows).toHaveLength(0);
     expect(pushes).toHaveLength(0);
   });

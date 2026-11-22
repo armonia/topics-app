@@ -161,6 +161,7 @@ export function measureStorageUsage(): { usedBytes: number; limitBytes: number }
   }
 }
 
+/** @internal */
 export function resetStorageLedgerForTests(): void {
   if (typeof Storage !== 'undefined' && installed && originalSetItem) {
     Storage.prototype.setItem = originalSetItem;

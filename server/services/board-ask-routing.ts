@@ -489,7 +489,7 @@ export function closeRoutedAsk(deps: AskRoutingDeps, askId: string | undefined, 
   return false;
 }
 
-/** Solo per i test: il registro è memoria di processo. */
+/** @internal Solo per i test: il registro è memoria di processo. */
 export function _resetRoutedAsks(): void {
   routed.clear();
 }

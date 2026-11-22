@@ -3,19 +3,11 @@
  */
 import { describe, expect, test } from "bun:test";
 import { CONTEXT_CRITICAL_PERCENT } from "./context-thresholds";
-import { summarizeRunning, contextMeasure, estimateBasis, estimateFromHistory, estimatesByProject, foldChildren, ownOfCounter, revisedEstimate, sessionWeight, sumTranscriptUsage, taskCountdown, type EstimateBasis } from "./task-countdown";
+import { summarizeRunning, contextMeasure, estimateBasis, estimatesByProject, foldChildren, ownOfCounter, revisedEstimate, sessionWeight, taskCountdown, type EstimateBasis } from "./task-countdown";
 
 const MIN = 60_000;
 
 describe("estimateFromHistory", () => {
-  test("no estimate below the sample floor", () => {
-    expect(estimateFromHistory([{ agentMs: MIN }, { agentMs: 2 * MIN }])).toBeNull();
-  });
-  test("the departure figure is the 0.7 quantile of the closed cards, not the median", () => {
-    const xs = [10, 20, 30, 40, 100].map((m) => ({ agentMs: m * MIN }));
-    // index 2.8: 30 + 0.8 * 10
-    expect(estimateFromHistory(xs)).toBe(38 * MIN);
-  });
   test("only the most recent cards count", () => {
     const old = Array.from({ length: 60 }, () => ({ agentMs: 500 * MIN }));
     const recent = Array.from({ length: 50 }, () => ({ agentMs: 10 * MIN }));
@@ -88,14 +80,6 @@ describe("taskCountdown", () => {
 });
 
 describe("sessionWeight", () => {
-  test("transcript sum counts each message id once", () => {
-    const rows = [
-      { id: "a", input: 100, output: 50, cacheWrite: 10, cacheRead: 1000 },
-      { id: "a", input: 100, output: 50, cacheWrite: 10, cacheRead: 1000 },
-      { id: "b", input: 20, output: 5, cacheWrite: 0, cacheRead: 500 },
-    ];
-    expect(sumTranscriptUsage(rows)).toEqual({ billable: 185, cacheRead: 1500 });
-  });
   test("percent, compaction headroom and children", () => {
     const w = sessionWeight({
       usedTokens: 100_000, windowTokens: 200_000, billableTokens: 185, cacheReadTokens: 1500, costCents: 40,

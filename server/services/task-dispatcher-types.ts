@@ -606,6 +606,10 @@ export interface TaskDispatcher {
   shutdown(): void;
   /** True while a launch for this task is in flight (test/introspection). */
   isInFlight(taskId: string): boolean;
+  /** Moves a card pinned to a machine that cannot run it; true = it moved. The self-check's cure for a dead pin. */
+  reassignFromForbidden(task: Task, settings: { dispatchModel?: string | null }): boolean;
+  /** Publishes a changed card to the open views. */
+  emitTask(task: Task): void;
   /**
    * How many task launches are in flight right now (setup + turn + teardown).
    * The quiescence signal a restart must wait on: a planned restart

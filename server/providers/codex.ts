@@ -50,6 +50,7 @@ import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-sessio
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
+import { sharedEgressProxyEnv } from "../lib/egress-proxy";
 import { contextTokensFromUsage } from "../usage/usage-update";
 import {
   isEligibleGlobalOrchestratorSession,
@@ -93,7 +94,9 @@ function buildSafeEnv(): Record<string, string> {
   for (const key of ENV_ALLOWLIST) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
-  return env;
+  // HTTPS through the local Happy Eyeballs proxy: one dead address of
+  // chatgpt.com must not stall the turn on "Reconnecting..." (see egress-proxy).
+  return { ...env, ...sharedEgressProxyEnv() };
 }
 
 /** Coerce an unknown to a finite non-negative number, or undefined. */
@@ -422,6 +425,7 @@ export class CodexProvider implements AIProvider {
 
   start(): void {
     this.started = true;
+    sharedEgressProxyEnv(); // listen now, so the first turn already goes through it
     console.log("[codex] Provider started");
   }
 

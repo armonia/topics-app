@@ -23,7 +23,9 @@
  */
 import { afterAll, beforeAll, describe, expect, jest, test } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
-import { AiBridgeClient, BridgeAckStalled, isRetryableBridgeError } from "./ai-bridge-client";
+import { AiBridgeClient } from "./ai-bridge-client";
+import { isRetryableBridgeError } from "./ai-bridge-errors";
+import { BridgeAckStalled } from "./ai-bridge-errors";
 
 // The module resolves its state from the working directory: without DATA_DIR,
 // run from the production checkout, it wrote into the live state. The gate in

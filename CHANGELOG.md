@@ -2,10 +2,186 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- **deadcode-prod** · trace the 596-file baseline to its source
+
+## 2.4.79 — 2026-11-22
+
+### Sotto il cofano
+- Add Agents navigation: overview, agent page, Configure with a channel tree
+- per-agent activity from channel turns, validated route edits, English comments (T3)
+- overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)
+- schedule words comment marked as quoted Italian (T3)
+- channel tree on one column grid, human model names, thread title first in activity (T3)
+- strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)
+- typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)
+- Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com
+- Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce
+- Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30
+
+## 2.4.77 — 2026-11-22
+
+### Correzioni
+- nome inglese per il ref simbolico
+
+### Sotto il cofano
+- Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL
+- Test dei rami su origin: tetto di 120 s ai test con repo veri
+
+## 2.4.76 — 2026-11-22
+
+### Sotto il cofano
+- Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-22 [skip ci]
+- bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat
+- I rami delle card chiuse lasciano origin a ogni giro dell'audit
+- **worktrees** · dichiara WORKTREE-17 per la pulizia dei rami su origin
+- Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket
+- env isolato nel test dei rami su origin
+- Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione
+- Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete
+- browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)
+
+## 2.4.75 — 2026-11-22
+
+### Sotto il cofano
+- Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)
+- Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore
+- Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged
+- Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged
+- Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged
+- Close the six reasons not to reattach a node run after a restart
+- Memory stores tests cover the SYSTEM-PAGE-01 requirement
+- Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
+- Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged
+- Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them
+- readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
+- Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests
+
+## 2.4.74 — 2026-11-22
+
+### Novità
+- **machines** · security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09
+
+### Sotto il cofano
+- Il server degli e2e non scrive piu' nel file di salute della produzione
+- Verifica di Topics: ragioni solo sulle card oltre soglia, schema dei test dalle migration vere, catena fino al primo backlog, età dall'ultimo ingresso in todo e da wait_since, nodo spento con corsa aperta, piano esaurito, cause da reason.kind
+- Il rosso del riallineamento dice di fondere origin/main, non main
+- security i18n leaves are catalogues for the UI-language gate
+- Catalogo strumenti con filtro per agente applicato alla rotta del turno
+- Persona a strati condivisi fra tutti gli agenti
+- Verifica di Topics: ore della catena dalla radice parcheggiata, pesanti in memoria, velocità senza orologio
+- Rinomina inv in inventory nel test del filtro strumenti (gate lingua identificatori)
+- Le foto della sicurezza si scattano anche a 375 px
+- Verifica di Topics: la riga dei task ha un tipo, any-budget torna a 398
+- Rinomina Persona in AgentPersona e aggiunge lo script di migrazione del SOUL principale
+- Il test del filtro strumenti dichiara cosa copre e perde una funzione duplicata
+- Un porto occupato da un altro file non riprova con lo stesso numero
+- Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro
+- Il filtro degli strumenti dell'agente arriva davvero al turno nativo
+- La Verifica di Topics si legge anche sul telefono senza l'hub
+- Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
+- Reattach a still-open node run after a server restart instead of always queueing
+- Direct unit tests for the filter chain the turn runs
+- Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone
+- Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio
+- Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto
+- Drop the placeholder requirement id from the node-restart reattach suite
+- Register the node-restart reattach line growth in the bloat baseline
+- Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine
+- Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)
+- topics-check-daily: lint
+- fast gira anche sul nodo Windows
+- Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
+- Il nodo riceve intera la revisione anche dopo un riavvio
+- start goes through serve so server.ts stays in the production graph
+- Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Memory stores: list, search, edit and archive every agent/project deposit
+- Commenti di node-run-brief a posto per il gate della lingua
+- Fix the reattach-on-restart path for a still-open node run
+- Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Rename Italian test identifier to pass check:identifier-language
+- Unblock check:comment-language on node-run-brief after the main realign
+- Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
+- un problema sotto il tetto resta capped, non torna curato a giri alterni
+- Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo
+
+## 2.4.73 — 2026-11-22
+
+### Sotto il cofano
+- Fix any-budget overshoot and import cycle in agents registry
+- Verifica di Topics: la causa memoria legge dispatch_error, le attese volute e la coda non sono ore perse (deriveQueueReason), nuova causa nodo appeso, test della route
+- Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version
+- Move backfillAgentAccounts out of the production registry
+- declare the requirement covered by dispatch-overflow.models
+- Verifica di Topics: il giro legge la ragione della coda da queueReasonOf e classifica per tone; orologio iniettato nella route, età dall'ingresso in todo, nodo appeso da poll/silenzio, catena in backlog, programmata scaduta
+- Tag untraced test with its covered requirement (KANBAN-76)
+- Il land del modello mancante aveva lasciato rossa la CI di main
+- machines integration fakes implement readVersion
+- take main's machines integration fakes
+
+## 2.4.72 — 2026-11-22
+
+### Sotto il cofano
+- Il sistema degli agenti in due repo: la parte di topics-app (#1486)
+- Rifiuto per modello: skip accumulato per macchina, prefissi, Codex/Muse esclusi, versione nel battito via /api/version aperta al nodo
+
+## 2.4.71 — 2026-11-22
+
+### Correzioni
+- **machines** · security mark hit area 24px (usability audit target-size)
+
+### Sotto il cofano
+- Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine
+- Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8
+- auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
+- Verifica di Topics: CheckResult diventa ProofResult (no-type-mirrors), riga Automazioni allineata alla colonna del chevron (ROWALIGN-02)
+- Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
+- Un solo risolutore della cartella engine e migrazione per gli account persi
+- Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+- Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch
+- Requirement ids and coverage tags for the agents registry spec
+- Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia
+
+## 2.4.70 — 2026-11-22
+
+### Sotto il cofano
+- One-line @internal tags: the 136 new four-line blocks said the same thing in one line
+- Verifica di Topics: la riga Automazioni e la vista ci sono anche senza hub (solo la Verifica), e2e hub-off aggiornato
+- I parser dell'hub fuori dal primo download, e i due test nuovi dicono cosa provano
+
+## 2.4.69 — 2026-11-22
+
+### Sotto il cofano
+- Tag test-only hooks with @internal so knip --production skips them; baseline exports 414 -> 250
+- Tag test seams with @internal (accessors and tables that exist only for tests); baseline exports 250 -> 227
+- Verifica di Topics: soglie sul confine, turno vivo, spostamenti sani non contano, giro unico, stati in attesa e ferma
+- Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223
+- Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
+- agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+- Verifica di Topics: indice su created_at, lettura della sola finestra, misura ai volumi veri (2,4 ms con 66k commenti e 2.016 campioni)
+- La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista
+- Registro agenti dinamico dalla configurazione del motore canali
+
+## 2.4.68 — 2026-11-22
+
+### Sotto il cofano
+- Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert
+- Verifica di Topics: giro dei 5 minuti con tre voci in ore perse, senza modelli
+- Mark quoted UI label comments as intentional Italian
+- Bloat baseline: only the overflow test entry, with its reason
+- Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414
+
 ## 2.4.67 — 2026-11-21
 
 ### Sotto il cofano
+- a card pinned to a machine at its seats waits in todo without spending an attempt
+- Record the new size of the overflow test file in the bloat baseline
 - Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi
+- deadcode-prod: scripts and UI gallery are not production, queue the gate, test parseCounts
 
 ## 2.4.66 — 2026-11-21
 
@@ -15,15 +191,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.65 — 2026-11-21
 
+### Novità
+- **machines** · security shield beside each node and its four checks in the row (MACHINE-06)
+
 ### Correzioni
 - **ci-phase** · bisect a red landed batch instead of bouncing every card
 
 ### Sotto il cofano
 - La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server
 - Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia
+- **e2e** · wait on the viewport width, not a fixed sleep
 - Stop relaunching a hung paired node forever
 - Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate
 - Drop duplicate knip.jsonc entries and a closed one-off migration
+- check-deadcode-prod: avoid non-English identifier
+- wire check:deadcode-prod in CI, drop healed blind spots
+- deadcode-prod: teach blindspots probe, qa-gate and rails test about production-only patterns
 
 ## 2.4.62 — 2026-11-21
 
@@ -38,9 +221,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Un check di sicurezza rosso apre una card sola e la chiude quando torna verde (MACHINE-07)
 - Singular day in reboot-required warning (SEC-01 T4)
 - runsOf restituisce RunRow invece di Record<string, any>
+- --production gives a credible verdict, with a ratchet gate (check:deadcode-prod)
 - I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client
 - La pulizia dei segreti cerca il DB dove sta davvero
 - La pulizia dei segreti non riporta indietro le righe scritte nel frattempo
+- move test-only exclusions from ignore to production-only project negations
 - I test degli avvisi di sicurezza dichiarano MACHINE-07
 - pem, aws e ubuntu sono parole del progetto per il cancello dei nomi
 - Nomi inglesi nel test dell'oscuramento dei segreti

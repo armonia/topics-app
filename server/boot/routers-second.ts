@@ -14,10 +14,14 @@ import { createProvidersRouter } from "../routes/providers";
 import { createAppSettingsRouter } from "../routes/app-settings";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
 import { createCalendarRouter } from "../routes/calendar";
+import { createTopicsCheckRouter } from "../routes/topics-check";
 import { createHeavySlotRouter } from "../routes/heavy-slot";
 import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
+import { createAgentsRouter } from "../routes/agents";
+import { createMemoryStoresRouter } from "../routes/memory-stores";
+import { createSystemHealthRouter } from "../routes/system-health";
 import { createProfileRouter } from "../routes/profile";
 import { createPublicProfileHandler } from "../routes/public-profile";
 import { createClaudeHooksRouter } from "../routes/claude-hooks";
@@ -76,6 +80,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // L'agenda del calendario configurato, e la prova di un indirizzo prima di salvarlo.
   const calendarRouter = createCalendarRouter(ctx);
+  const topicsCheckRouter = createTopicsCheckRouter(ctx);
 
   // The machine-wide queue for heavy commands, asked by every harness on this Mac.
   const heavySlotRouter = createHeavySlotRouter(ctx);
@@ -91,6 +96,15 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
   const agentConfigRouter = createAgentConfigRouter(ctx);
+
+  // The agents registry: who exists, and creating a new one.
+  const agentsRouter = createAgentsRouter(ctx);
+
+  // Memory stores (T6): every agent's own memory folder plus project memories found, read/searched/edited from one place.
+  const memoryStoresRouter = createMemoryStoresRouter(ctx);
+
+  // System health (T7): every problem of the agents system in one list.
+  const systemHealthRouter = createSystemHealthRouter(ctx);
 
   const profileRouter = createProfileRouter(ctx);
 
@@ -208,5 +222,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, memoryStoresRouter, scheduledJobsRouter, systemHealthRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, topicsCheckRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }

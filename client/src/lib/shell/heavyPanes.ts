@@ -261,7 +261,7 @@ export function noteWebviewSample(rows: readonly ShellWebviewRow[] | undefined, 
   }
 }
 
-/** Tests only: the module keeps per-document state. */
+/** @internal Tests only: the module keeps per-document state. */
 export function __resetHeavyPanesForTests(): void {
   contexts.clear();
   verdicts.clear();
