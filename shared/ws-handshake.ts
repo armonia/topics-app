@@ -58,18 +58,6 @@ export type HelloMessage = z.infer<typeof helloMessageSchema>;
 
 // ----- Server -> Client: upgrade-required (future) --------------------------
 
-/**
- * Sent when the server detects a client is too old to operate safely.
- * For SERVER_PROTOCOL_VERSION = 1 this is never emitted; reserved for v2+
- * where structured upgrade prompts become necessary.
- */
-export const upgradeRequiredSchema = z.object({
-  type: z.literal('upgrade-required'),
-  minClientProtocolVersion: z.int(),
-  currentClientProtocolVersion: z.int(),
-  message: z.string(),
-});
-
 // Nessun alias `UpgradeRequiredMessage`: lo schema è bloccato dai test di
 // contratto (tests/unit/ws-contract.test.ts) ma il messaggio non viene ancora
 // emesso, quindi il tipo non aveva un solo consumatore. Serve in v2?
@@ -88,18 +76,7 @@ export type WelcomeParseResult =
   | { ok: true; data: WelcomeMessage }
   | { ok: false; error: string };
 
-export function parseWelcomeMessage(value: unknown): WelcomeParseResult {
-  const result = welcomeMessageSchema.safeParse(value);
-  if (result.success) return { ok: true, data: result.data };
-  return { ok: false, error: formatZodIssues(result.error) };
-}
-
 export type HelloParseResult =
   | { ok: true; data: HelloMessage }
   | { ok: false; error: string };
 
-export function parseHelloMessage(value: unknown): HelloParseResult {
-  const result = helloMessageSchema.safeParse(value);
-  if (result.success) return { ok: true, data: result.data };
-  return { ok: false, error: formatZodIssues(result.error) };
-}

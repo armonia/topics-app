@@ -6,7 +6,7 @@
  * @covers CHAT-FIND-03
  */
 import { describe, expect, test } from 'bun:test';
-import { chatFind, countOccurrences, mergeLiveHits, toolSearchText, type FindableMessage } from './chat-find';
+import { chatFind, mergeLiveHits, toolSearchText, type FindableMessage } from './chat-find';
 
 describe('chatFind', () => {
   test('the spec scenario: two hits on the text, at 0 and 4', () => {
@@ -78,9 +78,6 @@ describe('chatFind', () => {
     expect(r.truncated).toBe(true);
   });
 
-  test('matches do not overlap', () => {
-    expect(countOccurrences('aaaa', 'aa', false)).toBe(2);
-  });
 });
 
 describe('a streaming message that grows (CHAT-FIND-03)', () => {

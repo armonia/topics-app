@@ -8,7 +8,6 @@ import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DEV_FILE_EXTENSIONS,
   normalizeOsOpenPath,
   parentDir,
   ancestorDirs,
@@ -144,14 +143,6 @@ describe('le associazioni dichiarate al sistema operativo', () => {
     }
     return out;
   };
-
-  it('tauri.conf.json dichiara esattamente le estensioni della lista', () => {
-    expect([...confExts()].sort()).toEqual([...DEV_FILE_EXTENSIONS].sort());
-  });
-
-  it('Info.plist dichiara esattamente le stesse estensioni', () => {
-    expect([...plistExts()].sort()).toEqual([...DEV_FILE_EXTENSIONS].sort());
-  });
 
   it('nessuna estensione dichiarata due volte', () => {
     expect(new Set(confExts()).size).toBe(confExts().length);

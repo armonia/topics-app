@@ -119,14 +119,6 @@ function eachOccurrence(hay: string, needle: string, matchCase: boolean, onHit: 
   }
 }
 
-/** Number of non-overlapping occurrences: the same rule `chatFind` counts by. */
-export function countOccurrences(hay: string, query: string, matchCase: boolean): number {
-  if (!query) return 0;
-  let n = 0;
-  eachOccurrence(hay, matchCase ? query : query.toLowerCase(), matchCase, () => { n++; });
-  return n;
-}
-
 /** The searchable parts of one message, in the order the bubble shows them. */
 export function messageParts(m: FindableMessage): Array<{ part: ChatFindPart; text: string; toolCallId?: string }> {
   const out: Array<{ part: ChatFindPart; text: string; toolCallId?: string }> = [];
