@@ -207,30 +207,18 @@ describe("what the cures cannot clear opens one card", () => {
   });
 });
 
-describe("chain-parked: the root may have moved since the sample", () => {
-  test("the upstream card is done by cure time: the block is lifted and the card is cured", () => {
-    const h = setup(); h.card("root", null, "done"); h.card("a");
-    h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'a'");
-    expect(h.cures.run(sample([stuck("a", "chain-parked")]), T, OFF)).toEqual([{ key: "chain-parked:a", outcome: "cured" }]);
-    expect((h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'a'").get() as { b: string | null }).b).toBeNull();
-    expect(h.lines("a").join(" ")).toContain("monte");
-  });
-  test("the upstream card is still parked in backlog: no cure, it is investigated", () => {
+describe("chain-parked: no cure of its own, it is investigated", () => {
+  test("the upstream card is still parked in backlog: it is investigated, no blocker is touched", () => {
     const h = setup(); h.card("root", null, "backlog"); h.card("a");
     h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'a'");
     expect(h.cures.run(sample([stuck("a", "chain-parked")]), T, ON_BOARD)).toEqual([{ key: "chain-parked:a", outcome: "investigated" }]);
     expect(h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'a'").get()).toEqual({ b: "root" });
   });
-  test("no blocker on the row: nothing to cure", () => {
-    const h = setup(); h.card("a");
+  test("the card's direct blocker is already done: nothing to cure here, `isDispatchBlocked` already clears it", () => {
+    const h = setup(); h.card("root", null, "done"); h.card("a");
+    h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'a'");
     expect(h.cures.run(sample([stuck("a", "chain-parked")]), T, OFF)).toEqual([{ key: "chain-parked:a", outcome: "off" }]);
-  });
-  test("a chain of three: the root is done but the card's own direct blocker is not, so it stays blocked", () => {
-    const h = setup(); h.card("root", null, "done"); h.card("b"); h.card("c");
-    h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'b'");
-    h.db.run("UPDATE tasks SET blocked_by_task_id = 'b' WHERE id = 'c'");
-    expect(h.cures.run(sample([stuck("c", "chain-parked")]), T, OFF)).toEqual([{ key: "chain-parked:c", outcome: "off" }]);
-    expect(h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'c'").get()).toEqual({ b: "b" });
+    expect(h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'a'").get()).toEqual({ b: "root" });
   });
 });
 
@@ -330,6 +318,18 @@ describe("unknown: a readable rule of two requeues then a park", () => {
     expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
     expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "todo" });
     expect(h.lines("a").join(" ")).toContain("giro 1 di 2");
+  });
+  test("a →todo written by system, dispatcher or this cure itself does not reset the count: only a PERSON's hand does", () => {
+    for (const author of ["system", "dispatcher", "topics-check"]) {
+      const h = setup(); h.card("a", null, "in_progress");
+      for (let i = 0; i < UNKNOWN_RETRY_CAP; i++) {
+        h.svc.addComment({ taskId: "a", author: "topics-check", content: `Rimessa in coda (giro ${i + 1} di ${UNKNOWN_RETRY_CAP}): x` });
+      }
+      h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'a'");
+      h.db.run("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('ev1', 'a', ?, 'backlog→todo', 'status', 'y')", [author]);
+      expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
+      expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "backlog" });
+    }
   });
 });
 

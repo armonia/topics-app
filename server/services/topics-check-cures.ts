@@ -104,14 +104,6 @@ export function createCures(deps: CureDeps) {
 
   const note = (taskId: string, content: string) => svc.addComment({ taskId, author: "system", kind: "service", content });
 
-  /** True when `id`, the DIRECT blocker (never a grandparent further up the chain), is done, archived or gone: the
-   * same predicate as the dispatcher's own `isDispatchBlocked`, so a card still waiting on its direct blocker is
-   * never declared cleared just because some ancestor further up the chain finished first. */
-  function chainCleared(id: string): boolean {
-    const row = db.query("SELECT status, archived FROM tasks WHERE id = ?").get(id) as { status: string; archived: number } | null;
-    return !row || !!row.archived || row.status === "done";
-  }
-
   /** When a person (never this cure, never the dispatcher) last put the card back into `todo`: the moment the
    * count below restarts from, so a card a person looked at and requeued does not land straight back in the park
    * it was just pulled out of. */
@@ -166,16 +158,12 @@ export function createCures(deps: CureDeps) {
         note(task.id, "La card rimbalzava fra i nodi: la tengo qui, «solo Mac», per 6 ore."); // allow-italian: board comment
         return true;
       }
-      case "chain-parked": {
-        // The sample is minutes old: re-check now whether the DIRECT blocker — never a grandparent further up a
-        // long chain — is done or gone. A grandparent finishing first never frees a card whose own direct
-        // blocker is still open: that is the dispatcher's own `isDispatchBlocked` rule, read fresh here too.
-        if (bound || !task.blockedByTaskId || !chainCleared(task.blockedByTaskId)) return false;
-        const released = svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { blockedByTaskId: null } });
-        deps.emit(released);
-        note(task.id, "La card a monte della catena è finita: tolgo il blocco, può riprendere."); // allow-italian: board comment
-        return true;
-      }
+      // "chain-parked" has no cure of its own here: `deriveQueueReason` (shared/board.ts) only reports a card's
+      // blocker as open when its DIRECT blocker is neither done nor archived, and `isDispatchBlocked` re-reads
+      // the same fact live on every dispatch tick. A card whose direct blocker just finished is no longer
+      // "blocked" for either of them by the next tick, with nothing here needed to make that happen; a card
+      // still classified "chain-parked" has a direct blocker that is genuinely still open, which this cure
+      // cannot clear without un-blocking a card that is not actually free yet. It falls through to `investigate`.
       case "unknown": {
         // The sample can be up to half a minute old: re-check everything it could not see happen in the
         // meantime. Only an `in_progress` card with no live turn, no open question, no review stage and no
