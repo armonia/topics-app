@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { EMBEDDED_MIGRATIONS } from "../db/migrations-embedded";
 import { createTaskService } from "./tasks";
-import { createCures, problemsOf, reassignWith } from "./topics-check-cures";
+import { createCures, cureDepsOf, problemsOf } from "./topics-check-cures";
 import { createWakeBreaker, WAKE_FAIL_THRESHOLD } from "./wake-breaker";
 import { createTopicsCheck, DEFAULT_THRESHOLDS, parseSettings, summarizeCures, type Sample, type StuckCard } from "./topics-check";
 
@@ -149,7 +149,7 @@ describe("what the cures cannot clear opens one card", () => {
     const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
     const one = { boardId: "inv", perDay: 1 };
     expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["investigated", "capped"]);
-    expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["skipped", "skipped"]);
+    expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["skipped", "capped"]);
     expect(h.lines("2")).toHaveLength(1);
     NOW += DAY;
     expect(cures.run(s, T, one).map((o) => o.outcome)).toEqual(["skipped", "investigated"]);
@@ -229,13 +229,16 @@ describe("offline and seats: only queued cards, with the board's own settings", 
   });
   test("the wiring hands the dispatcher the settings of the card's own board", () => {
     const seen: unknown[] = [];
-    const reassign = reassignWith(
-      { reassignFromForbidden: (_t, settings) => { seen.push(settings); return true; } },
-      (projectId) => ({ dispatchModel: `model-of-${projectId}` }),
-    );
+    const published: string[] = [];
     const h = setup(); h.card("a", "m1");
-    expect(reassign(h.svc.get("a")!.task)).toBe(true);
+    const deps = cureDepsOf(h.db, Object.assign(Object.create(h.svc), { getBoardSettings: (projectId: string) => ({ dispatchModel: `model-of-${projectId}` }) }), {
+      reassignFromForbidden: (_t, settings) => { seen.push(settings); return true; },
+      emitTask: (task) => published.push(task.id),
+    });
+    expect(deps.reassign(h.svc.get("a")!.task)).toBe(true);
     expect(seen).toEqual([{ dispatchModel: "model-of-work" }]);
+    deps.emit(h.svc.get("a")!.task);
+    expect(published).toEqual(["a"]);
   });
   test("a delegated or mirror card is bound to its node: no cure moves it", () => {
     const h = setup(); h.card("d", "m1"); h.card("m", "m1");
@@ -297,7 +300,9 @@ describe("a hung node waits behind its open breaker", () => {
     const spy: string[] = [];
     const counted = { failure: (id: string) => { spy.push(id); breaker.failure(id); }, isOpen: (id: string) => breaker.isOpen(id) };
     const counting = createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false, breaker: counted });
-    for (let i = 0; i < 3; i++) counting.run(sample([stuck("h", "hung-node")]), T, OFF);
+    counting.run(sample([stuck("h", "hung-node")]), T, OFF);
+    expect(breaker.isOpen("m1")).toBe(true);
+    for (let i = 0; i < 2; i++) counting.run(sample([stuck("h", "hung-node")]), T, OFF);
     expect(spy).toHaveLength(WAKE_FAIL_THRESHOLD);
     expect(breaker.isOpen("m1")).toBe(true);
   });
@@ -316,7 +321,8 @@ describe("a restart forgets the memory, not the cards", () => {
   test("three starts on one database open one card and write one line", () => {
     const h = setup(); h.card("m");
     const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
-    const outcomes = [start(), start(), start()].map((c) => c.run(sample([stuck("m", "memory")]), T, { boardId: "inv", perDay: 1 })[0]!.outcome);
+    // Past the 10 s dedupe of a comment: only the database search keeps the second start from opening again.
+    const outcomes = [start(), start(), start()].map((c) => { NOW += 15_000; return c.run(sample([stuck("m", "memory")]), T, { boardId: "inv", perDay: 1 })[0]!.outcome; });
     expect(outcomes).toEqual(["investigated", "skipped", "skipped"]);
     expect(h.opened()).toHaveLength(1);
     expect(h.lines("m").filter((l) => l.includes("Indagine aperta"))).toHaveLength(1);
@@ -326,8 +332,33 @@ describe("a restart forgets the memory, not the cards", () => {
     const h = setup(); h.card("1"); h.card("2");
     const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
     const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
-    for (const c of [start(), start(), start()]) c.run(s, T, { boardId: "inv", perDay: 1 });
+    for (const c of [start(), start(), start()]) { NOW += 15_000; c.run(s, T, { boardId: "inv", perDay: 1 }); }
     expect(h.lines("2").filter((l) => l.includes("Tetto"))).toHaveLength(1);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE claude_task_id LIKE 'topics-check:%'");
+    NOW += DAY;
+    start().run(s, T, { boardId: "inv", perDay: 1 });
+    expect(h.lines("2").filter((l) => l.includes("Tetto"))).toHaveLength(2);
+  });
+  test("a bounce cured by one instance is not convicted by the next one on the same database", () => {
+    const h = setup(); h.card("b", "m1");
+    const moves = bounces("b");
+    const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
+    expect(start().run(sample([], moves), T, ON_BOARD)[0]!.outcome).toBe("cured");
+    NOW += 5 * 60_000;
+    expect(start().run(sample([], moves), T, ON_BOARD)).toEqual([]);
+    expect(h.opened()).toHaveLength(0);
+    expect(h.lines("b").some((l) => l.includes("Indagine aperta"))).toBe(false);
+  });
+  test("a problem that lasts is one card across restarts on two days, while that card is open", () => {
+    const h = setup(); h.card("m");
+    const start = () => createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
+    const s = () => sample([stuck("m", "memory")]);
+    expect(start().run(s(), T, ON_BOARD)[0]!.outcome).toBe("investigated");
+    NOW += DAY;
+    expect(start().run(s(), T, ON_BOARD)[0]!.outcome).toBe("skipped");
+    NOW += DAY;
+    expect(start().run(s(), T, ON_BOARD)[0]!.outcome).toBe("skipped");
+    expect(h.opened()).toHaveLength(1);
   });
 });
 
@@ -374,13 +405,24 @@ describe("the state kept between rounds", () => {
     expect(h.cures.run(s, T, OFF)[0]!.outcome).toBe("off");
     expect(h.cures.run(s, T, ON_BOARD)[0]!.outcome).toBe("investigated");
   });
-  test("investigated, gone for a round, back the next day: asked again, not skipped", () => {
+  test("investigated, gone for a round, back the next day with the card still open: no second card", () => {
     const h = setup(); h.card("m");
     const s = () => sample([stuck("m", "memory")]);
     expect(h.cures.run(s(), T, ON_BOARD)[0]!.outcome).toBe("investigated");
     h.cures.run(sample(), T, ON_BOARD);
     NOW += DAY;
+    expect(h.cures.run(s(), T, ON_BOARD)[0]!.outcome).toBe("skipped");
+    expect(h.opened()).toHaveLength(1);
+  });
+  test("the investigation card was closed and the problem lasts: it is asked again the next day", () => {
+    const h = setup(); h.card("m");
+    const s = () => sample([stuck("m", "memory")]);
+    h.cures.run(s(), T, ON_BOARD);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE claude_task_id LIKE 'topics-check:%'");
+    expect(h.cures.run(s(), T, ON_BOARD)[0]!.outcome).toBe("skipped");
+    NOW += DAY;
     expect(h.cures.run(s(), T, ON_BOARD)[0]!.outcome).toBe("investigated");
+    expect(h.opened()).toHaveLength(2);
   });
 });
 
@@ -394,6 +436,20 @@ describe("what the view says", () => {
     });
     await round.tick();
     expect(round.current().cures).toEqual({ cured: ["offline:a"], investigated: ["memory:m"], capped: ["memory:n"] });
+  });
+  test("the cap stays in the view on the round after it was reached, with the real cures", async () => {
+    const h = setup(); h.card("1"); h.card("2");
+    const cures = createCures({ db: h.db, svc: h.svc, now: () => NOW, emit: () => {}, reassign: () => false });
+    const s = sample([stuck("1", "memory"), stuck("2", "memory")]);
+    const round = createTopicsCheck({
+      db: h.db, now: () => NOW,
+      settings: () => ({ ...parseSettings(null), checks: [], investigation: { boardId: "inv", perDay: 1 } }),
+      cure: (_sample, settings) => cures.run(s, settings.thresholds, settings.investigation),
+    });
+    await round.tick();
+    NOW += 5 * 60_000;
+    await round.tick();
+    expect(round.current().cures.capped).toEqual(["memory:2"]);
   });
   test("summarizeCures leaves out what did nothing", () => {
     expect(summarizeCures([{ key: "a", outcome: "off" }, { key: "b", outcome: "skipped" }])).toEqual({ cured: [], investigated: [], capped: [] });

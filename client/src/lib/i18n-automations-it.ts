@@ -216,6 +216,8 @@ const AUTOMATIONS_IT: Dict = {
   'auto.check.seats': 'I nodi danno i posti',
   'auto.check.proofs': 'Le prove dichiarate passano',
   'auto.check.note': 'ogni 5 minuti, senza modelli',
+  'auto.check.capped': "tetto di indagini del giorno raggiunto: {n} non aperte",
+  'auto.check.investigated': "{n} card d'indagine aperte",
   'auto.check.waiting': 'in attesa del primo giro',
   'auto.check.stale': 'verifica ferma da {n} min',
   'auto.emptyQuery': 'Nessuna automazione contiene «{q}».',

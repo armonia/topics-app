@@ -6,7 +6,7 @@ import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
-import { createCures, reassignWith } from "../services/topics-check-cures";
+import { createCures, cureDepsOf } from "../services/topics-check-cures";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
@@ -161,11 +161,7 @@ export function bootPostListen(scope: AfterRelay) {
   startMachineHealth(ctx);
 
   // Self-check round: three voices in hours lost, every 5 minutes, no model calls.
-  const cures = createCures({
-    db: ctx.db, svc: dispatcherSvc,
-    reassign: reassignWith(taskDispatcher, (projectId) => dispatcherSvc.getBoardSettings(projectId)),
-    emit: (task) => taskDispatcher.emitTask(task),
-  });
+  const cures = createCures(cureDepsOf(ctx.db, dispatcherSvc, taskDispatcher));
   // The cures change real cards: the e2e server keeps them off.
   startTopicsCheck(ctx.db, (sample, s) => (process.env.TOPICS_E2E !== "1" ? cures.run(sample, s.thresholds, s.investigation) : []));
 
