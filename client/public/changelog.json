@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.76",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-22 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.75",
     "date": "2026-11-22",
     "sections": {
@@ -8,7 +25,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Close the six reasons not to reattach a node run after a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores tests cover the SYSTEM-PAGE-01 requirement",
           "en": "",
           "scope": null
         },
@@ -19,6 +46,11 @@
         },
         {
           "it": "Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them",
           "en": "",
           "scope": null
         },
@@ -203,6 +235,11 @@
           "scope": null
         },
         {
+          "it": "Memory stores: list, search, edit and archive every agent/project deposit",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Commenti di node-run-brief a posto per il gate della lingua",
           "en": "",
           "scope": null
@@ -214,6 +251,11 @@
         },
         {
           "it": "Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename Italian test identifier to pass check:identifier-language",
           "en": "",
           "scope": null
         },
