@@ -38,7 +38,6 @@ import { EXPANDED_WIDTH_BOUNDS, clampSize } from './topicBrowserWindowGeometry';
 // Sizes, bounds and where the minimized window sits live in their own module;
 // re-exported so callers keep importing the window from one place.
 export {
-  MIN_WINDOW_SIZE,
   MIN_WINDOW_SIZE_BOUNDS,
   EXPANDED_WIDTH_BOUNDS,
   floatingSizeOf,

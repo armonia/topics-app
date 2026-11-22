@@ -72,11 +72,3 @@ export function formatZodIssues(error: { issues: readonly { path: PropertyKey[];
     .join('; ');
 }
 
-export type WelcomeParseResult =
-  | { ok: true; data: WelcomeMessage }
-  | { ok: false; error: string };
-
-export type HelloParseResult =
-  | { ok: true; data: HelloMessage }
-  | { ok: false; error: string };
-

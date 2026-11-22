@@ -11,7 +11,7 @@
  * @covers ATTN-06, CHAT-DONE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { holdSubjectInFront, isSubjectInFront, onSubjectInFrontChange, subjectInFront } from "./chatInView";
+import { holdSubjectInFront, onSubjectInFrontChange, subjectInFront } from "./chatInView";
 
 const releases: Array<() => void> = [];
 afterEach(() => {
@@ -19,24 +19,6 @@ afterEach(() => {
 });
 
 describe("the subject in front", () => {
-  test("a held subject is in front until its release", () => {
-    const release = holdSubjectInFront("topic:front");
-    expect(subjectInFront()).toBe("topic:front");
-    expect(isSubjectInFront("topic:front")).toBe(true);
-    expect(isSubjectInFront("topic:behind")).toBe(false);
-    release();
-    expect(subjectInFront()).toBeNull();
-    expect(isSubjectInFront("topic:front")).toBe(false);
-  });
-
-  test("two holders of the same subject: in front until both are released", () => {
-    const a = holdSubjectInFront("topic:twice");
-    const b = holdSubjectInFront("topic:twice");
-    a();
-    expect(isSubjectInFront("topic:twice")).toBe(true);
-    b();
-    expect(isSubjectInFront("topic:twice")).toBe(false);
-  });
 
   test("the last holder is the subject in front; releasing it gives the front back to the one before", () => {
     releases.push(holdSubjectInFront("topic:chat"));

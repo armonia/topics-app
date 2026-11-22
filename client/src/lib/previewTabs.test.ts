@@ -6,12 +6,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import {
-  markTabRestored,
-  consumeTabRestored,
-  findPreviewInList,
-  replaceInList,
-  restoreSlot,
-  insertAtRestoreSlot,
+  markTabRestored, consumeTabRestored, replaceInList, restoreSlot, insertAtRestoreSlot,
 } from "./previewTabs";
 
 describe("restore markers (markTabRestored / consumeTabRestored)", () => {
@@ -37,10 +32,6 @@ describe("restore markers (markTabRestored / consumeTabRestored)", () => {
 });
 
 describe("preview-replace primitives still behave (regression)", () => {
-  test("findPreviewInList returns the first unpinned id, excluding the new one", () => {
-    expect(findPreviewInList(["a", "b"], new Set<string>(), "b")).toBe("a");
-    expect(findPreviewInList(["a", "b"], new Set(["a"]), "b")).toBeNull(); // a pinned, b excluded
-  });
 
   test("replaceInList swaps the target id in place", () => {
     expect(replaceInList(["a", "b", "c"], "b", "x")).toEqual(["a", "x", "c"]);

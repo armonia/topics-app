@@ -59,12 +59,6 @@ export function closeTabSheet(key?: string): void {
   emit();
 }
 
-/** A right click on the tab whose sheet is open: close it, now. */
-export function toggleTabSheet(key: string, door: TabSheetDoor): void {
-  if (current?.key === key) closeTabSheet(key);
-  else openTabSheet(key, door);
-}
-
 /**
  * The next request for `key` is the second half of the press that just closed
  * it, and is dropped. Disarmed by the next gesture that starts anywhere.
@@ -81,10 +75,6 @@ export function swallowNextOpen(key: string, host: Pick<Document, 'addEventListe
   };
   host.addEventListener('pointerdown', disarm, true);
   host.addEventListener('keydown', disarm, true);
-}
-
-export function getOpenTabSheet(): OpenTabSheet | null {
-  return current;
 }
 
 function subscribe(fn: () => void): () => void {

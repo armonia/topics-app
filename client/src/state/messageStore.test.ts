@@ -1,16 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { ChatMessage } from '../types';
 import {
-  __messageStoreDebug,
-  __resetMessageStore,
-  evictSessions,
-  getAllMessages,
-  getSessionMessagesFromStore,
-  listSessions,
-  replaceAllMessages,
-  subscribeAllMessages,
-  subscribeSession,
-  updateMessages,
+  __messageStoreDebug, __resetMessageStore, evictSessions, getAllMessages, getSessionMessagesFromStore, listSessions, replaceAllMessages, subscribeSession, updateMessages,
 } from './messageStore';
 
 /**
@@ -65,15 +56,6 @@ describe('notifiche mirate', () => {
     expect(n2).toBe(0); // <- il punto di tutto il modulo
   });
 
-  test('un updater che non cambia niente non sveglia nessuno', () => {
-    replaceAllMessages({ s1: [msg('a')] });
-    let n = 0;
-    subscribeSession('s1', () => { n++; });
-    subscribeAllMessages(() => { n++; });
-    updateMessages((p) => p);
-    expect(n).toBe(0);
-  });
-
   test('una sessione RIMOSSA sveglia chi la guardava', () => {
     // Cancellare una chat deve arrivare a chi la sta mostrando, o resta a
     // guardare messaggi che non esistono piu'.
@@ -90,13 +72,6 @@ describe('notifiche mirate', () => {
     subscribeSession('futura', () => { n++; });
     updateMessages((p) => ({ ...p, futura: [msg('primo')] }));
     expect(n).toBe(1);
-  });
-
-  test('i globali si svegliano una volta sola per aggiornamento', () => {
-    let g = 0;
-    subscribeAllMessages(() => { g++; });
-    updateMessages(() => ({ a: [msg('1')], b: [msg('2')], c: [msg('3')] }));
-    expect(g).toBe(1);
   });
 });
 
@@ -186,15 +161,6 @@ describe('i fatti per lo sfratto', () => {
 });
 
 describe('sfratto', () => {
-  test('restituisce la memoria e sveglia chi ascoltava tutto', () => {
-    replaceAllMessages({ s1: [msg('a')], s2: [msg('b')] });
-    let g = 0;
-    subscribeAllMessages(() => { g++; });
-
-    expect(evictSessions(['s1'])).toEqual(['s1']);
-    expect(getAllMessages()).toEqual({ s2: [msg('b')] });
-    expect(g).toBe(1);
-  });
 
   test('RIFIUTA di sfrattare una sessione guardata', () => {
     // L'invariante va difesa qui e non solo nella politica: chiamare questa

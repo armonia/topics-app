@@ -95,17 +95,6 @@ export function insertAtRestoreSlot(
 }
 
 /**
- * Find the first preview (unpinned) ID in an ordered list.
- */
-export function findPreviewInList(
-  orderedIds: string[],
-  pinnedIds: Set<string>,
-  excludeId?: string
-): string | null {
-  return orderedIds.find(id => id !== excludeId && !pinnedIds.has(id)) || null;
-}
-
-/**
  * Find the first preview pane in a pane array.
  */
 export function findPreviewPane<T extends { id: string; preview?: boolean }>(
