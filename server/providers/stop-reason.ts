@@ -1,4 +1,5 @@
 import { STOP_CAUSES } from "../../shared/ws-outbound";
+import { CREDIT_EXHAUSTED_RE } from "../../shared/credit-exhausted";
 /**
  * WHY a turn ended — said once, with ACP's vocabulary.
  *
@@ -338,7 +339,9 @@ export function classifyTurnError(err: unknown, fallbackCause?: StopCause): Turn
   if (MAX_TOKENS_RE.test(msg)) return { end: "max_tokens", detail: msg };
   if (MAX_TURNS_RE.test(msg)) return { end: "max_turn_requests", detail: msg };
   if (REFUSAL_RE.test(msg)) return { end: "refusal", detail: msg };
-  if (RATE_LIMIT_RE.test(msg)) return { end: "error", cause: "rate-limit", detail: msg };
+  // A spent plan and credit balance comes as a 400, but it is the same
+  // not-now as a saturated limit: it resumes by itself, never as an error.
+  if (RATE_LIMIT_RE.test(msg) || CREDIT_EXHAUSTED_RE.test(msg)) return { end: "error", cause: "rate-limit", detail: msg };
   return { end: "error", cause: fallbackCause ?? "provider-error", detail: msg };
 }
 

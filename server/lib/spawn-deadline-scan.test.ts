@@ -24,6 +24,7 @@ const SERVER = join(ROOT, "server");
 /** Calls that have NO deadline by choice. `snippet` is a piece of the call's line. */
 const LONG_LIVED: Array<{ file: string; snippet: string; why: string }> = [
   { file: "server/webrtc-bridge.ts", snippet: "spawn(bin, [\"--socket\"", why: "WebRTC bridge daemon: lives as long as the server" },
+  { file: "server/providers/exec-turn.ts", snippet: "spawn(bin, args", why: "the one-shot completion child (Codex, Muse): killed by its own timer, armed right after the spawn, at the caller's `timeoutMs` capped by PROVIDER_TURN_TIMEOUT_MS" },
   { file: "server/providers/muse.ts", snippet: "spawn(bin, args", why: "an agent turn: governed by the turn's abort, not by a fixed deadline" },
   { file: "server/providers/acp.ts", snippet: "spawn(bin", why: "an agent turn (ACP)" },
   { file: "server/providers/codex.ts", snippet: "spawn(bin, args", why: "an agent turn (Codex)" },
