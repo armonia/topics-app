@@ -47,7 +47,14 @@ param(
   [int]$GraceAfterRestartSec = 60,
   # Optional JSON file whose keys override the defaults above (same names as the
   # parameters). Keeps machine-specific values out of the repo.
-  [string]$ConfigFile = ""
+  [string]$ConfigFile = "",
+  # The daemon's own log: its tail goes into the hang evidence and it is rotated
+  # when it grows past LogMaxMB. Default is the stdout file this script redirects.
+  [string]$DaemonLogPath = "",
+  [int]$LogMaxMB = 20,
+  [int]$LogKeep = 2,
+  [int]$EvidenceTailLines = 300,
+  [int]$EvidenceBudgetSec = 12
 )
 
 . (Join-Path $PSScriptRoot "win-node-watchdog-logic.ps1")
@@ -59,7 +66,9 @@ if ($ConfigFile -and (Test-Path $ConfigFile)) {
 $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $logPath = Join-Path $LogDir "watchdog-$(Get-Date -Format yyyy-MM-dd).log"
-$daemonLogPath = Join-Path $LogDir "daemon-stdout.log"
+# Names differ by more than case on purpose: PowerShell variables are case-insensitive.
+$stdoutLogPath = Join-Path $LogDir "daemon-stdout.log"
+if (-not $DaemonLogPath) { $DaemonLogPath = $stdoutLogPath }
 
 function Log($line) {
   $stamped = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $line"
@@ -107,21 +116,39 @@ function Stop-Daemon {
   Get-ProcessesToStop -ProcessNames $ProcessNames | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
+function Save-Evidence {
+  $pids = @(Get-ProcessesToStop -ProcessNames $ProcessNames | ForEach-Object { $_.Id })
+  $dir = Join-Path $LogDir (Get-EvidenceFolderName -Now (Get-Date))
+  Log "restart: saving evidence to $dir"
+  Save-HangEvidence -ProcessIds $pids -Dir $dir -DaemonLogPath $DaemonLogPath `
+    -TailLines $EvidenceTailLines -BudgetSec $EvidenceBudgetSec
+}
+
 function Start-Daemon {
-  Log "restart: starting '$StartCommand $($StartArgs -join ' ')', stdout/stderr -> $daemonLogPath"
+  Log "restart: starting '$StartCommand $($StartArgs -join ' ')', stdout/stderr -> $stdoutLogPath"
   if ($StartCommand -match '\.ps1$') {
     Start-Process powershell -ArgumentList (@("-File", $StartCommand) + $StartArgs) `
-      -RedirectStandardOutput $daemonLogPath -RedirectStandardError "$daemonLogPath.err" -WindowStyle Hidden
+      -RedirectStandardOutput $stdoutLogPath -RedirectStandardError "$stdoutLogPath.err" -WindowStyle Hidden
   } else {
     Start-Process $StartCommand -ArgumentList $StartArgs `
-      -RedirectStandardOutput $daemonLogPath -RedirectStandardError "$daemonLogPath.err" -WindowStyle Hidden
+      -RedirectStandardOutput $stdoutLogPath -RedirectStandardError "$stdoutLogPath.err" -WindowStyle Hidden
   }
 }
 
 Log "watchdog up: port $Port, poll ${PollSeconds}s, stale after ${StaleMinutes}min"
 $lastOk = Get-Date
+$script:lastHeldLog = [datetime]::MinValue
 
 while ($true) {
+  try {
+    Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep -OnHeld {
+      # Held by the running daemon on every poll: say so at most once an hour.
+      if (((Get-Date) - $script:lastHeldLog).TotalMinutes -ge 60) {
+        $script:lastHeldLog = Get-Date
+        Log "log rotation skipped: $DaemonLogPath held by daemon"
+      }
+    } | Out-Null
+  } catch { }
   $ok = Test-Healthz
   $decision = Get-WatchdogDecision -HealthzOk $ok -Now (Get-Date) -LastOk $lastOk -StaleMinutes $StaleMinutes
   if ($decision -eq "ok") {
@@ -130,8 +157,10 @@ while ($true) {
     Log "healthz silent for $([Math]::Round(((Get-Date) - $lastOk).TotalMinutes, 1)) min"
     if ($decision -eq "restart") {
       Log "restart: silent for over $StaleMinutes min"
-      Stop-Daemon
-      Start-Daemon
+      Invoke-WatchdogRestart -Collect { Save-Evidence } -Stop { Stop-Daemon } -Start { Start-Daemon } `
+        -Rotate { Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null } `
+        -OnCollectError { param($e) Log "evidence failed, restarting anyway: $($e.Exception.Message)" } `
+        -OnRotateError { param($e) Log "log rotation failed, starting anyway: $($e.Exception.Message)" }
       $lastOk = Get-LastOkAfterRestart -Now (Get-Date) -GraceAfterRestartSec $GraceAfterRestartSec
     }
   }
