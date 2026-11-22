@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.72 — 2026-11-22
+
+### Sotto il cofano
+- Il sistema degli agenti in due repo: la parte di topics-app (#1486)
+
 ## 2.4.71 — 2026-11-22
 
 ### Sotto il cofano

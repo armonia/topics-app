@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.72",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sistema degli agenti in due repo: la parte di topics-app (#1486)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.71",
     "date": "2026-11-22",
     "sections": {
