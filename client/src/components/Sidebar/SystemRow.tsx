@@ -27,7 +27,7 @@ export function SystemRow({ open }: { open: boolean }) {
       aria-selected={open}
       data-testid="sidebar-system"
       title={tr('system.rowTitle')}
-      onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'system' } }))}
+      onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'system-page' } }))}
       className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
       style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
     >

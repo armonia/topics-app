@@ -179,7 +179,7 @@ const LOADERS: Partial<Record<PaneType, Loader[]>> = {
   accounts: [loadAccountQuotas],
   automations: [loadAutomations],
   agents: [loadAgents],
-  system: [loadSystem],
+  'system-page': [loadSystem],
   features: [loadFeatures],
   // A project window is a host: what it tiles inside is a file tree and the
   // editor next to it, so its chunk is theirs. The tiles it persisted are

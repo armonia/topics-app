@@ -41,7 +41,7 @@ export function openAgentPlace(agentId: string, section?: string): void {
 /** Opens System on one section. */
 export function openSystemPlace(section: SystemSection): void {
   window.location.hash = `${PREFIX}/${section}`;
-  window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'system' } }));
+  window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'system-page' } }));
 }
 
 export type HealthPlace =

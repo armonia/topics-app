@@ -60,7 +60,12 @@ async function stage(page: Page) {
       { name: "docs-server", state: "active", transport: "http", toolCount: 4, source: "~/.claude.json", parkedByUser: false, agents: ["main", "gtm"], tokens: 900 },
       { name: "mail-server", state: "active", transport: "http", toolCount: 2, source: "~/.claude.json", parkedByUser: false, agents: ["main"], tokens: 300 },
     ],
-    skills: [], clis: [], sources: [], agents: [], tokenWeight: { alwaysOn: 1200, onDemand: 400 },
+    skills: [], clis: [], sources: [],
+    agents: [
+      { id: "main", name: "Alpha", filter: { mode: "all", servers: [] } },
+      { id: "gtm", name: "Beta", filter: { mode: "selected", servers: ["docs-server"] } },
+    ],
+    tokenWeight: { alwaysOn: 1200, onDemand: 400 },
   })));
   await page.route("**/api/memory-stores", (r) => r.fulfill(json({ stores: STORES, problems: [{ storeId: "agent:gtm", kind: "unreceived", text: "agent:gtm has 1 card but nobody receives it" }] })));
   await page.route("**/api/memory-stores/search**", (r) => r.fulfill(json({ results: [
@@ -69,7 +74,7 @@ async function stage(page: Page) {
   ] })));
   await page.route("**/api/memory-stores/*/cards/*", (r) => r.fulfill(json({ content: "---\ntype: feedback\nupdated: 2026-11-01\n---\nSee [[other]] for the keyword." })));
   await goToApp(page);
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "system" } })));
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("topics:open-utility", { detail: { type: "system-page" } })));
   await expect(page.getByTestId("system-pane")).toBeVisible({ timeout: 15_000 });
   return { fix: () => { problems = problems.slice(1); } };
 }
@@ -177,6 +182,7 @@ test("registro del motore filtrabile (SYSTEM-04)", async ({ page }) => {
   await stage(page);
   await page.getByTestId("system-nav-log").click();
   await expect(page.getByTestId("log-lines")).toContainText("boom");
-  await page.getByTestId("log-level").selectOption("error");
+  await page.getByTestId("log-level").click();
+  await page.getByRole("option").last().click();
   await expect(page.getByTestId("log-agent")).toBeVisible();
 });

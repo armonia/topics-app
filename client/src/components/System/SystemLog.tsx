@@ -8,6 +8,7 @@ import { useT } from '../../hooks/useT';
 import { readJson } from '../../lib/readJson';
 import { startVisibleInterval } from '../../state/documentVisibility';
 import { useAgentRegistry } from '../../state/agentRegistry';
+import { Select } from '../Shared/Select';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 
 const POLL_MS = 5_000;
@@ -31,18 +32,24 @@ export function SystemLog() {
     void load();
     return startVisibleInterval(() => { void load(); }, POLL_MS);
   }, [load]);
-  const field = 'rounded border border-app-border-light bg-surface px-2 py-1 text-mini text-app-text';
   return (
     <section data-testid="system-log" className="max-w-4xl space-y-3">
       <h2 className="text-body font-semibold text-app-text">{tr('system.log.title')}</h2>
       <div className="flex flex-wrap gap-2">
-        <select data-testid="log-agent" value={agent} onChange={(e) => setAgent(e.target.value)} className={field} aria-label={tr('system.log.agent')}>
-          <option value="">{tr('system.log.allAgents')}</option>
-          {reg?.agents.map((a) => <option key={a.id} value={a.id}>{a.name || a.id}</option>)}
-        </select>
-        <select data-testid="log-level" value={level} onChange={(e) => setLevel(e.target.value as (typeof LEVELS)[number])} className={field} aria-label={tr('system.log.level')}>
-          {LEVELS.map((l) => <option key={l} value={l}>{tr(`system.log.level.${l}`)}</option>)}
-        </select>
+        <Select
+          testId="log-agent"
+          value={agent}
+          onChange={setAgent}
+          ariaLabel={tr('system.log.agent')}
+          options={[{ value: '', label: tr('system.log.allAgents') }, ...(reg?.agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
+        />
+        <Select
+          testId="log-level"
+          value={level}
+          onChange={setLevel}
+          ariaLabel={tr('system.log.level')}
+          options={LEVELS.map((l) => ({ value: l, label: tr(`system.log.level.${l}`) }))}
+        />
       </div>
       {tail === null ? <p className="text-prose text-app-text-muted">{tr('system.reading')}</p> : !tail.exists ? (
         <p data-testid="log-missing" className="text-prose text-app-text-secondary">{tr('system.log.missing', { path: tail.path })}</p>

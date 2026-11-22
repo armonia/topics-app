@@ -924,7 +924,7 @@ export function StandaloneChatGroup({
           {utilityType === 'accounts' && <AccountQuotasPane />}
           {utilityType === 'automations' && <AutomationsPane />}
           {utilityType === 'agents' && <AgentsPane />}
-          {utilityType === 'system' && <SystemPane />}
+          {utilityType === 'system-page' && <SystemPane />}
           {utilityType === 'features' && <FeaturesPane />}
         </LazyPane>
       );
