@@ -2,10 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.73 — 2026-11-22
+
+### Sotto il cofano
+- Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version
+- Il land del modello mancante aveva lasciato rossa la CI di main
+
 ## 2.4.72 — 2026-11-22
 
 ### Sotto il cofano
 - Il sistema degli agenti in due repo: la parte di topics-app (#1486)
+- Rifiuto per modello: skip accumulato per macchina, prefissi, Codex/Muse esclusi, versione nel battito via /api/version aperta al nodo
 
 ## 2.4.71 — 2026-11-22
 
@@ -13,6 +20,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
 - Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
 - Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+- Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia
 
 ## 2.4.70 — 2026-11-22
 

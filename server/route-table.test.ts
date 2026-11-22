@@ -66,6 +66,7 @@ const GOLDEN_ORDER = [
   "topicsCheckRouter",
   "agentChannelsRouter",
   "agentConfigRouter",
+  "agentsRouter",
   "tabsRouter",
   "viewsRouter",
   "claudeHooksRouter",
