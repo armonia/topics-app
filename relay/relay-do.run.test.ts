@@ -29,7 +29,8 @@ import { describe, expect, it } from "bun:test";
 import { SessioneRelay } from "./src/relay-do";
 import worker from "./src/worker";
 import { creaRelayFinto } from "../shared/relay-fake";
-import { createRelayIdentity, createHostProof, HOST_PROOF_HEADER } from "../shared/relay-identita";
+import { createRelayIdentity, HOST_PROOF_HEADER } from "../shared/relay-identita";
+import { createHostProof } from "./host-proof-test-helpers";
 import { leggiMessaggio, type MessaggioRelay } from "../shared/relay-protocol";
 
 // ───────────────────────────────────────────────────────────────────────────
