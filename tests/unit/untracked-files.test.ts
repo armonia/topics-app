@@ -9,6 +9,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(ROOT, "scripts/untracked-files.sh");
@@ -19,7 +20,7 @@ afterEach(() => { if (repo) rmSync(repo, { recursive: true, force: true }); repo
 
 function git(...args: string[]): void {
   // No user identity or hooks from whoever runs the suite.
-  const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=/dev/null", ...args], { cwd: repo });
+  const r = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.hooksPath=/dev/null", ...args], { cwd: repo, env: gitEnv() });
   expect(r.exitCode, r.stderr.toString()).toBe(0);
 }
 
@@ -33,7 +34,7 @@ function freshRepo(): void {
 }
 
 function run(): { code: number; out: string } {
-  const r = Bun.spawnSync(["bash", SCRIPT], { cwd: repo });
+  const r = Bun.spawnSync(["bash", SCRIPT], { cwd: repo, env: gitEnv() });
   return { code: r.exitCode ?? -1, out: r.stdout.toString() };
 }
 
