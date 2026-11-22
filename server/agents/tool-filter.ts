@@ -12,6 +12,7 @@
  */
 import type { AgentToolFilter, AgentToolsSettings } from "../../shared/agent-tools";
 import type { McpFleetStatus } from "../../shared/session-environment";
+import { resolveAgentIdForWorkspace, type AgentRecord } from "./registry";
 
 export const ALL_TOOLS_FILTER: AgentToolFilter = { mode: "all", servers: [] };
 
@@ -49,6 +50,24 @@ export function filterMcpToolSpecsForAgent<T extends { name: string }>(
   if (filter.mode === "all") return toolSpecs;
   const allowedNames = new Set(filterByName(filter, fleet.servers).flatMap((s) => s.tools));
   return toolSpecs.filter((t) => allowedNames.has(t.name));
+}
+
+/**
+ * The whole chain a turn runs, in one pure call: which agent (if any) owns
+ * this workspace, then that agent's filter applied to the live fleet's tool
+ * specs. This is what `provider.ts` calls to build the turn's own tool
+ * list — not a second copy of the two steps composed inline, so a mutation
+ * dropping either step turns this function's own test red.
+ */
+export function turnToolSpecsFor<T extends { name: string }>(
+  workspace: string | null | undefined,
+  agents: AgentRecord[],
+  settings: Pick<AgentToolsSettings, "agentFilters">,
+  fleet: McpFleetStatus,
+  toolSpecs: T[],
+): T[] {
+  const agentId = resolveAgentIdForWorkspace(workspace, agents);
+  return filterMcpToolSpecsForAgent(agentId, settings, fleet, toolSpecs);
 }
 
 /** Validates a filter coming from a request body; throws on anything malformed. */

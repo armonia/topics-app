@@ -1,6 +1,14 @@
 // @covers AGENTS-TOOLS-01
 import { describe, expect, test } from "bun:test";
-import { ALL_TOOLS_FILTER, filterByName, parseAgentToolFilter, resolveAgentToolFilter } from "./tool-filter";
+import {
+  ALL_TOOLS_FILTER,
+  filterByName,
+  filterMcpToolSpecsForAgent,
+  parseAgentToolFilter,
+  resolveAgentToolFilter,
+  turnToolSpecsFor,
+} from "./tool-filter";
+import { resolveAgentIdForWorkspace, type AgentRecord } from "./registry";
 import { buildAgentToolsInventory } from "../lib/agent-tools";
 import type { AgentToolsSettings } from "../../shared/agent-tools";
 import type { McpFleetStatus } from "../../shared/session-environment";
@@ -43,6 +51,74 @@ describe("filterByName", () => {
   test("'selected' drops everything not named", () => {
     const filter = { mode: "selected" as const, servers: ["kept"] };
     expect(filterByName(filter, [{ name: "kept" }, { name: "dropped" }])).toEqual([{ name: "kept" }]);
+  });
+});
+
+describe("filterMcpToolSpecsForAgent", () => {
+  const specs = [{ name: "mcp__kept__do" }, { name: "mcp__dropped__do" }];
+
+  test("THE BARRA (AGENTS-TOOLS-01): an agent with 'selected' and a kept server gets only that server's specs", () => {
+    const kept = filterMcpToolSpecsForAgent("jarvis", settings({ jarvis: { mode: "selected", servers: ["kept"] } }), TWO_SERVER_FLEET, specs);
+    expect(kept).toEqual([{ name: "mcp__kept__do" }]);
+  });
+
+  test("an agent with no filter gets every spec", () => {
+    expect(filterMcpToolSpecsForAgent("jarvis", settings(), TWO_SERVER_FLEET, specs)).toEqual(specs);
+  });
+
+  test("no agent id gets every spec, same as no filter", () => {
+    expect(filterMcpToolSpecsForAgent(null, settings({ jarvis: { mode: "selected", servers: ["kept"] } }), TWO_SERVER_FLEET, specs)).toEqual(specs);
+  });
+});
+
+describe("resolveAgentIdForWorkspace", () => {
+  const agents: AgentRecord[] = [{ id: "jarvis", name: "Jarvis", job: "", workspace: "/home/x/jarvis" }];
+
+  test("a workspace matching an agent's folder gives that agent's id", () => {
+    expect(resolveAgentIdForWorkspace("/home/x/jarvis", agents)).toBe("jarvis");
+  });
+
+  test("a trailing slash on either side makes no difference", () => {
+    expect(resolveAgentIdForWorkspace("/home/x/jarvis/", agents)).toBe("jarvis");
+  });
+
+  test("a folder that is nobody's agent workspace gives null", () => {
+    expect(resolveAgentIdForWorkspace("/home/x/not-an-agent", agents)).toBeNull();
+  });
+
+  test("no workspace at all gives null", () => {
+    expect(resolveAgentIdForWorkspace(null, agents)).toBeNull();
+  });
+});
+
+describe("turnToolSpecsFor — the one function the turn and the catalog share", () => {
+  const agents: AgentRecord[] = [{ id: "jarvis", name: "Jarvis", job: "", workspace: "/home/x/jarvis" }];
+  const specs = [{ name: "mcp__kept__do" }, { name: "mcp__dropped__do" }];
+
+  test("THE BARRA (AGENTS-TOOLS-01): a topic whose workspace is a limited agent's folder gets only its kept server", () => {
+    const result = turnToolSpecsFor(
+      "/home/x/jarvis",
+      agents,
+      settings({ jarvis: { mode: "selected", servers: ["kept"] } }),
+      TWO_SERVER_FLEET,
+      specs,
+    );
+    expect(result).toEqual([{ name: "mcp__kept__do" }]);
+  });
+
+  test("an ordinary topic, not any agent's own folder, gets the whole fleet", () => {
+    const result = turnToolSpecsFor(
+      "/home/x/some-project",
+      agents,
+      settings({ jarvis: { mode: "selected", servers: ["kept"] } }),
+      TWO_SERVER_FLEET,
+      specs,
+    );
+    expect(result).toEqual(specs);
+  });
+
+  test("no workspace at all gets the whole fleet", () => {
+    expect(turnToolSpecsFor(null, agents, settings({ jarvis: { mode: "selected", servers: ["kept"] } }), TWO_SERVER_FLEET, specs)).toEqual(specs);
   });
 });
 
