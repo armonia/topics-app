@@ -2,7 +2,7 @@
  * @covers MACHINE-08
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MachineSecurityReport } from "../../shared/machine-health";
@@ -90,7 +90,22 @@ describe("MACHINE-08 ssh command line", () => {
   test("a long app data dir still gets a control dir that fits a unix socket path", () => {
     const longAppDataDir = join("/", "a".repeat(120), "b".repeat(80));
     const dir = sshControlDir(longAppDataDir);
-    expect(Buffer.byteLength(join(dir, "x".repeat(40))) + 17).toBeLessThanOrEqual(103);
+    expect(dir).not.toBeNull();
+    expect(Buffer.byteLength(join(dir as string, "x".repeat(40))) + 17).toBeLessThanOrEqual(103);
+  });
+
+  test("the fallback stays short even with a long TMPDIR (macOS: /var/folders/<..>/T)", () => {
+    const original = process.env.TMPDIR;
+    process.env.TMPDIR = join("/", "var", "folders", "x".repeat(40), "y".repeat(40), "T");
+    try {
+      const longAppDataDir = join("/", "a".repeat(120), "b".repeat(80));
+      const dir = sshControlDir(longAppDataDir);
+      expect(dir).not.toBeNull();
+      expect(Buffer.byteLength(join(dir as string, "x".repeat(40))) + 17).toBeLessThanOrEqual(103);
+      expect((dir as string).startsWith(tmpdir())).toBe(false); // the fallback must not borrow the long TMPDIR
+    } finally {
+      if (original === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = original;
+    }
   });
 
   test("a short app data dir keeps its control dir inside the app data folder", () => {
@@ -155,13 +170,35 @@ describe("MACHINE-08 round on a recorded Ubuntu", () => {
     for (const w of words) expect(["'true'", "'cat'", "'ls'", "'stat'", "'sshd'", "'ss'", "'apt'", "'ufw'", "'journalctl'"]).toContain(w);
   });
 
+  test("a control dir that is not ours (e.g. a planted symlink) disables multiplexing instead of failing the round", async () => {
+    const appDataDir = mkdtempSync(join(tmpdir(), "ssh-probe-unsafe-"));
+    try {
+      const controlDir = sshControlDir(appDataDir);
+      if (controlDir !== null) {
+        mkdirSync(join(controlDir, ".."), { recursive: true });
+        rmSync(controlDir, { recursive: true, force: true }); // a stray dir from another test's use of the shared fallback would make the symlink fail with EEXIST
+        symlinkSync(tmpdir(), controlDir);
+      }
+      const seen: string[][] = [];
+      const report = await probeSshServer(server, recorded(UBUNTU, seen), appDataDir);
+      expect(report.status).not.toBe("unknown");
+      for (const argv of seen) expect(argv.some((a) => a.includes("ControlMaster"))).toBe(false);
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+      const controlDir = sshControlDir(appDataDir);
+      if (controlDir !== null) rmSync(controlDir, { force: true }); // unlinks the planted symlink itself, never its target
+    }
+  });
+
   test("with an app data dir, every read shares one connection and it is closed at the end of the round", async () => {
     const seen: string[][] = [];
     const appDataDir = mkdtempSync(join(tmpdir(), "ssh-probe-"));
     try {
       await probeSshServer(server, recorded(UBUNTU, seen), appDataDir);
       for (const argv of seen.slice(0, -1)) expect(argv).toContain("ControlMaster=auto");
-      expect(seen.at(-1)).toEqual(["ssh", "-o", `ControlPath=${join(sshControlDir(appDataDir), "%C")}`, "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
+      const controlDir = sshControlDir(appDataDir);
+      expect(controlDir).not.toBeNull();
+      expect(seen.at(-1)).toEqual(["ssh", "-o", `ControlPath=${join(controlDir as string, "%C")}`, "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
     } finally {
       rmSync(appDataDir, { recursive: true, force: true });
     }

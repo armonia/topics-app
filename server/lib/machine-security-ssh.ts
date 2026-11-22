@@ -5,9 +5,7 @@
  * read and listing goes through `ssh -o BatchMode=yes` and nothing is
  * installed or written on the server.
  */
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckKey, MachineSecurityReport } from "../../shared/machine-health";
 import { probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
@@ -85,17 +83,47 @@ function fitsControlSocket(dir: string): boolean {
 }
 
 /**
+ * Fixed, short fallback root: `os.tmpdir()` is long on macOS
+ * (`/var/folders/<..>/T`, measured 48 bytes) and that alone can push the
+ * socket over the limit again, defeating the fallback it is meant to be.
+ * `/tmp` is short on every platform we run on. One directory per OS user
+ * (not per app-data path), so it stays stable across settings.
+ */
+function fixedFallbackDir(): string | null {
+  if (typeof process.getuid !== "function") return null; // no POSIX uid (e.g. Windows): skip multiplexing instead of guessing
+  return join("/tmp", `topics-ssh-${process.getuid()}`);
+}
+
+/**
  * Where the control sockets of `ControlPath` live. Inside the app data
  * folder when that leaves room for `ssh`'s own hash and bind suffix;
- * otherwise a short, per-app directory under the OS temp folder, so a long
- * data path (an uncommon but real install layout) does not push the socket
- * over the OS limit and turn every ssh probe unreachable.
+ * otherwise the fixed, short fallback. `null` means neither fits (or the
+ * platform cannot be trusted to): the caller probes without multiplexing,
+ * one connection per command, same as before this feature existed.
  */
-export function sshControlDir(appDataDir: string): string {
+export function sshControlDir(appDataDir: string): string | null {
   const inData = join(appDataDir, "ssh-control");
   if (fitsControlSocket(inData)) return inData;
-  const id = createHash("sha1").update(appDataDir).digest("hex").slice(0, 8);
-  return join(tmpdir(), `topics-ssh-${id}`);
+  const fallback = fixedFallbackDir();
+  return fallback && fitsControlSocket(fallback) ? fallback : null;
+}
+
+/**
+ * `/tmp` is shared by every user on the machine: before trusting a
+ * directory there for the control socket, make sure it is ours, private
+ * (0700) and not a symlink someone else planted, so a hostile user on the
+ * same box cannot hand us a socket path they control.
+ */
+function ensureSafeControlDir(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = lstatSync(dir);
+    if (!st.isDirectory()) return false; // not a plain directory (e.g. a symlink): lstat does not follow it
+    if (typeof process.getuid === "function" && st.uid !== process.getuid()) return false;
+    return (st.mode & 0o777) === 0o700;
+  } catch {
+    return false;
+  }
 }
 
 /** The local `ssh` command line for one remote command. `controlDir` set reuses one connection per server across the round. */
@@ -170,9 +198,11 @@ export function whyUnreachable(r: RunResult): string {
  * One round on one server. A server that does not answer keeps its last
  * report (with the time it was taken) instead of replacing it with unknowns.
  * `appDataDir` is required (not optional) so a caller that forgets to wire
- * it fails `typecheck` instead of silently losing the connection reuse:
- * every read of the round shares one ssh connection (the handshake only
- * happens once), closed again before returning.
+ * it fails `typecheck` instead of silently losing the connection reuse. When
+ * a control dir fits the socket limit and checks out as safe, every read of
+ * the round shares one ssh connection (the handshake only happens once),
+ * closed again before returning; otherwise the round falls back to one
+ * connection per command, same as before this feature existed.
  */
 export async function probeSshServer(
   server: SshServer,
@@ -181,8 +211,8 @@ export async function probeSshServer(
   last: MachineSecurityReport | null = null,
   now: () => number = Date.now,
 ): Promise<MachineSecurityReport> {
-  const controlDir = sshControlDir(appDataDir);
-  try { mkdirSync(controlDir, { recursive: true, mode: 0o700 }); } catch { /* best effort: no reuse this round */ }
+  const dir = sshControlDir(appDataDir);
+  const controlDir = dir && ensureSafeControlDir(dir) ? dir : undefined;
   try {
     const env = createSshProbeEnv(server, local, now, controlDir);
     const reach = await env.run(["true"]);
@@ -192,6 +222,6 @@ export async function probeSshServer(
     }
     return await probeMachineSecurity(env);
   } finally {
-    await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
+    if (controlDir) await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
   }
 }
