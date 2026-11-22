@@ -38,6 +38,11 @@ export interface IntegrationMeasure {
   commit?: string | null;
   /** What failed or why nothing was measured: the CI log for a red. */
   why?: string;
+  /**
+   * Set when the measure could not happen because of the board's own machinery (the push or the draft
+   * pull request failed), not because the CI stayed silent. A landed card is not sent back to anyone for it.
+   */
+  fault?: string;
 }
 
 export interface IntegrationQueueDeps {
@@ -213,6 +218,12 @@ export function createIntegrationQueue(deps: IntegrationQueueDeps): IntegrationQ
     }
     if (out.verdict === "unmeasured") {
       for (const id of out.measured.length ? out.measured : batch) {
+        if (out.fault && deps.landed) {
+          // The work is on main and the fault is ours: the card stays where it is, with the reason on it.
+          silent.delete(id);
+          note(id, `CI non misurata: ${out.fault}. Il lavoro è già su main e la card resta chiusa; la misura non è partita per un guasto della board, non per colpa del codice.`);
+          continue;
+        }
         const n = (silent.get(id) ?? 0) + 1;
         silent.set(id, n);
         if (n >= MAX_SILENT && deps.giveUp) {

@@ -91,6 +91,8 @@ export const CI_NO_RUN_GRACE_MS = 5 * 60_000;
 export const CI_API_ERRORS_MAX = 5;
 /** A git or gh call that hangs is an error, not a wait. */
 export const CI_CALL_TIMEOUT_MS = 60_000;
+/** A push runs the repo's pre-push hooks, which take minutes on a loaded machine: 60s cut them off and the push never landed. */
+export const CI_PUSH_TIMEOUT_MS = 300_000;
 export const CI_CONFIG_PATH = ".github/workflows/ci.yml";
 export const CI_BASE_BRANCH = "main";
 
@@ -600,7 +602,7 @@ export function githubPort(): GithubPort {
       const argv = ["git", "push", "--porcelain",
         ...(lease ? [`--force-with-lease=refs/heads/${branch}:${lease}`] : []),
         "origin", `${sha}:refs/heads/${branch}`];
-      const r = await spawnCapped(argv, cwd);
+      const r = await spawnCapped(argv, cwd, CI_PUSH_TIMEOUT_MS);
       if (r.code === 0) return { ok: true, value: "pushed" };
       if (!lease && pushRejectedAsNonFastForward(`${r.out}\n${r.err}`)) return { ok: true, value: "non-fast-forward" };
       return failed(argv, r);
@@ -683,7 +685,7 @@ export type AwaitCiDeps = {
  * server stops the checks.
  */
 export async function awaitCiEvidence(
-  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[] },
+  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: "push" | "draft-pr", error: string) => void },
   deps: AwaitCiDeps = {},
 ): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
@@ -714,6 +716,12 @@ export async function awaitCiEvidence(
   // A cause that passes by itself: the same commit measured again can still give a verdict.
   const notYet = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
     notMeasured(reason, { ...ctx, transient: true });
+  // A step of ours that failed: said in the server log (it used to vanish into a row's tail) and to the caller.
+  const fault = (step: "push" | "draft-pr", reason: string, transient = false): CheckRun[] => {
+    console.warn(`[ci-evidence] ${input.taskId.slice(0, 8)} ${step} failed on ${sha.slice(0, 8)}: ${reason}`);
+    try { input.onFault?.(step, reason); } catch { /* a report must never change the outcome */ }
+    return transient ? notYet(reason) : notMeasured(reason);
+  };
   const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
 
   halt();
@@ -732,7 +740,7 @@ export async function awaitCiEvidence(
 
   halt();
   const pushed = await port.push(cwd, sha, branch.value);
-  if (!pushed.ok) return notYet(`push failed: ${pushed.error}`);
+  if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`);
   if (pushed.value === "non-fast-forward") {
     const head = await port.remoteHead(cwd, branch.value);
     if (!head.ok || !head.value) return notMeasured(`push rejected and the remote head is unreadable${head.ok ? "" : `: ${head.error}`}`);
@@ -742,7 +750,7 @@ export async function awaitCiEvidence(
       return notMeasured(`the remote branch ${branch.value} has commits this worktree never had (${head.value.slice(0, 8)}): left untouched`);
     }
     const forced = await port.push(cwd, sha, branch.value, head.value);
-    if (!forced.ok || forced.value !== "pushed") return notMeasured(`push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
+    if (!forced.ok || forced.value !== "pushed") return fault("push", `push with lease failed${forced.ok ? "" : `: ${forced.error}`}`);
   }
 
   const pr = await port.draftPullRequest(cwd, repo.value, branch.value,
@@ -753,7 +761,7 @@ export async function awaitCiEvidence(
   // between main and <branch>"): local `main` was behind, or the commits are already
   // on the remote. Nothing for a CI run to measure, same outcome as no own commit.
   if (!pr.ok && /no commits between/i.test(pr.error)) return skipped(NO_OWN_COMMIT);
-  if (!pr.ok) return notYet(`cannot open or find the draft pull request: ${pr.error}`);
+  if (!pr.ok) return fault("draft-pr", `cannot open or find the draft pull request: ${pr.error}`, true);
   await supersedePreviousDelivery(port, { cwd, repo: repo.value, taskId: input.taskId, branch: branch.value, sha, pr: pr.value, baseBranch: CI_BASE_BRANCH })
     .catch(() => undefined);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
