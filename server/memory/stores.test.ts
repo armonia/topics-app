@@ -151,11 +151,11 @@ describe("searchStores (SYSTEM-05)", () => {
   test("the same word in two stores' cards comes back as two results, each with its own store", () => {
     const agentsHome = tmp("memory-agents-search-");
     const jarvisDir = join(agentsHome, "jarvis", "memory");
-    const visioneDir = join(agentsHome, "visione", "memory");
+    const outreachDir = join(agentsHome, "outreach", "memory");
     card(jarvisDir, "lesson.md", { name: "Lesson", body: "the gateway restarts on its own" });
-    card(visioneDir, "lesson.md", { name: "Lesson", body: "the outreach gateway needs a token" });
+    card(outreachDir, "lesson.md", { name: "Lesson", body: "the outreach gateway needs a token" });
 
-    const stores = discoverStores([agent("jarvis"), agent("visione")], {
+    const stores = discoverStores([agent("jarvis"), agent("outreach")], {
       topicsAgentsHome: agentsHome,
       claudeProjectsHome: tmp("memory-projects-empty-4-"),
       config: {},
@@ -163,7 +163,7 @@ describe("searchStores (SYSTEM-05)", () => {
 
     const results = searchStores(stores, "gateway");
     expect(results).toHaveLength(2);
-    expect(results.map((r) => r.storeId).sort()).toEqual(["agent:jarvis", "agent:visione"]);
+    expect(results.map((r) => r.storeId).sort()).toEqual(["agent:jarvis", "agent:outreach"]);
     for (const r of results) expect(r.snippet.toLowerCase()).toContain("gateway");
   });
 
