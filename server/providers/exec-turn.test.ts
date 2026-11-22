@@ -47,6 +47,39 @@ function recorder() {
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
+let root: string;
+const previous = { codex: process.env.CODEX_BIN, muse: process.env.MUSE_BIN };
+
+beforeAll(() => {
+  root = realpathSync(mkdtempSync(join(tmpdir(), "exec-turn-test-")));
+  // Hangs (timeout case), or fails with a stderr line when the prompt asks for it.
+  const body = `#!${process.execPath}
+if (process.argv.includes('--version')) { console.log('1.0.0'); process.exit(0); }
+import { existsSync, readFileSync, statSync } from 'fs';
+// The prompt reaches the child on stdin (Codex) or in a file named in argv (Muse).
+const fromFiles = process.argv.slice(2).filter((a) => existsSync(a) && statSync(a).isFile()).map((a) => readFileSync(a, 'utf8')).join(' ');
+const text = (await Bun.stdin.text()) + ' ' + fromFiles;
+if (text.includes('fail')) { console.error('boom-from-stderr'); process.exit(3); }
+// A child the deadline failed to kill must not keep the test run alive.
+setTimeout(() => process.exit(0), 8000);
+setInterval(() => {}, 1000);
+`;
+  for (const bin of ["fake-codex", "fake-muse"]) writeFileSync(join(root, bin), body, { mode: 0o700 });
+  process.env.CODEX_BIN = join(root, "fake-codex");
+  process.env.MUSE_BIN = join(root, "fake-muse");
+  _resetCodexBinCache();
+  _resetMuseBinCache();
+});
+
+afterAll(() => {
+  if (previous.codex === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = previous.codex;
+  if (previous.muse === undefined) delete process.env.MUSE_BIN; else process.env.MUSE_BIN = previous.muse;
+  _resetCodexBinCache();
+  _resetMuseBinCache();
+  rmSync(root, { recursive: true, force: true });
+});
+
+
 const providers = [
   { name: "codex", runner: "runCodexTurn", make: () => new CodexProvider({ type: "codex" }) },
   { name: "muse", runner: "runMuseTurn", make: () => new MuseProvider({ type: "muse" }) },
@@ -123,40 +156,12 @@ describe.each(providers)("exec-turn shared by $name", ({ name, runner, make }) =
   });
 });
 
+const makeWithRoot = [
+  { name: "codex", make: () => new CodexProvider({ type: "codex", defaultWorkspace: root }) },
+  { name: "muse", make: () => new MuseProvider({ type: "muse", defaultWorkspace: root }) },
+];
+
 describe.skipIf(process.platform === "win32")("exec-turn one-shot completion (fake executables)", () => {
-  let root: string;
-  const previous = { codex: process.env.CODEX_BIN, muse: process.env.MUSE_BIN };
-
-  beforeAll(() => {
-    root = realpathSync(mkdtempSync(join(tmpdir(), "exec-turn-test-")));
-    // Hangs (timeout case), or fails with a stderr line when the prompt asks for it.
-    const body = `#!${process.execPath}
-if (process.argv.includes('--version')) { console.log('1.0.0'); process.exit(0); }
-const text = await Bun.stdin.text();
-const fail = text.includes('fail') || process.argv.join(' ').includes('fail');
-if (fail) { console.error('boom-from-stderr'); process.exit(3); }
-setInterval(() => {}, 1000);
-`;
-    for (const bin of ["fake-codex", "fake-muse"]) writeFileSync(join(root, bin), body, { mode: 0o700 });
-    process.env.CODEX_BIN = join(root, "fake-codex");
-    process.env.MUSE_BIN = join(root, "fake-muse");
-    _resetCodexBinCache();
-    _resetMuseBinCache();
-  });
-
-  afterAll(() => {
-    if (previous.codex === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = previous.codex;
-    if (previous.muse === undefined) delete process.env.MUSE_BIN; else process.env.MUSE_BIN = previous.muse;
-    _resetCodexBinCache();
-    _resetMuseBinCache();
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  const makeWithRoot = [
-    { name: "codex", make: () => new CodexProvider({ type: "codex", defaultWorkspace: root }) },
-    { name: "muse", make: () => new MuseProvider({ type: "muse", defaultWorkspace: root }) },
-  ];
-
   describe.each(makeWithRoot)("$name", ({ make }) => {
     test("the deadline kills a hung completion and rejects as timed out", async () => {
       const started = Date.now();
