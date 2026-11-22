@@ -6,7 +6,7 @@ import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
-import { createCures } from "../services/topics-check-cures";
+import { createCures, reassignWith } from "../services/topics-check-cures";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
@@ -163,11 +163,11 @@ export function bootPostListen(scope: AfterRelay) {
   // Self-check round: three voices in hours lost, every 5 minutes, no model calls.
   const cures = createCures({
     db: ctx.db, svc: dispatcherSvc,
-    reassign: (task) => taskDispatcher.reassignFromForbidden(task, dispatcherSvc.getBoardSettings(task.projectId)),
+    reassign: reassignWith(taskDispatcher, (projectId) => dispatcherSvc.getBoardSettings(projectId)),
     emit: (task) => taskDispatcher.emitTask(task),
   });
   // The cures change real cards: the e2e server keeps them off.
-  startTopicsCheck(ctx.db, (sample, s) => { if (process.env.TOPICS_E2E !== "1") void cures.run(sample, s.thresholds, s.investigation); });
+  startTopicsCheck(ctx.db, (sample, s) => (process.env.TOPICS_E2E !== "1" ? cures.run(sample, s.thresholds, s.investigation) : []));
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
   if (process.env.TOPICS_E2E !== "1") startQuotaSampler();

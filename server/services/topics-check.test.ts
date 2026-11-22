@@ -363,7 +363,8 @@ describe("the board's states, as the dispatcher writes them (second review, poin
   });
   test("B: whether the queue moved is read through an index, not a scan of every task", () => {
     const plan = (db().query(`EXPLAIN QUERY PLAN ${QUEUE_MOVED_SQL}`).all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
-    expect(plan).toContain("idx_tasks_in_progress_at");
+    expect(plan).toMatch(/SEARCH tasks USING (COVERING )?INDEX idx_tasks_in_progress_at/);
+    expect(plan).not.toMatch(/SCAN tasks/);
   });
   test("C: the chain stops at the card parked in backlog, even when that card's own blocker has closed", () => {
     const d = db();

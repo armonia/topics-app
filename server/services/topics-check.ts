@@ -101,6 +101,9 @@ export interface MachineSample { id: string; name: string; online: boolean; slot
 export interface Move { id: string; at: number; to: string; silent: boolean }
 export interface ProofResult { name: string; ok: boolean; reason: string | null }
 
+export type CureOutcome = "cured" | "investigated" | "capped" | "off" | "skipped";
+export interface CureReport { key: string; outcome: CureOutcome }
+
 export interface Sample {
   at: number;
   todo: number;
@@ -109,6 +112,8 @@ export interface Sample {
   moves: Move[];
   /** Filled by the round after the proofs ran; `sampleTopics` leaves it out. */
   checks?: ProofResult[];
+  /** Filled after the cures ran on this sample: what they did, so the view can say it (CHECK-03). */
+  cures?: CureReport[];
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -436,17 +441,25 @@ export function roundState(samples: readonly { at: number }[], now: number): { s
   return { state: age > 2 * SAMPLE_INTERVAL_MS ? "stale" : "live", ageMin: Math.floor(age / 60_000) };
 }
 
+/** What the last round's cures did, by problem key. The ones that did nothing are left out. */
+export interface CureSummary { cured: string[]; investigated: string[]; capped: string[] }
+
+export function summarizeCures(reports: readonly CureReport[] = []): CureSummary {
+  const keys = (o: CureOutcome) => reports.filter((r) => r.outcome === o).map((r) => r.key);
+  return { cured: keys("cured"), investigated: keys("investigated"), capped: keys("capped") };
+}
+
 export interface TopicsCheckRound {
   /** One round: sample, run the proofs, store, trim. Returns the voices. A round already in flight is joined, never doubled. */
   tick(): Promise<Voice[]>;
   /** What the view shows, from one read of only the window the voices use. */
-  current(): { at: number | null; state: RoundState; ageMin: number | null; voices: Voice[] };
+  current(): { at: number | null; state: RoundState; ageMin: number | null; voices: Voice[]; cures: CureSummary };
 }
 
 /** The oldest sample `voices` can use: its widest window, with one interval of slack. */
 const oldestUsed = (now: number, s: TopicsCheckSettings) => now - s.thresholds.seatsWindowHours * HOUR_MS - SAMPLE_INTERVAL_MS;
 
-export function createTopicsCheck(opts: { db: Database; now?: () => number; settings?: () => TopicsCheckSettings; run?: Runner; cure?: (sample: Sample, s: TopicsCheckSettings) => void }): TopicsCheckRound {
+export function createTopicsCheck(opts: { db: Database; now?: () => number; settings?: () => TopicsCheckSettings; run?: Runner; cure?: (sample: Sample, s: TopicsCheckSettings) => CureReport[] | void }): TopicsCheckRound {
   const { db } = opts;
   const now = opts.now ?? Date.now;
   const settings = opts.settings ?? (() => parseSettings(getAppSettings().topicsCheck));
@@ -457,7 +470,10 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
     const sample: Sample = { ...sampleTopics(db, at, s.thresholds), checks: await runProofs(s.checks, s.thresholds.checkTimeoutSec, opts.run) };
     db.query("INSERT OR REPLACE INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(at, JSON.stringify(sample));
     db.query("DELETE FROM topics_check_samples WHERE at < ?").run(at - KEEP_SAMPLES_MS);
-    try { opts.cure?.(sample, s); } catch (e) { console.warn("[topics-check] cures failed:", e instanceof Error ? e.message : e); }
+    try {
+      const reports = opts.cure?.(sample, s);
+      if (reports?.length) db.query("UPDATE topics_check_samples SET sample_json = ? WHERE at = ?").run(JSON.stringify({ ...sample, cures: reports }), at);
+    } catch (e) { console.warn("[topics-check] cures failed:", e instanceof Error ? e.message : e); }
     return voices(readSamples(db, oldestUsed(at, s)), s);
   };
   return {
@@ -469,13 +485,14 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
       const s = settings();
       const at = now();
       const lastAt = (db.query("SELECT MAX(at) AS at FROM topics_check_samples").get() as { at: number | null }).at;
-      return { at: lastAt, ...roundState(lastAt === null ? [] : [{ at: lastAt }], at), voices: voices(readSamples(db, oldestUsed(at, s)), s) };
+      const window = readSamples(db, oldestUsed(at, s));
+      return { at: lastAt, ...roundState(lastAt === null ? [] : [{ at: lastAt }], at), voices: voices(window, s), cures: summarizeCures(window.at(-1)?.cures) };
     },
   };
 }
 
 /** Boot: the first round after a short wait, then every 5 minutes; a failed round never stops the timer. */
-export function startTopicsCheck(db: Database, cure?: (sample: Sample, s: TopicsCheckSettings) => void): TopicsCheckRound {
+export function startTopicsCheck(db: Database, cure?: (sample: Sample, s: TopicsCheckSettings) => CureReport[] | void): TopicsCheckRound {
   const round = createTopicsCheck({ db, cure });
   const safeTick = () => void round.tick().catch((e) => console.warn("[topics-check] round failed:", e instanceof Error ? e.message : e));
   setTimeout(() => {
