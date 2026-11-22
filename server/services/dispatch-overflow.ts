@@ -39,7 +39,7 @@
  * the remote run starts FROM that branch, pushed to origin first. A branch that
  * cannot reach origin keeps the card here (`overflowBranchReady`).
  */
-import { CLAUDE_CODING_PROVIDERS } from "../../shared/task-coding-models";
+import { CLAUDE_CODING_PROVIDERS, taskModelSelection } from "../../shared/task-coding-models";
 
 /**
  * How many overflowed or hand-sent cards a machine runs at once before the
@@ -94,10 +94,10 @@ export function effectiveSlots(m: OverflowMachine): number {
  */
 export function machineLacksModel(m: OverflowMachine, selection: string | null | undefined): boolean {
   if (m.kind !== "node" || !m.models || m.models.length === 0) return false;
-  const [head, ...rest] = (selection ?? "").trim().toLowerCase().split(":");
-  // A node declares Claude models only: a `codex:` or `muse:` card says nothing about that list.
-  if (rest.length > 0 && !CLAUDE_CODING_PROVIDERS.includes(head)) return false;
-  const model = (rest.at(-1) ?? head).trim();
+  // Same reading as the runner: `gpt-*`, `codex` and `codex:`/`muse:` cards say nothing about a Claude list.
+  const { provider, model: picked } = taskModelSelection(selection?.trim().toLowerCase());
+  if (provider && !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
+  const model = (picked ?? "").trim();
   if (!model || model === "auto" || model === "opus" || model === "sonnet" || model === "haiku") return false;
   return !m.models.some((id) => id.toLowerCase() === model);
 }

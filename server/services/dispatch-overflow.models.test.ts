@@ -26,6 +26,13 @@ describe("a node that lacks the card's model", () => {
     expect(machineLacksModel(n, "muse:whatever")).toBe(false);
   });
 
+  it("reads values without a prefix the way the runner does", () => {
+    const n = node({ models: ["claude-sonnet-5-5"] });
+    expect(machineLacksModel(n, "gpt-5.1-codex")).toBe(false);
+    expect(machineLacksModel(n, "codex")).toBe(false);
+    expect(machineLacksModel(n, "claude-opus-5-5")).toBe(true);
+  });
+
   it("reads the node's refusal wording as a verdict on the machine", () => {
     expect(isModelUnavailable('Avvio agent fallito ripetutamente. Motivo: No coding agent is available for model "claude-sonnet-5-5".')).toBe(true);
     expect(isModelUnavailable('The selected coding runtime Claude Code cannot run model "claude-sonnet-5-5".')).toBe(true);
