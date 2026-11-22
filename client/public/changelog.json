@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.73",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land del modello mancante aveva lasciato rossa la CI di main",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.72",
     "date": "2026-11-22",
     "sections": {
@@ -9,6 +30,11 @@
       "internal": [
         {
           "it": "Il sistema degli agenti in due repo: la parte di topics-app (#1486)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rifiuto per modello: skip accumulato per macchina, prefissi, Codex/Muse esclusi, versione nel battito via /api/version aperta al nodo",
           "en": "",
           "scope": null
         }
@@ -35,6 +61,11 @@
         },
         {
           "it": "Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia",
           "en": "",
           "scope": null
         }
