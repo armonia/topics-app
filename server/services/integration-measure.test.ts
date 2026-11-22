@@ -170,3 +170,18 @@ describe("measureIntegration", () => {
     expect(still.verdict).toBe("fail");
   });
 });
+
+describe("measureIntegration: a push that fails", () => {
+  test("is logged with its step, and the measure comes back unmeasured with the fault set", async () => {
+    const r = repo();
+    sh(r.work, "push", "--quiet", "origin", `${r.one}:refs/heads/main`);
+    const lines: string[] = [];
+    const d = deps(() => [ok("unit")]);
+    d.log = (line) => lines.push(line);
+    d.awaitCi = async ({ checks, onFault }) => { onFault?.("push", "push failed: hook declined"); return checks.map((c) => ({ ...ko(c.name), notMeasured: true })); };
+    const out = await measureIntegration(r.work, [{ taskId: "landed", commit: r.one }], CHECKS, d);
+    expect(out.verdict).toBe("unmeasured");
+    expect(out.fault).toContain("push: push failed: hook declined");
+    expect(lines.join("\n")).toContain("hook declined");
+  });
+});
