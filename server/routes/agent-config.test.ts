@@ -18,7 +18,7 @@ function fixture(): Paths {
   const ws = join(home, "ws"); const visionWs = join(ws, "gtm");
   mkdirSync(visionWs, { recursive: true });
   writeFileSync(join(ws, "IDENTITY.md"), "# Jarvis\n"); writeFileSync(join(visionWs, "IDENTITY.md"), "# Visione\n");
-  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: visionWs } } }));
+  writeFileSync(join(home, "engine.json"), JSON.stringify({ model: "claude-sonnet-5-5", agents: { main: { workspace: ws }, gtm: { workspace: visionWs, account: "visione" } } }));
   writeFileSync(join(home, "config.json"), JSON.stringify({
     channels: { discord: { default: { token: "keychain:d/j" }, visione: { token: "keychain:d/v" } }, telegram: { token: "keychain:t" } },
     rules: {

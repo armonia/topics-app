@@ -18,6 +18,7 @@ import { createHeavySlotRouter } from "../routes/heavy-slot";
 import { createScheduledJobsRouter } from "../routes/scheduled-jobs";
 import { createAgentChannelsRouter } from "../routes/agent-channels";
 import { createAgentConfigRouter } from "../routes/agent-config";
+import { createAgentsRouter } from "../routes/agents";
 import { createProfileRouter } from "../routes/profile";
 import { createPublicProfileHandler } from "../routes/public-profile";
 import { createClaudeHooksRouter } from "../routes/claude-hooks";
@@ -91,6 +92,9 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   // Anagrafica di Jarvis e Visione: legge e scrive i file di jarvis-channels.
   const agentConfigRouter = createAgentConfigRouter(ctx);
+
+  // The agents registry: who exists, and creating a new one.
+  const agentsRouter = createAgentsRouter(ctx);
 
   const profileRouter = createProfileRouter(ctx);
 
@@ -208,5 +212,5 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
 
   void delegatedRevocations.tick({ force: true }).catch((err) => console.error("[delegated-revoke] boot retry failed", err));
 
-  return { agentChannelsRouter, agentConfigRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
+  return { agentChannelsRouter, agentConfigRouter, agentsRouter, appSettingsRouter, calendarRouter, claudeHooksRouter, clientTraceRouter, delegatedRevocations, e2eRouter, heavySlotRouter, machinesRouter, scheduledJobsRouter, nodesRouter, notificationsRouter, openRouter, profileRouter, projectsRouter, providersRouter, publicProfileHandler, pushRouter, reasoningTranslationRouter, tabsRouter, uiStateRouter, viewsRouter, worktreesRouter };
 }
