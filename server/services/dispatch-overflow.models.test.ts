@@ -1,6 +1,6 @@
 /**
- * A node that does not carry the card's model is not an overflow candidate,
- * and refusing it never parks the card.
+ * A node that declares its models: the overflow skips it for a card whose model
+ * it lacks, and reads its refusal as a verdict on that machine.
  *
  * @covers KANBAN-76
  */
