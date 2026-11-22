@@ -1,5 +1,5 @@
 /**
- * A job's cadence in words ("ogni giorno alle 8"), never the raw cron
+ * A job's cadence in words (e.g. "ogni giorno alle 8"), never the raw cron // allow-italian: quoted UI string
  * expression. Only the shapes people write are spelled out; anything more
  * exotic says "a orario personalizzato" rather than echoing `0 8 * * 1-5`.
  */
