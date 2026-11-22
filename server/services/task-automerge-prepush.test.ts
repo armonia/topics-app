@@ -6,6 +6,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createTaskAutoMerge } from "./task-automerge";
+import { prePushRefuses } from "./land-prepush-message";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
@@ -15,23 +16,20 @@ import { gitEnv } from "../../tests/setup/bun-test-preload";
 const BAD_WORD = "forbiddenword";
 let dir: string;
 
-/** CI runners have no git identity: the commits made here carry one explicitly. */
-const IDENTITY = {
-  GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
-  GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.invalid",
-};
 
 function git(cwd: string, ...args: string[]) {
-  const r = spawnSync("git", args, { cwd, env: { ...process.env, ...gitEnv, ...IDENTITY }, encoding: "utf8" });
+  const r = spawnSync("git", args, { cwd, env: gitEnv(), encoding: "utf8" });
   if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
   return r.stdout.trim();
 }
 
 beforeEach(() => {
-  Object.assign(process.env, IDENTITY);
   dir = mkdtempSync(join(tmpdir(), "prepush-land-"));
   const repo = join(dir, "repo");
   git(dir, "init", "-q", "-b", "main", repo);
+  // CI runners have no global identity: the repo carries its own.
+  git(repo, "config", "user.name", "Land Test");
+  git(repo, "config", "user.email", "land-test@example.invalid");
   writeFileSync(join(repo, "a.txt"), "a\n");
   git(repo, "add", "."); git(repo, "commit", "-qm", "base");
   git(repo, "checkout", "-qb", "topics/card");
@@ -56,16 +54,23 @@ async function land(title: string) {
 }
 
 describe("land: pre-push refusing the title", () => {
+  test("the hook itself refuses a commit carrying the word", async () => {
+    const repo = join(dir, "repo");
+    git(repo, "commit", "-q", "--allow-empty", "-m", `x ${BAD_WORD}`);
+    const sha = git(repo, "rev-parse", "HEAD");
+    expect(await prePushRefuses(repo, git(repo, "rev-parse", "HEAD^1"), sha)).toBe(true);
+  });
+
   test("a refused title is replaced by the bare id prefix", async () => {
     const { res, msg } = await land(`fix ${BAD_WORD} thing`);
-    expect(res.status).toBe("merged");
+    expect(res).toMatchObject({ status: "merged" });
     expect(msg).toBe("merge task abc123");
     expect(msg).not.toContain(BAD_WORD);
   });
 
   test("an accepted title keeps today's message", async () => {
     const { res, msg } = await land("fix harmless thing");
-    expect(res.status).toBe("merged");
+    expect(res).toMatchObject({ status: "merged" });
     expect(msg).toBe("merge task abc123: fix harmless thing");
   });
 });
