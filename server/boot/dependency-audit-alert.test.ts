@@ -48,6 +48,15 @@ test("a card closed by hand does not come back for the same red run, a new red r
   expect(cards().map((c) => c.status).sort()).toEqual(["done", "todo"]);
 });
 
+test("an open card absorbs a new red run: still one card until green", async () => {
+  const { tick, cards, set } = setup(PID);
+  set(red);
+  await tick();
+  set({ ...red, id: 3 });
+  await tick();
+  expect(cards().map((c) => c.status)).toEqual(["todo"]);
+});
+
 test("a run that never started opens a card that says so", async () => {
   const { tick, cards, set } = setup(PID);
   set({ id: 4, conclusion: "startup_failure", url: "u" });
