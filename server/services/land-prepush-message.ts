@@ -5,30 +5,34 @@
  * configuration, so nothing about WHAT it refuses lives here: we only ask it,
  * with the same stdin a real push gives, and fall back to the bare id prefix.
  */
-import { spawn } from "child_process";
+import { existsSync } from "fs";
+import { isAbsolute, join } from "path";
+import { runBounded } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
 
 const HOOK_DEADLINE_MS = 60_000;
 
 /** Runs the repo's pre-push hook over `base..sha`. True only when the hook answers with a refusal. */
 export async function prePushRefuses(cwd: string, base: string, sha: string): Promise<boolean> {
-  const where = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-push"], { timeoutMs: 10_000 });
-  const hook = where.stdout.trim();
-  if (where.code !== 0 || hook === "") return false;
-  return new Promise<boolean>((resolve) => {
-    let done = false;
-    const finish = (v: boolean) => { if (!done) { done = true; resolve(v); } };
-    try {
-      const child = spawn(hook, ["origin", "origin"], { cwd, stdio: ["pipe", "ignore", "ignore"], timeout: HOOK_DEADLINE_MS });
-      const timer = setTimeout(() => { child.kill("SIGKILL"); finish(false); }, HOOK_DEADLINE_MS);
-      child.on("error", () => { clearTimeout(timer); finish(false); });
-      child.on("close", (code) => { clearTimeout(timer); finish(code === 1); });
-      child.stdin.on("error", () => undefined);
-      child.stdin.end(`refs/heads/main ${sha} refs/heads/main ${base}\n`);
-    } catch {
-      finish(false);
-    }
+  // `--git-path hooks/...` ignores `core.hooksPath` on older git, so the setting is read first.
+  const configured = await runGit(cwd, ["config", "--path", "--get", "core.hooksPath"], { timeoutMs: 10_000 });
+  let dir = configured.code === 0 ? configured.stdout.trim() : "";
+  if (dir !== "" && !isAbsolute(dir)) dir = join(cwd, dir);
+  if (dir === "") {
+    const where = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { timeoutMs: 10_000 });
+    if (where.code !== 0) return false;
+    dir = where.stdout.trim();
+  }
+  if (dir === "") return false;
+  const hook = join(dir, "pre-push");
+  if (!existsSync(hook)) return false;
+  const r = await runBounded([hook, "origin", "origin"], {
+    cwd,
+    stderr: "pipe",
+    timeoutMs: HOOK_DEADLINE_MS,
+    stdinData: `refs/heads/main ${sha} refs/heads/main ${base}\n`,
   });
+  return !r.spawnFailed && r.exitCode === 1;
 }
 
 /**
