@@ -553,6 +553,25 @@ export function spawnCapped(argv: string[], cwd: string, capMs = CI_CALL_TIMEOUT
   });
 }
 
+/**
+ * A step that failed for the board's own machinery: the call was cut by its cap (exit 137, "killed after"),
+ * the network or the host did not answer, or the credentials were refused. Anything else (a pre-push hook
+ * that declines the content, a rule of the remote) can come from the code being measured: the integration
+ * tree runs ITS hooks, so a card that breaks them must not be passed off as the board's fault.
+ */
+const BOARD_FAULT = new RegExp([
+  "exited 137", "killed after",
+  "could not resolve host", "unable to access", "failed to connect", "connection (?:timed out|refused|reset)",
+  "operation timed out", "network is unreachable", "remote end hung up", "early eof",
+  "ssl certificate", "schannel", "gnutls", "tls handshake",
+  "authentication failed", "permission denied \\(publickey", "could not read username", "http 401", "http 403",
+  "http 5\\d\\d", "error connecting to", "gh auth login", "not logged in",
+].join("|"), "i");
+
+export function isBoardFault(error: string): boolean {
+  return BOARD_FAULT.test(error);
+}
+
 const failed = (argv: string[], r: Spawned): { ok: false; error: string } =>
   ({ ok: false, error: `${argv.slice(0, 3).join(" ")} exited ${r.code}: ${(r.err || r.out).trim().slice(0, 400)}` });
 
@@ -716,10 +735,13 @@ export async function awaitCiEvidence(
   // A cause that passes by itself: the same commit measured again can still give a verdict.
   const notYet = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
     notMeasured(reason, { ...ctx, transient: true });
-  // A step of ours that failed: said in the server log (it used to vanish into a row's tail) and to the caller.
+  // A step of ours that failed: always said in the server log (it used to vanish into a row's tail). The caller
+  // hears of it only when the cause is the board's machinery, never when a hook refused the content.
   const fault = (step: "push" | "draft-pr", reason: string, transient = false): CheckRun[] => {
     console.warn(`[ci-evidence] ${input.taskId.slice(0, 8)} ${step} failed on ${sha.slice(0, 8)}: ${reason}`);
-    try { input.onFault?.(step, reason); } catch { /* a report must never change the outcome */ }
+    if (isBoardFault(reason)) {
+      try { input.onFault?.(step, reason); } catch { /* a report must never change the outcome */ }
+    }
     return transient ? notYet(reason) : notMeasured(reason);
   };
   const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
@@ -740,7 +762,7 @@ export async function awaitCiEvidence(
 
   halt();
   const pushed = await port.push(cwd, sha, branch.value);
-  if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`);
+  if (!pushed.ok) return fault("push", `push failed: ${pushed.error}`, true);
   if (pushed.value === "non-fast-forward") {
     const head = await port.remoteHead(cwd, branch.value);
     if (!head.ok || !head.value) return notMeasured(`push rejected and the remote head is unreadable${head.ok ? "" : `: ${head.error}`}`);

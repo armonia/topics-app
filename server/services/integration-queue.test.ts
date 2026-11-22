@@ -14,6 +14,7 @@ function world(opts: {
   let gate: Promise<void> = Promise.resolve();
   let openGate: () => void = () => undefined;
   const gaveUp: string[] = [];
+  const abandoned: string[] = [];
   const notes: Array<{ id: string; text: string }> = [];
   const q = createIntegrationQueue({
     landed: opts.landed,
@@ -21,6 +22,7 @@ function world(opts: {
     note: (id, text) => { notes.push({ id, text }); },
     maxBatch: opts.maxBatch,
     giveUp: (_p, id) => { gaveUp.push(id); },
+    abandon: (_p, id) => { abandoned.push(id); },
     collectMs: 0,
     measure: async (_p, ids): Promise<IntegrationMeasure> => {
       await gate;
@@ -38,7 +40,7 @@ function world(opts: {
     solo: opts.solo ? (_p, id) => opts.solo!.includes(id) : undefined,
   });
   return {
-    q, batches, landed, bounced, gone, notes, gaveUp,
+    q, batches, landed, bounced, gone, notes, gaveUp, abandoned,
     hold() { gate = new Promise((r) => { openGate = r; }); },
     release() { openGate(); },
   };
@@ -82,13 +84,21 @@ describe("integration queue, cards already on main", () => {
 });
 
 describe("integration queue, a fault of the board's own", () => {
-  test("a landed card measured with no push stays done with a note, however many rounds: never asked back to a person", async () => {
-    const w = world({ landed: true, unmeasured: true, fault: "push: hook declined" });
-    for (let i = 0; i < 3; i++) { w.q.request("p", "a"); await w.q.idle("p"); }
+  test("a landed card measured with no push stays done with a note, and after three rounds its mark closes: never asked back to a person", async () => {
+    const w = world({ landed: true, unmeasured: true, fault: "push: killed after 300 s" });
+    for (let i = 0; i < 4; i++) { if (!w.abandoned.length) w.q.request("p", "a"); await w.q.idle("p"); }
     expect(w.gaveUp).toEqual([]);
     expect(w.bounced).toEqual([]);
-    expect(w.notes).toHaveLength(3);
-    expect(w.notes[0]!.text).toContain("hook declined");
+    expect(w.abandoned).toEqual(["a"]);
+    expect(w.notes).toHaveLength(2);
+    expect(w.notes[0]!.text).toContain("killed after 300 s");
+  });
+
+  test("a card not yet on main with a board fault still goes to a person, as a silent CI does", async () => {
+    const w = world({ unmeasured: true, fault: "push: killed after 300 s" });
+    for (let i = 0; i < 2; i++) { w.q.request("p", "a"); await w.q.idle("p"); }
+    expect(w.gaveUp).toEqual(["a"]);
+    expect(w.abandoned).toEqual([]);
   });
 });
 
