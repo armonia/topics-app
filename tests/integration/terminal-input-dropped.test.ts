@@ -169,7 +169,8 @@ describe("the bridge is down and someone is typing", () => {
   test("with the bridge up the same byte produces no frame at all", async () => {
     // The band must not be able to appear on a healthy terminal: what proves it
     // is the same gesture with the bridge answering, which writes nothing back.
-    const { _setPtyBridgeSocketPath, ensureBridge, handleTerminalWebSocket } = await import("../../server/routes/terminal");
+    const { _setPtyBridgeSocketPath, handleTerminalWebSocket } = await import("../../server/routes/terminal");
+    const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
     _setPtyBridgeSocketPath(SOCKET_PATH);
     await ensureBridge();
 

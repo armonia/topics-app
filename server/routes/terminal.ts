@@ -40,16 +40,22 @@ import { NOT_A_SUBAGENT, isRosterDependentRoute, reconcileSessions, rosterWarmin
 import { createSession } from "./terminal-session-create";
 import { liveChildrenOf, parkIdleClaudeSessions, reportCeiling, retireTerminalSession } from "./terminal-registry";
 import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, branchOfCwd, broadcastTerminalSessions, rosterReconciled } from "./terminal-shared";
-export { noteSubAgentStopHook, retireIdleSubAgents, _forgetSubAgentMemory } from "../lib/subagent-runtime";
+export { noteSubAgentStopHook } from "../lib/subagent-runtime";
+/** @internal */
+export { _forgetSubAgentMemory } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
-export type { TerminalSession } from "./terminal-state";
-export { setSubAgentExitHandler, boardAgentCap, setChildAdmissionPreview, boardSpawnMode, liveCliChildren, _setAgentProfilesHome, seedPromptForSession, seedPromptFingerprintForSession, _setSeedPromptHandlerForTests } from "./terminal-children";
+export { setSubAgentExitHandler, setChildAdmissionPreview, liveCliChildren } from "./terminal-children";
+/** @internal */
+export { _setAgentProfilesHome, _setSeedPromptHandlerForTests } from "./terminal-children";
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
-export { getPtyBridgeRuntimeStatus, _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath, bridgeFailureDetail, isPtyBridgeDisabled, ensureBridge, disconnectBridge } from "./terminal-bridge-socket";
-export { resolveTerminalSend } from "./terminal-bridge-send";
+export { getPtyBridgeRuntimeStatus, disconnectBridge } from "./terminal-bridge-socket";
+/** @internal */
+export { _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
+/** @internal */
 export { _resetRosterReconciled } from "./terminal-bridge-roster";
 export { autoNameClaudeSession } from "./terminal-session-create";
+/** @internal */
 export { _setTerminalTrackerForTests, _terminalSessionsForTests } from "./terminal-shared";
 export { noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
 
@@ -927,17 +933,23 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return errorResponse(409, `sub-agent "${row.name}" runs on a paired node: it cannot take more input mid-run, stop it and spawn a new one`);
           }
           if (row?.runtime === "topics") {
-            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            // A native child is a chat anyone can already write into with
+            // send_chat_message, so the parent check guards nothing here. A
+            // later session of the same work (a scheduled run opens a fresh
+            // chat each time) resuming it read a bare 404 and retried the
+            // same id until the run failed (card bd72a5bf). Its result still
+            // wakes the parent it was born under, which the answer names.
             if (!input) return errorResponse(400, "input (string) is required");
+            const owner = row.parentSessionKey;
             if (row.state !== "running") {
               const verdict = resumeVerdict(row);
               if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
-              const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
+              const refusal = subagentLimitRefusal(owner, { depth: spawnedAgentDepth(owner), childIds: liveChildrenOf(owner).map((c) => c.id) });
               if (refusal) return errorResponse(429, refusal);
             }
             const sent = await sendToNativeChild(row, input);
             if (!sent.ok) return errorResponse(sent.status, sent.error);
-            return json({ ok: true, sent: Buffer.byteLength(input, "utf8"), ...(sent.resumed ? { resumed: true } : {}) });
+            return json({ ok: true, sent: Buffer.byteLength(input, "utf8"), ...(sent.resumed ? { resumed: true } : {}), ...(owner !== parentKey ? { wakes: owner } : {}) });
           }
         }
         const child = resolveOwnedChild(parentKey, agentId);
@@ -1036,7 +1048,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return json({ ...result, nextOffset: encodeLogOffset(childLogEpoch, result.nextOffset) });
           }
           if (row?.runtime === "topics") {
-            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            // Read-only, and the same chat read_chat_messages already opens to
+            // any session: whoever resumed it from elsewhere can follow it.
             return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));
           }
         }

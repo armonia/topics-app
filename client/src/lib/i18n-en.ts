@@ -21,6 +21,7 @@ import FIND_EN from './i18n-find-en';
 import ATTENTION_EN from './i18n-attention-en';
 import SYSTEM_HEALTH_EN from './i18n-system-health-en';
 import PROCESSES_EN from './i18n-processes-en';
+import SECURITY_EN from './i18n-security-en';
 
 const EN = {
   ...SPEND_EN,
@@ -29,6 +30,7 @@ const EN = {
   ...ATTENTION_EN,
   ...SYSTEM_HEALTH_EN,
   ...PROCESSES_EN,
+  ...SECURITY_EN,
   // The row, the card's quota and the palette entry of «Account e quote»;
   // the view's own strings come with its chunk (`i18n-accounts-en.ts`).
   'accounts.open': 'Accounts and quotas',
@@ -1533,9 +1535,6 @@ const EN = {
   'board.card.systemNote': 'System note',
   'board.task.incompleteCardNotice': "Incomplete card: an agent opened it without all the required fields. Accepted for now, it will be refused soon.",
   'board.task.asksYou': 'Asks you',
-  'board.task.forYou.happened': 'What happened:',
-  'board.task.forYou.done': 'Done:',
-  'board.task.forYou.remains': 'Left to you:',
   'board.task.resendWithNote': 'Send back with a note',
   'board.task.closeUndone': 'Close without doing',
   'board.card.noSummary': 'No summary: what follows is machine bookkeeping',
@@ -2203,6 +2202,7 @@ const EN = {
   'chat.machineStop.stall': 'Stopped: the turn was recycled because it looked stuck',
   'chat.turnInterrupted.providerError': 'the provider answered with an error',
   'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry; it resumes on its own',
+  'chat.turnInterrupted.creditExhausted': 'plan quota and API credit are used up; it resumes on its own when they come back',
   'chat.turnInterrupted.toolBudget': 'the turn used up the server budget of tool rounds; it resumes once by itself',
   'chat.turnInterrupted.refusal': 'the model refused the request',
   // Cause only, as for the watchdog: only the direct answer to the person's

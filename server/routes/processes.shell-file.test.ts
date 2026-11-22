@@ -10,7 +10,8 @@ import { appendFileSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from
 import { tmpdir } from "os";
 import { join } from "path";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
-import { closeBackgroundShell, createProcessesRouter, listBackgroundShells, noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { closeBackgroundShell, createProcessesRouter, noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { listBackgroundShells } from "./processes-shells";
 import { setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 
 // The registry writes its logs and `scripts.json` under the state folder: a

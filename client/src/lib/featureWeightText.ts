@@ -48,7 +48,9 @@ const NOMI: Record<string, { uno: string; molti: string; sub?: { uno: string; mo
 
 /** Test seam: l'elenco degli id nominati, per il cancello contro la deriva
  *  (`featureWeightSources.test.ts` verifica che ogni sorgente registrata abbia
- *  un nome, altrimenti la sua riga direbbe «N voci» e nessuno lo noterebbe). */
+ *  un nome, altrimenti la sua riga direbbe «N voci» e nessuno lo noterebbe).
+ * @internal
+ */
 export const NOMI_PER_TEST: Readonly<Record<string, unknown>> = NOMI;
 
 /**

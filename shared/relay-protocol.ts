@@ -167,6 +167,7 @@ export type DaRelay = Accolto | ChangedGuest | Rifiutato | Pong | BustaVersoOspi
 export type MessaggioRelay = FromMachine | FromGuest | DaRelay;
 
 /**
+ * @knipignore used by relay/src/relay-do.ts, outside the production graph
  * Cosa il relay può leggere di una busta: l'involucro, e basta.
  *
  * Esiste come funzione — e non come commento — perché sia verificabile. Un test
@@ -187,12 +188,6 @@ export function involucro(m: MessaggioRelay): Record<string, unknown> {
   if ("motivo" in m) base.motivo = m.motivo;
   if ("refs" in m) base.refs = m.refs;
   return base;
-}
-
-/** Una busta porta contenuto opaco? Serve a chi instrada per sapere che non
- *  deve nemmeno provare a guardarci dentro. */
-export function haContenutoOpaco(m: MessaggioRelay): m is BustaVersoOspite | BustaVersoMacchina {
-  return m.t === "to-guest" || m.t === "to-host";
 }
 
 /**
@@ -309,7 +304,9 @@ export const MOTIVI = new Set([
  * fra i due capi, che è un altro pezzo e non si finge qui con una costante.
  */
 
-/** Il tetto di Cloudflare per un singolo messaggio ricevuto da un DO. Scritto
+/**
+ * @knipignore used by relay/src/ponte.ts, outside the production graph
+ * Il tetto di Cloudflare per un singolo messaggio ricevuto da un DO. Scritto
  *  qui perché chi sceglie una dimensione di frame lo veda, invece di scoprirlo
  *  in produzione. */
 export const TUBO_LIMITE_CLOUDFLARE = 32 * 1024 * 1024;

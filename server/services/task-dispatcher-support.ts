@@ -19,6 +19,8 @@ export function isMirrorCard(t: { claudeTaskId?: string | null } | null | undefi
 
 export const DEFAULT_RETRY_CAP = 2;
 export const WAITING_MEMORY = "waiting-memory" as const;
+/** The closing sentence of a spent plan's hold: the self-check tells it from a window that resets by itself. */
+export const PLAN_SPENT_NOTE = "Le card non ripartono da sole: serve cambiare il modello della board o l'account."; // allow-italian: task queue reason
 
 /**
  * Prefix of every dispatcher stdout line. The server log carries no timestamps,

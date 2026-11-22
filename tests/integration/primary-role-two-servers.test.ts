@@ -105,7 +105,27 @@ const logOf = (s: ServerUnderTest) => {
   try { return readFileSync(join(s.root, `server-${s.boots}.log`), "utf8").slice(-4000); } catch { return ""; }
 };
 
+// `freePort()` only probes that a port is free at that instant: with thousands
+// of ephemeral ports handed out across the whole CI matrix, another process can
+// grab the same number before this child ever binds it, and the real server
+// then dies on EADDRINUSE (seen on the tunnel port, run 44993066166). A fresh
+// draw of every dynamic port and one retry turns that race into a flake nobody
+// chases instead of a red `unit` job.
 async function boot(s: ServerUnderTest): Promise<void> {
+  try {
+    await bootOnce(s);
+  } catch (err) {
+    const log = logOf(s);
+    if (!/EADDRINUSE/.test(log)) throw err;
+    s.port = freePort();
+    s.tunnelPort = freePort();
+    s.tunnelHttpPort = freePort();
+    s.modelProxyPort = freePort();
+    await bootOnce(s);
+  }
+}
+
+async function bootOnce(s: ServerUnderTest): Promise<void> {
   s.boots += 1;
   const home = join(s.root, "home");
   const logFd = openSync(join(s.root, `server-${s.boots}.log`), "w");

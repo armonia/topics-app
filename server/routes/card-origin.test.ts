@@ -193,9 +193,9 @@ describe("card origin and agent-card contract", () => {
 
   test("a chat in an agent's home names the agent: on the opener and on the channel", async () => {
     topic(db, "chan-v", "#lancio-campagna");
-    db.run("UPDATE topics SET icon = 'Discord', project_path = '/home/u/.claude/jarvis/home/workspace-gtm' WHERE id = 'chan-v'");
+    db.run("UPDATE topics SET icon = 'Discord', project_path = '/home/u/.topics/agents/gtm' WHERE id = 'chan-v'");
     topic(db, "chat-j", "Promemoria della settimana");
-    db.run("UPDATE topics SET project_path = '/home/u/.claude/jarvis/home' WHERE id = 'chat-j'");
+    db.run("UPDATE topics SET project_path = '/home/u/.topics/agents/jarvis' WHERE id = 'chat-j'");
     const v = await post("/api/boards/pX/tasks", { text: "from Visione's channel", originTopicId: "chan-v" });
     expect(v.body.openerAgent).toBe("gtm");
     expect(v.body.channel).toMatchObject({ kind: "discord", agent: "gtm" });

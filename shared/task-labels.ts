@@ -97,19 +97,6 @@ export interface TaskFile {
 }
 
 /**
- * Che cosa può scriversi da solo un agente: tutto tranne `invisibile`.
- *
- * Le etichette di genere sì, nessuna cambia chi chiude la card. `visibile` e
- * `decisione` pure: sono due modi di ALZARE LA MANO («guardala tu», «decidi
- * tu»), e passare il lavoro a un umano è sempre permesso. `invisibile` no: è
- * l'unica che toglie la revisione umana, e non è una cosa che si concede a chi
- * ha scritto il codice. Quella la scrive solo la derivazione, o una persona a mano.
- */
-export function isAgentWritableLabel(label: string): boolean {
-  return isTaskLabel(label) && label !== 'invisibile';
-}
-
-/**
  * Un file che un umano può VEDERE aprendo l'app: sorgente del client, escluso
  * ciò che gira solo nei test.
  *

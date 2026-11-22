@@ -20,7 +20,7 @@ import { registerFleetSocket } from "./fleet-usage";
 import { aiBridgeDaemonLaunch } from "./ai-bridge-daemon-argv";
 import { withoutGatewayToken } from "./child-env";
 import { BridgeAckStalled, BridgeConnectionLost, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
-export { BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } from "./ai-bridge-errors";
+export { shouldRecycleSocket } from "./ai-bridge-errors";
 // runtime-dep-ok: a static import, not a spawn. The compiled server bundles this
 // module like any other, so there is no loose .mjs to miss and no runtime to run it.
 import { bridgeOutsideGuiSession, guiSessionName } from "../pty-bridge-platform.mjs";
@@ -770,7 +770,9 @@ export function getAiBridgeClient(): AiBridgeClient {
 /** Test-only: drop the cached singleton so the next getAiBridgeClient() picks up
  *  a fresh socket/store from the current env. Prevents a prior test file's client
  *  (with a different TOPICS_AI_BRIDGE_SOCKET) leaking into a later one when many
- *  broker tests share one `bun test` process. No-op effect in production. */
+ *  broker tests share one `bun test` process. No-op effect in production.
+ * @internal
+ */
 export function __resetAiBridgeClientForTests(): void {
   try { singleton?.dispose(); } catch { /* best effort */ }
   singleton = null;

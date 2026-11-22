@@ -31,6 +31,7 @@ import { isCloudBaseUrl, resolveGithubSlug } from "../providers/claude-cloud/nod
 import { bundleBranch, ensureBranchOnOrigin } from "../services/branch-on-origin";
 import { repoIdentity } from "../lib/git-identity";
 import { githubOriginFrom, overflowMachinesFrom } from "../services/dispatch-overflow";
+import { NODE_BREAKERS_FILE, persistNodeBreakers } from "../services/wake-breaker";
 import { TURN_ERROR_PREFIX } from "../../shared/board";
 import type { AfterHeadlessTurns } from "./scope";
 import { late } from "./late";
@@ -41,6 +42,8 @@ const projectSlugs = new Map<string, string>();
 
 export function bootDispatcher(scope: AfterHeadlessTurns) {
   const { DISPATCH_AUTONOMY, DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, agentWorktreeDeps, claudeSessionTracker, cloudEnabled, cloudNode, ctx, deliveryIsOnMain, dispatchExtraPaths, dispatchMemoryInputs, dispatchUsageReader, dispatcherSvc, externalSessions, liveTurnOwner, memSignal, memoryOwners, nodeBranchPlanter, nodeClient, projectPathForNode, remoteNodeRoad, retirementConsequences, runHeadlessReattach, runHeadlessTurn, scheduleEngine, tickScheduledCards, announceTick, taskAttemptStore, turniInVolo, worktreeGc } = scope;
+  // Before the first tick: a node whose breaker was open stays out after the restart every land of server/ causes.
+  persistNodeBreakers(join(ctx.STATE_DIR, NODE_BREAKERS_FILE));
   const taskDispatcher = createTaskDispatcher({
     isActive: isThisServerPrimary,
     stopCardProcesses: stopCardCommandProcesses,

@@ -23,11 +23,11 @@
  * parent's checkout is left with no new ref, no new file, no new commit on
  * any branch it had.
  *
- * It works on a repo with no `origin` (the `~/.claude/jarvis/home` case):
+ * It works on a repo with no `origin` (an agent's home is one):
  * `bundleBranch` already falls back to a whole-history bundle when there is
  * no `origin/HEAD` to diff against.
  */
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SPAWN_TIMEOUT } from "./bounded-spawn";
@@ -103,48 +103,7 @@ export async function snapshotParentAsBundle(input: ParentSnapshotInput): Promis
   }
 }
 
-export interface MaterializeChildCheckoutInput {
-  /** An empty or non-existent directory: this call runs `git init` in it. */
-  targetDir: string;
-  /** The branch name the snapshot bundle carries, becomes the child's starting branch. */
-  branch: string;
-  bytes: Uint8Array;
-  run?: GitRunner;
-}
-
 export type MaterializeResult = { ok: true } | { ok: false; reason: string };
-
-/**
- * Bootstraps the child's own checkout from a snapshot bundle, from scratch.
- * Unlike a card's node (already a clone of `origin`), a child spawned from a
- * repo with no `origin` hands the node nothing to clone: this is the one
- * place the node's checkout is born, by fetching the bundle into a brand new
- * `git init`.
- */
-export async function materializeChildCheckout(input: MaterializeChildCheckoutInput): Promise<MaterializeResult> {
-  const { targetDir, branch, bytes } = input;
-  const run = input.run ?? snapshotGit;
-  if (!isPlainBranchName(branch)) return { ok: false, reason: "not a valid branch name" };
-  // A fetch into the branch currently checked out is refused by git, so init
-  // starts on an unrelated placeholder and only checks `branch` out once the
-  // fetch has it.
-  const init = await run(targetDir, ["init", "-q", "-b", "__topics-bootstrap__"]);
-  if (init.code !== 0) return { ok: false, reason: `git init failed: ${(init.stderr ?? "").trim()}` };
-  const dir = await mkdtemp(join(tmpdir(), "topics-child-bundle-"));
-  try {
-    const file = join(dir, "snapshot.bundle");
-    await writeFile(file, bytes);
-    const verified = await run(targetDir, ["bundle", "verify", file]);
-    if (verified.code !== 0) return { ok: false, reason: `invalid bundle: ${(verified.stderr ?? "").trim().slice(-160)}` };
-    const fetched = await run(targetDir, ["fetch", "--no-tags", file, `${branch}:refs/heads/${branch}`]);
-    if (fetched.code !== 0) return { ok: false, reason: `fetch from bundle failed: ${(fetched.stderr ?? "").trim().slice(-160)}` };
-    const checkedOut = await run(targetDir, ["checkout", "-q", branch]);
-    if (checkedOut.code !== 0) return { ok: false, reason: `checkout failed: ${(checkedOut.stderr ?? "").trim().slice(-160)}` };
-    return { ok: true };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
 
 export interface AdoptCarriedBranchInput {
   /** The parent's own checkout, where `plantCarriedBranch` already landed the ref. */

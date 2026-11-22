@@ -16,6 +16,14 @@
  * person a choice produced no commit because it was waiting, not because the
  * PC lacked a tool. Pinning it here would fill this machine's queue with cards
  * that run fine there; it goes to review with its buttons, like any question.
+ *
+ * NOT to a third node (21/11): an empty run is also the honest outcome of a
+ * card with nothing to change. Skipping one node at a time, such a card bounced
+ * between the two nodes for ever, because the skip remembers ONE machine and
+ * the second empty run overwrote the first (f562cda4: 11 runs in 35 minutes,
+ * same verdict each time). The second empty run in a row pins it HERE for the
+ * same six hours: this machine has every tool the nodes may lack, and its own
+ * run ends in review like any local one.
  */
 import { pendingQuestionComment } from "../../shared/board";
 import { namesMacOnlyPaths } from "./dispatch-overflow";
@@ -26,6 +34,8 @@ interface EmptyRunDeps {
   releaseAndEmit: (args: Parameters<TaskService["release"]>[0]) => Task;
   emit: (task: Task) => void;
   log: (msg: string, err?: unknown) => void;
+  /** A machine's display name, for the line that says where the previous empty run happened. */
+  nameOf?: (machineId: string) => string;
 }
 
 /**
@@ -73,19 +83,24 @@ export function returnEmptyNodeRunToTodo(deps: EmptyRunDeps, task: Task, nodeNam
       return false;
     }
   }
+  // The skip is only ever written below, and reads back only while it holds: present = this card already came back
+  // empty from another node in the last six hours, so a third node is not tried.
+  const before = task.overflowSkipMachine ? deps.nameOf?.(task.overflowSkipMachine) ?? task.overflowSkipMachine : null;
   try {
     deps.releaseAndEmit({ taskId: task.id, requeue: true, rollbackAttempt: true });
     // Skip THAT node, do not pin the card here: pinned, a Mac under its memory floor held it for hours while another
     // node was online (10/11: five cards in the memory queue, PC and Nodo cloud 1 free).
-    const skip = task.machineId ? { machineId: task.machineId, until: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } : null;
+    const skip = task.machineId && !before ? { machineId: task.machineId, until: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } : null;
     deps.emit(deps.svc.update({ taskId: task.id, actor: "agent", by: "dispatcher", patch: skip
       ? { machineId: null, overflowSkip: skip }
       : { machineId: null, stayLocal: true, stayLocalUntil: new Date(Date.now() + EMPTY_RUN_PIN_MS).toISOString() } }));
     deps.svc.addComment({
       taskId: task.id, author: "system", kind: "service",
-      content:
-        `La corsa su «${nodeName}» è finita senza nessun commit: lì mancano strumenti che questa card usa. ` +
-        "La rimetto in coda: per 6 ore non torna lì, ma può andare su un'altra macchina appena una ha un posto libero.",
+      content: before
+        ? `Anche la corsa su «${nodeName}» è finita senza nessun commit, dopo quella su «${before}»: la rimetto in coda qui, ` +
+          "«solo Mac» per 6 ore. Qui ci sono gli strumenti che ai nodi possono mancare, e la corsa finisce in review come ogni altra."
+        : `La corsa su «${nodeName}» è finita senza nessun commit: forse lì manca uno strumento che questa card usa. ` +
+          "La rimetto in coda: per 6 ore non torna lì, ma può andare su un'altra macchina appena una ha un posto libero.",
     });
     return true;
   } catch (err) {

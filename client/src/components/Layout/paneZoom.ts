@@ -154,21 +154,3 @@ function zoomNode(node: LayoutNode, cellKeys: ReadonlySet<string>): LayoutNode {
   });
   return changed ? { ...node, children } : node;
 }
-
-/**
- * Drop the cell keys that no longer exist. Returns the SAME ref when nothing
- * was dropped, the convention `pruneSoloCells` follows, so a caller can compare
- * by identity and skip a redundant state write.
- */
-export function pruneZoom(
-  keys: ReadonlySet<string>,
-  liveKeys: ReadonlySet<string>,
-): ReadonlySet<string> {
-  let changed = false;
-  const kept = new Set<string>();
-  for (const key of keys) {
-    if (liveKeys.has(key)) kept.add(key);
-    else changed = true;
-  }
-  return changed ? kept : keys;
-}

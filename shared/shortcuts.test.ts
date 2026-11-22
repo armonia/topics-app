@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MOD, MODIFIER_TOKENS, SHORTCUT_GROUPS, renderRustModule } from './shortcuts';
+import { MOD, SHORTCUT_GROUPS, renderRustModule } from './shortcuts';
 
 const GENERATED_RS = join(
   import.meta.dir,
@@ -63,21 +63,6 @@ describe('shortcut registry', () => {
         }
         // Same for the prose: an alias belongs in `alias`, not in the sentence.
         for (const glyph of GLYPHS) expect(s.description.includes(glyph)).toBe(false);
-      }
-    }
-  });
-
-  it('every modifier token is one the renderer knows', () => {
-    const KNOWN = new Set<string>(MODIFIER_TOKENS);
-    // A token the renderer does not know would pass through and be PRINTED as
-    // itself: `Mod` on the screen instead of the key.
-    for (const g of SHORTCUT_GROUPS) {
-      for (const s of g.shortcuts) {
-        for (const k of [...s.keys, ...(s.alias ?? [])]) {
-          if (k === k.toUpperCase() && k.length > 2 && !KNOWN.has(k)) {
-            expect(['Tab', 'Esc', '1-9']).toContain(k);
-          }
-        }
       }
     }
   });

@@ -16,7 +16,7 @@ describe("buildAgentToolsInventory", () => {
       writeFileSync(join(home, "extra.json"), JSON.stringify({ mcpServers: { extra: { type: "http", url: "https://x" } } }));
       const result = buildAgentToolsInventory({
         home,
-        settings: { extraMcpFiles: ["~/extra.json"], extraSkillDirs: [], parkedMcp: ["b"] },
+        settings: { extraMcpFiles: ["~/extra.json"], extraSkillDirs: [], parkedMcp: ["b"], agentFilters: {} },
         fleet: {
           enabled: true, mounting: false, source: join(home, ".claude.json"),
           servers: [
@@ -30,7 +30,7 @@ describe("buildAgentToolsInventory", () => {
       expect(result.mcp.map((m) => [m.name, m.state])).toEqual([["a", "active"], ["b", "parked"], ["c", "needs-auth"], ["extra", "parked"]]);
       expect(result.mcp[1].parkedByUser).toBe(true);
       expect(result.mcp[0].source).toBe("~/.claude.json");
-      expect(result.skills).toEqual([{ name: "demo-skill", description: "A demo", source: "~/.agents/skills" }]);
+      expect(result.skills).toEqual([{ name: "demo-skill", description: "A demo", source: "~/.agents/skills", tokens: expect.any(Number) }]);
       expect(result.clis[0].installed).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -52,13 +52,13 @@ describe("buildAgentToolsInventory", () => {
       );
       const result = buildAgentToolsInventory({
         home,
-        settings: { extraMcpFiles: [], extraSkillDirs: [], parkedMcp: [] },
+        settings: { extraMcpFiles: [], extraSkillDirs: [], parkedMcp: [], agentFilters: {} },
         fleet: { enabled: true, mounting: false, source: null, servers: [] },
         clis: [],
       });
       expect(result.skills).toEqual([
-        { name: "claude-api", description: "Reference for the Claude API. TRIGGER when code imports anthropic.", source: "~/.agents/skills" },
-        { name: "folded", description: "First folded line second line", source: "~/.agents/skills" },
+        { name: "claude-api", description: "Reference for the Claude API. TRIGGER when code imports anthropic.", source: "~/.agents/skills", tokens: expect.any(Number) },
+        { name: "folded", description: "First folded line second line", source: "~/.agents/skills", tokens: expect.any(Number) },
       ]);
     } finally {
       rmSync(home, { recursive: true, force: true });

@@ -25,29 +25,6 @@
  */
 import type { TabTarget } from './tab-link';
 
-/**
- * Le estensioni che il bundle dichiara all'OS come "Topics sa aprirlo".
- *
- * È la stessa lista che sta in `desktop-tauri/src-tauri/tauri.conf.json` sotto
- * `bundle.fileAssociations`, e un test la confronta riga per riga: le due
- * copie non possono divergere in silenzio, che è esattamente il modo in cui
- * un'associazione sparisce da una piattaforma sola senza che nessuno se ne
- * accorga fino alla release.
- *
- * Il criterio della lista: i file che si aprono LAVORANDO su un progetto. Non
- * i formati di cui esiste un'app migliore (immagini, pdf, video, archivi):
- * rubare a Anteprima il doppio click su un .png non è un servizio.
- */
-export const DEV_FILE_EXTENSIONS: readonly string[] = [
-  'md', 'markdown', 'mdx', 'txt',
-  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',
-  'json', 'jsonc',
-  'rs', 'py', 'go', 'rb', 'java', 'kt', 'swift', 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'php', 'lua', 'sql',
-  'yaml', 'yml', 'toml', 'ini', 'env', 'conf',
-  'css', 'scss', 'less', 'html', 'htm', 'svg', 'vue', 'svelte',
-  'sh', 'bash', 'zsh', 'fish',
-];
-
 /** I marcatori che dicono "qui comincia un repository". Vincono sugli altri. */
 export const VCS_MARKERS: readonly string[] = ['.git', '.hg', '.svn'];
 

@@ -70,7 +70,9 @@ export function mediaQueryMatches(query: string): boolean {
 }
 
 /** Tests only: forget the memoized lists (a fake `matchMedia` installed by a
- *  test would otherwise be shadowed by the list built from the previous one). */
+ *  test would otherwise be shadowed by the list built from the previous one).
+ * @internal
+ */
 export function resetMediaQueryCache(): void {
   lists.clear();
   builtBy = undefined;

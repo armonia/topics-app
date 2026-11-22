@@ -1,7 +1,7 @@
 /**
  * Chrome cookie decryption (macOS "v10" scheme) — vendored port of the canonical,
  * security-reviewed implementation in
- *   ~/.claude/jarvis/mcp-servers/jarvis-browser/import-chrome.mjs
+ *   <harness-home>/mcp-servers/jarvis-browser/import-chrome.mjs
  * Kept as a copy (not a cross-repo import) for a clean dependency boundary.
  *
  * Reads ONLY the Chrome Cookies store — never Login Data (saved passwords). The

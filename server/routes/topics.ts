@@ -13,6 +13,7 @@ import { declaredProviderName, fallbackModelFor } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createHistoryFindRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
+import { redactDeep } from "../lib/secret-redaction";
 import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createForkRouter } from "./fork";
@@ -75,8 +76,7 @@ import { createToolResponseRoutes } from "./topics-tool-response";
 import { createCommandRoutes } from "./topics-commands";
 
 
-export { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue, purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
-export { topicPreviewText } from "./topics-preview";
+export { purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
 
 /**
  * `paneAttachedTo` — «una pane viva sta guardando questo contextId?». Il
@@ -1279,12 +1279,12 @@ export function createTopicsRouter(
           $role: body.role,
           $content: body.content || '',
           $thinking: body.thinking || null,
-          $tool_calls: toolCallsColumnForRow(body.toolCalls, body.blocks),
+          $tool_calls: toolCallsColumnForRow(redactDeep(body.toolCalls), body.blocks),
           // `blocks` è la cronologia che il client rende quando c'è — e quando
           // c'è, `content` non viene stampato affatto. Senza questa colonna nel
           // seed, nessun test poteva riprodurre la classe di difetti che vive
           // proprio in quella divergenza.
-          $blocks: blocksForDisk(body.blocks),
+          $blocks: blocksForDisk(redactDeep(body.blocks)),
           $media: body.media ? JSON.stringify(body.media) : null,
           $timestamp: timestamp,
           $sort_order: sortOrder,

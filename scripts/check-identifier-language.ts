@@ -89,6 +89,8 @@ export const PROJECT_WORDS = new Set([
   // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
   // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",
+  // iptables, nft: the Linux kernel firewall tools the same probe reads when ufw is off (`iptablesBlocksInput`, `nftBlocksInput`).
+  "iptables", "nft",
   // requeue: putting a task back in `todo` for the dispatcher to claim fresh
   // (`server/services/task-dispatcher.ts`, `server/routes/tasks-board.ts`) —
   // the project's own word for it, already used as a parameter name project-wide.
@@ -97,6 +99,9 @@ export const PROJECT_WORDS = new Set([
   "cancelled",
   // countdown: plain English the dictionary lacks, the time left on a card (card 791984dc).
   "countdown",
+  // hang: plain English the dictionary lacks, a node that answers the TCP handshake and never the
+  // request behind it (`hangBreaker` in `server/services/task-dispatcher-remote-node.ts`).
+  "hang",
   // earlier, remeasurable: plain English the dictionary lacks, in the CI phase of the board (`supersedeEarlierRounds` in `server/services/ci-supersede.ts`,
   // `ciRemeasurable` in `server/services/ci-evidence.ts`: a run with no verdict that is measured again).
   "earlier", "remeasurable",
@@ -111,6 +116,9 @@ export const PROJECT_WORDS = new Set([
   "consorzio", "dlgs", "libro",
   // openssl: the binary that builds the local CA of the external-sessions proxy (`server/services/external-proxy-ca.ts`).
   "openssl",
+  // pem, aws: the key file format and the cloud whose token prefix the secret mask recognises (`server/lib/secret-redaction.ts`);
+  // ubuntu: the distribution of the fixture server the read-only SSH probe reads (`server/lib/machine-security-ssh.test.ts`).
+  "pem", "aws", "ubuntu",
   // callee: the person a call on behalf rings, a field of the voice bridge protocol (`server/services/voice-call/prompts.ts`).
   "callee",
   // tps: tokens per second, the unit the sessions' speed is stated in (`server/services/session-consumption.ts`, `client/src/lib/sessionConsumption.ts`).

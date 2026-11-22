@@ -7,6 +7,7 @@ export const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus
  * Makes a non-button element pressable from the keyboard. Nothing is added
  * without a handler, so a picture of the sidebar has no tab stops. Only keys
  * pressed on the element itself count: a control nested inside keeps its own.
+ * @knipignore used by the ui kit and its gallery, outside the production graph
  */
 export function pressable(onClick?: () => void) {
   if (!onClick) return {};

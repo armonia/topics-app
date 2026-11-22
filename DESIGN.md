@@ -168,3 +168,11 @@ barra dei menu.
   sessione, una programmata) e da quale canale; la Board si apre sul lavoro che segui tu.
 - 20/11 «la modalità card non ha senso» → ogni vista ha un nome che dice cosa mostra e un'icona
   chiara («Chi la segue», «Workflow»), mai un nome generico.
+- 22/11 «la configurazione non dovrebbe essere direttamente sulla pagina dell'agente» → la pagina
+  di un agente mostra cosa fa; la configurazione ha una pagina sua, a sezioni con un indirizzo
+  ciascuna, e ciò che viene dal sistema è segnato «ereditato».
+- 22/11 «agli agenti nella pagina Agenti non vengono mostrate le icone dei canali, come nel resto
+  del design system» → ovunque compare un canale si usa il suo marchio (`CHANNEL_MARKS`), mai il
+  nome del canale scritto come testo.
+- 22/11 «nel sistema non ci dovrebbe essere nulla di nascosto in termini di UI» → ogni guasto di
+  sistema ha una riga in una vista Salute unica, col link a dove si sistema.

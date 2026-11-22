@@ -1450,6 +1450,8 @@ export interface Machine {
   baseUrl: string | null;
   /** Cards this node may run at once, as declared (1-8). `null` = the default of its kind. */
   slots: number | null;
+  /** Coding model ids the node last reported it can run (heartbeat probe); absent = not reported yet. */
+  models?: string[] | null;
   createdAt: string;
   updatedAt: string;
 }

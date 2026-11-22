@@ -120,14 +120,6 @@ export function subscribeSession(sessionKey: string, fn: () => void): () => void
   };
 }
 
-/** Si iscrive a QUALSIASI cambiamento. Per i pochi che devono sapere tutto. */
-export function subscribeAllMessages(fn: () => void): () => void {
-  global.add(fn);
-  return () => {
-    global.delete(fn);
-  };
-}
-
 /**
  * I fatti che servono a decidere chi tiene il proprio trascritto in memoria.
  *
@@ -167,7 +159,7 @@ export function evictSessions(keys: readonly string[]): string[] {
   return evicted;
 }
 
-/** Solo per i test: riporta lo store allo stato di boot. */
+/** @internal Solo per i test: riporta lo store allo stato di boot. */
 export function __resetMessageStore(): void {
   state = {};
   perSession.clear();
@@ -175,7 +167,7 @@ export function __resetMessageStore(): void {
   touchedAt.clear();
 }
 
-/** Solo per i test e per la sonda di memoria: quanti iscritti ci sono. */
+/** @internal Solo per i test e per la sonda di memoria: quanti iscritti ci sono. */
 export function __messageStoreDebug(): { sessioni: number; iscritti: number; globali: number } {
   let iscritti = 0;
   for (const s of perSession.values()) iscritti += s.size;

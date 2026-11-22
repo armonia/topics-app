@@ -537,6 +537,7 @@ export function initServerSync(): void {
   }
 }
 
+/** @internal Test seam: the remote key the sync tests match their fetches against. */
 export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
 
 /**
@@ -567,7 +568,7 @@ export function flushPaneStoreNow(): Promise<void> {
 }
 
 // ─── test-only exports ────────────────────────────────────────────────────
-/** Test/diagnostic — returns the inflight entries keyed by remote key. */
+/** @internal Test/diagnostic — returns the inflight entries keyed by remote key. */
 export function __getInflightKeys(): string[] {
   return [...inflight.keys()];
 }
@@ -578,6 +579,7 @@ export function __getInflightKeys(): string[] {
  * subscription and a possibly-armed debounce behind for every later file of
  * the same `bun test` process (one process per run), where a store dispatch
  * would fire a stray PUT against whatever fetch stub is installed then.
+ * @internal
  */
 export function __stopServerSyncForTests(): void {
   stopLocalSeqSubscription?.();
@@ -591,12 +593,12 @@ export function __stopServerSyncForTests(): void {
   pendingAfterClose = false;
   started = false;
 }
-/** Test-only — resets the inflight Map. */
+/** @internal Test-only — resets the inflight Map. */
 export function __resetInflightForTests(): void {
   for (const entry of inflight.values()) entry.controller.abort();
   inflight.clear();
 }
-/** Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
+/** @internal Test-only — directly invoke the inflight-aware PUT (bypasses debounce). */
 export function __pushSnapshotForTests(
   key: string,
   snapshot: unknown,
@@ -605,7 +607,7 @@ export function __pushSnapshotForTests(
 ): Promise<void> {
   return pushSnapshot(key, snapshot, snapshotSeq, baseSeq);
 }
-/** Test-only — the URL a teardown flush would PUT to for a given base seq. */
+/** @internal Test-only — the URL a teardown flush would PUT to for a given base seq. */
 export function __teardownFlushUrlForTests(baseServerSeq: number): string {
   return teardownFlushUrl(baseServerSeq);
 }

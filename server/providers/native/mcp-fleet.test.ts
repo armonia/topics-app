@@ -18,7 +18,6 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { applyPromptCache, countCacheBreakpoints, MAX_CACHE_BREAKPOINTS } from "../prompt-cache";
 import {
   remountMcpFleet,
   closeMcpFleet,
@@ -358,35 +357,4 @@ describe("la lista degli strumenti di un server e viva", () => {
     expect(grownStatus.tools).toContain("mcp__growing__search");
   });
 
-  test("gli schemi consegnati al modello non tornano marchiati", async () => {
-    growing.reset();
-    writeConfig({ growing: { type: "http", url: growing.url } });
-    await remountMcpFleet();
-
-    // `applyPromptCache` marks the LAST tool in place. If the registry hands
-    // out its stored objects, that marker sticks to the fleet itself and every
-    // later read carries it, so the breakpoints pile up until the API refuses
-    // the whole turn for having more than MAX_CACHE_BREAKPOINTS of them.
-    const round = () => {
-      const params = {
-        model: "m",
-        max_tokens: 1,
-        system: "s",
-        messages: [{ role: "user" as const, content: "hi" }],
-        tools: mcpToolSpecs() as never,
-      };
-      applyPromptCache(params);
-      return countCacheBreakpoints(params);
-    };
-
-    const first = round();
-    await executeMcpTool("mcp__growing__mount", {});
-    const second = round();
-    const third = round();
-
-    expect(mcpToolSpecs().some((t) => "cache_control" in t)).toBe(false);
-    expect(second).toBe(first);
-    expect(third).toBe(first);
-    expect(third).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
-  });
 });

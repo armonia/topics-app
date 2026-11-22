@@ -50,6 +50,7 @@ export function fileWatcherLastError(): ({ projectPath: string; message: string;
   return latest ? { projectPath: latest[0], ...latest[1] } : null;
 }
 
+/** @internal */
 export function _setWatcherErrorForTests(projectPath: string, message: string, at = new Date().toISOString()): void {
   watcherErrors.set(projectPath, { message, at });
 }

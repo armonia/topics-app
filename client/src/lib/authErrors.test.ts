@@ -10,7 +10,8 @@
   * @covers AUTHERR-01
  */
 import { describe, test, expect } from 'bun:test';
-import { authRefusalKey, chiaveErroreAuth, CODICI_AUTH } from './authErrors';
+import { authRefusalKey, chiaveErroreAuth } from './authErrors';
+import { CODICI_AUTH } from '../../../shared/auth-codes';
 import { t, missingKeys } from './i18n';
 
 describe('dal codice di /api/auth/** alla frase', () => {

@@ -113,9 +113,6 @@ const DESCRIBE: Record<string, Describer> = {
   upgrade: (e) => ({ tone: 'ok', family: 'upgrade', text: say('upgrade', { version: str(e.to) ?? '?' }) }),
 };
 
-/** The types this reader names: the rest falls back to «proxy event (type)». */
-export const PROXY_EVENT_TYPES: readonly string[] = Object.keys(DESCRIBE);
-
 /** The label of an account the event names; a name that is not a profile is already an e-mail. */
 function labeler(labels: Map<string, string>): Label {
   return (v) => {

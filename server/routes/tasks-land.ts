@@ -17,6 +17,7 @@ import { ownChangesBetween } from "./tasks-git";
 import { isServerRepo, requestCardProcessStop } from "./tasks-shared";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 import { createReviewSweep } from "./tasks-review-sweep";
+import { createNothingToLand } from "./tasks-land-nothing";
 
 /** What a queued land is asked besides landing. */
 export interface LandRunOpts {
@@ -407,6 +408,8 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     } catch (err) { console.warn(`[land] nota «niente da atterrare» non scritta per ${taskId}:`, err); }
   }
 
+  const nothingToLand = createNothingToLand({ svc, broadcastToAll, opts, explain: explainNothingToLand });
+
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */
   async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
     if (!opts?.mainCiPort) return null;
@@ -710,8 +713,9 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // "nothing" = the branch has no commits main lacks BY ANCESTRY. That is
         // the exact claim that cost us the `watching` phase — verify it against
         // the repo (content, not ancestry) before destroying anything.
+        const verifiedEmpty = await nothingToLand.branchHasNoOwnCommits(taskId);
         await reapAfterLand(taskId, "nothing");
-        explainNothingToLand(projectId, taskId, "il ramo non porta commit che main non abbia");
+        nothingToLand.settle(projectId, taskId, "il ramo non porta commit che main non abbia", { recheck: landOpts?.recheck, verifiedEmpty });
       } else if (res.status === "conflict") {
         // La card ESCE da `done`, e la riga di storico deve dire perché. Prima
         // diceva "user → In corso": la stessa riga che scrive un umano quando
@@ -761,7 +765,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
           sendBackAfterLand(
             projectId, taskId,
             rc
-              ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git merge main\`, risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
+              ? `Il tuo ramo è indietro di ${rc.behind} commit su main e il land ha provato a riportare main dentro il ramo: ha fatto CONFLITTO su questi file: ${elenco}. Nel tuo worktree fai \`git fetch origin && git merge origin/main\` (su un nodo il \`main\` locale è vecchio e non mostra il conflitto), risolvi quei file (non ce ne sono altri: il merge è stato annullato, quindi riparti da zero), committa la fusione, poi rimetti in review con update_task(status="review"). Il commit di consegna resta un antenato del ramo, quindi il land ripartirà da solo dalla punta. Resta vietato toccare main: niente push, niente merge verso main.`
               : 'Il merge automatico del tuo branch su main è andato in conflitto. Rifai la BASE del tuo ramo sul main aggiornato (`git rebase main`: il tronco è il main LOCALE, perché è lì che il land fonde, e il land ci porta dentro `origin/main` da solo prima di toccare il tuo ramo), NON un merge di main dentro il ramo: risolvi i conflitti durante la rebase, ricommitta, poi rimetti in review con update_task(status="review"). Resta vietato toccare main: niente push, niente merge verso main.',
           );
         }
@@ -789,7 +793,7 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         // da fare. `no-branch` (`fall.status === null`) non è un fallimento:
         // non c'era niente da atterrare, e la card si accetta.
         if (!fall.status) {
-          explainNothingToLand(projectId, taskId, "non c'era nessun ramo da atterrare");
+          nothingToLand.settle(projectId, taskId, "non c'era nessun ramo da atterrare", { recheck: landOpts?.recheck, verifiedEmpty: true });
         } else if (cur && cur.status === "done" && cur.doneActor === "human") {
           // Same guard as the `conflict` branch, same reason: `landingState`
           // (written below, unconditionally) is enough to surface the "not
