@@ -289,7 +289,7 @@ export interface Voice {
   cause: string | null;
 }
 
-const CAUSE_TEXT: Record<StuckCause, string> = {
+export const CAUSE_TEXT: Record<StuckCause, string> = {
   person: "in attesa di una persona",
   "hung-node": "il nodo ha preso la corsa e non risponde più (appeso)",
   "chain-parked": "la catena è bloccata da una card parcheggiata in backlog",

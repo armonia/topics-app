@@ -21,6 +21,7 @@ export function TopicsCheckRow() {
   const tr = useT();
   const [voices, setVoices] = useState<Voice[] | null>(null);
   const [round, setRound] = useState<{ state: RoundState; ageMin: number | null }>({ state: 'waiting', ageMin: null });
+  const [daily, setDaily] = useState<{ color: string; line: string } | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -28,9 +29,10 @@ export function TopicsCheckRow() {
     const read = async () => {
       try {
         const r = await apiFetch('/api/topics-check');
-        const body = (await r.json()) as { voices?: Voice[]; state?: RoundState; ageMin?: number | null };
+        const body = (await r.json()) as { voices?: Voice[]; state?: RoundState; ageMin?: number | null; daily?: { color: string; line: string } | null };
         if (alive && r.ok && Array.isArray(body.voices)) {
           setVoices(body.voices);
+          setDaily(body.daily ?? null);
           setRound({ state: body.state ?? 'live', ageMin: body.ageMin ?? null });
         }
       } catch { /* the row keeps what it last read */ }
@@ -64,6 +66,9 @@ export function TopicsCheckRow() {
         <ChevronRight size={12} className={open ? 'rotate-90' : ''} aria-hidden="true" />
         {voices.map((v) => v.detail).join(' · ')}
       </button>
+      {daily && (
+        <p className="px-2 pl-6 text-compact text-app-text-tertiary" data-testid="topics-check-daily" data-color={daily.color}>{daily.line}</p>
+      )}
       {open && (
         <ul className="mt-1 space-y-1 px-2 pl-6 text-compact" data-testid="topics-check-voices">
           {voices.map((v) => (

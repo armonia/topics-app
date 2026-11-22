@@ -6,6 +6,7 @@ import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
+import { startTopicsCheckDaily } from "../services/topics-check-daily";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
@@ -161,6 +162,8 @@ export function bootPostListen(scope: AfterRelay) {
 
   // Self-check round: three voices in hours lost, every 5 minutes, no model calls.
   startTopicsCheck(ctx.db);
+  // Once a day, one model reading of what the counts cannot see; independent of the round above.
+  startTopicsCheckDaily(ctx.db);
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
   if (process.env.TOPICS_E2E !== "1") startQuotaSampler();
