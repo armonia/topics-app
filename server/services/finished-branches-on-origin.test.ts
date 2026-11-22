@@ -68,7 +68,7 @@ describe("rami di card chiuse su origin", () => {
       expect(r?.archived).toEqual({ "topics/abandoned": "archive/topics-abandoned" });
       expect(onOrigin(origin)).toEqual(["main"]);
       expect(git(work, "rev-parse", "archive/topics-abandoned")).toBe(abandoned);
-      expect(spawnSync("git", ["-C", work, "rev-parse", "--verify", "-q", "refs/tags/archive/topics-landed"]).status).not.toBe(0);
+      expect(spawnSync("git", ["-C", work, "rev-parse", "--verify", "-q", "refs/tags/archive/topics-landed"], { env: gitEnv() }).status).not.toBe(0);
       // The archive tag is local: the public origin gets no tag in exchange for the branch.
       expect(git(origin, "tag", "-l")).toBe("");
     } finally { rmSync(root, { recursive: true, force: true }); }
