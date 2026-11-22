@@ -1,3 +1,6 @@
+/**
+ * @covers KANBAN-76
+ */
 import { describe, expect, it } from "bun:test";
 import { isModelUnavailable, machineLacksModel, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 
