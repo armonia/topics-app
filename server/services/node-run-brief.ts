@@ -78,7 +78,7 @@ export function nodeRunDescription(description: string | null | undefined, threa
   // The newest review comment is the one carried whole: the newest `comment` NOT written by an agent.
   // An agent posts progress notes on its own card ("starting again from the branch…"); when a server
   // restart requeued the run after one of them, that note was taken for the review and the reviewer's
-  // 5.937-character list was cut to 2.000 (T2 Verifica, 22/11). With no human comment, the newest one.
+  // 5.937-character list was cut to 2.000 (verifier run, 22/11). With no human comment, the newest one.
   const comments = said.flatMap((c, i) => (c.kind === "comment" ? [i] : []));
   const newestReview = comments.findLast((i) => !isAgentAuthor(said[i]!.author)) ?? comments.at(-1) ?? -1;
   // Newest first until the budget is spent, so what falls off is the oldest talk.
