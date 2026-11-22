@@ -80,7 +80,8 @@ import {
   pickNavState,
   nativeNavIsFresh,
 } from '../lib/shell/browserPagePoll';
-import { pickNavError } from '../lib/shell/navErrorQueue';
+import { pickNavError, sameTarget } from '../lib/shell/navErrorQueue';
+import { reportNavError } from '../lib/shell/reportNavError';
 import { startVisibilityGatedPoll } from '../lib/shell/visibilityPoll';
 import { isTauriWindows } from '../lib/shell';
 import { createWantedEdge, panePollEnv } from '../lib/shell/windowFocus';
@@ -1433,6 +1434,15 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
             // over the `url` STATE of the render it was created in, which after
             // a hidden period is exactly the value that is out of date.
             nativeViewUrlRef.current = s.url;
+            // A strip stays lit only for the page it is ABOUT. The native view
+            // moving on to a different URL — a redirect chain that crosses the
+            // failing hop (a TLS strip from an OAuth leg, GitHub Support 22/11)
+            // or an in-page link the client never requested — means the page
+            // it was complaining about is no longer the one on screen.
+            // Functional update: this effect's deps do not include `navError`,
+            // so a closure over it would read whatever it was when the effect
+            // was created, not the latest strip.
+            setNavError((prev) => (prev && !sameTarget(prev.url, s.url) ? null : prev));
           }
           // Un titolo VUOTO non si scrive: WebKit lo azzera all'inizio di ogni
           // navigazione, e scriverlo qui farebbe perdere l'etichetta alla tab a
@@ -1500,6 +1510,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // server.» — muta su quale server, su cosa manca e sul fatto che
           // «Riprova» non può bastare.
           setNavError({ ...navErrorMessage(last, trRef.current), url: last.url });
+          // Mirrored to the server log: this is the one class of nav error that
+          // happens on the Mac and never crossed back, which is why the strip the
+          // user saw on 22/11 could not be diagnosed afterwards (task 590a3979).
+          reportNavError({ paneId: id, url: last.url, code: last.code, description: last.description, at: last.at });
           // A known failure outranks whatever the last tick read — eval poll AND
           // native drain. Il timestamp è come lo dice al drain dello stato nav,
           // che gira quattro volte più spesso di questo (vedi NAV_FAIL_GRACE_MS).
