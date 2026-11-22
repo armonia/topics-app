@@ -1507,7 +1507,7 @@ describe("una corsa remota persa non riporta mai indietro una card chiusa", () =
 });
 
 /**
- * KANBAN-? — a run open on a node is not memory-only any more (13/11): the run
+ * A run open on a node is not memory-only any more (13/11): the run
  * id lives on `tasks.node_run_id`, the node's address and token live in
  * `machines`. A restart has everything it needs to ask the node instead of
  * cancelling and re-dispatching over a run that may be minutes from a commit
