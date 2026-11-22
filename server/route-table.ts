@@ -64,6 +64,7 @@ export const API_ROUTER_ORDER = [
   "topicsCheckRouter",
   "agentChannelsRouter",
   "agentConfigRouter",
+  "memoryStoresRouter",
   "agentsRouter",
   "tabsRouter",
   "viewsRouter",

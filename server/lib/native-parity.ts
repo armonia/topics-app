@@ -94,9 +94,11 @@ export function nativeWorkingDir(topicCwd: string | null | undefined): string {
   return topicCwd || process.env.TOPICS_WORKSPACE || homedir();
 }
 
-/** Claude Code's own limits: past these the index it injects is truncated. */
-const MEMORY_INDEX_MAX_LINES = 200;
-const MEMORY_INDEX_MAX_CHARS = 25_000;
+/** Claude Code's own limits: past these the index it injects is truncated.
+ *  Exported for `server/memory/stores.ts`, which flags a store whose index
+ *  grew past the same limit: one number, not a second copy to drift. */
+export const MEMORY_INDEX_MAX_LINES = 200;
+export const MEMORY_INDEX_MAX_CHARS = 25_000;
 
 /**
  * The folder where Claude Code keeps the auto-memory for `cwd`, computed the way
