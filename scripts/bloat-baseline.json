@@ -648,8 +648,9 @@
     },
 
     "server/services/task-dispatcher-remote-node.ts": {
-      "lines": 1527,
+      "lines": 1662,
       "why": [
+        "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 1527 on main -> 1662, +135 reattachOpenRun and the six reasons NOT to reattach: on boot, an in_progress card with a machineId and an open node_run_id is reattached with readRun and polled inside the node's slots instead of always being requeued, while a run the node no longer has, one it closed or parked, one whose card was archived over there, one handing back the delivery this card already carries or already sent back, a delegated authorization that no longer names this capability and machine, a node that never answers inside the timeout, and a card another path relaunched while readRun was in the air all still go back to the queue (or are left to that other path). Its tests live in task-dispatcher-remote-node-restart.test.ts, on the lane's shared bench.",
         "2026-10-30, overflow dispatch (card 6d60b323): 939 on main -> 982, +43 a card's own branch carried to the node (pushed first, parked when it cannot reach origin) and a cloud account without an active environment parked with its cause instead of deferred as a silent node. The push lives in branch-on-origin.ts.",
         "2026-10-26, pc-nodo (PR #457): 797 on main -> 831, +34 the node-run hook that wakes a sleeping node before any call to it (two optional NodeDeps fields, the call and its veto). The hook runner lives in server/services/lifecycle-hooks.ts; the lane stays whole in one file as its header says."
       ]
@@ -724,6 +725,13 @@
     "tests/e2e/topic-browser-window.spec.ts": 1836,
 
     "tests/integration/auth-routes.test.ts": 1734,
+
+    "tests/integration/nodes-routes.test.ts": {
+      "lines": 809,
+      "why": [
+        "2026-11-22, corsa sul nodo che sopravvive al riavvio (card 4a1a6d3d): 789 on main -> 809, +20 the GET of an archived run, plain and delegated, answers `archived` with the status still in_progress, which is what tells a restart on the origin side apart a run still going from a card archived over here. Its bench is one node checkout and one origin board booted in beforeAll, which a second file would boot again."
+      ]
+    },
 
     "tests/integration/primary-role-two-servers.test.ts": {
       "lines": 878,

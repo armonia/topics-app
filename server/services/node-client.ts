@@ -171,6 +171,14 @@ export interface NodeRunReport {
    * would read «the node delivered no branch» over a session that failed.
    */
   reason?: string | null;
+  /**
+   * The run's card was ARCHIVED on the node (its board DELETE archives the subtree and
+   * leaves the status alone, so an archived run still reports `in_progress`). Without this
+   * bit a reattach after a restart follows a card nobody will ever move again. An older
+   * node, or the Claude cloud, does not send it: absent reads as "not archived", which is
+   * what every caller assumed before.
+   */
+  archived?: boolean;
 }
 
 export type BundleResult = { empty: true } | { empty: false; bytes: Uint8Array };
@@ -529,6 +537,7 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
         reason: typeof out.reason === "string" ? out.reason : null,
+        archived: out.archived === true,
       };
     },
 
