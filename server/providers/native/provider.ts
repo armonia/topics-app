@@ -32,7 +32,11 @@ import { DEFAULT_CHARS_PER_TOKEN, compact } from "./compaction";
 import type { Calibration } from "./context-window";
 import { levelFor } from "./permissions";
 import { topicsToolSpecs, type TopicsToolContext } from "./topics-tools";
-import { ensureMcpFleet, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
+import { ensureMcpFleet, mcpFleetStatus, mcpToolSpecs, closeMcpFleet } from "./mcp-fleet";
+import { homedir } from "node:os";
+import { readAgents, registryHome, resolveAgentIdForWorkspace } from "../../agents/registry";
+import { filterMcpToolSpecsForAgent } from "../../agents/tool-filter";
+import { readAgentToolsSettings } from "../../lib/agent-tools-settings";
 import { hasCredentials, getAccessToken, readCredentials, unsavedCredentialsError } from "./auth";
 import { readClaudeSubscription, type ClaudeSubscription } from "../claude/subscription";
 import { aiBridgeEnabled, topicsAppBaseUrl } from "../claude-code";
@@ -902,6 +906,17 @@ export class NativeProvider implements AIProvider {
       // no delegation tools at the depth cap. Read once per turn: the row does
       // not change under a running turn. Null for every other chat.
       const subagentPolicy = globalOrchestrator ? null : nativeSubagentToolPolicy(sessionKey);
+      // Which agent, if any, owns this topic: its own folder is the topic's
+      // workspace (`engine.rs`, `folder`). Read once per turn, same as the
+      // subagent policy above — an ordinary topic (the overwhelming case)
+      // answers `null` and costs one registry read.
+      const turnAgentId = fleetAllowed && !globalOrchestrator
+        ? resolveAgentIdForWorkspace(workspace, readAgents(registryHome(), (p) => p.replace(/^~(?=\/|$)/, homedir())))
+        : null;
+      // Composed fresh every round for the same reason as `mcpToolSpecs()`
+      // itself: a child the turn just mounted must be filtered the same way
+      // as everything mounted before it.
+      const turnMcpToolSpecs = () => filterMcpToolSpecsForAgent(turnAgentId, readAgentToolsSettings(), mcpFleetStatus(), mcpToolSpecs());
       const tools = () => {
         // This is an ordinary unbound Topic with a special, registry-backed
         // capability profile—not an unbound coding/chat session. Do not append
@@ -915,7 +930,7 @@ export class NativeProvider implements AIProvider {
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
           ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
-          ...(fleetAllowed ? mcpToolSpecs() : []),
+          ...(fleetAllowed ? turnMcpToolSpecs() : []),
         ];
         return subagentPolicy ? all.filter((t) => toolAllowedByPolicy(subagentPolicy, t.name)) : all;
       };
@@ -1027,7 +1042,7 @@ export class NativeProvider implements AIProvider {
               ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
               ...(topics ? topicsToolSpecs(topics.profile, { hasProject, cwd: workspace }) : []),
             ],
-          mcpTools: !globalOrchestrator && fleetAllowed ? mcpToolSpecs() : [],
+          mcpTools: !globalOrchestrator && fleetAllowed ? turnMcpToolSpecs() : [],
           policy: subagentPolicy ? { allowed: subagentPolicy.allowed ? [...subagentPolicy.allowed] : null, noDelegation: subagentPolicy.noDelegation } : null,
           autonomy: turnOpts.autonomy,
           workspace: workspace ?? "",

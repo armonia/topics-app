@@ -11,6 +11,7 @@
  * second copy to drift out of sync with it.
  */
 import type { AgentToolFilter, AgentToolsSettings } from "../../shared/agent-tools";
+import type { McpFleetStatus } from "../../shared/session-environment";
 
 export const ALL_TOOLS_FILTER: AgentToolFilter = { mode: "all", servers: [] };
 
@@ -28,6 +29,26 @@ export function filterByName<T extends { name: string }>(filter: AgentToolFilter
   if (filter.mode === "all") return items;
   const kept = new Set(filter.servers);
   return items.filter((item) => kept.has(item.name));
+}
+
+/**
+ * Narrows the live fleet's own tool specs (`mcp__<server>__<tool>`, exactly
+ * what a turn sends to the model) to one agent's filter, using the fleet's
+ * `tools` list to go from a server name to the prefixed names it actually
+ * mounted. This is the function a turn calls, not the inventory route: the
+ * inventory shows the same rule, but only this call narrows what the model
+ * is offered.
+ */
+export function filterMcpToolSpecsForAgent<T extends { name: string }>(
+  agentId: string | null | undefined,
+  settings: Pick<AgentToolsSettings, "agentFilters">,
+  fleet: McpFleetStatus,
+  toolSpecs: T[],
+): T[] {
+  const filter = resolveAgentToolFilter(agentId, settings);
+  if (filter.mode === "all") return toolSpecs;
+  const allowedNames = new Set(filterByName(filter, fleet.servers).flatMap((s) => s.tools));
+  return toolSpecs.filter((t) => allowedNames.has(t.name));
 }
 
 /** Validates a filter coming from a request body; throws on anything malformed. */
