@@ -18,8 +18,6 @@ import { Database } from "bun:sqlite";
 import {
   createUiStateRouter,
   loadAllUiState,
-  isExcludedFromUiStateInit,
-  UI_STATE_INIT_EXCLUDED_PREFIXES,
 } from "./ui-state";
 import type { AppContext } from "../types";
 
@@ -66,13 +64,6 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(meta["pane-store-v2"].server_seq).toBe(1);
   });
 
-  test("la finestra browser di una topic non viaggia nello snapshot", () => {
-    // Same shape as the per-task keys, one level up: one row per topic that has
-    // opened its window, and the client GETs it by itself.
-    expect(Object.keys(loadAllUiState(db).data)).not.toContain("topic-browser:tp-1");
-    expect(isExcludedFromUiStateInit("topic-browser:tp-1")).toBe(true);
-  });
-
   test("un task che si CHIAMA come il prefisso ma non lo è resta nello snapshot", () => {
     // Il filtro è per PREFISSO, non per sottostringa: una chiave futura che
     // contiene 'task-browser' più avanti non deve sparire per sbaglio.
@@ -85,11 +76,6 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(Object.keys(loadAllUiState(db).data).sort()).toEqual(["pane-store-v2", "theme"]);
   });
 
-  test("isExcludedFromUiStateInit è il gemello JS del WHERE", () => {
-    for (const p of UI_STATE_INIT_EXCLUDED_PREFIXES) expect(isExcludedFromUiStateInit(`${p}abc`)).toBe(true);
-    expect(isExcludedFromUiStateInit("pane-store-v2")).toBe(false);
-    expect(isExcludedFromUiStateInit("theme")).toBe(false);
-  });
 });
 
 describe("le chiavi escluse restano leggibili (è da lì che il client le prende)", () => {

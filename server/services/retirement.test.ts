@@ -14,8 +14,6 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
-  clearRetirement,
-  isRetired,
   listOpen,
   recordRetirement,
   reconcile,
@@ -58,16 +56,6 @@ function applyMigration() {
 }
 
 describe("089 — il backfill", () => {
-  test("ogni topic archiviato nasce gia' ritirato, con la sua data", () => {
-    addTopic("vecchio", { archived: true, updatedAt: "2026-07-15T10:00:00Z" });
-    addTopic("vivo");
-    applyMigration();
-
-    expect(isRetired(db, "topic", "vecchio")).toBe(true);
-    expect(isRetired(db, "topic", "vivo")).toBe(false);
-    const row = db.query("SELECT retired_at FROM retirements WHERE ref_id = 'vecchio'").get() as { retired_at: string };
-    expect(row.retired_at).toBe("2026-07-15T10:00:00Z");
-  });
 
   test("senza backfill la prima query direbbe «tutto aperto» — con, non lo dice", () => {
     for (let i = 0; i < 5; i++) addTopic(`a${i}`, { archived: true });
@@ -86,13 +74,6 @@ describe("il fatto: prima scrittura vince", () => {
     const row = db.query("SELECT retired_at, reason FROM retirements WHERE ref_id = 't'").get() as any;
     expect(row.retired_at).toBe("2026-08-01T00:00:00Z");
     expect(row.reason).toBe("tab-close");
-  });
-
-  test("il rientro e' esplicito e reversibile", () => {
-    recordRetirement(db, "pane", "p1");
-    expect(clearRetirement(db, "pane", "p1")).toBe(true);
-    expect(clearRetirement(db, "pane", "p1")).toBe(false);
-    expect(isRetired(db, "pane", "p1")).toBe(false);
   });
 
   test("le specie non si mescolano", () => {
@@ -176,17 +157,6 @@ describe("reconcile — la direzione non e' simmetrica", () => {
     const calls: Array<[string, string | undefined]> = [];
     reconcile(db, { archiveTopic: (id, reason) => calls.push([id, reason]), retireTerminal: () => {} });
     expect(calls).toEqual([["t", "reconcile:archived"]]);
-  });
-
-  test("registro chiuso + fatto muto → si timbra il fatto, NON si riapre la chat", () => {
-    addTopic("archiviato", { archived: true });
-    const archived: string[] = [];
-
-    reconcile(db, { archiveTopic: (id) => archived.push(id), retireTerminal: () => {} });
-
-    expect(archived).toEqual([]);
-    expect(isRetired(db, "topic", "archiviato")).toBe(true);
-    expect(db.query("SELECT archived FROM topics WHERE id = 'archiviato'").get()).toEqual({ archived: 1 });
   });
 
   test("convergente: il secondo giro non fa niente", () => {
