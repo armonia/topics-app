@@ -8,6 +8,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - nome inglese per il ref simbolico
 
 ### Sotto il cofano
+- Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL
 - Test dei rami su origin: tetto di 120 s ai test con repo veri
 
 ## 2.4.76 — 2026-11-22
@@ -20,6 +21,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **worktrees** · dichiara WORKTREE-17 per la pulizia dei rami su origin
 - Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket
 - env isolato nel test dei rami su origin
+- Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione
 - Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete
 - browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)
 
