@@ -38,6 +38,7 @@ interface AppSidebarProps {
   boardInFront: boolean;
   handleMobileBoardToggle: () => void;
   waitingCount: number;
+  systemOpen: boolean;
   /** The topic tree (or its skeleton), drawn inside the scrolling list slot. */
   children: ReactNode;
 }
@@ -51,7 +52,7 @@ export function AppSidebar({
   viewportHeight, topicsMenu, wsStatus, topicsError, onWSMessage, sidebar, menuPreferences,
   splitLayoutAvailable, setSearchScope, setShowSearch, setShowChangelogFromMenu,
   handleReopenClosedTab, openHistoryUrl, handleQuickCreateTopic, handleStandaloneAddPane,
-  boardInFront, handleMobileBoardToggle, waitingCount, children,
+  boardInFront, handleMobileBoardToggle, waitingCount, systemOpen, children,
 }: AppSidebarProps) {
   return (
     <>
@@ -208,6 +209,7 @@ export function AppSidebar({
         {!isMobile && (
         <ErrorBoundary fallbackMessageKey="crash.identityBand">
           <SidebarStatusBar
+            systemOpen={systemOpen}
             wsStatus={wsStatus}
             dataNotice={topicsError}
             // THE COMMANDS OF THE COLUMN COME DOWN HERE. On the desktop the

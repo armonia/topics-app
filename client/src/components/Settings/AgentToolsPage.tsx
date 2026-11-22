@@ -18,8 +18,11 @@ type Mcp = AgentToolsInventory['mcp'][number];
  * disk, the agent CLIs, and where the machines live. It reads the same
  * inventory an agent gets from `topics tools`, so the screen and the agents
  * never describe two different worlds.
+ *
+ * Inside System > Tools it gets the agents, and each server then lists who
+ * uses it; a chip opens that agent's tool filter, where «Limit» is set.
  */
-export function AgentToolsPage() {
+export function AgentToolsPage({ agents, onLimit }: { agents?: { id: string; name: string }[]; onLimit?: (agentId: string) => void } = {}) {
   const t = useT();
   const [inv, setInv] = useState<AgentToolsInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +117,16 @@ export function AgentToolsPage() {
               <span className="block truncate text-app-text-muted">
                 {m.source} · {t('agentTools.toolCount', { n: m.toolCount })}{m.reason ? ` · ${m.reason}` : ''}
               </span>
+              {agents && onLimit && (
+                <span data-testid={`agent-tools-users-${m.name}`} className="mt-1 flex flex-wrap items-center gap-1">
+                  {m.agents.length === 0 && <span className="text-app-text-muted">{t('system.tools.noUsers')}</span>}
+                  {m.agents.map((id) => (
+                    <button key={id} type="button" data-testid="agent-tools-user" title={t('system.tools.limit')} onClick={() => onLimit(id)} className="rounded-full border border-app-border px-2 py-0.5 text-app-text hover:bg-app-hover">
+                      {agents.find((a) => a.id === id)?.name || id}
+                    </button>
+                  ))}
+                </span>
+              )}
             </span>
             <span data-testid={`agent-tools-mcp-${m.name}-state`} className="flex-shrink-0 text-app-text-muted">{t(`agentTools.state.${m.state}`)}</span>
             <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${dot(m.state)}`} />

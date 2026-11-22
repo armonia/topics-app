@@ -20,12 +20,12 @@
  * open. This module is the menu's body, loaded with the menu.
  */
 import { useCallback, useState } from 'react';
-import { Building2, LifeBuoy, Users } from 'lucide-react';
+import { Building2, LifeBuoy, Users, Wrench } from 'lucide-react';
 import { SubmenuItem } from '../Shared/SubmenuItem';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
 import { AccountPanel } from './AccountPanel';
 import { DevicesLevel } from './DevicesLevel';
-import { AgentToolsLevel, PlanLevel } from './FormLevels';
+import { PlanLevel } from './FormLevels';
 import { AccountQuotasRow } from './AccountQuotasRow';
 import { UsageRow } from './UsageRow';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
@@ -34,7 +34,7 @@ import { mergePeople } from './orgPresence';
 import type { OrgWithPresence } from '@/hooks/useIdentityPresence';
 import type { FriendPresence } from '@/hooks/useFriendPresence';
 import type { IdentityMenuData } from '@/hooks/useIdentityMenuData';
-import type { UserMenuLevel } from '@/lib/openUserMenu';
+import { openUserMenu, type UserMenuLevel } from '@/lib/openUserMenu';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
 import { openFirstRun } from '@/lib/openFirstRun';
@@ -89,7 +89,11 @@ export function IdentityMenuItems({ data, width, onClose, openLevel = null }: {
         defaultOpen={openLevel === 'devices' || openLevel === 'nodes'}
         machinesOpen={openLevel === 'nodes'}
       />
-      <AgentToolsLevel defaultOpen={openLevel === 'tools'} />
+      {/* The agents' tools are a section of the System page now: this row opens it. */}
+      <button type="button" data-testid="topics-menu-agent-tools" onClick={() => { onClose(); openUserMenu('tools'); }} className={POPOVER_ITEM}>
+        <Wrench size={14} />
+        <span className="min-w-0 flex-1 truncate">{tr('agentTools.row')}</span>
+      </button>
 
       <div className="border-t border-app-border" />
       <button

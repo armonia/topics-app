@@ -1,0 +1,97 @@
+/**
+ * client/src/lib/i18n-system-it.ts - the strings of the System page (health,
+ * harness, tools, memories, log), in Italian.
+ *
+ * Loaded with the pane's own chunk (`addCatalogue` in `i18n.ts`). A leaf: it
+ * takes its type from `i18n-types.ts` and imports nothing else.
+ */
+import type { Dict } from './i18n-types';
+
+const SYSTEM_IT: Dict = {
+  'system.title': 'Sistema',
+  'system.reading': 'Leggo…',
+  'system.nav.health': 'Salute',
+  'system.nav.harness': 'Harness',
+  'system.nav.tools': 'Strumenti',
+  'system.nav.memory': 'Memorie',
+  'system.nav.log': 'Registro',
+
+  'system.health.title': 'Cosa c’è da sistemare',
+  'system.health.refresh': 'Ricontrolla',
+  'system.health.clear': 'Tutto a posto: nessun problema.',
+  'system.health.open': 'Apri',
+
+  'system.harness.title': 'Cosa legge un agente prima della prima parola',
+  'system.harness.intro': 'Gli strati arrivano in quest’ordine, ognuno con il suo peso. Più pesa, meno spazio resta alla conversazione.',
+  'system.harness.tokens': '{n} token',
+  'system.harness.base': 'Base di Topics',
+  'system.harness.baseHint': 'L’anima comune, uguale per tutti gli agenti.',
+  'system.harness.rules': 'Regole dell’utente',
+  'system.harness.rulesHint': 'Le direttive sempre valide e chi sei, lette da tutti gli agenti.',
+  'system.harness.agent': 'Agente',
+  'system.harness.agentHint': 'Identità e aggiunte di ciascun agente. Un chip apre la sua pagina.',
+  'system.harness.perAgent': 'uno per agente',
+  'system.harness.noAgents': 'Nessun agente configurato.',
+  'system.harness.tools': 'Strumenti',
+  'system.harness.toolsHint': 'Dinamico: i server sempre accesi pesano a ogni turno, quelli montati a richiesta solo quando servono.',
+  'system.harness.toolsWeight': '{on} token sempre accesi · {demand} a richiesta',
+  'system.harness.unknown': 'peso non misurato',
+  'system.harness.memory': 'Memoria',
+  'system.harness.memoryHint': 'L’indice delle memorie entra da solo, le schede si aprono solo se servono.',
+  'system.harness.turn': 'Turno',
+  'system.harness.turnHint': 'Il messaggio e la conversazione fin qui.',
+  'system.harness.grows': 'cresce a ogni turno',
+  'system.harness.contradictions': 'Contraddizioni',
+  'system.harness.noContradictions': 'Nessuna contraddizione tra le fonti.',
+  'system.harness.contradiction': 'Due fonti non concordano: {a} contro {b}. Una sola può valere.',
+  'system.harness.pick': 'Scegli quale vale',
+  'system.harness.external': 'Peso per harness',
+  'system.harness.externalMissing': 'Il dato manca: il peso di Claude Code, Codex e jcode arriva dall’hub di utilizzo, e qui non è collegato. Con l’hub acceso compare in questa sezione.',
+
+  'system.tools.title': 'Strumenti degli agenti',
+  'system.tools.intro': 'Tutto ciò che gli agenti possono usare, e chi usa cosa. Per limitare un agente apri il suo nome: la scelta «solo questi» sta nella sua configurazione.',
+  'system.tools.weight': 'Sempre accesi: {on} token a ogni turno · a richiesta: {demand} token solo quando servono',
+  'system.tools.noUsers': 'nessun agente',
+  'system.tools.limit': 'Limita: apre gli strumenti di questo agente',
+
+  'system.memory.title': 'Memorie',
+  'system.memory.index': 'L’indice è l’elenco breve che l’agente riceve da solo a ogni turno.',
+  'system.memory.cards': 'Le schede sono i ricordi veri: un file ciascuna, che l’agente apre quando l’indice la nomina.',
+  'system.memory.scope': 'Una memoria vale per chi la riceve: la propria cartella, quelle condivise con lui, e in sola lettura le altre.',
+  'system.memory.searchPlaceholder': 'Cerca in tutte le memorie',
+  'system.memory.search': 'Cerca',
+  'system.memory.noResults': 'Nessuna scheda contiene quella parola.',
+  'system.memory.type': 'Tipo',
+  'system.memory.none': 'nessuno',
+  'system.memory.date': 'Data',
+  'system.memory.links': 'Collegamenti',
+  'system.memory.save': 'Salva',
+  'system.memory.archive': 'Archivia',
+  'system.memory.close': 'Chiudi',
+  'system.memory.saved': 'Salvata, con copia di sicurezza.',
+  'system.memory.failed': 'Non riuscito.',
+  'system.memory.stores': 'Depositi',
+  'system.memory.noStores': 'Nessun deposito di memoria trovato.',
+  'system.memory.cardCount': '{n} schede',
+  'system.memory.indexLines': 'indice di {n} righe',
+  'system.memory.noIndex': 'senza indice',
+  'system.memory.receivedBy': 'La ricevono: {who}',
+  'system.memory.receivedByNone': 'Non la riceve nessuno',
+  'system.memory.readableBy': 'in sola lettura: {who}',
+  'system.memory.unreceived': 'L’agente non la riceve: ha schede ma nessun indice collegato.',
+  'system.memory.openMemory': 'Apri la sua Memoria',
+
+  'system.log.title': 'Registro del motore dei canali',
+  'system.log.agent': 'Agente',
+  'system.log.allAgents': 'Tutti gli agenti',
+  'system.log.level': 'Livello',
+  'system.log.level.debug': 'Tutto',
+  'system.log.level.info': 'Info e peggio',
+  'system.log.level.warn': 'Avvisi ed errori',
+  'system.log.level.error': 'Solo errori',
+  'system.log.missing': 'Il motore non ha ancora scritto un registro in {path}.',
+  'system.log.empty': 'Nessuna riga con questi filtri.',
+
+};
+
+export default SYSTEM_IT;
