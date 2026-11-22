@@ -70,3 +70,21 @@ describe("mirror of a delivered run", () => {
     expect(h.svc.nodeRunOf(TASK)).toBe("run-1");
   });
 });
+
+describe("the node's spend comes home", () => {
+  it("a finished remote card has tokens and cost here, and the same report twice adds nothing", async () => {
+    const h = await delivered({
+      readRun: async () => report({
+        status: "review", deliveryBranch: "topics/corsa", baseSha: "abcdef0123456789",
+        usage: { tokens: 120_000, cacheReadTokens: 900_000, costCents: 42 },
+      }),
+    });
+    await poll(h, 2);
+    const t = h.task();
+    expect(t.agentTokens).toBe(120_000);
+    expect(t.agentCacheReadTokens).toBe(900_000);
+    expect(t.agentCostCents).toBe(42);
+    const ledger = h.db.query("SELECT COALESCE(SUM(cents), 0) AS c FROM agent_spend WHERE task_id = ?").get(TASK) as { c: number };
+    expect(ledger.c).toBe(42);
+  });
+});

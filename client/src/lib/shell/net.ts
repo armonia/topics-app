@@ -120,7 +120,9 @@ export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
 let shimInstalled = false;
 
 /** Test-only: dimentica che lo shim è stato installato, così un test può provare
- *  il gate con e senza token nello stesso processo. */
+ *  il gate con e senza token nello stesso processo.
+ * @internal
+ */
 export function __resetNetShimForTests(): void {
   shimInstalled = false;
 }

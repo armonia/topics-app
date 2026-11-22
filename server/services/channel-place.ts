@@ -8,16 +8,10 @@
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import { channelsDbPath } from "../routes/agent-channels";
+import { channelsDbPath } from "./channels-db-path";
+import type { ChannelPlace } from "../../shared/channel-origin";
 
-export interface ChannelPlace {
-  /** The Discord server (guild) name, when the bridge recorded it. */
-  server?: string;
-  /** The channel that holds the thread, or the channel itself. */
-  channel?: string;
-  /** The thread's own title; present only for a thread. */
-  thread?: string;
-}
+export type { ChannelPlace };
 
 const CACHE_MS = 60_000;
 let cache: { at: number; path: string; byTitle: Map<string, ChannelPlace> } | null = null;
@@ -64,4 +58,42 @@ export function channelPlaceOf(name: string, path: string = channelsDbPath()): C
   if (!name.trim()) return null;
   if (!cache || cache.path !== path || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), path, byTitle: readChannelPlaces(path) };
   return cache.byTitle.get(norm(name)) ?? null;
+}
+
+/**
+ * Same places as {@link readChannelPlaces}, keyed by the chat/thread RAW ID
+ * (`<chat>` or `<chat>:<thread>`, same keying as `readChannelTitles` in
+ * `../routes/agent-channels`) instead of by title: the Agents channel tree
+ * (`/api/agent-channels/places`) groups chats by server without having to
+ * round-trip through a title match.
+ */
+export function readChannelPlacesById(path: string): Record<string, ChannelPlace> {
+  const out: Record<string, ChannelPlace> = {};
+  if (!existsSync(path)) return out;
+  const db = new Database(path, { readonly: true });
+  try {
+    const rows = db.query(
+      `SELECT chat, thread, json_extract(meta, '$.chat_title') AS title, json_extract(meta, '$.guild_title') AS guild
+       FROM turns WHERE id IN (SELECT max(id) FROM turns WHERE json_extract(meta, '$.chat_title') <> '' GROUP BY chat, coalesce(thread, ''))`,
+    ).all() as TurnRow[];
+    const parentOf = new Map<string, { title: string; guild: string | null }>();
+    for (const r of rows) if (!r.thread && r.title) parentOf.set(r.chat, { title: r.title, guild: r.guild });
+    const hasThreads = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'threads'").get();
+    const opened = hasThreads ? (db.query("SELECT chat, thread, title FROM threads").all() as { chat: string; thread: string; title: string }[]) : [];
+    const all: TurnRow[] = [...rows, ...opened.map((t) => ({ chat: t.chat, thread: t.thread, title: t.title, guild: null }))];
+    for (const r of all) {
+      const parent = parentOf.get(r.chat);
+      const server = r.guild || parent?.guild || undefined;
+      const key = r.thread ? `${r.chat}:${r.thread}` : r.chat;
+      const place: ChannelPlace = { ...(server ? { server } : {}) };
+      if (parent && r.thread) place.channel = parent.title.replace(/^#/, "");
+      if (r.thread && r.title) place.thread = r.title.replace(/^#/, "");
+      if (Object.keys(place).length) out[key] = place;
+    }
+    return out;
+  } catch {
+    return out;
+  } finally {
+    db.close();
+  }
 }

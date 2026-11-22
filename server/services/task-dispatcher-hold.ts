@@ -9,7 +9,8 @@ import { effectiveTopicsRouting, taskModelSelection } from "../../shared/task-co
 import { WorktreeRefusalError } from "./worktree-manager";
 import { BOARD_HOLD_KEY, providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
-import { CHIP_QUEUED } from "./task-dispatcher-support";
+import { isModelUnavailable } from "./dispatch-overflow";
+import { CHIP_QUEUED, PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createProviderHold(ctx: DispatcherCtx) {
@@ -100,7 +101,7 @@ export function createProviderHold(ctx: DispatcherCtx) {
           // pile KANBAN-91 exists to end).
           slot: `${label}: `,
           reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
-            + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
+            + PLAN_SPENT_NOTE,
         };
       }
       return { untilMs: hold.untilMs, provider: holdKey, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
@@ -151,6 +152,8 @@ export function createProviderHold(ctx: DispatcherCtx) {
    * Il catalogo ancora in scoperta NON e' qui: quello e' `TaskProviderPendingError`, che aspetta e rimette in coda. allow-italian: la distinzione che una review ha gia' pagato
    */
   function hardRoutingBlock(error: unknown): string | null {
+    // No agent for the model on THIS machine: no retry finds one, and the origin reads the phrase to move the card.
+    if (error instanceof Error && isModelUnavailable(error)) return error.message;
     if (!(error instanceof Error) || !('code' in error)) return null;
     // MSEL-06: the switch is no longer a gate, so `task_model_unavailable` is the one permanent code left.
     return error.code === 'task_model_unavailable' ? error.message : null;

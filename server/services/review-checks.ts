@@ -243,12 +243,6 @@ export function serializeReviewChecks(checks: ReviewCheck[]): string | null {
   return clean.length ? JSON.stringify(clean) : null;
 }
 
-/** Le ultime `TAIL_LINES` righe non vuote in coda, che è dove sta l'errore. */
-export function tailOf(text: string, lines = TAIL_LINES): string {
-  const rows = text.replace(/\s+$/, "").split("\n");
-  return rows.slice(Math.max(0, rows.length - lines)).join("\n");
-}
-
 /**
  * A bun test run ends with a wall of `(pass)` and `(skip)` lines, and the tail
  * is a fixed number of lines: on a suite with dozens of skips the wall is the

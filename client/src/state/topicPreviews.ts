@@ -329,7 +329,9 @@ export function useTopicPreview(topicId: string | undefined): TopicPreview | und
 }
 
 /** Solo per i test: riporta lo store allo stato di boot. Anche la copia locale,
- *  o un test che ne scrive una la lascerebbe al successivo. */
+ *  o un test che ne scrive una la lascerebbe al successivo.
+ * @internal
+ */
 export function __resetTopicPreviews(): void {
   state = {};
   perTopic.clear();

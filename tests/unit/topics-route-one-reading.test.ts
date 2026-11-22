@@ -19,13 +19,13 @@ import { join } from "node:path";
 import type { ProvidersSnapshot } from "../../shared/types";
 import {
   effectiveTopicsRouting, reusedSessionRouteConflict, reusedSessionRouting, taskModelMatchesSession,
-  taskProviderForModel, topicsRoute, topicsRoutingAvailable,
+  taskProviderForModel, topicsRoute,
 } from "../../shared/task-coding-models";
 import { resolveTopicProvider } from "../../server/providers/resolve-topic-provider";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "../../server/services/dispatch-topic-identity";
 import { pickAutomaticTaskModel } from "../../server/services/task-auto-model";
 import type { AIProvider } from "../../server/providers/types";
-import { boardTopicsRoutingEnabled, chatRouteTarget, chatTopicsRoute, surfaceTopicsRoutingEnabled, topicsRoutingBlocked } from "../../client/src/lib/topicsRoutingGate";
+import { boardTopicsRoutingEnabled, chatRouteTarget, chatTopicsRoute, surfaceTopicsRoutingEnabled } from "../../client/src/lib/topicsRoutingGate";
 import { gitEnv } from "../setup/bun-test-preload";
 
 const at = "2026-10-03T00:00:00Z";
@@ -47,19 +47,6 @@ const registry = {
 type Via = "topics" | "direct" | "pending";
 
 describe("one reading, the same route in every reader", () => {
-  test("chat scope: a null preference reads ON, and every chat reader sends Opus through the engine", () => {
-    const expected = topicsRoute(null, target, SNAPSHOT, "chat").via;
-    expect(expected).toBe("topics");
-    const readers: Record<string, Via> = {
-      effectiveTopicsRouting: effectiveTopicsRouting(null, null, "chat") && topicsRoutingAvailable(target.provider, target.model, SNAPSHOT) ? "topics" : "direct",
-      topicsRoutingAvailable: topicsRoutingAvailable(target.provider, target.model, SNAPSHOT) ? "topics" : "direct",
-      resolveTopicProvider: resolveTopicProvider({ ...target, topicsRouting: null }, registry).name === "topics" ? "topics" : "direct",
-      chatTopicsRoute: chatTopicsRoute(null, target, undefined, SNAPSHOT).via === "topics" ? "topics" : "direct",
-      // The send gate never blocks this send: the turn goes, through the engine.
-      topicsRoutingBlocked: topicsRoutingBlocked(null, target, undefined, SNAPSHOT) ? "direct" : "topics",
-    };
-    for (const [reader, via] of Object.entries(readers)) expect([reader, via]).toEqual([reader, expected]);
-  });
 
   // Automatic with a model pinned (what `/model` writes): the server and the
   // chip/band must judge the same target. A null preference resolves the

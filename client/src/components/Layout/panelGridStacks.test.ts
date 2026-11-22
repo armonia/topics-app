@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'bun:test';
 import type { PanelGridRow } from '../../types';
-import { addKeysToCellStack, applyVerticalDrop, cellStackDepth, flattenCellColumn, standaloneSplitFitsCaps } from './panelGridStacks';
+import { addKeysToCellStack, applyVerticalDrop, standaloneSplitFitsCaps } from './panelGridStacks';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
@@ -14,16 +14,6 @@ const row = (itemKeys: string[], cellStacks?: PanelGridRow['cellStacks']): Panel
   itemKeys,
   widths: itemKeys.map(() => 1 / itemKeys.length),
   ...(cellStacks ? { cellStacks } : {}),
-});
-
-describe('cellStackDepth / flattenCellColumn', () => {
-  it('counts the primary plus its items', () => {
-    const r = row(['A', 'B'], { A: { items: ['A2'], heights: [0.5, 0.5] } });
-    expect(cellStackDepth(r, 'A')).toBe(2);
-    expect(cellStackDepth(r, 'B')).toBe(1);
-    expect(flattenCellColumn(r, 'A')).toEqual(['A', 'A2']);
-    expect(flattenCellColumn(r, 'B')).toEqual(['B']);
-  });
 });
 
 describe('addKeysToCellStack — bottom', () => {

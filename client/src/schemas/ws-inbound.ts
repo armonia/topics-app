@@ -23,7 +23,7 @@ import {
   type ValidationResult,
 } from '../../../shared/ws-outbound';
 
-/** I tipi che il server sa mandare — cioè quelli che il client può ricevere. */
+/** @internal Test oracle: the types the server can send, read by the registry contract tests. */
 export const REGISTERED_INBOUND_TYPES = REGISTERED_OUTBOUND_TYPES;
 
 export type InboundValidationResult = ValidationResult;
@@ -58,6 +58,7 @@ function withoutUnknownStopCause(msg: unknown): unknown {
   return rest;
 }
 
+/** @internal Test oracle: read by the registry contract tests. */
 export function isRegisteredInboundType(type: string): boolean {
   return isRegisteredOutboundType(type);
 }

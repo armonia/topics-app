@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, riprendiTurniInterrotti,
+  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, riprendiTurniInterrotti,
   resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
@@ -30,6 +30,7 @@ import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
+import { UNANSWERED_NOTICE } from "./resume-notices";
 
 // The sweep reads each session's last turn end from a process-wide registry:
 // an end left by another test, or another file in the same shard, would

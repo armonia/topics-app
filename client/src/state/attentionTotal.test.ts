@@ -1,5 +1,5 @@
 /**
- * `chromeAttentionTotal`: the ONE number the OS chrome paints (Dock badge, tray
+ * `chromeAttentionSubjects`: the ONE number the OS chrome paints (Dock badge, tray
  * glyph, PWA badge) and the inbox's button. The contract worth pinning is the
  * PARITY of CHROME-COUNT-01 (tasks.md 3.4): for the same attention state, the
  * chrome total equals the sidebar rows that show a lit tier plus the number of
@@ -10,7 +10,7 @@
  * @covers CHROME-COUNT-01, NOTIF-ONE-02, ATTN-08
  */
 import { describe, test, expect } from "bun:test";
-import { TRAY_CHAT_ROWS, chromeAttentionSubjects, chromeAttentionTotal, notificationsToWithdraw, subjectOfPushTag, trayChatItems } from "./attentionTotal";
+import { TRAY_CHAT_ROWS, chromeAttentionSubjects, notificationsToWithdraw, subjectOfPushTag, trayChatItems } from "./attentionTotal";
 import { boardAttention } from "./attentionRollups";
 import { buildSidebarItems, type SidebarItem } from "../lib/buildSidebarItems";
 import type { AttentionSnapshot } from "../../../shared/attention";
@@ -64,7 +64,7 @@ const fixture = () => {
   return { topics, terminals, rows };
 };
 
-describe("chromeAttentionTotal", () => {
+describe("chromeAttentionSubjects", () => {
   test("counts the lit SUBJECTS: chats, terminals and cards, an archived chat never", () => {
     const f = fixture();
     expect(chromeAttentionSubjects(f.rows, f.topics, f.terminals).map((s) => s.key).sort()).toEqual(
@@ -73,7 +73,7 @@ describe("chromeAttentionTotal", () => {
   });
 
   test("a chat with many unread messages is ONE, not the message sum", () => {
-    expect(chromeAttentionTotal(rowsOf(done("topic:a", { unread: 39 })), { a: topic("a") }, [])).toBe(1);
+    expect(chromeAttentionSubjects(rowsOf(done("topic:a", { unread: 39 })), { a: topic("a") }, []).length).toBe(1);
   });
 
   test("work that runs on its own and a chat already seen count zero, whatever their unread", () => {
@@ -91,14 +91,14 @@ describe("chromeAttentionTotal", () => {
       openPanels: ["a", "b", "c", "bg", "seen", "terminal:s1", "terminal:s2"],
     });
     const board = boardAttention(f.rows, [], null).count;
-    expect(litRows(items) + board).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
+    expect(litRows(items) + board).toBe(chromeAttentionSubjects(f.rows, f.topics, f.terminals).length);
   });
 
   test("PARITY holds with 'show archived' on: the archived row is listed and carries no number", () => {
     const f = fixture();
     const items = buildSidebarItems({ topics: f.topics, terminalSessions: f.terminals, showArchived: true, attention: f.rows, openPanels: ["terminal:s1"] });
     expect(items.find((i) => i.id === "old")?.notificationCount).toBe(0);
-    expect(litRows(items) + boardAttention(f.rows, [], null).count).toBe(chromeAttentionTotal(f.rows, f.topics, f.terminals));
+    expect(litRows(items) + boardAttention(f.rows, [], null).count).toBe(chromeAttentionSubjects(f.rows, f.topics, f.terminals).length);
   });
 
   test("PARITY when a lit terminal leaves the roster (its PTY crashed mid-turn, the reaper parked it): it counts nowhere", () => {
@@ -110,20 +110,20 @@ describe("chromeAttentionTotal", () => {
     const items = buildSidebarItems({ topics, terminalSessions: roster, showArchived: false, attention: rows, openPanels: ["a", "terminal:gone", "terminal:s1"] });
     const subjects = chromeAttentionSubjects(rows, topics, roster);
     expect(subjects.map((s) => s.key).sort()).toEqual(["terminal:s1", "topic:a"]);
-    expect(litRows(items) + boardAttention(rows, [], null).count).toBe(chromeAttentionTotal(rows, topics, roster));
+    expect(litRows(items) + boardAttention(rows, [], null).count).toBe(chromeAttentionSubjects(rows, topics, roster).length);
     expect(trayChatItems(subjects, rows, topics, roster).map((i) => i.id)).not.toContain("terminal:gone");
   });
 
   test("seeing a chat drops exactly its ONE and nothing else", () => {
     const f = fixture();
-    const before = chromeAttentionTotal(f.rows, f.topics, f.terminals);
+    const before = chromeAttentionSubjects(f.rows, f.topics, f.terminals).length;
     const after = new Map(f.rows);
     after.set("topic:a", done("topic:a", { lit: false, seenEpoch: 1 }));
-    expect(chromeAttentionTotal(after, f.topics, f.terminals)).toBe(before - 1);
+    expect(chromeAttentionSubjects(after, f.topics, f.terminals).length).toBe(before - 1);
   });
 
   test("nothing lit is 0, the cleared badge", () => {
-    expect(chromeAttentionTotal(new Map(), {}, [])).toBe(0);
+    expect(chromeAttentionSubjects(new Map(), {}, []).length).toBe(0);
   });
 });
 

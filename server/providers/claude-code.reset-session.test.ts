@@ -18,7 +18,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSyn
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
-import { ClaudeCodeProvider, getOrCreateClaudeSessionId } from "./claude-code";
+import { ClaudeCodeProvider } from "./claude-code";
+import { getOrCreateClaudeSessionId } from "./claude-code-session";
 
 let tmpRoot: string;
 

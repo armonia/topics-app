@@ -3,7 +3,8 @@
  *
  * The automations are the hub section almost every link points to, so they
  * get a row of their own at the top of the column, the same card as the
- * Board's. It exists only where the usage hub is part of the installation.
+ * Board's. It is always there: without the usage hub it opens the self-check
+ * alone, and its tail stays empty.
  * Its tail says how many need fixing, the broken ones plus the ones waiting
  * on you (the hub's `needsYou + broken`), in amber, and nothing when all is in
  * order: the «ok» ones are never counted. When the hub stops answering after
@@ -24,9 +25,8 @@ export function AutomationsRow({ open }: { open: boolean }) {
   const tr = useT();
   const present = useHubEverRead();
   const entry = useHubLive().automations;
-  if (!present) return null;
-  const n = entry?.data !== undefined ? toFixCount(entry.data) : null;
-  const down = entry?.error !== undefined;
+  const n = present && entry?.data !== undefined ? toFixCount(entry.data) : null;
+  const down = present && entry?.error !== undefined;
   return (
     <button
       type="button"

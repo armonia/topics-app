@@ -247,7 +247,7 @@ export function profileStatsCached(db: Database, now: number = Date.now()): Prof
   return value;
 }
 
-/** Drops the memoized statistics. For tests, and for a DB swapped underfoot. */
+/** @internal Drops the memoized statistics. For tests, and for a DB swapped underfoot. */
 export function resetProfileStatsCache(): void {
   statsCache = null;
 }

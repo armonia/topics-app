@@ -5,14 +5,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import {
-  enqueueAnnouncement,
-  removeAnnouncement,
-  nextAnnouncement,
-  announceText,
-  rollupText,
-  EMPTY_ANNOUNCE_QUEUE,
-  ROLLUP_THRESHOLD,
-  type AnnounceItem,
+  enqueueAnnouncement, nextAnnouncement, announceText, rollupText, EMPTY_ANNOUNCE_QUEUE, ROLLUP_THRESHOLD, type AnnounceItem,
 } from './announceQueue';
 
 function item(taskId: string, title = `Task ${taskId}`): AnnounceItem {
@@ -30,19 +23,6 @@ describe('enqueueAnnouncement', () => {
   test('task diversi si accodano in ordine', () => {
     const q = enqueueAnnouncement(enqueueAnnouncement(EMPTY_ANNOUNCE_QUEUE, item('a')), item('b'));
     expect(q.items.map((i) => i.taskId)).toEqual(['a', 'b']);
-  });
-});
-
-describe('removeAnnouncement', () => {
-  test('toglie un item in coda senza toccare gli altri', () => {
-    const q = enqueueAnnouncement(enqueueAnnouncement(EMPTY_ANNOUNCE_QUEUE, item('a')), item('b'));
-    const after = removeAnnouncement(q, 'a');
-    expect(after.items.map((i) => i.taskId)).toEqual(['b']);
-  });
-
-  test('un taskId assente non fa niente', () => {
-    const q = enqueueAnnouncement(EMPTY_ANNOUNCE_QUEUE, item('a'));
-    expect(removeAnnouncement(q, 'zzz')).toEqual(q);
   });
 });
 

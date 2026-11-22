@@ -263,6 +263,7 @@ export interface AppBehaviorSettings {
   browserStoreReapAfterDays: number | null;
   firstRunDoneAt: string | null;
   securityAlertsProjectId: string | null;
+  topicsCheck: string | null;
 }
 
 /**

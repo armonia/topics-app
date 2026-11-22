@@ -6,16 +6,6 @@
  * di un DOM per essere provata. Il componente resta il disegno; qui c'è ciò che
  * un test può interrogare.
  */
-
-/**
- * La forma dello stato e l'elenco dei codici NON si ridichiarano qui: vivono in
- * `shared/account.ts`, che è lo stesso file da cui li prende il server. Una
- * seconda copia sul client compilerebbe benissimo anche il giorno in cui il
- * server aggiunge un motivo di rifiuto — e l'interfaccia direbbe «non è
- * riuscito» senza sapere perché. `tests/unit/no-type-mirrors.test.ts` fa
- * fallire chi ci riprova.
- */
-export { CODICI_ACCOUNT } from '../../../../shared/account';
 // Si ri-esporta `AccountState` e non `CodiceAccount`, che qui non ha lettori e
 // non ne può avere: un codice che arriva dal filo NON è un `CodiceAccount`
 // finché non lo si è guardato — è una stringa che un server più nuovo di questa

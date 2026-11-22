@@ -12,6 +12,8 @@ import { useEffect, useState } from 'react';
 import { Server } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { nodesOf, reloadMachines, useMachines } from '../../state/machinesStore';
+import { healthOf, isCloudNode, useMachineHealth } from '../../state/machineHealthStore';
+import { SecurityRow } from '../Sidebar/MachineSecurityMark';
 import { RemoteNodeRequests } from './RemoteNodeRequests';
 import { apiFetch } from '../../lib/shell/net';
 import { useMachinesOverview } from '../../hooks/useMachinesOverview';
@@ -222,6 +224,7 @@ export function NodesSection() {
 function NodeSlots() {
   const t = useT();
   const nodes = nodesOf(useMachines());
+  const health = useMachineHealth();
   if (nodes.length === 0) return null;
   const save = async (id: string, value: string) => {
     const slots = Number(value);
@@ -237,19 +240,36 @@ function NodeSlots() {
   return (
     <div className="space-y-2" data-testid="node-slots">
       {nodes.map((m) => (
-        <label key={`${m.id}:${m.slots ?? ''}`} className="flex items-center justify-between gap-3 text-compact text-app-text">
-          <span>{m.name}: {t('settings.machines.slots.label')}{m.slots === 0 ? ` (${t('settings.machines.slots.paused')})` : ''}</span>
-          <input
-            type="number"
-            min={0}
-            max={8}
-            defaultValue={m.slots ?? ''}
-            placeholder="2"
-            data-testid={`node-slots-${m.id}`}
-            onBlur={(e) => { void save(m.id, e.target.value); }}
-            className="w-16 rounded-md border border-app-border bg-app-surface px-2 py-1 text-right"
-          />
-        </label>
+        <SecurityRow
+          key={`${m.id}:${m.slots ?? ''}`}
+          entry={healthOf(health, m.id)}
+          name={m.name}
+          measured={!isCloudNode(m)}
+          className="flex items-center justify-between gap-3 text-compact text-app-text"
+          rowProps={{ 'data-testid': `node-row-${m.id}` }}
+        >
+          {(mark) => (
+            <>
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate">{m.name}{m.slots === 0 ? ` (${t('settings.machines.slots.paused')})` : ''}</span>
+                {mark}
+              </span>
+              <label className="flex flex-shrink-0 items-center gap-2">
+                <span className="text-mini text-app-text-muted"><span className="sr-only">{m.name}: </span>{t('settings.machines.slots.label')}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={8}
+                  defaultValue={m.slots ?? ''}
+                  placeholder="2"
+                  data-testid={`node-slots-${m.id}`}
+                  onBlur={(e) => { void save(m.id, e.target.value); }}
+                  className="w-16 rounded-md border border-app-border bg-app-surface px-2 py-1 text-right"
+                />
+              </label>
+            </>
+          )}
+        </SecurityRow>
       ))}
     </div>
   );

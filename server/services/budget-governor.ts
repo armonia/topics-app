@@ -64,7 +64,7 @@ export function registerFreezableRun(run: FreezableRun): () => void {
   return () => { runs.delete(run.id); };
 }
 
-/** Test seam and shutdown: forget everything without signalling anything. */
+/** @internal Test seam and shutdown: forget everything without signalling anything. */
 export function _resetFreezableRuns(): void {
   runs.clear();
 }

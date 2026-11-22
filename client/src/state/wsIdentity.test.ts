@@ -15,33 +15,9 @@
   * @covers WIRE-05
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { getWsClientId, isOwnFrame, setWsClientId } from './wsIdentity';
+import { isOwnFrame, setWsClientId } from './wsIdentity';
 
 beforeEach(() => setWsClientId(null));
-
-describe('setWsClientId / getWsClientId', () => {
-  test('parte sconosciuto', () => {
-    expect(getWsClientId()).toBe(null);
-  });
-
-  test('registra e restituisce l id', () => {
-    setWsClientId('sock-1');
-    expect(getWsClientId()).toBe('sock-1');
-  });
-
-  test('una riconnessione SOSTITUISCE l id, non lo affianca', () => {
-    // Il server assegna un id nuovo per socket: tenere il primo farebbe fallire
-    // il confronto in silenzio dopo ogni riconnessione.
-    setWsClientId('sock-1');
-    setWsClientId('sock-2');
-    expect(getWsClientId()).toBe('sock-2');
-  });
-
-  test('una stringa vuota vale come sconosciuto, non come id valido', () => {
-    setWsClientId('');
-    expect(getWsClientId()).toBe(null);
-  });
-});
 
 describe('isOwnFrame', () => {
   test('riconosce il proprio frame', () => {

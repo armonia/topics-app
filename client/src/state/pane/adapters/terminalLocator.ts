@@ -33,7 +33,6 @@
  * channel. We read it through an injected reader so the function stays pure and
  * testable without a DOM.
  */
-import { getTerminalSessionFromPaneId } from './paneConfig';
 import { projectPanesLocalKey } from './projectLayoutSync';
 
 const PANES_PREFIX = 'topics-project-panes-';
@@ -171,17 +170,4 @@ export function locateTerminalPane(
   }
 
   return { kind: 'none' };
-}
-
-/** Convenience: extract the session id from a pane id and locate it. Returns
- *  'none' for non-terminal pane ids. */
-export function locateByPaneId(
-  paneId: string,
-  appLevelPaneIds: readonly string[],
-  knownProjectPaths: readonly string[],
-  store: ProjectPanesStore,
-): TerminalLocation {
-  const sessionId = getTerminalSessionFromPaneId(paneId);
-  if (!sessionId) return { kind: 'none' };
-  return locateTerminalPane(sessionId, appLevelPaneIds, knownProjectPaths, store);
 }
