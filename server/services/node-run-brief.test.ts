@@ -69,7 +69,7 @@ describe("nodeRunDescription", () => {
   });
 
   it("una nota di avanzamento dell'agente, scritta dopo la revisione, non prende il posto della revisione", () => {
-    // 22/11: the run restarted after the agent's own «Riparto dal codice…» note, which was then taken for // allow-italian: quoted agent message is the test's actual subject
+    // 22/11: the run restarted after the agent's own «Riparto dal codice…» note, which was then taken for // allow-italian: quoted note text
     // the review, and the reviewer's list reached the node cut to 2.000 characters.
     const review = `REVISIONE-INIZIO\n${"difetto riga\n".repeat(400)}REVISIONE-FINE`;
     expect(review.length).toBeGreaterThan(MAX_COMMENT_CHARS);
