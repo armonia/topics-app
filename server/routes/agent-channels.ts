@@ -12,15 +12,13 @@
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { readChannelPlacesById } from "../services/channel-place";
+import { channelsDbPath } from "../services/channels-db-path";
 import type { AppContext, RouteHandler } from "../types";
 
-const CACHE_MS = 60_000;
+export { channelsDbPath };
 
-export function channelsDbPath(env: Record<string, string | undefined> = process.env): string {
-  return env.JARVIS_CHANNELS_DB?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels", "channels.sqlite");
-}
+const CACHE_MS = 60_000;
 
 /**
  * The last non-empty title of every chat and of every thread inside it. A
@@ -94,10 +92,17 @@ export function readCardThreads(path: string, cardId: string): OpenedThread[] {
 
 export function createAgentChannelsRouter(ctx: Pick<AppContext, "json">, path: () => string = () => channelsDbPath()): RouteHandler {
   let cache: { at: number; titles: Record<string, string> } | null = null;
+  let placesCache: { at: number; places: ReturnType<typeof readChannelPlacesById> } | null = null;
   return async function agentChannelsRouter(_req, _url, pathname, method) {
     // `GET /api/agent-channels/card/<id>`: the Discord threads opened for that card, with their links.
     const card = /^\/api\/agent-channels\/card\/([\w-]+)$/.exec(pathname);
     if (card && method === "GET") return ctx.json({ threads: readCardThreads(path(), card[1]) });
+    // `GET /api/agent-channels/places`: the server/channel/thread each chat lives in — the Agents
+    // channel tree (Configure › Canali e chat) groups chats under their Discord server with it.
+    if (pathname === "/api/agent-channels/places" && method === "GET") {
+      if (!placesCache || Date.now() - placesCache.at > CACHE_MS) placesCache = { at: Date.now(), places: readChannelPlacesById(path()) };
+      return ctx.json({ places: placesCache.places });
+    }
     if (pathname !== "/api/agent-channels" || method !== "GET") return null;
     if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), titles: readChannelTitles(path()) };
     return ctx.json({ titles: cache.titles });

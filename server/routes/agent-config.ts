@@ -97,9 +97,23 @@ export function readRegistry(paths: Paths) {
     }
   }
 
+  // Which agents follow a chat — its own group row, read across every agent, not only the one
+  // asking. The channel tree (AGENTS-04 feedback: "mappatura chat → agente") shows this per node
+  // instead of making the person open `rules.agents` by hand.
+  const chatAgents = new Map<string, AgentId[]>();
+  for (const g of groups) {
+    if (g.chat === "*") continue;
+    const key = `${g.channel}:${g.chat}`;
+    const agentId = agentOfAccount(g.account);
+    const list = chatAgents.get(key) ?? [];
+    if (!list.includes(agentId)) list.push(agentId);
+    chatAgents.set(key, list);
+  }
+
   const agents = ids.map((id) => {
     const ws = paths.expand(engine.agents[id].workspace);
-    const name = readIdentity(ws).name || id;
+    const identity = readIdentity(ws);
+    const name = identity.name || id;
     const persona = Object.fromEntries(PERSONA_FILES.map((f) => {
       const p = join(ws, f);
       return [f, existsSync(p) ? readFileSync(p, "utf8") : ""];
@@ -117,6 +131,11 @@ export function readRegistry(paths: Paths) {
         active: !!g.active, mention: !!g.mention, senders: (g.senders ?? []) as string[], denied: (g.denied ?? []) as string[],
         hasSystem: !!g.system, system: (g.system ?? "") as string, routed: routedChats.has(`${g.channel}:${g.chat}`),
         twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToOthers.has(`${g.channel}:${g.chat}`),
+        // Optional tree-grouping hints: `category` has no writer today (no source populates it
+        // yet, kept for when the bridge's cache gains Discord channel categories), so in
+        // production it stays undefined and the tree simply has one level less.
+        category: (g.category ?? undefined) as string | undefined,
+        followedBy: chatAgents.get(`${g.channel}:${g.chat}`) ?? [id],
       }));
     const agentJobs = jobs
       .filter((j) => (j.run?.kind === "agent" ? (j.run.agent ?? defaultAgent) : defaultAgent) === id)
@@ -127,7 +146,7 @@ export function readRegistry(paths: Paths) {
         model: (j.run?.model as string) ?? null, deliver: j.deliver ? `${j.deliver.channel}:${j.deliver.chat}` : null,
       }));
     const models = id === defaultAgent ? rules.models ?? {} : {};
-    return { id, name, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
+    return { id, name, job: identity.job, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
   });
 
   // Incoherences: one chat with different rules for different agents, models written in several forms.
@@ -162,13 +181,18 @@ export function readRegistry(paths: Paths) {
       type: "job-without-agent", jobs: implicit.map((j) => ({ id: String(j.id), name: String(j.name ?? j.id) })),
     });
   }
-  return { agents, issues };
+  // The raw chat → agent overrides (`rules.agents`), passed through as-is so the channel tree can
+  // show and change them without the person opening `config.json` by hand.
+  const routesOut = routes.filter((r) => r.channel && r.chat).map((r) => ({ channel: r.channel as string, chat: r.chat as string, agent: r.agent as string }));
+  return { agents, issues, routes: routesOut };
 }
 
 export type Edit =
   | { kind: "chat"; channel: string; chat: string; account?: string; active?: boolean; mention?: boolean; system?: string; senders?: string[] }
   | { kind: "job"; id: string; paused?: boolean; schedule?: Json }
-  | { kind: "persona"; agent: AgentId; file: string; text: string };
+  | { kind: "persona"; agent: AgentId; file: string; text: string }
+  /** `agent: null` removes the override — the chat goes back to its default (unrouted) agent. */
+  | { kind: "route"; channel: string; chat: string; agent: AgentId | null };
 
 const CRON_FIELD = /^[\d*,/-]+$/;
 /** A schedule jarvis-channels can run: a 5-field cron, every N minutes, or one ISO time. */
@@ -232,6 +256,24 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
       if (!Array.isArray(e.senders) || e.senders.some((x) => typeof x !== "string" || !/^[+\w@.:-]+$/.test(x.trim()))) throw new Error("senders must be a list of ids");
       const list = [...new Set(e.senders.map((x) => x.trim()).filter(Boolean))];
       if (list.length) g.senders = list; else delete g.senders;
+    }
+    const text = JSON.stringify(cfg, null, 2) + "\n";
+    JSON.parse(text);
+    return { file, backup: safeWrite(file, text, paths.home), restart: true };
+  }
+  if (e.kind === "route") {
+    if (e.agent !== null && typeof e.agent !== "string") throw new Error("agent must be an id or null");
+    const file = join(paths.home, "config.json");
+    const cfg: Json = readJson(file);
+    cfg.rules ??= {};
+    const list: Json[] = (cfg.rules.agents ??= []);
+    const i = list.findIndex((r) => r.channel === e.channel && r.chat === e.chat);
+    if (e.agent === null) {
+      if (i >= 0) list.splice(i, 1);
+    } else if (i >= 0) {
+      list[i].agent = e.agent;
+    } else {
+      list.push({ channel: e.channel, chat: e.chat, agent: e.agent });
     }
     const text = JSON.stringify(cfg, null, 2) + "\n";
     JSON.parse(text);
@@ -307,7 +349,7 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
     }
     if (method !== "POST") return null;
     const kind = pathname.slice("/api/agent-config/".length);
-    if (!["chat", "job", "persona"].includes(kind)) return null;
+    if (!["chat", "job", "persona", "route"].includes(kind)) return null;
     let body: Json;
     try { body = await req.json(); } catch { return ctx.json({ error: "invalid JSON body" }, 400); }
     try {

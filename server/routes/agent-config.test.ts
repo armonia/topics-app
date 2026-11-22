@@ -68,6 +68,17 @@ describe("readRegistry", () => {
     expect(text).toContain("1 lavori a orario senza agente");
   });
 
+  test("exposes the raw chat -> agent overrides and who follows each chat", () => {
+    const p = fixture();
+    const { agents, routes } = readRegistry(p);
+    const [jarvis, visione] = agents;
+    expect(routes).toEqual([{ channel: "discord", chat: "42", agent: "gtm" }]);
+    // 42 and 77 both have a group row under each agent's own account: both follow them,
+    // the override on 42 only decides who answers, not who the tree lists as following it.
+    expect(jarvis.chats.find((c) => c.chat === "42")!.followedBy.sort()).toEqual(["gtm", "main"]);
+    expect(visione.chats.find((c) => c.chat === "77")!.followedBy.sort()).toEqual(["gtm", "main"]);
+  });
+
   test("a second agent with its own account keeps its own chats, not the default's", () => {
     const p = fixture();
     const { agents } = readRegistry(p);
@@ -178,6 +189,23 @@ describe("applyEdit", () => {
     expect(() => applyEdit(p, { kind: "job", id: "a", schedule: { kind: "at", at: "domani" } })).toThrow("date and time");
     expect(() => applyEdit(p, { kind: "job", id: "a" })).toThrow("nothing to change");
     expect(readFileSync(join(p.home, "jobs.json"), "utf8")).toBe(before);
+  });
+
+  test("a route edit adds, replaces and removes a chat -> agent override", () => {
+    const p = fixture();
+    applyEdit(p, { kind: "route", channel: "discord", chat: "77", agent: "gtm" });
+    let routes = JSON.parse(readFileSync(join(p.home, "config.json"), "utf8")).rules.agents;
+    expect(routes).toContainEqual({ channel: "discord", chat: "77", agent: "gtm" });
+    expect(routes.find((r: any) => r.chat === "42").agent).toBe("gtm"); // untouched
+
+    applyEdit(p, { kind: "route", channel: "discord", chat: "77", agent: "main" });
+    routes = JSON.parse(readFileSync(join(p.home, "config.json"), "utf8")).rules.agents;
+    expect(routes.filter((r: any) => r.channel === "discord" && r.chat === "77")).toHaveLength(1);
+    expect(routes.find((r: any) => r.chat === "77").agent).toBe("main");
+
+    applyEdit(p, { kind: "route", channel: "discord", chat: "77", agent: null });
+    routes = JSON.parse(readFileSync(join(p.home, "config.json"), "utf8")).rules.agents;
+    expect(routes.some((r: any) => r.chat === "77")).toBe(false);
   });
 });
 
