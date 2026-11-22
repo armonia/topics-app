@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-11-22
+goal: portare il sistema degli agenti a due repo, topics-app per il codice generico e jarvis-private per i dati, senza spostare niente in questa change
+skip_specs: true
