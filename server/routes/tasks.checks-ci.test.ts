@@ -202,6 +202,28 @@ describe("a delivery on a board that declares the CI e2e row", () => {
     expect(task.checksCommit).toBe("def5678");
   }, 30_000);
 
+  test("a CI row read on the previous head is never recorded as a pass of the new one", async () => {
+    const d = await deliveryWith([E2E_CI_CHECK.cmd], async () => ({ ...greenCi, ciCommit: "abc1234ffff" }), { commit: "def5678aaaa" });
+    const resp = (await d.deliver())!;
+    expect(resp.status).toBe(409);
+    const task = await d.read();
+    expect(task.status).toBe("in_progress");
+    expect(task.checksState).toBe("unknown");
+    expect(task.checksState).not.toBe("pass");
+    expect(d.calls.ci).toBeGreaterThan(1);
+  }, 30_000);
+
+  test("a CI row of the previous head is read again on the new head, whose own green enters review", async () => {
+    let reads = 0;
+    const d = await deliveryWith([E2E_CI_CHECK.cmd], async () => ({ ...greenCi, ciCommit: reads++ === 0 ? "abc1234ffff" : "def5678aaaa" }), { commit: "def5678aaaa" });
+    const resp = (await d.deliver())!;
+    expect(resp.status).toBe(200);
+    const task = await d.read();
+    expect(task.checksState).toBe("pass");
+    expect(task.checksCommit).toBe("def5678aaaa");
+    expect(d.calls.ci).toBe(2);
+  }, 30_000);
+
   test("with both CI rows the reader is asked once for both, and a green pair enters review", async () => {
     const greenUnit: CheckRun = { name: UNIT_CI_CHECK.name, cmd: UNIT_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "unit tests green" };
     const d = await deliveryWith([UNIT_CI_CHECK.cmd, "true", E2E_CI_CHECK.cmd], async () => [greenCi, greenUnit]);

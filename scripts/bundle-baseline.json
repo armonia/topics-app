@@ -888,11 +888,13 @@
     "2026-11-14 (status glyphs, PR 968): CI measured entry_eager 1.002.818 raw against a ceiling of 1.002.607 (+211 bytes). Bought by the agents pane state glyph (spinning half pie, amber alert) and the failed glyph in the plan; the icon card (2882b9fb) had already used the 2% tolerance on main. Ceiling follows the CI measure."
     ,
     "2026-11-15 (card 791984dc, countdown and exact weight of every session on every surface): CI measured entry_eager 1.080.598 raw against a ceiling of 1.024.085. Bought by the shared work meter (countdown, context share, children weight) that the sidebar tooltip, the board tab, the bell and the tray rows all read, plus the store of running children and its dictionary keys. Ceiling follows the CI measure."
+    ,
+    "2026-11-22 (card ac6d1cad, credit-exhausted banner): CI measured entry_eager 1.102.443 raw against a ceiling of 1.102.210 (+233 bytes). Bought by the shared credit-exhausted rule and the banner sentence in both catalogues; the 2% tolerance was already used up by main. Ceiling follows the CI measure."
   ],
   "updated": "2026-11-07",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1080598,
+    "raw": 1102443,
     "gz": 392156
   },
   "critical_path": {
