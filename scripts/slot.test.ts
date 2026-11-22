@@ -16,6 +16,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { shellInvocation } from "./shell-invocation.ts";
 
 const SLOT = join(import.meta.dir, "slot.ts");
 let dir = "";
@@ -42,6 +43,22 @@ async function slot(cmd: string, opts: { slots?: number; ms?: number; graceMs?: 
   const [code, out, err] = await Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]);
   return { code, out, err };
 }
+
+describe("cross-platform shell invocation", () => {
+  // The bug this card fixes: slot.ts hard-coded /bin/sh, which does not exist
+  // on Windows, so every gate wrapped by this script never started there.
+  test("win32 runs the command through cmd.exe, not /bin/sh", () => {
+    const { command, args } = shellInvocation("echo hi", "win32");
+    expect(command).toBe("cmd.exe");
+    expect(args).toEqual(["/d", "/s", "/c", "echo hi"]);
+  });
+
+  test("posix keeps using /bin/sh -c", () => {
+    const { command, args } = shellInvocation("echo hi", "linux");
+    expect(command).toBe("/bin/sh");
+    expect(args).toEqual(["-c", "echo hi"]);
+  });
+});
 
 describe("the command always runs", () => {
   test("output comes through and a success stays a success", async () => {
