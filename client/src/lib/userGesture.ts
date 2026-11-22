@@ -60,12 +60,12 @@ export function onUserGesture(listener: (gesture: UserGesture) => void): () => v
   return () => { listeners.delete(listener); };
 }
 
-/** Tests: a gesture at `at` on `target`, delivered the way a trusted event delivers it. */
+/** @internal Tests: a gesture at `at` on `target`, delivered the way a trusted event delivers it. */
 export function __noteUserGestureForTests(at: number = Date.now(), target: EventTarget | null = null): void {
   note(at, target);
 }
 
-/** Tests: back to a device nobody has touched, with the clock not yet started. */
+/** @internal Tests: back to a device nobody has touched, with the clock not yet started. */
 export function __resetUserGestureForTests(): void {
   lastAt = 0;
   installed = false;

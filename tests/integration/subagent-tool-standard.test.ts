@@ -237,6 +237,7 @@ describe("one result per turn, without waiting for the process to exit (SUBAGENT
 
   test("a Reload mid-turn reports the open turn as stopped, and the child can then be retired", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { name: "reload-mid" });
     const agentId = body.agentId as string;
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
@@ -256,7 +257,7 @@ describe("one result per turn, without waiting for the process to exit (SUBAGENT
     await untilAsync("the finished phase", async () => (await phase()) === "finished");
     await new Promise((r) => setTimeout(r, 2_500));
     expect(reportsFor(agentId).length).toBe(1);
-    expect(terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 })).toEqual([agentId]);
+    expect(retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 })).toEqual([agentId]);
     expect(rowOf(agentId)?.state).toBe("retired");
   }, 60_000);
 });
@@ -353,6 +354,7 @@ describe("the parent is owed a wake while its child works (SUBAGENT-12)", () => 
 describe("a finished child is retired, and comes back with --resume (SUBAGENT-14)", () => {
   test("a session tracker still saying «running» does not keep a finished child alive", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { agent_type: "scout", name: "scout-lag" });
     const agentId = body.agentId as string;
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
@@ -364,7 +366,7 @@ describe("a finished child is retired, and comes back with --resume (SUBAGENT-14
     });
     terminal._setTerminalTrackerForTests(lagging as Parameters<typeof terminal._setTerminalTrackerForTests>[0]);
     try {
-      await until("the retirement", () => terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
+      await until("the retirement", () => retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
       expect(rowOf(agentId)?.state).toBe("retired");
     } finally {
       terminal._setTerminalTrackerForTests(null);
@@ -373,13 +375,14 @@ describe("a finished child is retired, and comes back with --resume (SUBAGENT-14
 
   test("idle after its report it is retired without a second result, and send_to_agent resumes it with the same flags", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { agent_type: "scout", name: "scout-r" });
     const agentId = body.agentId as string;
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
     endTurn(child!, "Report: 3 files");
     await until("the result", () => reportsFor(agentId).length === 1, 15_000);
     // 15 minutes later, said to the clock instead of waited for.
-    await until("the retirement", () => terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
+    await until("the retirement", () => retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 10_000);
     await until("the PTY gone", () => !terminal.getTerminalSessionById(agentId), 5_000);
     expect(rowOf(agentId)?.state).toBe("retired");
     await new Promise((r) => setTimeout(r, 2_500));
@@ -546,6 +549,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
 
   test("a child whose seeding a restart cut is reported undelivered, then retired: it holds no slot forever", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     bridge.nextAcceptFromEnter = 99;
     let spawnedChild: Awaited<ReturnType<typeof spawn>>;
     try {
@@ -559,7 +563,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
     ctx.db.run("UPDATE subagents SET created_at = ? WHERE id = ?", [new Date(Date.now() - 2 * 60_000).toISOString(), agentId]);
     await until("the undelivered report", () => reportsFor(agentId).some((r) => r.outcome.status === "undelivered"), 15_000);
     expect(rowOf(agentId)).toMatchObject({ state: "running", turns_reported: 0 });
-    await until("the retirement", () => terminal.retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 15_000);
+    await until("the retirement", () => retireIdleSubAgents({ now: Date.now() + 16 * 60_000, idleMs: 0 }).includes(agentId) || rowOf(agentId)?.state === "retired", 15_000);
     expect(rowOf(agentId)?.state).toBe("retired");
   }, 60_000);
 
@@ -580,6 +584,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
 
   test("a retirement the park gates refuse writes nothing to the row", async () => {
     const terminal = await import("../../server/routes/terminal");
+    const { retireIdleSubAgents } = await import("../../server/lib/subagent-runtime");
     const { body, child } = await spawn(SONNET_CHAT, { name: "refused-park" });
     const agentId = body.agentId as string;
     await until("the prompt record", () => hasPrompt(child!, "Find the call sites"));
@@ -589,7 +594,7 @@ describe("the roster, the transcript reads and the slots of a live child (SUBAGE
     ctx.db.run("CREATE TRIGGER log_state_writes AFTER UPDATE OF state ON subagents BEGIN INSERT INTO state_writes VALUES (NEW.id, NEW.state); END");
     try {
       // An hour after the report by the clock, but its PTY spoke seconds ago: the idle gate says no.
-      expect(terminal.retireIdleSubAgents({ now: Date.now() + 60 * 60_000, idleMs: 30 * 60_000 })).not.toContain(agentId);
+      expect(retireIdleSubAgents({ now: Date.now() + 60 * 60_000, idleMs: 30 * 60_000 })).not.toContain(agentId);
       expect(rowOf(agentId)?.state).toBe("running");
       expect(ctx.db.query("SELECT state FROM state_writes WHERE id = ?").all(agentId)).toEqual([]);
     } finally {

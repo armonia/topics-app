@@ -21,6 +21,7 @@ import FIND_IT from './i18n-find-it';
 import ATTENTION_IT from './i18n-attention-it';
 import SYSTEM_HEALTH_IT from './i18n-system-health-it';
 import PROCESSES_IT from './i18n-processes-it';
+import SECURITY_IT from './i18n-security-it';
 
 const IT: Dict = {
   ...SPEND_IT,
@@ -29,6 +30,7 @@ const IT: Dict = {
   ...ATTENTION_IT,
   ...SYSTEM_HEALTH_IT,
   ...PROCESSES_IT,
+  ...SECURITY_IT,
   // The row, the card's quota and the palette entry of «Account e quote»;
   // the view's own strings come with its chunk (`i18n-accounts-it.ts`).
   'accounts.open': 'Account e quote',
@@ -1690,9 +1692,6 @@ const IT: Dict = {
   'board.card.systemNote': 'Nota di sistema',
   'board.task.incompleteCardNotice': "Card incompleta: l'ha aperta un agente senza tutti i campi richiesti. Accettata per ora, presto verrà rifiutata.",
   'board.task.asksYou': 'Ti chiede',
-  'board.task.forYou.happened': 'Era successo:',
-  'board.task.forYou.done': 'Fatto:',
-  'board.task.forYou.remains': 'Resta a te:',
   'board.task.resendWithNote': 'Rimanda con nota',
   'board.task.closeUndone': 'Chiudi senza fare',
   'board.card.noSummary': 'Nessun riassunto della consegna: sotto c’è solo la cronaca della macchina',
@@ -2425,6 +2424,7 @@ const IT: Dict = {
   'chat.machineStop.stall': 'Fermato: il turno è stato riciclato perché sembrava fermo',
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
+  'chat.turnInterrupted.creditExhausted': 'abbonamento e credito API sono esauriti; riprende da solo quando tornano disponibili',
   'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
   // A refusal is deterministic, so retrying the same message buys the same
   // result. Rephrasing is the useful recovery path.

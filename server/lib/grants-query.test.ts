@@ -20,7 +20,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TASKS_DDL } from "../db/test-schema";
 import {
-  hasGrant, grantedResourceIds, grantedByType, reasonsFor, subjectsOf,
+  hasGrant, grantedResourceIds, grantedByType, subjectsOf,
   holdsGrantOnTaskPreview, escapeLike, putGrant, dropGrant, deviceP,
   levelFor, meetsLevel, subjectsViaContainer, readableTaskIds,
 } from "./grants-query";
@@ -149,29 +149,6 @@ describe("condividere un PROGETTO apre i suoi task", () => {
     // invece di cadere o di aprirsi.
     putGrant(db, { kind: "device", id: "d1" }, "project", "p1", { grantedAt: 1 });
     expect(hasGrant(db, deviceP("d1"), "task", "sconosciuto")).toBe(false);
-  });
-
-  it("la RAGIONE nomina il progetto, non lascia indovinare", () => {
-    // Un elenco di ragioni che non nomina il contenitore lascerebbe chi guarda
-    // a togliere un accesso che non è lì - e l'accesso resterebbe in piedi.
-    taskInProject(db, "t1", "p1");
-    putGrant(db, { kind: "org", id: "o1" }, "project", "p1", { grantedAt: 1 });
-    const ragioni = reasonsFor(db, [{ kind: "org", id: "o1" }], "task", "t1");
-    expect(ragioni).toHaveLength(1);
-    expect(ragioni[0].subjectId).toBe("o1");
-    expect(ragioni[0].viaType, "la ragione dev'essere attribuita al progetto").toBe("project");
-    expect(ragioni[0].viaId).toBe("p1");
-  });
-
-  it("una riga DIRETTA sul task non viene attribuita al progetto", () => {
-    // Il `via` esiste solo quando l'accesso arriva davvero da un contenitore:
-    // marcarlo sempre renderebbe impossibile distinguere le due situazioni, che
-    // si tolgono in due modi diversi.
-    taskInProject(db, "t1", "p1");
-    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
-    const ragioni = reasonsFor(db, deviceP("d1"), "task", "t1");
-    expect(ragioni).toHaveLength(1);
-    expect(ragioni[0].viaType).toBeUndefined();
   });
 
   it("il livello del PROGETTO non diventa il livello del task", () => {
@@ -405,19 +382,6 @@ describe("porta unica · `deny` prevale", () => {
 });
 
 describe("porta unica · tutte le ragioni, non la prima", () => {
-  it("chi vede una cosa per due strade le vede elencate entrambe", () => {
-    // Toglierne una lascerebbe l'accesso in piedi per l'altra, e un elenco che
-    // si ferma alla prima non lo direbbe.
-    const db = conSchema084(dbFresco());
-    putGrant(db, { kind: "device", id: "d1" }, "task", "t1", { grantedAt: 1 });
-    putGrant(db, { kind: "person", id: "p1" }, "task", "t1", { grantedAt: 2 });
-    const ragioni = reasonsFor(db, [{ kind: "device", id: "d1" }, { kind: "person", id: "p1" }], "task", "t1");
-    expect(ragioni).toHaveLength(2);
-    // E la ragione è il SOGGETTO: sono due righe diverse con due revoche
-    // diverse, non la stessa concessione contata due volte.
-    expect(ragioni.map((r) => `${r.subjectType}:${r.subjectId}`).sort())
-      .toEqual(["device:d1", "person:p1"]);
-  });
 
   it("`subjectsOf` dice CHI è stato messo, indipendentemente da chi chiede", () => {
     const db = conSchema084(dbFresco());

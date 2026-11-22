@@ -667,22 +667,3 @@ function coerceExtractFields(a: Record<string, unknown>): Record<string, unknown
   }
   return {};
 }
-
-/** The ops executeNativeBrowserOp actually runs (vs. routing to the streaming hint). */
-export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
-  'browser_open',
-  'browser_observe',
-  'browser_act',
-  'browser_extract',
-  'browser_eval',
-  'browser_get_text',
-  'browser_console',
-  'browser_screenshot',
-  'browser_verify',
-  'browser_upload',
-  'browser_status',
-  // Login-state legs (the server-side halves live in server/browser-native-state.ts).
-  'browser_save_state',
-  'browser_load_state',
-  'browser_import_chrome',
-]);

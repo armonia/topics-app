@@ -152,7 +152,7 @@ export function markUnpaired(code: string | undefined, installationName?: string
   });
 }
 
-/** Test-only: reset the state between cases. */
+/** @internal Test-only: reset the state between cases. */
 export function __resetSessionForTests(): void {
   state = { status: 'loading' };
   listeners.clear();

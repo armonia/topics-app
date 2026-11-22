@@ -26,7 +26,7 @@ export const PROBE_RUN_ID = "heartbeat-probe";
 export interface NodeProbeDeps {
   /** Every machine row; the probe picks the paired nodes itself. */
   list: () => Machine[];
-  client: Pick<NodeClient, "readRun">;
+  client: Pick<NodeClient, "readRun"> & Partial<Pick<NodeClient, "readVersion" | "codingModels">>;
   /** The device token of a node, `null` when this server holds none. */
   tokenOf: (machineId: string) => string | null;
   /** Writes the heartbeat of a node (the row, nothing else) and returns it; `null` when the row is gone. */
@@ -38,6 +38,8 @@ export interface NodeProbeDeps {
    */
   onRefreshed: (machine: Machine) => void;
   isCloud: (baseUrl: string | null) => boolean;
+  /** Stores what the node reported about itself (version, models); the probe reads both best-effort. */
+  recordReported?: (machineId: string, input: { version?: string | null; models?: string[] | null }) => Machine | null;
   log?: (message: string, err?: unknown) => void;
 }
 
@@ -53,7 +55,15 @@ async function probeOnce(deps: NodeProbeDeps): Promise<void> {
       if (!(isNodeError(err) && err.reason === "not_found")) return;
     }
     try {
-      const row = deps.touch(node.id);
+      let row = deps.touch(node.id);
+      // A node built before these routes answers neither: the row then keeps «unknown», never a guess.
+      if (row && deps.recordReported) {
+        const [version, models] = await Promise.all([
+          deps.client.readVersion?.({ baseUrl: node.baseUrl, token }).catch(() => null),
+          deps.client.codingModels?.({ baseUrl: node.baseUrl, token }).catch(() => null),
+        ]);
+        if (version || models) row = deps.recordReported(node.id, { version, models }) ?? row;
+      }
       if (row) deps.onRefreshed(row);
     } catch (err) {
       deps.log?.(`nodo: battito di ${node.name} non scritto`, err);

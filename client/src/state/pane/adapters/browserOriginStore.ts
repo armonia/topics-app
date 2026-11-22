@@ -153,16 +153,6 @@ export function resolvePinnedBrowserOrigin(
   return null;
 }
 
-/** Drop a contextId's origin (e.g. when its pin is removed). Best-effort. */
-export function clearBrowserOrigin(contextId: string): void {
-  if (!contextId) return;
-  const map = read();
-  if (contextId in map) {
-    delete map[contextId];
-    write(map);
-  }
-}
-
 /**
  * Session-scoped bridge for the PROJECT-NOT-OPEN case: when a pinned browser is
  * reopened but no ProjectWindow is mounted to claim the `reopen-closed-tab`

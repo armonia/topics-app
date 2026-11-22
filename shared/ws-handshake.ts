@@ -40,10 +40,9 @@ export const welcomeMessageSchema = z.object({
   clientId: z.string(),
 });
 
-export type WelcomeMessage = z.infer<typeof welcomeMessageSchema>;
-
 // ----- Client -> Server: hello ----------------------------------------------
 
+/** @internal Contract schema locked by tests/unit/ws-contract.test.ts; no production code parses the hello message yet. */
 export const helloMessageSchema = z.object({
   type: z.literal('hello'),
   /** Human-readable client version (from package.json). */
@@ -54,21 +53,7 @@ export const helloMessageSchema = z.object({
   capabilities: z.array(z.string()),
 });
 
-export type HelloMessage = z.infer<typeof helloMessageSchema>;
-
 // ----- Server -> Client: upgrade-required (future) --------------------------
-
-/**
- * Sent when the server detects a client is too old to operate safely.
- * For SERVER_PROTOCOL_VERSION = 1 this is never emitted; reserved for v2+
- * where structured upgrade prompts become necessary.
- */
-export const upgradeRequiredSchema = z.object({
-  type: z.literal('upgrade-required'),
-  minClientProtocolVersion: z.int(),
-  currentClientProtocolVersion: z.int(),
-  message: z.string(),
-});
 
 // Nessun alias `UpgradeRequiredMessage`: lo schema è bloccato dai test di
 // contratto (tests/unit/ws-contract.test.ts) ma il messaggio non viene ancora
@@ -84,22 +69,3 @@ export function formatZodIssues(error: { issues: readonly { path: PropertyKey[];
     .join('; ');
 }
 
-export type WelcomeParseResult =
-  | { ok: true; data: WelcomeMessage }
-  | { ok: false; error: string };
-
-export function parseWelcomeMessage(value: unknown): WelcomeParseResult {
-  const result = welcomeMessageSchema.safeParse(value);
-  if (result.success) return { ok: true, data: result.data };
-  return { ok: false, error: formatZodIssues(result.error) };
-}
-
-export type HelloParseResult =
-  | { ok: true; data: HelloMessage }
-  | { ok: false; error: string };
-
-export function parseHelloMessage(value: unknown): HelloParseResult {
-  const result = helloMessageSchema.safeParse(value);
-  if (result.success) return { ok: true, data: result.data };
-  return { ok: false, error: formatZodIssues(result.error) };
-}

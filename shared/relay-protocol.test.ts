@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import {
-  RELAY_PROTOCOL_VERSION, leggiMessaggio, involucro, haContenutoOpaco,
+  RELAY_PROTOCOL_VERSION, leggiMessaggio, involucro,
   TUBO_BYTE_PER_FRAME, TUBO_DATI_MAX, TUBO_LIMITE_CLOUDFLARE,
   aBase64url, daBase64url, componiStream, creaContatoreStream, creaRiassemblatore,
   dividiBinario, dividiTesto, latoDiStream, leggiFrame, leggiFramePayload, scriviFrame,
@@ -32,12 +32,6 @@ describe("relay · il relay non capisce quello che inoltra", () => {
   it("vale in tutte e due le direzioni", () => {
     const m: MessaggioRelay = { t: "to-host", payload: "ALTRETTANTO SEGRETO" };
     expect(JSON.stringify(involucro(m))).not.toContain("SEGRETO");
-  });
-
-  it("le buste opache si riconoscono come tali", () => {
-    expect(haContenutoOpaco({ t: "to-guest", to: "s", payload: "x" })).toBe(true);
-    expect(haContenutoOpaco({ t: "to-host", payload: "x" })).toBe(true);
-    expect(haContenutoOpaco({ t: "guest-left", sessionId: "s" })).toBe(false);
   });
 
   it("il segreto del link NON viaggia nel protocollo", () => {

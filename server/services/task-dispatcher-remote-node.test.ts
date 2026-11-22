@@ -454,6 +454,21 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     } finally { wakeBreaker.success(MACHINE); }
   });
 
+  it("breaker already open, card the overflow put there: it leaves the node at once, no hook and no deferral (21/11)", async () => {
+    for (const breaker of [wakeBreaker, hangBreaker]) {
+      breaker.failure(MACHINE);
+      breaker.failure(MACHINE);
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.task()).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      breaker.success(MACHINE);
+    }
+  });
+
   it("the veto that opens the breaker defers the card until it closes, not the fixed 5 minutes", async () => {
     wakeBreaker.success(MACHINE);
     wakeBreaker.failure(MACHINE);
@@ -1386,6 +1401,16 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
+  });
+
+  it("seconda corsa vuota di fila (salto di un altro nodo ancora attivo): resta qui 6 ore, non va su un terzo nodo (21/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ?, overflow_skip_machine = 'altro', overflow_skip_until = ? WHERE id = ?", [new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    expect([h.task().status, h.task().stayLocal, h.comments().some((c) => c.content.startsWith("Anche la corsa su"))]).toEqual(["todo", true, true]);
   });
 
   it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {

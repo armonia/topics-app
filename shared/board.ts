@@ -373,6 +373,7 @@ export const RECOMMENDED_OPTION_RULE =
  * cercandovi la costante: un test che cerca la costante che ha appena
  * interpolato non può fallire, e questo invece deve fallire il giorno in cui
  * qualcuno riscrive il testo a mano dentro un envelope.
+ * @internal Test oracle: read by the registry and envelope contract tests.
  */
 export function extractPreviewRule(envelope: string): string | null {
   const lines = envelope.split('\n');
@@ -981,6 +982,7 @@ export interface QueueReason {
 /**
  * Every kind, as data. The union above is the contract; this is the same list
  * a test can walk to prove that each branch has somewhere to be written.
+ * @internal
  */
 export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
   'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
@@ -1027,7 +1029,7 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   unknown: ['board.queue.unknown'],
 };
 
-/** The three catalogue entries every base key of a kind needs, flattened. */
+/** @internal Test oracle: the three catalogue entries every base key of a kind needs, flattened. */
 export function queueReasonKeys(kind: QueueReasonKind): string[] {
   return QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
 }
@@ -1853,6 +1855,12 @@ export interface CheckRun {
    * "e2e red on the pull request CI" would be the wrong sentence for it.
    */
   ciRunRed?: string;
+  /**
+   * The head sha of the pull request CI run a CI evidence row was read from.
+   * The gate compares it with the commit it is measuring, so a row that
+   * describes an earlier head can never be written as a verdict of this one.
+   */
+  ciCommit?: string;
   /**
    * A NOT MEASURED CI row whose cause passes by itself: no verdict before the
    * deadline, GitHub reads failing, a push or a draft refused by the network.

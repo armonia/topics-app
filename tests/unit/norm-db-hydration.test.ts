@@ -14,7 +14,7 @@
  * @covers TOOL-PARITY-01
  */
 import { describe, expect, test } from 'bun:test';
-import { sanitizeToolCallDetail } from '../../server/utils';
+import { sanitizeToolCallDetail } from '../../server/app-context/message-thread-reads';
 import { deriveToolDetail } from '../../shared/tool-detail';
 
 describe('sanitizeToolCallDetail — pass-through', () => {

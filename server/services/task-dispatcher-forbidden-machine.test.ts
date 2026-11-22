@@ -60,6 +60,16 @@ describe("machineForbidden", () => {
     expect(pickOverflowMachine([node], { ...opts, wakeBlocked: () => false })?.id).toBe("x");
   });
 
+  it("an online cloud with a breaker open is not chosen either: the overflow or the reassignment falls to the node", () => {
+    const cloud: OverflowMachine = { id: "c", name: "c", kind: "cloud", online: true };
+    const node: OverflowMachine = { id: "x", name: "x", kind: "node", online: true, slots: 2 };
+    const opts = { cloudCredit: true, githubOrigin: true, model: null, load: () => 0 };
+    expect(pickOverflowMachine([cloud, node], opts)?.id).toBe("c");
+    expect(pickOverflowMachine([cloud, node], { ...opts, wakeBlocked: (id) => id === "c" })?.id).toBe("x");
+    expect(pickOverflowMachine([cloud], { ...opts, wakeBlocked: () => true })).toBeNull();
+    expect(pickReassignTarget([cloud, node, ...machines()], FORBIDDEN, { ...opts, wakeBlocked: (id) => id === "c" })?.id).toBe("x");
+  });
+
   it("the target skips the forbidden machine and one with no room", () => {
     const opts = { cloudCredit: false, githubOrigin: false, model: null };
     expect(pickReassignTarget(machines(), FORBIDDEN, { ...opts, load: () => 0 })?.id).toBe(ALLOWED);

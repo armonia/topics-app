@@ -31,6 +31,9 @@ else
   DEFAULT_DATA_DIR="${TMP_ROOT}/topics-test-data-${BUN_PORT}"
 fi
 export DATA_DIR="${DATA_DIR:-$DEFAULT_DATA_DIR}"
+# The machine-health round writes to ~/.topics unless told otherwise: without
+# this a test server overwrote the live machines-health.json 20 s after boot.
+export TOPICS_TOOLING_DIR="${TOPICS_TOOLING_DIR:-$DATA_DIR/tooling}"
 # @covers E2E-ISO-01
 # UNA VARIABILE SOLA, E BASTA COSI'.
 #

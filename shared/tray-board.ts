@@ -1,4 +1,3 @@
-import { TASK_STATUSES, type TaskStatus } from "./board";
 import { awaitsHuman } from "./workflow";
 
 /** Il minimo che serve alla tray: il contratto della card sta in `board.ts`,
@@ -152,17 +151,6 @@ export function trayLitGroups(
   }
   return out;
 }
-
-/** Il totale che va sul glifo: le righe che chiedono qualcosa a un umano. */
-export function trayBoardAttention(groups: readonly TrayGroup[]): number {
-  return groups
-    .filter((g) => (TRAY_LIT_REASONS as readonly string[]).includes(g.status))
-    .reduce((n, g) => n + g.count, 0);
-}
-
-/** Gli stati che la tray NON mostra, dichiarati invece che dedotti dal filtro. */
-export const TRAY_HIDDEN_STATUSES: readonly TaskStatus[] =
-  TASK_STATUSES.filter((s): s is TaskStatus => !(TRAY_GROUP_ORDER as readonly string[]).includes(s));
 
 /** The agents of the menu-bar strip, counted by state (card 066276b6). */
 export interface TrayAgentStates {

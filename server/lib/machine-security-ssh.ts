@@ -91,11 +91,21 @@ export function createSshProbeEnv(server: SshServer, local: Runner, now: () => n
   };
 }
 
+/** The reason codes of `whyUnreachable`, worded by the client (`security.why.*`). */
+const UNREACHABLE_CODE: Record<string, string> = {
+  "chiave non accettata": "keyRejected",
+  "chiave del server non riconosciuta": "hostKey",
+  "server non raggiungibile": "unreachable",
+  "comando non disponibile": "missing",
+  "nessuna risposta in tempo": "timeout",
+  "permessi insufficienti": "denied",
+};
+
 function unreachable(why: string, now: number): MachineSecurityReport {
   return {
     checked_at: Math.floor(now / 1000),
     status: "unknown",
-    checks: KEYS.map((key) => ({ key, status: "unknown", detail: why })),
+    checks: KEYS.map((key) => ({ key, status: "unknown", detail: why, msgs: [{ code: "unknown", params: { why: UNREACHABLE_CODE[why] ?? "failed" } }] })),
   };
 }
 

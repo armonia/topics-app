@@ -46,13 +46,6 @@ export function isActivePhase(p: ClaudeSessionPhase): boolean {
 export const BUSY_SPINNER_PHASES: ReadonlyArray<ClaudeSessionPhase> = [
   'starting', 'running', 'tool-running',
 ];
-
-const BUSY_SPINNER_SET = new Set<ClaudeSessionPhase>(BUSY_SPINNER_PHASES);
-
-export function isBusySpinnerPhase(p: ClaudeSessionPhase): boolean {
-  return BUSY_SPINNER_SET.has(p);
-}
-
 /**
  * Le fasi che sono LAVORO IN CORSO, per l'unico scopo di datare l'inizio del
  * turno (`turnStartedAt`). Sono le stesse tre che il client tratta come
@@ -910,7 +903,7 @@ export function parseJsonlLine(line: string): JsonlEvent | null {
  * Canonical transcript path for a Claude Code session:
  *   <home>/.claude/projects/<encoded-cwd>/<claudeSessionId>.jsonl
  * where the cwd encoding replaces every character outside [A-Za-z0-9] with `-`
- * (verified against real dirs: `/Users/x/.claude/jarvis` → `-Users-x--claude-jarvis`).
+ * (verified against real dirs: `<home>/<harness-home>` → the dashed form).
  * Lets the tracker tail a terminal session's transcript WITHOUT waiting for a
  * SessionStart hook that may never fire. Pure — home is injected.
  */
