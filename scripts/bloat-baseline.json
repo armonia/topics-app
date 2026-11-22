@@ -634,7 +634,12 @@
 
     "server/services/task-dispatcher-held-resume-quiet.test.ts": 860,
 
-    "server/services/task-dispatcher-overflow.test.ts": 1439,
+    "server/services/task-dispatcher-overflow.test.ts": {
+      "lines": 1578,
+      "why": [
+        "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines."
+      ]
+    },
 
     "server/services/task-dispatcher-remote-node.test.ts": {
       "lines": 1507,
