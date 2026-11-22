@@ -45,6 +45,10 @@ function machine(d: Database, id: string, status: "online" | "offline", slots: n
   d.run(`INSERT OR REPLACE INTO machines (id, name, hostname, arch, platform, daemon_version, status, slots, last_heartbeat_at, last_seen_at, created_at, updated_at)
     VALUES ('${id}', '${id}', '${id}', 'x', 'x', '1', '${status}', ${slots}, '${heartbeat}', 'x', 'x', 'x')`);
 }
+/** Overwrites columns of a card the helper above made. */
+function set(d: Database, id: string, cols: Record<string, string | number | null>) {
+  for (const [k, v] of Object.entries(cols)) d.query(`UPDATE tasks SET ${k} = ? WHERE id = ?`).run(v, id);
+}
 function card(d: Database, id: string, status: string, ageMs: number, extra: { humanAsk?: string; machineId?: string; dispatchState?: string; nodeRunOpen?: boolean; dispatchError?: string; deferredUntil?: string; attempts?: number; blockedBy?: string } = {}) {
   d.query("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, human_ask, machine_id, dispatch_state, node_run_open, dispatch_error, dispatch_deferred_until, dispatch_attempts, blocked_by_task_id) VALUES (?, ?, 'c', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(id, PID, status, iso(NOW - ageMs), iso(NOW - ageMs), extra.humanAsk ?? null, extra.machineId ?? null, extra.dispatchState ?? null, extra.nodeRunOpen ? 1 : 0,
@@ -207,14 +211,117 @@ describe("cards voice", () => {
   });
   test("chosen waits and a moving queue are not hours lost", () => {
     const d = db();
+    // A card started ten minutes ago: the queue is moving.
     card(d, "dep", "in_progress", 0, { dispatchState: "working" });
+    set(d, "dep", { in_progress_at: iso(NOW - 10 * 60_000) });
     card(d, "later", "todo", 5 * H, { dispatchState: "waiting", deferredUntil: iso(NOW + H) });
     card(d, "blocked", "todo", 5 * H, { blockedBy: "dep" });
     card(d, "queued", "todo", 5 * H);
-    card(d, "paused-wait", "in_progress", 5 * H, { dispatchState: "waiting" });
     expect(sampleTopics(d, NOW).stuck).toEqual([]);
     card(d, "gave-up", "todo", 5 * H, GIVEN_UP);
     expect(sampleTopics(d, NOW).stuck.map((c) => c.id)).toEqual(["gave-up"]);
+  });
+  test("a slot wait is lost hours when no card started inside the window (point 2)", () => {
+    const stale = db(); card(stale, "q", "todo", 5 * H);
+    expect(sampleTopics(stale, NOW).stuck.map((c) => c.id)).toEqual(["q"]);
+    // The window edge: a start exactly queueMovedHours ago still counts as moving, one ms older does not.
+    const edge = db(); card(edge, "q", "todo", 5 * H); card(edge, "s", "in_progress", 0, { dispatchState: "working" });
+    set(edge, "s", { in_progress_at: iso(NOW - H) });
+    expect(sampleTopics(edge, NOW).stuck).toEqual([]);
+    set(edge, "s", { in_progress_at: iso(NOW - H - 1) });
+    expect(sampleTopics(edge, NOW).stuck.map((c) => c.id)).toEqual(["q"]);
+  });
+  test("noSeats: the local row alone never says it, an off remote or a remote with 0 seats does (point 2)", () => {
+    const at = (d: Database) => sampleTopics(d, NOW, DEFAULT_THRESHOLDS, "me").stuck[0]!.cause;
+    const local = db(); machine(local, "me", "online", null); card(local, "q", "todo", 5 * H);
+    expect(at(local)).toBe("unknown");
+    const off = db(); machine(off, "me", "online", null); machine(off, "pc", "offline", 4); card(off, "q", "todo", 5 * H);
+    expect(at(off)).toBe("seats");
+    const zero = db(); machine(zero, "me", "online", null); machine(zero, "pc", "online", 0); card(zero, "q", "todo", 5 * H);
+    expect(at(zero)).toBe("seats");
+    const some = db(); machine(some, "me", "online", null); machine(some, "pc", "online", 4); card(some, "q", "todo", 5 * H);
+    expect(at(some)).toBe("unknown");
+  });
+  test("a todo card with an open run left by buryRun is still seen, and pinned to an off node it is offline (point 3)", () => {
+    const d = db(); machine(d, "pc", "offline", 4);
+    card(d, "b", "todo", 3 * H, { machineId: "pc", nodeRunOpen: true });
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.cause)).toEqual(["offline"]);
+  });
+  test("a long healthy turn on a node is not hung; a silent node or a failing poll is (point 4)", () => {
+    const beat = (minAgo: number) => {
+      const d = db(); machine(d, "pc", "online", 4, iso(NOW - minAgo * 60_000));
+      card(d, "h", "in_progress", 3 * H, { machineId: "pc", nodeRunOpen: true, dispatchState: "working" });
+      return d;
+    };
+    expect(sampleTopics(beat(1), NOW).stuck).toEqual([]);
+    expect(sampleTopics(beat(14.9), NOW).stuck).toEqual([]);
+    expect(sampleTopics(beat(15), NOW).stuck.map((c) => c.cause)).toEqual(["hung-node"]);
+    const poll = db(); machine(poll, "pc", "online", 4, iso(NOW));
+    card(poll, "h", "in_progress", 3 * H, { machineId: "pc", nodeRunOpen: true, dispatchError: "node_unreachable" });
+    expect(sampleTopics(poll, NOW).stuck.map((c) => c.cause)).toEqual(["hung-node"]);
+  });
+  test("subcards of a parent at work are not lost; those of an idle parent are (point 5)", () => {
+    const d = db();
+    card(d, "p", "in_progress", 0, { dispatchState: "working" });
+    card(d, "kid", "todo", 5 * H);
+    set(d, "kid", { parent_task_id: "p" });
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+    set(d, "p", { dispatch_state: null, status: "review" });
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.id)).toEqual(["kid"]);
+  });
+  test("an old waiting-memory loses to a blocker and to a plan; it counts only queued with no blocker (point 7)", () => {
+    const d = db();
+    card(d, "dep", "in_progress", 0, { dispatchState: "working" });
+    set(d, "dep", { in_progress_at: iso(NOW - 60_000) });
+    card(d, "blk", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory", blockedBy: "dep" });
+    card(d, "plan", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    set(d, "plan", { scheduled_by: "cron", scheduled_at: iso(NOW + H) });
+    card(d, "idle", "todo", 3 * H, { dispatchState: "waiting", dispatchError: "waiting-memory" });
+    card(d, "held", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    expect(sampleTopics(d, NOW).stuck.filter((c) => c.cause === "memory").map((c) => c.id)).toEqual(["held"]);
+  });
+  test("an in-progress card with a waiting chip is a left-over chip, not a wait (point 8)", () => {
+    const d = db(); card(d, "w", "in_progress", 5 * H, { dispatchState: "waiting" });
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.id)).toEqual(["w"]);
+  });
+  test("a planned run past its time with no run is lost; a future one is not (point 9)", () => {
+    const d = db();
+    card(d, "late", "todo", 9 * H); set(d, "late", { scheduled_by: "cron", scheduled_at: iso(NOW - 3 * H) });
+    card(d, "soon", "todo", 9 * H); set(d, "soon", { scheduled_by: "cron", scheduled_at: iso(NOW + H) });
+    const s = sampleTopics(d, NOW);
+    expect(s.stuck.map((c) => c.id)).toEqual(["late"]);
+    expect(s.stuck[0]!.hours).toBeCloseTo(3, 1);
+  });
+  test("a chain held by a card parked in backlog is lost, down the whole chain (point 10)", () => {
+    const d = db();
+    card(d, "root", "backlog", 9 * H, { dispatchError: "boom" });
+    card(d, "mid", "todo", 5 * H, { blockedBy: "root" });
+    card(d, "leaf", "todo", 5 * H, { blockedBy: "mid" });
+    expect(sampleTopics(d, NOW).stuck.map((c) => [c.id, c.cause])).toEqual([["mid", "chain-parked"], ["leaf", "chain-parked"]]);
+    const live = db();
+    card(live, "root", "in_progress", 0, { dispatchState: "working" });
+    set(live, "root", { in_progress_at: iso(NOW - 60_000) });
+    card(live, "kid", "todo", 5 * H, { blockedBy: "root" });
+    expect(sampleTopics(live, NOW).stuck).toEqual([]);
+  });
+  test("age counts from entering todo or the end of a deferral, not from the last write (point 11)", () => {
+    const d = db(); card(d, "t", "todo", 5 * H, GIVEN_UP);
+    set(d, "t", { updated_at: iso(NOW - 60_000) });
+    expect(sampleTopics(d, NOW).stuck[0]!.hours).toBeCloseTo(5, 1);
+    set(d, "t", { dispatch_deferred_until: iso(NOW - 2 * H) });
+    expect(sampleTopics(d, NOW).stuck[0]!.hours).toBeCloseTo(2, 1);
+    // A dispatcher note does not reset the age of a card in progress either.
+    const p = db(); card(p, "p", "in_progress", 4 * H);
+    p.query("INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES ('n', 'p', 'system', 'note', ?)").run(iso(NOW - 60_000));
+    expect(sampleTopics(p, NOW).stuck[0]!.hours).toBeCloseTo(4, 1);
+  });
+  test("a scheduled card with no time yet does not crash the round, and is not lost (point 12, null reason)", () => {
+    const d = db(); card(d, "s", "todo", 5 * H); set(d, "s", { scheduled_by: "cron" });
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+  });
+  test("a todo card waiting on a person is counted even when its queue wait is chosen (point 12)", () => {
+    const d = db(); card(d, "later", "todo", 5 * H, { humanAsk: "which?", dispatchState: "waiting", deferredUntil: iso(NOW - 2 * H) });
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.cause)).toEqual(["person"]);
   });
   test("a plain queue behind a fleet with no seats is still lost time", () => {
     const d = db(); machine(d, "pc", "offline", 0); card(d, "q", "todo", 5 * H);
@@ -340,11 +447,11 @@ describe("the round", () => {
 describe("the route", () => {
   test("GET /api/topics-check answers the three voices with the detail the view opens", async () => {
     const d = db();
-    card(d, "m", "todo", 3 * H, { dispatchError: "waiting-memory" });
+    card(d, "m", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
     const round = createTopicsCheck({ db: d, now: () => NOW, settings: () => noSettings });
     await round.tick();
     const { createTopicsCheckRouter } = await import("../routes/topics-check");
-    const router = createTopicsCheckRouter({ db: d, json: (b: unknown) => Response.json(b) } as never);
+    const router = createTopicsCheckRouter({ db: d, json: (b: unknown) => Response.json(b) } as never, { now: () => NOW });
     const res = await router(new Request("http://x/api/topics-check"), new URL("http://x/api/topics-check"), "/api/topics-check", "GET");
     const body = await res!.json() as ReturnType<typeof round.current>;
     expect(body.voices.map((v) => v.id)).toEqual(["cards", "seats", "proofs"]);
