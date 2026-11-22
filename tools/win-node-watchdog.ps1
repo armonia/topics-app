@@ -47,7 +47,14 @@ param(
   [int]$GraceAfterRestartSec = 60,
   # Optional JSON file whose keys override the defaults above (same names as the
   # parameters). Keeps machine-specific values out of the repo.
-  [string]$ConfigFile = ""
+  [string]$ConfigFile = "",
+  # The daemon's own log: its tail goes into the hang evidence and it is rotated
+  # when it grows past LogMaxMB. Default is the stdout file this script redirects.
+  [string]$DaemonLogPath = "",
+  [int]$LogMaxMB = 20,
+  [int]$LogKeep = 2,
+  [int]$EvidenceTailLines = 300,
+  [int]$EvidenceBudgetSec = 12
 )
 
 . (Join-Path $PSScriptRoot "win-node-watchdog-logic.ps1")
@@ -60,6 +67,7 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $logPath = Join-Path $LogDir "watchdog-$(Get-Date -Format yyyy-MM-dd).log"
 $daemonLogPath = Join-Path $LogDir "daemon-stdout.log"
+if (-not $DaemonLogPath) { $DaemonLogPath = $daemonLogPath }
 
 function Log($line) {
   $stamped = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $line"
@@ -107,6 +115,14 @@ function Stop-Daemon {
   Get-ProcessesToStop -ProcessNames $ProcessNames | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
+function Save-Evidence {
+  $pids = @(Get-ProcessesToStop -ProcessNames $ProcessNames | ForEach-Object { $_.Id })
+  $dir = Join-Path $LogDir (Get-EvidenceFolderName -Now (Get-Date))
+  Log "restart: saving evidence to $dir"
+  Save-HangEvidence -ProcessIds $pids -Dir $dir -DaemonLogPath $DaemonLogPath `
+    -TailLines $EvidenceTailLines -BudgetSec $EvidenceBudgetSec
+}
+
 function Start-Daemon {
   Log "restart: starting '$StartCommand $($StartArgs -join ' ')', stdout/stderr -> $daemonLogPath"
   if ($StartCommand -match '\.ps1$') {
@@ -122,6 +138,7 @@ Log "watchdog up: port $Port, poll ${PollSeconds}s, stale after ${StaleMinutes}m
 $lastOk = Get-Date
 
 while ($true) {
+  try { Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null } catch { }
   $ok = Test-Healthz
   $decision = Get-WatchdogDecision -HealthzOk $ok -Now (Get-Date) -LastOk $lastOk -StaleMinutes $StaleMinutes
   if ($decision -eq "ok") {
@@ -130,8 +147,10 @@ while ($true) {
     Log "healthz silent for $([Math]::Round(((Get-Date) - $lastOk).TotalMinutes, 1)) min"
     if ($decision -eq "restart") {
       Log "restart: silent for over $StaleMinutes min"
-      Stop-Daemon
-      Start-Daemon
+      Invoke-WatchdogRestart -Collect { Save-Evidence } -Stop { Stop-Daemon } -Start {
+        Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null
+        Start-Daemon
+      } -OnCollectError { param($e) Log "evidence failed, restarting anyway: $($e.Exception.Message)" }
       $lastOk = Get-LastOkAfterRestart -Now (Get-Date) -GraceAfterRestartSec $GraceAfterRestartSec
     }
   }

@@ -29,3 +29,79 @@ function Get-ProcessesToStop {
   param([string[]]$ProcessNames, [scriptblock]$Lookup = { param($n) Get-Process $n -ErrorAction SilentlyContinue })
   foreach ($name in $ProcessNames) { & $Lookup $name }
 }
+
+# The restart sequence. Evidence is collected BEFORE anything is closed (a
+# restart erases the very state that would explain the hang), and a failing
+# collection never blocks the restart: the node being back matters more.
+# All three steps are injected so a Pester test can observe their order.
+function Invoke-WatchdogRestart {
+  param([scriptblock]$Collect, [scriptblock]$Stop, [scriptblock]$Start, [scriptblock]$OnCollectError = { param($e) })
+  try { & $Collect } catch { & $OnCollectError $_ }
+  & $Stop
+  & $Start
+}
+
+# Folder name for one hang's evidence, sortable and filesystem-safe.
+function Get-EvidenceFolderName {
+  param([datetime]$Now)
+  return "appeso-" + $Now.ToString("yyyyMMdd-HHmmss")
+}
+
+# Writes the four evidence files into $Dir for the given PIDs. Every file is
+# written even when its probe fails (the error text is the file), so a missing
+# file never has to be explained. Runs inside a job, see Save-HangEvidence.
+function Write-HangEvidenceFiles {
+  param([int[]]$ProcessIds, [string]$Dir, [string]$DaemonLogPath, [int]$TailLines = 300)
+  New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+  $probe = {
+    param($path, $body)
+    try { & $body | Out-String | Set-Content -Path $path -Encoding UTF8 }
+    catch { "probe failed: $($_.Exception.Message)" | Set-Content -Path $path -Encoding UTF8 }
+  }
+  & $probe (Join-Path $Dir "daemon-log-tail.txt") {
+    if (-not (Test-Path $DaemonLogPath)) { "no log at the configured path" } else { Get-Content $DaemonLogPath -Tail $TailLines }
+  }
+  & $probe (Join-Path $Dir "process-state.txt") {
+    Get-Process -Id $ProcessIds -ErrorAction Stop |
+      Select-Object Id, ProcessName, StartTime, CPU, @{n = "Threads"; e = { $_.Threads.Count } }, HandleCount,
+        @{n = "PrivateMB"; e = { [Math]::Round($_.PrivateMemorySize64 / 1MB, 1) } },
+        @{n = "WorkingSetMB"; e = { [Math]::Round($_.WorkingSet64 / 1MB, 1) } } | Format-List
+  }
+  & $probe (Join-Path $Dir "tcp-connections.txt") {
+    foreach ($id in $ProcessIds) { Get-NetTCPConnection -OwningProcess $id -ErrorAction SilentlyContinue | Format-Table -AutoSize }
+  }
+  & $probe (Join-Path $Dir "children.txt") {
+    foreach ($id in $ProcessIds) {
+      Get-CimInstance Win32_Process -Filter "ParentProcessId = $id" | Select-Object ProcessId, Name, CommandLine | Format-List
+    }
+  }
+}
+
+# Collects the evidence in a job with a hard time budget: a probe that blocks
+# on the hung process cannot hold the restart past $BudgetSec.
+function Save-HangEvidence {
+  param([int[]]$ProcessIds, [string]$Dir, [string]$DaemonLogPath, [int]$TailLines = 300, [int]$BudgetSec = 12)
+  $fn = ${function:Write-HangEvidenceFiles}.ToString()
+  $job = Start-Job -ScriptBlock {
+    param($fnText, $ids, $dir, $log, $tail)
+    $f = [scriptblock]::Create($fnText)
+    & $f -ProcessIds $ids -Dir $dir -DaemonLogPath $log -TailLines $tail
+  } -ArgumentList $fn, $ProcessIds, $Dir, $DaemonLogPath, $TailLines
+  if (-not (Wait-Job $job -Timeout $BudgetSec)) { Stop-Job $job }
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+}
+
+# Keeps a log under $MaxBytes with $Keep older generations (.1 newest). A file
+# the daemon holds open cannot be renamed on Windows, so it is copied aside and
+# truncated in place instead. Returns $true when it rotated.
+function Invoke-LogRotation {
+  param([string]$Path, [long]$MaxBytes, [int]$Keep = 2)
+  if (-not (Test-Path $Path) -or (Get-Item $Path).Length -lt $MaxBytes) { return $false }
+  for ($i = $Keep; $i -ge 2; $i--) {
+    if (Test-Path "$Path.$($i - 1)") { Move-Item "$Path.$($i - 1)" "$Path.$i" -Force }
+  }
+  Copy-Item $Path "$Path.1" -Force
+  $fs = [System.IO.File]::Open($Path, "Open", "Write", "ReadWrite, Delete")
+  try { $fs.SetLength(0) } finally { $fs.Dispose() }
+  return $true
+}

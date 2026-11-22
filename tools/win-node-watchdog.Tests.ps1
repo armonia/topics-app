@@ -30,4 +30,32 @@ Describe "win-node-watchdog decision" {
     $src | Should Match "Get-ProcessesToStop"
     $src | Should Match "Get-LastOkAfterRestart"
   }
+
+  It "collects evidence before closing anything on restart" {
+    $order = New-Object System.Collections.ArrayList
+    Invoke-WatchdogRestart -Collect { [void]$order.Add("collect") } -Stop { [void]$order.Add("stop") } -Start { [void]$order.Add("start") }
+    ($order -join ",") | Should Be "collect,stop,start"
+  }
+  It "restarts even when the evidence collection throws" {
+    $order = New-Object System.Collections.ArrayList
+    Invoke-WatchdogRestart -Collect { throw "boom" } -Stop { [void]$order.Add("stop") } -Start { [void]$order.Add("start") }
+    ($order -join ",") | Should Be "stop,start"
+  }
+  It "the real script restarts through Invoke-WatchdogRestart with the collection" {
+    $src = Get-Content (Join-Path $PSScriptRoot "win-node-watchdog.ps1") -Raw
+    $src | Should Match "Invoke-WatchdogRestart -Collect \{ Save-Evidence \}"
+  }
+  It "rotates a log past the threshold and keeps two old files" {
+    $dir = Join-Path ([IO.Path]::GetTempPath()) ("wdlog-" + [guid]::NewGuid())
+    New-Item -ItemType Directory $dir | Out-Null
+    $log = Join-Path $dir "server.log"
+    try {
+      1..3 | ForEach-Object { Set-Content $log ("x" * 100 + $_); Invoke-LogRotation -Path $log -MaxBytes 50 -Keep 2 | Should Be $true }
+      (Get-Item $log).Length | Should Be 0
+      (Get-Content "$log.1" -Raw) | Should Match "3"
+      (Get-Content "$log.2" -Raw) | Should Match "2"
+      Test-Path "$log.3" | Should Be $false
+      Invoke-LogRotation -Path $log -MaxBytes 50 -Keep 2 | Should Be $false
+    } finally { Remove-Item $dir -Recurse -Force }
+  }
 }
