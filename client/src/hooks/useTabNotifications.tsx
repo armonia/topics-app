@@ -16,6 +16,31 @@ import { useMachinesOverview } from './useMachinesOverview';
 import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { useDominantAction } from '../state/agentActionHooks';
+import { inboxModel, type InboxModel } from '../lib/inboxModel';
+import { bellGroups, bellTone, bellTotal, type BellGroup, type BellTone } from '../lib/bellGroups';
+import { useBellHub } from './useBellHub';
+import type { HubLiveTopic } from '../state/hubLive';
+import type { JarvisLinks } from '../lib/hubSystem';
+
+/**
+ * THE BELL'S LEDGER: the rows of «Ora» and their total, computed once for the
+ * window. The Dock, the tray, the PWA badge, the bell's button and its «Ora»
+ * tab all read this, so they cannot say different numbers.
+ */
+export interface BellLedger {
+  model: InboxModel;
+  groups: BellGroup[];
+  total: number;
+  tone: BellTone;
+  /** How many rows ask for an answer («Decidi tu»): the button's name says it. */
+  decide: number;
+  hub: { present: boolean; answering: boolean; downSince: number | null; unread: HubLiveTopic[]; jarvis: JarvisLinks | null };
+}
+
+const NO_LEDGER: BellLedger = {
+  model: { waiting: [], finished: [], working: [] }, groups: [], total: 0, tone: 'quiet', decide: 0,
+  hub: { present: false, answering: false, downSince: null, unread: [], jarvis: null },
+};
 
 interface TabNotificationContextValue {
   /** The number on a pane's tab: `max(1, unread)` of a lit chat or terminal,
@@ -27,9 +52,10 @@ interface TabNotificationContextValue {
   /** WHO makes that number, in words: «2 to look at: Render · build». Empty
    *  when nothing is lit. */
   describeProjectBadge: (projectPath: string) => string;
-  /** THE one number (Dock, tray, PWA badge, inbox) and the subjects behind it. */
-  attentionTotal: number;
+  /** The lit subjects of Topics: the Topics part of the bell's ledger. */
   attentionSubjects: readonly ChromeSubject[];
+  /** THE one number (Dock, tray, PWA badge, the bell and its «Ora» tab) and the rows behind it. */
+  bell: BellLedger;
 }
 
 const TabNotificationContext = createContext<TabNotificationContextValue | null>(null);
@@ -93,12 +119,24 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
     }
     return JSON.stringify(trayAgentStates(boardGroups, subjects));
   }, [attention, boardGroups]);
-  // THE ONE OS NUMBER (ATTN-08, CHROME-COUNT-01): the lit subjects of the
-  // attention state, an archived chat never. Dock badge, menu-bar tray glyph,
-  // the PWA Badging API and the inbox's button all read `chromeCount`. No
-  // history row enters it, and nothing window-local does.
+  // THE LIT SUBJECTS (ATTN-08, CHROME-COUNT-01): an archived chat never, no
+  // history row, nothing window-local. They are the Topics part of the ledger
+  // below, whose total the Dock, the tray, the PWA badge and the bell paint.
   const attentionSubjects = useMemo(() => chromeAttentionSubjects(attention, topics, terminalSessions), [attention, topics, terminalSessions]);
-  const chromeCount = attentionSubjects.length;
+  // THE LEDGER: the Topics subjects above plus what the hub asks of the person,
+  // as the rows of «Ora». Its total is the number every surface paints.
+  const bellHub = useBellHub();
+  const bell = useMemo((): BellLedger => {
+    const model = inboxModel(attention, topics, terminalSessions, boardTasks);
+    const groups = bellGroups(model, bellHub.hub);
+    const { present, answering, downSince, unread, jarvis } = bellHub;
+    return {
+      model, groups, total: bellTotal(groups), tone: bellTone(groups),
+      decide: groups.find((g) => g.key === 'decide')?.entries.length ?? 0,
+      hub: { present, answering, downSince, unread, jarvis },
+    };
+  }, [attention, topics, terminalSessions, boardTasks, bellHub]);
+  const chromeCount = bell.total;
   // The chat and terminal rows of the tray menu, from the subjects the glyph
   // counts, so the menu lists what the number says.
   const attentionItems = useMemo(
@@ -164,9 +202,9 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
     getBadgeCount,
     getProjectBadgeCount,
     describeProjectBadge,
-    attentionTotal: chromeCount,
     attentionSubjects,
-  }), [getBadgeCount, getProjectBadgeCount, describeProjectBadge, chromeCount, attentionSubjects]);
+    bell,
+  }), [getBadgeCount, getProjectBadgeCount, describeProjectBadge, attentionSubjects, bell]);
 
   return (
     <TabNotificationContext.Provider value={value}>
@@ -184,8 +222,8 @@ export function useTabNotifications(): TabNotificationContextValue {
       getBadgeCount: () => 0,
       getProjectBadgeCount: () => 0,
       describeProjectBadge: () => '',
-      attentionTotal: 0,
       attentionSubjects: [],
+      bell: NO_LEDGER,
     };
   }
   return ctx;

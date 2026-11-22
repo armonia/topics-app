@@ -3,11 +3,11 @@
  * design section 9, ATTN-09), and of what the hub asks of the person
  * (hub-smistamento, HUBBR-06). It replaces the history button.
  *
- * The button carries a number. Without the hub it is the Dock's (the lit
- * subjects). With the hub it is the figure of one group of the panel: amber
- * for «Decidi tu», else blue for the finished, else grey for the warnings,
- * nothing at zero (`bellBadge`). The warnings include the Claude proxy's
- * urgent account events (an expired token), read in the background.
+ * The button carries THE number: how many rows «Ora» lists, the same the
+ * Dock, the tray and the tab say (the ledger, `BellLedger` in
+ * `useTabNotifications`). Its colour says the first group: amber when
+ * something waits for an answer («Decidi tu»), else blue for the finished,
+ * else grey for warnings alone; nothing at zero.
  *
  * The panel itself (`InboxPanel.tsx`) is a chunk of its own, loaded the first
  * time the pointer or the keyboard comes near the button: the button is on
@@ -16,22 +16,13 @@
  * Keyboard: ⇧⌘I opens it (see the panel for the rest). Touch: a bottom sheet
  * under 768px (the `Menu` primitive).
  */
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useT } from '../../hooks/useT';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
-import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { useAttentionRows } from '../../state/attention';
-import { bellBadge } from '../../state/attentionTotal';
-import { useHubEverRead, useHubLive } from '../../state/hubLive';
-import { useBoardTasks } from '../../lib/boardTasksStore';
-import { hubBadgeCounts } from '../../lib/bellGroups';
-import { useProxyActivity } from '../../state/proxyActivity';
-import { accountEvents } from '../../lib/hubSystem';
-import { inboxModel } from '../../lib/inboxModel';
 import { OPEN_INBOX_EVENT, type OpenInboxDetail } from '../../lib/inboxEvents';
 import { RAISED_CONTROL } from '../../lib/selectionStyles';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
@@ -55,28 +46,14 @@ const BADGE_VARIANT = { 'needs-you': 'needsYou', lit: 'default', quiet: 'quiet' 
 // eslint-disable-next-line react-refresh/only-export-components -- the badge and the bell read the same sheet, kept next to each other
 export function useInboxBadge() {
   const tr = useT();
-  const { attentionTotal } = useTabNotifications();
-  const attention = useAttentionRows();
-  const topics = useTopics();
-  const terminalSessions = useTerminalSessions();
-  const cards = useBoardTasks();
-  const live = useHubLive();
-  const hubPresent = useHubEverRead();
-  const model = useMemo(() => inboxModel(attention, topics, terminalSessions, cards), [attention, topics, terminalSessions, cards]);
-  // The proxy's log, read in the background every minute: an expired token lights the button with the panel closed.
-  const proxy = useProxyActivity(hubPresent);
-  const hubCounts = useMemo(
-    () => hubBadgeCounts(live, proxy ? accountEvents(proxy.activity, proxy.profiles, proxy.readAt) : [], proxy?.readAt),
-    [live, proxy],
-  );
-  const badge = bellBadge(attentionTotal, model.waiting.length, hubCounts, hubPresent);
-  const decideCount = model.waiting.length + hubCounts.decide;
-  const label = badge.count === 0
+  const { bell } = useTabNotifications();
+  const badge = { count: bell.total, tone: bell.tone };
+  const label = bell.total === 0
     ? tr('inbox.title')
-    : hubPresent && decideCount > 0
-      ? tr('bell.button.decide', { n: decideCount })
-      : tr('inbox.button.count', { n: badge.count, m: decideCount });
-  return { model, badge, decideCount, label, variant: BADGE_VARIANT[badge.tone] };
+    : bell.decide > 0
+      ? tr('inbox.button.count', { n: bell.total, m: bell.decide })
+      : tr('inbox.button.total', { n: bell.total });
+  return { model: bell.model, badge, decideCount: bell.decide, label, variant: BADGE_VARIANT[badge.tone] };
 }
 
 export function Inbox({

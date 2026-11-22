@@ -277,6 +277,39 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
         />
       );
     }
+    case 'automation': {
+      // The same automation the Automations row counts among «da sistemare»:
+      // the hub's reason on the second line, «Open» lands on its card there.
+      const a = entry.automation;
+      return (
+        <RowShell
+          attrs={{ ...attrs, 'data-gate': a.gate ? 'true' : undefined }}
+          icon={Workflow}
+          tint={WARNING_TEXT}
+          first={first}
+          title={a.title}
+          at={a.since}
+          full={joined([a.title, a.reason])}
+          second={(
+            <>
+              <span className={`flex-shrink-0 px-[5px] rounded-xs font-semibold text-mini leading-4 bg-amber-500/15 ${WARNING_TEXT}`}>{tr(a.gate ? 'bell.kind.gate' : 'bell.kind.automation')}</span>
+              {a.reason && <span className="truncate" data-testid="bell-why">{a.reason}</span>}
+            </>
+          )}
+          actions={(
+            <button
+              type="button"
+              onClick={() => { onNavigate?.(); openAutomation(a.key); }}
+              className={button.primary}
+              data-testid="bell-open"
+              data-target="automation"
+            >
+              {tr('bell.open')}
+            </button>
+          )}
+        />
+      );
+    }
     case 'failed': {
       const job = entry.job;
       return (

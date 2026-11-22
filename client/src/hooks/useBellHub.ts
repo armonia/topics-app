@@ -1,33 +1,32 @@
 /**
- * What the hub adds to the bell's panel (HUBBR-06, HUBBR-07), read only while
- * the panel is open. The live topics (waiting items, services, quotas, alerts)
- * come from the socket; the rest is read at the open and again every minute
- * while the panel stays open, as the hub's pages refreshed:
+ * What the hub adds to the bell (HUBBR-06, HUBBR-07): the rows of «Ora» that
+ * are the hub's, for the button, the Dock and the panel alike (one ledger:
+ * the number on the bell is the number of rows the panel lists).
  *
- *   - the failed automations (`/api/hub/automations`, close to a megabyte, so
- *     only when the live summary says at least one is broken);
- *   - the contradictions of the agents' rules (`/api/hub/contesto`);
- *   - the links to write to Jarvis (`/api/hub/hub-config`);
- *   - the Claude proxy's account events come from its log, which the button
- *     already reads in the background (`state/proxyActivity`);
+ *   - the live topics (waiting items, services, quotas, alerts) come from
+ *     the socket;
+ *   - the automations that need you and the broken ones, the contradictions of
+ *     the agents' rules and the links to write to Jarvis come from one shared
+ *     store (`state/bellExtras`), read when the hub's counters move;
+ *   - the Claude proxy's account events come from its log, read in the
+ *     background (`state/proxyActivity`): «Ora» lists the urgent ones (an
+ *     expired token, every account at its limit), History all of them;
  *   - for the History tab, seven days of the diary (`/api/hub/diario`),
  *     read again every minute while History stays open.
  *
  * Without the hub (never read in this window) nothing is asked: the bell is
  * the Topics inbox of before and the network stays silent (HUBBR-04). With
- * the hub read once and down now, the panel shows Topics alone: the extras
- * read at the open go too, and `downSince` says since when.
+ * the hub read once and down now, the bell lists Topics alone, and
+ * `downSince` says since when.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/shell/net';
 import { refreshHubLive, useHubEverRead, useHubLive, type HubLiveEntry, type HubLiveState, type HubLiveTopic } from '../state/hubLive';
 import { startVisibleInterval } from '../state/documentVisibility';
 import { refreshProxyActivity, useProxyActivity } from '../state/proxyActivity';
-import { NO_HUB, liveBellHub, type BellHub } from '../lib/bellGroups';
-import {
-  accountEvents, automationSummary, closeWaitingBody, contradictions, diaryForHistory, failedJobs, jarvisLinks,
-  type AccountEvent, type Contradiction, type DiaryEntry, type FailedJob, type JarvisLinks,
-} from '../lib/hubSystem';
+import { NO_HUB, liveBellHub, urgentAccountEvents, type BellHub } from '../lib/bellGroups';
+import { accountEvents, automationSummary, closeWaitingBody, diaryForHistory, type AccountEvent, type DiaryEntry, type JarvisLinks } from '../lib/hubSystem';
+import { rereadBellExtras, useBellExtras } from '../state/bellExtras';
 import { accountNotes, proxyEvents, type ProxyEvent } from '../lib/proxyEvents';
 import { readJson } from '../lib/readJson';
 
@@ -41,17 +40,6 @@ async function post(path: string, body: unknown): Promise<string | null> {
     return err instanceof Error ? err.message : String(err);
   }
 }
-
-interface Extras {
-  failed: FailedJob[];
-  contradictions: Contradiction[];
-  jarvis: JarvisLinks | null;
-}
-
-const NO_EXTRAS: Extras = { failed: [], contradictions: [], jarvis: null };
-
-/** While the panel stays open its extras are read again this often, as the hub's pages did. */
-const EXTRAS_REFRESH_MS = 60_000;
 
 /** The proxy's account events of the last day, one row per kind and account, with their notes; empty without the hub. */
 function useAccountEvents(enabled: boolean): AccountEvent[] {
@@ -93,34 +81,24 @@ function downSinceOf(live: HubLiveState): number | null {
 export function useBellHub(): { hub: BellHub; present: boolean; answering: boolean; downSince: number | null; unread: HubLiveTopic[]; jarvis: JarvisLinks | null } {
   const live = useHubLive();
   const present = useHubEverRead();
-  const [extras, setExtras] = useState<Extras>(NO_EXTRAS);
-  const broken = automationSummary(live.automations?.data)?.broken ?? 0;
+  const summary = automationSummary(live.automations?.data);
   const answering = present && Object.values(live).some((entry) => entry?.data !== undefined);
+  const extras = useBellExtras(answering, summary ? `${summary.needsYou}:${summary.broken}` : null);
   const accounts = useAccountEvents(present);
+  const readAt = useProxyActivity(present)?.readAt;
 
-  useEffect(() => {
-    if (!answering) return;
-    let alive = true;
-    const read = async () => {
-      const [automations, contesto, config] = await Promise.all([
-        broken > 0 ? readJson('/api/hub/automations') : Promise.resolve(null),
-        readJson('/api/hub/contesto'),
-        readJson('/api/hub/hub-config'),
-      ]);
-      if (!alive) return;
-      setExtras({ failed: failedJobs(automations), contradictions: contradictions(contesto), jarvis: jarvisLinks(config) });
-    };
-    void read();
-    const stop = startVisibleInterval(() => { void read(); }, EXTRAS_REFRESH_MS);
-    return () => { alive = false; stop(); };
-  }, [answering, broken]);
-
-  // Down, the panel is Topics alone: what was read at the open is as old as the hub's silence.
-  const hub = useMemo((): BellHub => (answering ? { ...liveBellHub(live), ...extras, accounts } : NO_HUB), [answering, live, extras, accounts]);
-  return {
-    hub, present, answering, downSince: present ? downSinceOf(live) : null,
-    unread: answering ? unreadTopics(live) : [], jarvis: answering ? extras.jarvis : null,
-  };
+  // Down, the bell is Topics alone: what the hub said is as old as its silence.
+  const hub = useMemo((): BellHub => (answering
+    ? { ...liveBellHub(live), failed: extras.failed, automations: extras.automations, contradictions: extras.contradictions, accounts: readAt !== undefined ? urgentAccountEvents(accounts, readAt) : [] }
+    : NO_HUB), [answering, live, extras, accounts, readAt]);
+  // One object per change, not per render: the Dock's ledger is memoised on it.
+  const downSince = present ? downSinceOf(live) : null;
+  const unreadKey = answering ? unreadTopics(live).join(',') : '';
+  const jarvis = answering ? extras.jarvis : null;
+  return useMemo(() => ({
+    hub, present, answering, downSince,
+    unread: unreadKey ? (unreadKey.split(',') as HubLiveTopic[]) : [], jarvis,
+  }), [hub, present, answering, downSince, unreadKey, jarvis]);
 }
 
 /** How far back History reads the diary: the hub's own page showed a week. */
@@ -174,7 +152,8 @@ export function useBellActions(): {
   return { closeWaiting, fix, renew };
 }
 
-/** «Retry» of the hub-down band: the snapshot read again, which makes the server ask the hub now. */
-export function retryHub(): Promise<void> {
-  return refreshHubLive();
+/** «Retry» of the hub-down band: the snapshot read again, which makes the server ask the hub now, and the bell's lists with it. */
+export async function retryHub(): Promise<void> {
+  await refreshHubLive();
+  await rereadBellExtras();
 }
