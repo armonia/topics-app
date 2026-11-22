@@ -45,10 +45,13 @@ function machine(d: Database, id: string, status: "online" | "offline", slots: n
   d.run(`INSERT OR REPLACE INTO machines (id, name, hostname, arch, platform, daemon_version, status, slots, last_heartbeat_at, last_seen_at, created_at, updated_at)
     VALUES ('${id}', '${id}', '${id}', 'x', 'x', '1', '${status}', ${slots}, '${heartbeat}', 'x', 'x', 'x')`);
 }
-function card(d: Database, id: string, status: string, ageMs: number, extra: { humanAsk?: string; machineId?: string; dispatchState?: string; nodeRunOpen?: boolean } = {}) {
-  d.query("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, human_ask, machine_id, dispatch_state, node_run_open) VALUES (?, ?, 'c', ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, PID, status, iso(NOW - ageMs), iso(NOW - ageMs), extra.humanAsk ?? null, extra.machineId ?? null, extra.dispatchState ?? null, extra.nodeRunOpen ? 1 : 0);
+function card(d: Database, id: string, status: string, ageMs: number, extra: { humanAsk?: string; machineId?: string; dispatchState?: string; nodeRunOpen?: boolean; dispatchError?: string; deferredUntil?: string; attempts?: number; blockedBy?: string } = {}) {
+  d.query("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, human_ask, machine_id, dispatch_state, node_run_open, dispatch_error, dispatch_deferred_until, dispatch_attempts, blocked_by_task_id) VALUES (?, ?, 'c', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, PID, status, iso(NOW - ageMs), iso(NOW - ageMs), extra.humanAsk ?? null, extra.machineId ?? null, extra.dispatchState ?? null, extra.nodeRunOpen ? 1 : 0,
+      extra.dispatchError ?? null, extra.deferredUntil ?? null, extra.attempts ?? 0, extra.blockedBy ?? null);
 }
+/** A todo card the dispatcher gave up on: stuck for a reason of its own, not a queue that is moving. */
+const GIVEN_UP = { attempts: 2 };
 /** `n` "moved to" notes on a card, spread over `spanMs` ending now. */
 function moved(d: Database, taskId: string, n: number, spanMs: number, to: string) {
   for (let i = 0; i < n; i++) {
@@ -138,8 +141,8 @@ describe("cards voice", () => {
     expect(cards([sampleTopics(d, NOW)]).red).toBe(true);
   });
   test("threshold mutation: a todo card waiting 59 min is green, 1 h is red", () => {
-    const a = db(); card(a, "t", "todo", H - 60_000);
-    const b = db(); card(b, "t", "todo", H);
+    const a = db(); card(a, "t", "todo", H - 60_000, GIVEN_UP);
+    const b = db(); card(b, "t", "todo", H, GIVEN_UP);
     expect(cards([sampleTopics(a, NOW)]).red).toBe(false);
     expect(cards([sampleTopics(b, NOW)]).red).toBe(true);
   });
@@ -184,15 +187,50 @@ describe("cards voice", () => {
   test("a todo card is not stuck when the machine switch is off or its board is paused", () => {
     const off = db();
     off.run("UPDATE app_settings SET auto_dispatch = 0");
-    card(off, "t", "todo", 5 * H);
+    card(off, "t", "todo", 5 * H, GIVEN_UP);
     const paused = db();
     paused.run("UPDATE board_settings SET dispatch_paused = 1");
-    card(paused, "t", "todo", 5 * H);
+    card(paused, "t", "todo", 5 * H, GIVEN_UP);
     const live = db();
-    card(live, "t", "todo", 5 * H);
+    card(live, "t", "todo", 5 * H, GIVEN_UP);
     expect(cards([sampleTopics(off, NOW)]).red).toBe(false);
     expect(cards([sampleTopics(paused, NOW)]).red).toBe(false);
     expect(cards([sampleTopics(live, NOW)]).red).toBe(true);
+  });
+  test("a card held by the memory floor reads dispatch_error and names the memory cause", () => {
+    const d = db();
+    card(d, "m1", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    card(d, "m2", "in_progress", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    const s = sampleTopics(d, NOW);
+    expect(s.stuck.map((c) => c.cause)).toEqual(["memory", "memory"]);
+    expect(cards([s]).cause).toBe("il pavimento di memoria tiene ferma la coda");
+  });
+  test("chosen waits and a moving queue are not hours lost", () => {
+    const d = db();
+    card(d, "dep", "in_progress", 0, { dispatchState: "working" });
+    card(d, "later", "todo", 5 * H, { dispatchState: "waiting", deferredUntil: iso(NOW + H) });
+    card(d, "blocked", "todo", 5 * H, { blockedBy: "dep" });
+    card(d, "queued", "todo", 5 * H);
+    card(d, "paused-wait", "in_progress", 5 * H, { dispatchState: "waiting" });
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+    card(d, "gave-up", "todo", 5 * H, GIVEN_UP);
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.id)).toEqual(["gave-up"]);
+  });
+  test("a plain queue behind a fleet with no seats is still lost time", () => {
+    const d = db(); machine(d, "pc", "offline", 0); card(d, "q", "todo", 5 * H);
+    expect(sampleTopics(d, NOW).stuck.map((c) => c.cause)).toEqual(["seats"]);
+  });
+  test("a node that is up but took the run and went quiet is a hung node", () => {
+    const d = db(); machine(d, "pc", "online", 4);
+    card(d, "h1", "in_progress", 3 * H, { machineId: "pc", nodeRunOpen: true, dispatchState: "working" });
+    card(d, "h2", "todo", 3 * H, { machineId: "pc", dispatchError: "node_unreachable" });
+    const s = sampleTopics(d, NOW);
+    expect(s.stuck.map((c) => c.cause)).toEqual(["hung-node", "hung-node"]);
+    expect(cards([s]).cause).toContain("appeso");
+    // A recent run on the same node is just working.
+    const e = db(); machine(e, "pc", "online", 4);
+    card(e, "w", "in_progress", H, { machineId: "pc", nodeRunOpen: true });
+    expect(sampleTopics(e, NOW).stuck).toEqual([]);
   });
   test("the settings move a threshold, and garbage falls back to the defaults", () => {
     const d = db(); card(d, "p", "in_progress", 3 * H);
@@ -296,6 +334,23 @@ describe("the round", () => {
     d.query("INSERT INTO topics_check_samples (at, sample_json) VALUES (?, '{}')").run(NOW - 8 * 24 * H);
     await createTopicsCheck({ db: d, now: () => NOW }).tick();
     expect((d.query("SELECT COUNT(*) AS n FROM topics_check_samples").get() as { n: number }).n).toBe(1);
+  });
+});
+
+describe("the route", () => {
+  test("GET /api/topics-check answers the three voices with the detail the view opens", async () => {
+    const d = db();
+    card(d, "m", "todo", 3 * H, { dispatchError: "waiting-memory" });
+    const round = createTopicsCheck({ db: d, now: () => NOW, settings: () => noSettings });
+    await round.tick();
+    const { createTopicsCheckRouter } = await import("../routes/topics-check");
+    const router = createTopicsCheckRouter({ db: d, json: (b: unknown) => Response.json(b) } as never);
+    const res = await router(new Request("http://x/api/topics-check"), new URL("http://x/api/topics-check"), "/api/topics-check", "GET");
+    const body = await res!.json() as ReturnType<typeof round.current>;
+    expect(body.voices.map((v) => v.id)).toEqual(["cards", "seats", "proofs"]);
+    expect(body.voices[0]!.red).toBe(true);
+    expect(body.voices[0]!.cause).toBe("il pavimento di memoria tiene ferma la coda");
+    expect(await router(new Request("http://x/other"), new URL("http://x/other"), "/other", "GET")).toBeNull();
   });
 });
 
