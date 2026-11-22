@@ -133,7 +133,7 @@ export function startMachineHealth(ctx: AppContext): void {
       if (t.kind === "local") return probeLocal();
       const ssh = sshServers.get(t.id);
       if (ssh) {
-        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null);
+        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null, Date.now, ctx.APP_DATA_DIR);
         lastSsh.set(t.id, report);
         return report;
       }

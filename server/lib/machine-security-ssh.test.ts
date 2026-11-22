@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import type { MachineSecurityReport } from "../../shared/machine-health";
 import { FAILED_LOGIN_PATTERN, type RunResult, type Runner } from "./machine-security";
-import { createSshProbeEnv, parseSshServers, probeSshServer, shellQuote, sshArgv } from "./machine-security-ssh";
+import { createSshProbeEnv, parseSshServers, probeSshServer, shellQuote, sshArgv, sshCloseControlArgv } from "./machine-security-ssh";
 
 const server = { host: "srv.example.test", user: "audit", port: 2222 };
 const done = (stdout: string, code = 0, stderr = ""): RunResult => ({ code, stdout, stderr, timedOut: false, missing: false });
@@ -63,6 +63,23 @@ describe("MACHINE-08 ssh command line", () => {
     expect(argv.slice(-3)).toEqual(["--", "audit@srv.example.test", `'cat' ${shellQuote("/etc/it's")}`]);
   });
 
+  test("with a controlDir, one connection is reused: ControlMaster, ControlPath and a short ControlPersist", () => {
+    const argv = sshArgv(server, ["true"], { controlDir: "/data/ssh-control" });
+    expect(argv).toContain("ControlMaster=auto");
+    expect(argv.some((a) => a.startsWith("ControlPath=/data/ssh-control/"))).toBe(true);
+    expect(argv.some((a) => /^ControlPersist=\d+s$/.test(a))).toBe(true);
+  });
+
+  test("without a controlDir, no control options: one connection per command, as before", () => {
+    const argv = sshArgv(server, ["true"]);
+    expect(argv.some((a) => a.includes("ControlMaster") || a.includes("ControlPath") || a.includes("ControlPersist"))).toBe(false);
+  });
+
+  test("closing the control connection targets the same ControlPath, no remote command", () => {
+    const argv = sshCloseControlArgv(server, "/data/ssh-control");
+    expect(argv).toEqual(["ssh", "-o", "ControlPath=/data/ssh-control/%C", "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
+  });
+
   test("the environment only reads: cat, ls, stat and the probes", async () => {
     const seen: string[][] = [];
     const env = createSshProbeEnv(server, recorded({ "'cat' '/x'": done("hi"), "'ls' '-1' '/d'": done("a.conf\nb.conf\n"), "'stat' '-c' '%Y' '/f'": done("1700000000\n") }, seen));
@@ -105,6 +122,14 @@ describe("MACHINE-08 round on a recorded Ubuntu", () => {
     await probeSshServer(server, recorded(UBUNTU, seen));
     const words = new Set(seen.map((a) => a[a.length - 1].split(" ")[0]));
     for (const w of words) expect(["'true'", "'cat'", "'ls'", "'stat'", "'sshd'", "'ss'", "'apt'", "'ufw'", "'journalctl'"]).toContain(w);
+  });
+
+  test("with an app data dir, every read shares one connection and it is closed at the end of the round", async () => {
+    const seen: string[][] = [];
+    const appDataDir = await import("node:fs/promises").then((fs) => fs.mkdtemp("/tmp/ssh-probe-"));
+    await probeSshServer(server, recorded(UBUNTU, seen), null, Date.now, appDataDir);
+    for (const argv of seen.slice(0, -1)) expect(argv).toContain("ControlMaster=auto");
+    expect(seen.at(-1)).toEqual(["ssh", "-o", `ControlPath=${appDataDir}/ssh-control/%C`, "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
   });
 });
 

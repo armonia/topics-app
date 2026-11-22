@@ -5,10 +5,19 @@
  * read and listing goes through `ssh -o BatchMode=yes` and nothing is
  * installed or written on the server.
  */
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckKey, MachineSecurityReport } from "../../shared/machine-health";
-import { PROBE_TIMEOUT_MS, probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
+import { probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
+
+/**
+ * Deadline of one ssh probe command. Bigger than the local `PROBE_TIMEOUT_MS`
+ * because it also has to cover the handshake (measured 2.9-3.6 s from this
+ * Mac under normal load), which the local probes never pay.
+ */
+export const SSH_PROBE_TIMEOUT_MS = 12_000;
+/** How long the shared connection survives after the last command, so a round's later reads skip the handshake. */
+export const SSH_CONTROL_PERSIST_S = 60;
 
 export interface SshServer {
   host: string;
@@ -58,17 +67,32 @@ export function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The local `ssh` command line for one remote command. */
-export function sshArgv(server: SshServer, remote: string[], timeoutMs = PROBE_TIMEOUT_MS): string[] {
+/** Where the control sockets of `ControlPath` live: inside the app data folder, never on the server. */
+export function sshControlDir(appDataDir: string): string {
+  return join(appDataDir, "ssh-control");
+}
+
+/** The local `ssh` command line for one remote command. `controlDir` set reuses one connection per server across the round. */
+export function sshArgv(server: SshServer, remote: string[], opts: { timeoutMs?: number; controlDir?: string } = {}): string[] {
+  const { timeoutMs = SSH_PROBE_TIMEOUT_MS, controlDir } = opts;
   const argv = ["ssh", "-o", "BatchMode=yes", "-o", `ConnectTimeout=${Math.max(1, Math.ceil(timeoutMs / 1000))}`];
+  if (controlDir) argv.push("-o", "ControlMaster=auto", "-o", `ControlPath=${join(controlDir, "%C")}`, "-o", `ControlPersist=${SSH_CONTROL_PERSIST_S}s`);
   if (server.port) argv.push("-p", String(server.port));
   argv.push("--", server.user ? `${server.user}@${server.host}` : server.host, remote.map(shellQuote).join(" "));
   return argv;
 }
 
-/** A probe environment whose every access to the machine is an ssh command. */
-export function createSshProbeEnv(server: SshServer, local: Runner, now: () => number = Date.now): ProbeEnv {
-  const run: Runner = (argv, timeoutMs = PROBE_TIMEOUT_MS) => local(sshArgv(server, argv, timeoutMs), timeoutMs);
+/** The command that closes an already shared connection, so a round that is done does not wait out `ControlPersist`. */
+export function sshCloseControlArgv(server: SshServer, controlDir: string): string[] {
+  const argv = ["ssh", "-o", `ControlPath=${join(controlDir, "%C")}`, "-O", "exit"];
+  if (server.port) argv.push("-p", String(server.port));
+  argv.push(server.user ? `${server.user}@${server.host}` : server.host);
+  return argv;
+}
+
+/** A probe environment whose every access to the machine is an ssh command, sharing one connection per server. */
+export function createSshProbeEnv(server: SshServer, local: Runner, now: () => number = Date.now, controlDir?: string): ProbeEnv {
+  const run: Runner = (argv, timeoutMs = SSH_PROBE_TIMEOUT_MS) => local(sshArgv(server, argv, { timeoutMs, controlDir }), timeoutMs);
   return {
     platform: "linux",
     run,
@@ -119,18 +143,27 @@ export function whyUnreachable(r: RunResult): string {
 /**
  * One round on one server. A server that does not answer keeps its last
  * report (with the time it was taken) instead of replacing it with unknowns.
+ * With `appDataDir` every read of the round shares one ssh connection (the
+ * handshake only happens once), closed again before returning.
  */
 export async function probeSshServer(
   server: SshServer,
   local: Runner,
   last: MachineSecurityReport | null = null,
   now: () => number = Date.now,
+  appDataDir?: string,
 ): Promise<MachineSecurityReport> {
-  const env = createSshProbeEnv(server, local, now);
-  const reach = await env.run(["true"]);
-  if (reach.code !== 0) {
-    if (last && last.checked_at !== null) return last;
-    return unreachable(whyUnreachable(reach), now());
+  const controlDir = appDataDir ? sshControlDir(appDataDir) : undefined;
+  if (controlDir) { try { mkdirSync(controlDir, { recursive: true }); } catch { /* best effort: no reuse this round */ } }
+  try {
+    const env = createSshProbeEnv(server, local, now, controlDir);
+    const reach = await env.run(["true"]);
+    if (reach.code !== 0) {
+      if (last && last.checked_at !== null) return last;
+      return unreachable(whyUnreachable(reach), now());
+    }
+    return await probeMachineSecurity(env);
+  } finally {
+    if (controlDir) await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
   }
-  return probeMachineSecurity(env);
 }
