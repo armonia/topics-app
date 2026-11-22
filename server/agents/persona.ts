@@ -22,17 +22,17 @@ import { join } from "path";
 import type { Paths } from "../routes/agent-config";
 
 export const PERSONA_LAYER_NAMES = ["base", "user", "identity", "agent"] as const;
-export type PersonaLayerName = (typeof PERSONA_LAYER_NAMES)[number];
+export type AgentPersonaLayerName = (typeof PERSONA_LAYER_NAMES)[number];
 
-export interface PersonaLayer {
-  name: PersonaLayerName;
+export interface AgentPersonaLayer {
+  name: AgentPersonaLayerName;
   content: string;
   tokens: number;
 }
 
-export interface Persona {
+export interface AgentPersona {
   agent: string;
-  layers: PersonaLayer[];
+  layers: AgentPersonaLayer[];
   text: string;
 }
 
@@ -52,7 +52,7 @@ function estimateTokens(text: string): number {
   return Math.round(text.length / 4);
 }
 
-function layer(name: PersonaLayerName, content: string): PersonaLayer {
+function layer(name: AgentPersonaLayerName, content: string): AgentPersonaLayer {
   return { name, content, tokens: estimateTokens(content) };
 }
 
@@ -62,8 +62,8 @@ function layer(name: PersonaLayerName, content: string): PersonaLayer {
  * caller); `paths.home` is the channel engine's home, where `USER.md` lives
  * next to `engine.json` and `config.json`.
  */
-export function assemblePersona(agentId: string, workspace: string, paths: Paths): Persona {
-  const layers: PersonaLayer[] = [
+export function assemblePersona(agentId: string, workspace: string, paths: Paths): AgentPersona {
+  const layers: AgentPersonaLayer[] = [
     layer("base", readSafe(BASE_SOUL_PATH)),
     layer("user", readSafe(join(paths.home, "USER.md"))),
     layer("identity", readSafe(join(workspace, "IDENTITY.md"))),
