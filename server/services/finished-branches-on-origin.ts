@@ -74,8 +74,8 @@ export async function readOrigin(
   let defaultBranch = "";
   const heads = new Map<string, string>();
   for (const line of r.stdout.split("\n")) {
-    const sym = /^ref: refs\/heads\/(\S+)\s+HEAD$/.exec(line.trim());
-    if (sym) { defaultBranch = sym[1]; continue; }
+    const headRef = /^ref: refs\/heads\/(\S+)\s+HEAD$/.exec(line.trim());
+    if (headRef) { defaultBranch = headRef[1]; continue; }
     const [sha, ref] = line.trim().split(/\s+/);
     if (sha && ref?.startsWith("refs/heads/")) heads.set(ref.slice("refs/heads/".length), sha);
   }
