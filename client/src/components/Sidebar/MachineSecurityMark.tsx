@@ -46,7 +46,7 @@ export function SecurityRow({ entry, className, rowProps, children }: {
       aria-expanded={open}
       title={label}
       onClick={() => setOpen((v) => !v)}
-      className={`flex flex-shrink-0 items-center gap-1 rounded px-0.5 hover:bg-app-hover coarse:min-h-11 coarse:min-w-11 coarse:justify-center ${tone}`}
+      className={`flex min-h-6 min-w-6 flex-shrink-0 items-center justify-center gap-1 rounded px-0.5 hover:bg-app-hover coarse:min-h-11 coarse:min-w-11 coarse:justify-center ${tone}`}
     >
       <Icon size={13} />
       {stale && <span data-testid="machine-security-age" className="text-mini text-app-text-muted">{deviceWhen(at, t, locale)}</span>}
