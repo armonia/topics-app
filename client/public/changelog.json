@@ -1,5 +1,145 @@
 [
   {
+    "version": "2.4.74",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [
+        {
+          "it": "security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
+        }
+      ],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il server degli e2e non scrive piu' nel file di salute della produzione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: ragioni solo sulle card oltre soglia, schema dei test dalle migration vere, catena fino al primo backlog, età dall'ultimo ingresso in todo e da wait_since, nodo spento con corsa aperta, piano esaurito, cause da reason.kind",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rosso del riallineamento dice di fondere origin/main, non main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "security i18n leaves are catalogues for the UI-language gate",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Catalogo strumenti con filtro per agente applicato alla rotta del turno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Persona a strati condivisi fra tutti gli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: ore della catena dalla radice parcheggiata, pesanti in memoria, velocità senza orologio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina inv in inventory nel test del filtro strumenti (gate lingua identificatori)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le foto della sicurezza si scattano anche a 375 px",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: la riga dei task ha un tipo, any-budget torna a 398",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rinomina Persona in AgentPersona e aggiunge lo script di migrazione del SOUL principale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del filtro strumenti dichiara cosa copre e perde una funzione duplicata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un porto occupato da un altro file non riprova con lo stesso numero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filtro degli strumenti dell'agente arriva davvero al turno nativo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La Verifica di Topics si legge anche sul telefono senza l'hub",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Direct unit tests for the filter chain the turn runs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "fast gira anche sul nodo Windows",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il nodo riceve intera la revisione anche dopo un riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.73",
     "date": "2026-11-22",
     "sections": {
@@ -8,7 +148,38 @@
       "perf": [],
       "internal": [
         {
+          "it": "Fix any-budget overshoot and import cycle in agents registry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: la causa memoria legge dispatch_error, le attese volute e la coda non sono ore perse (deriveQueueReason), nuova causa nodo appeso, test della route",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Move backfillAgentAccounts out of the production registry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "declare the requirement covered by dispatch-overflow.models",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Verifica di Topics: il giro legge la ragione della coda da queueReasonOf e classifica per tone; orologio iniettato nella route, età dall'ingresso in todo, nodo appeso da poll/silenzio, catena in backlog, programmata scaduta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tag untraced test with its covered requirement (KANBAN-76)",
           "en": "",
           "scope": null
         },
@@ -16,6 +187,18 @@
           "it": "Il land del modello mancante aveva lasciato rossa la CI di main",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "machines integration fakes implement readVersion",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "take main's machines integration fakes",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -46,11 +229,33 @@
     "date": "2026-11-22",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "security mark hit area 24px (usability audit target-size)",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
+          "it": "Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: CheckResult diventa ProofResult (no-type-mirrors), riga Automazioni allineata alla colonna del chevron (ROWALIGN-02)",
           "en": "",
           "scope": null
         },
@@ -60,7 +265,22 @@
           "scope": null
         },
         {
+          "it": "Un solo risolutore della cartella engine e migrazione per gli account persi",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Requirement ids and coverage tags for the agents registry spec",
           "en": "",
           "scope": null
         },
@@ -82,6 +302,11 @@
       "internal": [
         {
           "it": "One-line @internal tags: the 136 new four-line blocks said the same thing in one line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: la riga Automazioni e la vista ci sono anche senza hub (solo la Verifica), e2e hub-off aggiornato",
           "en": "",
           "scope": null
         },
@@ -112,6 +337,11 @@
           "scope": null
         },
         {
+          "it": "Verifica di Topics: soglie sul confine, turno vivo, spostamenti sani non contano, giro unico, stati in attesa e ferma",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223",
           "en": "",
           "scope": null
@@ -127,7 +357,17 @@
           "scope": null
         },
         {
+          "it": "Verifica di Topics: indice su created_at, lettura della sola finestra, misura ai volumi veri (2,4 ms con 66k commenti e 2.016 campioni)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registro agenti dinamico dalla configurazione del motore canali",
           "en": "",
           "scope": null
         }
@@ -144,6 +384,16 @@
       "internal": [
         {
           "it": "Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: giro dei 5 minuti con tre voci in ore perse, senza modelli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mark quoted UI label comments as intentional Italian",
           "en": "",
           "scope": null
         },
@@ -217,7 +467,14 @@
     "version": "2.4.65",
     "date": "2026-11-21",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "security shield beside each node and its four checks in the row (MACHINE-06)",
+          "en": "",
+          "scope": "machines",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "bisect a red landed batch instead of bouncing every card",
@@ -237,6 +494,12 @@
           "it": "Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "wait on the viewport width, not a fixed sleep",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         },
         {
           "it": "Stop relaunching a hung paired node forever",
