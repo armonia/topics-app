@@ -1549,6 +1549,14 @@ describe("overflow: una corsa vuota su un nodo lo salta, non ferma la card sul M
     expect(h.task(CARD).machineId).toBe(PC);
   });
 
+  it("due nodi già saltati restano saltati: la card non rimbalza e resta qui", async () => {
+    const h = harness();
+    h.seed(CARD);
+    h.svc.update({ taskId: CARD, actor: "agent", by: "dispatcher", patch: { overflowSkip: { machineId: `${CLOUD},${PC}`, until: new Date(Date.now() + 3_600_000).toISOString() } } });
+    await settleTwoRounds(h);
+    expect(h.task(CARD).machineId ?? null).toBeNull();
+  });
+
   it("il salto scaduto non conta più", async () => {
     const h = harness();
     h.seed(CARD);

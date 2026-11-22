@@ -214,6 +214,8 @@ export interface NodeClient {
   cancelRun(input: { baseUrl: string; token: string; runId: string; delegation?: NodeRunBinding }): Promise<void>;
   /** The Claude ids the node's ready Claude coding runtimes list: what its cards can run. */
   codingModels(input: { baseUrl: string; token: string }): Promise<string[]>;
+  /** The app version the node really runs (`/api/version`); `null` when it does not say. */
+  readVersion(input: { baseUrl: string; token: string }): Promise<string | null>;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 1500;
@@ -563,6 +565,15 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         { method: "DELETE", headers: headersFor(token, delegatedHeaders(delegation)) },
         "cancel run",
       );
+    },
+
+    async readVersion({ baseUrl, token }) {
+      const out = await callJson<{ version?: unknown }>(
+        `${baseUrl}/api/version`,
+        { method: "GET", headers: headersFor(token) },
+        "read version",
+      );
+      return typeof out.version === "string" && out.version ? out.version : null;
     },
 
     async codingModels({ baseUrl, token }) {
