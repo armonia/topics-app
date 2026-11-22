@@ -23,6 +23,7 @@ import { useConfigSummary } from './configSummary';
 import { useStoppedLog } from './useStoppedLog';
 import { useAgo } from './useAgo';
 import { CHANNEL_MARKS } from '../../lib/brandIcons';
+import { Select } from '../Shared/Select';
 import type { Registry } from '../../state/agentRegistry';
 
 type Agent = Registry['agents'][number];
@@ -177,26 +178,28 @@ function StoppedRegister({ agentId, allAgents }: { agentId: string; allAgents: {
     <div data-testid="agent-permissions-register" className="space-y-2">
       <h3 className="text-prose font-semibold text-app-text">{tr('agentConfig.permissions.register.title')}</h3>
       <div className="flex flex-wrap gap-2">
-        <label className="max-w-full min-w-0 text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterAgent')}
-          <select
-            data-testid="agent-permissions-agent-filter" value={agentFilter}
-            onChange={(e) => { setAgentFilter(e.target.value); setPage(1); }}
-            className="ml-1 max-w-full min-w-0 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
-          >
-            <option value="">{tr('agentConfig.permissions.register.filterAgentAll')}</option>
-            {allAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </label>
-        <label className="max-w-full min-w-0 text-mini text-app-text-secondary">{tr('agentConfig.permissions.register.filterReason')}
-          <select
-            data-testid="agent-permissions-reason-filter" value={reasonFilter}
-            onChange={(e) => { setReasonFilter(e.target.value); setPage(1); }}
-            className="ml-1 max-w-full min-w-0 rounded border border-app-border-light bg-surface px-1 py-0.5 text-mini text-app-text"
-          >
-            <option value="">{tr('agentConfig.permissions.register.filterReasonAll')}</option>
-            {STOPPED_REASONS.map((r) => <option key={r} value={r}>{tr(`agentConfig.permissions.reason.${r}`)}</option>)}
-          </select>
-        </label>
+        <Select
+          testId="agent-permissions-agent-filter"
+          value={agentFilter}
+          ariaLabel={tr('agentConfig.permissions.register.filterAgent')}
+          onChange={(v) => { setAgentFilter(v); setPage(1); }}
+          className="max-w-full"
+          options={[
+            { value: '', label: tr('agentConfig.permissions.register.filterAgentAll') },
+            ...allAgents.map((a) => ({ value: a.id, label: a.name })),
+          ]}
+        />
+        <Select
+          testId="agent-permissions-reason-filter"
+          value={reasonFilter}
+          ariaLabel={tr('agentConfig.permissions.register.filterReason')}
+          onChange={(v) => { setReasonFilter(v); setPage(1); }}
+          className="max-w-full"
+          options={[
+            { value: '', label: tr('agentConfig.permissions.register.filterReasonAll') },
+            ...STOPPED_REASONS.map((r) => ({ value: r, label: tr(`agentConfig.permissions.reason.${r}`) })),
+          ]}
+        />
       </div>
       {rows.length === 0 ? (
         <p className="text-mini text-app-text-muted">{tr('agentConfig.permissions.register.none')}</p>
