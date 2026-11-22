@@ -173,6 +173,7 @@ export type MessaggioRelay = FromMachine | FromGuest | DaRelay;
  * le passa una busta e controlla che il contenuto non compaia nel risultato: se
  * un giorno qualcuno aggiungesse un campo in chiaro «tanto serve per il log»,
  * quel test fallisce.
+ * @internal the privacy test checks what the relay may read
  */
 export function involucro(m: MessaggioRelay): Record<string, unknown> {
   const base: Record<string, unknown> = { t: m.t };
@@ -187,12 +188,6 @@ export function involucro(m: MessaggioRelay): Record<string, unknown> {
   if ("motivo" in m) base.motivo = m.motivo;
   if ("refs" in m) base.refs = m.refs;
   return base;
-}
-
-/** Una busta porta contenuto opaco? Serve a chi instrada per sapere che non
- *  deve nemmeno provare a guardarci dentro. */
-export function haContenutoOpaco(m: MessaggioRelay): m is BustaVersoOspite | BustaVersoMacchina {
-  return m.t === "to-guest" || m.t === "to-host";
 }
 
 /**
@@ -312,6 +307,7 @@ export const MOTIVI = new Set([
 /** Il tetto di Cloudflare per un singolo messaggio ricevuto da un DO. Scritto
  *  qui perché chi sceglie una dimensione di frame lo veda, invece di scoprirlo
  *  in produzione. */
+/** @internal tests assert the frame sizes stay under it */
 export const TUBO_LIMITE_CLOUDFLARE = 32 * 1024 * 1024;
 
 /**

@@ -319,11 +319,6 @@ export function parseToolCallDetail(value: unknown): ParseResult {
   return { ok: false, error };
 }
 
-/** Variante booleana per chi ha bisogno solo di un sì/no. */
-export function isToolCallDetail(value: unknown): value is ToolCallDetail {
-  return toolCallDetailSchema.safeParse(value).success;
-}
-
 /**
  * Uguaglianza strutturale a compile-time: il tipo inferito dallo schema deve
  * coincidere con `ToolCallDetail` di `shared/types.ts`. Verificata in

@@ -104,6 +104,7 @@ export interface TaskFile {
  * tu»), e passare il lavoro a un umano è sempre permesso. `invisibile` no: è
  * l'unica che toglie la revisione umana, e non è una cosa che si concede a chi
  * ha scritto il codice. Quella la scrive solo la derivazione, o una persona a mano.
+ * @internal label policy for agents, pinned by test, no route calls it yet
  */
 export function isAgentWritableLabel(label: string): boolean {
   return isTaskLabel(label) && label !== 'invisibile';

@@ -24,6 +24,7 @@
  * the server that parses it.
  */
 
+/** @internal dev tooling only, called by function */
 export const GATE_SLOWDOWN_PREFIX = "[slot] slower";
 
 /**

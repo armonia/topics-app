@@ -23,6 +23,7 @@
 /** How the native desktop shell must forward a ⌘-chord (macOS NSEvent monitor).
  *  Only `⌘` (without `⌃`) *character* chords live here — the Tab cycle and bare
  *  Escape key off `keyCode`, so they stay hand-written in `lib.rs`. */
+/** @internal dev tooling only, called by function */
 export interface NativeForward {
   /** `charactersIgnoringModifiers` (lowercase) that trigger the forward.
    *  Usually one entry; `['/','?']` covers a chord reachable with Shift, and
@@ -84,7 +85,7 @@ export const ALT = 'Alt';
  *  there it IS the same key. */
 export const CTRL = 'Ctrl';
 
-/** The tokens above, for the renderer that maps them to the local spelling. */
+/** @internal the shortcut test checks every token is one the renderer knows. The tokens above, for the renderer that maps them to the local spelling. */
 export const MODIFIER_TOKENS = [MOD, SHIFT, ALT, CTRL] as const;
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [

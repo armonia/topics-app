@@ -14,6 +14,9 @@
  *
  * Lives in shared/ because both sides read it: the script that prints it and
  * the server that parses it.
+ * @internal dev tooling only, called by function
+ * @internal dev tooling only, called by function
+ * @internal dev tooling only, called by function
  */
 export const SLOT_ACQUIRED_PREFIX = "[slot] acquired";
 

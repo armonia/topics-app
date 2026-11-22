@@ -135,6 +135,7 @@ export function componiLink(base: string, relayId: string, shareRef: string, chi
   return u.toString();
 }
 
+/** @internal inverse of componiLink, used by its round-trip tests */
 export function leggiLink(href: string): { relayId: string; shareRef: string; chiave: string } | null {
   try {
     const u = new URL(href);

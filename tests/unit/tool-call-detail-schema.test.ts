@@ -17,7 +17,6 @@ import type { ToolCallDetail } from '../../server/types';
 import {
   toolCallDetailSchema,
   parseToolCallDetail,
-  isToolCallDetail,
   type ZodInferredToolCallDetail,
 } from '../../shared/tool-call-detail';
 
@@ -245,22 +244,6 @@ describe('parseToolCallDetail — malformed payloads', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('actions.0.index');
-  });
-});
-
-describe('isToolCallDetail — boolean guard', () => {
-  test('true for valid, false for invalid', () => {
-    expect(isToolCallDetail({ type: 'plan', text: 'x' })).toBe(true);
-    expect(isToolCallDetail({ type: 'plan' })).toBe(false);
-    expect(isToolCallDetail(null)).toBe(false);
-  });
-
-  test('narrows the type on true', () => {
-    const value: unknown = { type: 'fetch', url: 'https://x' };
-    if (isToolCallDetail(value)) {
-      const _detail: ToolCallDetail = value;
-      expect(_detail.type).toBe('fetch');
-    }
   });
 });
 

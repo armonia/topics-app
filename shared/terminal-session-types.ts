@@ -46,7 +46,7 @@ export const TERMINAL_AGENT_TYPES = ["shell", "claude-code", "codex", "opencode"
 
 export type TerminalAgentType = (typeof TERMINAL_AGENT_TYPES)[number];
 
-/** true = la stringa è un tipo di sessione valido (type guard, mai lancia). */
+/** @internal the type-list test checks every creatable type is persistable. true = la stringa è un tipo di sessione valido (type guard, mai lancia). */
 export function isTerminalSessionType(v: unknown): v is TerminalSessionType {
   return typeof v === "string" && (TERMINAL_SESSION_TYPES as readonly string[]).includes(v);
 }

@@ -20,7 +20,7 @@
  *     (`server/db.ts`).
  */
 
-/** Dove vivono le migration, relativo alla radice del repo. */
+/** @internal dev tooling only, called by function. Dove vivono le migration, relativo alla radice del repo. */
 export const MIGRATIONS_DIR = "server/db/migrations";
 
 /** `089-retirements.sql` → sì; `README.md`, `.gitkeep`, `draft.sql` → no. */

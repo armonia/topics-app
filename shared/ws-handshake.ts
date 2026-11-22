@@ -62,6 +62,7 @@ export type HelloMessage = z.infer<typeof helloMessageSchema>;
  * Sent when the server detects a client is too old to operate safely.
  * For SERVER_PROTOCOL_VERSION = 1 this is never emitted; reserved for v2+
  * where structured upgrade prompts become necessary.
+ * @internal reserved v2 message, its shape is locked by the contract tests
  */
 export const upgradeRequiredSchema = z.object({
   type: z.literal('upgrade-required'),
@@ -88,6 +89,7 @@ export type WelcomeParseResult =
   | { ok: true; data: WelcomeMessage }
   | { ok: false; error: string };
 
+/** @internal handshake contract validator, driven by the schema tests */
 export function parseWelcomeMessage(value: unknown): WelcomeParseResult {
   const result = welcomeMessageSchema.safeParse(value);
   if (result.success) return { ok: true, data: result.data };
@@ -98,6 +100,7 @@ export type HelloParseResult =
   | { ok: true; data: HelloMessage }
   | { ok: false; error: string };
 
+/** @internal handshake contract validator, driven by the schema tests */
 export function parseHelloMessage(value: unknown): HelloParseResult {
   const result = helloMessageSchema.safeParse(value);
   if (result.success) return { ok: true, data: result.data };

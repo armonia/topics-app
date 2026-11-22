@@ -179,10 +179,6 @@ export function taskParkedNotificationKey(taskId: string): string {
  */
 export const TERMINAL_TARGET_KIND = 'terminal';
 
-export function terminalNotificationGroupKey(sessionId: string): string {
-  return `${TERMINAL_TARGET_KIND}:${sessionId}`;
-}
-
 export function defaultNotificationGroupKey(
   targetKind: NotificationTargetKind | null | undefined,
   targetId: string | null | undefined,

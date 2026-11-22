@@ -172,6 +172,7 @@ export function automaticChatTarget(
 /** Whether the switch ON runs this runtime and model through the engine: the
  * same answer as `topicsRoute` with the preference ON. A null provider means
  * Automatic, routable while the engine is ready. */
+/** @internal tests assert it agrees with topicsRoute */
 export function topicsRoutingAvailable(
   provider: string | null,
   model: string | null | undefined,

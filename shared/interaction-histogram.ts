@@ -12,7 +12,7 @@
  * Browsers round these durations to 8 ms, so the edges below are multiples of 8.
  */
 
-/** Interactions at or above this many milliseconds are the ones Event Timing reports. */
+/** @internal dev tooling only, called by function. Interactions at or above this many milliseconds are the ones Event Timing reports. */
 export const SLOW_INTERACTION_MS = 16;
 
 /** Lower edge of each bucket; the last bucket is open on top. */
