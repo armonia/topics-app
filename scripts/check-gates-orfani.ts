@@ -25,6 +25,10 @@ export const REASONS: Record<string, string> = {
     "direbbe niente; in una worktree di consegna i rami ci sono per forza, quindi in " +
     "`static-rails` sarebbe sempre rosso. Gira da `scripts/git-hooks/pre-push`, cioe' " +
     "nel momento in cui qualcuno sta per dire fatto, e stampa senza mai bloccare.",
+  "check:instance-strings":
+    "e' lo stesso file `tests/unit/no-instance-strings.test.ts`, che la CI esegue gia' " +
+    "nel giro unit, e che `scripts/git-hooks/pre-push` lancia sul checkout vivo prima di " +
+    "ogni push; lo script e' solo la scorciatoia a mano per lo stesso test.",
   "check:lockfile":
     "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
     "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
