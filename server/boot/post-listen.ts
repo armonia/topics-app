@@ -6,13 +6,14 @@ import { writeState } from "../services/daemon-state";
 import { probePort, verdictMessage, realProbeDeps } from "../lib/port-squatter";
 import { startMachineHealth } from "./machine-health";
 import { startTopicsCheck } from "../services/topics-check";
+import { createCures } from "../services/topics-check-cures";
 import { startQuotaSampler } from "../usage/quota-sampler";
 import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
 import type { AfterRelay } from "./scope";
 
 export function bootPostListen(scope: AfterRelay) {
-  const { PORT, browserService, ctx, server, tlsCert, useTls } = scope;
+  const { PORT, browserService, ctx, dispatcherSvc, taskDispatcher, server, tlsCert, useTls } = scope;
   const proto = useTls ? "https" : "http";
 
   const wsProto = useTls ? "wss" : "ws";
@@ -160,7 +161,11 @@ export function bootPostListen(scope: AfterRelay) {
   startMachineHealth(ctx);
 
   // Self-check round: three voices in hours lost, every 5 minutes, no model calls.
-  startTopicsCheck(ctx.db);
+  const cures = createCures({
+    db: ctx.db, svc: dispatcherSvc,
+    reassign: (task) => taskDispatcher.reassignFromForbidden(task, {}),
+  });
+  startTopicsCheck(ctx.db, (sample, s) => void cures.run(sample, s.thresholds, s.investigation));
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
   if (process.env.TOPICS_E2E !== "1") startQuotaSampler();

@@ -25,6 +25,17 @@ const HOUR_MS = 3_600_000;
 /** What one bounce costs, as a stated estimate: a dispatch that went nowhere. */
 const BOUNCE_COST_HOURS = 0.25;
 
+/**
+ * The round's queries, exported so a test can ask the planner about the very text that runs.
+ * The planner picks the (task, author, kind) index by itself: with no hint, a schema without it still answers.
+ */
+export const QUEUE_MOVED_SQL = "SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1";
+export const THREADS_SQL =
+  "SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))";
+export const PARKED_EVENTS_SQL = "SELECT content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status' ORDER BY created_at DESC";
+export const MOVES_SQL = "SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200";
+export const READ_SAMPLES_SQL = "SELECT sample_json FROM topics_check_samples WHERE at >= ? ORDER BY at";
+
 export interface CheckSpec { name: string; command: string; tier: "5min" | "daily" }
 
 export interface Thresholds {
@@ -49,7 +60,10 @@ export interface Thresholds {
   checkTimeoutSec: number;
 }
 
-export interface TopicsCheckSettings { thresholds: Thresholds; checks: CheckSpec[] }
+/** Where the cures open an investigation card, and how many a day. Off while `boardId` is empty. */
+export interface InvestigationSettings { boardId: string | null; perDay: number }
+
+export interface TopicsCheckSettings { thresholds: Thresholds; checks: CheckSpec[]; investigation: InvestigationSettings }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   todoStuckHours: 1, progressStuckHours: 2, cardMoves: 4, cardMovesWindowMin: 60,
@@ -58,7 +72,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 
 /** Reads the JSON setting; anything unreadable or out of range falls back to the default. */
 export function parseSettings(raw: string | null | undefined): TopicsCheckSettings {
-  let o: { thresholds?: Record<string, unknown>; checks?: unknown } = {};
+  let o: { thresholds?: Record<string, unknown>; checks?: unknown; investigation?: { boardId?: unknown; perDay?: unknown } } = {};
   try { o = raw ? (JSON.parse(raw) as typeof o) ?? {} : {}; } catch { /* defaults */ }
   const thresholds = { ...DEFAULT_THRESHOLDS };
   for (const k of Object.keys(thresholds) as (keyof Thresholds)[]) {
@@ -70,7 +84,12 @@ export function parseSettings(raw: string | null | undefined): TopicsCheckSettin
     if (!r || typeof r.name !== "string" || typeof r.command !== "string" || !r.name || !r.command) return [];
     return [{ name: r.name, command: r.command, tier: r.tier === "daily" ? "daily" : "5min" }];
   });
-  return { thresholds, checks };
+  const perDay = o.investigation?.perDay;
+  const investigation: InvestigationSettings = {
+    boardId: typeof o.investigation?.boardId === "string" && o.investigation.boardId ? o.investigation.boardId : null,
+    perDay: typeof perDay === "number" && Number.isInteger(perDay) && perDay >= 0 ? perDay : 3,
+  };
+  return { thresholds, checks, investigation };
 }
 
 export type StuckCause =
@@ -158,9 +177,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   // agent writes on it. The planner picks the (task, author, kind) index by itself: with no hint, a schema
   // without that index still answers.
   const firstCut = rows.filter(over);
-  const threads = db.query(
-    "SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))",
-  ).all(JSON.stringify(firstCut.map((r) => r.id))) as { task_id: string; kind: string; content: string; created_at: string }[];
+  const threads = db.query(THREADS_SQL).all(JSON.stringify(firstCut.map((r) => r.id))) as { task_id: string; kind: string; content: string; created_at: string }[];
   const statusOf = new Map(firstCut.map((r) => [r.id, r.status]));
   for (const c of threads) {
     const status = statusOf.get(c.task_id)!;
@@ -174,10 +191,10 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const batch = shared.buildBatch(old, { reasonsOnly: true });
   batch.nowIso = iso(now);
   let moved: boolean | null = null;
-  const queueMoved = () => (moved ??= !!db.query("SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").get(iso(now - t.queueMovedHours * HOUR_MS)));
+  const queueMoved = () => (moved ??= !!db.query(QUEUE_MOVED_SQL).get(iso(now - t.queueMovedHours * HOUR_MS)));
   /** When a card last went into backlog: its last status event there, or its birth when it was born there. */
   const parkedAt = (id: string, createdAt: string): number => {
-    const events = db.query("SELECT content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status' ORDER BY created_at DESC").all(id) as { content: string; created_at: string }[];
+    const events = db.query(PARKED_EVENTS_SQL).all(id) as { content: string; created_at: string }[];
     return ms(events.find((e) => statusEventEnters(e.content, "backlog"))?.created_at ?? createdAt);
   };
   /** The card that holds a chain: the first one parked in backlog, or closed, along the blockers; `since` is when it was parked. */
@@ -269,7 +286,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   }
 
   const sinceDay = iso(now - 24 * HOUR_MS);
-  const moves = (db.query("SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all(sinceDay) as
+  const moves = (db.query(MOVES_SQL).all(sinceDay) as
     { task_id: string; content: string; created_at: string }[]).map((c): Move => {
     const at = Date.parse(c.created_at);
     const to = /^Spostata su ([^:]+):/.exec(c.content)?.[1] ?? /^Spostata da .+? a ([^:]+):/.exec(c.content)?.[1] ?? "";
@@ -289,7 +306,7 @@ export interface Voice {
   cause: string | null;
 }
 
-const CAUSE_TEXT: Record<StuckCause, string> = {
+export const CAUSE_TEXT: Record<StuckCause, string> = {
   person: "in attesa di una persona",
   "hung-node": "il nodo ha preso la corsa e non risponde più (appeso)",
   "chain-parked": "la catena è bloccata da una card parcheggiata in backlog",
@@ -315,6 +332,14 @@ const mostCommon = <T,>(xs: T[]): T | undefined => {
   return [...n].sort((a, b) => b[1] - a[1])[0]?.[0];
 };
 
+/** The cards that moved `cardMoves` times inside `cardMovesWindowMin`: one card ping-ponging between machines. */
+export function pingPongCards(moves: readonly Move[], t: Thresholds): Set<string> {
+  const perCard = new Map<string, number[]>();
+  for (const m of moves) perCard.set(m.id, [...(perCard.get(m.id) ?? []), m.at]);
+  const windowMs = t.cardMovesWindowMin * 60_000;
+  return new Set([...perCard].filter(([, ats]) => ats.some((a) => ats.filter((b) => b >= a && b < a + windowMs).length >= t.cardMoves)).map(([id]) => id));
+}
+
 /** The three voices from the samples (oldest first or not, the order does not matter). */
 export function voices(samples: readonly Sample[], settings: TopicsCheckSettings): Voice[] {
   const { thresholds: t } = settings;
@@ -324,10 +349,7 @@ export function voices(samples: readonly Sample[], settings: TopicsCheckSettings
   // move is only a bounce when one card ping-pongs, or when it went to a machine that was not answering.
   const stuck = last?.stuck ?? [];
   const moves = last?.moves ?? [];
-  const perCard = new Map<string, number[]>();
-  for (const m of moves) perCard.set(m.id, [...(perCard.get(m.id) ?? []), m.at]);
-  const windowMs = t.cardMovesWindowMin * 60_000;
-  const pingPong = new Set([...perCard].filter(([, ats]) => ats.some((a) => ats.filter((b) => b >= a && b < a + windowMs).length >= t.cardMoves)).map(([id]) => id));
+  const pingPong = pingPongCards(moves, t);
   const silentMoves = moves.filter((m) => m.silent);
   const toSilent = silentMoves.length >= t.totalMoves;
   const bounces = moves.filter((m) => pingPong.has(m.id) || (toSilent && m.silent));
@@ -401,7 +423,7 @@ export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number
 
 /** The samples taken at or after `sinceMs` (default: everything kept), oldest first. */
 export function readSamples(db: Database, sinceMs = 0): Sample[] {
-  return (db.query("SELECT sample_json FROM topics_check_samples WHERE at >= ? ORDER BY at").all(sinceMs) as { sample_json: string }[]).map((r) => JSON.parse(r.sample_json) as Sample);
+  return (db.query(READ_SAMPLES_SQL).all(sinceMs) as { sample_json: string }[]).map((r) => JSON.parse(r.sample_json) as Sample);
 }
 
 export type RoundState = "waiting" | "stale" | "live";
@@ -424,7 +446,7 @@ export interface TopicsCheckRound {
 /** The oldest sample `voices` can use: its widest window, with one interval of slack. */
 const oldestUsed = (now: number, s: TopicsCheckSettings) => now - s.thresholds.seatsWindowHours * HOUR_MS - SAMPLE_INTERVAL_MS;
 
-export function createTopicsCheck(opts: { db: Database; now?: () => number; settings?: () => TopicsCheckSettings; run?: Runner }): TopicsCheckRound {
+export function createTopicsCheck(opts: { db: Database; now?: () => number; settings?: () => TopicsCheckSettings; run?: Runner; cure?: (sample: Sample, s: TopicsCheckSettings) => void }): TopicsCheckRound {
   const { db } = opts;
   const now = opts.now ?? Date.now;
   const settings = opts.settings ?? (() => parseSettings(getAppSettings().topicsCheck));
@@ -435,6 +457,7 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
     const sample: Sample = { ...sampleTopics(db, at, s.thresholds), checks: await runProofs(s.checks, s.thresholds.checkTimeoutSec, opts.run) };
     db.query("INSERT OR REPLACE INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(at, JSON.stringify(sample));
     db.query("DELETE FROM topics_check_samples WHERE at < ?").run(at - KEEP_SAMPLES_MS);
+    try { opts.cure?.(sample, s); } catch (e) { console.warn("[topics-check] cures failed:", e instanceof Error ? e.message : e); }
     return voices(readSamples(db, oldestUsed(at, s)), s);
   };
   return {
@@ -452,8 +475,8 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
 }
 
 /** Boot: the first round after a short wait, then every 5 minutes; a failed round never stops the timer. */
-export function startTopicsCheck(db: Database): TopicsCheckRound {
-  const round = createTopicsCheck({ db });
+export function startTopicsCheck(db: Database, cure?: (sample: Sample, s: TopicsCheckSettings) => void): TopicsCheckRound {
+  const round = createTopicsCheck({ db, cure });
   const safeTick = () => void round.tick().catch((e) => console.warn("[topics-check] round failed:", e instanceof Error ? e.message : e));
   setTimeout(() => {
     safeTick();

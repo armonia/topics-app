@@ -13,7 +13,7 @@ import { createTasksShared } from "./tasks/shared";
 import { setDispatchBlock } from "./dispatch-block-signal";
 import { PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 import {
-  createTopicsCheck, DEFAULT_THRESHOLDS, parseSettings, readSamples, roundState, runProofs, sampleTopics, voices,
+  createTopicsCheck, DEFAULT_THRESHOLDS, MOVES_SQL, PARKED_EVENTS_SQL, QUEUE_MOVED_SQL, READ_SAMPLES_SQL, THREADS_SQL, parseSettings, readSamples, roundState, runProofs, sampleTopics, voices,
   SAMPLE_INTERVAL_MS, type Sample, type TopicsCheckSettings,
 } from "./topics-check";
 
@@ -362,7 +362,7 @@ describe("the board's states, as the dispatcher writes them (second review, poin
     expect(shared.queueReasonOf(rows[0], batch)?.kind).toBe("slot");
   });
   test("B: whether the queue moved is read through an index, not a scan of every task", () => {
-    const plan = (db().query("EXPLAIN QUERY PLAN SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    const plan = (db().query(`EXPLAIN QUERY PLAN ${QUEUE_MOVED_SQL}`).all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
     expect(plan).toContain("idx_tasks_in_progress_at");
   });
   test("C: the chain stops at the card parked in backlog, even when that card's own blocker has closed", () => {
@@ -477,6 +477,16 @@ describe("the third review: hours of a parked chain, heavy holds, and what is no
     // A card that joined the chain after the root was parked counts from its own entry.
     card(d, "late", "todo", 2 * H, { blockedBy: "root" });
     expect(stuckOf(d)).toContainEqual(["late", "chain-parked", 2]);
+  });
+  test("1: a root parked twice (backlog, todo, backlog again) counts from the last parking", () => {
+    const d = db();
+    card(d, "root", "todo", 30 * H);
+    statusEvent(d, "root", "todo→backlog · parked", NOW - 20 * H);
+    statusEvent(d, "root", "backlog→todo", NOW - 10 * H);
+    statusEvent(d, "root", "todo→backlog · parked again", NOW - 3 * H);
+    set(d, "root", { status: "backlog" });
+    card(d, "kid", "todo", 25 * H, { blockedBy: "root" });
+    expect(stuckOf(d)).toEqual([["kid", "chain-parked", 3]]);
   });
   test("1: a root born in backlog was parked at its birth", () => {
     const d = db();
@@ -606,11 +616,15 @@ describe("the round", () => {
     const body = JSON.stringify(sample(0, { todo: 3 }));
     for (let i = 0; i < 2016; i++) insertSample.run(NOW - i * SAMPLE_INTERVAL_MS, body);
     d.run("COMMIT");
-    const plan = (d.query("EXPLAIN QUERY PLAN SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    const plan = (d.query(`EXPLAIN QUERY PLAN ${MOVES_SQL}`).all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
     expect(plan).toContain("idx_task_comments_created_at");
     expect(plan).not.toMatch(/SCAN task_comments/);
-    const threads = (d.query("EXPLAIN QUERY PLAN SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))").all("[]") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    const threads = (d.query(`EXPLAIN QUERY PLAN ${THREADS_SQL}`).all("[]") as { detail: string }[]).map((r) => r.detail).join(" | ");
     expect(threads).toMatch(/SEARCH task_comments USING (COVERING )?INDEX idx_task_comments_task/);
+    const parked = (d.query(`EXPLAIN QUERY PLAN ${PARKED_EVENTS_SQL}`).all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    expect(parked).toMatch(/SEARCH task_comments USING (COVERING )?INDEX/);
+    const samplesPlan = (d.query(`EXPLAIN QUERY PLAN ${READ_SAMPLES_SQL}`).all(0) as { detail: string }[]).map((r) => r.detail).join(" | ");
+    expect(samplesPlan).not.toMatch(/SCAN topics_check_samples/);
     const probe = { reasons: 0 };
     const now = NOW + SAMPLE_INTERVAL_MS;
     sampleTopics(d, now, DEFAULT_THRESHOLDS, undefined, probe);
