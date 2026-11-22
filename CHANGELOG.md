@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- **deadcode-prod** · trace the 596-file baseline to its source
+
 ## 2.4.79 — 2026-11-22
 
 ### Sotto il cofano
