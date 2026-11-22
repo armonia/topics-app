@@ -81,6 +81,7 @@ export function isMachineWork(msg: ChatMessage): boolean {
  *
  * Consecutive work messages join one segment; anything salient closes it. The
  * order of the input is the order of the output, always.
+ * @internal the fold tests drive the segmenting rule
  */
 export function partitionTurn(messages: ChatMessage[]): TurnSegment[] {
   const segments: TurnSegment[] = [];

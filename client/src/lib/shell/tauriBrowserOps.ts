@@ -668,7 +668,7 @@ function coerceExtractFields(a: Record<string, unknown>): Record<string, unknown
   return {};
 }
 
-/** The ops executeNativeBrowserOp actually runs (vs. routing to the streaming hint). */
+/** @internal the native-ops test asserts the supported set. The ops executeNativeBrowserOp actually runs (vs. routing to the streaming hint). */
 export const NATIVE_SUPPORTED_OPS: ReadonlySet<string> = new Set([
   'browser_open',
   'browser_observe',

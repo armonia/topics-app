@@ -175,6 +175,7 @@ export function locateTerminalPane(
 
 /** Convenience: extract the session id from a pane id and locate it. Returns
  *  'none' for non-terminal pane ids. */
+/** @internal the locator tests drive the lookup */
 export function locateByPaneId(
   paneId: string,
   appLevelPaneIds: readonly string[],

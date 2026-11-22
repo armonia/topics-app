@@ -73,8 +73,10 @@ export const DRAG_PREVIEW_ATTR = 'data-drag-preview';
  *
  * Il disegno sta in `index.css` in UNA regola sola, così una superficie nuova
  * si dichiara aggiungendo un attributo e non ricopiando uno stile.
+ * @internal the drag tests read the attribute
  */
 export const DROP_ACTIVE_ATTR = 'data-drop-active';
+/** @internal the drag tests type their intents with it */
 export type DropIntent = 'into' | 'before' | 'after' | 'split';
 
 /** Il punto di presa, in coordinate della scheda. Vicino all'angolo alto a
@@ -203,6 +205,7 @@ export function startDragPreview(
  * La stessa anteprima per il gesto col dito, dove il drag HTML5 non esiste
  * (iOS non emette nessuno dei suoi eventi: vedi `useTouchDrag`). Qui non c'è
  * nessun fantasma di sistema, quindi questo nodo è l'UNICA anteprima.
+ * @internal the drag tests drive the touch preview
  */
 export function startTouchDragPreview(spec: DragPreviewSpec, x: number, y: number): void {
   endDragPreview();
@@ -213,7 +216,7 @@ export function startTouchDragPreview(spec: DragPreviewSpec, x: number, y: numbe
   posiziona(x, y);
 }
 
-/** Il dito si muove. */
+/** @internal the drag tests drive the preview move. Il dito si muove. */
 export function moveDragPreview(x: number, y: number): void {
   posiziona(x, y);
 }

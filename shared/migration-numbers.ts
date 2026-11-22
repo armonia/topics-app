@@ -20,7 +20,7 @@
  *     (`server/db.ts`).
  */
 
-/** @internal dev tooling only, called by function. Dove vivono le migration, relativo alla radice del repo. */
+/** Dove vivono le migration, relativo alla radice del repo. */
 export const MIGRATIONS_DIR = "server/db/migrations";
 
 /** `089-retirements.sql` → sì; `README.md`, `.gitkeep`, `draft.sql` → no. */
@@ -68,7 +68,7 @@ function versionOf(file: string): number {
   return parseInt(file.match(MIGRATION_FILE)![1], 10);
 }
 
-/** Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
+/** @internal dev tooling only, called by scripts/check-migration-numbers.ts. Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
 export function legacyNumbered(branchFiles: string[], baseFiles: string[]): string[] {
   const base = new Set(migrationFileNames(baseFiles));
   return migrationFileNames(branchFiles).filter(f => !base.has(f) && !STAMP_FILE.test(f));

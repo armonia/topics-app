@@ -85,6 +85,7 @@ const LEFT_PX = WINDOW_CONTROLS_INSET_PX - ROW_INSET;
  * Where the word «Topics» starts on the Mac, in wrapper coordinates:
  * the cluster ends at 12 + 52 = 64 in the window, i.e. 58 here, plus GAP_PX.
  * 12 + 52 - 6 + 6 = 64.
+ * @internal the geometry tests assert the inset
  */
 export const TITLE_INSET_MAC_PX =
   WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX - ROW_INSET + GAP_PX;
@@ -92,6 +93,7 @@ export const TITLE_INSET_MAC_PX =
 /**
  * Where the word «Topics» starts on Windows, in wrapper coordinates:
  * 6 + 18 x 3 + 4 x 2 + 6 = 74. The cells stay 18px: they are hit targets.
+ * @internal geometry tests and tools/win-desktop-check.ps1 read it
  */
 export const TITLE_INSET_WINDOWS_PX =
   LEFT_PX + CELL_PX * CONTROLS + WINDOW_CONTROL_CELL_GAP_PX * (CONTROLS - 1) + GAP_PX;

@@ -69,6 +69,7 @@ export function chromeAttentionSubjects(
   return out;
 }
 
+/** @internal the attention tests drive the total */
 export function chromeAttentionTotal(
   rows: AttentionRows,
   topics: Record<string, Topic>,

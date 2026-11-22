@@ -26,7 +26,7 @@ export function setWsClientId(id: string | null): void {
   clientId = id && id.length > 0 ? id : null;
 }
 
-/** L'id di questa connessione, o `null` se il welcome non è ancora arrivato. */
+/** @internal the identity tests read the client id. L'id di questa connessione, o `null` se il welcome non è ancora arrivato. */
 export function getWsClientId(): string | null {
   return clientId;
 }

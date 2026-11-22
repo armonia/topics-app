@@ -722,6 +722,7 @@ export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center 
  * Since 03/09 (card 058ea722) it is the ceiling of the rows WITH a glyph only:
  * a row without one draws no glyph box any more and comes in at
  * {@link SIDEBAR_LABEL_GUTTER_BARE_MAX}.
+ * @internal the style tests assert the gutter bound
  */
 export const SIDEBAR_LABEL_GUTTER_MAX = 52;
 
@@ -732,6 +733,7 @@ export const SIDEBAR_LABEL_GUTTER_MAX = 52;
  * 03/09: the accordion, one gap, the name. What separates it from
  * {@link SIDEBAR_LABEL_GUTTER_MAX} is exactly one glyph box plus its gap,
  * which is the only thing allowed to move a name to the right.
+ * @internal the style tests assert the gutter bound
  */
 export const SIDEBAR_LABEL_GUTTER_BARE_MAX = 30;
 
@@ -848,6 +850,7 @@ export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
  * breakpoint: il bloccaggio è in `selectionStyles.test.ts`.
  */
 export const CHROME_ROW_CONTENT_H = 40;
+/** @internal the style tests assert the row inset */
 export function chromeRowInset(box: number): number {
   return (CHROME_ROW_CONTENT_H - box) / 2;
 }
@@ -883,6 +886,7 @@ export const CHROME_ROW_ACTION_INSET = 'right-[6px]';
  *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
  *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
  *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
+/** @internal the style tests assert the action inset */
 export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
 /**
  * DOVE SI FERMA LA STRIP: bordo + comando + un'aria uguale a quella del bordo.
@@ -987,6 +991,7 @@ export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSS
  * not a hand-written `@media (min-width: 768px)`: `md:` is 48rem, and with a
  * different root font-size the two predicates would drift apart. The same
  * mismatch already paid for once (tab 28 and command 36 on the same row).
+ * @internal the style tests assert the sub-row height
  */
 export const CHROME_ROW_SUB_H = ROW_ACTION_BOX_PX.desktop + ROW_INSET;
 export const CHROME_BAR_SUB =
@@ -1067,6 +1072,7 @@ export const ROW_ACTIONS = 'row-actions';
  *  atterrare lì, non la sua scatola. L'uguaglianza la ricalcola
  *  `selectionStyles.test.ts`: se il padding della riga cambia, il test indica il
  *  CSS invece di lasciarli separare. */
+/** @internal the style tests assert the actions inset */
 export const ROW_ACTIONS_INSET_PX = 8;
 
 /**

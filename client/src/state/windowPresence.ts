@@ -61,6 +61,7 @@ export interface PresenceWindow {
  * A window that announces no tabs is not an empty window; it is a window whose
  * client only knew how to announce chats. Falling back keeps its row populated
  * instead of rendering a heading over nothing.
+ * @internal the presence tests and the demo scenario read it
  */
 export function windowTabs(w: PresenceWindow): PresenceWindowTab[] {
   if (w.tabs && w.tabs.length > 0) return w.tabs;

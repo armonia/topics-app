@@ -146,7 +146,7 @@ export const DEVICE_LABEL_KEY: Record<'desktop' | 'mobile' | 'tablet' | 'auto' |
   auto: 'tabSheet.device.auto', custom: 'tabSheet.device.custom',
 };
 
-/** The first level may not grow past this many rows (TABSHEET-02). */
+/** @internal the sheet tests assert the first-level cap. The first level may not grow past this many rows (TABSHEET-02). */
 export const FIRST_LEVEL_MAX_ROWS = 11;
 
 const action = (a: Omit<SheetAction, 'kind'>): SheetAction => ({ kind: 'action', ...a });
@@ -187,7 +187,7 @@ function tidyDividers(entries: SheetEntry[]): SheetEntry[] {
   return out;
 }
 
-/** The rows a person counts on a level: everything but the dividers. */
+/** @internal the sheet tests count rows with it. The rows a person counts on a level: everything but the dividers. */
 export function rowCount(entries: readonly SheetEntry[]): number {
   return entries.filter((e) => e.kind !== 'divider').length;
 }

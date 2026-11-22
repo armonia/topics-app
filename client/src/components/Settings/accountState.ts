@@ -15,7 +15,7 @@
  * riuscito» senza sapere perché. `tests/unit/no-type-mirrors.test.ts` fa
  * fallire chi ci riprova.
  */
-export { CODICI_ACCOUNT } from '../../../../shared/account';
+
 // Si ri-esporta `AccountState` e non `CodiceAccount`, che qui non ha lettori e
 // non ne può avere: un codice che arriva dal filo NON è un `CodiceAccount`
 // finché non lo si è guardato — è una stringa che un server più nuovo di questa
@@ -59,3 +59,5 @@ export function chiaveErrore(codice: string | null | undefined): string {
     ? `account.err.${codice}`
     : 'account.err.generic';
 }
+/** @internal tests import these through the barrel */
+export { CODICI_ACCOUNT } from '../../../../shared/account';

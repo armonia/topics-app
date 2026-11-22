@@ -12,7 +12,7 @@
  * Browsers round these durations to 8 ms, so the edges below are multiples of 8.
  */
 
-/** @internal dev tooling only, called by function. Interactions at or above this many milliseconds are the ones Event Timing reports. */
+/** Interactions at or above this many milliseconds are the ones Event Timing reports. */
 export const SLOW_INTERACTION_MS = 16;
 
 /** Lower edge of each bucket; the last bucket is open on top. */
@@ -39,7 +39,7 @@ export function addInteraction(histogram: InteractionHistogram, durationMs: numb
   if (index >= 0) histogram[index] = (histogram[index] ?? 0) + 1;
 }
 
-/** Element-wise sum of histograms from different page loads. */
+/** @internal dev tooling only, called by scripts/check-inp-shell.ts. Element-wise sum of histograms from different page loads. */
 export function mergeInteractionHistograms(histograms: readonly (readonly number[])[]): InteractionHistogram {
   const sum = emptyInteractionHistogram();
   for (const histogram of histograms) {

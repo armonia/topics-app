@@ -120,7 +120,7 @@ export function subscribeSession(sessionKey: string, fn: () => void): () => void
   };
 }
 
-/** Si iscrive a QUALSIASI cambiamento. Per i pochi che devono sapere tutto. */
+/** @internal the store tests subscribe to everything with it. Si iscrive a QUALSIASI cambiamento. Per i pochi che devono sapere tutto. */
 export function subscribeAllMessages(fn: () => void): () => void {
   global.add(fn);
   return () => {

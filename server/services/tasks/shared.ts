@@ -199,6 +199,7 @@ export function trackDeliveryNote(p: Promise<void>): void {
  * dropped. A note that needs git is written after the update returns, so a test
  * that reads it, or checks it is absent, waits here first: an absence read too
  * early would pass for the wrong reason.
+ * @internal tests wait for the in-flight delivery notes before asserting
  */
 export async function deliveryNotesInFlight(): Promise<void> {
   while (deliveryNotes.size > 0) await Promise.all([...deliveryNotes]);

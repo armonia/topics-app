@@ -52,6 +52,7 @@ export function mergeBuckets(b: TopicBuckets): Record<string, Topic> {
 
 /** A map sorted by its flag: how both caches are written, and how a
  *  `topics-cache` written before the split (live and archived mixed) is read. */
+/** @internal the bucket tests drive the split */
 export function splitByArchived(map: Record<string, Topic>): TopicBuckets {
   const out = emptyBuckets();
   for (const [id, topic] of Object.entries(map)) {

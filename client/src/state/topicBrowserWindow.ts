@@ -37,14 +37,7 @@ import { EXPANDED_WIDTH_BOUNDS, clampSize } from './topicBrowserWindowGeometry';
 
 // Sizes, bounds and where the minimized window sits live in their own module;
 // re-exported so callers keep importing the window from one place.
-export {
-  MIN_WINDOW_SIZE,
-  MIN_WINDOW_SIZE_BOUNDS,
-  EXPANDED_WIDTH_BOUNDS,
-  floatingSizeOf,
-  resolveComposerAvoidance,
-  resolveMinRect,
-} from './topicBrowserWindowGeometry';
+export { MIN_WINDOW_SIZE_BOUNDS, EXPANDED_WIDTH_BOUNDS, floatingSizeOf, resolveComposerAvoidance, resolveMinRect } from './topicBrowserWindowGeometry';
 export type { ComposerBand } from './topicBrowserWindowGeometry';
 
 /** Who opened a sheet. Kept because the window treats them differently later
@@ -763,3 +756,5 @@ export function subscribeTopicWindows(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
+/** @internal tests import these through the barrel */
+export { MIN_WINDOW_SIZE } from './topicBrowserWindowGeometry';

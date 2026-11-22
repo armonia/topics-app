@@ -179,6 +179,7 @@ export function computeTopicsFootprint(input: TopicsUsageInput): TopicsFootprint
 /**
  * Etichetta breve per la metrica usata nel lato server.
  * Usata nei tooltip per dire "footprint" vs "RSS (stima alta)".
+ * @internal the footprint tests assert the labels
  */
 export function serverMetricLabel(metric: ServerMemMetric): string {
   if (metric === 'footprint') return 'footprint';

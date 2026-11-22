@@ -299,6 +299,7 @@ export function pagesSnapshot(): PageVisit[] {
 /** Empties the navigation history and leaves the sites standing (the new tab
  *  page grid): they are two different promises, and whoever erases "where I
  *  have been" is not asking to forget their own sites. */
+/** @internal the history tests drive the clearing */
 export function clearPageHistory(): void {
   if (pages.length === 0) return;
   commit(sites, []);

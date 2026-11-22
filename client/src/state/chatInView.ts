@@ -46,7 +46,7 @@ export function subjectInFront(): string | null {
   return held.length ? held[held.length - 1] : null;
 }
 
-/** Is the person looking at this subject now: held in front AND the window focused (`isWindowFocused`). */
+/** @internal the in-view tests drive the check. Is the person looking at this subject now: held in front AND the window focused (`isWindowFocused`). */
 export function isSubjectInFront(subject: string): boolean {
   return held.includes(subject) && isWindowFocused();
 }

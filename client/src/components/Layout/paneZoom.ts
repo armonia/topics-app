@@ -159,6 +159,7 @@ function zoomNode(node: LayoutNode, cellKeys: ReadonlySet<string>): LayoutNode {
  * Drop the cell keys that no longer exist. Returns the SAME ref when nothing
  * was dropped, the convention `pruneSoloCells` follows, so a caller can compare
  * by identity and skip a redundant state write.
+ * @internal the zoom tests drive the pruning by identity
  */
 export function pruneZoom(
   keys: ReadonlySet<string>,

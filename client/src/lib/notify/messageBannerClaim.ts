@@ -154,6 +154,7 @@ export function claimBannerIn(
  * server vecchi: il posto peggiore in cui lasciarlo, perché non si vede in
  * sviluppo. Corpo tagliato a 120 caratteri: abbastanza da distinguere due
  * messaggi diversi, poco abbastanza da non gonfiare il registro.
+ * @internal the claim tests assert the key shape
  */
 export function bannerClaimKey(msg: {
   messageId?: string;

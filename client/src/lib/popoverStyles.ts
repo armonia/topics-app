@@ -84,6 +84,7 @@ export const POPOVER_PANEL =
  * not a surface that opens: a card that sits in the page from the start.
  * `popover-enter` (index.css) on `POPOVER_SURFACE` / `POPOVER_PANEL` is the
  * shared 90ms entrance of everything that pops open.
+ * @internal the style tests assert the shared look
  */
 export const POPOVER_LOOK =
   'glass-surface border border-app-border rounded-lg shadow-lg';

@@ -44,6 +44,7 @@ const REASON_TEXT: Record<string, string> = {
   unknown: 'Fast mode non è disponibile.',
 };
 
+/** @internal the fast-mode tests assert the wording */
 export function fastModeReasonText(reason: string): string {
   return REASON_TEXT[reason] ?? REASON_TEXT.unknown;
 }

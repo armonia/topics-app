@@ -62,6 +62,7 @@ function sortLanes(lanes: readonly BoardLane[], nameOf: (projectId: string) => s
  * The lanes plus, when the composer's ghost belongs to a project that has no
  * card yet, a temporary empty lane of that project in its sorted place. The
  * lane exists only while the ghost does.
+ * @internal its lane tests drive the ghost-lane rule
  */
 export function withDraftLane(
   lanes: readonly BoardLane[],
@@ -81,6 +82,7 @@ export function withDraftLane(
  * `nameOf`), not by size. A lane that jumps up the board every time one of its
  * cards is created is a lane nobody finds twice in the same place. Ties on the
  * name fall back to the id, so two boards with the same name keep a stable order.
+ * @internal its lane tests drive the grouping rule
  */
 export function splitIntoLanes(
   byColumn: ReadonlyMap<string, readonly BoardTask[]>,

@@ -116,7 +116,7 @@ function buildTree(rows: NormRow[], rowHeights: number[]): LayoutNode {
   return split('col', rowNodes, heights);
 }
 
-/** Standalone PanelGrid (`PanelGridRow[]` + device-local `gridRowHeights`) → tree. */
+/** @internal the adapter tests drive the legacy shape. Standalone PanelGrid (`PanelGridRow[]` + device-local `gridRowHeights`) → tree. */
 export function gridRowsToTree(
   rows: readonly PanelGridRow[],
   rowHeights: readonly number[],
@@ -135,7 +135,7 @@ export function gridRowsToTree(
   return buildTree(norm, [...rowHeights]);
 }
 
-/** Project GroupLayout (`GroupLayoutRow[]` + `rowHeights`) → tree. */
+/** @internal the adapter tests drive the legacy shape. Project GroupLayout (`GroupLayoutRow[]` + `rowHeights`) → tree. */
 export function groupRowsToTree(
   rows: readonly GroupLayoutRow[],
   rowHeights: readonly number[],
@@ -200,7 +200,7 @@ function treeToNormRows(tree: LayoutNode): { rows: NormRow[]; rowHeights: number
   return { rows, rowHeights };
 }
 
-/** Tree → standalone PanelGrid shape (`PanelGridRow[]` + `rowHeights`). */
+/** @internal the adapter tests drive the legacy shape. Tree → standalone PanelGrid shape (`PanelGridRow[]` + `rowHeights`). */
 export function treeToGridRows(tree: LayoutNode): { rows: PanelGridRow[]; rowHeights: number[] } {
   const { rows, rowHeights } = treeToNormRows(tree);
   return {
@@ -221,7 +221,7 @@ export function treeToGridRows(tree: LayoutNode): { rows: PanelGridRow[]; rowHei
   };
 }
 
-/** Tree → project GroupLayout shape (`GroupLayoutRow[]` + `rowHeights`). */
+/** @internal the adapter tests drive the legacy shape. Tree → project GroupLayout shape (`GroupLayoutRow[]` + `rowHeights`). */
 export function treeToGroupRows(tree: LayoutNode): { rows: GroupLayoutRow[]; rowHeights: number[] } {
   const { rows, rowHeights } = treeToNormRows(tree);
   return {

@@ -23,7 +23,6 @@
 /** How the native desktop shell must forward a ⌘-chord (macOS NSEvent monitor).
  *  Only `⌘` (without `⌃`) *character* chords live here — the Tab cycle and bare
  *  Escape key off `keyCode`, so they stay hand-written in `lib.rs`. */
-/** @internal dev tooling only, called by function */
 export interface NativeForward {
   /** `charactersIgnoringModifiers` (lowercase) that trigger the forward.
    *  Usually one entry; `['/','?']` covers a chord reachable with Shift, and
@@ -238,6 +237,7 @@ function forwardedCmdChars(): { always: string[]; shiftOnly: string[] } {
 /** Emit `shortcuts_generated.rs`. Called by `scripts/gen-shortcuts.ts` (writes
  *  the file) and by the test (compares against the committed file). Keep the
  *  output byte-for-byte deterministic. */
+/** @internal dev tooling only, called by scripts/gen-shortcuts.ts */
 export function renderRustModule(): string {
   const { always, shiftOnly } = forwardedCmdChars();
   const rustList = (cs: string[]) => cs.map(c => `"${c}"`).join(' | ');

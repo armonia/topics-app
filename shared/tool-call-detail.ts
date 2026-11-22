@@ -324,5 +324,6 @@ export function parseToolCallDetail(value: unknown): ParseResult {
  * coincidere con `ToolCallDetail` di `shared/types.ts`. Verificata in
  * `tests/unit/tool-call-detail-schema.test.ts` nelle DUE direzioni — la deriva
  * rompe il typecheck del test.
+ * @internal compile-time equality check in the schema test
  */
 export type ZodInferredToolCallDetail = z.infer<typeof toolCallDetailSchema>;

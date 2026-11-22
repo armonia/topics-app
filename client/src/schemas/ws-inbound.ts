@@ -23,7 +23,7 @@ import {
   type ValidationResult,
 } from '../../../shared/ws-outbound';
 
-/** I tipi che il server sa mandare — cioè quelli che il client può ricevere. */
+/** @internal the schema test asserts the registered set. I tipi che il server sa mandare — cioè quelli che il client può ricevere. */
 export const REGISTERED_INBOUND_TYPES = REGISTERED_OUTBOUND_TYPES;
 
 export type InboundValidationResult = ValidationResult;
@@ -58,6 +58,7 @@ function withoutUnknownStopCause(msg: unknown): unknown {
   return rest;
 }
 
+/** @internal the schema test drives the guard */
 export function isRegisteredInboundType(type: string): boolean {
   return isRegisteredOutboundType(type);
 }

@@ -59,7 +59,7 @@ export function closeTabSheet(key?: string): void {
   emit();
 }
 
-/** A right click on the tab whose sheet is open: close it, now. */
+/** @internal the sheet-state tests drive the toggle. A right click on the tab whose sheet is open: close it, now. */
 export function toggleTabSheet(key: string, door: TabSheetDoor): void {
   if (current?.key === key) closeTabSheet(key);
   else openTabSheet(key, door);
@@ -83,6 +83,7 @@ export function swallowNextOpen(key: string, host: Pick<Document, 'addEventListe
   host.addEventListener('keydown', disarm, true);
 }
 
+/** @internal the sheet-state tests read the open sheet */
 export function getOpenTabSheet(): OpenTabSheet | null {
   return current;
 }

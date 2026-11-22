@@ -40,6 +40,7 @@ export function enqueueAnnouncement(state: AnnounceQueueState, item: AnnounceIte
   return { items: [...withoutDup, item] };
 }
 
+/** @internal the queue tests drive removal */
 export function removeAnnouncement(state: AnnounceQueueState, taskId: string): AnnounceQueueState {
   return { items: state.items.filter((i) => i.taskId !== taskId) };
 }

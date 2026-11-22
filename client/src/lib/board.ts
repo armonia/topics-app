@@ -27,10 +27,7 @@ export { personPathsFromText, personPathsToText } from '../../../shared/workflow
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
-export {
-  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
-  checksMemFloorGB, checksMemFloorIsOff,
-} from '../../../shared/checks-memory-floor';
+export { CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, checksMemFloorGB, checksMemFloorIsOff } from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
 export type { TaskSessionPeek } from '../../../shared/task-session-peek';
 // The OTHER way to say "enough" (KANBAN-75): the brake that measures what
@@ -499,7 +496,6 @@ export function reopenedChip(
   };
 }
 
-
 /**
  * La priorità «auto» è una promessa SULLA CODA, e come tutte le promesse ha una
  * scadenza.
@@ -518,7 +514,6 @@ export function reopenedChip(
 export function priorityAwaitingAgent(task: { status: TaskStatus; priorityAuto: boolean }): boolean {
   return task.priorityAuto && (task.status === 'backlog' || task.status === 'todo');
 }
-
 
 export interface BoardTask {
   id: string;
@@ -959,7 +954,6 @@ export interface UpdateTaskBody {
   /** The workflow column (`shared/workflow.ts`); the status follows it. null = the default column of the status. */
   stage?: string | null;
 }
-
 
 /** Machine-wide dispatch settings (server: reserved board_settings row '*'). */
 export interface GlobalSettings {
@@ -1486,3 +1480,5 @@ export const boardDrafts = {
     uiPutDebounced(REVIEW_NOTES_KEY, reviewNotesCache, notes.length ? 800 : 0);
   },
 };
+/** @internal tests import these through the barrel */
+export { CHECKS_MEM_FLOOR_DEFAULT_GB } from '../../../shared/checks-memory-floor';

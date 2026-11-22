@@ -96,6 +96,7 @@ export function insertAtRestoreSlot(
 
 /**
  * Find the first preview (unpinned) ID in an ordered list.
+ * @internal the preview-tab tests drive the lookup
  */
 export function findPreviewInList(
   orderedIds: string[],

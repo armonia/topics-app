@@ -141,6 +141,7 @@ export function contrastRatio(a: RGB, b: RGB): number {
  * di opacità. Il contrasto va misurato su questo, non sulla tinta pura: dare per
  * buono il colore dichiarato invece del composito è l'errore che ha già fatto
  * passare un cancello di contrasto cieco all'opacity.
+ * @internal the tint tests check the alpha blend
  */
 export function compositeOver(tint: RGB, surface: RGB, ratio: number): RGB {
   const t = Math.max(0, Math.min(1, ratio));
@@ -158,6 +159,7 @@ const NEAR_BLACK: RGB = { r: 17, g: 20, b: 26 };
  * Quale dei due inchiostri regge su questo fondo, e con che rapporto. Il
  * chiamante può alzare le mani (o togliere la tinta) se `ratio` non arriva a
  * 4,5: qui non si nasconde un contrasto insufficiente, si riporta.
+ * @internal the tint tests check the contrast pick
  */
 export function bestTextTone(bg: RGB): { tone: 'light' | 'dark'; ratio: number } {
   const light = contrastRatio(WHITE, bg);

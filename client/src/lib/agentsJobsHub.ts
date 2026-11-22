@@ -107,7 +107,7 @@ function liveAgents(raw: unknown): Map<string, LiveAgent> {
   return out;
 }
 
-/** How many agents the hub sees at work outside Topics: the hub's own count, less the Topics tabs. */
+/** @internal the hub tests drive the filter. How many agents the hub sees at work outside Topics: the hub's own count, less the Topics tabs. */
 export function agentsOutsideTopics(live: unknown): number {
   let n = 0;
   for (const a of liveAgents(live).values()) if (!a.inTopics) n++;

@@ -153,6 +153,7 @@ export function dismissInMemory(memory: SubAgentMemory, id: string): SubAgentMem
 /**
  * The strip's rows for one chat: the live children first (waiting, busy or idle, in
  * roster order), then the ended ones that are not live again, oldest first.
+ * @internal the ended-row tests drive the lookup
  */
 export function subAgentRowsFor(
   parentSessionKey: string,

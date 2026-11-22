@@ -619,7 +619,7 @@ export function todayRuns(day: AutomationRow['day'], startOfToday: number): { to
   return { total: today.length, ok: today.filter((d) => d.outcome === 'ok').length };
 }
 
-/** The commands a row carries: only a Jarvis job jarvis-channels lists. */
+/** @internal the automation tests drive the check. The commands a row carries: only a Jarvis job jarvis-channels lists. */
 export function hasCommands(row: AutomationRow): boolean {
   return row.jobId !== null && row.enabled !== null;
 }

@@ -12,7 +12,7 @@
  * anche il giorno in cui il server aggiunge un motivo di rifiuto, e
  * l'interfaccia direbbe «non è riuscito» senza sapere perché.
  */
-export { CODICI_AUTH } from '../../../shared/auth-codes';
+
 import { isCodiceAuth } from '../../../shared/auth-codes';
 
 /**
@@ -40,3 +40,5 @@ export async function authRefusalKey(r: Response): Promise<string> {
   const body = await r.json().catch(() => null) as { error?: string } | null;
   return chiaveErroreAuth(body?.error);
 }
+/** @internal tests import these through the barrel */
+export { CODICI_AUTH } from '../../../shared/auth-codes';

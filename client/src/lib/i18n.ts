@@ -200,11 +200,13 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
  * It exists instead of exporting `IT`: the whole dictionary, made public,
  * invites reading a value straight out of it rather than going through `t()`,
  * and that is the road by which a string stops following the chosen language.
+ * @internal catalogue tests walk the keys
  */
 export function chiaviDelCatalogo(): string[] {
   return Object.keys(IT);
 }
 
+/** @internal catalogue tests report missing keys */
 export async function missingKeys(locale: Locale): Promise<string[]> {
   await ensureLocaleLoaded(locale);
   await ensureLocaleLoaded(FALLBACK_LOCALE);

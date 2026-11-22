@@ -87,6 +87,7 @@ export function addKeysToCellStack(
 
 /** The column headed by `key`, flattened top-to-bottom (primary first). Used
  *  to move a whole cell, sub-stack included, into another column. */
+/** @internal the stack tests assert the column order */
 export function flattenCellColumn(row: PanelGridRow, key: string): string[] {
   return [key, ...(row.cellStacks?.[key]?.items ?? [])];
 }

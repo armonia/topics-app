@@ -203,6 +203,7 @@ export interface RedGate {
 /**
  * The hub's gates are the delegation decisions: one per class, plus the brake
  * in front of each batch provider. A gate is red when it says `go: false`.
+ * @internal the hub tests drive the red-gate list
  */
 export function redGates(data: unknown): RedGate[] {
   if (!isObject(data)) return [];

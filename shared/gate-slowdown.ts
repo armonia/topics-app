@@ -24,7 +24,6 @@
  * the server that parses it.
  */
 
-/** @internal dev tooling only, called by function */
 export const GATE_SLOWDOWN_PREFIX = "[slot] slower";
 
 /**
@@ -49,6 +48,7 @@ export function clampSlowdown(factor: number): number {
   return round1(Math.min(MAX_SLOWDOWN_FACTOR, Math.max(1, factor)));
 }
 
+/** @internal dev tooling only, called by scripts/test-unit-shards.ts */
 export function gateSlowdownLine(factor: number, reason: string): string {
   return `${GATE_SLOWDOWN_PREFIX} x${clampSlowdown(factor).toFixed(1)}: ${reason}`;
 }

@@ -537,6 +537,7 @@ export function initServerSync(): void {
   }
 }
 
+/** @internal the sync tests read the remote key */
 export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
 
 /**

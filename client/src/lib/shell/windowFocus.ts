@@ -90,7 +90,7 @@ export function subscribeWindowFocus(fn: (prev: WindowFocus, next: WindowFocus) 
   return store.subscribe(fn);
 }
 
-/** A focus event from outside the shell listener. Used by the hook benches. */
+/** @internal the focus tests feed events through it. A focus event from outside the shell listener. Used by the hook benches. */
 export function noteWindowFocusEvent(focused: boolean): void {
   store.noteEvent(focused);
 }

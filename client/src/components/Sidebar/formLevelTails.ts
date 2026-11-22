@@ -42,6 +42,7 @@ export interface Tail {
  * «Free» and «Team · 5 seats». The expiry leads it only inside the same thirty days
  * the Plan level itself uses (`scadenzaVicina`): a countdown that starts a year
  * out is noise, and noise teaches people not to read the tail at all.
+ * @internal the tail tests drive the plan wording
  */
 export function planTail(plan: LicensePlan | null, now: number, tr: Translate): Tail | null {
   if (!plan) return null;
@@ -152,7 +153,7 @@ export function claudePlanWarning(
     : tr('ai.selector.plan.fiveHour', { pct: Math.round(five) });
 }
 
-/** Is this provider one whose models run on the Claude subscription? */
+/** @internal the tail tests drive the plan wording. Is this provider one whose models run on the Claude subscription? */
 export function runsOnClaudePlan(provider: string | null | undefined): boolean {
   return !!provider && CLAUDE_SUBSCRIPTION_PROVIDERS.has(provider);
 }
@@ -161,6 +162,7 @@ export function runsOnClaudePlan(provider: string | null | undefined): boolean {
  * THE CLAUDE PLAN IN ONE SHORT LINE, beside the Claude models of a selector:
  * «Max 20x · 5 h al 42%». The plan alone without a reading, the reading alone
  * without a known plan, nothing with neither.
+ * @internal the tail tests drive the plan wording
  */
 export function claudePlanCompact(
   sub: ProviderSnapshotEntry['subscription'] | null | undefined,

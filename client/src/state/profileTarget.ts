@@ -99,7 +99,7 @@ export function requestedProfile(ora = Date.now()): ProfileRequest | null {
   return { pagina: richiesta.pagina, personId: richiesta.personId };
 }
 
-/** Just the page, for callers that do not care whose profile it is. */
+/** @internal the profile tests read the requested page. Just the page, for callers that do not care whose profile it is. */
 export function paginaProfiloChiesta(ora = Date.now()): PageProfile | null {
   return requestedProfile(ora)?.pagina ?? null;
 }

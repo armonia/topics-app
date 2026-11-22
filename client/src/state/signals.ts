@@ -101,6 +101,7 @@ export const SEEN_DWELL_MS = SHARED_SEEN_DWELL_MS;
  * Politica pura: una tab è "vista" solo se è stata davanti per almeno `dwellMs`
  * CONTINUI. `focusedSince` è l'istante in cui è diventata davanti-e-sveglia, o
  * `null` se in questo momento non lo è (blur, finestra addormentata, altra tab).
+ * @internal the signal tests drive the seen check
  */
 export function isSeen(focusedSince: number | null, now: number, dwellMs = SEEN_DWELL_MS): boolean {
   if (focusedSince === null) return false;
@@ -956,6 +957,7 @@ export function visibleTopicSignalIds(
 /** The count is the list's length: one gate, one place. A consumer that needs
  *  the number reads this, one that needs the rows reads `visibleTopicSignalIds`,
  *  and the two cannot disagree. */
+/** @internal the signal tests drive the count */
 export function visibleTopicSignalCount(
   ids: ReadonlySet<string>,
   topics: Record<string, Topic>,

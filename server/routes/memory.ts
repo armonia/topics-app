@@ -188,6 +188,7 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
 /**
  * Load combined memory content for injection into system prompt.
  * Called from topics.ts during chat message sending.
+ * @internal the context regression test builds the memory block with it
  */
 export function loadMemoryForTopic(baseDir: string, topicId: string, options?: { includeTopic?: boolean }): string {
   if (options?.includeTopic === false) return "";

@@ -67,6 +67,7 @@ export function RetryWaitChip({ retry, disabled, onRetryNow }: { retry: RetryWai
  * command is making progress, which is the opposite of what happened; and a
  * one-second repaint under a canvas that just painted itself is the kind of
  * cost the freeze exists to avoid. The line says `congelato` instead.
+ * @internal rendered by the card tests on its own
  */
 export function LiveToolLine({ tool, frozen = false }: { tool: LiveTool; frozen?: boolean }) {
   const tr = useT();

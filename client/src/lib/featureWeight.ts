@@ -181,7 +181,7 @@ export function ordinaVoci(voci: VocePeso[]): VocePeso[] {
   });
 }
 
-/** L'inventario da mostrare: le voci vuote non ci sono. */
+/** @internal the weight tests assert the visible inventory. L'inventario da mostrare: le voci vuote non ci sono. */
 export function inventarioVisibile(): VocePeso[] {
   return collectFeatureWeights().filter(v => !voceVuota(v));
 }

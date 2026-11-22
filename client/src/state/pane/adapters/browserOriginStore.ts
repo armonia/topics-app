@@ -153,7 +153,7 @@ export function resolvePinnedBrowserOrigin(
   return null;
 }
 
-/** Drop a contextId's origin (e.g. when its pin is removed). Best-effort. */
+/** @internal the origin tests drive the reset. Drop a contextId's origin (e.g. when its pin is removed). Best-effort. */
 export function clearBrowserOrigin(contextId: string): void {
   if (!contextId) return;
   const map = read();

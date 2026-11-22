@@ -86,7 +86,7 @@ export interface EmbeddedMigration {
 /** The SQL travels as base64 so the source gates do not read it as code (see the generator). */
 const text = (base64: string): string => Buffer.from(base64, "base64").toString("utf-8");
 
-/** @internal loaded with require() in db.ts, which knip does not follow. All migrations in ascending version order, embedded at build time. */
+/** All migrations in ascending version order, embedded at build time. */
 export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
 ${entries.join("\n")}
 ];
