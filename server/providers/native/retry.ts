@@ -56,9 +56,18 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
 /** A `retry-after` asking for more than this is asking us to give up instead. */
 const RETRY_AFTER_CAP_MS = 60_000;
 
-/** The API answered with a status that is not 2xx. */
+/**
+ * The API answered with a status that is not 2xx. `body` is the raw answer:
+ * the message may be translated or cut (`spiegaErrore`), and the retry
+ * decision on a 400 reads the API's own words.
+ */
 export class ApiHttpError extends Error {
-  constructor(message: string, readonly status: number, readonly retryAfterMs: number | null = null) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterMs: number | null = null,
+    readonly body: string = "",
+  ) {
     super(message);
     this.name = "ApiHttpError";
   }
@@ -125,9 +134,29 @@ export function isTransientStatus(status: number): boolean {
   return TRANSIENT_STATUSES.has(status) || status >= 500;
 }
 
+/**
+ * The API's words when the account has no plan quota and no credits left.
+ * It answers 400 `invalid_request_error`, yet nothing in the request is wrong:
+ * the same request goes through once a window resets or credits are bought.
+ * On 2026-11-21 evening it killed 183 turns in an hour as "API 400", each one
+ * waiting for a person to type "resume". Kept narrow on purpose: any other
+ * `invalid_request_error` is a real request error and must not be retried.
+ */
+export const CREDIT_EXHAUSTED_RE = /credit balance is too low|purchase (?:more )?credits|plans (?:&|and) billing/i;
+
+/** A 400 that is a spent quota (see `CREDIT_EXHAUSTED_RE`), not a bad request. */
+export function isCreditExhausted(status: number, body: string): boolean {
+  return status === 400 && CREDIT_EXHAUSTED_RE.test(body);
+}
+
 export function classifyFailure(err: unknown): RetryVerdict {
   if (err instanceof ApiHttpError) {
     if (err.status === 401) return { kind: "reauth", reason: "API 401" };
+    // Treated as a saturated 429: backoff now, and once the attempts run out
+    // the turn ends as `rate-limit` (stop-reason.ts), which resumes by itself.
+    if (isCreditExhausted(err.status, err.body || err.message)) {
+      return { kind: "retry", reason: "API 400 credit exhausted", retryAfterMs: err.retryAfterMs };
+    }
     if (isTransientStatus(err.status)) {
       return { kind: "retry", reason: `API ${err.status}`, retryAfterMs: err.retryAfterMs };
     }
@@ -285,7 +314,7 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
         // The STATUS survives the new message: the recovery above the loop
         // keys on it (a 413 after a retried 529 is still a 413 for
         // `recoverFromImageFailure`, not a plain Error it cannot recognise).
-        throw err instanceof ApiHttpError ? new ApiHttpError(detail, err.status, err.retryAfterMs) : new Error(detail);
+        throw err instanceof ApiHttpError ? new ApiHttpError(detail, err.status, err.retryAfterMs, err.body) : new Error(detail);
       }
 
       // A 429 with a spent usage window is not transient: its end is a clock,
