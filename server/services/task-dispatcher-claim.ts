@@ -51,6 +51,10 @@ export function createClaim(ctx: DispatcherCtx) {
         continue;
       }
       if (remoteCard(t) && ctx.overflow.pinnedMachineDrained(t)) continue;
+      if (remoteCard(t) && ctx.overflow.pinnedMachineFull(t)) {
+        ctx.hold.queueChip(t);
+        continue;
+      }
       const manualMemoryStartSelected = ctx.queue.manualMemoryStart.selectedTask(projectId) === t.id;
       // COLD ORIGIN CACHE (2026-11-13): the very first tick that asks this
       // project's origin starts an async lookup and answers "unknown" for it,

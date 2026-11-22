@@ -32,6 +32,21 @@ export function createOverflow(ctx: DispatcherCtx) {
     try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
   }
   /**
+   * The card's pinned machine already runs as many cards as it has seats: the card
+   * stays in Todo and no attempt is spent, instead of being claimed, refused at the
+   * node and counted as a failed start. Cards of an unknown machine are not held.
+   */
+  function pinnedMachineFull(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try {
+      const m = deps.overflowMachines().find((x) => x.id === task.machineId);
+      if (!m || m.slots === undefined) return false;
+      const seats = effectiveSlots(m);
+      if (seats <= 0) return false;
+      return deps.svc.countRunningOnMachine(task.machineId, task.id) >= seats;
+    } catch { return false; }
+  }
+  /**
    * A Todo card pinned to a machine that cannot run it (zero slots, or offline
    * with no way to wake it) moves to an allowed machine, or back here when none
    * is free, instead of waiting for ever. Delegated and mirror cards are bound
@@ -243,5 +258,5 @@ export function createOverflow(ctx: DispatcherCtx) {
     } catch { /* the move stands without its line */ }
     return true;
   }
-  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
+  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pinnedMachineFull, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
 }
