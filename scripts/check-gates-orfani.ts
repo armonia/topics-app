@@ -56,6 +56,12 @@ export const REASONS: Record<string, string> = {
     "quella cartella la costruisce (o la stubba) il workflow stesso, e non esiste un checkout " +
     "principale da cui prenderla: il cancello uscirebbe verde per il motivo sbagliato. Gira a " +
     "mano in un worktree, e `bun run sidecars:sync` e' la sua cura.",
+  "check:disk-budget":
+    "misura la cartella dati REALE (`~/.topics`) contro il DB vivo, cioe' lo stato di questa " +
+    "postazione, non il codice: su un checkout di CI non esiste ne' l'uno ne' l'altro. La " +
+    "logica di giudizio (`server/lib/disk-budget.ts`, ratio G5 + cap per cartella) e' pura ed " +
+    "e' lei a girare nella suite; questo script e' la sua meta' impura, pensata per un job " +
+    "notturno (`scripts/launchd/com.armonia.topics-disk-budget-check.plist.in`), non per la CI.",
   "check:scroll-fluidity":
     "dipende dalla CADENZA dello schermo e in CI non puo' decidere: misura i frame persi " +
     "scorrendo una chat, la baseline `scripts/scroll-fluidity-baseline.json` e' registrata a 120 Hz (8,3 ms) " +
