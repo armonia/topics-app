@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.4.75",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Close the six reasons not to reattach a node run after a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "readVerdict marcato @internal: main tornava rosso su check:deadcode-prod",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.74",
     "date": "2026-11-22",
     "sections": {
@@ -101,6 +132,11 @@
           "scope": null
         },
         {
+          "it": "Reattach a still-open node run after a server restart instead of always queueing",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Direct unit tests for the filter chain the turn runs",
           "en": "",
           "scope": null
@@ -121,10 +157,40 @@
           "scope": null
         },
         {
+          "it": "Drop the placeholder requirement id from the node-restart reattach suite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Register the node-restart reattach line growth in the bloat baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics-check-daily: lint",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "fast gira anche sul nodo Windows",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Il nodo riceve intera la revisione anche dopo un riavvio",
@@ -132,7 +198,43 @@
           "scope": null
         },
         {
+          "it": "Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti di node-run-brief a posto per il gate della lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the reattach-on-restart path for a still-open node run",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Unblock check:comment-language on node-run-brief after the main realign",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un problema sotto il tetto resta capped, non torna curato a giri alterni",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo",
           "en": "",
           "scope": null
         }

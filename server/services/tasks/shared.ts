@@ -1677,6 +1677,9 @@ function mapRow(r: any, b: TaskBatch): Task {
       queueReason: queueReasonOf(r, b),
       deliveryBranch: r.delivery_branch ?? null,
       deliveryCommit: r.delivery_commit ?? null,
+      // Only when the column is really there: the list projection does not select it, and a
+      // hard `?? null` would turn "not asked for" into "no tip was ever sent back".
+      ...(r.prior_commit ? { priorCommit: r.prior_commit as string } : {}),
       // Da quando aspetta una risposta umana (migration 20260816214500).
       reviewAt: r.review_at ?? null,
       // L'ENTITÀ DEL LAVORO, sulla card e non dietro un clic: la colonna review
