@@ -2,6 +2,25 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- **deadcode-prod** · trace the 596-file baseline to its source
+
+## 2.4.79 — 2026-11-22
+
+### Sotto il cofano
+- Add Agents navigation: overview, agent page, Configure with a channel tree
+- per-agent activity from channel turns, validated route edits, English comments (T3)
+- overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)
+- schedule words comment marked as quoted Italian (T3)
+- channel tree on one column grid, human model names, thread title first in activity (T3)
+- strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)
+- typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)
+- Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com
+- Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce
+- Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30
+
 ## 2.4.77 — 2026-11-22
 
 ### Correzioni
