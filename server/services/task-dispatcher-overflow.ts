@@ -6,7 +6,7 @@
  */
 import { type Task } from "./tasks";
 import { carriedBranch } from "./branch-on-origin";
-import { wakeBreaker } from "./wake-breaker";
+import { nodeBlocked } from "./wake-breaker";
 import { effectiveSlots, machineForbidden, pickReassignTarget, reassignNote, OVERFLOW_MAX_PER_ROUND, overflowEligible, overflowNoteImmediate, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 import { providerHold } from "../lib/provider-hold";
 import { CLOUD_HOLD_KEY } from "../lib/cloud-weekly-limit";
@@ -32,6 +32,21 @@ export function createOverflow(ctx: DispatcherCtx) {
     try { return deps.overflowMachines().some((m) => m.id === task.machineId && m.slots === 0); } catch { return false; }
   }
   /**
+   * The card's pinned machine already runs as many cards as it has seats: the card
+   * stays in Todo and no attempt is spent, instead of being claimed, refused at the
+   * node and counted as a failed start. Cards of an unknown machine are not held.
+   */
+  function pinnedMachineFull(task: Task): boolean {
+    if (!task.machineId || !deps.overflowMachines) return false;
+    try {
+      const m = deps.overflowMachines().find((x) => x.id === task.machineId);
+      if (!m || m.slots === undefined) return false;
+      const seats = effectiveSlots(m);
+      if (seats <= 0) return false;
+      return deps.svc.countRunningOnMachine(task.machineId, task.id) >= seats;
+    } catch { return false; }
+  }
+  /**
    * A Todo card pinned to a machine that cannot run it (zero slots, or offline
    * with no way to wake it) moves to an allowed machine, or back here when none
    * is free, instead of waiting for ever. Delegated and mirror cards are bound
@@ -46,7 +61,7 @@ export function createOverflow(ctx: DispatcherCtx) {
     let machines: OverflowMachine[] = [];
     try { machines = deps.overflowMachines(); } catch (err) { log("reassign: machine list failed", err); return false; }
     const pinned = machines.find((m) => m.id === t.machineId);
-    if (!pinned || !machineForbidden(pinned, (id) => wakeBreaker.isOpen(id))) return false;
+    if (!pinned || !machineForbidden(pinned, nodeBlocked)) return false;
     let cloudCredit = true;
     try { cloudCredit = deps.cloudCredit?.() ?? (!providerHold() && !providerHold(Date.now(), CLOUD_HOLD_KEY)); } catch { cloudCredit = false; }
     const origin = overflowOriginOf(t.projectId);
@@ -55,7 +70,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       githubOrigin: origin.github && !cloudRefusesProject(t.projectId),
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     try {
       const moved = deps.svc.update({ taskId: t.id, actor: "agent", by: "dispatcher", patch: { machineId: target?.id ?? null } });
@@ -220,7 +235,7 @@ export function createOverflow(ctx: DispatcherCtx) {
       model: t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : null),
       // Read after this round's own moves: they are written before the next card is asked.
       load: machineLoad,
-      wakeBlocked: (id) => wakeBreaker.isOpen(id),
+      wakeBlocked: nodeBlocked,
     });
     if (!target) return false;
     let moved: Task | null = null;
@@ -243,5 +258,5 @@ export function createOverflow(ctx: DispatcherCtx) {
     } catch { /* the move stands without its line */ }
     return true;
   }
-  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
+  return { anyOverflowSeatElsewhere, beginOverflowRound, forgetOverflowClock, isRemoteTask, machineLoad, markMemoryHeld, overflowCardToFreeSeat, overflowOriginUnresolved, pinnedMachineDrained, pinnedMachineFull, pruneOverflowClocks, pruneOverflowClocksOutside, reassignFromForbidden };
 }

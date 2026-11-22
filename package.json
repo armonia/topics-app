@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.4.63",
+  "version": "2.4.70",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -89,6 +89,7 @@
     "migration:new": "bun run scripts/new-migration.ts",
     "heavy-slot": "bun run scripts/heavy-slot.ts",
     "check:deadcode": "bun run scripts/slot.ts check:deadcode -- './node_modules/.bin/knip-bun'",
+    "check:deadcode-prod": "bun run scripts/slot.ts check:deadcode-prod -- bun run scripts/check-deadcode-prod.ts",
     "check:deadcode-blindspots": "bun run scripts/check-deadcode-blindspots.ts",
     "report:previews": "bun run scripts/check-preview-evidence.ts",
     "check:route-latency": "bun run scripts/check-route-latency.ts",

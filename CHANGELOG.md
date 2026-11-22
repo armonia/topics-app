@@ -2,20 +2,64 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.69 — 2026-11-22
+
+### Sotto il cofano
+- Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
+- agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+
+## 2.4.68 — 2026-11-22
+
+### Sotto il cofano
+- Bloat baseline: only the overflow test entry, with its reason
+
+## 2.4.67 — 2026-11-21
+
+### Sotto il cofano
+- a card pinned to a machine at its seats waits in todo without spending an attempt
+- Record the new size of the overflow test file in the bloat baseline
+- Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi
+- deadcode-prod: scripts and UI gallery are not production, queue the gate, test parseCounts
+
+## 2.4.66 — 2026-11-21
+
+### Sotto il cofano
+- Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
+- Il Cloud col freno aperto non riprende la card che ha appena lasciato
+
+## 2.4.65 — 2026-11-21
+
+### Correzioni
+- **ci-phase** · bisect a red landed batch instead of bouncing every card
+
+### Sotto il cofano
+- La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server
+- Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia
+- Stop relaunching a hung paired node forever
+- Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate
+- Drop duplicate knip.jsonc entries and a closed one-off migration
+- check-deadcode-prod: avoid non-English identifier
+- wire check:deadcode-prod in CI, drop healed blind spots
+- deadcode-prod: teach blindspots probe, qa-gate and rails test about production-only patterns
+
 ## 2.4.62 — 2026-11-21
 
 ### Sotto il cofano
 - a capo vero nella condizione del prep fermo (un \n letterale passava «n» come argomento in più)
 - Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep
+- Land senza niente da fondere: chiude la card solo se il ramo è verificato vuoto; la decisione non si riprova (logica in tasks-land-nothing.ts)
+- tasks-land-nothing: tipo del broadcast dal core
 - Daily dependency audit workflow and 24h reboot-required warning (SEC-01 T4)
 - MACHINE-08: servers without Topics measured over read-only SSH
 - SEC-02: mask secrets in tool arguments and output before storing and before replaying to the model
 - Un check di sicurezza rosso apre una card sola e la chiude quando torna verde (MACHINE-07)
 - Singular day in reboot-required warning (SEC-01 T4)
 - runsOf restituisce RunRow invece di Record<string, any>
+- --production gives a credible verdict, with a ratchet gate (check:deadcode-prod)
 - I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client
 - La pulizia dei segreti cerca il DB dove sta davvero
 - La pulizia dei segreti non riporta indietro le righe scritte nel frattempo
+- move test-only exclusions from ignore to production-only project negations
 - I test degli avvisi di sicurezza dichiarano MACHINE-07
 - pem, aws e ubuntu sono parole del progetto per il cancello dei nomi
 - Nomi inglesi nel test dell'oscuramento dei segreti

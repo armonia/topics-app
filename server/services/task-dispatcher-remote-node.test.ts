@@ -29,7 +29,7 @@
  * @covers GUEST-17
  */
 import { UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,16 @@ import type { TaskFile } from "../../shared/task-labels";
 import type { NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
+import { hangBreaker } from "./task-dispatcher-remote-node";
 import { PID, TASK, MACHINE, BASE_URL, report, delegatedPolicy, harness, flush, poll, dispatch } from "./task-dispatcher-remote-node-test-support";
+
+// Both breakers are shared singletons across every test in this file: a burial
+// in one `it` must never leave the next one looking at a node the test itself
+// never touched.
+afterEach(() => {
+  wakeBreaker.success(MACHINE);
+  hangBreaker.success(MACHINE);
+});
 
 describe("la card parte sul nodo, non qui", () => {
   it("nessun worktree, nessun discorso, nessun turno: solo la corsa sul nodo", async () => {
@@ -443,6 +452,21 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
       expect(t.status).toBe("todo");
       expect(Date.parse(t.dispatchDeferredUntil!)).toBeGreaterThanOrEqual(until - 60_000);
     } finally { wakeBreaker.success(MACHINE); }
+  });
+
+  it("breaker already open, card the overflow put there: it leaves the node at once, no hook and no deferral (21/11)", async () => {
+    for (const breaker of [wakeBreaker, hangBreaker]) {
+      breaker.failure(MACHINE);
+      breaker.failure(MACHINE);
+      const hook = hookFake({ ok: true });
+      const h = harness({ hooks: hook.runner });
+      h.seed();
+      h.db.run("UPDATE tasks SET overflowed_at = ? WHERE id = ?", [new Date().toISOString(), TASK]);
+      await dispatch(h);
+      expect(hook.seen).toHaveLength(0);
+      expect(h.task()).toMatchObject({ status: "todo", machineId: null, dispatchDeferredUntil: null });
+      breaker.success(MACHINE);
+    }
   });
 
   it("the veto that opens the breaker defers the card until it closes, not the fixed 5 minutes", async () => {
@@ -846,6 +870,32 @@ describe("un nodo è alive finché i suoi POLL rispondono", () => {
     await poll(h, 3);
     expect(h.calls.slice(callsBefore).filter((c) => c === "read:run-1")).toEqual([]);
     expect(h.task().deliveryBranch).toBeNull();
+  });
+
+  it("due corse sepolte di fila aprono la breccia: la terza non parte sullo stesso nodo muto (21/11)", async () => {
+    // The node accepts every run (the hook and `createRun` both answer) but
+    // never answers a single poll: the exact shape measured on the Windows
+    // PC, port open, healthz silent. Without a breaker on this signal the
+    // dispatcher buried and relaunched the same hung node forever.
+    const h = harness({ readRun: () => Promise.reject(Object.assign(new Error("giù"), { reason: "unreachable" })) });
+    h.seed();
+    await dispatch(h);
+
+    // First burial: the freed card still gets one more try (run 2).
+    await poll(h, NODE_DEAD_POLLS);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(false);
+
+    // Second burial in a row, same node, zero successful poll in between:
+    // the breach opens, and run 3 does not start.
+    await poll(h, NODE_DEAD_POLLS);
+    expect(hangBreaker.isOpen(MACHINE)).toBe(true);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
+    expect(h.task().status).toBe("todo");
+
+    // A tick later, still within the open window: still no third run.
+    await poll(h, 1);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(2);
   });
 });
 
@@ -1351,6 +1401,16 @@ describe("la consegna del nodo è una consegna come le altre", () => {
     expect(t.machineId).toBeNull();
     expect(measured).toEqual([]);
     expect(h.comments().some((c) => c.content.includes("finita senza nessun commit"))).toBe(true);
+  });
+
+  it("seconda corsa vuota di fila (salto di un altro nodo ancora attivo): resta qui 6 ore, non va su un terzo nodo (21/11)", async () => {
+    const { h } = plantedHarness({ commit: null, files: [] });
+    h.seed();
+    h.db.run("UPDATE tasks SET overflowed_at = ?, overflow_skip_machine = 'altro', overflow_skip_until = ? WHERE id = ?", [new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString(), TASK]);
+    await dispatch(h);
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await poll(h);
+    expect([h.task().status, h.task().stayLocal, h.comments().some((c) => c.content.startsWith("Anche la corsa su"))]).toEqual(["todo", true, true]);
   });
 
   it("zero commit propri perche' l'agente ha chiesto una scelta: non e' mancanza di strumenti, va in review e non resta qui", async () => {

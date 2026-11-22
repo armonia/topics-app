@@ -56,6 +56,8 @@ describe("static-rails: la catena dei cancelli statici", () => {
     // Already a slot of its own on the board: in the chain it would run twice
     // per delivery, and it is the slowest static gate (a full knip pass).
     "check:deadcode": "own slot on the board",
+    // Same full knip pass as check:deadcode, in --production: it rides with that slot.
+    "check:deadcode-prod": "second knip pass, same cost class as check:deadcode",
     // Run on both sides with DIFFERENT pieces, deliberately: `data`/`home` read
     // the committer's name and home path (meaningless on a runner), and
     // `dependencies` is the one piece that needs the network.

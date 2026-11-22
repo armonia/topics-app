@@ -94,7 +94,7 @@ export interface OverflowChoice {
   model: string | null;
   /** Live cards on that machine (Todo or in progress, this round's moves included). */
   load: (machineId: string) => number;
-  /** A node whose recent wakes failed (`wake-breaker.ts`): not a sleeping target for now. */
+  /** A machine, node or cloud, with a breaker open (`wake-breaker.ts`): not chosen for now. */
   wakeBlocked?: (machineId: string) => boolean;
 }
 
@@ -126,15 +126,18 @@ export function pickOverflowMachine(
   opts: OverflowChoice,
 ): OverflowMachine | null {
   const room = (m: OverflowMachine) => opts.load(m.id) < effectiveSlots(m);
-  const online = machines.filter((m) => m.online && room(m));
+  // A machine with a breaker open is never chosen, ONLINE included and the cloud
+  // included: the heartbeat says the machine answers, not that a run starts there
+  // (14/11: a cloud node online with a refusing hook, one card bounced 542 times
+  // in 47 h). The cloud's breakers open too (its `node-run` hook, its buried runs),
+  // and the remote lane takes an overflowed card off a blocked machine at once on
+  // the word of this filter: chosen anyway, the card came back every tick (21/11).
+  const online = machines.filter((m) => m.online && room(m) && !opts.wakeBlocked?.(m.id));
   if (opts.cloudCredit && opts.githubOrigin && cloudRunsModel(opts.model)) {
     const cloud = online.find((m) => m.kind === "cloud");
     if (cloud) return cloud;
   }
-  // A node with its wake breaker open is never chosen, ONLINE included: the
-  // heartbeat says the machine answers, not that a run starts there (14/11: a
-  // cloud node online with a refusing hook, one card bounced 542 times in 47 h).
-  return online.find((m) => m.kind === "node" && !opts.wakeBlocked?.(m.id))
+  return online.find((m) => m.kind === "node")
     ?? machines.find((m) => m.kind === "node" && !m.online && m.wakeable && !opts.wakeBlocked?.(m.id) && room(m))
     ?? null;
 }
