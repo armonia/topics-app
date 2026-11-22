@@ -1,13 +1,20 @@
 /**
  * @covers MACHINE-08
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { MachineSecurityReport } from "../../shared/machine-health";
 import { FAILED_LOGIN_PATTERN, type RunResult, type Runner } from "./machine-security";
-import { createSshProbeEnv, parseSshServers, probeSshServer, shellQuote, sshArgv, sshCloseControlArgv } from "./machine-security-ssh";
+import { createSshProbeEnv, parseSshServers, probeSshServer, shellQuote, sshArgv, sshCloseControlArgv, sshControlDir } from "./machine-security-ssh";
 
 const server = { host: "srv.example.test", user: "audit", port: 2222 };
 const done = (stdout: string, code = 0, stderr = ""): RunResult => ({ code, stdout, stderr, timedOut: false, missing: false });
+
+/** App data dir shared by the tests that only need `probeSshServer`'s now-required `appDataDir`, not the reuse itself. */
+const testAppDataDir = mkdtempSync(join(tmpdir(), "topics-ssh-test-"));
+afterAll(() => rmSync(testAppDataDir, { recursive: true, force: true }));
 
 // Output recorded on an Ubuntu server (trimmed).
 const SSHD_T = "port 22\npasswordauthentication no\nkbdinteractiveauthentication no\n";
@@ -75,6 +82,21 @@ describe("MACHINE-08 ssh command line", () => {
     expect(argv.some((a) => a.includes("ControlMaster") || a.includes("ControlPath") || a.includes("ControlPersist"))).toBe(false);
   });
 
+  test("the default timeout is the ssh-specific one, long enough for the handshake, not the local 5s", () => {
+    const argv = sshArgv(server, ["true"]);
+    expect(argv).toContain("ConnectTimeout=12");
+  });
+
+  test("a long app data dir still gets a control dir that fits a unix socket path", () => {
+    const longAppDataDir = join("/", "a".repeat(120), "b".repeat(80));
+    const dir = sshControlDir(longAppDataDir);
+    expect(Buffer.byteLength(join(dir, "x".repeat(40))) + 17).toBeLessThanOrEqual(103);
+  });
+
+  test("a short app data dir keeps its control dir inside the app data folder", () => {
+    expect(sshControlDir("/data")).toBe(join("/data", "ssh-control"));
+  });
+
   test("closing the control connection targets the same ControlPath, no remote command", () => {
     const argv = sshCloseControlArgv(server, "/data/ssh-control");
     expect(argv).toEqual(["ssh", "-o", "ControlPath=/data/ssh-control/%C", "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
@@ -90,12 +112,20 @@ describe("MACHINE-08 ssh command line", () => {
     const verbs = seen.map((a) => a[a.length - 1].split(" ")[0]);
     expect(new Set(verbs)).toEqual(new Set(["'cat'", "'ls'", "'stat'"]));
   });
+
+  test("the probe environment runs commands with the ssh timeout, not the runner's default", async () => {
+    const seenTimeouts: Array<number | undefined> = [];
+    const local: Runner = async (_argv, timeoutMs) => { seenTimeouts.push(timeoutMs); return done(""); };
+    const env = createSshProbeEnv(server, local);
+    await env.run(["true"]);
+    expect(seenTimeouts).toEqual([12_000]);
+  });
 });
 
 describe("MACHINE-08 round on a recorded Ubuntu", () => {
   test("the same probes give a report with the four checks", async () => {
     const now = () => Date.parse("2026-11-20T12:00:00Z");
-    const report = await probeSshServer(server, recorded(UBUNTU), null, now);
+    const report = await probeSshServer(server, recorded(UBUNTU), testAppDataDir, null, now);
     expect(report.checks.map((c) => c.key)).toEqual(["updates", "disk", "access", "antivirus"]);
     expect(report.checked_at).toBe(Math.floor(now() / 1000));
     expect(report.checks.find((c) => c.key === "updates")?.status).toBe("ok");
@@ -105,7 +135,7 @@ describe("MACHINE-08 round on a recorded Ubuntu", () => {
 
   test("a key the server refuses gives four unknown checks with the reason", async () => {
     const refuse: Runner = async () => done("", 255, "audit@srv: Permission denied (publickey).");
-    const report = await probeSshServer(server, refuse, null, () => 1_000_000);
+    const report = await probeSshServer(server, refuse, testAppDataDir, null, () => 1_000_000);
     expect(report.status).toBe("unknown");
     expect(report.checks).toHaveLength(4);
     for (const c of report.checks) { expect(c.status).toBe("unknown"); expect(c.detail).toBe("chiave non accettata"); }
@@ -114,22 +144,27 @@ describe("MACHINE-08 round on a recorded Ubuntu", () => {
   test("a server that does not answer keeps the last report with its time", async () => {
     const last: MachineSecurityReport = { checked_at: 1234, status: "ok", checks: [{ key: "updates", status: "ok", detail: "ok" }] };
     const timeout: Runner = async () => ({ code: null, stdout: "", stderr: "", timedOut: true, missing: false });
-    expect(await probeSshServer(server, timeout, last)).toBe(last);
+    expect(await probeSshServer(server, timeout, testAppDataDir, last)).toBe(last);
   });
 
   test("nothing is written: no remote word is a mutating command", async () => {
     const seen: string[][] = [];
-    await probeSshServer(server, recorded(UBUNTU, seen));
-    const words = new Set(seen.map((a) => a[a.length - 1].split(" ")[0]));
+    await probeSshServer(server, recorded(UBUNTU, seen), testAppDataDir);
+    // The last command closes the shared connection: its argv ends with the host, not a quoted remote word.
+    const words = new Set(seen.slice(0, -1).map((a) => a[a.length - 1].split(" ")[0]));
     for (const w of words) expect(["'true'", "'cat'", "'ls'", "'stat'", "'sshd'", "'ss'", "'apt'", "'ufw'", "'journalctl'"]).toContain(w);
   });
 
   test("with an app data dir, every read shares one connection and it is closed at the end of the round", async () => {
     const seen: string[][] = [];
-    const appDataDir = await import("node:fs/promises").then((fs) => fs.mkdtemp("/tmp/ssh-probe-"));
-    await probeSshServer(server, recorded(UBUNTU, seen), null, Date.now, appDataDir);
-    for (const argv of seen.slice(0, -1)) expect(argv).toContain("ControlMaster=auto");
-    expect(seen.at(-1)).toEqual(["ssh", "-o", `ControlPath=${appDataDir}/ssh-control/%C`, "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
+    const appDataDir = mkdtempSync(join(tmpdir(), "ssh-probe-"));
+    try {
+      await probeSshServer(server, recorded(UBUNTU, seen), appDataDir);
+      for (const argv of seen.slice(0, -1)) expect(argv).toContain("ControlMaster=auto");
+      expect(seen.at(-1)).toEqual(["ssh", "-o", `ControlPath=${join(sshControlDir(appDataDir), "%C")}`, "-O", "exit", "-p", "2222", "audit@srv.example.test"]);
+    } finally {
+      rmSync(appDataDir, { recursive: true, force: true });
+    }
   });
 });
 

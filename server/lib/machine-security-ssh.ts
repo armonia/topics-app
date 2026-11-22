@@ -5,7 +5,9 @@
  * read and listing goes through `ssh -o BatchMode=yes` and nothing is
  * installed or written on the server.
  */
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CheckKey, MachineSecurityReport } from "../../shared/machine-health";
 import { probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
@@ -67,9 +69,33 @@ export function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Where the control sockets of `ControlPath` live: inside the app data folder, never on the server. */
+/**
+ * The widest unix domain socket path all our platforms accept (macOS's
+ * `sizeof(sockaddr_un.sun_path)` is the tightest, 104 bytes including the
+ * trailing NUL). `ssh` substitutes `%C` with a 40 char hash of the
+ * connection params, plus a temporary suffix of up to 17 bytes while it
+ * binds the socket, so the directory itself has that much less room.
+ */
+const MAX_SOCKET_PATH_BYTES = 103;
+const CONTROL_HASH_CHARS = 40;
+const CONTROL_BIND_SUFFIX_BYTES = 17;
+
+function fitsControlSocket(dir: string): boolean {
+  return Buffer.byteLength(join(dir, "x".repeat(CONTROL_HASH_CHARS))) + CONTROL_BIND_SUFFIX_BYTES <= MAX_SOCKET_PATH_BYTES;
+}
+
+/**
+ * Where the control sockets of `ControlPath` live. Inside the app data
+ * folder when that leaves room for `ssh`'s own hash and bind suffix;
+ * otherwise a short, per-app directory under the OS temp folder, so a long
+ * data path (an uncommon but real install layout) does not push the socket
+ * over the OS limit and turn every ssh probe unreachable.
+ */
 export function sshControlDir(appDataDir: string): string {
-  return join(appDataDir, "ssh-control");
+  const inData = join(appDataDir, "ssh-control");
+  if (fitsControlSocket(inData)) return inData;
+  const id = createHash("sha1").update(appDataDir).digest("hex").slice(0, 8);
+  return join(tmpdir(), `topics-ssh-${id}`);
 }
 
 /** The local `ssh` command line for one remote command. `controlDir` set reuses one connection per server across the round. */
@@ -143,18 +169,20 @@ export function whyUnreachable(r: RunResult): string {
 /**
  * One round on one server. A server that does not answer keeps its last
  * report (with the time it was taken) instead of replacing it with unknowns.
- * With `appDataDir` every read of the round shares one ssh connection (the
- * handshake only happens once), closed again before returning.
+ * `appDataDir` is required (not optional) so a caller that forgets to wire
+ * it fails `typecheck` instead of silently losing the connection reuse:
+ * every read of the round shares one ssh connection (the handshake only
+ * happens once), closed again before returning.
  */
 export async function probeSshServer(
   server: SshServer,
   local: Runner,
+  appDataDir: string,
   last: MachineSecurityReport | null = null,
   now: () => number = Date.now,
-  appDataDir?: string,
 ): Promise<MachineSecurityReport> {
-  const controlDir = appDataDir ? sshControlDir(appDataDir) : undefined;
-  if (controlDir) { try { mkdirSync(controlDir, { recursive: true }); } catch { /* best effort: no reuse this round */ } }
+  const controlDir = sshControlDir(appDataDir);
+  try { mkdirSync(controlDir, { recursive: true, mode: 0o700 }); } catch { /* best effort: no reuse this round */ }
   try {
     const env = createSshProbeEnv(server, local, now, controlDir);
     const reach = await env.run(["true"]);
@@ -164,6 +192,6 @@ export async function probeSshServer(
     }
     return await probeMachineSecurity(env);
   } finally {
-    if (controlDir) await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
+    await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
   }
 }
