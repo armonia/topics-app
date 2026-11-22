@@ -32,9 +32,13 @@ const RED = [
   GREEN[2],
 ];
 
-async function fakeRound(page: Page, answer: () => unknown, round: () => { state: string; ageMin: number | null } = () => ({ state: "live", ageMin: 1 })): Promise<void> {
+async function fakeRound(
+  page: Page, answer: () => unknown,
+  round: () => { state: string; ageMin: number | null } = () => ({ state: "live", ageMin: 1 }),
+  cures: () => unknown = () => undefined,
+): Promise<void> {
   await page.route("**/api/topics-check", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), ...round(), voices: answer() }) }));
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), ...round(), voices: answer(), cures: cures() }) }));
 }
 
 test.describe("topics check row", () => {
@@ -50,8 +54,9 @@ test.describe("topics check row", () => {
   test("green, then red, then stopped with the detail of the three voices", async ({ page }, testInfo) => {
     let answer: unknown = GREEN;
     let round = { state: "live", ageMin: 1 as number | null };
+    let cures: unknown;
     await page.setViewportSize({ width: 1440, height: 900 });
-    await fakeRound(page, () => answer, () => round);
+    await fakeRound(page, () => answer, () => round, () => cures);
     await goToApp(page);
     await openMainChat(page, scene!);
     await page.getByTestId("sidebar-automations").click();
@@ -59,15 +64,20 @@ test.describe("topics check row", () => {
     await expect(check).toBeVisible({ timeout: 20_000 });
     await expect(check).toHaveAttribute("data-state", "green");
     await expect(check.getByTestId("topics-check-state")).toHaveText("Tutto avanza");
+    // No cure capped or investigated: no line about them.
+    await expect(check.getByTestId("topics-check-cures")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("topics-check-verde-1440.png") });
 
     // The next read after the round turned red: reload the view's data by reopening it.
     answer = RED;
+    // The daily cap of investigation cards was reached: the row says how many were left unopened.
+    cures = { investigated: ["c1"], capped: ["c2", "c3"] };
     await page.reload();
     await openMainChat(page, scene!);
     await page.getByTestId("sidebar-automations").click();
     await expect(check).toHaveAttribute("data-state", "red", { timeout: 20_000 });
     await expect(check.getByTestId("topics-check-state")).toHaveText("2 da guardare");
+    await expect(check.getByTestId("topics-check-cures")).toHaveText("tetto di indagini del giorno raggiunto, non aperte: 2 · card d'indagine aperte: 1");
     await check.getByTestId("topics-check-toggle").click();
     const voices = check.getByTestId("topics-check-voice");
     await expect(voices).toHaveCount(3);
