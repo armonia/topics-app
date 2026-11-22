@@ -17,6 +17,7 @@ import { getAppSettings } from "./app-settings";
 import { runBounded } from "../lib/machine-security-env";
 import { NODE_UNREACHABLE_ERROR, statusEventEnters, WAITING_MEMORY_REASON, type QueueReason, type QueueReasonKind } from "../../shared/board";
 import { createTasksShared } from "./tasks/shared";
+import { PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 
 export const SAMPLE_INTERVAL_MS = 5 * 60_000;
 export const KEEP_SAMPLES_MS = 7 * 24 * 3_600_000;
@@ -101,8 +102,14 @@ const CAUSE_OF_KIND: Partial<Record<QueueReasonKind, StuckCause>> = {
   spend_cap: "spend", attempts: "attempts", parent_review: "parent-review", parent_idle: "parent-idle", no_project: "no-project",
 };
 
+/** An assignee that names the agent, not a person: the board writes it on cards it hands to an agent. */
+const AGENT_ASSIGNEE = /^(agents?|agente|agenti|ai|bot)$/i; // allow-italian: the generic word boards use for the agent
+
+/** Counts what a round computed, so a test can prove the work stays on the few old cards. */
+export interface SampleProbe { reasons: number }
+
 /** One reading of the database at `now`. Read-only. */
-export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS, localHost: string = hostname()): Sample {
+export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS, localHost: string = hostname(), probe?: SampleProbe): Sample {
   const rows = db.query("SELECT * FROM tasks WHERE status IN ('todo', 'in_progress') AND archived = 0").all() as any[];
   // Same predicate as the dispatcher: the machine-wide switch lives in app_settings and a board can only pause itself.
   const globalAuto = !!(db.query("SELECT auto_dispatch FROM app_settings LIMIT 1").get() as { auto_dispatch?: number | null } | null)?.auto_dispatch;
@@ -136,17 +143,17 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const over = (r: any) => since.has(r.id) && (now - since.get(r.id)!) / HOUR_MS >= limitH(r);
   // One read of the threads of the cards already past a threshold, which can only make them younger:
   // a todo card is as old as its last entry into todo (`reopened_at` is written only on the way out of review
-  // or done), and a card in progress lives as long as a person or an agent writes on it. The (task, author, kind)
-  // index answers the filter without reading the rows it drops: on the task index alone the read was 4 times slower.
+  // or done), a card in progress as its last entry into in_progress, and it lives as long as a person or an
+  // agent writes on it. The planner picks the (task, author, kind) index by itself: with no hint, a schema
+  // without that index still answers.
   const firstCut = rows.filter(over);
   const threads = db.query(
-    "SELECT task_id, kind, content, created_at FROM task_comments INDEXED BY idx_task_comments_task_author_kind WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))",
+    "SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))",
   ).all(JSON.stringify(firstCut.map((r) => r.id))) as { task_id: string; kind: string; content: string; created_at: string }[];
-  const statusOf = new Map(firstCut.map((r) => [r.id, r.status as string]));
+  const statusOf = new Map(firstCut.map((r) => [r.id, r.status as "todo" | "in_progress"]));
   for (const c of threads) {
-    const life = statusOf.get(c.task_id) === "todo"
-      ? c.kind === "status" && statusEventEnters(c.content, "todo")
-      : c.kind === "comment" && !ROLE_NOTE.test(c.content);
+    const status = statusOf.get(c.task_id)!;
+    const life = c.kind === "status" ? statusEventEnters(c.content, status) : status === "in_progress" && !ROLE_NOTE.test(c.content);
     if (life) since.set(c.task_id, Math.max(since.get(c.task_id)!, ms(c.created_at)));
   }
   const old = firstCut.filter(over);
@@ -157,22 +164,39 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   batch.nowIso = iso(now);
   let moved: boolean | null = null;
   const queueMoved = () => (moved ??= !!db.query("SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").get(iso(now - t.queueMovedHours * HOUR_MS)));
-  /** The card that holds a chain: the first one parked in backlog, or closed, along the blockers. */
-  const chainRoot = (id: string | null): { status: string } | null => {
-    let cur = id;
+  /** When a card last went into backlog: its last status event there, or its birth when it was born there. */
+  const parkedAt = (id: string, createdAt: string): number => {
+    const events = db.query("SELECT content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status' ORDER BY created_at DESC").all(id) as { content: string; created_at: string }[];
+    return ms(events.find((e) => statusEventEnters(e.content, "backlog"))?.created_at ?? createdAt);
+  };
+  /** The card that holds a chain: the first one parked in backlog, or closed, along the blockers; `since` is when it was parked. */
+  const roots = new Map<string, { status: string; since: number } | null>();
+  const chainRoot = (id: string | null): { status: string; since: number } | null => {
+    if (!id) return null;
+    if (roots.has(id)) return roots.get(id)!;
+    let root: { status: string; since: number } | null = null;
+    let cur: string | null = id;
     for (let i = 0; cur && i < MAX_CHAIN_DEPTH; i++) {
-      const k = db.query("SELECT status, archived, blocked_by_task_id FROM tasks WHERE id = ?").get(cur) as { status: string; archived: number; blocked_by_task_id: string | null } | null;
-      if (!k || k.archived) return null;
-      if (k.status === "backlog" || k.status === "done") return k;
+      const k = db.query("SELECT status, archived, blocked_by_task_id, created_at FROM tasks WHERE id = ?").get(cur) as { status: string; archived: number; blocked_by_task_id: string | null; created_at: string } | null;
+      if (!k || k.archived) break;
+      if (k.status === "backlog" || k.status === "done") {
+        root = { status: k.status, since: k.status === "backlog" ? parkedAt(cur, k.created_at) : 0 };
+        break;
+      }
       cur = k.blocked_by_task_id;
     }
-    return null;
+    roots.set(id, root);
+    return root;
   };
   /** A slot wait is lost when a plan holds it, when its machine is off, or when nothing started for a while. */
   const queueWait = (r: any, pinnedOff: boolean): StuckCause | null => {
     // A held resume carries the memory code without a published block; the provider's plan hold writes its own
-    // sentence next to the bare queued chip, and publishes no machine block either.
-    if (r.dispatch_state === "queued" && r.dispatch_error) return r.dispatch_error === WAITING_MEMORY_REASON ? "memory" : "plan";
+    // sentence next to the bare queued chip, and publishes no machine block either. Only a spent plan is lost:
+    // the five-hour window and the deferral after a restart end by themselves.
+    if (r.dispatch_state === "queued" && r.dispatch_error) {
+      if (r.dispatch_error === WAITING_MEMORY_REASON) return "memory";
+      return String(r.dispatch_error).includes(PLAN_SPENT_NOTE) ? "plan" : null;
+    }
     if (pinnedOff) return "offline";
     if (queueMoved()) return null;
     if (r.stay_local && !(r.stay_local_until && ms(r.stay_local_until) <= now)) return "stay-local";
@@ -194,9 +218,11 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
       case "node_unreachable": return pinnedOff ? "offline" : "hung-node";
       // A chain held by a card the dispatcher parked will never move.
       case "blocked": return chainRoot(r.blocked_by_task_id)?.status === "backlog" ? "chain-parked" : null;
+      // A heavy card held behind the memory floor waits on memory like any other; held for load alone, it waits.
+      case "heavy_hold":
       case "resource_floor":
-        if (r.dispatch_error !== WAITING_MEMORY_REASON) return "resources";
-        return r.dispatch_state === "queued" ? "memory" : null;
+        if (r.dispatch_error === WAITING_MEMORY_REASON) return r.dispatch_state === "queued" ? "memory" : null;
+        return reason.kind === "resource_floor" ? "resources" : null;
       case "slot": return queueWait(r, pinnedOff);
       case "no_agent":
         // A wait the agent declared, with its date still ahead, is chosen; a chip left on the card with no reason is not.
@@ -219,10 +245,13 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
       if (openRun && pinnedOff) { cause = "offline"; from = Math.max(from, pinned!.heartbeatAt); }
       else if (openRun && pinned && (r.dispatch_error === NODE_UNREACHABLE_ERROR || (now - pinned.heartbeatAt) / 60_000 >= t.nodeSilentMin)) cause = "hung-node";
       else continue;
-    } else if (r.human_ask?.trim() || r.stage === "human_review" || (r.status === "in_progress" && r.assigned_to)) {
+    } else if (r.human_ask?.trim() || r.stage === "human_review" || (r.status === "in_progress" && r.assigned_to && !AGENT_ASSIGNEE.test(r.assigned_to))) {
       cause = "person";
     } else {
+      if (probe) probe.reasons++;
       cause = classify(r, shared.queueReasonOf(r, batch), pinnedOff);
+      // A parked chain loses time from when its root was parked, not from when each card entered the queue.
+      if (cause === "chain-parked") from = Math.max(from, chainRoot(r.blocked_by_task_id)!.since);
     }
     const hours = (now - from) / HOUR_MS;
     if (cause && hours >= limitH(r)) stuck.push({ id: r.id, status: r.status, hours, cause });

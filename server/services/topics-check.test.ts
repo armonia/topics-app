@@ -11,6 +11,7 @@ import { Database } from "bun:sqlite";
 import { EMBEDDED_MIGRATIONS } from "../db/migrations-embedded";
 import { createTasksShared } from "./tasks/shared";
 import { setDispatchBlock } from "./dispatch-block-signal";
+import { PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 import {
   createTopicsCheck, DEFAULT_THRESHOLDS, parseSettings, readSamples, roundState, runProofs, sampleTopics, voices,
   SAMPLE_INTERVAL_MS, type Sample, type TopicsCheckSettings,
@@ -398,7 +399,7 @@ describe("the board's states, as the dispatcher writes them (second review, poin
   });
   test("F: a spent plan is lost hours with its cause, even while other cards start", () => {
     const d = db(); moving(d);
-    card(d, "p", "todo", 5 * H, { dispatchState: "queued", dispatchError: "Claude: piano esaurito. Le card non ripartono da sole." }); // allow-italian: the sentence the plan hold writes
+    card(d, "p", "todo", 5 * H, { dispatchState: "queued", dispatchError: `Claude: piano esaurito. ${PLAN_SPENT_NOTE}` }); // allow-italian: the sentence the plan hold writes
     card(d, "q", "todo", 5 * H, { dispatchState: "queued" });
     expect(causes(d)).toEqual([["p", "plan"]]);
     expect(cards([sampleTopics(d, NOW)]).cause).toContain("piano");
@@ -460,6 +461,97 @@ describe("the board's states, as the dispatcher writes them (second review, poin
   });
 });
 
+describe("the third review: hours of a parked chain, heavy holds, and what is not a person or a plan", () => {
+  const statusEvent = (d: Database, taskId: string, content: string, at: number) =>
+    d.query("INSERT INTO task_comments (id, task_id, author, content, created_at, kind) VALUES (?, ?, 'system', ?, ?, 'status')").run(`${taskId}-${at}`, taskId, content, iso(at));
+  const stuckOf = (d: Database) => sampleTopics(d, NOW).stuck.map((c) => [c.id, c.cause, Math.round(c.hours * 10) / 10]);
+
+  test("1: a parked chain loses hours from when its root went into backlog, not from each card's entry into todo", () => {
+    const d = db();
+    card(d, "root", "todo", 30 * H);
+    statusEvent(d, "root", "todo→backlog · parked", NOW - 3 * H);
+    card(d, "mid", "todo", 20 * H, { blockedBy: "root" });
+    card(d, "leaf", "todo", 20 * H, { blockedBy: "mid" });
+    set(d, "root", { status: "backlog" });
+    expect(stuckOf(d)).toEqual([["mid", "chain-parked", 3], ["leaf", "chain-parked", 3]]);
+    // A card that joined the chain after the root was parked counts from its own entry.
+    card(d, "late", "todo", 2 * H, { blockedBy: "root" });
+    expect(stuckOf(d)).toContainEqual(["late", "chain-parked", 2]);
+  });
+  test("1: a root born in backlog was parked at its birth", () => {
+    const d = db();
+    card(d, "root", "backlog", 4 * H);
+    card(d, "kid", "todo", 20 * H, { blockedBy: "root" });
+    expect(stuckOf(d)).toEqual([["kid", "chain-parked", 4]]);
+  });
+  test("2: a heavy card held behind the memory floor is memory, like the same wait with no weight", () => {
+    const d = db();
+    card(d, "heavy", "todo", 11 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    set(d, "heavy", { dispatch_weight: "heavy" });
+    card(d, "light", "todo", 8 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+    const shared = createTasksShared(d, {});
+    const rows = d.query("SELECT * FROM tasks WHERE id = 'heavy'").all() as any[];
+    expect(shared.queueReasonOf(rows[0], shared.buildBatch(rows, { reasonsOnly: true }))?.kind).toBe("heavy_hold");
+    expect(stuckOf(d)).toEqual([["heavy", "memory", 11], ["light", "memory", 8]]);
+  });
+  test("2: a heavy card held for load alone waits on purpose", () => {
+    const d = db();
+    card(d, "heavy", "todo", 11 * H, { dispatchState: "queued" });
+    set(d, "heavy", { dispatch_weight: "heavy" });
+    expect(stuckOf(d)).toEqual([]);
+  });
+  test("3: the round answers on a schema without the (task, author, kind) index", () => {
+    const d = db();
+    d.run("DROP INDEX idx_task_comments_task_author_kind");
+    card(d, "q", "todo", 5 * H, GIVEN_UP);
+    expect(stuckOf(d)).toEqual([["q", "attempts", 5]]);
+  });
+  test("minor: an assignee that names the agent is not a person", () => {
+    const d = db();
+    card(d, "a", "in_progress", 5 * H); set(d, "a", { assigned_to: "agente" });
+    card(d, "p", "in_progress", 5 * H); set(d, "p", { assigned_to: "reviewer" });
+    expect(stuckOf(d)).toEqual([["a", "unknown", 5], ["p", "person", 5]]);
+  });
+  test("minor: the five-hour window and a deferral are not a spent plan", () => {
+    const d = db();
+    card(d, "w", "todo", 5 * H, { dispatchState: "queued", dispatchError: "Claude: finestra di 5 ore al 92%. Nuovi task in attesa del reset delle 14:00." }); // allow-italian: the sentence the window hold writes
+    card(d, "r", "todo", 5 * H, { dispatchState: "queued", dispatchError: "restart deferral" });
+    card(d, "p", "todo", 5 * H, { dispatchState: "queued", dispatchError: `Claude: limite. ${PLAN_SPENT_NOTE}` });
+    expect(stuckOf(d)).toEqual([["p", "plan", 5]]);
+  });
+  test("minor: with no in_progress_at, a card in progress is as old as its last entry into in_progress", () => {
+    const d = db();
+    card(d, "c", "in_progress", 50 * H);
+    statusEvent(d, "c", "todo→in_progress", NOW - 3 * H);
+    expect(stuckOf(d)).toEqual([["c", "unknown", 3]]);
+  });
+  test("minor: in progress, an idle card is counted, a working one only with an open run (both halves of the age gate)", () => {
+    const d = db();
+    machine(d, "n", "online", 4, iso(NOW - H));
+    card(d, "idle", "in_progress", 5 * H);
+    card(d, "busy", "in_progress", 5 * H, { dispatchState: "working" });
+    card(d, "run", "in_progress", 5 * H, { dispatchState: "working", machineId: "n", nodeRunOpen: true });
+    expect(stuckOf(d)).toEqual([["idle", "unknown", 5], ["run", "hung-node", 5]]);
+  });
+  test("minor: in progress with no reason, no parent and nobody on it is unknown (the last branch of G)", () => {
+    // A start that never became a turn: the board reads no queue reason on it.
+    const d = db(); card(d, "c", "in_progress", 5 * H, { dispatchState: "starting" });
+    const shared = createTasksShared(d, {});
+    const rows = d.query("SELECT * FROM tasks").all() as any[];
+    expect(shared.queueReasonOf(rows[0], shared.buildBatch(rows, { reasonsOnly: true }))).toBeNull();
+    expect(stuckOf(d)).toEqual([["c", "unknown", 5]]);
+  });
+  test("minor: a todo subtask of an idle parent is named by the reason's kind, parent_idle", () => {
+    const d = db();
+    card(d, "dad", "backlog", 5 * H);
+    card(d, "kid", "todo", 5 * H); set(d, "kid", { parent_task_id: "dad" });
+    const shared = createTasksShared(d, {});
+    const rows = d.query("SELECT * FROM tasks WHERE id = 'kid'").all() as any[];
+    expect(shared.queueReasonOf(rows[0], shared.buildBatch(rows, { reasonsOnly: true }))?.kind).toBe("parent_idle");
+    expect(stuckOf(d)).toEqual([["kid", "parent-idle", 5]]);
+  });
+});
+
 describe("proofs voice", () => {
   const one = (name: string, command = "x") => parseSettings(JSON.stringify({ checks: [{ name, command, tier: "5min" }] }));
   test("no declared proof: green and says so", () => {
@@ -488,7 +580,7 @@ describe("proofs voice", () => {
 });
 
 describe("the round", () => {
-  test("288 rounds (24 h) call no model, keep one sample each, and take under 50 ms each", async () => {
+  test("288 rounds (24 h) call no model and keep one sample each", async () => {
     const d = db();
     card(d, "p", "in_progress", 3 * H);
     let modelCalls = 0;
@@ -497,14 +589,14 @@ describe("the round", () => {
     try {
       let t = NOW;
       const round = createTopicsCheck({ db: d, now: () => t, run: async () => OK });
-      const started = performance.now();
       for (let i = 0; i < 288; i++) { await round.tick(); t += SAMPLE_INTERVAL_MS; }
-      expect((performance.now() - started) / 288).toBeLessThan(50);
     } finally { globalThis.fetch = realFetch; }
     expect(modelCalls).toBe(0);
     expect(readSamples(d)).toHaveLength(288);
   });
-  test("real volumes: the moves read searches an index, a round stays under 50 ms, and the view reads only its window", async () => {
+  // No wall clock here: on a shared CI a time cap measures the load, not the code. Speed is proved by what
+  // does not depend on the load: the plans use an index, and the reasons are read only for the old cards.
+  test("real volumes: every read searches an index, reasons are read only past a threshold, and the view reads only its window", async () => {
     const d = db();
     d.run("BEGIN");
     for (let i = 0; i < 200; i++) card(d, `v${i}`, i % 2 ? "todo" : "in_progress", (i % 20) * H);
@@ -517,13 +609,18 @@ describe("the round", () => {
     const plan = (d.query("EXPLAIN QUERY PLAN SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
     expect(plan).toContain("idx_task_comments_created_at");
     expect(plan).not.toMatch(/SCAN task_comments/);
-    const round = createTopicsCheck({ db: d, now: () => NOW + SAMPLE_INTERVAL_MS, run: async () => OK });
-    await round.tick();
-    const started = performance.now();
+    const threads = (d.query("EXPLAIN QUERY PLAN SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))").all("[]") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    expect(threads).toMatch(/SEARCH task_comments USING (COVERING )?INDEX idx_task_comments_task/);
+    const probe = { reasons: 0 };
+    const now = NOW + SAMPLE_INTERVAL_MS;
+    sampleTopics(d, now, DEFAULT_THRESHOLDS, undefined, probe);
+    // Cards v0..v199 are aged (i % 20) h: in progress they cross 2 h, in todo 1 h. The odd ones (todo) aged 1..19 h
+    // are all past their threshold; the even ones (in progress) are past it from 2 h. A note by `system` is no life.
+    const old = Array.from({ length: 200 }, (_, i) => i).filter((i) => (i % 20) >= (i % 2 ? 1 : 2)).length;
+    expect(probe.reasons).toBeLessThanOrEqual(old);
+    expect(probe.reasons).toBeGreaterThan(0);
+    const round = createTopicsCheck({ db: d, now: () => now, run: async () => OK });
     const view = await round.tick().then(() => round.current());
-    const ms = performance.now() - started;
-    console.log(`round + view at real volumes: ${ms.toFixed(1)} ms`);
-    expect(ms).toBeLessThan(50);
     expect(view.state).toBe("live");
     expect(readSamples(d, NOW - 12 * H).length).toBeLessThan(150);
   });
