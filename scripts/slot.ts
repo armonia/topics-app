@@ -135,7 +135,14 @@ const { command: shellCommand, args: shellArgs } = shellInvocation(cmd);
 // behind its own parent, which with one free slot would be a deadlock.
 const child = spawn(shellCommand, shellArgs, {
   stdio: "inherit",
-  detached: true,
+  // `detached` on win32 puts the child in its own console with no inherited
+  // stdio pipes, so a red gate shows no output at all. Windows has no process
+  // groups anyway (see `signalTree` below): this flag only matters on POSIX.
+  detached: process.platform !== "win32",
+  // The command above is already a single quoted token on win32 (see
+  // `shellInvocation`); without this, Node re-quotes it and breaks nested
+  // double quotes like the ones `typecheck`/`lint` wrap `parallel.ts` in.
+  windowsVerbatimArguments: process.platform === "win32",
   env: { ...process.env, [GATE_HELD_ENV]: label || "gate" },
 });
 let done = false;

@@ -50,7 +50,15 @@ describe("cross-platform shell invocation", () => {
   test("win32 runs the command through cmd.exe, not /bin/sh", () => {
     const { command, args } = shellInvocation("echo hi", "win32");
     expect(command).toBe("cmd.exe");
-    expect(args).toEqual(["/d", "/s", "/c", "echo hi"]);
+    expect(args).toEqual(["/d", "/s", "/c", `"echo hi"`]);
+  });
+
+  test("win32 keeps nested double quotes whole, one quoted token after /c", () => {
+    // typecheck/lint wrap scripts/parallel.ts with one command per nested
+    // quoted argument: `cmd.exe /c` only parses that correctly as ONE token.
+    const nested = `bun run scripts/parallel.ts "bun run a" "bun run b"`;
+    const { args } = shellInvocation(nested, "win32");
+    expect(args[args.length - 1]).toBe(`"${nested}"`);
   });
 
   test("posix keeps using /bin/sh -c", () => {
@@ -100,7 +108,11 @@ describe("the command always runs", () => {
   });
 });
 
-describe("un comando appeso viene abbattuto", () => {
+describe.skipIf(process.platform === "win32")("un comando appeso viene abbattuto", () => {
+  // `sleep`, `&`, `$!`, `wait` are POSIX shell, not something `cmd.exe`
+  // understands: these measure the kill-the-tree behaviour on the shell this
+  // machine actually has, not slot.ts's cross-platform wiring (see the
+  // "win32 wiring" describe above for that).
   // Il 2026-08-14 c'erano tre alberi `bun test` vivi da 12, 18 e 22 ore con
   // pochi minuti di CPU in tutto: fermi, non lenti. Non davano né verde né
   // rosso e tenevano il loro slot. Questi test misurano che ora danno rosso.
@@ -196,5 +208,24 @@ describe("it actually excludes", () => {
   test("the slot comes back when the command is done", async () => {
     await slot("echo x");
     expect(readdirSync(dir).filter((f) => f.endsWith(".pid"))).toEqual([]);
+  });
+});
+
+describe("the win32 wiring, not just the helper it could stop calling", () => {
+  // Runtime assertions above still pass if slot.ts quietly goes back to
+  // `spawn("/bin/sh", ["-c", cmd])` or drops the win32 branch of
+  // `signalTree`: on this (POSIX) machine nothing exercises either path.
+  // This reads the source itself so that mutant stays red.
+  const source = readFileSync(SLOT, "utf8");
+
+  test("slot.ts picks its shell through shellInvocation, not a hard-coded /bin/sh", () => {
+    expect(source).toContain("shellInvocation(cmd)");
+    // The literal (not its mentions in comments documenting this very fix).
+    expect(source).not.toContain('"/bin/sh"');
+  });
+
+  test("signalTree's win32 branch kills the tree with taskkill", () => {
+    const win32Branch = source.slice(source.indexOf('"win32"'), source.indexOf("process.kill(-pid"));
+    expect(win32Branch).toContain("taskkill");
   });
 });
