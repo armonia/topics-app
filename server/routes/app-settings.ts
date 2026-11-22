@@ -141,6 +141,7 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   agentBinPaths: { kind: "string" },
   firstRunDoneAt: { kind: "string" },
   securityAlertsProjectId: { kind: "string" },
+  topicsCheck: { kind: "string" },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

@@ -7,8 +7,12 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { applyEdit, defaultPaths, readRegistry, type Paths } from "./agent-config";
+import { applyEdit, createAgentConfigRouter, defaultPaths, readRegistry, type Paths } from "./agent-config";
 import { registryHome } from "../agents/registry";
+
+function ctx() {
+  return { json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }) };
+}
 
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
@@ -174,5 +178,51 @@ describe("applyEdit", () => {
     expect(() => applyEdit(p, { kind: "job", id: "a", schedule: { kind: "at", at: "domani" } })).toThrow("date and time");
     expect(() => applyEdit(p, { kind: "job", id: "a" })).toThrow("nothing to change");
     expect(readFileSync(join(p.home, "jobs.json"), "utf8")).toBe(before);
+  });
+});
+
+describe("GET /api/agent-config/persona", () => {
+  test("assembles the five layers for a known agent", async () => {
+    const p = fixture();
+    writeFileSync(join(p.home, "USER.md"), "Works in Rome, Italy.");
+    const router = createAgentConfigRouter(ctx(), () => p);
+    const res = await router(
+      new Request("http://x/api/agent-config/persona?agent=main"),
+      new URL("http://x/api/agent-config/persona?agent=main"),
+      "/api/agent-config/persona",
+      "GET",
+    );
+    const body = await res!.json();
+    expect(body.agent).toBe("main");
+    expect(body.layers.map((l: { name: string }) => l.name)).toEqual(["base", "rules", "profile", "identity", "agent"]);
+    expect(body.layers[2].content).toBe("Works in Rome, Italy.");
+    expect(body.layers[3].content).toBe("# Jarvis");
+    expect(body.layers.every((l: { tokens: number }) => typeof l.tokens === "number")).toBe(true);
+  });
+
+  test("?walled=1 returns identity and profile only", async () => {
+    const p = fixture();
+    writeFileSync(join(p.home, "USER.md"), "Works in Rome, Italy.");
+    const router = createAgentConfigRouter(ctx(), () => p);
+    const res = await router(
+      new Request("http://x/api/agent-config/persona?agent=main&walled=1"),
+      new URL("http://x/api/agent-config/persona?agent=main&walled=1"),
+      "/api/agent-config/persona",
+      "GET",
+    );
+    const body = await res!.json();
+    expect(body.layers.map((l: { name: string }) => l.name)).toEqual(["profile", "identity"]);
+  });
+
+  test("an unknown agent answers 404, not a throw", async () => {
+    const p = fixture();
+    const router = createAgentConfigRouter(ctx(), () => p);
+    const res = await router(
+      new Request("http://x/api/agent-config/persona?agent=ghost"),
+      new URL("http://x/api/agent-config/persona?agent=ghost"),
+      "/api/agent-config/persona",
+      "GET",
+    );
+    expect(res!.status).toBe(404);
   });
 });

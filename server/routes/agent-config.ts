@@ -5,6 +5,11 @@
  * `engine.json`'s `agents.<id>.workspace`, see `server/agents/registry.ts`.
  *
  *   GET  /api/agent-config              → { agents, health, issues }
+ *   GET  /api/agent-config/persona?agent=<id> → the assembled persona (base
+ *                                               → user → identity → agent),
+ *                                               with the token weight of
+ *                                               each layer — see
+ *                                               `server/agents/persona.ts`
  *   POST /api/agent-config/chat         { channel, chat, account?, active?, mention? }
  *   POST /api/agent-config/job          { id, paused }
  *   POST /api/agent-config/persona      { agent, file: "IDENTITY.md"|"SOUL.md", text }
@@ -21,6 +26,7 @@ import { join } from "path";
 import { runBounded } from "../lib/bounded-spawn";
 import { readIdentity, registryHome } from "../agents/registry";
 import { readJson as readJsonFile, safeWrite } from "../agents/config-files";
+import { assemblePersona } from "../agents/persona";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = string;
@@ -230,11 +236,31 @@ async function reload(paths: Paths): Promise<string> {
   return r.code === 0 ? "restarted" : "pending";
 }
 
+/** The workspace `engine.json` declares for an agent, expanded. `null` when the agent is unknown. */
+function workspaceOf(p: Paths, agentId: string): string | null {
+  const engineFile = join(p.home, "engine.json");
+  if (!existsSync(engineFile)) return null;
+  const engine: Json = readJson(engineFile);
+  const ws = engine.agents?.[agentId]?.workspace;
+  return typeof ws === "string" ? p.expand(ws) : null;
+}
+
 export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: () => Paths = () => defaultPaths()): RouteHandler {
   let health: { at: number; text: string; ok: boolean } | null = null;
-  return async function agentConfigRouter(req, _url, pathname, method) {
+  return async function agentConfigRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/agent-config")) return null;
     const p = paths();
+    // GET /api/agent-config/persona?agent=<id>[&walled=1] — the assembled
+    // persona (base → rules → profile → identity → agent; walled guests get
+    // identity and profile only), with the token weight of each layer. Used
+    // by the channel engine instead of reading the four files itself, and by
+    // the context inspector (T4).
+    if (method === "GET" && pathname === "/api/agent-config/persona") {
+      const agentId = url.searchParams.get("agent") ?? "";
+      const ws = agentId ? workspaceOf(p, agentId) : null;
+      if (!ws) return ctx.json({ error: "unknown agent" }, 404);
+      return ctx.json(assemblePersona(agentId, ws, p, { walled: url.searchParams.get("walled") === "1" }));
+    }
     if (method === "GET" && pathname === "/api/agent-config") {
       if (!existsSync(join(p.home, "config.json"))) return ctx.json({ agents: [], issues: [], health: null });
       if (!health || Date.now() - health.at > 60_000) {

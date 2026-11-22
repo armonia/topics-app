@@ -10,7 +10,7 @@ import { WorktreeRefusalError } from "./worktree-manager";
 import { BOARD_HOLD_KEY, providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { isModelUnavailable } from "./dispatch-overflow";
-import { CHIP_QUEUED } from "./task-dispatcher-support";
+import { CHIP_QUEUED, PLAN_SPENT_NOTE } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
 export function createProviderHold(ctx: DispatcherCtx) {
@@ -101,7 +101,7 @@ export function createProviderHold(ctx: DispatcherCtx) {
           // pile KANBAN-91 exists to end).
           slot: `${label}: `,
           reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
-            + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
+            + PLAN_SPENT_NOTE,
         };
       }
       return { untilMs: hold.untilMs, provider: holdKey, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason

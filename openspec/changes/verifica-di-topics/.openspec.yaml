@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-11-22
+name: verifica-di-topics
+status: approved
+approvata: "2026-11-22 00:05, chat"
+richiesta: "va bene ma ne facciamo sia uno ogni 5 minuti con tutte cose deterministiche e uno al giorno sia deterministiche che non? ma è da valutare bene per ogni automazione che abbiamo di topics per topics o non.. ma poi non può essere automatico in caso di problemi direttamente?"

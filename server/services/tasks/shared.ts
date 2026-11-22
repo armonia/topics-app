@@ -1284,25 +1284,28 @@ function cardCommentsFor(ids: readonly string[]): Map<string, CardComment[]> {
     return out;
   }
 
-function buildBatch(rows: readonly any[]): TaskBatch {
+function buildBatch(rows: readonly any[], opts: { reasonsOnly?: boolean } = {}): TaskBatch {
     const ids = rows.map((r) => r.id as string);
+    // `reasonsOnly`: the caller reads only `queueReasonOf`, so the facts a card face draws (labels,
+    // comments, the open question, preview images) are not paid for.
+    const light = opts.reasonsOnly === true;
     const b: TaskBatch = {
       nowIso: new Date().toISOString(),
-      labels: labelsFor(ids),
+      labels: light ? new Map() : labelsFor(ids),
       waitingOn: new Map(),
       topics: new Map(),
       blockers: new Map(),
       parentStatus: new Map(),
       retryCap: new Map(),
       openChildren: new Map(),
-      comments: cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
+      comments: light ? new Map() : cardCommentsFor(rows.filter(drawsCardComments).map((r) => r.id as string)),
       // Only the two columns where a hold can be open, so a board of closed
       // cards pays nothing: a review card already carries its comments and the
       // client reads the question straight out of those.
-      awaiting: awaitingAnswerFor(
+      awaiting: light ? new Set() : awaitingAnswerFor(
         rows.filter((r) => r.status === "todo" || r.status === "in_progress").map((r) => r.id as string),
       ),
-      previewImages: previewImagesFor(ids),
+      previewImages: light ? new Map() : previewImagesFor(ids),
       queue: null,
       nodeNames: new Map(),
       // Only the In-progress cards no agent is in: the `no_agent` branch.

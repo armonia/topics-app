@@ -119,8 +119,8 @@ test.describe("Without the hub, no trace", () => {
     await openMainChat(page, scene!);
     await expect(page.getByLabel("Topics sidebar")).toBeVisible();
     await expectNoHubTrace(page);
-    // Automazioni is the hub's: without it, not even the row above the Board.
-    await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
+    // The row is the self-check's too: present without the hub, with no hub data in it.
+    await expect(page.getByTestId("sidebar-automations")).toBeVisible();
     await expect(page.getByTestId("identity-hot-quota")).toHaveCount(0);
     await page.mouse.move(0, 0);
     await page.screenshot({ path: testInfo.outputPath("vero-via-sistema-piccolo-senza-hub-scuro.png") });
@@ -160,8 +160,8 @@ test.describe("Without the hub, no trace", () => {
       await page.reload();
       await expect(page.getByLabel("Topics sidebar")).toBeVisible({ timeout: 30_000 });
       await expectNoHubTrace(page);
-      // A page loaded with the hub down has never read it: like every hub surface, no row.
-      await expect(page.getByTestId("sidebar-automations")).toHaveCount(0);
+      // A page loaded with the hub down has never read it: the row stays, with no hub trace.
+      await expect(page.getByTestId("sidebar-automations")).toBeVisible();
       await expectNoPaletteEntry(page);
       expect(errors).toEqual([]);
     } finally {
