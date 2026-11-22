@@ -5,14 +5,19 @@
  * Agents overview. It reads every source on each call and stores nothing, so
  * a problem that was fixed is simply absent from the next answer.
  */
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { readAgents, registryHome } from "../agents/registry";
+import { planSoulSplit } from "../agents/soul-sections";
 import { claudeProjectsHome, discoverStores, readMemoryStoresConfig, topicsAgentsHome } from "../memory/stores";
 import { mcpFleetStatus } from "../providers/native/mcp-fleet";
+import { channelsDbPath, readChannelTitles } from "./agent-channels";
+import { registryHealthInput } from "../system/registry-health";
 import { collectHealth, HEALTH_PROBLEM_TYPES, type HealthAgentInput, type HealthInput } from "../system/health";
 import type { AppContext, RouteHandler } from "../types";
+
+const BASE_SOUL = join(import.meta.dir, "..", "agents", "base", "SOUL.md");
 
 const expandTilde = (p: string): string => p.replace(/^~(?=\/|$)/, homedir());
 
@@ -21,6 +26,13 @@ function personaGaps(workspace: string): string[] {
   if (!existsSync(join(workspace, "IDENTITY.md"))) missing.push("IDENTITY.md");
   if (!existsSync(join(workspace, "SOUL.md")) && !existsSync(join(workspace, "AGENTS.md"))) missing.push("SOUL.md");
   return missing;
+}
+
+/** The soul still holds sections the shared base lacks: rules that only this agent reads. */
+function soulHoldsRules(workspace: string): boolean {
+  const soul = join(workspace, "SOUL.md");
+  if (!existsSync(soul) || !existsSync(BASE_SOUL)) return false;
+  return planSoulSplit(readFileSync(soul, "utf8"), readFileSync(BASE_SOUL, "utf8"), []).moved.length > 0;
 }
 
 function jobsInput(db: AppContext["db"]): HealthInput["jobs"] {
@@ -49,20 +61,17 @@ export function createSystemHealthRouter(ctx: Pick<AppContext, "json" | "db">): 
       id: a.id,
       name: a.name,
       missingPersonaFiles: personaGaps(a.workspace),
-      hasOwnRules: existsSync(join(a.workspace, "RULES.md")),
+      hasOwnRules: soulHoldsRules(a.workspace),
     }));
     const stores = discoverStores(records, { topicsAgentsHome: topicsAgentsHome(), claudeProjectsHome: claudeProjectsHome(), config: readMemoryStoresConfig(home) });
-    const chats = ctx.db
-      .query("SELECT id, name FROM topics WHERE archived = 0 AND id NOT IN (SELECT topic_id FROM system_chats)")
-      .all() as HealthInput["chats"];
+    const registry = registryHealthInput(home, readChannelTitles(channelsDbPath()));
     const tools = mcpFleetStatus().servers.map((s) => ({ name: s.name, ok: s.state === "ready" || s.state === "excluded", reason: s.reason }));
     const problems = collectHealth({
       agents,
       stores,
-      jobs: jobsInput(ctx.db),
-      chats,
-      // No reader of the harness layers exists yet to feed this; the type is wired so it shows up once one does.
-      contradictions: [],
+      jobs: [...jobsInput(ctx.db), ...registry.jobs],
+      chats: registry.chats,
+      contradictions: registry.contradictions,
       tools,
       sharedRulesPresent: existsSync(join(home, "RULES.md")),
     });

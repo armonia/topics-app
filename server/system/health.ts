@@ -89,7 +89,7 @@ export const HEALTH_PROBLEM_TYPES = {
   },
   "rules-single-agent": {
     severity: "warning",
-    sentence: (s) => `Your rules live only in ${s.label}: the other agents never read them.`,
+    sentence: (s) => `Your rules live only in the soul of ${s.label}: the other agents never read them. Run the soul migration to move them to the shared rules.`,
     destination: agentOrRef("rules"),
   },
 } as const satisfies Record<string, ProblemType>;
@@ -109,7 +109,7 @@ export interface HealthAgentInput {
   name: string;
   /** Persona files the agent's folder lacks (`IDENTITY.md`, a soul file). */
   missingPersonaFiles: string[];
-  /** The agent's folder carries its own copy of the user's rules. */
+  /** The agent's SOUL still holds rules the shared base lacks (sections the soul migration would move). */
   hasOwnRules: boolean;
 }
 
@@ -118,8 +118,8 @@ export interface HealthInput {
   stores: MemoryStore[];
   /** Scheduled jobs whose action is an agent run; `agentId` null or unknown = nobody runs it. */
   jobs: Array<{ id: string; name: string; agentId: string | null }>;
-  /** Chats a person can see (system chats excluded) with their stored name. */
-  chats: Array<{ id: string; name: string | null }>;
+  /** Chats of the channels (from the agents' rules) with the name that resolves for them. */
+  chats: Array<{ id: string; name: string | null; agentId?: string }>;
   /** Pairs of sources that disagree, already found by the harness reading. */
   contradictions: Array<{ id: string; sources: [string, string]; about: string }>;
   tools: Array<{ name: string; ok: boolean; reason?: string }>;
@@ -149,7 +149,7 @@ export function collectHealth(input: HealthInput): HealthProblem[] {
 
   for (const chat of input.chats) {
     if (chat.name && chat.name.trim()) continue;
-    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id }));
+    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id, ...(chat.agentId ? { agentId: chat.agentId } : {}) }));
   }
 
   for (const c of input.contradictions) {

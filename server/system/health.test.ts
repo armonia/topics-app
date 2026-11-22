@@ -1,6 +1,10 @@
 // @covers SYSTEM-PAGE-01
 import { describe, expect, test } from "bun:test";
 import type { MemoryStore } from "../memory/stores";
+import { mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { registryHealthInput } from "./registry-health";
 import { collectHealth, HEALTH_PROBLEM_TYPES, type HealthInput, type HealthProblemType } from "./health";
 
 function store(over: Partial<MemoryStore> & { id: string }): MemoryStore {
@@ -89,5 +93,44 @@ describe("collectHealth", () => {
     const input = broken();
     input.sharedRulesPresent = true;
     expect(collectHealth(input).some((p) => p.type === "rules-single-agent")).toBe(false);
+  });
+});
+
+describe("registryHealthInput", () => {
+  const write = (dir: string, name: string, data: unknown) => writeFileSync(join(dir, name), JSON.stringify(data));
+  const setup = (groups: unknown[], jobs: unknown[] = []) => {
+    const dir = mkdtempSync(join(tmpdir(), "health-"));
+    write(dir, "config.json", { rules: { groups, agents: [] } });
+    write(dir, "engine.json", { agents: { alpha: { workspace: join(dir, "alpha") } } });
+    write(dir, "jobs.json", jobs);
+    return dir;
+  };
+  const types = (dir: string, titles: Record<string, string>) => {
+    const input = registryHealthInput(dir, titles);
+    const agents = [{ id: "alpha", name: "Alpha", missingPersonaFiles: [], hasOwnRules: false }];
+    return collectHealth({ agents, stores: [], tools: [], sharedRulesPresent: true, ...input }).map((p) => p.type);
+  };
+
+  test("a chat written twice with another mention is a source contradiction", () => {
+    const dir = setup([
+      { channel: "discord", chat: "1", mention: true, active: true },
+      { channel: "discord", chat: "1", mention: false, active: true },
+    ]);
+    expect(types(dir, { "1": "general" })).toEqual(["source-contradiction"]);
+  });
+
+  test("a job in jobs.json with no agent is a job without agent", () => {
+    const dir = setup([], [{ id: "j", name: "Nightly", run: { kind: "agent" } }]);
+    expect(types(dir, {})).toEqual(["job-without-agent"]);
+  });
+
+  test("a channel chat whose name does not resolve is unnamed", () => {
+    const dir = setup([{ channel: "discord", chat: "7", active: true }, { channel: "discord", chat: "8", active: true }]);
+    expect(types(dir, { "8": "named" })).toEqual(["chat-unnamed"]);
+  });
+
+  test("a Topics topic without a name gives nothing", () => {
+    const dir = setup([]);
+    expect(types(dir, { "x": "y" })).toEqual([]);
   });
 });

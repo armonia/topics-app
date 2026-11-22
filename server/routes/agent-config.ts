@@ -32,6 +32,19 @@ import type { AppContext, RouteHandler } from "../types";
 export type AgentId = string;
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
+/** A problem the registry found. `type` is set for the ones the system health list reports. */
+export interface RegistryIssue {
+  agent: AgentId | null;
+  text: string;
+  type?: "source-contradiction" | "job-without-agent";
+  /** Stable key of the thing it is about (a chat key, an account, a channel). */
+  ref?: string;
+  /** The two places that disagree (`source-contradiction`). */
+  sources?: [string, string];
+  /** The scheduled jobs concerned (`job-without-agent`). */
+  jobs?: { id: string; name: string }[];
+}
+
 export interface Paths { home: string; expand: (p: string) => string }
 /** Same home as `/api/agents` (`registryHome`): the two routes must always
  *  agree on where the agents live. */
@@ -42,6 +55,8 @@ export function defaultPaths(env: Record<string, string | undefined> = process.e
 type Json = Record<string, any>;
 const readJson = (p: string): any => readJsonFile(p);
 
+const ruleSource = (g: Json): string => `config.json rules.groups (account ${g.account ?? "default"}, mention ${!!g.mention}, active ${!!g.active})`;
+
 /** The registry: everything an agent is, read from config.json, engine.json, jobs.json and its workspace. */
 export function readRegistry(paths: Paths) {
   const cfg: Json = readJson(join(paths.home, "config.json"));
@@ -50,7 +65,7 @@ export function readRegistry(paths: Paths) {
   const rules: Json = cfg.rules ?? {};
   const groups: Json[] = rules.groups ?? [];
   const routes: Json[] = rules.agents ?? [];
-  const issues: { agent: AgentId | null; text: string }[] = [];
+  const issues: RegistryIssue[] = [];
 
   const ids = (Object.keys(engine.agents ?? {}) as AgentId[]).filter((id) => !!engine.agents[id]?.workspace);
   // Which account belongs to which agent, and who takes everything no agent
@@ -75,7 +90,10 @@ export function readRegistry(paths: Paths) {
   if (ids.length > 1) {
     for (const key of Object.keys(cfg.channels?.discord ?? {})) {
       if (key === "default" || accountOwners.has(key)) continue;
-      issues.push({ agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}` });
+      issues.push({
+        agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}`,
+        type: "source-contradiction", ref: `account:${key}`, sources: [`config.json channels.discord.${key}`, "engine.json agents"],
+      });
     }
   }
 
@@ -120,16 +138,30 @@ export function readRegistry(paths: Paths) {
     if (list.length < 2 || k.endsWith(":*")) continue;
     if (routes.some((r) => r.agent && r.agent !== defaultAgent && `${r.channel}:${r.chat}` === k)) continue;
     const diff = list.some((g) => g.mention !== list[0].mention || g.active !== list[0].active);
-    issues.push({ agent: null, text: `${k}: regola scritta ${list.length} volte (${ids.length} agenti)${diff ? ", con menzione/attiva diverse" : ""}` });
+    issues.push({
+      agent: null, text: `${k}: regola scritta ${list.length} volte (${ids.length} agenti)${diff ? ", con menzione/attiva diverse" : ""}`,
+      // Only a repeat with different values is a contradiction; an identical copy is redundant, not wrong.
+      ...(diff ? { type: "source-contradiction" as const, ref: k, sources: [ruleSource(list[0]), ruleSource(list.find((g) => g.mention !== list[0].mention || g.active !== list[0].active)!)] as [string, string] } : {}),
+    });
   }
   for (const [ch, m] of Object.entries(rules.models ?? {}) as [string, Json][]) {
     // engine.json's model is only the fallback for turns no rule names (engine.rs), so a channel
     // rule that differs from it is not a conflict.
     const forms = Object.keys(m).filter((k) => k !== "*").map((k) => k.replace(/^\+|@.*$/g, ""));
-    if (new Set(forms).size < forms.length) issues.push({ agent: defaultAgent, text: `modelli ${ch}: lo stesso numero scritto in più forme` });
+    if (new Set(forms).size < forms.length) {
+      issues.push({
+        agent: defaultAgent, text: `modelli ${ch}: lo stesso numero scritto in più forme`,
+        type: "source-contradiction", ref: `models:${ch}`, sources: [`config.json rules.models.${ch}`, "config.json rules.models (same number, another form)"],
+      });
+    }
   }
-  const implicit = jobs.filter((j) => j.run?.kind === "agent" && !j.run.agent).length;
-  if (implicit) issues.push({ agent: defaultAgent, text: `${implicit} lavori a orario senza agente scritto (vanno all'agente predefinito)` });
+  const implicit = jobs.filter((j) => j.run?.kind === "agent" && !j.run.agent);
+  if (implicit.length) {
+    issues.push({
+      agent: defaultAgent, text: `${implicit.length} lavori a orario senza agente scritto (vanno all'agente predefinito)`,
+      type: "job-without-agent", jobs: implicit.map((j) => ({ id: String(j.id), name: String(j.name ?? j.id) })),
+    });
+  }
   return { agents, issues };
 }
 
