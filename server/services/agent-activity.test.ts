@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { readAgentActivity } from "./agent-activity";
+import { readAgentActivity, readAgentTurns } from "./agent-activity";
 
 let dirs: string[] = [];
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = []; });
@@ -41,5 +41,18 @@ describe("readAgentActivity", () => {
 
   test("a database that is missing gives no rows", () => {
     expect(readAgentActivity(join(tmpdir(), "nowhere.sqlite"), 7, NOW)).toEqual([]);
+  });
+});
+
+describe("readAgentTurns", () => {
+  test("lists the newest turns first with title and state, pending being at work", () => {
+    const path = fixture();
+    const db = new Database(path);
+    db.run("INSERT INTO turns (chat, channel, status, created, meta) VALUES ('9', 'discord', 'pending', ?, ?)", [NOW - 500, JSON.stringify({ agent: "gtm", chat_title: "#outreach" })]);
+    db.close();
+    const turns = readAgentTurns(path, 7, NOW);
+    expect(turns[0]).toMatchObject({ agent: "gtm", chat: "9", title: "#outreach", state: "working" });
+    expect(turns.find((t) => t.error === "boom")).toMatchObject({ state: "failed" });
+    expect(turns.every((t) => t.created >= NOW - 7 * 86_400_000)).toBe(true);
   });
 });

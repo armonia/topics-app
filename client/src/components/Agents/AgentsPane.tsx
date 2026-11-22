@@ -4,20 +4,20 @@
  * many sessions it holds; sub-agents sit under the session that spawned them.
  * A session opens as from the sidebar. The grouping is `lib/agentSessions`.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, ChevronRight, SquareTerminal, TriangleAlert } from 'lucide-react';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
-import { useLocale, useT } from '../../hooks/useT';
+import { useT } from '../../hooks/useT';
+import { useAgo } from './useAgo';
 import { useAgentGroups, useChannelTitles } from '../../state/agentGroups';
 import { agentSessionName } from '../../lib/agentSessions';
 import { apiFetch } from '../../lib/shell/net';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
-import { useSharedNow } from '../../state/useSharedNow';
 import type { AgentSession, AgentSessionState, AgentTerminal } from '../../lib/agentSessions';
 import { STATUS_ICON, STATUS_INK } from '../../lib/statusVisual';
 import { AgentOverview } from './AgentOverview';
 import { AgentDetail } from './AgentDetail';
-import { type ConfigureSection } from './AgentConfigure';
+import type { ConfigureSection } from './configureSections';
 import { readAgentsRoute, writeAgentsRoute, type AgentsRoute } from './agentsNav';
 import { useAgentRegistry } from '../../state/agentRegistry';
 import { SparkLoader } from '../Layout/StreamingIndicator';
@@ -43,21 +43,6 @@ function openSession(id: string) {
 
 function openTerminal(id: string, name: string) {
   window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
-}
-
-function useAgo() {
-  const locale = useLocale();
-  const now = useSharedNow();
-  return useMemo(() => {
-    const fmt = new Intl.RelativeTimeFormat(locale === 'en' ? 'en-GB' : 'it-IT', { numeric: 'auto' });
-    return (at: number) => {
-      const min = Math.round((at - now) / 60_000);
-      if (Math.abs(min) < 60) return fmt.format(min, 'minute');
-      const h = Math.round(min / 60);
-      if (Math.abs(h) < 24) return fmt.format(h, 'hour');
-      return fmt.format(Math.round(h / 24), 'day');
-    };
-  }, [locale, now]);
 }
 
 function SessionRow({ s, depth, tr, ago, name }: { s: AgentSession; depth: number; tr: Tr; ago: (at: number) => string; name: (raw: string, key?: string | null) => string }) {

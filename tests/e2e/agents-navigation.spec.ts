@@ -72,6 +72,15 @@ async function stage(page: Page) {
   await page.route("**/api/agent-channels", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ titles: { "100": "#operazioni", "101": "#segnalazioni", "39001@g.us": "Famiglia" } }) }));
   await page.route("**/api/agent-channels/places", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ places: { "100": { server: "Armonia" }, "101": { server: "Armonia" }, "100:t1": { server: "Armonia", channel: "operazioni", thread: "Migrazione siti" } } }) }));
   await page.route("**/api/system/agents-health", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ problems: [{ id: "jobs:j2", sentence: "Un lavoro a orario non ha un agente scritto.", destination: { section: "jobs", agentId: "main" } }], count: 1, types: [] }) }));
+  await page.route("**/api/agent-channels/activity", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    days: 7,
+    rows: [{ agent: "main", channel: "discord", handled: 3, failed: 1, quota: 0, merged: 0, lastError: "boom" }],
+    turns: [
+      { agent: "main", channel: "discord", chat: "100", title: "#operazioni", state: "working", created: Date.now() - 60_000, error: null },
+      { agent: "main", channel: "discord", chat: "101", title: "#segnalazioni", state: "failed", created: Date.now() - 3_600_000, error: "boom" },
+      { agent: "gtm", channel: "discord:visione", chat: "200", title: "#outreach", state: "done", created: Date.now() - 7_200_000, error: null },
+    ],
+  }) }));
   await page.route("**/api/agent-tools**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ filter: { mode: "all", servers: [] }, servers: [{ name: "fs" }, { name: "web" }] }) }));
   await page.route("**/api/memory-stores", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ stores: [] }) }));
   await goToApp(page);
@@ -89,13 +98,39 @@ test("panoramica degli agenti (AGENTS-01)", async ({ page }, info) => {
   await expect(cards).toHaveCount(3);
   const jarvisCard = cards.filter({ hasText: "Jarvis" });
   await expect(jarvisCard).toContainText("CTO, risponde su Discord e WhatsApp");
-  await expect(jarvisCard.getByTestId("agent-overview-chat-count")).toContainText("3 chat");
+  const marks = jarvisCard.getByTestId("agent-overview-channel");
+  await expect(marks).toHaveCount(2); // one mark per channel, each with ITS own chat count
+  await expect(marks.nth(0)).toContainText("2 chat");
+  await expect(marks.nth(1)).toContainText("1 chat");
+  await expect(jarvisCard.getByTestId("agent-overview-state")).toContainText("1 al lavoro");
+  await expect(jarvisCard.getByTestId("agent-overview-activity")).toBeVisible();
+  await expect(jarvisCard.getByTestId("agent-overview-configure")).toBeVisible();
   const scoutCard = cards.filter({ hasText: "Scout" });
   await expect(scoutCard.getByTestId("agent-overview-no-channels")).toContainText("Nessun canale");
   await expect(page.getByTestId("agent-overview-new")).toBeVisible();
 
+  // "To fix" sits above the cards, each row with a button into its destination
+  const toFix = page.getByTestId("agent-overview-to-fix-row");
+  await expect(toFix).toHaveCount(1);
+  const fixBox = await toFix.boundingBox();
+  const cardsBox = await page.getByTestId("agent-overview-cards").boundingBox();
+  expect(fixBox!.y).toBeLessThan(cardsBox!.y);
+
+  // the activity list filters by state, agent and channel
+  const turns = page.getByTestId("agent-activity-turn");
+  await expect(turns).toHaveCount(3);
+  await page.getByTestId("agent-activity-filter-working").click();
+  await expect(turns).toHaveCount(1);
+  await expect(turns.first()).toContainText("#operazioni");
+  await page.getByTestId("agent-activity-filter-failed").click();
+  await expect(turns).toHaveCount(1);
+  await expect(turns.first()).toContainText("boom");
+  await page.getByTestId("agent-activity-filter-all").click();
+  await expect(turns).toHaveCount(3);
+
   // at 375 px the cards are one column, with no horizontal scroll
   await page.setViewportSize({ width: 375, height: 800 });
+  await expect(page.getByTestId("agent-overview-cards")).toBeVisible();
   const box = await page.getByTestId("agent-overview-cards").boundingBox();
   expect(box!.width).toBeLessThanOrEqual(375);
   const overflowX = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -125,6 +160,7 @@ test("configurare senza perdersi (AGENTS-02)", async ({ page }, info) => {
 
   await page.reload();
   await expect(page.getByTestId("agent-configure-section").filter({ hasText: "Mestiere" })).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("agent-configure-understand")).toContainText("Per capire");
   await page.screenshot({ path: info.outputPath("agenti-configura-identita.png") });
 });
 
@@ -157,11 +193,28 @@ test("canali come albero, ereditato senza ripetizioni (AGENTS-04)", async ({ pag
   const posts = await stage(page);
 
   await page.getByTestId("agent-overview-card").filter({ hasText: "Jarvis" }).click();
-  await page.getByTestId("agent-detail-tab-configure").click();
-  await page.getByTestId("agent-configure-section").filter({ hasText: "Canali e chat" }).click();
+  // the agent's Activity: now, errors with the reason, jobs with the cadence in words, how it is made
+  await expect(page.getByTestId("agent-activity-now")).toContainText("#operazioni");
+  await expect(page.getByTestId("agent-activity-errors")).toContainText("boom");
+  await expect(page.getByTestId("agent-activity-job-when")).toHaveText("ogni giorno alle 8");
+  await expect(page.getByTestId("agent-activity-upcoming")).not.toContainText("0 8 * * *");
+  await expect(page.getByTestId("agent-activity-row").first()).toContainText("Discord");
+  await page.getByTestId("agent-made-of-row").filter({ hasText: "Canali e chat" }).click();
+  await expect(page.getByTestId("agent-configure-section").filter({ hasText: "Canali e chat" })).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("agent-configure-section").filter({ hasText: "Canali e chat" })).toContainText("3 chat · 1 thread");
 
-  await expect(page.getByTestId("channel-tree-channel")).toContainText("Discord");
-  await expect(page.getByTestId("channel-tree-server")).toContainText("Armonia");
+  await expect(page.getByTestId("channel-tree-channel")).toHaveCount(2);
+  await expect(page.getByTestId("channel-tree-channel").first()).toContainText("Discord");
+  await expect(page.getByTestId("channel-tree-server").first()).toContainText("Armonia");
+  await expect(page.getByTestId("channel-tree-channel").first().getByTestId("channel-tree-count").first()).toContainText("2 chat · 1 thread");
+  await expect(page.getByTestId("channel-tree-header")).toContainText("Risponde");
+  // the thread sits under its chat without opening anything
+  await expect(page.getByTestId("channel-tree-chat").filter({ hasText: "#operazioni" }).getByTestId("channel-tree-thread")).toContainText("Migrazione siti");
+  // search narrows the tree to chats, threads or people that match
+  await page.getByTestId("channel-tree-search").fill("migrazione");
+  await expect(page.getByTestId("channel-tree-chat")).toHaveCount(1);
+  await page.getByTestId("channel-tree-search").fill("");
+  await expect(page.getByTestId("channel-tree-chat")).toHaveCount(3);
   await expect(page.getByTestId("channel-tree-category").first()).toContainText("Operazioni");
   await expect(page.getByTestId("channel-tree-chat")).toHaveCount(3); // 2 discord + 1 whatsapp
   await expect(page.getByTestId("channel-tree-inherit-tag").first()).toContainText("come Discord");

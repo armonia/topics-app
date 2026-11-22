@@ -13,9 +13,10 @@
 import { useMemo, useState } from 'react';
 import { ChevronRight, Pencil } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { CHANNEL_MARKS } from '../../lib/brandIcons';
 import { Select } from '../Shared/Select';
-import { ChatEditor, Switch } from './AgentConfigPieces';
+import { ChatEditor, FIELD, Switch } from './AgentConfigPieces';
+import { channelBrand } from './channelBrand';
+import { ChannelMark } from './ChannelMark';
 import type { Registry } from '../../state/agentRegistry';
 import type { ChannelPlace } from '../../state/agentGroups';
 
@@ -23,8 +24,14 @@ type Agent = Registry['agents'][number];
 type Chat = Agent['chats'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
 
-const CHANNEL_BRAND: Record<string, string> = { discord: 'Discord', whatsapp: 'WhatsApp', telegram: 'Telegram' };
 const isWhatsAppGroup = (chat: string) => chat.endsWith('@g.us');
+
+/** A Discord channel name often starts with a status emoji: it is a state, so it is split off the name. */
+const LEADING_SIGN = /^(?:\p{Extended_Pictographic}|️|‍|\s)+/u;
+function splitStatusSign(label: string): { name: string; status: string | null } {
+  const m = LEADING_SIGN.exec(label);
+  return m ? { name: label.slice(m[0].length) || label, status: m[0].trim() || null } : { name: label, status: null };
+}
 
 interface ChatNode { chat: Chat; label: string; threads: { id: string; label: string }[] }
 interface GroupNode { key: string; label: string; categories: Map<string, ChatNode[]> }
@@ -52,6 +59,32 @@ function buildTree(chats: Chat[], titles: Record<string, string>, places: Record
   return [...byChannel.values()];
 }
 
+function matchesQuery(n: ChatNode, q: string): boolean {
+  if (!q) return true;
+  const hay = [n.label, n.chat.chat, ...n.threads.map((t) => t.label), ...n.chat.senders, ...n.chat.denied].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
+const allNodes = (ch: ChannelNode): ChatNode[] => [...ch.groups.values()].flatMap((g) => [...g.categories.values()].flat());
+
+/** The tree with only what matches the search; a level with nothing left disappears. */
+function filterTree(tree: ChannelNode[], q: string): ChannelNode[] {
+  if (!q) return tree;
+  return tree.flatMap((ch) => {
+    const groups = new Map<string, GroupNode>();
+    for (const g of ch.groups.values()) {
+      const categories = new Map<string, ChatNode[]>();
+      for (const [key, nodes] of g.categories) {
+        const kept = nodes.filter((n) => matchesQuery(n, q));
+        if (kept.length) categories.set(key, kept);
+      }
+      if (categories.size) groups.set(g.key, { ...g, categories });
+    }
+    return groups.size ? [{ ...ch, groups }] : [];
+  });
+}
+const countThreads = (nodes: ChatNode[]) => nodes.reduce((sum, n) => sum + n.threads.length, 0);
+
 function InheritedValue({ own, label, baseline, parentLabel }: { own: boolean; label: string; baseline: boolean | null; parentLabel: string }) {
   const tr = useT();
   const inherited = baseline !== null && own === baseline;
@@ -72,11 +105,13 @@ function ChatLeaf({
   const tr = useT();
   const [editing, setEditing] = useState(false);
   const c = node.chat;
+  const { name, status } = splitStatusSign(node.label);
   return (
     <li data-testid="channel-tree-chat">
       <div className={`flex items-center gap-2 rounded px-1 py-1 ${selected ? 'bg-app-hover' : 'hover:bg-app-hover'}`}>
         <button type="button" data-testid="channel-tree-chat-open" onClick={onSelect} className="min-w-0 flex-1 truncate text-left text-prose text-app-text">
-          {node.label}
+          {status && <span data-testid="channel-tree-status" title={status} className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle" aria-hidden="true" />}
+          {name}
         </button>
         <InheritedValue own={c.active} label={tr('agentConfig.active')} baseline={baseline ? baseline.active : null} parentLabel={parentLabel} />
         <Switch on={c.active} label={tr('agentConfig.active')} testId="agent-chat-active" onChange={(v) => void post('chat', { channel, chat: c.chat, account: c.account, active: v })} />
@@ -105,31 +140,26 @@ function ChatLeaf({
             <ul className="space-y-0.5">
               {c.senders.map((id) => (
                 <li key={`w:${id}`} className="flex items-center gap-1.5 text-mini text-app-text-secondary">
-                  <ChannelMark channel={channel} /> {id} <span className="text-app-text-muted">· {tr('agentConfig.tree.canWrite')}</span>
+                  <ChannelMark channel={channel} className="h-3 w-3 flex-shrink-0" /> {id} <span className="text-app-text-muted">· {tr('agentConfig.tree.canWrite')}</span>
                 </li>
               ))}
               {c.denied.map((id) => (
                 <li key={`d:${id}`} className="flex items-center gap-1.5 text-mini text-app-text-secondary">
-                  <ChannelMark channel={channel} /> {id} <span className="text-app-text-muted">· {tr('agentConfig.tree.excluded')}</span>
+                  <ChannelMark channel={channel} className="h-3 w-3 flex-shrink-0" /> {id} <span className="text-app-text-muted">· {tr('agentConfig.tree.excluded')}</span>
                 </li>
               ))}
             </ul>
           </div>
-          {node.threads.length > 0 && (
-            <ul data-testid="channel-tree-thread" className="space-y-0.5 border-t border-app-border-light pt-1">
-              {node.threads.map((t) => <li key={t.id} className="pl-3 text-mini text-app-text-secondary">{t.label}</li>)}
-            </ul>
-          )}
         </div>
+      )}
+      {node.threads.length > 0 && (
+        <ul className="ml-5 space-y-0.5">
+          {node.threads.map((t) => <li key={t.id} data-testid="channel-tree-thread" className="truncate px-1 text-mini text-app-text-secondary">{t.label}</li>)}
+        </ul>
       )}
       {editing && <div className="ml-4 mt-1"><ChatEditor c={c} post={post} close={() => setEditing(false)} /></div>}
     </li>
   );
-}
-
-function ChannelMark({ channel }: { channel: string }) {
-  const Mark = CHANNEL_MARKS[CHANNEL_BRAND[channel] ?? ''];
-  return Mark ? <Mark className="h-3 w-3 flex-shrink-0" aria-hidden /> : null;
 }
 
 export function ChannelTree({ agent, post, allAgents, titles, places }: {
@@ -138,17 +168,27 @@ export function ChannelTree({ agent, post, allAgents, titles, places }: {
 }) {
   const tr = useT();
   const [selected, setSelected] = useState<string | null>(null);
-  const tree = useMemo(() => buildTree(agent.chats, titles, places), [agent.chats, titles, places]);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const fullTree = useMemo(() => buildTree(agent.chats, titles, places), [agent.chats, titles, places]);
+  const tree = useMemo(() => filterTree(fullTree, q), [fullTree, q]);
 
-  if (tree.length === 0) return <p className="text-mini text-app-text-muted">{tr('agentConfig.tree.empty')}</p>;
+  if (fullTree.length === 0) return <p className="text-mini text-app-text-muted">{tr('agentConfig.tree.empty')}</p>;
 
   return (
+    <div>
+    <input data-testid="channel-tree-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tr('agentConfig.tree.search')} aria-label={tr('agentConfig.tree.search')} className={`mb-2 ${FIELD}`} />
+    <div data-testid="channel-tree-header" className="mb-1 flex justify-end gap-6 px-1 text-mini font-semibold text-app-text-muted">
+      <span>{tr('agentConfig.active')}</span><span>{tr('agentConfig.mention')}</span><span>{tr('agentConfig.tree.rules')}</span>
+    </div>
+    {tree.length === 0 && <p data-testid="channel-tree-no-match" className="text-mini text-app-text-muted">{tr('agentConfig.tree.noMatch')}</p>}
     <ul data-testid="channel-tree" className="space-y-2">
       {tree.map((ch) => (
         <li key={ch.channel} data-testid="channel-tree-channel">
           <div className="flex items-center gap-1.5 text-body font-semibold text-app-text">
             <ChannelMark channel={ch.channel} />
-            <span>{CHANNEL_BRAND[ch.channel] ?? ch.channel}</span>
+            <span>{channelBrand(ch.channel)}</span>
+            <span data-testid="channel-tree-count" className="text-mini font-normal text-app-text-muted">{tr('agentConfig.summary.chats', { n: allNodes(ch).length, t: countThreads(allNodes(ch)) })}</span>
           </div>
           <ul className="ml-3 mt-1 space-y-1">
             {[...ch.groups.values()].map((g) => (
@@ -156,18 +196,19 @@ export function ChannelTree({ agent, post, allAgents, titles, places }: {
                 <div className="flex items-center gap-1 text-mini font-semibold text-app-text-secondary">
                   <ChevronRight size={11} aria-hidden="true" />
                   {g.key === 'group' ? tr('agentConfig.tree.group') : g.key === 'private' ? tr('agentConfig.tree.private') : g.label}
+                  <span data-testid="channel-tree-count" className="ml-1 font-normal text-app-text-muted">{tr('agents.chatsCount', { n: [...g.categories.values()].flat().length })}</span>
                 </div>
                 <ul className="ml-3 mt-0.5 space-y-0.5">
                   {[...g.categories.entries()].map(([catKey, nodes]) => (
                     <li key={catKey || '—'}> {/* allow-emdash: placeholder key for chats with no category */}
-                      {catKey && <div data-testid="channel-tree-category" className="pl-2 text-mini text-app-text-muted">{catKey}</div>}
+                      {catKey && <div data-testid="channel-tree-category" className="pl-2 text-mini text-app-text-muted">{catKey} <span data-testid="channel-tree-count">· {tr('agents.chatsCount', { n: nodes.length })}</span></div>}
                       <ul className={catKey ? 'ml-2' : ''}>
                         {nodes.map((n) => (
                           <ChatLeaf
                             key={n.chat.chat}
                             node={n}
                             channel={ch.channel}
-                            parentLabel={CHANNEL_BRAND[ch.channel] ?? ch.channel}
+                            parentLabel={channelBrand(ch.channel)}
                             baseline={ch.wildcard}
                             selected={selected === `${ch.channel}:${n.chat.chat}`}
                             onSelect={() => setSelected((s) => (s === `${ch.channel}:${n.chat.chat}` ? null : `${ch.channel}:${n.chat.chat}`))}
@@ -185,5 +226,6 @@ export function ChannelTree({ agent, post, allAgents, titles, places }: {
         </li>
       ))}
     </ul>
+    </div>
   );
 }

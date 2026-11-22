@@ -3,66 +3,102 @@
  * tab — never both stacked on the same screen, which is what the old
  * `AgentProfiles` view did and what this page replaces.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ArrowLeft, Bot } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { apiFetch } from '../../lib/shell/net';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
-import { AgentConfigure, CONFIGURE_SECTIONS, type ConfigureSection } from './AgentConfigure';
+import { AgentConfigure } from './AgentConfigure';
+import { channelBrand } from './channelBrand';
+import { ChannelMark } from './ChannelMark';
+import { CONFIGURE_SECTIONS, type ConfigureSection } from './configureSections';
+import { useConfigSummary } from './configSummary';
+import { scheduleWords } from './scheduleWords';
+import { useAgentActivity, type ActivityTurn } from './useAgentActivity';
 import type { Registry } from '../../state/agentRegistry';
 
 type Agent = Registry['agents'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
 
-/** Per-channel counts come from the channel bridge's turns (`/api/agent-channels/activity`).
- *  Those carry no cost or timing, so none is shown: the page says so instead of inventing one. */
-interface ActivityRow { agent: string; channel: string; handled: number; failed: number; quota: number; merged: number; lastError: string | null }
-
-function useAgentActivity(agentId: string): ActivityRow[] {
-  const [rows, setRows] = useState<ActivityRow[]>([]);
-  useEffect(() => {
-    let alive = true;
-    void apiFetch('/api/agent-channels/activity', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((body: { rows?: ActivityRow[] } | null) => { if (alive && body?.rows) setRows(body.rows.filter((r) => r.agent === agentId)); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [agentId]);
-  return rows;
+function Block({ title, testId, children }: { title: string; testId: string; children: React.ReactNode }) {
+  return (
+    <section data-testid={testId} className="space-y-1">
+      <h2 className="text-body font-semibold text-app-text">{title}</h2>
+      {children}
+    </section>
+  );
 }
 
-function Activity({ agent }: { agent: Agent }) {
+function TurnRow({ t }: { t: ActivityTurn }) {
   const tr = useT();
-  const activeJobs = agent.jobs.filter((j) => !j.paused);
-  const rows = useAgentActivity(agent.id);
   return (
-    <div data-testid="agent-activity" className="space-y-4">
-      <div data-testid="agent-activity-turns" className="space-y-1">
-        <h2 className="text-body font-semibold text-app-text">{tr('agents.activity.title')}</h2>
-        {rows.length === 0 && <p className="text-mini text-app-text-muted">{tr('agents.activity.none')}</p>}
+    <li data-testid="agent-activity-turn" className="rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+      <span className="flex items-center gap-2">
+        <ChannelMark channel={t.channel} />
+        <span className="min-w-0 flex-1 truncate text-app-text">{t.title ?? tr('agents.untitledChat')}</span>
+        <span className="flex-shrink-0">{channelBrand(t.channel)}</span>
+      </span>
+      {t.error && <span className={`block break-words ${DANGER_TEXT}`}>{t.error}</span>}
+    </li>
+  );
+}
+
+function Activity({ agent, onSection }: { agent: Agent; onSection: (s: ConfigureSection) => void }) {
+  const tr = useT();
+  const { rows, turns } = useAgentActivity();
+  const summary = useConfigSummary(agent);
+  const own = turns.filter((t) => t.agent === agent.id);
+  const working = own.filter((t) => t.state === 'working');
+  const failed = own.filter((t) => t.state === 'failed').slice(0, 10);
+  const counts = rows.filter((r) => r.agent === agent.id);
+  const upcoming = agent.jobs.filter((j) => !j.paused);
+  return (
+    <div data-testid="agent-activity" className="space-y-5">
+      <Block title={tr('agents.now')} testId="agent-activity-now">
+        {working.length === 0 ? <p className="text-mini text-app-text-muted">{tr('agents.nowNone')}</p> : <ul className="space-y-1">{working.map((t, i) => <TurnRow key={`${t.created}:${i}`} t={t} />)}</ul>}
+      </Block>
+      <Block title={tr('agents.inError')} testId="agent-activity-errors">
+        {failed.length === 0 ? <p className="text-mini text-app-text-muted">{tr('agents.inErrorNone')}</p> : <ul className="space-y-1">{failed.map((t, i) => <TurnRow key={`${t.created}:${i}`} t={t} />)}</ul>}
+      </Block>
+      <Block title={tr('agents.upcoming')} testId="agent-activity-upcoming">
+        {upcoming.length === 0 && <p className="text-mini text-app-text-muted">{tr('agentConfig.noJobs')}</p>}
         <ul className="space-y-1">
-          {rows.map((r) => (
-            <li key={r.channel} data-testid="agent-activity-row" className="rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
-              <span className="font-semibold text-app-text">{r.channel}</span>
-              {' · '}{tr('agents.activity.counts', { handled: r.handled, failed: r.failed, quota: r.quota, merged: r.merged })}
-              {r.lastError && <span className={`block break-words ${DANGER_TEXT}`}>{r.lastError}</span>}
+          {upcoming.map((j) => {
+            const w = scheduleWords(j.rawSchedule);
+            const when = tr(w.key, w.key === 'agents.when.weekly' ? { ...w.params, day: tr(`agents.day.${w.params.day}` as 'agents.day.0') } : w.params);
+            return (
+              <li key={j.id} data-testid="agent-activity-job" className="flex items-center justify-between gap-2 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+                <span className="min-w-0 truncate text-app-text">{j.name}</span>
+                <span data-testid="agent-activity-job-when" className="flex-shrink-0">{when}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </Block>
+      <Block title={tr('agents.activity.title')} testId="agent-activity-turns">
+        {counts.length === 0 && <p className="text-mini text-app-text-muted">{tr('agents.activity.none')}</p>}
+        <ul className="space-y-1">
+          {counts.map((r) => (
+            <li key={r.channel} data-testid="agent-activity-row" className="flex items-center gap-2 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
+              <ChannelMark channel={r.channel} />
+              <span className="font-semibold text-app-text">{channelBrand(r.channel)}</span>
+              <span>{tr('agents.activity.counts', { handled: r.handled, failed: r.failed, quota: r.quota, merged: r.merged })}</span>
             </li>
           ))}
         </ul>
         <p className="text-mini text-app-text-muted">{tr('agents.activity.noCost')}</p>
-      </div>
-      <p className="text-prose text-app-text-secondary">
-        {tr('agentConfig.jobsAside', { on: activeJobs.length, n: agent.jobs.length })}
-      </p>
-      <ul className="space-y-1">
-        {agent.jobs.map((j) => (
-          <li key={j.id} className="flex items-center justify-between rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
-            <span className={j.paused ? 'text-app-text-muted' : 'text-app-text'}>{j.name}</span>
-            <span>{j.schedule}</span>
-          </li>
-        ))}
-        {agent.jobs.length === 0 && <li className="text-mini text-app-text-muted">{tr('agentConfig.noJobs')}</li>}
-      </ul>
+      </Block>
+      <Block title={tr('agents.madeOf')} testId="agent-made-of">
+        <ul className="divide-y divide-app-border-light rounded border border-app-border-light">
+          {CONFIGURE_SECTIONS.map((s) => (
+            <li key={s}>
+              <button type="button" data-testid="agent-made-of-row" onClick={() => onSection(s)} className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-mini hover:bg-app-hover">
+                <span className="min-w-0 flex-1 truncate text-app-text">{tr(`agentConfig.section.${s}` as 'agentConfig.section.identity')}</span>
+                <span className="flex-shrink-0 text-app-text-muted">{summary[s] ?? ''}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Block>
     </div>
   );
 }
@@ -102,7 +138,7 @@ export function AgentDetail({
       </div>
       <div className="mt-4">
         {tab === 'activity'
-          ? <Activity agent={agent} />
+          ? <Activity agent={agent} onSection={onSection} />
           : <AgentConfigure agent={agent} allAgents={allAgents} post={post} section={safeSection} onSection={onSection} />}
       </div>
     </div>

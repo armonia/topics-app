@@ -12,7 +12,7 @@
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "fs";
-import { readAgentActivity, type AgentActivityRow } from "../services/agent-activity";
+import { readAgentActivity, readAgentTurns, type AgentActivityRow, type AgentTurn } from "../services/agent-activity";
 import { readChannelPlacesById } from "../services/channel-place";
 import { channelsDbPath } from "../services/channels-db-path";
 import type { AppContext, RouteHandler } from "../types";
@@ -93,7 +93,7 @@ export function readCardThreads(path: string, cardId: string): OpenedThread[] {
 
 export function createAgentChannelsRouter(ctx: Pick<AppContext, "json">, path: () => string = () => channelsDbPath()): RouteHandler {
   let cache: { at: number; titles: Record<string, string> } | null = null;
-  let activityCache: { at: number; rows: AgentActivityRow[] } | null = null;
+  let activityCache: { at: number; rows: AgentActivityRow[]; turns: AgentTurn[] } | null = null;
   let placesCache: { at: number; places: ReturnType<typeof readChannelPlacesById> } | null = null;
   return async function agentChannelsRouter(_req, _url, pathname, method) {
     // `GET /api/agent-channels/card/<id>`: the Discord threads opened for that card, with their links.
@@ -107,8 +107,8 @@ export function createAgentChannelsRouter(ctx: Pick<AppContext, "json">, path: (
     }
     // `GET /api/agent-channels/activity`: what each agent handled in the last 7 days, per channel.
     if (pathname === "/api/agent-channels/activity" && method === "GET") {
-      if (!activityCache || Date.now() - activityCache.at > CACHE_MS) activityCache = { at: Date.now(), rows: readAgentActivity(path()) };
-      return ctx.json({ days: 7, rows: activityCache.rows });
+      if (!activityCache || Date.now() - activityCache.at > CACHE_MS) activityCache = { at: Date.now(), rows: readAgentActivity(path()), turns: readAgentTurns(path()) };
+      return ctx.json({ days: 7, rows: activityCache.rows, turns: activityCache.turns });
     }
     if (pathname !== "/api/agent-channels" || method !== "GET") return null;
     if (!cache || Date.now() - cache.at > CACHE_MS) cache = { at: Date.now(), titles: readChannelTitles(path()) };

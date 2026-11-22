@@ -18,6 +18,8 @@ import { useChannelPlaces, useChannelTitles } from '../../state/agentGroups';
 import { FIELD, SAVE, AgentJobsSection, AgentModelSection, BTN } from './AgentConfigPieces';
 import { ChannelTree } from './ChannelTree';
 import { InheritedRow } from './InheritedRow';
+import { CONFIGURE_SECTIONS, UNDERSTAND_SECTIONS, type ConfigureSection } from './configureSections';
+import { useConfigSummary } from './configSummary';
 import { CHANNEL_MARKS } from '../../lib/brandIcons';
 import type { Registry } from '../../state/agentRegistry';
 
@@ -26,8 +28,6 @@ type Post = (kind: string, body: object) => Promise<boolean>;
 
 const CHANNEL_BRAND: Record<string, string> = { discord: 'Discord', whatsapp: 'WhatsApp', telegram: 'Telegram' };
 
-export const CONFIGURE_SECTIONS = ['identity', 'job', 'channels', 'people', 'jobs', 'tools', 'memory', 'model', 'context', 'files'] as const;
-export type ConfigureSection = (typeof CONFIGURE_SECTIONS)[number];
 
 const SECTION_ICON: Record<ConfigureSection, typeof Bot> = {
   identity: Bot, job: Briefcase, channels: MessageSquare, people: Users, jobs: Clock,
@@ -321,21 +321,25 @@ export function AgentConfigure({
     }
   })();
 
+  const summary = useConfigSummary(agent);
+
   return (
     <div data-testid="agent-configure" className="flex flex-col gap-4 sm:flex-row">
-      <nav data-testid="agent-configure-nav" className={`w-full flex-shrink-0 sm:block sm:w-44 ${mobileOpen ? 'hidden' : ''}`}>
+      <nav data-testid="agent-configure-nav" className={`w-full flex-shrink-0 sm:block sm:w-60 ${mobileOpen ? 'hidden' : ''}`}>
         <ul className="space-y-0.5">
           {CONFIGURE_SECTIONS.map((s) => {
             const Icon = SECTION_ICON[s];
             return (
               <li key={s}>
+                {s === UNDERSTAND_SECTIONS[0] && <p data-testid="agent-configure-understand" className="px-2 pb-1 pt-3 text-mini font-semibold uppercase tracking-wide text-app-text-muted">{tr('agentConfig.understand')}</p>}
                 <button
                   type="button" data-testid="agent-configure-section" aria-current={s === section}
                   onClick={() => { onSection(s); setMobileOpen(true); }}
                   className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-mini ${s === section ? 'bg-app-hover font-semibold text-app-text' : 'text-app-text-secondary hover:bg-app-hover'}`}
                 >
-                  <Icon size={13} aria-hidden="true" />
-                  {tr(`agentConfig.section.${s}` as 'agentConfig.section.identity')}
+                  <Icon size={13} className="flex-shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate">{tr(`agentConfig.section.${s}` as 'agentConfig.section.identity')}</span>
+                  {summary[s] && <span data-testid="agent-configure-summary" className="flex-shrink-0 font-normal text-app-text-muted">{summary[s]}</span>}
                 </button>
               </li>
             );
