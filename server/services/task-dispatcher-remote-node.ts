@@ -1474,6 +1474,12 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
     const baseUrl = client.baseUrlOf(machineId);
     const capabilityId = task.delegatedStartCapabilityId ?? null;
     const policy = capabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
+    // THE SAME GUARD `launchOnNode` PUTS BEFORE A TOKEN: an authorization that is gone, or
+    // that now names another capability or another machine, must not be used to read the run
+    // either. The queue is the honest move here rather than the park `launchOnNode` writes:
+    // the tick right after takes the card through that very launch, which parks it with its
+    // own reason instead of this path inventing a second wording for it.
+    if (capabilityId && (!policy || policy.id !== capabilityId || policy.machineId !== machineId)) return "queue";
     const token = policy
       ? client.delegatedTokenOf?.(machineId, policy.id) ?? null
       : client.tokenOf(machineId);
@@ -1496,9 +1502,28 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       log(`nodo: la corsa ${runId} della card ${task.id} è chiusa sul nodo (${report.status}), la rimetto in coda`);
       return "queue";
     }
+    // ARCHIVED IS NOT IN THE STATUS. The node's board DELETE archives the card and leaves
+    // `in_progress` where it was, so an archived run reads as open: reattaching to one keeps
+    // the seat for forty polls over work that will never move again, where a restart used to
+    // put the card back in the queue.
+    if (report.archived) {
+      log(`nodo: la corsa ${runId} della card ${task.id} è archiviata sul nodo, la rimetto in coda`);
+      return "queue";
+    }
     // `report.status === "review"` with a delivery this card ALREADY carries is the exact
     // shape of ff293eda (26/10): the old run's own mirror, not new work to reattach to.
     if (report.status === "review" && report.deliveryCommit && report.deliveryCommit === task.deliveryCommit) return "queue";
+    // THE ANCHOR GUARD, which a rebuilt slot would otherwise walk straight past: a card sent
+    // back from review carries the tip it was sent back on in `priorCommit`, and a node that
+    // still answers with that same delivery is handing back the work that was already
+    // refused. Reattaching plants that old branch again after a restart, and only the
+    // same-tip bounce stops it. `isPreviousDelivery` is deliberately NOT used here: it would
+    // read the legitimate «a real run waiting for its branch» as old too.
+    const priorCommit = (svc.get(task.id)?.task ?? task).priorCommit ?? null;
+    if (report.status === "review" && report.deliveryCommit && report.deliveryCommit === priorCommit) {
+      log(`nodo: la corsa ${runId} della card ${task.id} riporta la consegna già rimandata (${report.deliveryCommit}), la rimetto in coda`);
+      return "queue";
+    }
     // The readRun above took a while: re-check the card is still exactly where this call
     // left it before touching the slot. A relaunch in the meantime (burial, a human's
     // drag, another restart path) already owns `inFlight`/`launching`, or moved the card,
