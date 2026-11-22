@@ -13,6 +13,8 @@ import { SECTION, SECTION_COUNT, SECTION_REST } from './automationsUi';
 
 interface Voice { id: 'cards' | 'seats' | 'proofs'; red: boolean; hoursLost: number; detail: string; cause: string | null }
 
+interface Cures { investigated: string[]; capped: string[] }
+
 type RoundState = 'waiting' | 'stale' | 'live';
 
 const READ_EVERY_MS = 60_000;
@@ -21,6 +23,7 @@ export function TopicsCheckRow() {
   const tr = useT();
   const [voices, setVoices] = useState<Voice[] | null>(null);
   const [round, setRound] = useState<{ state: RoundState; ageMin: number | null }>({ state: 'waiting', ageMin: null });
+  const [cures, setCures] = useState<Cures>({ investigated: [], capped: [] });
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -28,9 +31,10 @@ export function TopicsCheckRow() {
     const read = async () => {
       try {
         const r = await apiFetch('/api/topics-check');
-        const body = (await r.json()) as { voices?: Voice[]; state?: RoundState; ageMin?: number | null };
+        const body = (await r.json()) as { voices?: Voice[]; state?: RoundState; ageMin?: number | null; cures?: Partial<Cures> };
         if (alive && r.ok && Array.isArray(body.voices)) {
           setVoices(body.voices);
+          setCures({ investigated: body.cures?.investigated ?? [], capped: body.cures?.capped ?? [] });
           setRound({ state: body.state ?? 'live', ageMin: body.ageMin ?? null });
         }
       } catch { /* the row keeps what it last read */ }
@@ -64,6 +68,11 @@ export function TopicsCheckRow() {
         <ChevronRight size={12} className={open ? 'rotate-90' : ''} aria-hidden="true" />
         {voices.map((v) => v.detail).join(' · ')}
       </button>
+      {(cures.capped.length > 0 || cures.investigated.length > 0) && (
+        <p className="px-2 pl-6 text-compact text-app-text-tertiary" data-testid="topics-check-cures">
+          {[cures.capped.length > 0 && tr('auto.check.capped', { n: cures.capped.length }), cures.investigated.length > 0 && tr('auto.check.investigated', { n: cures.investigated.length })].filter(Boolean).join(' · ')}
+        </p>
+      )}
       {open && (
         <ul className="mt-1 space-y-1 px-2 pl-6 text-compact" data-testid="topics-check-voices">
           {voices.map((v) => (
