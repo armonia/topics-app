@@ -1088,6 +1088,14 @@ export interface WSBrowserFocusPaneMessage {
   type: 'browser:focus-pane';
   contextId: string;
 }
+/** An agent needs the person to log in: raise the tab, optionally detached. */
+export interface WSBrowserLoginRequestMessage {
+  type: 'browser:login-request';
+  contextId: string;
+  url: string;
+  detached: boolean;
+  topicId?: string;
+}
 /**
  * Pane / sidebar UI state replicated across windows (Phase 30 PANE-02).
  * Split into init (full snapshot keyed by store key) vs updated (single
@@ -1326,6 +1334,7 @@ export type WSMessage =
   | WSBrowserOpenTaskTabMessage
   | WSBrowserClosePaneMessage
   | WSBrowserFocusPaneMessage
+  | WSBrowserLoginRequestMessage
   | WSUIStateInitMessage
   | WSUIStateUpdatedMessage
   | WSProjectMessage

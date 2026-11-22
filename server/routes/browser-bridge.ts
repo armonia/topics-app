@@ -773,7 +773,7 @@ export function createBrowserBridgeRouter(
       if ((byTopic || bySession) && method === "POST") {
         if (!tokenOk(req)) return json({ error: "unauthorized" }, 401);
         if (!browserService) return json({ error: "Browser service is not enabled in this build" }, 503);
-        const body = (await readJSON(req)) as { contextId?: unknown } | null;
+        const body = (await readJSON(req)) as { contextId?: unknown; loginRequest?: unknown; detached?: unknown } | null;
         const override = typeof body?.contextId === "string" && body.contextId ? body.contextId : null;
         let ctxId: string;
         if (override) {
@@ -790,6 +790,19 @@ export function createBrowserBridgeRouter(
           ctxId = target.contextId;
         }
         const mounted = await focusPaneFlow(ctxId);
+        // A login wall: the person has to type credentials the agent never
+        // handles, so the focus also asks the window to take the screen
+        // (raised, optionally detached) and to say why.
+        if (body?.loginRequest === true) {
+          const topicId = byTopic?.id ?? (bySession ? getTopicBySessionKey(decodeURIComponent(bySession.sessionKey))?.id : undefined);
+          broadcastToAll({
+            type: "browser:login-request",
+            contextId: ctxId,
+            url: browserService.getUrl(ctxId)?.url ?? "",
+            detached: body.detached === true,
+            ...(topicId ? { topicId } : {}),
+          });
+        }
         return json({ ok: true, contextId: ctxId, mounted });
       }
     }
