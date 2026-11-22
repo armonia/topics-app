@@ -35,7 +35,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLifecycleHooks, type LifecycleHookPayload, type LifecycleHookRunner } from "./lifecycle-hooks";
 import { pendingQuestionComment } from "../../shared/board";
-import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
+import { MIRROR_CANCEL_TIMEOUT_MS, NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./task-dispatcher-remote-node";
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
@@ -1589,4 +1589,116 @@ describe("una corsa sul nodo sopravvive al riavvio del server", () => {
     expect(h.task().status).toBe("todo");
     expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(true);
   });
+
+  // The four defects a verifier found running `3fd09f8f` instead of only reading it (22/11).
+
+  it("il nodo dice che la corsa è chiusa (done): non resta agganciata per sempre, torna in coda", async () => {
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: () => Promise.resolve(report({ status: "done" })),
+    });
+    h.seed();
+    await dispatch(h);
+    expect(h.task().status).toBe("in_progress");
+
+    // A 200 for a cancelled or finished run (routes/nodes.ts:754-787) must not read as "still
+    // open": the mutant that drops the status check reattaches here forever instead.
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    const afterRestart = h.restart();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+
+    expect(h.task().status).toBe("todo");
+    expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(true);
+  });
+
+  it("un rilancio concorrente durante il readRun non sovrascrive lo slot della corsa nuova", async () => {
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: (runId) => {
+        if (runId === "run-1") {
+          // Lands WHILE this readRun is still in the air: another path already cancelled
+          // run-1 and started run-2 on the node, exactly `beginRun`+`createRun` of an
+          // ordinary relaunch.
+          h.svc.setNodeRun(TASK, "run-2");
+        }
+        return Promise.resolve(report({ status: "in_progress" }));
+      },
+    });
+    h.seed();
+    await dispatch(h);
+    expect(h.calls).toEqual(["create"]);
+
+    const afterRestart = h.restart();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+    expect(h.calls.filter((c) => c === "read:run-1")).toHaveLength(1);
+    expect(h.task().status).toBe("in_progress");
+
+    // The stale read of run-1 must not have rebuilt a slot over run-2: the next poll round
+    // never asks the node about run-1 again (the mutant that skips the freshness re-check
+    // would poll run-1, stranding run-2 on the node with nobody following it).
+    await afterRestart.reconcile({ reason: "poll" });
+    await flush();
+    expect(h.calls.filter((c) => c === "read:run-1")).toHaveLength(1);
+    expect(h.svc.nodeRunOf(TASK)).toBe("run-2");
+  });
+
+  it("un commento scritto dal nodo mentre il server era giù viene specchiato una volta sola", async () => {
+    const mirrorNote = {
+      id: "n-mirror", author: "system", kind: "service",
+      content: "Card specchiata da github.com/acme/alpha (task origin-1).",
+      createdAt: "2026-11-22T07:00:00.000Z",
+    };
+    const workComment = {
+      id: "n-work", author: "agent", kind: "comment", content: "Ho finito, 257 file.",
+      createdAt: "2026-11-22T07:40:00.000Z",
+    };
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: () => Promise.resolve(report({ status: "in_progress", comments: [mirrorNote, workComment] })),
+    });
+    h.seed();
+    await dispatch(h);
+
+    const afterRestart = h.restart();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+    // The node's own "mirrored from us" bookkeeping note must not show up here, and the
+    // comment the agent wrote while this server was down is not lost (export-morti-2, 22/11).
+    expect(h.comments().some((c) => c.content.startsWith("Card specchiata da"))).toBe(false);
+    expect(h.comments().filter((c) => c.content === workComment.content)).toHaveLength(0);
+
+    await afterRestart.reconcile({ reason: "poll" });
+    await flush();
+    expect(h.comments().filter((c) => c.content === workComment.content)).toHaveLength(1);
+
+    // And a further poll does not mirror it again.
+    await afterRestart.reconcile({ reason: "poll" });
+    await flush();
+    expect(h.comments().filter((c) => c.content === workComment.content)).toHaveLength(1);
+  });
+
+  it("il nodo non risponde mai: il riavvio non resta appeso, la card torna in coda entro il timeout", async () => {
+    const h = harness({
+      bundle: new Uint8Array([1]),
+      readRun: () => new Promise<NodeRunReport>(() => {}),
+    });
+    h.seed();
+    await dispatch(h);
+    expect(h.task().status).toBe("in_progress");
+
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    const afterRestart = h.restart();
+    const startedAt = Date.now();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+    const elapsedMs = Date.now() - startedAt;
+
+    // Bounded by the timeout, not "forever": a sequential boot that reads one orphan at a
+    // time must not let a single hung node hold up every other card behind it.
+    expect(elapsedMs).toBeLessThan(MIRROR_CANCEL_TIMEOUT_MS + 5_000);
+    expect(h.task().status).toBe("todo");
+    expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(true);
+  }, 20_000);
 });

@@ -1364,12 +1364,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
    * card that is the one thing KANBAN-76 forbids), but its run is not thrown
    * away either. `tasks.node_run_id` and the machine's `baseUrl`/token survive a
    * restart (13/11): what lived only in memory was the slot, not the run, so
-   * this asks the node whether that run is still open and REATTACHES the slot
-   * instead of queueing over it. Only when the node says the run is gone, or
-   * answering fails, is the queue the honest move - the tick re-dispatches the
-   * card, and that dispatch cancels the old run before creating a new one
-   * (KANBAN-77). export-morti-2 lost 257 files and a clean typecheck to three
-   * restarts before this (22/11, 0ed45466).
+   * this asks the node (with a timeout: a boot that waits on one hung node for
+   * every other card is the queue's own failure mode) whether that run is
+   * still OPEN — in_progress, todo (its grace window) or review, never the
+   * card's own stale idea of the status — and REATTACHES the slot instead of
+   * queueing over it. Only when the node says the run is gone, done or
+   * parked, or answering fails, is the queue the honest move - the tick
+   * re-dispatches the card, and that dispatch cancels the old run before
+   * creating a new one (KANBAN-77). export-morti-2 lost 257 files and a clean
+   * typecheck to three restarts before this (22/11, 0ed45466).
    */
   async function queueAfterRestart(task: Task): Promise<boolean | null> {
     if (!task.machineId || !host.client) return null;
@@ -1403,7 +1406,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return false;
       }
     }
-    if (runOpen && (await reattachOpenRun(task))) return false;
+    const runId = runOpen ? svc.nodeRunOf(task.id) : null;
+    if (runOpen && runId) {
+      const outcome = await reattachOpenRun(task, runId);
+      if (outcome !== "queue") return false; // reattached, or another path already owns the card
+    }
+    // A race can land here too (readRun said the run is closed WHILE another path was
+    // already relaunching the same card): the same freshness check `reattachOpenRun`
+    // runs before touching its slot, run one more time before requeueing over it.
+    if (!stillOursToHandle(task.id, runId)) return false;
     try {
       svc.claimInterruption({
         taskId: task.id,
@@ -1420,42 +1431,94 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
-   * Asks the node whether the run this card had open before the restart is
-   * still there, and rebuilds the slot (inside the node's own seats, same as
-   * any other launch) instead of queueing over it. `false` = the node says the
-   * run is gone, or there is no way to ask it (unpaired, revoked, unreachable):
-   * the caller falls back to the queue. `primed: false` matches a fresh launch
-   * on purpose - the next poll seeds `seen` from what the node already has
-   * instead of re-mirroring it as new.
+   * A run the node still counts as open: ongoing, in its grace window, or
+   * finished but not yet landed here. `backlog` (parked by the node itself)
+   * and `done` are NOT this - reattaching to either leaves the slot occupied
+   * forever over a run that will never move again (regression found 22/11:
+   * the old code checked only that `readRun` did not throw, so a 200 for a
+   * cancelled or finished run was read as "still open").
    */
-  async function reattachOpenRun(task: Task): Promise<boolean> {
+  const OPEN_NODE_RUN_STATUSES = new Set(["in_progress", "todo", "review"]);
+
+  /**
+   * Is this card still exactly what `queueAfterRestart`/`reattachOpenRun` read at the
+   * top, with nobody else already holding it? `readRun` (and its timeout) takes a
+   * while, and in that time the ordinary dispatch (`tick`, independent of this boot
+   * reconcile) can relaunch the same card on its own - cancelling `expectedRunId` and
+   * creating a new one. Acting on a stale read then would either overwrite the NEW
+   * slot with this stale one, or requeue a card another path already owns.
+   */
+  function stillOursToHandle(taskId: string, expectedRunId: string | null): boolean {
+    const fresh = svc.get(taskId)?.task;
+    if (!fresh || fresh.status !== "in_progress") return false;
+    if (inFlight.has(taskId) || launching.has(taskId)) return false;
+    if (expectedRunId !== null && svc.nodeRunOf(taskId) !== expectedRunId) return false;
+    return true;
+  }
+
+  /**
+   * Asks the node whether the run this card had open before the restart is still
+   * there, and rebuilds the slot (inside the node's own seats, same as any other
+   * launch) instead of queueing over it.
+   * - `"reattached"` - the slot is rebuilt, the caller is done.
+   * - `"queue"` - the node says the run is gone or closed (or there is no way to ask
+   *   it: unpaired, revoked, unreachable, timed out), the caller falls back to the queue.
+   * - `"skip"` - a concurrent relaunch already moved this card on, discovered either
+   *   before touching the node or after it answered: neither reattaching NOR
+   *   queueing is safe, the caller does nothing and leaves the other path alone.
+   */
+  async function reattachOpenRun(task: Task, runId: string): Promise<"reattached" | "queue" | "skip"> {
     const client = host.client;
     const machineId = task.machineId;
-    const runId = svc.nodeRunOf(task.id);
-    if (!client || !machineId || !runId) return false;
+    if (!client || !machineId) return "queue";
     const baseUrl = client.baseUrlOf(machineId);
     const capabilityId = task.delegatedStartCapabilityId ?? null;
     const policy = capabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
     const token = policy
       ? client.delegatedTokenOf?.(machineId, policy.id) ?? null
       : client.tokenOf(machineId);
-    if (!baseUrl || !token) return false;
+    if (!baseUrl || !token) return "queue";
     const delegation: NodeRunBinding | undefined = policy ? {
       capabilityId: policy.id,
       subjectPersonId: policy.initiatorPersonId,
       subjectDeviceId: policy.initiatorDeviceId,
     } : undefined;
+    let report: NodeRunReport;
     try {
-      await client.readRun({ baseUrl, token, runId, delegation });
+      // A boot reads every orphan ONE AT A TIME (`task-dispatcher-reconcile.ts`):
+      // a node that never answers must not hold up every other card behind it.
+      report = await withTimeout(client.readRun({ baseUrl, token, runId, delegation }), MIRROR_CANCEL_TIMEOUT_MS);
     } catch (err) {
       log(`nodo: la corsa ${runId} della card ${task.id} non è stata ritrovata dopo il riavvio, la rimetto in coda`, err);
-      return false;
+      return "queue";
     }
+    if (!OPEN_NODE_RUN_STATUSES.has(report.status)) {
+      log(`nodo: la corsa ${runId} della card ${task.id} è chiusa sul nodo (${report.status}), la rimetto in coda`);
+      return "queue";
+    }
+    // `report.status === "review"` with a delivery this card ALREADY carries is the exact
+    // shape of ff293eda (26/10): the old run's own mirror, not new work to reattach to.
+    if (report.status === "review" && report.deliveryCommit && report.deliveryCommit === task.deliveryCommit) return "queue";
+    // The readRun above took a while: re-check the card is still exactly where this call
+    // left it before touching the slot. A relaunch in the meantime (burial, a human's
+    // drag, another restart path) already owns `inFlight`/`launching`, or moved the card,
+    // or cancelled/replaced this very run - overwriting its slot would strand that NEW run
+    // on the node with nobody polling it (KANBAN-77, the two-deliveries defect in reverse).
+    if (!stillOursToHandle(task.id, runId)) return "skip";
     host.beginRun(task.id, nodeSessionKey(machineId, runId));
     const slot = inFlight.get(task.id);
-    if (!slot) return false;
-    slot.node = { machineId, baseUrl, token, runId, fails: 0, seen: new Set(), primed: false, ...(delegation ? { delegation } : {}) };
-    return true;
+    if (!slot) return "skip";
+    // `primed: true` and a `seen` seeded with only the node's own "mirrored from
+    // us" note (the one `primed: false` swallows whole on a fresh launch, when it
+    // is the only comment there) - the first poll after reattach mirrors every
+    // comment written on the node WHILE THIS SERVER WAS DOWN instead of silently
+    // adopting them as already-seen and losing them for good (export-morti-2,
+    // 22/11: its summary and delivery line never made it back).
+    const seen = new Set<string>();
+    const mirrorNote = report.comments.find((c) => c.kind === "service" && c.content.startsWith("Card specchiata da "));
+    if (mirrorNote) seen.add(mirrorNote.id);
+    slot.node = { machineId, baseUrl, token, runId, fails: 0, seen, primed: true, ...(delegation ? { delegation } : {}) };
+    return "reattached";
   }
 
   /**
