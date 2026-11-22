@@ -14,11 +14,8 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { configureNativeSubagents, _resetNativeSubagents } from "../lib/native-subagents";
 import { insertSubagent } from "../lib/subagent-store";
 import { recordTurnStart } from "../providers/turn-end-registry";
-import {
-  _setPtyBridgeSocketPath,
-  createTerminalRouter,
-  disconnectBridge,
-} from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import { _resetRosterReconciled } from "./terminal-bridge-roster";
 import { _setSeedPromptHandlerForTests } from "./terminal-children";
 import type { AppContext, RouteHandler } from "../types";

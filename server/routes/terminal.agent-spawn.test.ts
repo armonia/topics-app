@@ -6,7 +6,8 @@ import { join, resolve } from "path";
 import net from "net";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { insertSubagent, markSubagentRemote } from "../lib/subagent-store";
-import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import type { AppContext } from "../types";
 
 const originalTopicsHome = process.env.TOPICS_HOME;

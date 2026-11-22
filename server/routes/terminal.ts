@@ -43,16 +43,10 @@ import { setTerminalBroadcast, setTerminalTracker, setTerminalWorktreeStore, bra
 export { noteSubAgentStopHook } from "../lib/subagent-runtime";
 export { setTerminalBrowserCloser, setTerminalMemPressure } from "./terminal-state";
 export { setSubAgentExitHandler, setChildAdmissionPreview, liveCliChildren } from "./terminal-children";
-/** @internal */
-export { _setAgentProfilesHome } from "./terminal-children";
 export { getTerminalSessionById, getAgentPtyCliPids, listTerminalOwners, getClaudeSessionsForDetection, listTerminalSessionSnapshot, listTopicsLiveTerminals, readTopicsTerminalScreen, writeTopicsTerminal, countAttachedTerminalSessions, countBusyAgentTerminals } from "./terminal-queries";
 export { getClaudeSessionPtyIdleMs } from "./terminal-activity";
 export { getPtyBridgeRuntimeStatus, disconnectBridge } from "./terminal-bridge-socket";
-/** @internal */
-export { _suppressPtyBridgeReconnectForTest, _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 export { autoNameClaudeSession } from "./terminal-session-create";
-/** @internal */
-export { _setTerminalTrackerForTests, _terminalSessionsForTests } from "./terminal-shared";
 export { noteClaudeHookSession, liveTerminalCwds, retireTerminalSession, parkIdleClaudeSessions, parkOrphanSessions, orphanTerminalSession, parkTerminalSession } from "./terminal-registry";
 
 /** A Claude session id lands straight in an argv (`--resume <id>`): it passes

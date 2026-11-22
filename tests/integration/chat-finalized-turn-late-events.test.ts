@@ -33,7 +33,10 @@ import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
 import { createChatRouter } from "../../server/routes/chat";
 import { insertRestartNotification, type PartialSweepDb } from "../../server/lib/boot-partial-sweep";
-import { answersPersonsMessage, RESUME_CAP_MARKER, resumeVerdict, riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
+import { answersPersonsMessage, MAX_RESUME_ATTEMPTS, resumeVerdict, riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
+import { capLastCut, capNotice } from "../../server/lib/resume-notices";
+
+const RESUME_CAP_MARKER = capNotice(MAX_RESUME_ATTEMPTS, capLastCut({ restarted: true }));
 import { createPermissionRouter } from "../../server/routes/permission";
 import { beginPermission, cancelPermissionsForSession } from "../../server/lib/permission-bridge";
 import { decodeCol } from "../../shared/message-blob";
