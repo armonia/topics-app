@@ -153,6 +153,7 @@ const IT: Dict = {
   'agentConfig.summary.context': '{n} tok',
   'agentConfig.summary.files': '{n} file',
   'agentConfig.tree.search': 'Cerca una chat, un thread o una persona',
+  'agentConfig.tree.mentionShort': 'Se citato',
   'agentConfig.tree.rules': 'Regole',
   'agentConfig.tree.noMatch': 'Niente corrisponde alla ricerca.',
   'agents.newAgent': 'Nuovo agente',

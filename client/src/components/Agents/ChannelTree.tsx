@@ -24,6 +24,9 @@ type Agent = Registry['agents'][number];
 type Chat = Agent['chats'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
 
+/** One column template for the header and every row, so each switch sits under its heading. */
+const ROW_GRID = 'grid grid-cols-[minmax(0,1fr)_4.75rem_4.75rem_1.75rem] items-start gap-x-2';
+
 const isWhatsAppGroup = (chat: string) => chat.endsWith('@g.us');
 
 /** A Discord channel name often starts with a status emoji: it is a state, so it is split off the name. */
@@ -85,13 +88,18 @@ function filterTree(tree: ChannelNode[], q: string): ChannelNode[] {
 }
 const countThreads = (nodes: ChatNode[]) => nodes.reduce((sum, n) => sum + n.threads.length, 0);
 
-function InheritedValue({ own, label, baseline, parentLabel }: { own: boolean; label: string; baseline: boolean | null; parentLabel: string }) {
+/** A switch with the «like the parent» / «its own» tag under it, in the column's own width. */
+function InheritedSwitch({ on, label, testId, baseline, parentLabel, onChange }: {
+  on: boolean; label: string; testId: string; baseline: boolean | null; parentLabel: string; onChange: (v: boolean) => void;
+}) {
   const tr = useT();
-  const inherited = baseline !== null && own === baseline;
+  const inherited = baseline !== null && on === baseline;
   return (
-    <span className="flex items-center gap-1 text-mini text-app-text-muted">
-      {label}
-      <span data-testid="channel-tree-inherit-tag">{inherited ? tr('agentConfig.tree.inherits', { parent: parentLabel }) : tr('agentConfig.tree.own')}</span>
+    <span className="flex flex-col items-start gap-0.5">
+      <Switch on={on} label={label} testId={testId} onChange={onChange} />
+      <span data-testid="channel-tree-inherit-tag" className="max-w-full break-words text-mini leading-tight text-app-text-muted">
+        {inherited ? tr('agentConfig.tree.inherits', { parent: parentLabel }) : tr('agentConfig.tree.own')}
+      </span>
     </span>
   );
 }
@@ -108,15 +116,13 @@ function ChatLeaf({
   const { name, status } = splitStatusSign(node.label);
   return (
     <li data-testid="channel-tree-chat">
-      <div className={`flex items-center gap-2 rounded px-1 py-1 ${selected ? 'bg-app-hover' : 'hover:bg-app-hover'}`}>
-        <button type="button" data-testid="channel-tree-chat-open" onClick={onSelect} className="min-w-0 flex-1 truncate text-left text-prose text-app-text">
+      <div className={`${ROW_GRID} rounded px-1 py-1 ${selected ? 'bg-app-hover' : 'hover:bg-app-hover'}`}>
+        <button type="button" data-testid="channel-tree-chat-open" onClick={onSelect} className="min-w-0 break-words text-left text-prose text-app-text">
           {status && <span data-testid="channel-tree-status" title={status} className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle" aria-hidden="true" />}
           {name}
         </button>
-        <InheritedValue own={c.active} label={tr('agentConfig.active')} baseline={baseline ? baseline.active : null} parentLabel={parentLabel} />
-        <Switch on={c.active} label={tr('agentConfig.active')} testId="agent-chat-active" onChange={(v) => void post('chat', { channel, chat: c.chat, account: c.account, active: v })} />
-        <InheritedValue own={c.mention} label={tr('agentConfig.mention')} baseline={baseline ? baseline.mention : null} parentLabel={parentLabel} />
-        <Switch on={c.mention} label={tr('agentConfig.mention')} testId="agent-chat-mention" onChange={(v) => void post('chat', { channel, chat: c.chat, account: c.account, mention: v })} />
+        <InheritedSwitch on={c.active} label={tr('agentConfig.active')} testId="agent-chat-active" baseline={baseline ? baseline.active : null} parentLabel={parentLabel} onChange={(v) => void post('chat', { channel, chat: c.chat, account: c.account, active: v })} />
+        <InheritedSwitch on={c.mention} label={tr('agentConfig.mention')} testId="agent-chat-mention" baseline={baseline ? baseline.mention : null} parentLabel={parentLabel} onChange={(v) => void post('chat', { channel, chat: c.chat, account: c.account, mention: v })} />
         <button type="button" data-testid="agent-chat-edit" aria-label={tr('agentConfig.edit')} title={tr('agentConfig.edit')} onClick={() => setEditing((e) => !e)} className="rounded p-1 text-app-text-muted hover:bg-app-hover hover:text-app-text">
           <Pencil size={12} aria-hidden="true" />
         </button>
@@ -178,8 +184,11 @@ export function ChannelTree({ agent, post, allAgents, titles, places }: {
   return (
     <div>
     <input data-testid="channel-tree-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tr('agentConfig.tree.search')} aria-label={tr('agentConfig.tree.search')} className={`mb-2 ${FIELD}`} />
-    <div data-testid="channel-tree-header" className="mb-1 flex justify-end gap-6 px-1 text-mini font-semibold text-app-text-muted">
-      <span>{tr('agentConfig.active')}</span><span>{tr('agentConfig.mention')}</span><span>{tr('agentConfig.tree.rules')}</span>
+    <div data-testid="channel-tree-header" className={`${ROW_GRID} mb-1 px-1 text-mini font-semibold text-app-text-muted`}>
+      <span />
+      <span data-testid="channel-tree-header-active">{tr('agentConfig.active')}</span>
+      <span data-testid="channel-tree-header-mention">{tr('agentConfig.tree.mentionShort')}</span>
+      <span data-testid="channel-tree-header-rules" className="sr-only sm:not-sr-only">{tr('agentConfig.tree.rules')}</span>
     </div>
     {tree.length === 0 && <p data-testid="channel-tree-no-match" className="text-mini text-app-text-muted">{tr('agentConfig.tree.noMatch')}</p>}
     <ul data-testid="channel-tree" className="space-y-2">

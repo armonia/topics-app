@@ -13,6 +13,7 @@ import { Fragment, useState } from 'react';
 import { Bot, CalendarClock, Pencil, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
+import { modelName } from './displayNames';
 
 import type { Registry } from '../../state/agentRegistry';
 type Agent = Registry['agents'][number];
@@ -112,9 +113,9 @@ export function AgentModelSection({ agent }: { agent: Agent }) {
   const models = Object.entries(agent.model.perChannel);
   return (
     <Section icon={Sparkles} title={tr('agentConfig.model')}>
-      <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ?? '—'}</span></p>{/* allow-emdash: placeholder for a missing value */}
+      <p className="text-mini text-app-text-secondary">{tr('agentConfig.engine')}: <span className="text-app-text">{agent.model.engine ? modelName(agent.model.engine) : '—'}</span></p>{/* allow-emdash: placeholder for a missing value */}
       {models.map(([ch, m]) => (
-        <p key={ch} className="text-mini text-app-text-secondary">{ch}: <span className="text-app-text">{Object.entries(m).map(([k, v]) => `${k === '*' ? tr('agentConfig.everyone') : k} → ${v.replace('anthropic/', '')}`).join(' · ')}</span></p>
+        <p key={ch} className="text-mini text-app-text-secondary">{ch}: <span className="text-app-text">{Object.entries(m).map(([k, v]) => `${k === '*' ? tr('agentConfig.everyone') : k} → ${modelName(v)}`).join(' · ')}</span></p>
       ))}
       <ul data-testid="agent-accounts" className="mt-2 space-y-1">
         {agent.accounts.map((a) => (
@@ -143,7 +144,7 @@ export function AgentJobsSection({ agent, post }: { agent: Agent; post: Post }) 
             <li data-testid="agent-job" className="flex items-center gap-3 rounded px-1 py-1 hover:bg-app-hover">
               <span className="min-w-0 flex-1">
                 <span className={`block truncate text-prose ${j.paused ? 'text-app-text-muted' : 'text-app-text'}`}>{j.name}</span>
-                <span className="block truncate text-mini text-app-text-muted">{j.schedule}{j.kind === 'agent' ? ` · ${tr('agentConfig.agentJob')}` : ''}{j.model ? ` · ${j.model}` : ''}</span>
+                <span className="block truncate text-mini text-app-text-muted">{j.schedule}{j.kind === 'agent' ? ` · ${tr('agentConfig.agentJob')}` : ''}{j.model ? ` · ${modelName(j.model)}` : ''}</span>
               </span>
               <Switch on={!j.paused} label={tr('agentConfig.jobOn')} testId="agent-job-on" onChange={(v) => void post('job', { id: j.id, paused: !v })} />
               <button type="button" data-testid="agent-job-edit" aria-label={tr('agentConfig.editWhen')} title={tr('agentConfig.editWhen')} onClick={() => setEditing(editing === j.id ? null : j.id)} className="rounded p-1 text-app-text-muted hover:bg-app-hover hover:text-app-text"><Pencil size={12} aria-hidden="true" /></button>

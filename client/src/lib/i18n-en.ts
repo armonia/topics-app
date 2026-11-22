@@ -151,6 +151,7 @@ const EN = {
   'agentConfig.summary.context': '{n} tok',
   'agentConfig.summary.files': '{n} files',
   'agentConfig.tree.search': 'Search a chat, a thread or a person',
+  'agentConfig.tree.mentionShort': 'If mentioned',
   'agentConfig.tree.rules': 'Rules',
   'agentConfig.tree.noMatch': 'Nothing matches the search.',
   'agents.newAgent': 'New agent',

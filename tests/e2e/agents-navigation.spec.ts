@@ -208,6 +208,12 @@ test("canali come albero, ereditato senza ripetizioni (AGENTS-04)", async ({ pag
   await expect(page.getByTestId("channel-tree-server").first()).toContainText("Armonia");
   await expect(page.getByTestId("channel-tree-channel").first().getByTestId("channel-tree-count").first()).toContainText("2 chat · 1 thread");
   await expect(page.getByTestId("channel-tree-header")).toContainText("Risponde");
+  // the columns are one grid: the switch sits under its heading and the name is not cut
+  const headerBox = await page.getByTestId("channel-tree-header-active").boundingBox();
+  const switchBox = await page.getByTestId("channel-tree-chat").filter({ hasText: "#segnalazioni" }).getByTestId("agent-chat-active").boundingBox();
+  expect(Math.abs((switchBox?.x ?? -99) - (headerBox?.x ?? 99))).toBeLessThanOrEqual(4);
+  const nameBox = await page.getByTestId("channel-tree-chat-open").filter({ hasText: "#operazioni" }).evaluate((el) => el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1);
+  expect(nameBox).toBe(true);
   // the thread sits under its chat without opening anything
   await expect(page.getByTestId("channel-tree-chat").filter({ hasText: "#operazioni" }).getByTestId("channel-tree-thread")).toContainText("Migrazione siti");
   // search narrows the tree to chats, threads or people that match

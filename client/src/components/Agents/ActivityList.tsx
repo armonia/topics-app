@@ -10,6 +10,7 @@ import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { Select } from '../Shared/Select';
 import { PALLINO_ATTESA, PALLINO_OK } from '../Sidebar/chromeSignals';
 import { channelBrand } from './channelBrand';
+import { splitTurnTitle } from './displayNames';
 import type { ActivityTurn } from './useAgentActivity';
 
 type StateFilter = 'all' | 'working' | 'failed';
@@ -49,14 +50,20 @@ export function ActivityList({ turns, agents }: { turns: ActivityTurn[]; agents:
         <p className="mt-2 text-prose text-app-text-muted">{tr('agents.activity.none')}</p>
       ) : (
         <ul className="mt-2 space-y-1">
-          {shown.map((t, i) => (
+          {shown.map((t, i) => {
+            const split = t.title ? splitTurnTitle(t.title) : null;
+            return (
             <li key={`${t.created}:${i}`} data-testid="agent-activity-turn" data-state={t.state} className="flex items-center gap-2 rounded border border-app-border-light px-2 py-1 text-mini text-app-text-secondary">
               <span className={`h-2 w-2 flex-shrink-0 rounded-full ${t.state === 'failed' ? 'bg-red-500' : t.state === 'working' ? PALLINO_ATTESA : PALLINO_OK}`} aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate text-app-text">{t.title ?? tr('agents.untitledChat')}</span>
+              <span className="min-w-0 flex-1 truncate text-app-text">
+                {split?.title ?? tr('agents.untitledChat')}
+                {split?.channel && <span data-testid="agent-activity-turn-channel" className="ml-2 text-app-text-muted">{split.channel}</span>}
+              </span>
               <span className="flex-shrink-0">{nameOf(t.agent)} · {channelBrand(t.channel)}</span>
               {t.state === 'failed' && t.error && <span className={`hidden truncate sm:inline ${DANGER_TEXT}`}>{t.error}</span>}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </section>

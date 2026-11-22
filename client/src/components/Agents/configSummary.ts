@@ -11,6 +11,7 @@ import { apiFetch } from '../../lib/shell/net';
 import { useChannelPlaces, type ChannelPlace } from '../../state/agentGroups';
 import type { Registry } from '../../state/agentRegistry';
 import type { ConfigureSection } from './configureSections';
+import { modelName } from './displayNames';
 
 type Agent = Registry['agents'][number];
 
@@ -53,7 +54,7 @@ export function useConfigSummary(agent: Agent): Record<ConfigureSection, string 
     jobs: String(agent.jobs.length),
     tools: f.tools === null ? null : tr(f.tools === 'all' ? 'agentConfig.summary.toolsInherited' : 'agentConfig.summary.toolsFiltered'),
     memory: f.memory === null ? null : tr('agentConfig.summary.memory', { n: f.memory }),
-    model: agent.model.engine ?? tr('agentConfig.summary.modelDefault'),
+    model: agent.model.engine ? modelName(agent.model.engine) : tr('agentConfig.summary.modelDefault'),
     context: f.contextTokens === null ? null : tr('agentConfig.summary.context', { n: f.contextTokens }),
     files: tr('agentConfig.summary.files', { n: Object.keys(agent.persona).length }),
   };
