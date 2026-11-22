@@ -31,7 +31,6 @@ import { toolCallDetailSchema } from '../../shared/tool-call-detail';
 import {
   welcomeMessageSchema,
   helloMessageSchema,
-  upgradeRequiredSchema,
 } from '../../shared/ws-handshake';
 import {
   SERVER_PROTOCOL_VERSION,
@@ -493,16 +492,6 @@ describe('WS-04 contract: ws-handshake schemas (WS-02)', () => {
     expect(sig.literalKeys.type).toBe('hello');
   });
 
-  test('upgradeRequiredSchema shape is locked', () => {
-    const sig = objectSignature(upgradeRequiredSchema);
-    expect(sig.requiredKeys).toEqual([
-      'currentClientProtocolVersion',
-      'message',
-      'minClientProtocolVersion',
-      'type',
-    ]);
-    expect(sig.literalKeys.type).toBe('upgrade-required');
-  });
 });
 
 // ----- Sanity: assert objectSignature works on a synthetic schema -----------

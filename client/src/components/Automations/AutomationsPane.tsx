@@ -47,6 +47,7 @@ import { SourcesFooter, Verdict } from './AutomationsHead';
 import { DecideList } from './DecideList';
 import { useAutomationsKeys } from './useAutomationsKeys';
 import { useAutomationsData, type AutomationsData } from './useAutomationsData';
+import { TopicsCheckRow } from './TopicsCheckRow';
 import { BUTTON, SECTION, SECTION_COUNT, SECTION_REST, SYSTEM_ICON, makeClock, scheduleWords, type Clock } from './automationsUi';
 
 // The view's strings travel with its chunk, before its first render.
@@ -79,8 +80,21 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
 
 export function AutomationsPane() {
   const present = useHubEverRead();
-  if (!present) return null;
+  if (!present) return <TopicsCheckOnly />;
   return <AutomationsView />;
+}
+
+/**
+ * Without the hub the view is the self-check alone: nothing of the hub is read or drawn.
+ * It is a container like the full view, or the `@max-2xl` rules of the section header never
+ * apply and a phone keeps the desktop header, note included.
+ */
+function TopicsCheckOnly() {
+  return (
+    <div className="@container h-full min-h-0 overflow-auto bg-app-bg px-5 pb-6 pt-4 @max-2xl:px-3" data-testid="automations-pane">
+      <TopicsCheckRow />
+    </div>
+  );
 }
 
 function AutomationsView() {
@@ -240,6 +254,7 @@ function AutomationsView() {
                 {query.trim() ? tr('auto.emptyQuery', { q: query.trim() }) : tr('auto.empty')}
               </p>
             )}
+            <TopicsCheckRow />
             {status !== 'ok' && (
               <DecideList
                 rows={decide}

@@ -7,7 +7,8 @@
   * @covers KANBAN-50
  */
 import { describe, test, expect } from "bun:test";
-import { emitReviewReadyEdge, pendingQuestion } from "./tasks";
+import { emitReviewReadyEdge } from "./tasks";
+import { pendingQuestion } from "./tasks-shared";
 import { buildNotifyActions } from "../../shared/notify-actions";
 
 /** Il blocco canonico, composto come lo compone il servizio (addComment). */

@@ -14,7 +14,7 @@
  * @covers PROFILE-06
  */
 import { describe, test, expect, beforeEach, afterAll } from 'bun:test';
-import { apriProfilo, openPersonProfile, dimenticaPaginaProfilo, paginaProfiloChiesta, requestedProfile } from './profileTarget';
+import { apriProfilo, openPersonProfile, dimenticaPaginaProfilo, requestedProfile } from './profileTarget';
 
 // `apriProfilo` fires two DOM events: in bun there is no window, so the two
 // gestures below need one that swallows them.
@@ -30,36 +30,39 @@ afterAll(() => {
   delete (globalThis as { window?: unknown }).window;
 });
 
-describe('paginaProfiloChiesta', () => {
+/** Just the page of the live request, which is all the deleted wrapper did. */
+const requestedPage = (now?: number) => requestedProfile(now)?.pagina ?? null;
+
+describe('requestedPage', () => {
   beforeEach(() => { dimenticaPaginaProfilo(); });
 
   test('nobody asked: null, and the pane opens on its first page', () => {
-    expect(paginaProfiloChiesta()).toBeNull();
+    expect(requestedPage()).toBeNull();
   });
 
   test('TWO mounts in a row read the SAME page: the first does not eat it', () => {
     apriProfilo('privacy', 1_000);
-    expect(paginaProfiloChiesta(1_010)).toBe('privacy');
-    expect(paginaProfiloChiesta(1_020)).toBe('privacy');
+    expect(requestedPage(1_010)).toBe('privacy');
+    expect(requestedPage(1_020)).toBe('privacy');
   });
 
   test('past the window it is gone: an hour later the profile opens on itself', () => {
     apriProfilo('followers', 1_000);
-    expect(paginaProfiloChiesta(3_600_000)).toBeNull();
+    expect(requestedPage(3_600_000)).toBeNull();
     // And it stays gone, so a later mount cannot resurrect it.
-    expect(paginaProfiloChiesta(3_600_001)).toBeNull();
+    expect(requestedPage(3_600_001)).toBeNull();
   });
 
   test('the pane that showed the page forgets it, without waiting for the clock', () => {
     apriProfilo('followers', 1_000);
     dimenticaPaginaProfilo();
-    expect(paginaProfiloChiesta(1_010)).toBeNull();
+    expect(requestedPage(1_010)).toBeNull();
   });
 
   test('the last request wins: two clicks, the second page', () => {
     apriProfilo('privacy', 1_000);
     apriProfilo('followers', 1_100);
-    expect(paginaProfiloChiesta(1_110)).toBe('followers');
+    expect(requestedPage(1_110)).toBe('followers');
   });
 
   test('organization management targets the dedicated identity page', () => {

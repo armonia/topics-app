@@ -81,14 +81,6 @@ function chooseTitle(st: TitleScanState): string | null {
   return chosen.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_LEN);
 }
 
-/** Pull the best available title out of already-read rollout JSONL text.
- *  Returns null when nothing usable is present. */
-export function extractCodexTitleFromRollout(raw: string): string | null {
-  const st = blankState();
-  scanLines(st, raw.split("\n"));
-  return chooseTitle(st);
-}
-
 /** Per-rollout incremental scan state, keyed by path. Rollout paths are unique
  *  per session, so without a cap this grows with every session the process has
  *  EVER seen — LRU-capped like claude-transcript-title's twin cache. */

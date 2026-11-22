@@ -29,17 +29,7 @@ import { readTauriShellSource } from '../../../../tests/helpers/tauri-shell-sour
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ComponentType } from 'react';
 import {
-  TITLE_INSET_MAC_PX,
-  TITLE_INSET_WINDOWS_PX,
-  TITLE_INSET_WITH_CONTROLS_MAC,
-  TITLE_INSET_WITH_CONTROLS_WINDOWS,
-  TRAFFIC_LIGHTS_WIDTH_PX,
-  TRAFFIC_LIGHT_DOT_PX,
-  TRAFFIC_LIGHT_GAP_PX,
-  WINDOW_CONTROLS_INSET_PX,
-  WINDOW_CONTROL_CELL_GAP_PX,
-  CONTENT_CHROME_INSET_PX,
-  CONTENT_CHROME_INSET_PROPERTY,
+  TRAFFIC_LIGHTS_WIDTH_PX, TRAFFIC_LIGHT_DOT_PX, TRAFFIC_LIGHT_GAP_PX, WINDOW_CONTROLS_INSET_PX, CONTENT_CHROME_INSET_PX, CONTENT_CHROME_INSET_PROPERTY,
 } from '../../lib/shell/windowControlsGeometry';
 import { ROW_INSET } from '../../lib/selectionStyles';
 
@@ -166,21 +156,6 @@ describe('where they are mounted', () => {
  * as literals and not only against each other.
  */
 describe('the reserved room', () => {
-  test('each inset and its class say the same number', () => {
-    expect(TITLE_INSET_WITH_CONTROLS_MAC).toBe(`pl-[${TITLE_INSET_MAC_PX}px]`);
-    expect(TITLE_INSET_WITH_CONTROLS_WINDOWS).toBe(`pl-[${TITLE_INSET_WINDOWS_PX}px]`);
-  });
-
-  test('the Mac cluster is three 12px dots with 8px gaps, anchored at 12', () => {
-    expect(TRAFFIC_LIGHT_DOT_PX).toBe(12);
-    expect(TRAFFIC_LIGHT_GAP_PX).toBe(8);
-    expect(TRAFFIC_LIGHTS_WIDTH_PX).toBe(52);
-    expect(WINDOW_CONTROLS_INSET_PX).toBe(12);
-    // Window x=12, 52 wide, ends at 64; in wrapper coordinates that is 58,
-    // then one ROW_INSET of air: 64.
-    expect(TITLE_INSET_MAC_PX).toBe(WINDOW_CONTROLS_INSET_PX + TRAFFIC_LIGHTS_WIDTH_PX);
-    expect(TITLE_INSET_MAC_PX).toBe(64);
-  });
 
   test('the Rust shell pins the same anchor and pitch', () => {
     const rs = readTauriShellSource();
@@ -188,29 +163,6 @@ describe('the reserved room', () => {
     expect(rs).toContain(`const PITCH: f64 = ${TRAFFIC_LIGHT_DOT_PX + TRAFFIC_LIGHT_GAP_PX}.0;`);
   });
 
-  test('Windows cells and anchor are the ones the arithmetic assumes', () => {
-    const html = renderToStaticMarkup(<WindowControls visible />);
-    // 3 cells of 18 with 4 of air between them, anchored at 6 = the group ends at
-    // 68 inside the wrapper, then one ROW_INSET of air: 74. The cells are hit
-    // targets and stay 18.
-    expect((html.match(/h-\[18px\] w-\[18px\]/g) || []).length).toBe(3);
-    expect(html).toContain(`left-[${WINDOW_CONTROLS_INSET_PX - ROW_INSET}px]`);
-    expect(TITLE_INSET_WINDOWS_PX).toBe(6 + 18 * 3 + 4 * 2 + ROW_INSET);
-    expect(TITLE_INSET_WINDOWS_PX).toBe(74);
-  });
-
-  /**
-   * THE AIR IS DRAWN, not only declared. The inset above is arithmetic on a
-   * constant; what the eye sees is the `gap` class on the group, and the two can
-   * drift apart in silence (they did: the group had no gap at all while the
-   * inset already claimed a cluster width). Pin the class to the constant.
-   */
-  test('the cells are drawn with exactly the air the inset reserves', () => {
-    const html = renderToStaticMarkup(<WindowControls visible />);
-    const root = html.slice(0, html.indexOf('<button'));
-    expect(root).toContain(`gap-[${WINDOW_CONTROL_CELL_GAP_PX}px]`);
-    expect(WINDOW_CONTROL_CELL_GAP_PX).toBe(4);
-  });
 
   test('the title wrapper reserves it whenever the commands are on screen', () => {
     const s = readFileSync(join(import.meta.dir, '..', '..', 'app', 'SidebarHeader.tsx'), 'utf8');

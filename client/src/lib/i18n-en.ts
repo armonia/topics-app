@@ -21,6 +21,7 @@ import FIND_EN from './i18n-find-en';
 import ATTENTION_EN from './i18n-attention-en';
 import SYSTEM_HEALTH_EN from './i18n-system-health-en';
 import PROCESSES_EN from './i18n-processes-en';
+import SECURITY_EN from './i18n-security-en';
 
 const EN = {
   ...SPEND_EN,
@@ -29,6 +30,7 @@ const EN = {
   ...ATTENTION_EN,
   ...SYSTEM_HEALTH_EN,
   ...PROCESSES_EN,
+  ...SECURITY_EN,
   // The row, the card's quota and the palette entry of «Account e quote»;
   // the view's own strings come with its chunk (`i18n-accounts-en.ts`).
   'accounts.open': 'Accounts and quotas',

@@ -55,18 +55,6 @@ export interface PresenceWindow {
   tabs?: PresenceWindowTab[];
 }
 
-/**
- * The tabs of a window, with the pre-`tabs` fallback in ONE place.
- *
- * A window that announces no tabs is not an empty window; it is a window whose
- * client only knew how to announce chats. Falling back keeps its row populated
- * instead of rendering a heading over nothing.
- */
-export function windowTabs(w: PresenceWindow): PresenceWindowTab[] {
-  if (w.tabs && w.tabs.length > 0) return w.tabs;
-  return w.topicIds.map((id) => ({ id, type: 'chat' }));
-}
-
 interface WindowPresenceState {
   windows: Record<string, PresenceWindow>;
   /** Replace the whole set from a `presence:windows` snapshot. */

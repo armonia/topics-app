@@ -336,43 +336,6 @@ function capFromContainer(inherited: GrantLevel | null): GrantLevel | null {
 }
 
 /**
- * TUTTE le ragioni per cui questi principali vedono la risorsa, non solo la
- * prima. La ragione è il SOGGETTO su cui la riga è stata scritta — questo
- * dispositivo, la sua persona, una sua organizzazione — e un elenco che si
- * ferma alla prima non risponde alla domanda: toglierne una lascerebbe
- * l'accesso in piedi per un'altra, senza che niente lo dica.
- */
-export function reasonsFor(
-  db: Db,
-  principals: readonly Principal[],
-  resourceType: ResourceType,
-  resourceId: string,
-  resolveProject?: ProjectIdentityResolver,
-): GrantRow[] {
-  const dirette = grantRowsFor(db, principals, resourceType, resourceId, resolveProject);
-  if (dirette.length > 0) return dirette.filter((r) => r.level !== "deny");
-
-  // Nessuna riga sulla risorsa: la ragione puo' essere il contenitore, e va
-  // detta - un elenco di ragioni che non nomina il progetto lascerebbe chi
-  // guarda a togliere un accesso che non e' li'.
-  //
-  // The level reported is the one IN FORCE on this resource, capped exactly
-  // as `levelFor` caps it: this list is what the owner's sharing panel reads,
-  // and a panel that echoed the container's own `edit` would describe a power
-  // the gate does not grant - the mirror image of the bug the cap closes.
-  const dentro = containerOf(db, resourceType, resourceId, resolveProject);
-  if (!dentro) return [];
-  return grantRowsFor(db, principals, dentro.tipo, dentro.id, resolveProject)
-    .filter((r) => r.level !== "deny")
-    .map((r) => ({
-      ...r,
-      level: capFromContainer(r.level) ?? r.level,
-      viaType: dentro.tipo,
-      viaId: dentro.id,
-    }));
-}
-
-/**
  * Cosa vedono questi principali, di un certo tipo di risorsa.
  *
  * Le righe `deny` sono sottratte qui e non ignorate: un elenco che le

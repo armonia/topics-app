@@ -89,7 +89,8 @@ describe("a re-adoption's scan past the route's silence budget", () => {
     setupTestDataDir(dataRoot);
     const { createTopicsRouter } = await import("../../server/routes/topics");
     const { registerProvider, removeProvider } = await import("../../server/providers");
-    const { __resetAiBridgeClientForTests, getAiBridgeClient, BridgeAckStalled } = await import("../../server/lib/ai-bridge-client");
+    const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
+const { BridgeAckStalled } = await import("../../server/lib/ai-bridge-errors");
     const ctx = await createTestAppContext();
     const frames: Array<{ type?: string; stopCause?: string }> = [];
     (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => frames.push(m as { type?: string });

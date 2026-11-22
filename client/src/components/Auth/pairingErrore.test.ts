@@ -26,7 +26,7 @@ import {
   attesaRiprova, chiaveFrase, motivoDaRisposta,
   ATTESA_BASE_MS, ATTESA_MAX_MS, chiaveStato,
 } from './pairingErrore';
-import { CODICI_AUTH } from '../../lib/authErrors';
+import { CODICI_AUTH } from '../../../../shared/auth-codes';
 // The catalogue KEYS, not the dictionary: `i18n.ts` deliberately does not
 // export `IT`, because reading a value by hand is how a string stops following
 // the chosen language. All that is needed here is that the key EXISTS.

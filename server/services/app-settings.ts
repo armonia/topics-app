@@ -109,6 +109,8 @@ export interface AppSettings {
   firstRunDoneAt: string | null;
   /** Board that receives a card when a machine's security check goes red. NULL = no cards. */
   securityAlertsProjectId: string | null;
+  /** Thresholds and declared proofs of the self-check round, as a JSON object (see `topics-check.ts`). NULL = defaults, no proofs. */
+  topicsCheck: string | null;
 }
 
 const EMPTY: AppSettings = {
@@ -141,6 +143,7 @@ const EMPTY: AppSettings = {
   agentBinPaths: null,
   firstRunDoneAt: null,
   securityAlertsProjectId: null,
+  topicsCheck: null,
 };
 
 interface Row {
@@ -173,6 +176,7 @@ interface Row {
   agent_bin_paths: string | null;
   first_run_done_at: string | null;
   security_alerts_project_id: string | null;
+  topics_check_json: string | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -212,6 +216,7 @@ function rowToSettings(r: Row): AppSettings {
     agentBinPaths: r.agent_bin_paths ?? null,
     firstRunDoneAt: r.first_run_done_at ?? null,
     securityAlertsProjectId: r.security_alerts_project_id ?? null,
+    topicsCheck: r.topics_check_json ?? null,
   };
 }
 
@@ -239,7 +244,7 @@ export function readAppSettings(): AppSettings {
                 calendar_enabled, calendar_feed_url,
                 calendar_refresh_minutes, calendar_horizon_days,
                 browser_store_cache_reap_enabled, browser_store_reap_enabled,
-                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id
+                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json
            FROM app_settings WHERE id = 1`,
     )
     .get() as Row | null;
@@ -291,6 +296,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   agentBinPaths: "agent_bin_paths",
   firstRunDoneAt: "first_run_done_at",
   securityAlertsProjectId: "security_alerts_project_id",
+  topicsCheck: "topics_check_json",
 };
 
 /**

@@ -10,7 +10,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { TaskService } from "./tasks";
-import { MACHINE_RETRY_CAP } from "./tasks";
+import { MACHINE_RETRY_CAP } from "./tasks/shared";
 import { freshDb, svc, PID } from "./tasks-test-db";
 import { PARKED_WAITED_OUT, WAIT_STREAK_CAP } from "../../shared/board";
 

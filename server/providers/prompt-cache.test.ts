@@ -12,7 +12,22 @@
  */
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
-import { MAX_CACHE_BREAKPOINTS, applyPromptCache, countCacheBreakpoints } from "./prompt-cache";
+import { applyPromptCache } from "./prompt-cache";
+
+// The API accepts at most four cache_control blocks per request.
+const MAX_CACHE_MARKS = 4;
+
+/** Counts the cache_control marks a payload carries, in tools, system and message blocks. */
+function countCacheMarks(p: Anthropic.MessageCreateParams): number {
+  let n = 0;
+  const bump = (v: unknown) => {
+    if (v && typeof v === "object" && (v as Record<string, unknown>).cache_control) n++;
+  };
+  if (Array.isArray(p.tools)) p.tools.forEach(bump);
+  if (Array.isArray(p.system)) p.system.forEach(bump);
+  for (const m of p.messages ?? []) if (Array.isArray(m.content)) m.content.forEach(bump);
+  return n;
+}
 
 function params(over: Partial<Anthropic.MessageCreateParams> = {}): Anthropic.MessageCreateParams {
   return {
@@ -123,8 +138,8 @@ describe("limiti e invarianti", () => {
       ],
     });
     applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(3);
-    expect(countCacheBreakpoints(p)).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+    expect(countCacheMarks(p)).toBe(3);
+    expect(countCacheMarks(p)).toBeLessThanOrEqual(MAX_CACHE_MARKS);
   });
 
   test("è idempotente: due passate non moltiplicano i marker", () => {
@@ -133,15 +148,15 @@ describe("limiti e invarianti", () => {
       tools: [{ name: "a", description: "a", input_schema: { type: "object" } }] as Anthropic.Tool[],
     });
     applyPromptCache(p);
-    const dopoUna = countCacheBreakpoints(p);
+    const dopoUna = countCacheMarks(p);
     applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(dopoUna);
+    expect(countCacheMarks(p)).toBe(dopoUna);
   });
 
   test("senza nulla di stabile non marca nulla", () => {
     const p = params({ messages: [] });
     applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(0);
+    expect(countCacheMarks(p)).toBe(0);
   });
 
   test("non tocca il testo: il contenuto resta quello che era", () => {
@@ -169,6 +184,6 @@ describe("applyPromptCache, segni arrivati da fuori", () => {
     applyPromptCache(params);
     const n = JSON.stringify(params).split('"cache_control"').length - 1;
     expect(n).toBe(3);
-    expect(n).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+    expect(n).toBeLessThanOrEqual(MAX_CACHE_MARKS);
   });
 });

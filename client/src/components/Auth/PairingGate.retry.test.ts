@@ -14,7 +14,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import * as React from 'react';
 import { mount, type Harness } from '../../test/reactHarness';
 import { PairingGate } from './PairingGate';
-import { __resetSessionForTests, getSession, markUnpaired } from '../../lib/auth/session';
+import { __resetSessionForTests, getSession } from '../../lib/auth/session';
+import { markUnpaired } from '../../lib/auth/sessionState';
 
 const realFetch = globalThis.fetch;
 let harness: Harness | null = null;

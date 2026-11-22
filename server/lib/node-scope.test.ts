@@ -11,6 +11,7 @@ describe("the node scope", () => {
       ["DELETE", "/api/nodes/runs/run-1"],
       ["GET", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/providers/snapshot"],
+      ["GET", "/api/version"],
       ["GET", "/api/system/machine-metrics"],
       ["GET", "/api/system/machine-security"],
       ["GET", "/api/system/machine-readout"],
@@ -34,6 +35,7 @@ describe("the node scope", () => {
       ["POST", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/nodes/runs/run-1/bundle/extra"],
       ["POST", "/api/providers/snapshot"],
+      ["GET", "/api/machines/health"],
       ["GET", "/ws"],
     ];
     for (const [m, p] of shut) expect(isNodeAllowedRequest(p, m), `${m} ${p}`).toBe(false);

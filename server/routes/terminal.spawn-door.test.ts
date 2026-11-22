@@ -14,7 +14,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "os";
 import { join } from "path";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
-import { boardAgentCap, boardSpawnMode, setChildAdmissionPreview } from "./terminal";
+import { setChildAdmissionPreview } from "./terminal";
+import { boardAgentCap, boardSpawnMode } from "./terminal-children";
 import { readServerSource } from "../../tests/helpers/server-source";
 
 let tmpRoot: string;

@@ -477,11 +477,11 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
       if (!re.ok) {
         const comment =
           `**Riallineamento su main fallito, check non partiti**: ${re.reason}. ` + // allow-italian: board notes are written in Italian like every other service comment
-          "Nel worktree fai `git merge main`, risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
+          "Nel worktree fai `git fetch origin && git merge origin/main` (su un nodo il `main` locale è vecchio e non mostra il conflitto), risolvi, committa, poi rimetti in review con update_task(status=\"review\")."; // allow-italian: board notes are written in Italian like every other service comment
         try {
           svc.recordChecks({
             taskId, state: "fail", commit: null,
-            runs: [{ name: "realign", cmd: "git merge main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
+            runs: [{ name: "realign", cmd: "git merge origin/main", ok: false, code: 1, ms: 0, timedOut: false, tail: re.reason }],
           });
           svc.addComment({ taskId, author: "system", kind: "comment", content: comment });
           const t = svc.get(taskId, { projectId })?.task;

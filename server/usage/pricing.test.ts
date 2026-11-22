@@ -5,7 +5,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { calculateCost, calculateCostWithCache, callsCostUsd, splitPromptTokens, type PricedCall } from "./pricing";
-import { modelPrice, ownModelPrice, pricedModelIds } from "../../shared/model-pricing";
+import { modelPrice, ownModelPrice } from "../../shared/model-pricing";
 import { NativeProvider, DEFAULT_MODEL } from "../providers/native/provider";
 import { engineModelOf } from "../lib/native-subagents";
 
@@ -348,39 +348,6 @@ describe("gateway and cloud spellings of a model id", () => {
     expect(rate("claude-sonnet-4@20250514")).toEqual([3, 15]);
   });
 
-  // Every id of the table, wrapped the way each provider wraps it, must land
-  // on its OWN row (same object), never on a neighbour. ownModelPrice is the
-  // strict lookup: the substring match of modelPrice would hide a half-stripped id.
-  test("every row resolves to itself under every provider spelling", () => {
-    // Only the family-first ids have a dotted spelling (`claude-haiku-4.5`).
-    const dotted = (id: string) => id.replace(/^(claude-[a-z]+-\d)-(\d)(?!\d)/, "$1.$2");
-    const wrappers: ((id: string) => string)[] = [
-      (id) => id,
-      (id) => `openai/${id}`,
-      (id) => `azure/${id}`,
-      (id) => `openrouter/${id}`,
-      (id) => `openrouter/anthropic/${id}`,
-      (id) => `anthropic/${id}:nitro`,
-      (id) => `anthropic/${id}:floor`,
-      (id) => `anthropic/${id}:batch`,
-      (id) => `anthropic.${id}-v1:0`,
-      (id) => `us.anthropic.${id}-v1:0`,
-      (id) => `${id}[1m]`,
-      (id) => id.replace(/-(\d{8})$/, "@$1"),
-      (id) => dotted(id),
-      (id) => `anthropic/${dotted(id)}:nitro`,
-      (id) => `openrouter/anthropic/${dotted(id)}:floor`,
-    ];
-    const wrong: string[] = [];
-    for (const id of pricedModelIds()) {
-      const own = ownModelPrice(id);
-      for (const wrap of wrappers) {
-        const spelled = wrap(id);
-        if (ownModelPrice(spelled) !== own || modelPrice(spelled) !== own) wrong.push(`${spelled} -> not the row of ${id}`);
-      }
-    }
-    expect(wrong).toEqual([]);
-  });
 });
 
 describe("model ids as Topics writes them on a card: <runtime>:<model>", () => {

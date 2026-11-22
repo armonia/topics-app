@@ -145,28 +145,6 @@ export function claimBannerIn(
 }
 
 /**
- * La chiave su cui si claima un `message:new`.
- *
- * `messageId` è il nome giusto e il server lo manda; il ripiego serve alle
- * emissioni vecchie che non ce l'hanno (il campo è opzionale sul filo, vedi
- * `WSMessageNewMessage`). Senza ripiego una finestra che riceve un frame legacy
- * non claimerebbe niente e tornerebbero N banner — cioè il bug, ma solo contro i
- * server vecchi: il posto peggiore in cui lasciarlo, perché non si vede in
- * sviluppo. Corpo tagliato a 120 caratteri: abbastanza da distinguere due
- * messaggi diversi, poco abbastanza da non gonfiare il registro.
- */
-export function bannerClaimKey(msg: {
-  messageId?: string;
-  topicId: string;
-  role: string;
-  content?: string;
-  preview?: string;
-}): string {
-  if (msg.messageId) return msg.messageId;
-  return `${msg.topicId}:${msg.role}:${(msg.content ?? msg.preview ?? '').slice(0, 120)}`;
-}
-
-/**
  * Chi sta claimando: l'id di QUESTA finestra.
  *
  * È lo stesso `topics-window-id` che la presenza cross-finestra usa come
