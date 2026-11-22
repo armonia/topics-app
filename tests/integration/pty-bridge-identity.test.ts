@@ -77,7 +77,8 @@ describe.skipIf(process.platform === "win32")("a reused bridge that does not say
     const terminal = await import("../../server/routes/terminal");
     terminal.disconnectBridge();
     terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-    await (await import("../../server/routes/terminal-bridge-socket")).ensureBridge();
+    const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
+    await ensureBridge();
     expect(terminal.getPtyBridgeRuntimeStatus().reason).toBe("reused");
 
     const deadline = Date.now() + 10_000;
