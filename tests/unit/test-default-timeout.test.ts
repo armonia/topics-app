@@ -68,17 +68,26 @@ describe("timeout di default dei test", () => {
   });
 
   /**
-   * Il pezzo che il preload da solo NON copre. Il preload gira una volta per
-   * corsa, quindi in una suite multi-file alza il timeout a un file e basta:
-   * senza questo flag i 29 file che spawnano tornano a 5s sotto `test:unit`,
-   * cioe' anche in CI. Il test guarda OGNI script che lancia `bun test`, non
-   * i tre di oggi, cosi' un quarto script domani non puo' nascere scoperto.
+   * The half the preload does NOT cover. The preload runs once per run, so in a
+   * multi-file script it raises the timeout for one file only: without the flag
+   * the files that spawn processes drop back to 5s. It looks at EVERY script that
+   * runs `bun test`, so a new one cannot be born uncovered.
+   *
+   * A single-file script must NOT carry the `${VAR:-N}` flag. There the preload overwrites
+   * it anyway (see the knob case below), and `${VAR:-N}` is POSIX shell: bun's
+   * own shell on Windows passes it through literally and `bun test` dies with
+   * `Invalid timeout`. `gates:fast` is the bar of every card, and the board's
+   * Windows node runs it (22/11: the agents there delivered without the bar).
    */
-  it("meta' 2: ogni script che lancia `bun test` passa --timeout, e lo stesso numero", () => {
+  it("meta' 2: multi-file `bun test` scripts pass --timeout, single-file ones leave it to the preload", () => {
     const atteso = `--timeout \${${declaredVariable}:-${costanteDichiarata}}`;
     expect(scriptCheLancianoBunTest.length).toBeGreaterThan(0);
     for (const [nome, cmd] of scriptCheLancianoBunTest) {
-      expect(`${nome}: ${cmd}`).toContain(atteso);
+      for (const run of cmd.split("&&").filter((s) => /\bbun test\b/.test(s))) {
+        const files = run.slice(run.search(/\bbun test\b/)).split(/\s+/).filter((t) => /\.tsx?$/.test(t));
+        if (files.length === 1) expect(`${nome}: ${run}`).not.toContain("${");
+        else expect(`${nome}: ${run}`).toContain(atteso);
+      }
     }
   });
 
