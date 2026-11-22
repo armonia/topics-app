@@ -67,6 +67,7 @@ const GOLDEN_ORDER = [
   "agentChannelsRouter",
   "agentConfigRouter",
   "memoryStoresRouter",
+  "systemHealthRouter",
   "agentsRouter",
   "tabsRouter",
   "viewsRouter",
