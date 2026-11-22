@@ -33,11 +33,14 @@ function Get-ProcessesToStop {
 # The restart sequence. Evidence is collected BEFORE anything is closed (a
 # restart erases the very state that would explain the hang), and a failing
 # collection never blocks the restart: the node being back matters more.
-# All three steps are injected so a Pester test can observe their order.
+# All steps are injected so a Pester test can observe their order.
 function Invoke-WatchdogRestart {
-  param([scriptblock]$Collect, [scriptblock]$Stop, [scriptblock]$Start, [scriptblock]$OnCollectError = { param($e) })
+  param([scriptblock]$Collect, [scriptblock]$Stop, [scriptblock]$Start, [scriptblock]$OnCollectError = { param($e) },
+        [scriptblock]$Rotate = { }, [scriptblock]$OnRotateError = { param($e) })
   try { & $Collect } catch { & $OnCollectError $_ }
   & $Stop
+  # The daemon is down, so its log is free to rotate; a failure here must never leave the node off.
+  try { & $Rotate } catch { & $OnRotateError $_ }
   & $Start
 }
 
@@ -91,17 +94,25 @@ function Save-HangEvidence {
   Remove-Job $job -Force -ErrorAction SilentlyContinue
 }
 
-# Keeps a log under $MaxBytes with $Keep older generations (.1 newest). A file
-# the daemon holds open cannot be renamed on Windows, so it is copied aside and
-# truncated in place instead. Returns $true when it rotated.
+# Rotates a log past the threshold by renaming it, keeping $Keep old files.
+# The daemon's own wrapper holds the file open for writing, so while it runs
+# the probe below fails and nothing is touched (copying a held 90 MB file every
+# poll would burn disk and overwrite the old generations). Exclusive open means
+# any other handle, whatever its sharing mode, makes us skip. $OnHeld is called
+# on a skip so the caller can log it. Returns $true when it rotated.
 function Invoke-LogRotation {
-  param([string]$Path, [long]$MaxBytes, [int]$Keep = 2)
+  param([string]$Path, [long]$MaxBytes, [int]$Keep = 2, [scriptblock]$OnHeld = { })
   if (-not (Test-Path $Path) -or (Get-Item $Path).Length -lt $MaxBytes) { return $false }
+  try {
+    $probe = [System.IO.File]::Open($Path, "Open", "Write", "None")
+    $probe.Dispose()
+  } catch {
+    & $OnHeld
+    return $false
+  }
   for ($i = $Keep; $i -ge 2; $i--) {
     if (Test-Path "$Path.$($i - 1)") { Move-Item "$Path.$($i - 1)" "$Path.$i" -Force }
   }
-  Copy-Item $Path "$Path.1" -Force
-  $fs = [System.IO.File]::Open($Path, "Open", "Write", "ReadWrite, Delete")
-  try { $fs.SetLength(0) } finally { $fs.Dispose() }
+  Move-Item $Path "$Path.1" -Force
   return $true
 }

@@ -136,9 +136,18 @@ function Start-Daemon {
 
 Log "watchdog up: port $Port, poll ${PollSeconds}s, stale after ${StaleMinutes}min"
 $lastOk = Get-Date
+$script:lastHeldLog = [datetime]::MinValue
 
 while ($true) {
-  try { Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null } catch { }
+  try {
+    Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep -OnHeld {
+      # Held by the running daemon on every poll: say so at most once an hour.
+      if (((Get-Date) - $script:lastHeldLog).TotalMinutes -ge 60) {
+        $script:lastHeldLog = Get-Date
+        Log "log rotation skipped: $DaemonLogPath held by daemon"
+      }
+    } | Out-Null
+  } catch { }
   $ok = Test-Healthz
   $decision = Get-WatchdogDecision -HealthzOk $ok -Now (Get-Date) -LastOk $lastOk -StaleMinutes $StaleMinutes
   if ($decision -eq "ok") {
@@ -147,10 +156,10 @@ while ($true) {
     Log "healthz silent for $([Math]::Round(((Get-Date) - $lastOk).TotalMinutes, 1)) min"
     if ($decision -eq "restart") {
       Log "restart: silent for over $StaleMinutes min"
-      Invoke-WatchdogRestart -Collect { Save-Evidence } -Stop { Stop-Daemon } -Start {
-        Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null
-        Start-Daemon
-      } -OnCollectError { param($e) Log "evidence failed, restarting anyway: $($e.Exception.Message)" }
+      Invoke-WatchdogRestart -Collect { Save-Evidence } -Stop { Stop-Daemon } -Start { Start-Daemon } `
+        -Rotate { Invoke-LogRotation -Path $DaemonLogPath -MaxBytes ($LogMaxMB * 1MB) -Keep $LogKeep | Out-Null } `
+        -OnCollectError { param($e) Log "evidence failed, restarting anyway: $($e.Exception.Message)" } `
+        -OnRotateError { param($e) Log "log rotation failed, starting anyway: $($e.Exception.Message)" }
       $lastOk = Get-LastOkAfterRestart -Now (Get-Date) -GraceAfterRestartSec $GraceAfterRestartSec
     }
   }

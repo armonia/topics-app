@@ -51,11 +51,35 @@ Describe "win-node-watchdog decision" {
     $log = Join-Path $dir "server.log"
     try {
       1..3 | ForEach-Object { Set-Content $log ("x" * 100 + $_); Invoke-LogRotation -Path $log -MaxBytes 50 -Keep 2 | Should Be $true }
-      (Get-Item $log).Length | Should Be 0
+      Test-Path $log | Should Be $false
       (Get-Content "$log.1" -Raw) | Should Match "3"
       (Get-Content "$log.2" -Raw) | Should Match "2"
       Test-Path "$log.3" | Should Be $false
+      Set-Content $log "tiny"
       Invoke-LogRotation -Path $log -MaxBytes 50 -Keep 2 | Should Be $false
     } finally { Remove-Item $dir -Recurse -Force }
+  }
+  It "skips a log held open by the daemon: no copy, no .1" {
+    $dir = Join-Path ([IO.Path]::GetTempPath()) ("wdlog-" + [guid]::NewGuid())
+    New-Item -ItemType Directory $dir | Out-Null
+    $log = Join-Path $dir "server.log"
+    Set-Content $log ("x" * 200)
+    $held = [System.IO.File]::Open($log, "Open", "Write", "Read")
+    $script:heldCalls = 0
+    try {
+      Invoke-LogRotation -Path $log -MaxBytes 50 -Keep 2 -OnHeld { $script:heldCalls++ } | Should Be $false
+      Test-Path "$log.1" | Should Be $false
+      $script:heldCalls | Should Be 1
+    } finally { $held.Dispose(); Remove-Item $dir -Recurse -Force }
+  }
+  It "starts the daemon even when the rotation throws" {
+    $order = New-Object System.Collections.ArrayList
+    Invoke-WatchdogRestart -Collect { } -Stop { [void]$order.Add("stop") } -Rotate { throw "disk full" } -Start { [void]$order.Add("start") }
+    ($order -join ",") | Should Be "stop,start"
+  }
+  It "rotates after the stop and before the start" {
+    $order = New-Object System.Collections.ArrayList
+    Invoke-WatchdogRestart -Collect { } -Stop { [void]$order.Add("stop") } -Rotate { [void]$order.Add("rotate") } -Start { [void]$order.Add("start") }
+    ($order -join ",") | Should Be "stop,rotate,start"
   }
 }
