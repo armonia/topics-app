@@ -44,7 +44,6 @@ function microTask(): { text: string; description: string } {
   return { text: "token-live: opzione --json", description: String(arms.microTaskText ?? "") };
 }
 
-/** Una chiamata al giudice, com'è in produzione: haiku, --print, zero MCP. */
 type Scored = { distribution: Record<string, Record<string, number>>; disagreement: Record<string, number> };
 function score(rows: { model: string | null; effort: string | null }[]): Scored {
   const model = rows.map((r) => r.model ?? "∅");

@@ -78,7 +78,6 @@ const CASES: Case[] = [
   },
 ];
 
-/** Una chiamata al giudice, com'è in produzione: haiku, --print, zero MCP. */
 /**
  * L'intervallo di Wilson al 95% su una proporzione. Serve perché la domanda del
  * task è «la quota di `sonnet` è scesa?» e con N=20 una quota si sposta di

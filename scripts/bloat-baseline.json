@@ -386,7 +386,7 @@
     "client/src/lib/buildSidebarItems.ts": 1007,
 
     "client/src/lib/i18n-en.ts": {
-      "lines": 3645,
+      "lines": 3726,
       "why": [
         "2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.",
         "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.",
@@ -395,7 +395,7 @@
     },
 
     "client/src/lib/i18n-it.ts": {
-      "lines": 4005,
+      "lines": 4086,
       "why": [
         "2026-10-15, live-terminals-launchd: 3393 measured on main 703294a85. The last +12 (over the 3381 ceiling) are the liveTerminals.* strings of #331, the menu of the terminals live on the Mac; the other +161 came in under the ceiling through D5f, D6a and D6d. Recorded by hand, this row only.",
         "2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.",
