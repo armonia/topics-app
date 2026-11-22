@@ -41,6 +41,7 @@ import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } f
 import { landedMergeRange } from "./task-diff-range";
 import { resolveLandingBase } from "./worktree-base-ref";
 import { runGit } from "../lib/run-git";
+import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -914,6 +915,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     // worktree). The caller reacts per area: client/ → rebuild the served bundle,
     // server → restart, desktop-tauri → native rebuild.
     async function finishMerged(cwd: string, live: boolean, checkoutBranch: string): Promise<AutoMergeResult> {
+      // The title may carry text the repo's pre-push refuses: keep only the id prefix then.
+      await neutralizeRefusedMergeMessage(cwd, `merge task ${taskId}`).catch(() => false);
       const rev = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
       const diff = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD"]);
       const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
