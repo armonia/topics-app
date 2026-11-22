@@ -1,4 +1,4 @@
-// @covers SYSTEM-03, SYSTEM-05
+// @covers SYSTEM-PAGE-01
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";

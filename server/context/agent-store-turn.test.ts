@@ -1,6 +1,6 @@
 /**
  * The turn of an agent receives its own memory index, never another agent's.
- * @covers SYSTEM-03
+ * @covers SYSTEM-PAGE-01
  */
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
