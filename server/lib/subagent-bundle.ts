@@ -103,15 +103,6 @@ export async function snapshotParentAsBundle(input: ParentSnapshotInput): Promis
   }
 }
 
-export interface MaterializeChildCheckoutInput {
-  /** An empty or non-existent directory: this call runs `git init` in it. */
-  targetDir: string;
-  /** The branch name the snapshot bundle carries, becomes the child's starting branch. */
-  branch: string;
-  bytes: Uint8Array;
-  run?: GitRunner;
-}
-
 export type MaterializeResult = { ok: true } | { ok: false; reason: string };
 
 export interface AdoptCarriedBranchInput {

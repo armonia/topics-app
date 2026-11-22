@@ -54,12 +54,6 @@ export interface EndedSubAgent {
 }
 
 /**
- * `waiting`: the prompt has not reached it yet. `busy`: it is working its turn.
- * `idle`: its turn is over. `ended`: its process is gone.
- */
-export type SubAgentState = 'waiting' | 'busy' | 'idle' | 'ended';
-
-/**
  * Upper bound on what is remembered. Board tasks spawn sub-agents too, and an
  * entry is only removed by a dismissal or an archive: without a bound the list
  * would only ever grow in localStorage. The oldest go first.

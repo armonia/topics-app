@@ -40,10 +40,9 @@ export const welcomeMessageSchema = z.object({
   clientId: z.string(),
 });
 
-export type WelcomeMessage = z.infer<typeof welcomeMessageSchema>;
-
 // ----- Client -> Server: hello ----------------------------------------------
 
+/** @internal Contract schema locked by tests/unit/ws-contract.test.ts; no production code parses the hello message yet. */
 export const helloMessageSchema = z.object({
   type: z.literal('hello'),
   /** Human-readable client version (from package.json). */
@@ -53,8 +52,6 @@ export const helloMessageSchema = z.object({
   /** Capabilities the client knows how to use. Empty = legacy. */
   capabilities: z.array(z.string()),
 });
-
-export type HelloMessage = z.infer<typeof helloMessageSchema>;
 
 // ----- Server -> Client: upgrade-required (future) --------------------------
 

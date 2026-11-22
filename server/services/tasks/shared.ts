@@ -195,7 +195,7 @@ export function trackDeliveryNote(p: Promise<void>): void {
 }
 
 /**
- * Resolves once every delivery note already on its way has been written or
+ * @internal Test seam: resolves once every delivery note already on its way has been written or
  * dropped. A note that needs git is written after the update returns, so a test
  * that reads it, or checks it is absent, waits here first: an absence read too
  * early would pass for the wrong reason.

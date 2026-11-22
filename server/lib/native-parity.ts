@@ -54,12 +54,6 @@ export function readUserRulesSource(home = homedir()): UserRules | null {
   const content = readClaudeMd(file, home);
   return content === null ? null : { path: file, content };
 }
-
-/** The rules text alone: the shape the older callers use. */
-export function readUserRules(home = homedir()): string | null {
-  return readUserRulesSource(home)?.content ?? null;
-}
-
 function readSmall(file: string): string | null {
   try {
     if (!existsSync(file) || statSync(file).size > MAX_RULES_BYTES) return null;

@@ -2965,7 +2965,6 @@
       "aggiungi"
     ],
     "server/lib/identity.ts": [
-      "confinamentoDerivato",
       "riga"
     ],
     "server/lib/idle-gc.test.ts": [
