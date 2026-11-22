@@ -6,7 +6,7 @@ import {
   clip, composeAccess, countFailedLogins, findDeclaredPrivate, iptablesBlocksInput, lastMacSecurityUpdate, lastXProtect, nftBlocksInput, parseAptHistory,
   parseAptSecurityPending, parseAutopatchLog, parseFileVault, parseGocryptfsMounts, parseKeyValueLines, parseMacFirewall,
   parseMacInstallHistory, parseMacPendingUpdates, parseNetstatListening, parseSshdConfig, parseSshdT, parseSsListening,
-  powershellArgv, probeMachineSecurity, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
+  powershellArgv, probeMachineSecurity, probeUnavailableReport, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
   type ProbeEnv, type RunResult,
 } from "./machine-security";
 
@@ -566,5 +566,15 @@ describe("Linux failed logins filtered on the machine", () => {
       grep: res("", { code: 2, stderr: "grep: /var/log/auth.log: Permission denied" }),
     });
     expect(check).toMatchObject({ status: "unknown", detail: "Accessi falliti: registri non leggibili da questo utente" });
+  });
+});
+
+describe("nodo con build senza sonda", () => {
+  test("riporta quattro unknown con l'ora, non silenzio", () => {
+    const r = probeUnavailableReport(NOW);
+    expect(r.checked_at).toBe(NOW / 1000);
+    expect(r.status).toBe("unknown");
+    expect(r.checks.map((c) => c.key)).toEqual(["updates", "disk", "access", "antivirus"]);
+    for (const c of r.checks) expect(c.detail.length).toBeLessThanOrEqual(DETAIL_MAX);
   });
 });
