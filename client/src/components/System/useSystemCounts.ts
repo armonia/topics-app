@@ -16,8 +16,8 @@ export function useSystemCounts(): SystemCounts {
   useEffect(() => {
     let alive = true;
     void readJson('/api/agent-tools').then((b) => {
-      const inv = b as { mcp?: unknown[]; skills?: unknown[] } | null;
-      if (alive && inv) setCounts((c) => ({ ...c, servers: inv.mcp?.length ?? 0, skills: inv.skills?.length ?? 0 }));
+      const inventory = b as { mcp?: unknown[]; skills?: unknown[] } | null;
+      if (alive && inventory) setCounts((c) => ({ ...c, servers: inventory.mcp?.length ?? 0, skills: inventory.skills?.length ?? 0 }));
     });
     void readJson('/api/memory-stores').then((b) => {
       const stores = (b as { stores?: unknown[] } | null)?.stores;
