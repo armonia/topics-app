@@ -4,7 +4,8 @@
  * @covers BROWSER-CHAT-03
  */
 import { describe, expect, it } from "bun:test";
-import { serialize, diff, type Snapshot, type SnapElement } from "./browser-snapshot";
+import { serialize, diff, type Snapshot } from "./browser-snapshot";
+import type { SnapElement } from "../shared/browser-snapshot-core";
 import { isStaleRefError, refAfterResnapshot } from "../shared/browser-snapshot-core";
 
 function snap(elements: SnapElement[], over: Partial<Snapshot> = {}): Snapshot {

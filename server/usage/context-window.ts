@@ -146,11 +146,7 @@ export function windowForMeasure(
 // chiamanti storici le importano da questo modulo — e SOLO quelle: le due
 // soglie in TOKEN si prendono da `shared/context-thresholds`, dove sono
 // dichiarate ed è già da lì che le importa chi le usa.
-export {
-  CONTEXT_WARN_PERCENT,
-  CONTEXT_CRITICAL_PERCENT,
-  contextLevel,
-} from "../../shared/context-thresholds";
+
 export type { ContextLevel } from "../../shared/context-thresholds";
 
 /**
@@ -196,3 +192,5 @@ export function classifyContext(used: number, window: ContextWindow): ContextUsa
     level === "ok" ? undefined : LEVEL_RANK[byPercent] >= LEVEL_RANK[byTokens] ? "window" : "cost";
   return { used: safeUsed, size, percent, level, ...(reason ? { reason } : {}), estimated: !window.known };
 }
+/** @internal tests import these through the barrel */
+export { CONTEXT_WARN_PERCENT, CONTEXT_CRITICAL_PERCENT, contextLevel } from "../../shared/context-thresholds";

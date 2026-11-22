@@ -106,13 +106,9 @@ import {
 } from "./claude-code-session";
 import { MESSAGE_TIMEOUT_MS, buildSafeEnv, resolveCliPath, runOneshotCompletion } from "./claude/cli-launch";
 // Re-exported because tests and callers have always imported these from this module.
-export { buildSafeEnv, parseCompletionStdout } from "./claude/cli-launch";
 
 // Re-exported because tests and callers have always imported these from this module.
-export {
-  cleanupMcpConfigForSession, getOrCreateClaudeSessionId, getTopicSpawnOverridesForSession,
-  planClaudeSessionStart, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession,
-} from "./claude-code-session";
+export { cleanupMcpConfigForSession, topicsAppBaseUrl, topicsMcpBridgeSpec, writeMcpConfigForSession } from "./claude-code-session";
 
 // ============ Config ============
 
@@ -222,13 +218,9 @@ const HEARTBEAT_QUIET_MS = 30_000;                 // emit only after 30s silenc
 // in una raffica di azioni.
 const SUBAGENT_COALESCE_MS = 150;
 
-
 // ============ History Replay ============
 // The recap of a reset session lives in `claude/history-replay.ts`; re-exported
 // here because tests and callers have always imported it from this module.
-export {
-  loadActiveBranchForReplay, hasPriorMessagesInDB, renderReplayPrologue, type ReplayTurn,
-} from "./claude/history-replay";
 
 // ============ Persistent Process ============
 
@@ -3856,3 +3848,9 @@ export class ClaudeCodeProvider implements AIProvider {
     return oldest;
   }
 }
+/** @internal tests import these through the barrel */
+export { buildSafeEnv, parseCompletionStdout } from "./claude/cli-launch";
+/** @internal tests import these through the barrel */
+export { getOrCreateClaudeSessionId, getTopicSpawnOverridesForSession, planClaudeSessionStart } from "./claude-code-session";
+/** @internal tests import these through the barrel */
+export { loadActiveBranchForReplay, hasPriorMessagesInDB, renderReplayPrologue, type ReplayTurn } from "./claude/history-replay";

@@ -1005,7 +1005,7 @@ export function setClosed(subject: string, flags: { archived?: boolean; deleted?
   return recompose(subject, { live: true });
 }
 
-/** The topic of a board agent (rule 2): its card is the subject. */
+/** @internal the push-trigger tests mark a board agent's subject with it. The topic of a board agent (rule 2): its card is the subject. */
 export function setDispatched(subject: string, dispatched: boolean): AttentionSnapshot {
   const e = entryOf(subject);
   e.live.dispatched = dispatched;

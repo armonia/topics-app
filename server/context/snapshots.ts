@@ -67,6 +67,7 @@ export function clearSnapshots(topicId?: string): number {
 /**
  * Test/diagnostics helper. Returns a per-topic count of snapshots currently
  * in memory.
+ * @internal diagnostics helper the snapshot tests read
  */
 export function snapshotCounts(): Record<string, number> {
   const out: Record<string, number> = {};

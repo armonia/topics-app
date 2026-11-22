@@ -38,12 +38,13 @@ export const costFromTask =
  * più grande del prompt, che accade su righe vecchie — e lì la scorciatoia
  * dava 110 dove la regola dà 5.010. Due formule per la stessa domanda: è il
  * difetto che questo lavoro ha chiuso, e sarebbe rientrato da qui.
+ * @internal the token-sql test runs it against the real columns
  */
 export const contextFromMessage =
   `(MAX(0, COALESCE(usage_prompt_tokens, 0) - COALESCE(cache_read_tokens, 0))` +
   ` + COALESCE(usage_completion_tokens, 0)` +
   ` + COALESCE(cache_read_tokens, 0))`;
 
-/** Quanto CONTESTO è passato, per la riga di `tasks`. */
+/** @internal the token-sql test runs it against the real columns. Quanto CONTESTO è passato, per la riga di `tasks`. */
 export const contextFromTask =
   `(COALESCE(agent_tokens, 0) + COALESCE(agent_cache_read_tokens, 0))`;

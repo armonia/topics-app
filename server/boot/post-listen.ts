@@ -10,6 +10,7 @@ import { createOrphanCensusRunner } from "../services/orphan-census";
 import { listTerminalSessionSnapshot, parkOrphanSessions } from "../routes/terminal";
 import type { AfterRelay } from "./scope";
 
+/** @internal called by the server.ts boot, which knip --production does not credit */
 export function bootPostListen(scope: AfterRelay) {
   const { PORT, browserService, ctx, server, tlsCert, useTls } = scope;
   const proto = useTls ? "https" : "http";

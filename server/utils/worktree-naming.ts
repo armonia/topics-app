@@ -176,6 +176,7 @@ export const NOUNS: readonly string[] = Object.freeze([
   "wren", "yarn", "yarrow", "yew", "yonder", "zephyr", "zinnia", "zircon",
 ]);
 
+/** @internal the worktree-domain test checks generated names against it */
 export const NAME_REGEX = /^[a-z]+-[a-z]+(-[0-9a-f]{4})?$/;
 
 const MAX_RETRIES = 5;

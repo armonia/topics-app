@@ -80,7 +80,6 @@ function devValidateOutbound(message: object): void {
   }
 }
 
-
 /**
  * Constant-time string compare for secrets (gateway tokens). Avoids leaking the
  * token length/prefix via early-exit timing on `===`. Returns false on any
@@ -93,10 +92,9 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
-
 // Re-exported so the routes and tests that import these from "./utils" keep
 // their import lines: they moved with the message row codec.
-export { restoreToolCallsFromBlocks, sanitizeToolCallDetail } from "./app-context/message-thread-reads";
+export { restoreToolCallsFromBlocks } from "./app-context/message-thread-reads";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)
@@ -422,11 +420,6 @@ export function createAppContext(baseDir: string): AppContext {
   const {
     parseBlocksCol, rowToMessage, metaParams, writeMessage, getMessagesPath, loadActiveThread, loadLocalMessages, loadThreadSkeleton, loadThreadRows, loadThreadWindow, hydrateMessageBodies, messageBodyHydrator, countMessagesBySession,
   } = createMessageThreadReads({ MESSAGES_DIR, db, stmts });
-
-
-
-
-
 
   // --- Broadcast helpers ---
   /**
@@ -979,40 +972,13 @@ export function createAppContext(baseDir: string): AppContext {
     })();
   }
 
-
-
-
-
-
-
-
-
-
   const {
     saveLocalMessages, appendLocalMessage, appendImportedMessages, createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage, finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
   } = createMessageThreadWrites({ db, stmts, parseBlocksCol, rowToMessage, metaParams, writeMessage, loadActiveThread });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
   const {
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
   } = createStreamRegistry({ db, activeStreams, turnLedger });
-
-
-
-
-
 
   // --- Request helpers (unchanged) ---
   async function readJSON(req: Request): Promise<unknown> {
@@ -1411,13 +1377,6 @@ export function createAppContext(baseDir: string): AppContext {
     getMessageById, getMessageSessionKey, createBranchMessage, createBranchPartialMessage, deleteMessageSubtree, discardIfEmptyTurn, switchActiveBranch, getSiblingMessages,
   } = createMessageBranches({ db, stmts, rowToMessage, metaParams });
 
-
-
-
-
-
-
-
   return {
     db,
     projectStore, worktreeStore, worktreeManager,
@@ -1457,3 +1416,5 @@ export function createAppContext(baseDir: string): AppContext {
     loadActiveThread,
   };
 }
+/** @internal tests import these through the barrel */
+export { sanitizeToolCallDetail } from "./app-context/message-thread-reads";

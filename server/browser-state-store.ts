@@ -205,6 +205,7 @@ export function clearLastUrl(topicId: string): void {
   try { unlinkSync(lastUrlFile(topicId)); } catch { /* file may already be gone */ }
 }
 
+/** @internal state-store lifecycle tests drive the deletion */
 export async function deleteStorageState(topicId: string): Promise<void> {
   // The last-url rides the same lifecycle as storage.json: an explicitly
   // deleted state must not resurrect the old page on a future same-id context.

@@ -55,7 +55,7 @@ export function sqliteTranslationStore(db: Database): TranslationStore {
   };
 }
 
-/** In-memory store, for tests and for a process whose database is not up. */
+/** @internal in-memory store the translation tests build the service on. In-memory store, for tests and for a process whose database is not up. */
 export function memoryTranslationStore(): TranslationStore {
   const rows = new Map<string, string>();
   return {

@@ -14,6 +14,7 @@ import { humanHoldAgeMs } from "../lib/human-hold";
 import type { AfterListen } from "./scope";
 import { late } from "./late";
 
+/** @internal called by the server.ts boot, which knip --production does not credit */
 export function bootStaleStreams(scope: AfterListen) {
   const { activeStreams, broadcastToAll, ctx, db, dispatcherSvc, getMessageById, isChecksHold, nudgeResumeSweep, turnLedger } = scope;
   // Stale stream cleanup

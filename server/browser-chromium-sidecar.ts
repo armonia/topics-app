@@ -120,6 +120,7 @@ function linuxCandidates(): Candidate[] {
  * `pickChromiumEngine` takes the first that exists, and before 20/09 on this
  * machine that was Dia, the user's own browser. A test pins it, and to do so
  * it needs to read the list without touching the disk.
+ * @internal the platform-table tests read the candidate ids
  */
 export function candidateIdsFor(platform: NodeJS.Platform): string[] {
   return candidatesForPlatform(platform).map((c) => c.id);

@@ -172,6 +172,7 @@ export function listNotifications(opts: { limit?: number; before?: string } = {}
  * them all (the cascade below): counting them apart made the bell say 2 where
  * the dock, which counts subjects too, said 1. A row with no group answers
  * only for itself, so it counts as its own subject.
+ * @internal the notification-log tests count the unseen groups
  */
 export function countUnseenNotifications(): number {
   try {

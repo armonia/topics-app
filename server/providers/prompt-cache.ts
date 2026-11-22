@@ -30,7 +30,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 // under every ~4 min to avoid cold writes on tasks with gaps > 5 min between turns.
 const EPHEMERAL = { type: "ephemeral" as const, ttl: "1h" as const };
 
-/** Massimo di breakpoint accettati dall'API. Qui è un'asserzione, non un budget da spendere. */
+/** @internal the prompt-cache tests assert the API cap with it. Massimo di breakpoint accettati dall'API. Qui è un'asserzione, non un budget da spendere. */
 export const MAX_CACHE_BREAKPOINTS = 4;
 
 /**

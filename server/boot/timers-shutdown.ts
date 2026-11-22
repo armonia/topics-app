@@ -15,6 +15,7 @@ import { stopAllProviders } from "../providers";
 import type { AfterRelay } from "./scope";
 import { late } from "./late";
 
+/** @internal called by the server.ts boot, which knip --production does not credit */
 export function bootTimersShutdown(scope: AfterRelay) {
   const { activeStreams, browserService, budgetGovernor, ctx, dispatchTimer, heartbeatTimer, landingAuditBoot, landingAuditTimer, openBrokerChatTurns, previewBrowser, relayLicenzaTimer, scheduleEngine, stopUiStateBackup, swapFreezer, taskDispatcher, webrtcBridge, whatIsStillWorking, worktreeGcBoot, worktreeGcTimer, wsHeartbeatTimer } = scope;
   /**
