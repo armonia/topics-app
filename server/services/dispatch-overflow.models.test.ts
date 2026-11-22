@@ -1,4 +1,7 @@
 /**
+ * A node that declares its models: the overflow skips it for a card whose model
+ * it lacks, and reads its refusal as a verdict on that machine.
+ *
  * @covers KANBAN-76
  */
 import { describe, expect, it } from "bun:test";
