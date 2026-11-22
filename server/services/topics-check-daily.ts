@@ -134,7 +134,7 @@ export function buildPrompt(input: {
 /** The model's answer as `GREEN: ...` or `RED: ...`; anything else is not a verdict. */
 export function parseVerdict(answer: string): { color: "green" | "red"; line: string } | null {
   const first = answer.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
-  const m = /^(green|red)\b\s*[:\-]?\s*(.*)$/i.exec(first);
+  const m = /^(green|red)\b\s*[:-]?\s*(.*)$/i.exec(first);
   if (!m) return null;
   const color = m[1]!.toLowerCase() as "green" | "red";
   return { color, line: m[2]!.trim().slice(0, 240) || (color === "green" ? "nessun problema" : "da indagare") };
