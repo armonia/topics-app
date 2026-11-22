@@ -1,3 +1,9 @@
+/**
+ * A node that does not carry the card's model is not an overflow candidate,
+ * and refusing it never parks the card.
+ *
+ * @covers KANBAN-76
+ */
 import { describe, expect, it } from "bun:test";
 import { isModelUnavailable, machineLacksModel, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 
