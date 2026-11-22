@@ -1,3 +1,8 @@
+/**
+ * The overflow does not send a card to a node that lacks its model.
+ *
+ * @covers KANBAN-76
+ */
 import { describe, expect, it } from "bun:test";
 import { isModelUnavailable, machineLacksModel, pickOverflowMachine, type OverflowMachine } from "./dispatch-overflow";
 

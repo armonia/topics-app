@@ -19,6 +19,12 @@ MISURA: `bun test server/services/topics-check.test.ts` con i casi del 21/11; ze
 - **GIVEN** una card spostata 11 volte fra due macchine in 35 minuti
 - **THEN** la voce delle card SHALL essere rossa e nominare i rimbalzi
 
+#### Scenario: attesa voluta contro ore perse
+- **GIVEN** card ferme oltre la soglia, lette con la ragione della coda della board (`queueReasonOf`)
+- **THEN** un'attesa voluta (rinvio con data futura, bloccante vivo, genitore al lavoro, carico, coda che scorre) SHALL NOT contare
+- **AND** piano esaurito, spesa, disco, tentativi esauriti, genitore in revisione, card senza progetto, nodo spento (anche con la corsa aperta) e catena ferma su una card in backlog SHALL contare, ciascuno con la sua causa
+- **AND** l'età SHALL partire dall'ultimo ingresso in todo (evento di stato) o, per i rinvii di un nodo spento, dall'inizio della serie (`wait_since`)
+
 ### Requirement: CHECK-02 — Le prove delle automazioni sono configurazione
 
 L'elenco delle automazioni da provare (nome, comando, giro) SHALL stare nelle impostazioni, con

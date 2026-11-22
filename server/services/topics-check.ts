@@ -15,7 +15,7 @@ import type { Database } from "bun:sqlite";
 import { hostname } from "node:os";
 import { getAppSettings } from "./app-settings";
 import { runBounded } from "../lib/machine-security-env";
-import { NODE_UNREACHABLE_ERROR, WAITING_MEMORY_REASON } from "../../shared/board";
+import { NODE_UNREACHABLE_ERROR, statusEventEnters, WAITING_MEMORY_REASON, type QueueReason, type QueueReasonKind } from "../../shared/board";
 import { createTasksShared } from "./tasks/shared";
 
 export const SAMPLE_INTERVAL_MS = 5 * 60_000;
@@ -72,7 +72,9 @@ export function parseSettings(raw: string | null | undefined): TopicsCheckSettin
   return { thresholds, checks };
 }
 
-export type StuckCause = "person" | "chain-parked" | "hung-node" | "offline" | "seats" | "memory" | "stay-local" | "unknown";
+export type StuckCause =
+  | "person" | "chain-parked" | "hung-node" | "offline" | "seats" | "memory" | "stay-local" | "plan" | "spend" | "resources"
+  | "attempts" | "parent-review" | "parent-idle" | "no-project" | "missed-run" | "unknown";
 export interface StuckCard { id: string; status: "todo" | "in_progress"; hours: number; cause: StuckCause }
 export interface MachineSample { id: string; name: string; online: boolean; slots: number | null; cards: number; heartbeatAt: number }
 /** `silent`: the target machine was off and had not beaten since before the move. */
@@ -89,19 +91,19 @@ export interface Sample {
   checks?: ProofResult[];
 }
 
-/** The kind of wait a card shows. `queued` is the slot wait: a wait only while the queue is moving. */
-type Tone = "stalled" | "waiting" | "queued";
-
 const iso = (ms: number) => new Date(ms).toISOString();
+const ms = (v: string | null | undefined) => Date.parse(v ?? "") || 0;
 const MAX_CHAIN_DEPTH = 20;
+/** A note that names a role (the board's owner, a coordinator) speaks about the card, not on it: no life. */
+const ROLE_NOTE = /^[^a-z]{0,6}(padrone|coordinatore)\b/i; // allow-italian: the role words those notes open with
+/** The causes a queue reason names by itself, whatever else the card shows. */
+const CAUSE_OF_KIND: Partial<Record<QueueReasonKind, StuckCause>> = {
+  spend_cap: "spend", attempts: "attempts", parent_review: "parent-review", parent_idle: "parent-idle", no_project: "no-project",
+};
 
 /** One reading of the database at `now`. Read-only. */
 export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS, localHost: string = hostname()): Sample {
-  // The board's own reading of every card, with the same context the board uses: nothing is rebuilt here.
-  const shared = createTasksShared(db, {});
   const rows = db.query("SELECT * FROM tasks WHERE status IN ('todo', 'in_progress') AND archived = 0").all() as any[];
-  const batch = shared.buildBatch(rows, { reasonsOnly: true });
-  batch.nowIso = iso(now);
   // Same predicate as the dispatcher: the machine-wide switch lives in app_settings and a board can only pause itself.
   const globalAuto = !!(db.query("SELECT auto_dispatch FROM app_settings LIMIT 1").get() as { auto_dispatch?: number | null } | null)?.auto_dispatch;
   const pausedBoards = new Set((db.query("SELECT project_id FROM board_settings WHERE dispatch_paused = 1").all() as { project_id: string }[]).map((r) => r.project_id));
@@ -110,76 +112,124 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const machines: MachineSample[] = machineRows.map((m) => ({
     id: m.id, name: m.name, online: m.status === "online", slots: m.slots,
     cards: rows.filter((r) => r.machine_id === m.id).length,
-    heartbeatAt: Date.parse(m.last_heartbeat_at ?? "") || 0,
+    heartbeatAt: ms(m.last_heartbeat_at),
   }));
   const byId = new Map(machines.map((m) => [m.id, m]));
   // The local row is always online with no declared seats: it says nothing about the seats other machines give.
   const remote = machineRows.filter((m) => m.hostname !== localHost).map((m) => byId.get(m.id)!);
   const noSeats = remote.length > 0 && remote.every((m) => !m.online || m.slots === 0);
 
-  // The last time a person or an agent wrote on a card; the dispatcher's own notes do not count as life.
-  const ids = JSON.stringify(rows.map((r) => r.id));
-  const lastVoice = new Map((db.query("SELECT task_id, MAX(created_at) AS at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND author != 'system' GROUP BY task_id").all(ids) as
-    { task_id: string; at: string }[]).map((c) => [c.task_id, Date.parse(c.at) || 0]));
-  const queueMoved = !!db.query("SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").get(iso(now - t.queueMovedHours * HOUR_MS));
-  /** The card that holds a chain: follow the blockers to the end. */
+  // Age first, from the cheap columns: the reasons are read only for the few cards already past a threshold.
+  const since = new Map<string, number>();
+  for (const r of rows) {
+    if (r.status === "todo") {
+      if (!globalAuto || pausedBoards.has(r.project_id)) continue;
+      // A node that keeps failing defers the card by 5 minutes at a time: its age is the whole series (`wait_since`).
+      const nodeWait = r.dispatch_error === NODE_UNREACHABLE_ERROR || r.wait_source === "machine";
+      const deferral = nodeWait ? ms(r.wait_since) : Math.min(ms(r.dispatch_deferred_until), now);
+      since.set(r.id, Math.max(ms(r.created_at), ms(r.reopened_at), deferral, Math.min(ms(r.scheduled_at), now)));
+    } else if (r.dispatch_state !== "working" || r.node_run_open === 1) {
+      since.set(r.id, Math.max(ms(r.in_progress_at) || ms(r.created_at), ms(r.reopened_at)));
+    }
+  }
+  const limitH = (r: any) => (r.status === "todo" ? t.todoStuckHours : t.progressStuckHours);
+  const over = (r: any) => since.has(r.id) && (now - since.get(r.id)!) / HOUR_MS >= limitH(r);
+  // One read of the threads of the cards already past a threshold, which can only make them younger:
+  // a todo card is as old as its last entry into todo (`reopened_at` is written only on the way out of review
+  // or done), and a card in progress lives as long as a person or an agent writes on it. The (task, author, kind)
+  // index answers the filter without reading the rows it drops: on the task index alone the read was 4 times slower.
+  const firstCut = rows.filter(over);
+  const threads = db.query(
+    "SELECT task_id, kind, content, created_at FROM task_comments INDEXED BY idx_task_comments_task_author_kind WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))",
+  ).all(JSON.stringify(firstCut.map((r) => r.id))) as { task_id: string; kind: string; content: string; created_at: string }[];
+  const statusOf = new Map(firstCut.map((r) => [r.id, r.status as string]));
+  for (const c of threads) {
+    const life = statusOf.get(c.task_id) === "todo"
+      ? c.kind === "status" && statusEventEnters(c.content, "todo")
+      : c.kind === "comment" && !ROLE_NOTE.test(c.content);
+    if (life) since.set(c.task_id, Math.max(since.get(c.task_id)!, ms(c.created_at)));
+  }
+  const old = firstCut.filter(over);
+
+  // The board's own reading of those cards, with the context the board uses: nothing is rebuilt here.
+  const shared = createTasksShared(db, {});
+  const batch = shared.buildBatch(old, { reasonsOnly: true });
+  batch.nowIso = iso(now);
+  let moved: boolean | null = null;
+  const queueMoved = () => (moved ??= !!db.query("SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").get(iso(now - t.queueMovedHours * HOUR_MS)));
+  /** The card that holds a chain: the first one parked in backlog, or closed, along the blockers. */
   const chainRoot = (id: string | null): { status: string } | null => {
     let cur = id;
-    let root: { status: string } | null = null;
     for (let i = 0; cur && i < MAX_CHAIN_DEPTH; i++) {
       const k = db.query("SELECT status, archived, blocked_by_task_id FROM tasks WHERE id = ?").get(cur) as { status: string; archived: number; blocked_by_task_id: string | null } | null;
-      if (!k || k.archived) break;
-      root = k;
+      if (!k || k.archived) return null;
+      if (k.status === "backlog" || k.status === "done") return k;
       cur = k.blocked_by_task_id;
     }
-    return root;
+    return null;
+  };
+  /** A slot wait is lost when a plan holds it, when its machine is off, or when nothing started for a while. */
+  const queueWait = (r: any, pinnedOff: boolean): StuckCause | null => {
+    // A held resume carries the memory code without a published block; the provider's plan hold writes its own
+    // sentence next to the bare queued chip, and publishes no machine block either.
+    if (r.dispatch_state === "queued" && r.dispatch_error) return r.dispatch_error === WAITING_MEMORY_REASON ? "memory" : "plan";
+    if (pinnedOff) return "offline";
+    if (queueMoved()) return null;
+    if (r.stay_local && !(r.stay_local_until && ms(r.stay_local_until) <= now)) return "stay-local";
+    return noSeats ? "seats" : "unknown";
+  };
+  /** Why a card past its threshold has not moved, or null when its wait is one somebody chose. */
+  const classify = (r: any, reason: QueueReason | null, pinnedOff: boolean): StuckCause | null => {
+    if (reason === null) {
+      if (r.status === "todo") return r.scheduled_by && ms(r.scheduled_at) > 0 && ms(r.scheduled_at) <= now ? "missed-run" : null;
+      // A resume waiting for its slot is a queue wait like any other.
+      if (r.dispatch_state === "queued") return queueWait(r, pinnedOff);
+      // A subtask whose parent is at work waits on purpose.
+      if (r.parent_task_id) return batch.parentStatus.get(r.parent_task_id) === "in_progress" ? null : "parent-idle";
+      return "unknown";
+    }
+    const byKind = CAUSE_OF_KIND[reason.kind];
+    if (byKind) return byKind;
+    switch (reason.kind) {
+      case "node_unreachable": return pinnedOff ? "offline" : "hung-node";
+      // A chain held by a card the dispatcher parked will never move.
+      case "blocked": return chainRoot(r.blocked_by_task_id)?.status === "backlog" ? "chain-parked" : null;
+      case "resource_floor":
+        if (r.dispatch_error !== WAITING_MEMORY_REASON) return "resources";
+        return r.dispatch_state === "queued" ? "memory" : null;
+      case "slot": return queueWait(r, pinnedOff);
+      case "no_agent":
+        // A wait the agent declared, with its date still ahead, is chosen; a chip left on the card with no reason is not.
+        if (r.dispatch_state === "waiting" && r.wait_reason && ms(r.dispatch_deferred_until) > now) return null;
+        if (pinnedOff) return "offline";
+        return reason.tone === "waiting" ? null : "unknown";
+      default: return reason.tone === "stalled" ? "unknown" : null;
+    }
   };
 
   const stuck: StuckCard[] = [];
-  for (const r of rows) {
-    const ms = (v: string | null | undefined) => Date.parse(v ?? "") || 0;
-    // Age from when the card got where it is (entered todo, ended its deferral, started), never from the last write.
-    const since = r.status === "todo"
-      ? Math.max(ms(r.created_at), ms(r.reopened_at), ms(r.dispatch_deferred_until), ms(r.scheduled_at))
-      : Math.max(ms(r.in_progress_at) || ms(r.created_at), ms(r.reopened_at), lastVoice.get(r.id) ?? 0);
-    const hours = Math.max(0, (now - (since || now)) / HOUR_MS);
+  for (const r of old) {
     const pinned = r.machine_id ? byId.get(r.machine_id) : undefined;
+    const pinnedOff = !!pinned && !pinned.online;
     const openRun = r.status === "in_progress" && r.node_run_open === 1;
-    // A node that took the run is hung when its poll fails, or when it sent nothing for a while: a long healthy turn is neither.
-    const hung = !!pinned?.online && openRun && (r.dispatch_error === NODE_UNREACHABLE_ERROR || (now - pinned.heartbeatAt) / 60_000 >= t.nodeSilentMin);
-    // A turn in flight (the dispatcher's state or an open node run) is a card that is moving, however quiet.
-    if (!hung && (r.dispatch_state === "working" || openRun)) continue;
-    const waitingOnPerson = !!r.human_ask?.trim() || r.stage === "human_review";
-    const memoryHeld = r.dispatch_error === WAITING_MEMORY_REASON && r.dispatch_state === "queued" && !r.blocked_by_task_id && !r.scheduled_by;
-    if (r.status === "todo") {
-      // A machine or board that does not dispatch on its own leaves its todo cards where they are on purpose.
-      if (!globalAuto || pausedBoards.has(r.project_id) || hours < t.todoStuckHours) continue;
-    } else if (hours < t.progressStuckHours) continue;
-    let cause: StuckCause | null = null;
-    if (waitingOnPerson) cause = "person";
-    else if (hung) cause = "hung-node";
-    else {
-      const root = r.blocked_by_task_id ? chainRoot(r.blocked_by_task_id) : null;
-      const overdue = !!r.scheduled_by && ms(r.scheduled_at) > 0 && ms(r.scheduled_at) <= now;
-      const reason = shared.queueReasonOf(r, batch);
-      const tone: Tone | null = reason?.tone ?? null;
-      const pinnedOff = !!pinned && !pinned.online;
-      if (memoryHeld) cause = "memory";
-      // A chain held by a card the dispatcher parked will never move; a planned run past its time never came.
-      else if (root?.status === "backlog") cause = "chain-parked";
-      else if (overdue) cause = "unknown";
-      // A chip left behind on a card nobody resumes is not a wait somebody chose.
-      else if (r.status === "in_progress" && r.dispatch_state === "waiting") cause = "unknown";
-      else if (r.status === "in_progress" && tone === null) cause = "unknown";
-      else if (tone === "stalled" || (tone === "queued" && (pinnedOff || !queueMoved))) {
-        cause = reason?.kind === "node_unreachable" ? "hung-node" : pinnedOff ? "offline" : r.stay_local ? "stay-local" : noSeats ? "seats" : "unknown";
-      }
+    let from = since.get(r.id)!;
+    let cause: StuckCause | null;
+    if (r.dispatch_state === "working" || openRun) {
+      // A run on a node that went off is lost from the node's last beat; on a node that answers, only a failing poll or silence is.
+      if (openRun && pinnedOff) { cause = "offline"; from = Math.max(from, pinned!.heartbeatAt); }
+      else if (openRun && pinned && (r.dispatch_error === NODE_UNREACHABLE_ERROR || (now - pinned.heartbeatAt) / 60_000 >= t.nodeSilentMin)) cause = "hung-node";
+      else continue;
+    } else if (r.human_ask?.trim() || r.stage === "human_review" || (r.status === "in_progress" && r.assigned_to)) {
+      cause = "person";
+    } else {
+      cause = classify(r, shared.queueReasonOf(r, batch), pinnedOff);
     }
-    if (cause) stuck.push({ id: r.id, status: r.status, hours, cause });
+    const hours = (now - from) / HOUR_MS;
+    if (cause && hours >= limitH(r)) stuck.push({ id: r.id, status: r.status, hours, cause });
   }
 
-  const since = new Date(now - 24 * HOUR_MS).toISOString();
-  const moves = (db.query("SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all(since) as
+  const sinceDay = iso(now - 24 * HOUR_MS);
+  const moves = (db.query("SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all(sinceDay) as
     { task_id: string; content: string; created_at: string }[]).map((c): Move => {
     const at = Date.parse(c.created_at);
     const to = /^Spostata su ([^:]+):/.exec(c.content)?.[1] ?? /^Spostata da .+? a ([^:]+):/.exec(c.content)?.[1] ?? "";
@@ -207,6 +257,14 @@ const CAUSE_TEXT: Record<StuckCause, string> = {
   seats: "nessuna macchina dà posti",
   memory: "il pavimento di memoria tiene ferma la coda",
   "stay-local": "il pin «solo Mac» tiene la card dove non c'è posto",
+  plan: "il piano del provider è esaurito: le card non ripartono da sole",
+  spend: "il tetto di spesa tiene ferma la coda",
+  resources: "il pavimento di disco o di RAM tiene ferma la coda",
+  attempts: "tentativi esauriti: la card aspetta che qualcuno la rimetta in coda",
+  "parent-review": "il genitore è in revisione e i sottotask aspettano",
+  "parent-idle": "il genitore è fermo e i sottotask non partono",
+  "no-project": "la card non ha un progetto in cui girare",
+  "missed-run": "la corsa programmata è passata senza partire",
   unknown: "nessun turno vivo e nessuna domanda aperta",
 };
 

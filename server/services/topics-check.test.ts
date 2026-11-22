@@ -6,37 +6,32 @@
  * @covers CHECK-01
  * @covers CHECK-02
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { freshDb, PID } from "./tasks-test-db";
+import { EMBEDDED_MIGRATIONS } from "../db/migrations-embedded";
+import { createTasksShared } from "./tasks/shared";
+import { setDispatchBlock } from "./dispatch-block-signal";
 import {
   createTopicsCheck, DEFAULT_THRESHOLDS, parseSettings, readSamples, roundState, runProofs, sampleTopics, voices,
   SAMPLE_INTERVAL_MS, type Sample, type TopicsCheckSettings,
 } from "./topics-check";
 
-const MIG = join(import.meta.dir, "../db/migrations");
+const PID = "p1";
 const NOW = Date.parse("2026-11-22T12:00:00.000Z");
 const H = 3_600_000;
 const iso = (ms: number) => new Date(ms).toISOString();
 const noSettings = parseSettings(null);
 const OK = { code: 0, stdout: "", stderr: "", timedOut: false, missing: false };
 
+/** The schema the shipped app builds: the whole migration chain, run once and copied for each test. */
+const SCHEMA = (() => {
+  const d = new Database(":memory:");
+  for (const m of EMBEDDED_MIGRATIONS) d.run(m.sql);
+  return d.serialize();
+})();
 function db(): Database {
-  const d = freshDb();
-  // The harness keeps a three-column stand-in for machines; the real table comes from the migrations.
-  d.run("PRAGMA foreign_keys = OFF");
-  d.run("DROP TABLE machines");
+  const d = Database.deserialize(SCHEMA);
   d.run("PRAGMA foreign_keys = ON");
-  for (const f of ["020-machines.sql", "20261109090000-machine-slots.sql", "20261122100000-topics-check.sql", "20261122110000-task-comments-created-at-index.sql"]) {
-    // The settings column is already in the harness's app_settings; only the table is new here.
-    d.run(readFileSync(join(MIG, f), "utf8").replace(/INSERT OR IGNORE INTO schema_migrations[^;]*;/, "").replace(/ALTER TABLE app_settings[^;]*;/, ""));
-  }
-  // The harness board_settings still has the dead per-board auto_dispatch; the real migrations drop it and add the pause.
-  for (const f of ["20260816112635-board-settings-drop-dead-auto-dispatch.sql", "20260816142059-board-dispatch-paused.sql"]) {
-    d.run(readFileSync(join(MIG, f), "utf8").replace(/ALTER TABLE app_settings[^;]*;/, ""));
-  }
   d.run("UPDATE app_settings SET auto_dispatch = 1");
   d.run(`INSERT INTO board_settings (project_id) VALUES ('${PID}')`);
   return d;
@@ -347,6 +342,124 @@ describe("cards voice", () => {
   });
 });
 
+describe("the board's states, as the dispatcher writes them (second review, points A-H)", () => {
+  /** A status event in the thread, as the service writes it on every move. */
+  const statusEvent = (d: Database, taskId: string, content: string, at: number) =>
+    d.query("INSERT INTO task_comments (id, task_id, author, content, created_at, kind) VALUES (?, ?, 'system', ?, ?, 'status')").run(`${taskId}-${at}`, taskId, content, iso(at));
+  const note = (d: Database, taskId: string, author: string, content: string, at: number) =>
+    d.query("INSERT INTO task_comments (id, task_id, author, content, created_at) VALUES (?, ?, ?, ?, ?)").run(`${taskId}-${author}-${at}`, taskId, author, content, iso(at));
+  const causes = (d: Database) => sampleTopics(d, NOW).stuck.map((c) => [c.id, c.cause]);
+  /** A card that started a minute ago: the queue is moving. */
+  const moving = (d: Database) => { card(d, "run", "in_progress", 0, { dispatchState: "working" }); set(d, "run", { in_progress_at: iso(NOW - 60_000) }); };
+
+  test("A: the test schema is the shipped one, so the board reads a real reason and never «unknown»", () => {
+    const d = db(); card(d, "q", "todo", 5 * H);
+    const shared = createTasksShared(d, {});
+    const rows = d.query("SELECT * FROM tasks").all() as any[];
+    const batch = shared.buildBatch(rows, { reasonsOnly: true });
+    expect(batch.queueReadable).toBe(true);
+    expect(shared.queueReasonOf(rows[0], batch)?.kind).toBe("slot");
+  });
+  test("B: whether the queue moved is read through an index, not a scan of every task", () => {
+    const plan = (db().query("EXPLAIN QUERY PLAN SELECT 1 FROM tasks WHERE in_progress_at >= ? LIMIT 1").all("x") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    expect(plan).toContain("idx_tasks_in_progress_at");
+  });
+  test("C: the chain stops at the card parked in backlog, even when that card's own blocker has closed", () => {
+    const d = db();
+    card(d, "gone", "done", 20 * H);
+    card(d, "parked", "backlog", 9 * H, { blockedBy: "gone" });
+    card(d, "mid", "todo", 5 * H, { blockedBy: "parked" });
+    card(d, "leaf", "todo", 5 * H, { blockedBy: "mid" });
+    expect(causes(d)).toEqual([["mid", "chain-parked"], ["leaf", "chain-parked"]]);
+  });
+  test("D: a todo card is as old as its last entry into todo, not its creation", () => {
+    const d = db(); card(d, "t", "todo", 99 * H, GIVEN_UP);
+    statusEvent(d, "t", "todo→in_progress", NOW - 50 * H);
+    statusEvent(d, "t", "in_progress→todo · the agent stopped", NOW - 11 * H);
+    expect(sampleTopics(d, NOW).stuck[0]!.hours).toBeCloseTo(11, 1);
+    // A move toward another column is not an entry into todo.
+    statusEvent(d, "t", "todo→backlog", NOW - 2 * H);
+    expect(sampleTopics(d, NOW).stuck[0]!.hours).toBeCloseTo(11, 1);
+  });
+  test("D/E: a node that went off defers its card 5 minutes at a time; the age is the whole series and the cause is offline", () => {
+    const d = db(); machine(d, "pc", "offline", 4, iso(NOW - 3 * H));
+    card(d, "t", "todo", 9 * H, { machineId: "pc", dispatchState: "waiting", dispatchError: "node_unreachable", deferredUntil: iso(NOW + 5 * 60_000) });
+    set(d, "t", { wait_since: iso(NOW - 3 * H), wait_source: "machine" });
+    const s = sampleTopics(d, NOW);
+    expect(s.stuck.map((c) => c.cause)).toEqual(["offline"]);
+    expect(s.stuck[0]!.hours).toBeCloseTo(3, 1);
+  });
+  test("E: an open run on a node that went off is offline, counted from the node's last beat", () => {
+    const d = db(); machine(d, "pc", "offline", 4, iso(NOW - 4 * H));
+    card(d, "r", "in_progress", 9 * H, { machineId: "pc", nodeRunOpen: true, dispatchState: "working" });
+    const s = sampleTopics(d, NOW);
+    expect(s.stuck.map((c) => c.cause)).toEqual(["offline"]);
+    expect(s.stuck[0]!.hours).toBeCloseTo(4, 1);
+  });
+  test("F: a spent plan is lost hours with its cause, even while other cards start", () => {
+    const d = db(); moving(d);
+    card(d, "p", "todo", 5 * H, { dispatchState: "queued", dispatchError: "Claude: piano esaurito. Le card non ripartono da sole." }); // allow-italian: the sentence the plan hold writes
+    card(d, "q", "todo", 5 * H, { dispatchState: "queued" });
+    expect(causes(d)).toEqual([["p", "plan"]]);
+    expect(cards([sampleTopics(d, NOW)]).cause).toContain("piano");
+  });
+  test("G: in progress with no reason is a subtask whose parent works, or a card a person took", () => {
+    const d = db(); moving(d);
+    card(d, "kid", "in_progress", 5 * H); set(d, "kid", { parent_task_id: "run" });
+    card(d, "mine", "in_progress", 5 * H); set(d, "mine", { assigned_to: "someone" });
+    expect(causes(d)).toEqual([["mine", "person"]]);
+    set(d, "run", { status: "review", dispatch_state: null });
+    expect(causes(d)).toEqual([["kid", "parent-idle"], ["mine", "person"]]);
+  });
+  test("H: the cause comes from the reason's kind", () => {
+    const d = db();
+    card(d, "tries", "todo", 5 * H, GIVEN_UP);
+    card(d, "dad", "review", 5 * H);
+    card(d, "kid", "todo", 5 * H); set(d, "kid", { parent_task_id: "dad" });
+    card(d, "lost", "todo", 5 * H); set(d, "lost", { project_id: "_none" });
+    expect(causes(d)).toEqual([["tries", "attempts"], ["kid", "parent-review"], ["lost", "no-project"]]);
+  });
+  test("H: a machine block names spend or disk, and the load is a wait", () => {
+    const at = (block: Parameters<typeof setDispatchBlock>[0]) => {
+      const d = db(); card(d, "q", "todo", 5 * H, { dispatchState: "queued" });
+      setDispatchBlock(block);
+      try { return causes(d).map(([, c]) => c); } finally { setDispatchBlock(null); }
+    };
+    expect(at({ kind: "spend", reason: "24 h cap" })).toEqual(["spend"]);
+    expect(at({ kind: "resources", reason: "disk under the floor" })).toEqual(["resources"]);
+    expect(at({ kind: "pressure", reason: "load" })).toEqual([]);
+  });
+  test("H: the «stay here» pin counts only until its deadline", () => {
+    const d = db(); card(d, "q", "todo", 5 * H); set(d, "q", { stay_local: 1, stay_local_until: iso(NOW + H) });
+    expect(causes(d)).toEqual([["q", "stay-local"]]);
+    set(d, "q", { stay_local_until: iso(NOW - 1) });
+    expect(causes(d)).toEqual([["q", "unknown"]]);
+  });
+  test("a note that names the board's owner or a coordinator is not life on the card; a real one is", () => {
+    const d = db(); card(d, "p", "in_progress", 4 * H);
+    note(d, "p", "user", "Padrone: ripresa dal giro delle 9", NOW - 60_000); // allow-italian: the note those roles write
+    note(d, "p", "user", "**Coordinatore** · rimessa in coda", NOW - 61_000); // allow-italian: the note those roles write
+    expect(sampleTopics(d, NOW).stuck[0]!.hours).toBeCloseTo(4, 1);
+    note(d, "p", "user", "the tests are green now", NOW - 30 * 60_000);
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+  });
+  test("a wait the agent declared, dated in the future, is a wait; past its date it is lost", () => {
+    const d = db(); card(d, "w", "in_progress", 5 * H, { dispatchState: "waiting", deferredUntil: iso(NOW + H) });
+    set(d, "w", { wait_reason: "the CI run" });
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+    set(d, "w", { dispatch_deferred_until: iso(NOW - 60_000) });
+    expect(causes(d)).toEqual([["w", "unknown"]]);
+  });
+  test("work elsewhere on a node that is off is not a wait", () => {
+    const d = db(); machine(d, "pc", "online", 4, iso(NOW));
+    d.run("UPDATE machines SET base_url = 'https://node.invalid'");
+    card(d, "e", "in_progress", 5 * H, { machineId: "pc" });
+    expect(sampleTopics(d, NOW).stuck).toEqual([]);
+    d.run("UPDATE machines SET status = 'offline'");
+    expect(causes(d)).toEqual([["e", "offline"]]);
+  });
+});
+
 describe("proofs voice", () => {
   const one = (name: string, command = "x") => parseSettings(JSON.stringify({ checks: [{ name, command, tier: "5min" }] }));
   test("no declared proof: green and says so", () => {
@@ -445,19 +558,28 @@ describe("the round", () => {
 });
 
 describe("the route", () => {
-  test("GET /api/topics-check answers the three voices with the detail the view opens", async () => {
-    const d = db();
-    card(d, "m", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
-    const round = createTopicsCheck({ db: d, now: () => NOW, settings: () => noSettings });
-    await round.tick();
-    const { createTopicsCheckRouter } = await import("../routes/topics-check");
-    const router = createTopicsCheckRouter({ db: d, json: (b: unknown) => Response.json(b) } as never, { now: () => NOW });
-    const res = await router(new Request("http://x/api/topics-check"), new URL("http://x/api/topics-check"), "/api/topics-check", "GET");
-    const body = await res!.json() as ReturnType<typeof round.current>;
-    expect(body.voices.map((v) => v.id)).toEqual(["cards", "seats", "proofs"]);
-    expect(body.voices[0]!.red).toBe(true);
-    expect(body.voices[0]!.cause).toBe("il pavimento di memoria tiene ferma la coda");
-    expect(await router(new Request("http://x/other"), new URL("http://x/other"), "/other", "GET")).toBeNull();
+  /** The same answer whatever the wall clock says: the round reads only the clock it is given. */
+  const routeAt = async (wallClock: string) => {
+    setSystemTime(new Date(wallClock));
+    try {
+      const d = db();
+      card(d, "m", "todo", 3 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });
+      const round = createTopicsCheck({ db: d, now: () => NOW, settings: () => noSettings });
+      await round.tick();
+      const { createTopicsCheckRouter } = await import("../routes/topics-check");
+      const router = createTopicsCheckRouter({ db: d, json: (b: unknown) => Response.json(b) } as never, { now: () => NOW });
+      const res = await router(new Request("http://x/api/topics-check"), new URL("http://x/api/topics-check"), "/api/topics-check", "GET");
+      expect(await router(new Request("http://x/other"), new URL("http://x/other"), "/other", "GET")).toBeNull();
+      return await res!.json() as ReturnType<typeof round.current>;
+    } finally { setSystemTime(); }
+  };
+  test("GET /api/topics-check answers the three voices with the detail the view opens, today and on 24/11", async () => {
+    for (const wall of ["2026-11-22T12:00:00.000Z", "2026-11-24T12:00:00.000Z"]) {
+      const body = await routeAt(wall);
+      expect(body.voices.map((v) => v.id)).toEqual(["cards", "seats", "proofs"]);
+      expect(body.voices[0]!.red).toBe(true);
+      expect(body.voices[0]!.cause).toBe("il pavimento di memoria tiene ferma la coda");
+    }
   });
 });
 
