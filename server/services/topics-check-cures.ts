@@ -27,14 +27,20 @@ export interface CureDeps {
   svc: Pick<TaskService, "get" | "update" | "addComment" | "create">;
   /** The dispatcher's own reassignment of a card pinned to a machine that cannot run it; true = the card moved. */
   reassign: (task: Task) => boolean;
+  /** Publishes a changed card to the open views. */
+  emit: (task: Task) => void;
   breaker?: Pick<typeof hangBreaker, "failure" | "isOpen">;
   now?: () => number;
 }
 
-/** One key per problem: two different problems never share a card. */
+/** What a bounce is, for the title of its investigation card (no stuck cause describes it). */
+const BOUNCE_TEXT = "la card rimbalza fra i nodi"; // allow-italian: board card title
+
+/** One key per problem: two different problems never share a card. A bounce counts only while its moves are inside the window. */
 export function problemsOf(sample: Sample, t: Thresholds): Problem[] {
   const stuck = sample.stuck.filter((c) => c.cause !== "person").map((c): Problem => ({ key: `${c.cause}:${c.id}`, cause: c.cause, taskId: c.id }));
-  const bounces = [...pingPongCards(sample.moves, t)].map((id): Problem => ({ key: `bounce:${id}`, cause: "bounce", taskId: id }));
+  const recent = sample.moves.filter((m) => m.at >= sample.at - t.cardMovesWindowMin * 60_000);
+  const bounces = [...pingPongCards(recent, t)].map((id): Problem => ({ key: `bounce:${id}`, cause: "bounce", taskId: id }));
   return [...stuck, ...bounces];
 }
 
@@ -44,19 +50,26 @@ export function createCures(deps: CureDeps) {
   const breaker = deps.breaker ?? hangBreaker;
   /** Cured last round: still red this round means the cure did not work. */
   const cured = new Set<string>();
-  /** Already escalated while the problem lasts, so a card is never opened twice for it. */
-  const escalated = new Set<string>();
+  /** Already escalated while the problem lasts (null), or capped on that day: no second card, no second note. */
+  const escalated = new Map<string, string | null>();
 
   const note = (taskId: string, content: string) => svc.addComment({ taskId, author: "system", kind: "service", content });
 
+  /** The card as the database has it now, with whether a node run is still open on it. */
+  function read(taskId: string): { task: Task; runOpen: boolean } | null {
+    const task = svc.get(taskId)?.task;
+    if (!task) return null;
+    const row = db.query("SELECT node_run_open AS open FROM tasks WHERE id = ?").get(taskId) as { open: number | null } | null;
+    return { task, runOpen: row?.open === 1 };
+  }
+
   /** The cure of one cause, or false when there is none (or it had nothing to do). */
-  function cure(p: Problem): boolean {
-    const task = svc.get(p.taskId)?.task;
-    if (!task) return false;
+  function cure(p: Problem, task: Task, runOpen: boolean): boolean {
     switch (p.cause) {
       case "offline":
       case "seats":
-        return !!task.machineId && deps.reassign(task);
+        // The dispatcher's reassignment is made for queued cards: a card with a run open keeps its machine, the run is on it.
+        return task.status === "todo" && !runOpen && !!task.machineId && deps.reassign(task);
       case "hung-node": {
         if (!task.machineId || breaker.isOpen(task.machineId)) return false;
         for (let i = 0; i < WAKE_FAIL_THRESHOLD; i++) breaker.failure(task.machineId);
@@ -64,8 +77,9 @@ export function createCures(deps: CureDeps) {
         return true;
       }
       case "bounce": {
-        if (task.stayLocal) return false;
-        svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(now() + EMPTY_RUN_PIN_MS).toISOString() } });
+        if (task.status !== "todo" || runOpen || task.stayLocal) return false;
+        const pinned = svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { machineId: null, stayLocal: true, stayLocalUntil: new Date(now() + EMPTY_RUN_PIN_MS).toISOString() } });
+        deps.emit(pinned);
         note(task.id, "La card rimbalzava fra i nodi: la tengo qui, «solo Mac», per 6 ore."); // allow-italian: board comment
         return true;
       }
@@ -86,32 +100,49 @@ export function createCures(deps: CureDeps) {
     }
     const card = svc.create({
       projectId: inv.boardId, status: "backlog", idempotencyKey: `${INVESTIGATION_KEY}${day}:${p.key}`,
-      text: `Verifica: ${CAUSE_TEXT[p.cause === "bounce" ? "stay-local" : p.cause]}`, // allow-italian: board card title
+      text: `Verifica: ${p.cause === "bounce" ? BOUNCE_TEXT : CAUSE_TEXT[p.cause]}`, // allow-italian: board card title
       description: `Problema ${p.key}: la card ${p.taskId} resta rossa nella Verifica e la cura nota non c'è o non l'ha tolta.`, // allow-italian: board card body
     });
     note(p.taskId, `Indagine aperta: card ${card.id}.`); // allow-italian: board comment
     return "investigated";
   }
 
+  const today = () => new Date(now()).toISOString().slice(0, 10);
+
   return {
     /** One round over the last sample. A failure on one problem never stops the others. */
     run(sample: Sample, t: Thresholds, inv: InvestigationSettings): CureReport[] {
-      const problems = problemsOf(sample, t);
-      const live = new Set(problems.map((p) => p.key));
-      for (const k of [...cured, ...escalated]) if (!live.has(k)) { cured.delete(k); escalated.delete(k); }
-      return problems.map((p): CureReport => {
-        if (escalated.has(p.key)) return { key: p.key, outcome: "skipped" };
+      const reports: CureReport[] = [];
+      const seen = new Set<string>();
+      const problems: { p: Problem; task: Task; runOpen: boolean }[] = [];
+      for (const raw of problemsOf(sample, t)) {
+        const state = read(raw.taskId);
+        // A bounce is only a problem for a card that is still waiting in todo.
+        if (!state || (raw.cause === "bounce" && state.task.status !== "todo")) continue;
+        // A hung node is one problem for the node, however many cards sit on it.
+        const key = raw.cause === "hung-node" && state.task.machineId ? `hung-node:${state.task.machineId}` : raw.key;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        problems.push({ p: { ...raw, key }, ...state });
+      }
+      for (const k of [...cured, ...escalated.keys()]) if (!seen.has(k)) { cured.delete(k); escalated.delete(k); }
+      for (const { p, task, runOpen } of problems) {
+        const held = escalated.get(p.key);
+        if (held === null || held === today()) { reports.push({ key: p.key, outcome: "skipped" }); continue; }
         try {
-          if (!cured.has(p.key) && cure(p)) { cured.add(p.key); return { key: p.key, outcome: "cured" }; }
+          if (!cured.has(p.key) && cure(p, task, runOpen)) { cured.add(p.key); reports.push({ key: p.key, outcome: "cured" }); continue; }
           cured.delete(p.key);
           const outcome = investigate(p, inv);
-          if (outcome !== "off") escalated.add(p.key);
-          return { key: p.key, outcome };
+          // A capped problem is asked again tomorrow; an opened one is never opened twice.
+          if (outcome === "investigated") escalated.set(p.key, null);
+          else if (outcome === "capped") escalated.set(p.key, today());
+          reports.push({ key: p.key, outcome });
         } catch (err) {
           console.warn("[topics-check] cure failed:", p.key, err instanceof Error ? err.message : err);
-          return { key: p.key, outcome: "skipped" };
+          reports.push({ key: p.key, outcome: "skipped" });
         }
-      });
+      }
+      return reports;
     },
   };
 }

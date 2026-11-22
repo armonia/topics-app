@@ -163,9 +163,11 @@ export function bootPostListen(scope: AfterRelay) {
   // Self-check round: three voices in hours lost, every 5 minutes, no model calls.
   const cures = createCures({
     db: ctx.db, svc: dispatcherSvc,
-    reassign: (task) => taskDispatcher.reassignFromForbidden(task, {}),
+    reassign: (task) => taskDispatcher.reassignFromForbidden(task, dispatcherSvc.getBoardSettings(task.projectId)),
+    emit: (task) => taskDispatcher.emitTask(task),
   });
-  startTopicsCheck(ctx.db, (sample, s) => void cures.run(sample, s.thresholds, s.investigation));
+  // The cures change real cards: the e2e server keeps them off.
+  startTopicsCheck(ctx.db, (sample, s) => { if (process.env.TOPICS_E2E !== "1") void cures.run(sample, s.thresholds, s.investigation); });
 
   // Quota history for the points count: without a writer the file never exists on a clean install (card 29aa4259).
   if (process.env.TOPICS_E2E !== "1") startQuotaSampler();
