@@ -19,16 +19,17 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import { homedir } from "os";
 import { basename, join } from "path";
 import { runBounded } from "../lib/bounded-spawn";
-import { readIdentity } from "../agents/registry";
+import { readIdentity, registryHome } from "../agents/registry";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = string;
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
 export interface Paths { home: string; expand: (p: string) => string }
+/** Same home as `/api/agents` (`registryHome`): the two routes must always
+ *  agree on where the agents live. */
 export function defaultPaths(env: Record<string, string | undefined> = process.env): Paths {
-  const home = env.JARVIS_CHANNELS_HOME?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels");
-  return { home, expand: (p) => p.replace(/^~(?=\/|$)/, homedir()) };
+  return { home: registryHome(env), expand: (p) => p.replace(/^~(?=\/|$)/, homedir()) };
 }
 
 type Json = Record<string, any>;
@@ -73,6 +74,18 @@ export function readRegistry(paths: Paths) {
   defaultAgent ??= ids[0] ?? "";
   const agentOfAccount = (acc: string | undefined): AgentId =>
     acc && accountOwners.has(acc) ? accountOwners.get(acc)! : defaultAgent;
+
+  // With more than one agent, an account nobody declares is ambiguous: it
+  // still falls to the default agent so chats keep working, but silently
+  // handing it over hides exactly the case that breaks a second agent (its
+  // own account loses its chats the moment it forgets to declare it). One
+  // agent alone has no such ambiguity: every account is obviously its own.
+  if (ids.length > 1) {
+    for (const key of Object.keys(cfg.channels?.discord ?? {})) {
+      if (key === "default" || accountOwners.has(key)) continue;
+      issues.push({ agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}` });
+    }
+  }
 
   const agents = ids.map((id) => {
     const ws = paths.expand(engine.agents[id].workspace);

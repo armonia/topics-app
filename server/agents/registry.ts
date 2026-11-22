@@ -9,6 +9,7 @@
  * first (`safeWrite`, shared with `server/routes/agent-config.ts`).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 import { safeWrite } from "../routes/agent-config";
 
@@ -19,10 +20,14 @@ export interface AgentRecord {
   workspace: string;
 }
 
-/** The channel engine's home: an env-backed setting, empty by default (no
- *  configuration until someone points this machine at one). */
+/** The channel engine's home: an env-backed setting, falling back to the
+ *  engine's own standard folder. The ONE resolver both `/api/agents` and
+ *  `/api/agent-config` call, so they always agree on where the agents live
+ *  (a route stuck on its own default used to show a different roster than
+ *  the other). No engine installed there = empty home, `readAgents` then
+ *  answers `[]` without error. */
 export function registryHome(env: Record<string, string | undefined> = process.env): string {
-  return env.JARVIS_CHANNELS_HOME?.trim() || "";
+  return env.JARVIS_CHANNELS_HOME?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels");
 }
 
 type Json = Record<string, any>;
@@ -114,4 +119,27 @@ export function createAgent(
   safeWrite(engineFile, `${JSON.stringify(engine, null, 2)}\n`, home);
 
   return { id, name, job, workspace };
+}
+
+/**
+ * One-time backfill: writes `agents.<id>.account` for every agent the
+ * mapping names, but only where it is still missing (an agent that already
+ * declares one is left alone). The channel engine does not reject extra
+ * fields, so this is additive. Backed up first (`safeWrite`). Meant for an
+ * operator to run once after upgrading from a hard-coded roster, via
+ * `scripts/backfill-agent-account.ts` — never called from a route.
+ */
+export function backfillAgentAccounts(home: string, accounts: Record<string, string>): Record<string, string> {
+  const engineFile = join(home, "engine.json");
+  const engine: Json = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
+  engine.agents = engine.agents ?? {};
+  const written: Record<string, string> = {};
+  for (const [id, account] of Object.entries(accounts)) {
+    if (!engine.agents[id]) throw new Error(`agent ${id} not found`);
+    if (engine.agents[id].account) continue;
+    engine.agents[id].account = account;
+    written[id] = account;
+  }
+  if (Object.keys(written).length) safeWrite(engineFile, `${JSON.stringify(engine, null, 2)}\n`, home);
+  return written;
 }
