@@ -15,14 +15,3 @@ export function getRrwebRecorderSource(): string {
   return cachedRecorderSource;
 }
 
-export function assertRrwebVersionsMatch(clientVersion: string, lockedVersion: string): void {
-  if (clientVersion !== lockedVersion) {
-    throw new Error(`rrweb version mismatch: client package requests ${clientVersion}, lockfile pins ${lockedVersion}`);
-  }
-}
-
-export function readLockedRrwebVersion(lockText: string): string {
-  const match = lockText.match(/^\s+"rrweb":\s+\["rrweb@([^"]+)"/m);
-  if (!match) throw new Error("rrweb package is missing from client/bun.lock");
-  return match[1];
-}

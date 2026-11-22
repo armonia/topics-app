@@ -186,16 +186,7 @@ export function t(key: string, locale: Locale, vars?: Record<string, string | nu
 }
 
 /**
- * Le chiavi che una lingua non ha. Serve a un test: una lingua incompleta è un
- * fatto che si scopre in fretta, non guardando l'interfaccia a caso.
- *
- * ASINCRONA da quando l'inglese si carica su richiesta: senza l'attesa
- * risponderebbe «mancano tutte», che è vero e inutile. Chiedere il catalogo è
- * l'unico modo di distinguere «questa lingua è incompleta» da «questa lingua
- * non è ancora arrivata», e sono due difetti diversi.
- */
-/**
- * Every key in the catalogue, for whoever has to check them one by one.
+ * @internal Test seam: every key in the catalogue, for whoever has to check them one by one.
  *
  * It exists instead of exporting `IT`: the whole dictionary, made public,
  * invites reading a value straight out of it rather than going through `t()`,
@@ -205,6 +196,17 @@ export function chiaviDelCatalogo(): string[] {
   return Object.keys(IT);
 }
 
+/**
+ * @internal Test seam: the keys a language lacks.
+ *
+ * Le chiavi che una lingua non ha. Serve a un test: una lingua incompleta è un
+ * fatto che si scopre in fretta, non guardando l'interfaccia a caso.
+ *
+ * ASINCRONA da quando l'inglese si carica su richiesta: senza l'attesa
+ * risponderebbe «mancano tutte», che è vero e inutile. Chiedere il catalogo è
+ * l'unico modo di distinguere «questa lingua è incompleta» da «questa lingua
+ * non è ancora arrivata», e sono due difetti diversi.
+ */
 export async function missingKeys(locale: Locale): Promise<string[]> {
   await ensureLocaleLoaded(locale);
   await ensureLocaleLoaded(FALLBACK_LOCALE);

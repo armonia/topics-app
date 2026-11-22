@@ -94,12 +94,6 @@ function parseOrigin(originUrl: string): ParsedOrigin | null {
   return m ? { host: host.toLowerCase(), slug: `${m[1]}/${m[2]}`, viaSsh } : null;
 }
 
-/** Only GitHub hosts written in full; an ssh alias is not one (see `resolveGithubSlug`). */
-export function githubSlug(originUrl: string): string | null {
-  const o = parseOrigin(originUrl);
-  return o && GITHUB_HOSTS.has(o.host) ? o.slug : null;
-}
-
 /** Like `githubSlug`, plus the ssh aliases that `ssh -G` resolves to GitHub. */
 export async function resolveGithubSlug(originUrl: string): Promise<string | null> {
   const o = parseOrigin(originUrl);

@@ -1,6 +1,7 @@
 // @covers AGENTS-PERSONA-01
 import { describe, test, expect } from "bun:test";
-import { planSoulSplit, toPersonaSplit } from "./migrate-principal-soul";
+import { planSoulSplit } from "../server/agents/soul-sections";
+import { toPersonaSplit } from "./migrate-principal-soul";
 
 const base = "# Base soul\n\nintro\n\n## Tone\nbe direct\n\n## Act vs ask\nact\n";
 const soul = "# Soul\n\nintro\n\n## Tone\nbe direct\n\n## Language\nAlways answer in Italian.\n\n## Permissions\nMay read DMs.\n";

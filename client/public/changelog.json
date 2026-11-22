@@ -1,5 +1,258 @@
 [
   {
+    "version": "2.4.80",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "trace the 596-file baseline to its source",
+          "en": "",
+          "scope": "deadcode-prod",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.79",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Add Agents navigation: overview, agent page, Configure with a channel tree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "per-agent activity from channel turns, validated route edits, English comments (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "schedule words comment marked as quoted Italian (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "channel tree on one column grid, human model names, thread title first in activity (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "nome inglese per il ref simbolico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test dei rami su origin: tetto di 120 s ai test con repo veri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.76",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-22 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I rami delle card chiuse lasciano origin a ogni giro dell'audit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dichiara WORKTREE-17 per la pulizia dei rami su origin",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
+        {
+          "it": "Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "env isolato nel test dei rami su origin",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.75",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Close the six reasons not to reattach a node run after a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores tests cover the SYSTEM-PAGE-01 requirement",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "readVerdict marcato @internal: main tornava rosso su check:deadcode-prod",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.74",
     "date": "2026-11-22",
     "sections": {
@@ -101,6 +354,11 @@
           "scope": null
         },
         {
+          "it": "Reattach a still-open node run after a server restart instead of always queueing",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Direct unit tests for the filter chain the turn runs",
           "en": "",
           "scope": null
@@ -121,10 +379,40 @@
           "scope": null
         },
         {
+          "it": "Drop the placeholder requirement id from the node-restart reattach suite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Register the node-restart reattach line growth in the bloat baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "topics-check-daily: lint",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "fast gira anche sul nodo Windows",
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Il nodo riceve intera la revisione anche dopo un riavvio",
@@ -132,7 +420,59 @@
           "scope": null
         },
         {
+          "it": "start goes through serve so server.ts stays in the production graph",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores: list, search, edit and archive every agent/project deposit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti di node-run-brief a posto per il gate della lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the reattach-on-restart path for a still-open node run",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename Italian test identifier to pass check:identifier-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Unblock check:comment-language on node-run-brief after the main realign",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un problema sotto il tetto resta capped, non torna curato a giri alterni",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo",
           "en": "",
           "scope": null
         }

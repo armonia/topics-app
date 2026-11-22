@@ -770,6 +770,12 @@ function memoRunner(run: Runner): Runner {
   };
 }
 
+/** What a node reports when its build does not know the probe route at all (an old version): four honest unknowns, not silence. */
+export function probeUnavailableReport(nowMs: number): MachineSecurityReport {
+  const checks = KEYS.map((key) => unknown(key, "Controllo", "il nodo ha una versione senza sonda di sicurezza"));
+  return { checked_at: Math.floor(nowMs / 1000), status: "unknown", checks };
+}
+
 /** This machine's four probes, in parallel; every failure becomes an `unknown`, never an exception. */
 export async function probeMachineSecurity(env: ProbeEnv): Promise<MachineSecurityReport> {
   const probes = PROBES[env.platform];

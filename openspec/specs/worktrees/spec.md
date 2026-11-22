@@ -628,3 +628,16 @@ reason it was kept. The pass SHALL print a table and remove nothing unless asked
 - **THEN** a path under `.claude/worktrees/agent-` SHALL be a Claude Code
   sub-agent, one under `.claude/worktrees` a desktop-app session, one in a
   `scratchpad` an agent session, and anything else a worktree made by hand
+
+### Requirement: WORKTREE-17 — Branches of finished cards leave origin on every audit round
+
+On every delivery-audit round the system SHALL delete from origin the branches
+whose cards are ALL done or archived and none `unpushed`. A branch contained in
+main is deleted outright; one outside main is deleted only after a LOCAL
+`archive/<branch>` tag keeps its tip. A branch with an open card, a branch no
+card owns, and main itself SHALL stay. The delete SHALL use a lease on the tip
+that was read.
+
+#### Scenario: finished card outside main
+- **GIVEN** a branch on origin whose only card is done and whose tip is not in main
+- **THEN** a local archive tag SHALL be created, then the branch deleted with a lease on that tip

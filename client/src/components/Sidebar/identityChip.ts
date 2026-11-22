@@ -64,6 +64,7 @@ import { ROW_H } from '../../lib/selectionStyles';
  *
  * The 34 is therefore no longer written here at all. It arrives as a class
  * string from `selectionStyles`, which is where Tailwind already scans it.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const CHIP_TARGET_PX = 34;
 

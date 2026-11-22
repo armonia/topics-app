@@ -120,14 +120,6 @@ export function subscribeSession(sessionKey: string, fn: () => void): () => void
   };
 }
 
-/** Si iscrive a QUALSIASI cambiamento. Per i pochi che devono sapere tutto. */
-export function subscribeAllMessages(fn: () => void): () => void {
-  global.add(fn);
-  return () => {
-    global.delete(fn);
-  };
-}
-
 /**
  * I fatti che servono a decidere chi tiene il proprio trascritto in memoria.
  *

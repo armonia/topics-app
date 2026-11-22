@@ -15,13 +15,9 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { join } from "path";
 import { setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { shellProcessKey } from "../../shared/background-shell-registry";
-import {
-  closeBackgroundShell,
-  listBackgroundShells,
-  noteBackgroundShellOutput,
-  registerBackgroundShell,
-  getScriptsSnapshot,
-} from "./processes";
+import { closeBackgroundShell, noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
+import { listBackgroundShells } from "./processes-shells";
+import { getScriptsSnapshot } from "./processes-snapshot";
 
 // The registry writes its logs and `scripts.json` under the state folder: a
 // temporary one, or it falls on the working directory, the live one in the repo.

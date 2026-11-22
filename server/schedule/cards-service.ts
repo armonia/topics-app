@@ -35,8 +35,9 @@ function mapRow(row: ScheduledJobRow, last: RunRow | null): ScheduledCard {
     id: row.id, projectId: row.project_id ?? "", text: action.text, status: action.status, labels: action.labels,
     cron: schedule.expr, timeZone: schedule.tz, enabled: row.enabled === 1, nextRunAt: row.next_run_at ?? "",
     lastRunAt: last?.created_at ?? null,
-    lastResult: last ? (last.status === "skipped" ? "skipped" : "created") : null,
-    lastReason: last?.status === "skipped" ? last.reason : null,
+    // Only a run that linked a card created one: skipped and failed_to_start did not.
+    lastResult: last ? (last.task_id ? "created" : "skipped") : null,
+    lastReason: last && !last.task_id ? last.reason : null,
   };
 }
 

@@ -175,13 +175,3 @@ export function computeTopicsFootprint(input: TopicsUsageInput): TopicsFootprint
     cpuPartial: totalCpu !== null && (deviceCpu === null || serverCpu === null || devicePartial),
   };
 }
-
-/**
- * Etichetta breve per la metrica usata nel lato server.
- * Usata nei tooltip per dire "footprint" vs "RSS (stima alta)".
- */
-export function serverMetricLabel(metric: ServerMemMetric): string {
-  if (metric === 'footprint') return 'footprint';
-  if (metric === 'mixed') return 'footprint parziale';
-  return 'RSS (stima alta)';
-}

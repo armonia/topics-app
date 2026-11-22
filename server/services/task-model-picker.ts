@@ -422,6 +422,7 @@ export function tallyVotes(votes: readonly JudgeVote[]): {
 }
 
 /**
+ * @knipignore used by scripts/effort-variance.ts, outside the production graph
  * Pick a model id AND an effort tier for a task. Never throws — returns
  * `fallback` on any problem (a picker hiccup must never strand or misroute a
  * dispatch).

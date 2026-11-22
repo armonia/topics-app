@@ -2,6 +2,65 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- **deadcode-prod** · trace the 596-file baseline to its source
+
+## 2.4.79 — 2026-11-22
+
+### Sotto il cofano
+- Add Agents navigation: overview, agent page, Configure with a channel tree
+- per-agent activity from channel turns, validated route edits, English comments (T3)
+- overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)
+- schedule words comment marked as quoted Italian (T3)
+- channel tree on one column grid, human model names, thread title first in activity (T3)
+- strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)
+- typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)
+- Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com
+- Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce
+- Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30
+
+## 2.4.77 — 2026-11-22
+
+### Correzioni
+- nome inglese per il ref simbolico
+
+### Sotto il cofano
+- Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL
+- Test dei rami su origin: tetto di 120 s ai test con repo veri
+
+## 2.4.76 — 2026-11-22
+
+### Sotto il cofano
+- Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-22 [skip ci]
+- bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat
+- I rami delle card chiuse lasciano origin a ogni giro dell'audit
+- **worktrees** · dichiara WORKTREE-17 per la pulizia dei rami su origin
+- Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket
+- env isolato nel test dei rami su origin
+- Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione
+- Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete
+- browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)
+
+## 2.4.75 — 2026-11-22
+
+### Sotto il cofano
+- Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)
+- Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore
+- Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged
+- Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged
+- Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged
+- Close the six reasons not to reattach a node run after a restart
+- Memory stores tests cover the SYSTEM-PAGE-01 requirement
+- Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
+- Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged
+- Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them
+- readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
+- Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests
+
 ## 2.4.74 — 2026-11-22
 
 ### Novità
@@ -25,13 +84,30 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il filtro degli strumenti dell'agente arriva davvero al turno nativo
 - La Verifica di Topics si legge anche sul telefono senza l'hub
 - Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
+- Reattach a still-open node run after a server restart instead of always queueing
 - Direct unit tests for the filter chain the turn runs
 - Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone
 - Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio
 - Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto
+- Drop the placeholder requirement id from the node-restart reattach suite
+- Register the node-restart reattach line growth in the bloat baseline
+- Verifica di Topics T2: le cause note si curano da sole, le altre aprono una card d'indagine
+- Verifica di Topics: giro giornaliero con una sola lettura AI (CHECK-04)
+- topics-check-daily: lint
 - fast gira anche sul nodo Windows
+- Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
 - Il nodo riceve intera la revisione anche dopo un riavvio
+- start goes through serve so server.ts stays in the production graph
+- Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Memory stores: list, search, edit and archive every agent/project deposit
+- Commenti di node-run-brief a posto per il gate della lingua
+- Fix the reattach-on-restart path for a still-open node run
 - Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Rename Italian test identifier to pass check:identifier-language
+- Unblock check:comment-language on node-run-brief after the main realign
+- Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
+- un problema sotto il tetto resta capped, non torna curato a giri alterni
+- Riga della Verifica: il tetto delle indagini e' nell'e2e, e il numero non sbaglia l'accordo
 
 ## 2.4.73 — 2026-11-22
 

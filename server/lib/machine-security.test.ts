@@ -6,7 +6,7 @@ import {
   clip, composeAccess, countFailedLogins, findDeclaredPrivate, iptablesBlocksInput, lastMacSecurityUpdate, lastXProtect, nftBlocksInput, parseAptHistory,
   parseAptSecurityPending, parseAutopatchLog, parseFileVault, parseGocryptfsMounts, parseKeyValueLines, parseMacFirewall,
   parseMacInstallHistory, parseMacPendingUpdates, parseNetstatListening, parseSshdConfig, parseSshdT, parseSsListening,
-  powershellArgv, probeMachineSecurity, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
+  powershellArgv, probeMachineSecurity, probeUnavailableReport, whyNoAnswer, worstStatus, DETAIL_MAX, FAILED_LOGIN_PATTERN,
   type ProbeEnv, type RunResult,
 } from "./machine-security";
 
@@ -218,6 +218,18 @@ describe("parser Linux e comuni", () => {
     expect(countFailedLogins(text)).toBe(2);
     const iso = `2026-11-15T10:00:00.000000+00:00 h sshd[1]: Failed password for x\n2026-11-17T10:00:00.000000+00:00 h sshd[1]: Failed password for y\n`;
     expect(countFailedLogins(iso, NOW - 86_400_000)).toBe(1);
+  });
+
+  test("failed logins: OpenSSH 9.8+ journal lines (sshd-session, pam_unix) count once per process", () => {
+    const text = [
+      "Nov 21 03:01:00 h sshd-session[901]: Invalid user admin from 203.0.113.7 port 1",
+      "Nov 21 03:01:02 h sshd-session[901]: pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=203.0.113.7",
+      "Nov 21 03:01:04 h sshd-session[901]: Failed password for invalid user admin from 203.0.113.7 port 1 ssh2",
+      "Nov 21 03:05:00 h sshd-session[902]: Failed publickey for root from 203.0.113.8 port 2 ssh2",
+      "-- No entries --",
+    ].join("\n");
+    expect(countFailedLogins(text)).toBe(2);
+    expect(countFailedLogins("")).toBe(0);
   });
 
   test("gocryptfs: punti di mount e cartella dichiarata, a qualunque profondità", () => {
@@ -566,5 +578,15 @@ describe("Linux failed logins filtered on the machine", () => {
       grep: res("", { code: 2, stderr: "grep: /var/log/auth.log: Permission denied" }),
     });
     expect(check).toMatchObject({ status: "unknown", detail: "Accessi falliti: registri non leggibili da questo utente" });
+  });
+});
+
+describe("nodo con build senza sonda", () => {
+  test("riporta quattro unknown con l'ora, non silenzio", () => {
+    const r = probeUnavailableReport(NOW);
+    expect(r.checked_at).toBe(NOW / 1000);
+    expect(r.status).toBe("unknown");
+    expect(r.checks.map((c) => c.key)).toEqual(["updates", "disk", "access", "antivirus"]);
+    for (const c of r.checks) expect(c.detail.length).toBeLessThanOrEqual(DETAIL_MAX);
   });
 });

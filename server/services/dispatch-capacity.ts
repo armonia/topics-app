@@ -616,56 +616,6 @@ export async function probeVm(
 }
 
 /**
- * How much RAM the compressor is holding, in GB, or `null` when unmeasurable.
- *
- * The SECOND signal, independent of the first, and it exists because the first
- * one can be fooled: on a machine that has just finished compressing, the
- * file-backed cache can climb back for a moment and make it look as if there
- * were room. The compressor cannot - those pages are memory already spent and
- * NOT cedible, and to get them back the kernel has to decompress, which is
- * work.
- *
- * On 2026-09-10 it held 26 GB of 32. Not an edge case invented out of caution:
- * the measurement of the one night this machine locked up.
- */
-export function compressorGB(
-  run: () => string | null = readVmStatSync,
-): number | null {
-  const out = run();
-  if (!out) return null;
-  const vm = parseVmStat(out);
-  return vm.pageSize && vm.compressorPages != null ? (vm.compressorPages * vm.pageSize) / 1e9 : null;
-}
-
-/**
- * HOW MANY PAGES THE MACHINE HAS SWAPPED OUT SINCE BOOT, cumulative, or `null`.
- *
- * A counter, not a rate: the difference between two readings over the elapsed
- * time is the rate, the same shape `fleet-usage.ts` already uses for CPU. And
- * the same trap applies - a reading with no previous base is NOT zero, it is
- * "I do not know".
- *
- * Reported and not gated, deliberately: see the note on the compressor below.
- */
-export function swapoutPages(
-  run: () => string | null = readVmStatSync,
-): number | null {
-  const out = run();
-  return out ? parseVmStat(out).swapouts : null;
-}
-
-/**
- * Il pavimento come predicato puro: prende i GB disponibili e risponde sì/no.
- * Separato dalla sonda apposta — è la forma che il task chiedeva, la stessa di
- * `machineTooLoaded`, e permette di provarlo nei DUE versi senza riempire la
- * RAM di una macchina vera.
- */
-export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_MEM_FLOOR_GB): boolean {
-  if (availableGB == null || !Number.isFinite(availableGB)) return false;
-  return availableGB < floorGB;
-}
-
-/**
  * What the dispatcher knows and the reading cannot say, as separate facts so the
  * sentence names each: one card's price, the memory kept for the local turns in
  * flight (only in count mode, see `floorReason`), and whether any of our work is
@@ -858,17 +808,6 @@ export function dispatchResourceVerdict(
     memoryFirstCardExempt: false,
     startGB: line,
   };
-}
-
-/**
- * The same verdict as a bare sentence, for every caller that only writes it.
- * The dispatcher reads `dispatchResourceVerdict`: it needs the kind to key the
- * wait and the exemption to declare it.
- */
-export function dispatchResourceBlock(
-  ...args: Parameters<typeof dispatchResourceVerdict>
-): string | null {
-  return dispatchResourceVerdict(...args).reason;
 }
 
 // THE COMPRESSOR IS MEASURED AND REPORTED, NOT GATED, and taking the gate back
