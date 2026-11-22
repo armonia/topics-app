@@ -108,7 +108,7 @@ export const PINNED_TILE_ACTION_SLOT = 'w-9 md:w-7';
  * ricalcolati da `pinnedTileMetrics.test.ts` a partire da altezza e box.
  */
 export const PINNED_TILE_ACTION_INSET_CLASS = 'right-[4px] md:right-[3px]';
-/** Gli stessi due numeri per l'aritmetica del test — vedi {@link PINNED_TILE_PX}. */
+/** @internal Gli stessi due numeri per l'aritmetica del test — vedi {@link PINNED_TILE_PX}. */
 export const PINNED_TILE_ACTION_INSET_PX = { wide: 3, compact: 4 } as const;
 
 /**
@@ -120,6 +120,7 @@ export const PINNED_TILE_ACTION_INSET_PX = { wide: 3, compact: 4 } as const;
  * e controlla che dicano questi numeri e che il conto torni. Senza, «altezza =
  * box + 2 × rientro» è una frase in un commento, e i commenti non diventano
  * rossi.
+ * @internal
  */
 export const PINNED_TILE_PX = {
   /** Sopra i 768px: `md:h-[34px]` di `ROW_H` / `md:w-7` di `ROW_ACTION_BOX`. */

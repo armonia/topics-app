@@ -181,6 +181,7 @@ export function liveCliChildren(parentSessionKey: string) {
  * production; a test points it at a fake one, as it does the bridge socket.
  */
 let agentProfilesHome: string | null = null;
+/** @internal */
 export function _setAgentProfilesHome(home: string | null): void {
   agentProfilesHome = home;
 }
@@ -293,7 +294,7 @@ export function seedPromptFingerprintForSession(sessionType: string | undefined,
 type SeedPromptHandlerForTests = (childId: string, prompt: string, acceptSnippet?: string) => void | Promise<void>;
 let seedPromptHandlerForTests: SeedPromptHandlerForTests | null = null;
 
-/** Replace the asynchronous PTY seeder in route tests so they can inspect its inputs. */
+/** @internal Replace the asynchronous PTY seeder in route tests so they can inspect its inputs. */
 export function _setSeedPromptHandlerForTests(handler: SeedPromptHandlerForTests | null): void {
   seedPromptHandlerForTests = handler;
 }

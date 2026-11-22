@@ -14,9 +14,12 @@ export let _broadcastToAll: ((msg: OutboundMessage) => void) | null = null;
 // sessions register here so their hook-driven phase (running/tool-running)
 // becomes the solid "is it working" signal, instead of fragile pty bytes.
 export let _tracker: ClaudeSessionTracker | null = null;
-/** Test seam: the tracker the park guards read (null = none), whatever an earlier file in the process installed. */
+/**
+ * Test seam: the tracker the park guards read (null = none), whatever an earlier file in the process installed.
+ * @internal
+ */
 export function _setTerminalTrackerForTests(tracker: ClaudeSessionTracker | null): void { _tracker = tracker; }
-/** Test seam: the live panes, to put one in front of a hook without a bridge. */
+/** @internal Test seam: the live panes, to put one in front of a hook without a bridge. */
 export function _terminalSessionsForTests(): Map<string, TerminalSession> { return sessions; }
 
 /** The branch an isolated sub-agent stands on (WORKTREE-14) is read from its

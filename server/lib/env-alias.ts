@@ -38,6 +38,7 @@ export function readEnvWithAlias(canonical: string, alias: string): string | und
 
 // Test-only: reset the one-shot warning ledger so each test observes a fresh
 // "first use" of an alias.
+/** @internal */
 export function __resetDeprecatedEnvWarnings(): void {
   warnedAliases.clear();
 }

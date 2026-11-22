@@ -111,29 +111,29 @@ export function useHubEverRead(): boolean {
   return useSyncExternalStore(subscribe, () => everRead, () => everRead);
 }
 
-/** Test seam: subscribe as a mounted component would, without React. */
+/** @internal Test seam: subscribe as a mounted component would, without React. */
 export const _subscribeForTests = subscribe;
 
-/** Test seam: feed a frame as the socket would. */
+/** @internal Test seam: feed a frame as the socket would. */
 export const _adoptForTests = adopt;
 
-/** Test seam: seed from a stubbed fetch. */
+/** @internal Test seam: seed from a stubbed fetch. */
 export const _seedForTests = seed;
 
-/** Test seam: the state a mounted component would read, without React. */
+/** @internal Test seam: the state a mounted component would read, without React. */
 export const _readForTests = (): HubLiveState => current;
 
-/** Test seam: where the snapshot is read from (null = the real `apiFetch`). */
+/** @internal Test seam: where the snapshot is read from (null = the real `apiFetch`). */
 export function _setSnapshotFetchForTests(f: SnapshotFetch | null): void {
   snapshotFetch = f ?? apiFetch;
 }
 
-/** Test seam: forget everything, so one test cannot leak into the next. */
+/** @internal Test seam: forget everything, so one test cannot leak into the next. */
 export function _resetForTests(): void {
   current = {};
   seeded = false;
   everRead = false;
 }
 
-/** Test seam: the ever-read flag without React. */
+/** @internal Test seam: the ever-read flag without React. */
 export const _everReadForTests = (): boolean => everRead;

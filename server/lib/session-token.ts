@@ -41,7 +41,7 @@ const TOKEN_RE = /^[0-9a-f]{64}$/;
 /** Signing keys already read, by home. A restart empties it, the file stays. */
 const signingKeys = new Map<string, Buffer>();
 
-/** Forget the cached signing keys, which is what a server restart does. */
+/** @internal Forget the cached signing keys, which is what a server restart does. */
 export function resetSessionSigningCache(): void {
   signingKeys.clear();
 }
