@@ -8,11 +8,22 @@
  */
 import { describe, expect, it } from 'bun:test';
 import {
-  chiaveErroreCheckout, colpaNostra, giorniAllaScadenza,
+  chiaveErroreCheckout, chiaveMotivo, colpaNostra, giorniAllaScadenza,
   mostraMotivo, POSTI_MAX_ACQUISTO, POSTI_MIN_ACQUISTO, postiValidi,
-  scadenzaVicina, siPuoComprare,
+  scadenzaVicina, siPuoComprare, type MotivoLicenza,
 } from './pianoState';
+import { MOTIVI_LICENZA } from '../../../../shared/licenza-motivi';
 import { t } from '../../lib/i18n';
+
+/**
+ * L'elenco viene dal modulo condiviso, non riscritto qui.
+ *
+ * Riscriverlo vorrebbe dire un test che continua a dire di sì il giorno in cui
+ * il server distingue un ottavo motivo: girerebbe sui sette che conosce e non
+ * si accorgerebbe dell'ottavo, che è precisamente il caso in cui a schermo
+ * comparirebbe una chiave nuda.
+ */
+const TUTTI: readonly MotivoLicenza[] = MOTIVI_LICENZA;
 
 describe('motivo · si tace sui due casi normali, si parla sugli altri cinque', () => {
   it('`valid` e `no_token` non mostrano niente', () => {
@@ -22,6 +33,17 @@ describe('motivo · si tace sui due casi normali, si parla sugli altri cinque', 
     expect(mostraMotivo('no_token')).toBe(false);
   });
 
+  it('gli altri cinque parlano, tutti', () => {
+    const muti = TUTTI.filter((r) => !mostraMotivo(r));
+    expect(muti.sort()).toEqual(['no_token', 'valid']);
+  });
+
+  it('ogni motivo ha una chiave sua: nessuno cade su quella di un altro', () => {
+    // È la proprietà che conta: appiattire due motivi sulla stessa frase
+    // rimetterebbe insieme proprio ciò che il server separa.
+    const chiavi = TUTTI.map(chiaveMotivo);
+    expect(new Set(chiavi).size).toBe(TUTTI.length);
+  });
 });
 
 describe('motivo · di chi è il problema', () => {
@@ -37,6 +59,11 @@ describe('motivo · di chi è il problema', () => {
     expect(colpaNostra('other_installation')).toBe(false);
   });
 
+  it('e non è vero per tutti: il predicato distingue davvero', () => {
+    // Controllo positivo del criterio: senza, un `return true` passerebbe i due
+    // casi qui sopra a metà e questo blocco non se ne accorgerebbe.
+    expect(TUTTI.filter(colpaNostra)).toEqual(['no_verification_key']);
+  });
 });
 
 describe('acquisto · il bottone si disegna solo se può funzionare', () => {
@@ -100,6 +127,19 @@ describe('posti · non si manda una richiesta già rifiutata', () => {
 });
 
 describe('le frasi esistono davvero, in tutte e due le lingue', () => {
+  // Le chiavi qui si COSTRUISCONO (`plan.reason.${motivo}`), quindi il
+  // controllo che allinea le due lingue fra loro non basta: una chiave assente
+  // da ENTRAMBE è allineata benissimo, e a schermo diventa
+  // «plan.reason.expired» in mezzo alla pagina. Il giorno in cui il server
+  // distingue un ottavo motivo, questo è ciò che lo dice.
+  it('ogni motivo ha la sua frase, in italiano e in inglese', () => {
+    for (const r of TUTTI) {
+      const k = chiaveMotivo(r);
+      for (const lingua of ['it', 'en'] as const) {
+        expect(`${lingua}:${k}→${t(k, lingua)}`).not.toBe(`${lingua}:${k}→${k}`);
+      }
+    }
+  });
 
   it('e ogni rifiuto del checkout pure, generico compreso', () => {
     const codici = ['not_configured', 'no_installation', 'bad_seats', 'upstream_error', 'unreachable', undefined];

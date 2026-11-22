@@ -114,6 +114,23 @@ describe("chiudere una tab è il ritiro di ciò che contiene", () => {
     expect(open.divergences).toEqual([]);
   });
 
+  test("il coordinatore registrato sopravvive alla chiusura e riapertura della sua normale pane", async () => {
+    db.run(
+      `INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+       VALUES ('global', 'chat-1', '2026-09-04T00:00:00Z', '2026-09-04T00:00:00Z')`,
+    );
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }));
+
+    expect(archived).toEqual([]);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
+
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
+  });
+
   test("un terminale: la sessione si ritira, e nessun processo resta", async () => {
     await put(snap({ panes: { "term-p": { id: "term-p", terminalSessionId: "sess-1" } } }));
     await put(snap({ tombstones: { "term-p": { at: 1000, seq: 2 } } }));
@@ -131,6 +148,18 @@ describe("chiudere una tab è il ritiro di ciò che contiene", () => {
     await put(closed);
     await put(closed);
     expect(archived).toEqual(["chat-1"]);
+  });
+
+  test("una scrittura rifiutata dal gate CAS non archivia niente", async () => {
+    // Il 409 dice che quello snapshot il server l'ha scartato. Trarne le
+    // conseguenze significherebbe archiviare una chat per uno stato che non è
+    // mai stato scritto - e nessuna riapertura lo ritratterebbe.
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    const res = await put(snap({ tombstones: { "chat-1": { at: 1000, seq: 2 } } }), 99);
+
+    expect(res.status).toBe(409);
+    expect(archived).toEqual([]);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
   });
 
   test("assenza senza tombstone non chiude niente: l'idratazione è un'unione", async () => {
@@ -161,6 +190,30 @@ describe("riavvia il server, riapri il progetto", () => {
     expect(open.divergences).toEqual([]);
   });
 
+  test("il riconcilio non riapre una chat che l'utente aveva archiviato", async () => {
+    db.run("UPDATE topics SET archived = 1 WHERE id = 'chat-1'");
+
+    reconcile(db, consequences());
+
+    expect(db.query("SELECT archived FROM topics WHERE id = 'chat-1'").get()).toEqual({ archived: 1 });
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(true);
+    expect((await getOpen()).divergences).toEqual([]);
+  });
+
+  test("il riconcilio ritratta un vecchio ritiro del coordinatore invece di archiviarlo", async () => {
+    db.run(
+      `INSERT INTO global_orchestrator_sessions (scope, topic_id, created_at, updated_at)
+       VALUES ('global', 'chat-1', '2026-09-04T00:00:00Z', '2026-09-04T00:00:00Z')`,
+    );
+    db.run("INSERT INTO retirements (kind, ref_id, retired_at, reason) VALUES ('topic','chat-1','2026-07-20','tab-close')");
+
+    reconcile(db, consequences());
+
+    expect(archived).toEqual([]);
+    expect(retiredIds(db, "topic").has("chat-1")).toBe(false);
+    expect((await getOpen()).topics.map((topic: any) => topic.id)).toEqual(["chat-1"]);
+  });
+
   test("chiudi, riavvia, e la query concorda ancora con lo schermo", async () => {
     await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" }, "term-p": { id: "term-p", terminalSessionId: "sess-1" } } }));
     await put(snap({ tombstones: { "chat-1": { at: 1, seq: 2 }, "term-p": { at: 1, seq: 2 } } }));
@@ -174,6 +227,19 @@ describe("riavvia il server, riapri il progetto", () => {
 });
 
 describe("la riapertura", () => {
+  test("annullare la chiusura ritratta il fatto, e la chiusura successiva torna a valere", async () => {
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    await put(snap({ tombstones: { "chat-1": { at: 1, seq: 2 } } }));
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(true);
+
+    // ⇧⌘T: la pane torna, il marcatore sparisce.
+    db.run("UPDATE topics SET archived = 0 WHERE id = 'chat-1'");
+    await put(snap({ panes: { "chat-1": { id: "chat-1", topicId: "chat-1" } } }));
+    expect(retiredIds(db, "pane").has("chat-1")).toBe(false);
+
+    await put(snap({ tombstones: { "chat-1": { at: 9, seq: 5 } } }));
+    expect(archived).toEqual(["chat-1", "chat-1"]);
+  });
 
   test("il riavvio dopo una riapertura NON richiude la chat con l'utente dentro", async () => {
     // Il buco: ritrattare solo la PANE lasciava il topic timbrato «ritirato»

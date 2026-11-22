@@ -14,6 +14,21 @@ import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
 import { applyPromptCache } from "./prompt-cache";
 
+// The API accepts at most four cache_control blocks per request.
+const MAX_CACHE_BREAKPOINTS = 4;
+
+/** Counts the cache_control marks a payload carries, in tools, system and message blocks. */
+function countCacheBreakpoints(p: Anthropic.MessageCreateParams): number {
+  let n = 0;
+  const bump = (v: unknown) => {
+    if (v && typeof v === "object" && (v as Record<string, unknown>).cache_control) n++;
+  };
+  if (Array.isArray(p.tools)) p.tools.forEach(bump);
+  if (Array.isArray(p.system)) p.system.forEach(bump);
+  for (const m of p.messages ?? []) if (Array.isArray(m.content)) m.content.forEach(bump);
+  return n;
+}
+
 function params(over: Partial<Anthropic.MessageCreateParams> = {}): Anthropic.MessageCreateParams {
   return {
     model: "claude-sonnet-5",
@@ -112,6 +127,37 @@ describe("messages", () => {
 });
 
 describe("limiti e invarianti", () => {
+  test("con tutto presente restano al più quattro breakpoint", () => {
+    const p = params({
+      system: "preambolo",
+      tools: [{ name: "a", description: "a", input_schema: { type: "object" } }] as Anthropic.Tool[],
+      messages: [
+        { role: "user", content: "primo" },
+        { role: "assistant", content: "risposta" },
+        { role: "user", content: "secondo" },
+      ],
+    });
+    applyPromptCache(p);
+    expect(countCacheBreakpoints(p)).toBe(3);
+    expect(countCacheBreakpoints(p)).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+  });
+
+  test("è idempotente: due passate non moltiplicano i marker", () => {
+    const p = params({
+      system: "preambolo",
+      tools: [{ name: "a", description: "a", input_schema: { type: "object" } }] as Anthropic.Tool[],
+    });
+    applyPromptCache(p);
+    const dopoUna = countCacheBreakpoints(p);
+    applyPromptCache(p);
+    expect(countCacheBreakpoints(p)).toBe(dopoUna);
+  });
+
+  test("senza nulla di stabile non marca nulla", () => {
+    const p = params({ messages: [] });
+    applyPromptCache(p);
+    expect(countCacheBreakpoints(p)).toBe(0);
+  });
 
   test("non tocca il testo: il contenuto resta quello che era", () => {
     const p = params({ system: "preambolo", messages: [{ role: "user", content: "ciao" }] });
@@ -122,3 +168,22 @@ describe("limiti e invarianti", () => {
   });
 });
 
+describe("applyPromptCache, segni arrivati da fuori", () => {
+  test("cinque segni già presenti diventano i tre suoi, mai oltre il tetto di quattro", () => {
+    const e = { type: "ephemeral" as const };
+    const params = {
+      model: "m", max_tokens: 1,
+      tools: [{ name: "a", input_schema: { type: "object" }, cache_control: e }, { name: "b", input_schema: { type: "object" } }],
+      system: [{ type: "text", text: "uno", cache_control: e }, { type: "text", text: "due", cache_control: e }],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "x", cache_control: e }] },
+        { role: "assistant", content: [{ type: "text", text: "y", cache_control: e }] },
+        { role: "user", content: [{ type: "text", text: "z" }] },
+      ],
+    } as never;
+    applyPromptCache(params);
+    const n = JSON.stringify(params).split('"cache_control"').length - 1;
+    expect(n).toBe(3);
+    expect(n).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
+  });
+});

@@ -18,6 +18,7 @@ import { Database } from "bun:sqlite";
 import {
   createUiStateRouter,
   loadAllUiState,
+  UI_STATE_INIT_EXCLUDED_PREFIXES,
 } from "./ui-state";
 import type { AppContext } from "../types";
 
@@ -64,6 +65,13 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(meta["pane-store-v2"].server_seq).toBe(1);
   });
 
+  test("a topic's browser window does not travel in the snapshot", () => {
+    // Same shape as the per-task keys, one level up: one row per topic that has
+    // opened its window, and the client GETs it by itself.
+    expect(Object.keys(loadAllUiState(db).data)).not.toContain("topic-browser:tp-1");
+    expect(Object.keys(loadAllUiState(db).meta)).not.toContain("topic-browser:tp-1");
+  });
+
   test("un task che si CHIAMA come il prefisso ma non lo è resta nello snapshot", () => {
     // Il filtro è per PREFISSO, non per sottostringa: una chiave futura che
     // contiene 'task-browser' più avanti non deve sparire per sbaglio.
@@ -76,6 +84,15 @@ describe("loadAllUiState (frame ui-state:init)", () => {
     expect(Object.keys(loadAllUiState(db).data).sort()).toEqual(["pane-store-v2", "theme"]);
   });
 
+  test("every excluded prefix is really filtered by the SQL, and the kept keys are not", () => {
+    // The prefix list is the single source for the WHERE: a row under each
+    // prefix must be left out of the snapshot, whatever the list holds today.
+    for (const [i, p] of UI_STATE_INIT_EXCLUDED_PREFIXES.entries()) putRow(`${p}abc`, { x: 1 }, 100 + i);
+    const keys = Object.keys(loadAllUiState(db).data);
+    for (const p of UI_STATE_INIT_EXCLUDED_PREFIXES) expect(keys).not.toContain(`${p}abc`);
+    expect(keys).toContain("pane-store-v2");
+    expect(keys).toContain("theme");
+  });
 });
 
 describe("le chiavi escluse restano leggibili (è da lì che il client le prende)", () => {

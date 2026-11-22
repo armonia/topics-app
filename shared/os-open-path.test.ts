@@ -144,6 +144,10 @@ describe('le associazioni dichiarate al sistema operativo', () => {
     return out;
   };
 
+  it('tauri.conf.json e Info.plist dichiarano esattamente le stesse estensioni', () => {
+    expect([...confExts()].sort()).toEqual([...plistExts()].sort());
+  });
+
   it('nessuna estensione dichiarata due volte', () => {
     expect(new Set(confExts()).size).toBe(confExts().length);
     expect(new Set(plistExts()).size).toBe(plistExts().length);

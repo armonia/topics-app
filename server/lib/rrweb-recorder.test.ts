@@ -1,10 +1,30 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getRrwebRecorderSource } from "./rrweb-recorder";
 
 /** @covers BROWSER-DOM-RECORDER-01 */
 
 const ROOT = join(import.meta.dir, "..", "..");
+
+test("the shared recorder matches the installed rrweb package and lockfile", () => {
+  const manifest = JSON.parse(readFileSync(join(ROOT, "client", "package.json"), "utf8")) as {
+    dependencies: { rrweb: string };
+  };
+  const lockText = readFileSync(join(ROOT, "client", "bun.lock"), "utf8");
+  const locked = lockText.match(/^\s+"rrweb":\s+\["rrweb@([^"]+)"/m)?.[1];
+  const installedRecorder = readFileSync(join(ROOT, "client", "node_modules", "rrweb", "dist", "rrweb.min.js"), "utf8")
+    .replace(/\n\/\/# sourceMappingURL=.*$/m, "");
+  const browserService = readFileSync(join(ROOT, "server", "browser-service.ts"), "utf8");
+  const browserRoute = readFileSync(join(ROOT, "server", "routes", "browser.ts"), "utf8");
+
+  expect(locked).toBeDefined();
+  expect(manifest.dependencies.rrweb).toBe(locked as string);
+  expect(browserService).toContain("getRrwebRecorderSource()");
+  expect(browserRoute).toContain("getRrwebRecorderSource()");
+  expect(getRrwebRecorderSource()).toBe(installedRecorder);
+  expect(getRrwebRecorderSource()).toBe(getRrwebRecorderSource());
+});
 
 // A compiled binary only carries what the bundler saw, so the recorder must be an
 // import the bundler follows (not a readFileSync from import.meta.dir), and it

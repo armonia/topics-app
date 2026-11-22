@@ -19,6 +19,22 @@ afterEach(() => {
 });
 
 describe("the subject in front", () => {
+  test("a held subject is in front until its release", () => {
+    const release = holdSubjectInFront("topic:front");
+    expect(subjectInFront()).toBe("topic:front");
+    expect(subjectInFront()).not.toBe("topic:behind");
+    release();
+    expect(subjectInFront()).toBeNull();
+  });
+
+  test("two holders of the same subject: in front until both are released", () => {
+    const a = holdSubjectInFront("topic:twice");
+    const b = holdSubjectInFront("topic:twice");
+    a();
+    expect(subjectInFront()).toBe("topic:twice");
+    b();
+    expect(subjectInFront()).toBeNull();
+  });
 
   test("the last holder is the subject in front; releasing it gives the front back to the one before", () => {
     releases.push(holdSubjectInFront("topic:chat"));

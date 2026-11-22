@@ -2,7 +2,10 @@
  * @covers TRAY-01
  */
 import { describe, expect, test } from "bun:test";
+import { TASK_STATUSES } from "./board";
 import {
+  TRAY_GROUP_ORDER,
+  TRAY_LIT_REASONS,
   trayAgentStates,
   type TrayGroup,
   trayBoardGroups,
@@ -13,6 +16,11 @@ import {
 
 const t = (id: string, status: string, text = `task ${id}`, projectId = "p") =>
   ({ id, status, text, projectId }) as never;
+
+// The glyph's number: the rows that ask something of a person. Local on purpose,
+// production reads the groups directly.
+const attentionOf = (groups: readonly TrayGroup[]): number =>
+  groups.filter((g) => (TRAY_LIT_REASONS as readonly string[]).includes(g.status)).reduce((n, g) => n + g.count, 0);
 
 describe("trayBoardGroups", () => {
   test("l'ordine è quello dell'URGENZA, non quello delle colonne né l'alfabetico", () => {
@@ -36,6 +44,14 @@ describe("trayBoardGroups", () => {
     expect(g.map((x) => x.status)).toEqual(["todo"]);
   });
 
+  test("backlog e done non entrano nella tray", () => {
+    expect(trayBoardGroups([t("a", "backlog"), t("b", "done")])).toEqual([]);
+    // Every status the menu does not list yields no group, however many cards it has.
+    const hidden = TASK_STATUSES.filter((s) => !(TRAY_GROUP_ORDER as readonly string[]).includes(s));
+    expect(hidden).toEqual(expect.arrayContaining(["backlog", "done"]));
+    for (const s of hidden) expect(trayBoardGroups([t("x", s), t("y", s)])).toEqual([]);
+  });
+
   test("il conteggio è di TUTTI, le righe sono solo le prime", () => {
     const molti = Array.from({ length: 9 }, (_, i) => t(`r${i}`, "review"));
     const [g] = trayBoardGroups(molti, { rowsPerGroup: 3 });
@@ -48,10 +64,25 @@ describe("trayBoardGroups", () => {
     expect(g[0]!.rows.map((r) => r.projectId)).toEqual(["alpha", "beta"]);
   });
 
+  test("il glifo conta chi aspetta una DECISIONE, non tutto il lavoro aperto", () => {
+    const g = trayBoardGroups([t("a", "review"), t("b", "review"), t("c", "in_progress"), t("d", "todo")]);
+    expect(attentionOf(g)).toBe(2);
+    expect(attentionOf([])).toBe(0);
+  });
+
 });
 
 describe("lit cards: the menu lists what the number counts", () => {
   const lit = (id: string, reason: "review" | "parked" | "question", projectId = "p") => ({ id, title: `card ${id}`, projectId, reason });
+
+  test("the review group comes from the lit cards, steps included, and the feed's gives way", () => {
+    // The feed holds one root in review; the attention has it plus two steps.
+    const g = trayBoardGroups([t("root", "review"), t("parent", "backlog"), t("c", "in_progress")], {
+      lit: [lit("root", "review"), lit("step1", "review"), lit("step2", "review"), lit("k", "parked")],
+    });
+    expect(g.map((x) => [x.status, x.count])).toEqual([["review", 3], ["parked", 1], ["in_progress", 1]]);
+    expect(attentionOf(g)).toBe(4);
+  });
 
   test("grouped by why, in a fixed order, empty groups left out", () => {
     const g = trayLitGroups([lit("q", "question"), lit("r", "review")]);

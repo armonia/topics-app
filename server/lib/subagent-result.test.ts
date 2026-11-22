@@ -11,14 +11,30 @@ import { join } from "path";
 import {
   childModel,
   classifyChildTurn,
+  emptyTally,
   endingChildTurn,
+  forgetTurns,
+  pendingTallyTurns,
   promptCount,
   resultKey,
+  STALE_BACKGROUND_MS,
+  tallyLines,
+  tallyTurnDurationMs,
   turnDurationMs,
+  UNDELIVERED_AFTER_MS,
 } from "./subagent-result";
 
 const fixture = (name: string) =>
   readFileSync(join(import.meta.dir, "../../tests/fixtures/subagent", `${name}.jsonl`), "utf-8").split("\n").filter(Boolean);
+const idle = { turnsReported: 0, seededAt: 0, now: 1_000, undeliveredReported: false };
+type PendingState = Parameters<typeof pendingTallyTurns>[1];
+
+// The whole-transcript view of the pending turns: fold every line, then ask.
+function pendingChildTurns(lines: readonly string[], s: PendingState) {
+  const t = emptyTally();
+  tallyLines(t, lines);
+  return pendingTallyTurns(t, s);
+}
 
 describe("classifyChildTurn", () => {
   test("a finished turn is reported without the process exiting", () => {
@@ -61,10 +77,39 @@ describe("what is not a prompt, and a turn that waits for its background work", 
     expect(promptCount(bg)).toBe(1);
   });
 
+  test("an end_turn with background work not yet reported is not the turn's end", () => {
+    expect(classifyChildTurn(beforeNotification, 1)).toBeNull();
+    expect(pendingChildTurns(beforeNotification, idle)).toEqual([]);
+  });
+
+  test("once the work reported and the child answered it, one result with the real outcome", () => {
+    expect(classifyChildTurn(bg, 1)).toEqual({ status: "completed", partial: false, text: "Suite: 412 pass, 0 fail." });
+    expect(pendingChildTurns(bg, idle)).toEqual([{ turn: 1, outcome: { status: "completed", partial: false, text: "Suite: 412 pass, 0 fail." } }]);
+  });
+
   test("stopped while it waited, the promise is the last line seen, not a result", () => {
     expect(classifyChildTurn(beforeNotification, 1, { ending: "stopped" })).toEqual({
       status: "stopped", partial: true, text: "The suite is running in the background; I will report when it finishes.", reason: { code: "stopped-by-parent" },
     });
+  });
+
+  test("notifications left as queue-operation and queued_command still settle the background work (09/11)", () => {
+    const lines = fixture("queued-notifications");
+    const done = { status: "completed" as const, partial: false, text: "All three chapters reviewed: 4 fixes." };
+    expect(promptCount(lines)).toBe(1);
+    expect(classifyChildTurn(lines, 1)).toEqual(done);
+    expect(pendingChildTurns(lines, idle)).toEqual([{ turn: 1, outcome: done }]);
+  });
+
+  test("a closed turn whose background never reports ends after STALE_BACKGROUND_MS, not before", () => {
+    const lines = fixture("background-silent");
+    const closedAt = Date.parse("2026-09-29T10:00:08.100Z");
+    expect(pendingChildTurns(lines, { ...idle, now: closedAt + STALE_BACKGROUND_MS - 1 })).toEqual([]);
+    expect(pendingChildTurns(lines, { ...idle, now: closedAt + STALE_BACKGROUND_MS })).toEqual([{
+      turn: 1, outcome: { status: "completed", partial: false, text: "The suite is running in the background; I will report when it finishes." },
+    }]);
+    // Without the CLI's close the clock does not run: the turn is still the child's.
+    expect(pendingChildTurns(lines.slice(0, -1), { ...idle, now: closedAt + 10 * STALE_BACKGROUND_MS })).toEqual([]);
   });
 
   test("a compact summary is not a prompt: the turn goes on through it", () => {
@@ -73,6 +118,44 @@ describe("what is not a prompt, and a turn that waits for its background work", 
     expect(classifyChildTurn(lines, 1)).toEqual({ status: "completed", partial: false, text: "Callers: 3 files." });
   });
 
+  test("a Bash the CLI itself moved to the background past its timeout is still background work (13/11)", () => {
+    const lines = fixture("background-timeout");
+    const beforeNotification = lines.slice(0, 5);
+    // No run_in_background was asked for: only the tool_result's backgroundTaskId says so.
+    expect(classifyChildTurn(beforeNotification, 1)).toBeNull();
+    expect(pendingChildTurns(beforeNotification, idle)).toEqual([]);
+    expect(classifyChildTurn(lines, 1)).toEqual({ status: "completed", partial: false, text: "The three dots are on the page." });
+    expect(pendingChildTurns(lines, idle)).toEqual([{
+      turn: 1, outcome: { status: "completed", partial: false, text: "The three dots are on the page." },
+    }]);
+  });
+});
+
+describe("pendingChildTurns", () => {
+  test("two turns, two results, each with its own number", () => {
+    const lines = fixture("two-turns");
+    expect(pendingChildTurns(lines, idle).map((p) => [p.turn, p.outcome.text])).toEqual([
+      [1, "Report: 3 files"],
+      [2, "Two tests: a.test.ts and b.test.ts"],
+    ]);
+    // Turn 1 already reported: only the second one is left.
+    expect(pendingChildTurns(lines, { ...idle, turnsReported: 1 }).map((p) => p.turn)).toEqual([2]);
+    expect(pendingChildTurns(lines, { ...idle, turnsReported: 2 })).toEqual([]);
+  });
+
+  test("a turn still open reports nothing", () => {
+    expect(pendingChildTurns(fixture("stopped-midturn"), idle)).toEqual([]);
+  });
+
+  test("a seed with no prompt record is undelivered after 60 s, once", () => {
+    const lines = fixture("startup-only");
+    expect(pendingChildTurns(lines, { ...idle, now: UNDELIVERED_AFTER_MS - 1 })).toEqual([]);
+    expect(pendingChildTurns(lines, { ...idle, now: UNDELIVERED_AFTER_MS })).toEqual([
+      { turn: 1, outcome: { status: "undelivered", partial: false, text: "", reason: { code: "no-prompt" } } },
+    ]);
+    expect(pendingChildTurns(lines, { ...idle, now: UNDELIVERED_AFTER_MS, undeliveredReported: true })).toEqual([]);
+    expect(pendingChildTurns(lines, { ...idle, seededAt: null, now: 10 * UNDELIVERED_AFTER_MS })).toEqual([]);
+  });
 });
 
 describe("endingChildTurn", () => {
@@ -135,3 +218,28 @@ describe("what a result carries", () => {
   });
 });
 
+describe("the transcript folded as it grows", () => {
+  test("lines fed a few at a time give what the whole file gives", () => {
+    for (const name of ["completed", "two-turns", "stopped-midturn", "background-task", "compact-midturn", "spend-limit", "startup-only"]) {
+      const lines = fixture(name);
+      const t = emptyTally();
+      for (let i = 0; i < lines.length; i += 2) tallyLines(t, lines.slice(i, i + 2));
+      expect(t.prompts).toBe(promptCount(lines));
+      expect(t.model).toBe(childModel(lines));
+      expect(pendingTallyTurns(t, idle)).toEqual(pendingChildTurns(lines, idle));
+      for (let turn = 1; turn <= t.prompts; turn++) expect(tallyTurnDurationMs(t, turn)).toBe(turnDurationMs(lines, turn));
+    }
+  });
+
+  test("a reported turn is forgotten, and the turns after it still read right", () => {
+    const lines = fixture("two-turns");
+    const t = emptyTally();
+    tallyLines(t, lines);
+    forgetTurns(t, 1);
+    expect(t.open).toHaveLength(1);
+    expect(pendingTallyTurns(t, { ...idle, turnsReported: 1 }).map((p) => [p.turn, p.outcome.text])).toEqual([
+      [2, "Two tests: a.test.ts and b.test.ts"],
+    ]);
+    expect(tallyTurnDurationMs(t, 1)).toBeNull();
+  });
+});

@@ -30,6 +30,7 @@ import {
   recordNotification,
 } from "./notification-log";
 import { configureNotificationRegistry, recordNotificationRow, __resetNotificationRegistry } from "../notification-registry";
+import { createTaskService } from "../services/tasks";
 import { NOTIFICATION_DEDUPE_MS, NOTIFICATION_MAX_AGE_DAYS, NOTIFICATION_MAX_ROWS } from "../../shared/notification-log";
 
 let tmpRoot: string;
@@ -53,6 +54,19 @@ afterAll(() => {
 
 function wipe(): void {
   getDatabase().run("DELETE FROM notification_log");
+}
+
+/** The bell number: unseen SUBJECTS (rows sharing a group key count once), read straight from the table. */
+function countUnseenNotifications(): number {
+  const r = getDatabase()
+    .query("SELECT COUNT(DISTINCT COALESCE(group_key, id)) AS c FROM notification_log WHERE seen_at IS NULL")
+    .get() as { c: number } | null;
+  return r?.c ?? 0;
+}
+
+/** Unseen ROWS, as opposed to `countUnseenNotifications`, which counts subjects. */
+function unseenRows(): number {
+  return listNotifications({ limit: 200 }).filter((r) => r.seenAt === null).length;
 }
 
 describe("recordNotification — dedup a finestra", () => {
@@ -100,6 +114,21 @@ describe("il bersaglio", () => {
 });
 
 describe("the seen of one subject (the seen door's writer)", () => {
+  test("every row of the subject is seen, the counter goes back to zero, another subject stays", () => {
+    wipe();
+    const t0 = Date.now();
+    // Two rows of the same chat: ONE thing to look at. Spaced beyond the dedup
+    // window, or the second would not be born.
+    recordNotification({ kind: "chat-message", title: "m1", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0);
+    recordNotification({ kind: "chat-message", title: "m2", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0 + NOTIFICATION_DEDUPE_MS + 1);
+    recordNotification({ kind: "chat-message", title: "other", dedupeKey: "chat:y", targetKind: "topic", targetId: "y" }, t0);
+    expect(countUnseenNotifications()).toBe(2);
+    expect(markGroupNotificationsSeen("topic:x")).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
+    // Read again from scratch (the "after a refresh"): the state is on the row.
+    expect(listNotifications().filter((r) => r.groupKey === "topic:x").every((r) => r.seenAt !== null)).toBe(true);
+    expect(listNotifications().find((r) => r.groupKey === "topic:y")?.seenAt).toBeNull();
+  });
 
   test("with `before`, a row written for a newer epoch stays unseen", () => {
     wipe();
@@ -110,6 +139,13 @@ describe("the seen of one subject (the seen door's writer)", () => {
     expect(listNotifications().find((r) => r.id === latest!.id)?.seenAt).toBeNull();
   });
 
+  test("nothing to mark says zero", () => {
+    wipe();
+    recordNotification({ kind: "other", title: "a", dedupeKey: "a" });
+    expect(markGroupNotificationsSeen("")).toBe(0);
+    expect(markGroupNotificationsSeen("topic:never")).toBe(0);
+    expect(countUnseenNotifications()).toBe(1);
+  });
 });
 
 describe("tetto e scadenza", () => {
@@ -148,6 +184,23 @@ describe("recordNotificationRow: the gate of the archived topics", () => {
     __resetNotificationRegistry();
   });
 
+  // The row of a chat the person is looking at: kept, and never unseen, so no
+  // badge goes up to come back down one seen dwell later.
+  test("a row born seen is written, but it never counts as unseen", () => {
+    wipe();
+    configureNotificationRegistry({ isTopicArchived: () => false });
+    const row = recordNotificationRow({
+      kind: "chat-message", title: "In front", dedupeKey: "chat-done:front",
+      targetKind: "topic", targetId: "front", seen: true,
+    });
+    expect(row?.seenAt).not.toBeNull();
+    expect(listNotifications().map((r) => r.id)).toEqual([row!.id]);
+    expect(countUnseenNotifications()).toBe(0);
+    // Nothing is left for the seen dwell to clear.
+    expect(markTargetNotificationsSeen("topic", "front")).toBe(0);
+    __resetNotificationRegistry();
+  });
+
   test("a duplicate is not written twice: the second call returns null", () => {
     wipe();
     configureNotificationRegistry({ isTopicArchived: () => false });
@@ -179,6 +232,30 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
     });
   }
 
+  test("segna viste TUTTE le notifiche di quella chat", () => {
+    wipe();
+    notifica("t1", "primo");
+    notifica("t1", "secondo");
+    expect(unseenRows()).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
+
+    expect(markTargetNotificationsSeen("topic", "t1")).toBe(2);
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("NON tocca le notifiche delle altre chat", () => {
+    // E' il caso che rende la sincronia sicura invece che comoda: leggere una
+    // conversazione non puo' cancellare l'avviso di un'altra, o il contatore
+    // diventa una decorazione.
+    wipe();
+    notifica("t1", "mia");
+    notifica("t2", "di un altro");
+
+    expect(markTargetNotificationsSeen("topic", "t1")).toBe(1);
+    expect(countUnseenNotifications()).toBe(1);
+    expect(listNotifications().find((r) => r.seenAt === null)?.targetId).toBe("t2");
+  });
+
   test("torna ZERO quando non c'e' niente da segnare", () => {
     // A no-op says so with zero: the caller can tell a seen that changed a row
     // from one that found nothing to mark.
@@ -189,5 +266,133 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
     expect(markTargetNotificationsSeen("topic", "mai-vista"), "bersaglio sconosciuto").toBe(0);
   });
 
+  test("un bersaglio senza id non segna niente invece di segnare tutto", () => {
+    // `group_key` nullo vuol dire «non raggruppabile». Trattarlo come un jolly
+    // cancellerebbe l'intera cronologia al primo id vuoto: il tipo di errore
+    // che si scopre quando la campanella non si accende piu'.
+    wipe();
+    notifica("t1", "una");
+    expect(markTargetNotificationsSeen("topic", "")).toBe(0);
+    expect(countUnseenNotifications()).toBe(1);
+  });
 });
 
+/**
+ * THE OTHER TWO GESTURES. Reading a chat was the only one the registry knew
+ * about; a card leaving review and a terminal being opened are the two that
+ * account for the rest of the backlog measured on 2026-08-29 - 74 `task-review`
+ * rows and 325 `session` rows out of 400 unseen.
+ *
+ * The task case needs nothing new: the group key of a target is `kind:id`, so
+ * `("task", id)` already addresses it. The terminal case does: a terminal is
+ * not a target (there is no route that selects one tab), so its rows are born
+ * with an explicit `groupKey` instead.
+ *
+ * @covers NOTIF-SEEN-01
+ */
+describe("markTargetNotificationsSeen - task e terminali, non solo le chat", () => {
+  test("a card leaving review clears its own review row and nothing else", () => {
+    wipe();
+    recordNotification({ kind: "task-review", title: "mia", body: "", targetKind: "task", targetId: "task-1", dedupeKey: "task-review:task-1" });
+    recordNotification({ kind: "task-review", title: "altrui", body: "", targetKind: "task", targetId: "task-2", dedupeKey: "task-review:task-2" });
+    expect(countUnseenNotifications()).toBe(2);
+
+    expect(markTargetNotificationsSeen("task", "task-1")).toBe(1);
+    expect(countUnseenNotifications()).toBe(1);
+    expect(listNotifications().find((r) => r.seenAt === null)?.targetId).toBe("task-2");
+  });
+
+  test("a parked card and its review row are the same target, so one gesture clears both", () => {
+    // Both are `task:<id>`: this is the reason not to invent a second notion of
+    // grouping - the card is one thing to look at, whatever woke it.
+    wipe();
+    recordNotification({ kind: "task-review", title: "consegnata", body: "", targetKind: "task", targetId: "task-9", dedupeKey: "task-review:task-9" });
+    recordNotification({ kind: "task-parked", title: "domanda", body: "", targetKind: "task", targetId: "task-9", dedupeKey: "task-parked:task-9" });
+    expect(markTargetNotificationsSeen("task", "task-9")).toBe(2);
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("opening a terminal clears the rows born with its own group key", () => {
+    wipe();
+    recordNotification({ kind: "session", title: "finito", body: "", dedupeKey: "terminal:a-1", groupKey: "terminal:sess-a" });
+    recordNotification({ kind: "session", title: "finito ancora", body: "", dedupeKey: "terminal:a-2", groupKey: "terminal:sess-a" });
+    recordNotification({ kind: "session", title: "un altro", body: "", dedupeKey: "terminal:b-1", groupKey: "terminal:sess-b" });
+    // Three rows, two terminals: the counter is the terminals.
+    expect(unseenRows()).toBe(3);
+    expect(countUnseenNotifications()).toBe(2);
+
+    expect(markTargetNotificationsSeen("terminal", "sess-a")).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+
+  test("a session row born WITHOUT a group key stays unreachable - which is why it gets one", () => {
+    // This is the defect itself, kept as a test: 325 rows written this way were
+    // extinguishable by nothing. It documents that the fix has to happen at
+    // birth, not at the gesture.
+    wipe();
+    recordNotification({ kind: "session", title: "orfana", body: "", dedupeKey: "terminal:orphan" });
+    expect(markTargetNotificationsSeen("terminal", "orphan")).toBe(0);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+});
+
+/**
+ * THE WHOLE CHAIN, over the real migrations: a card leaves review and its bell
+ * goes quiet by itself. This is the only place it can be measured - the task
+ * service's own bench runs on a separate in-memory handle that the notification
+ * registry cannot see, so an assertion there would be green over a dead wire.
+ *
+ * @covers NOTIF-SEEN-01
+ */
+describe("una card che esce da review spegne la propria campanella", () => {
+  const project = "proj-seen";
+
+  function bench() {
+    wipe();
+    const db = getDatabase();
+    db.run("DELETE FROM tasks");
+    return createTaskService(db);
+  }
+
+  function inReview(s: ReturnType<typeof createTaskService>) {
+    const t = s.create({ projectId: project, text: "work" });
+    s.addComment({ taskId: t.id, author: "claude", content: "consegna" });
+    s.update({ taskId: t.id, actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto della consegna" } });
+    recordNotification({
+      kind: "task-review", title: "da rivedere", body: "",
+      targetKind: "task", targetId: t.id, dedupeKey: `task-review:${t.id}`,
+    });
+    expect(countUnseenNotifications()).toBe(1);
+    return t;
+  }
+
+  test("approving it (reviewDecision) clears the row", () => {
+    const s = bench();
+    const t = inReview(s);
+    s.reviewDecision({ taskId: t.id, by: "human", decision: "approve" });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("rejecting it clears the row too - it has been looked at either way", () => {
+    const s = bench();
+    const t = inReview(s);
+    s.reviewDecision({ taskId: t.id, by: "human", decision: "reject", comment: "no" });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("dragging it out of review on the board clears it as well", () => {
+    // The exit that is NOT `reviewDecision`: `update({status})` from the board
+    // or from MCP. It was the strand that left 74 rows lit.
+    const s = bench();
+    const t = inReview(s);
+    s.update({ taskId: t.id, actor: "human", by: "human", patch: { status: "backlog" } });
+    expect(countUnseenNotifications()).toBe(0);
+  });
+
+  test("entering review does NOT clear anything", () => {
+    // The half that keeps it honest: only leaving is a gesture of having looked.
+    const s = bench();
+    inReview(s);
+    expect(countUnseenNotifications()).toBe(1);
+  });
+});

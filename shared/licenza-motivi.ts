@@ -27,3 +27,8 @@ export type MotivoLicenza =
   | "expired"
   | "valid";
 
+/** @internal every reason listed, so a test can iterate them; `satisfies` ties it to the type */
+export const MOTIVI_LICENZA = [
+  "no_token", "no_verification_key", "malformed",
+  "bad_signature", "other_installation", "expired", "valid",
+] as const satisfies readonly MotivoLicenza[];

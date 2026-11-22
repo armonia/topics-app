@@ -271,6 +271,37 @@ describe("cdpWaitFactor: the wait grows with the load, but stays a wait", () => 
   });
 });
 
+// The candidate ids in the order they get looked at, read without touching the
+// disk: with every probe answering "exists", discovery lists each candidate once.
+const candidateIdsFor = (platform: NodeJS.Platform): string[] =>
+  discoverChromiumEngines({ platform, exists: () => true }).map((e) => e.id);
+
+describe("the candidate list: the sidecar must not drive a person's own browser", () => {
+  it("Helium comes before Dia, and not as a matter of taste", () => {
+    // THE RISK THIS ORDER REMOVES. `pickChromiumEngine` takes the first
+    // candidate that exists on disk. On this machine, of the seven historical
+    // candidates, the only one installed was Dia: the user's own browser,
+    // with their tabs, their cookies, their sessions. Verified on 20/09
+    // before the change: `SCELTO: dia`.
+    //
+    // Helium is ungoogled-chromium (plain CDP, no Google services) and is not
+    // a browser somebody lives in, so it gets looked at first.
+    const ids = candidateIdsFor("darwin");
+    expect(ids).toContain("helium");
+    expect(ids).toContain("dia");
+    expect(ids.indexOf("helium")).toBeLessThan(ids.indexOf("dia"));
+    expect(ids.indexOf("helium")).toBe(0);
+  });
+
+  it("Helium is present on all three platforms", () => {
+    // A candidate added only on the Mac leaves the risk in place on Windows
+    // and Linux, and nobody notices until somebody works there.
+    expect(candidateIdsFor("darwin")).toContain("helium");
+    expect(candidateIdsFor("win32")).toContain("helium");
+    expect(candidateIdsFor("linux")).toContain("helium");
+  });
+});
+
 describe("un browser morto non si aspetta come uno lento", () => {
   test("a binary that does not exist fails in well under a second", async () => {
     // MEASURED, and it is why this exists: before the `error`/`exit` listeners

@@ -22,6 +22,11 @@ import {
 } from "./task-diff-range";
 import { defaultRunGit } from "./own-commits";
 
+/** The live range of a worktree, through the public resolver (no repo path: the live anchor answers). */
+async function worktreeOwnRange(cwd: string, opts: { branch?: string | null; mainRef?: string } = {}) {
+  return resolveTaskDiffRange({ taskId: "t", worktree: { cwd, branch: opts.branch ?? null }, mainRef: opts.mainRef });
+}
+
 const ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
 
 async function git(cwd: string, args: string[]): Promise<string> {
@@ -56,6 +61,89 @@ describe("task-diff-range", () => {
   });
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  test("il ramo che EREDITA i commit di un'altra sessione non se li intesta", async () => {
+    // L'altra sessione, parcheggiata sul checkout condiviso.
+    await git(dir, ["checkout", "-q", "-b", "topics/altra"]);
+    await commit(dir, "roba-di-un-altro.ts", "non mia\n", "lavoro altrui");
+    // La card nasce da LÌ, com'era prima di `worktree-base-ref.ts`.
+    await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+    await commit(dir, "mio.ts", "mio\n", "lavoro della card");
+
+    const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+    expect(r).not.toBeNull();
+    expect(await filesOf(dir, r!.range)).toEqual(["mio.ts"]);
+
+    // La domanda vecchia (`merge-base main HEAD`) intestava entrambi.
+    const oldBase = await git(dir, ["merge-base", "main", "topics/card"]);
+    expect(await filesOf(dir, oldBase)).toEqual(["mio.ts", "roba-di-un-altro.ts"]);
+  });
+
+  test("il ramo che ha INGLOBATO main non intesta a sé quello che main ha portato", async () => {
+    // Da quando il land riporta main dentro un ramo vecchio da sé
+    // (`task-automerge.ts`), un ramo con un merge di main è il caso NORMALE di
+    // ogni card che aspetta la review più di qualche ora. Il padre del primo
+    // commit della card è un punto della storia prima di quel merge: da lì il
+    // pannello mostrava anche il lavoro delle altre card, sotto questo nome.
+    await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+    await commit(dir, "mio.ts", "mio\n", "lavoro della card");
+    await git(dir, ["checkout", "-q", "main"]);
+    await commit(dir, "di-un-altra-card.ts", "atterrato nel frattempo\n", "main avanza");
+    await git(dir, ["checkout", "-q", "topics/card"]);
+    await git(dir, ["merge", "-q", "--no-edit", "main"]);
+
+    const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+    expect(r).not.toBeNull();
+    expect(await filesOf(dir, r!.range)).toEqual(["mio.ts"]);
+  });
+
+  test("senza commit propri resta il lavoro NON committato, e solo quello", async () => {
+    await git(dir, ["checkout", "-q", "-b", "topics/altra"]);
+    await commit(dir, "roba-di-un-altro.ts", "non mia\n", "lavoro altrui");
+    await git(dir, ["checkout", "-q", "-b", "topics/appena-nata"]);
+    writeFileSync(join(dir, "base.txt"), "base\nappena scritto\n");
+
+    const r = await worktreeOwnRange(dir, { branch: "topics/appena-nata" });
+    expect(r).not.toBeNull();
+    expect(r!.live).toBe(true);
+    expect(await filesOf(dir, r!.range)).toEqual(["base.txt"]);
+  });
+
+  test("la gamma viva arriva fino all'ALBERO: committato più non committato", async () => {
+    await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+    await commit(dir, "committato.ts", "a\n", "lavoro committato");
+    writeFileSync(join(dir, "base.txt"), "base\nmodifica viva\n");
+
+    const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+    expect(await filesOf(dir, r!.range)).toEqual(["base.txt", "committato.ts"]);
+  });
+
+  test("un commit proprio che è la RADICE si misura dall'albero vuoto", async () => {
+    const empty = mkdtempSync(join(tmpdir(), "taskdiffrange-root-"));
+    try {
+      await git(empty, ["init", "-q", "-b", "main"]);
+      await git(empty, ["config", "user.email", "t@t.t"]);
+      await git(empty, ["config", "user.name", "t"]);
+      await git(empty, ["config", "commit.gpgsign", "false"]);
+      // `main` esiste come ref solo dopo il primo commit: qui la card È la radice.
+      await commit(empty, "primo.ts", "uno\n", "il primo commit del repo");
+      const r = await worktreeOwnRange(empty, { branch: "main", mainRef: "non-esiste" });
+      expect(r).toBeNull(); // senza `main` la sottrazione non è contabile
+
+      await git(empty, ["branch", "-q", "-f", "vuoto-main", "HEAD"]);
+      const r2 = await worktreeOwnRange(empty, { branch: "main", mainRef: "vuoto-main" });
+      expect(r2).not.toBeNull();
+      expect(await filesOf(empty, r2!.range)).toEqual([]); // stessa punta: niente di suo
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  test("HEAD staccato non è misurabile (nessuna gamma inventata)", async () => {
+    const sha = await git(dir, ["rev-parse", "HEAD"]);
+    await git(dir, ["checkout", "-q", "--detach", sha]);
+    expect(await worktreeOwnRange(dir)).toBeNull();
+  });
 
   describe("dopo il land", () => {
     let cardCommit: string;
@@ -382,6 +470,18 @@ describe("task-diff-range", () => {
       expect(revs).toEqual({ base: parent, head: merge });
       expect(revs!.base).toMatch(SHA);
       expect(revs!.head).not.toBe(delivered);
+    });
+
+    test("a live single revision has a base and NO head: the After is the working tree", async () => {
+      await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+      await commit(dir, "committato.ts", "a\n", "lavoro committato");
+      writeFileSync(join(dir, "base.txt"), "base\nvivo\n");
+      const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+      const revs = await revsOfRange(defaultRunGit, dir, r!.range, r!.live);
+      expect(revs).not.toBeNull();
+      expect(revs!.base).toMatch(SHA);
+      expect(revs!.base).toBe(r!.range);
+      expect(revs!.head).toBeNull();
     });
 
     test("an empty-tree base is accepted as a tree, since the root commit has no parent", async () => {
