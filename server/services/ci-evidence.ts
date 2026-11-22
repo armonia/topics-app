@@ -69,6 +69,7 @@ import { GATES_CI_CHECK, NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type R
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { cardTag, supersedePreviousDelivery } from "./ci-supersede";
+import { CI_PUSH_TIMEOUT_MS, type CiStep, pushRejectedAsNonFastForward, reportStepFault } from "./ci-evidence-fault";
 import { reviewChecksStopping } from "./review-checks-brakes";
 
 /** No verdict this long after the push is NOT MEASURED (42 min measured in a 10-PR burst). */
@@ -91,8 +92,6 @@ export const CI_NO_RUN_GRACE_MS = 5 * 60_000;
 export const CI_API_ERRORS_MAX = 5;
 /** A git or gh call that hangs is an error, not a wait. */
 export const CI_CALL_TIMEOUT_MS = 60_000;
-/** A push runs the repo's pre-push hooks, which take minutes on a loaded machine: 60s cut them off and the push never landed. */
-export const CI_PUSH_TIMEOUT_MS = 300_000;
 export const CI_CONFIG_PATH = ".github/workflows/ci.yml";
 export const CI_BASE_BRANCH = "main";
 
@@ -173,11 +172,6 @@ export type CiEvidence =
 export function repoFromRemote(url: string): string | null {
   const m = url.trim().match(/^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/(?:[^@/]+@)?github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/);
   return m ? m[1]! : null;
-}
-
-/** `git push --porcelain` refused the ref because the remote moved on. */
-export function pushRejectedAsNonFastForward(porcelainOut: string): boolean {
-  return /\[rejected\] \((non-fast-forward|fetch first)\)/.test(porcelainOut);
 }
 
 /**
@@ -553,25 +547,6 @@ export function spawnCapped(argv: string[], cwd: string, capMs = CI_CALL_TIMEOUT
   });
 }
 
-/**
- * A step that failed for the board's own machinery: the call was cut by its cap (exit 137, "killed after"),
- * the network or the host did not answer, or the credentials were refused. Anything else (a pre-push hook
- * that declines the content, a rule of the remote) can come from the code being measured: the integration
- * tree runs ITS hooks, so a card that breaks them must not be passed off as the board's fault.
- */
-const BOARD_FAULT = new RegExp([
-  "exited 137", "killed after",
-  "could not resolve host", "unable to access", "failed to connect", "connection (?:timed out|refused|reset)",
-  "operation timed out", "network is unreachable", "remote end hung up", "early eof",
-  "ssl certificate", "schannel", "gnutls", "tls handshake",
-  "authentication failed", "permission denied \\(publickey", "could not read username", "http 401", "http 403",
-  "http 5\\d\\d", "error connecting to", "gh auth login", "not logged in",
-].join("|"), "i");
-
-export function isBoardFault(error: string): boolean {
-  return BOARD_FAULT.test(error);
-}
-
 const failed = (argv: string[], r: Spawned): { ok: false; error: string } =>
   ({ ok: false, error: `${argv.slice(0, 3).join(" ")} exited ${r.code}: ${(r.err || r.out).trim().slice(0, 400)}` });
 
@@ -704,7 +679,7 @@ export type AwaitCiDeps = {
  * server stops the checks.
  */
 export async function awaitCiEvidence(
-  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: "push" | "draft-pr", error: string) => void },
+  input: { cwd: string; sha: string; taskId: string; checks: readonly ReviewCheck[]; onFault?: (step: CiStep, error: string) => void },
   deps: AwaitCiDeps = {},
 ): Promise<CheckRun[]> {
   const port = deps.port ?? githubPort();
@@ -735,15 +710,8 @@ export async function awaitCiEvidence(
   // A cause that passes by itself: the same commit measured again can still give a verdict.
   const notYet = (reason: string, ctx: RunContext & { run?: GithubRun | null } = {}): CheckRun[] =>
     notMeasured(reason, { ...ctx, transient: true });
-  // A step of ours that failed: always said in the server log (it used to vanish into a row's tail). The caller
-  // hears of it only when the cause is the board's machinery, never when a hook refused the content.
-  const fault = (step: "push" | "draft-pr", reason: string, transient = false): CheckRun[] => {
-    console.warn(`[ci-evidence] ${input.taskId.slice(0, 8)} ${step} failed on ${sha.slice(0, 8)}: ${reason}`);
-    if (isBoardFault(reason)) {
-      try { input.onFault?.(step, reason); } catch { /* a report must never change the outcome */ }
-    }
-    return transient ? notYet(reason) : notMeasured(reason);
-  };
+  const fault = (step: CiStep, reason: string, transient = false): CheckRun[] =>
+    (reportStepFault({ taskId: input.taskId, sha }, step, reason, input.onFault), transient ? notYet(reason) : notMeasured(reason));
   const skipped = (reason: string): CheckRun[] => checks.map((c) => settled.get(c) ?? ciSkipped(c, reason));
 
   halt();

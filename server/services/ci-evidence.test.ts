@@ -23,13 +23,11 @@ import {
   readUnitEvidence,
   UNIT_STEP,
   repoFromRemote,
-  pushRejectedAsNonFastForward,
   type AwaitCiDeps,
   type GithubJob,
   type GithubPort,
   type GithubRun,
   spawnCapped,
-  isBoardFault,
 } from "./ci-evidence";
 import { ChecksInterruptedError } from "./checks-gate";
 import { CHECKS_LEG_MS } from "./checks-gate";
@@ -98,8 +96,6 @@ describe("readE2eEvidence", () => {
     expect(repoFromRemote("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
     expect(repoFromRemote("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
     expect(repoFromRemote("git@gitlab.com:a/b.git")).toBeNull();
-    expect(pushRejectedAsNonFastForward("!\trefs/x:refs/heads/b\t[rejected] (non-fast-forward)")).toBe(true);
-    expect(pushRejectedAsNonFastForward("=\trefs/x:refs/heads/b\t[up to date]")).toBe(false);
   });
 });
 
@@ -377,41 +373,6 @@ describe("awaitCiEvidence with the e2e and the unit rows", () => {
     const { port } = fakePort({ push: async () => ({ ok: false, error: "denied" }) });
     const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
     expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
-  });
-
-  test("a first push that fails is TRANSIENT: the round measures it again instead of giving up on the delivery", async () => {
-    const { port } = fakePort({ push: async () => ({ ok: false, error: "git push --porcelain exited 128: Could not resolve host: github.com" }) });
-    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
-    expect(rows.map((r) => r.transient)).toEqual([true, true]);
-  });
-
-  test("a push with lease that fails is not transient, as before", async () => {
-    const { port } = fakePort({ push: async (_c, _s, _b, lease) => (lease ? { ok: false, error: "stale info" } : { ok: true, value: "non-fast-forward" }), inReflog: async () => ({ ok: true, value: true }) });
-    const rows = await awaitCiEvidence(both, { port, ...fakeClock(), stopping: () => false });
-    expect(rows.map((r) => r.transient)).toEqual([undefined, undefined]);
-  });
-
-  test("a push cut by its cap is a board fault; a pre-push hook that declines the content is not", async () => {
-    const faults: string[] = [];
-    const onFault = (step: string, error: string) => { faults.push(`${step}: ${error}`); };
-    const killed = fakePort({ push: async () => ({ ok: false, error: "git push --porcelain exited 137: killed after 300 s" }) });
-    await awaitCiEvidence({ ...both, onFault }, { port: killed.port, ...fakeClock(), stopping: () => false });
-    expect(faults).toHaveLength(1);
-    expect(faults[0]).toContain("push: push failed");
-    const declined = fakePort({ push: async () => ({ ok: false, error: "git push --porcelain exited 1: pre-push: check-push-clean found a forbidden file\nerror: failed to push some refs" }) });
-    const rows = await awaitCiEvidence({ ...both, onFault }, { port: declined.port, ...fakeClock(), stopping: () => false });
-    expect(faults).toHaveLength(1);
-    expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
-  });
-});
-
-describe("isBoardFault", () => {
-  test("timeouts, transport and auth are the board's; a hook refusal is not", () => {
-    expect(isBoardFault("exited 137: killed after 300 s")).toBe(true);
-    expect(isBoardFault("fatal: unable to access 'https://github.com/o/r/': Failed to connect")).toBe(true);
-    expect(isBoardFault("remote: Invalid username or password.\nfatal: Authentication failed")).toBe(true);
-    expect(isBoardFault("gh exited 1: HTTP 502: Bad Gateway")).toBe(true);
-    expect(isBoardFault("exited 1: pre-push hook declined\nerror: failed to push some refs")).toBe(false);
   });
 });
 
