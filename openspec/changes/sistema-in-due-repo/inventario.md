@@ -10,7 +10,7 @@ Destinazioni: **A** = `topics-app` come modulo generico · **D** = repo dei dati
 | ~119 lavori nei canali | circa 150 in `jobs.json` (151 alle 01:35, 152 alle 01:55: il file cambia; 35 in pausa), più 177 archiviati |
 | Il repo pubblico `jarvis` ha dentro canali e hub | No: `publish-public.sh` li esclude, su `origin/main` 0 file sotto `tools/`. La storia dei canali sta nel checkout locale e nel ramo `backup/jarvis-public-main` del repo dei dati, che il passo `jarvis-copia` delle 2:30 riscrive ogni notte con un push forzato (con `git ls-remote`: 20/11, canali compresi; il riferimento locale del 1/11 letto prima era solo vecchio). Dal 22/11 lì sotto `backup/` ci sono anche i 28 rami non fusi e lo stash. `publish-public.sh` non esclude tutto `tools/`: `mcp-hot-gateway` e `discord-voce` sono assenti dal pubblico solo perché l'ultimo giro è del 3/11 |
 | Hub: cambio dei chiamanti e spegnimento ancora da fare | `hub-service` tiene già `:3336`, `:3360`, `:3361`; i vecchi plist sono in `disabled/`. La change `hub-tutto-in-topics` (20/11) dice il contrario: da riconciliare, non da rifare |
-| Plugin OpenClaw ancora vivi | Nessun processo OpenClaw, nessun plugin caricato. Vivo è `group-guard`, ma come policy letta dal motore dei canali (`engine.json`), non come plugin |
+| Plugin del vecchio gateway ancora vivi | Nessun processo del vecchio gateway, nessun plugin caricato. Vivo è `group-guard`, ma come policy letta dal motore dei canali (`engine.json`), non come plugin |
 | Remoti | 6 repo senza alcun remoto (casa `gtm`, `memoria.git`, `registro-richieste`, `errori-italiano`, `viaggi-mcp`, `topics-app-mockup-flussi`), 2 con remoto archiviato che rifiuta il push; il solo salvataggio di `~/.claude` fuori dal Mac è uno specchio senza storia |
 
 ## A. Canali: `tools/jarvis-channels` (Rust, 25.105 righe in 43 file, circa 680 test: 688 attributi, 10 ignorati)
@@ -56,7 +56,7 @@ Destinazioni: **A** = `topics-app` come modulo generico · **D** = repo dei dati
 | `memory/` (265 file, 59 schede di strumenti: sorgente di `docs-index`, letto da hook e prompt), `agents/` (`_shared/TOOLS.md` è importato dal `CLAUDE.md` globale di ogni sessione), `skills-attic`, `master` (job notturno), `promo`, `research`, `relocated-mcp`, `outside` | D | — | `TOOLS.md` è letto a ogni sessione e da `agents-build`: non va spostato senza link | file leggibile dallo stesso percorso per 24 h dopo |
 | `memory-recall` (codice, 5 tracciati; la cache 7,9 MB no) e `memory-blocks` (`com.jarvis.memblocks`) | A `harness/` | percorsi | un hook e un plist | hook risolto, plist su disco |
 | `data/` 4,1 GB (`documenti-jarvis`: nessun lettore trovato), `state/` 484 MB, `logs/` 213 MB | restano fuori da git (stato di esecuzione); `data/switchboard` come in B | guardare chi legge la cartella da 4,1 GB prima di dichiararla morta | 36 plist scrivono in `logs/`, nessuno legge `state/`; 43 plist nominano `~/.claude/jarvis` | — |
-| `sync-public.sh`, `publish-public.sh`, specchio `claude/` (fermo al 16/11; sul pubblico c'è ancora `openclaw/`, 9 file, mai rinominato) | X a ritiro del repo pubblico (decisione 3) | — | nessun job li lancia | non più chiamati |
+| `sync-public.sh`, `publish-public.sh`, specchio `claude/` (fermo al 16/11; sul pubblico c'è ancora la cartella col nome del vecchio gateway, 9 file, mai rinominata) | X a ritiro del repo pubblico (decisione 3) | — | nessun job li lancia | non più chiamati |
 
 ## E. `~/.claude` e il repo dei dati
 | Voce | Dove | Prima va reso generico | Vivo e rischio | Barra |
@@ -79,8 +79,8 @@ Forma finale di `jarvis-private`: `claude/` · `agent-home/<id>/` · `channels/`
 ## G. Satelliti (`~/Projects/Jarvis`, `Archivio`, `Topics`)
 | Repo | Dove | Nota e rischio |
 |---|---|---|
-| `openclaw-delegate-router`, `openclaw-jev-router`, `openclaw-muse-cli` (plugin di OpenClaw, che non gira) | X | prima si pushano i 3 commit e i 4 file modificati del primo e i 3 rami del terzo; `routes.log` fermo al 3/11 |
-| `openclaw-errori-italiano` (nessun remoto, 2 commit) | D come bundle, poi Z | la logica è già in `policy.rs` |
+| I tre repo dei plugin del vecchio gateway (`…-delegate-router`, `…-jev-router`, `…-muse-cli`; il gateway non gira) | X | prima si pushano i 3 commit e i 4 file modificati del primo e i 3 rami del terzo; `routes.log` fermo al 3/11 |
+| `…-errori-italiano`, plugin del vecchio gateway (nessun remoto, 2 commit) | D come bundle, poi Z | la logica è già in `policy.rs` |
 | `group-guard` | A (gruppo A) | vivo |
 | `jev-lab` (remoto `backup` privato allineato, ma il ramo `salvataggio/…` non è sul remoto; 103 occorrenze) | X dopo aver pushato quel ramo | bundle superfluo |
 | `viaggi-mcp` (nessun remoto, 2 commit, 39 MB) · `shopping-mcp` (remoto privato) | P | bundle di `viaggi-mcp` subito; figli del gateway; `shopping-mcp` ha un documento di piano personale |
@@ -104,6 +104,6 @@ Forma finale di `jarvis-private`: `claude/` · `agent-home/<id>/` · `channels/`
 - **Destino di `~/.claude/jarvis` dopo il ritiro:** ospita script, `data/switchboard`, `state/`, `logs/`, il venv del router, `memory-blocks`, `master`, il gateway e `private/`. Proposta: resta cartella di esecuzione dell'istanza, non più un repo.
 - **Non inventariati prima:** `CLAUDE.md`, `README.md`, `LICENSE`, `.claude/`, `docs/` (19 file tracciati più 167 MB generati), `distilled/`, la cartella di esecuzione del gateway; plist fuori da `com.jarvis` (agente di stato di un cliente, `ai-memory` da cui dipendono 9 hook, 2 di `jcode`, il server di Topics, `topics-db-snapshot`); configurazioni `~/.topics-server-env`, `~/.jcode`, `~/.agents`, `~/.codex`, `~/.config/claude-usage-hub` (letta da `api.rs:68,90`).
 - **`~/bin`:** i 134 file veri hanno tutti un omonimo in `setup/bin`, negli script di `jarvis` o in `bin` della casa: è una destinazione d'installazione (c'è anche `push-guard`), non solo link.
-- **Casa dei canali:** altri eseguibili e shim (`openclaw`, `openclaw-vero`, `gh` con il suo profilo di sandbox); `/opt/homebrew/bin/openclaw` punta lì.
+- **Casa dei canali:** altri eseguibili e shim (lo shim col nome del vecchio gateway e la sua copia `-vero`, `gh` con il suo profilo di sandbox); il comando omonimo in `/opt/homebrew/bin` punta lì.
 - **Nomi:** crate e binario `jarvis-channels`, etichette `com.jarvis.*`, identità di firma `io.jarvis.channels` (conserva il permesso Promemoria), 29 file di `topics-app` che citano il binario. La classe «id di agenti» farebbe rosso `services/**` dal primo giorno.
 - **Limiti di GitHub:** il git di `topics-app-mockup-flussi` è 783 MB di oggetti sciolti, il pack del repo dei dati 532 MB e i blob cifrati non si comprimono a delta: un bundle oltre 100 MB fa fallire il push notturno.
