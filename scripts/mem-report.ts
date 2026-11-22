@@ -208,7 +208,7 @@ const serverRows = server.rows;
  *
  * La prima versione cercava `claude|codex|jcode` nella riga di comando e
  * pescava 988 MB di roba che non e' di Topics: i server MCP personali di Jarvis
- * vivono sotto `~/.claude/jarvis/`, sono `node` e `python`, e stavano li' da tre
+ * vivono sotto `<harness-home>/`, sono `node` e `python`, e stavano li' da tre
  * giorni. Attribuirli a Topics era il modo perfetto per andare a caccia del
  * grasso nel posto sbagliato — cioe' esattamente cio' che questo strumento deve
  * impedire.

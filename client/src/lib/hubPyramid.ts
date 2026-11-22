@@ -6,7 +6,7 @@
  * sees and who may do what; every function Jarvis needs with its outcome: covered,
  * done today, covered another way, moving to the single engine, partial,
  * missing, let go, to withdraw. Pure functions over the hub's JSON
- * (~/.claude/jarvis/features/pyramid.json): a field the hub renamed is
+ * (<harness-home>/features/pyramid.json): a field the hub renamed is
  * dropped, never thrown on.
  */
 

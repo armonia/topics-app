@@ -3,8 +3,8 @@
  * one that answers (Happy Eyeballs, RFC 8305).
  *
  * Why it exists: an ISP can drop port 443 on ONE of a host's addresses while
- * the others work (22/11/2026: 104.18.32.47 for chatgpt.com, 172.64.155.209
- * fine). The Codex CLI tries addresses one after the other and its routing
+ * the others work (22/11/2026: one Cloudflare address of chatgpt.com dead,
+ * another fine). The Codex CLI tries addresses one after the other and its routing
  * discovery times out on the dead one first, so a ChatGPT chat sat on
  * "Reconnecting... N/5" about every other DNS answer. Pointing the CLI's
  * HTTPS_PROXY here makes the dead address invisible, without sudo or

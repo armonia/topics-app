@@ -26,6 +26,7 @@ import { hasDomResourceToken, routedResourceUrl } from "../lib/dom-resource-rewr
 import type { DomHostRegistry } from "../lib/native-dom-host";
 import { inputPayloadSchema } from "../../shared/browser-ws-messages";
 import { getRrwebRecorderSource } from "../lib/rrweb-recorder";
+import { logNavError } from "../browser-nav-error-log";
 
 export function createBrowserRouter(
   ctx: AppContext,
@@ -145,6 +146,25 @@ export function createBrowserRouter(
       const port = loopbackPortOf(target);
       if (port === null) return errorResponse(400, "not a loopback url");
       return json({ port, listening: await isPortListening(port) });
+    }
+
+    // --- A native pane's nav error, so it reaches the server log ---
+    // WKWebView's failures (TLS, DNS, connection refused: navErrorMessage.ts)
+    // happen on the Mac. Without this they never crossed back, and a strip the
+    // user saw could not be diagnosed from the log afterwards (task 590a3979).
+    if (method === "POST" && pathname === "/api/browsers/nav-error-log") {
+      const body = await readJSON(req);
+      if (typeof body?.paneId !== "string" || !body.paneId) return errorResponse(400, "paneId required");
+      if (typeof body?.host !== "string" || !body.host) return errorResponse(400, "host required");
+      if (typeof body?.code !== "number") return errorResponse(400, "code required");
+      logNavError({
+        paneId: body.paneId,
+        host: body.host,
+        code: body.code,
+        description: typeof body.description === "string" ? body.description : "",
+        at: typeof body.at === "number" ? body.at : Date.now(),
+      });
+      return json({ ok: true });
     }
 
     // --- Chi NON si può reapare ---
