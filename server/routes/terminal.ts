@@ -923,17 +923,23 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return errorResponse(409, `sub-agent "${row.name}" runs on a paired node: it cannot take more input mid-run, stop it and spawn a new one`);
           }
           if (row?.runtime === "topics") {
-            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            // A native child is a chat anyone can already write into with
+            // send_chat_message, so the parent check guards nothing here. A
+            // later session of the same work (a scheduled run opens a fresh
+            // chat each time) resuming it read a bare 404 and retried the
+            // same id until the run failed (card bd72a5bf). Its result still
+            // wakes the parent it was born under, which the answer names.
             if (!input) return errorResponse(400, "input (string) is required");
+            const owner = row.parentSessionKey;
             if (row.state !== "running") {
               const verdict = resumeVerdict(row);
               if (!verdict.ok) return errorResponse(verdict.status, `cannot resume sub-agent "${row.name}": ${verdict.reason}`);
-              const refusal = subagentLimitRefusal(parentKey, { depth: spawnedAgentDepth(parentKey), childIds: liveChildrenOf(parentKey).map((c) => c.id) });
+              const refusal = subagentLimitRefusal(owner, { depth: spawnedAgentDepth(owner), childIds: liveChildrenOf(owner).map((c) => c.id) });
               if (refusal) return errorResponse(429, refusal);
             }
             const sent = await sendToNativeChild(row, input);
             if (!sent.ok) return errorResponse(sent.status, sent.error);
-            return json({ ok: true, sent: Buffer.byteLength(input, "utf8"), ...(sent.resumed ? { resumed: true } : {}) });
+            return json({ ok: true, sent: Buffer.byteLength(input, "utf8"), ...(sent.resumed ? { resumed: true } : {}), ...(owner !== parentKey ? { wakes: owner } : {}) });
           }
         }
         const child = resolveOwnedChild(parentKey, agentId);
@@ -1032,7 +1038,8 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
             return json({ ...result, nextOffset: encodeLogOffset(childLogEpoch, result.nextOffset) });
           }
           if (row?.runtime === "topics") {
-            if (row.parentSessionKey !== parentKey) return errorResponse(404, subAgentNotFound(agentId));
+            // Read-only, and the same chat read_chat_messages already opens to
+            // any session: whoever resumed it from elsewhere can follow it.
             return json(readNativeChildOutput(row, Number(url.searchParams.get("since") || "0")));
           }
         }
