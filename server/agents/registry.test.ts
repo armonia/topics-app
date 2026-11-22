@@ -1,3 +1,4 @@
+// @covers AGENTS-REG-01
 import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
