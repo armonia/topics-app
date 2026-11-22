@@ -377,6 +377,7 @@ async function watchChildren(): Promise<void> {
 /**
  * Retire every live child due for it, now. The watch does it on its tick; a
  * test calls it with a clock moved forward instead of waiting 15 minutes.
+ * @internal test seam: retire with a moved clock instead of waiting the idle window
  */
 export function retireIdleSubAgents(opts: { now?: number; idleMs?: number } = {}): string[] {
   const retired: string[] = [];

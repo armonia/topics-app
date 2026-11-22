@@ -15,11 +15,9 @@ import {
   findPlanAwaitingApproval,
   planApprovalSchema,
   shouldAskPlanApproval,
-  PLAN_APPROVE_LABEL,
-  PLAN_REJECT_LABEL,
   isPlanApprovalAnswer,
-  planDecisionFrom,
 } from "./plan-approval";
+import { PLAN_APPROVE_LABEL, PLAN_REJECT_LABEL, planDecisionFrom } from "../../shared/plan-decision";
 
 const tool = (id: string, detail: unknown): ContentBlock =>
   ({ kind: "tool", toolCall: { id, name: "Write", args: {}, status: "success", detail } }) as ContentBlock;

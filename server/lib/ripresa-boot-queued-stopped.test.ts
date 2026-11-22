@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, riprendiTurniInterrotti,
+  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, riprendiTurniInterrotti,
   resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
@@ -20,6 +20,7 @@ import {
 import * as boot from "./ripresa-boot";
 import { abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
 import { RESTART_INTERRUPTED_MARKER } from "./boot-partial-sweep";
+import { UNANSWERED_NOTICE } from "./resume-notices";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { logStreamAborted } from "../db/activity-log";
 // `logStopPressed` is new: through the namespace, like the builders above.

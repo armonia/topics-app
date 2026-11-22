@@ -1,11 +1,23 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertRrwebVersionsMatch, getRrwebRecorderSource, readLockedRrwebVersion } from "./rrweb-recorder";
+import { getRrwebRecorderSource } from "./rrweb-recorder";
 
 /** @covers BROWSER-DOM-RECORDER-01 */
 
 const ROOT = join(import.meta.dir, "..", "..");
+
+function assertRrwebVersionsMatch(clientVersion: string, lockedVersion: string): void {
+  if (clientVersion !== lockedVersion) {
+    throw new Error(`rrweb version mismatch: client package requests ${clientVersion}, lockfile pins ${lockedVersion}`);
+  }
+}
+
+function readLockedRrwebVersion(lockText: string): string {
+  const match = lockText.match(/^\s+"rrweb":\s+\["rrweb@([^"]+)"/m);
+  if (!match) throw new Error("rrweb package is missing from client/bun.lock");
+  return match[1];
+}
 
 test("the shared recorder matches the installed rrweb package and lockfile", () => {
   const manifest = JSON.parse(readFileSync(join(ROOT, "client", "package.json"), "utf8")) as {

@@ -86,6 +86,7 @@ function chooseTitle(st: TitleScanState): string | null {
 
 /** Pull the best available title out of already-read JSONL transcript text.
  *  Returns null when nothing usable is present. */
+/** @internal whole-text entry point the title tests drive; the runtime scans incrementally */
 export function extractTitleFromTranscript(raw: string): string | null {
   const st = blankState();
   scanLines(st, raw.split("\n"));

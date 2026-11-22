@@ -120,6 +120,7 @@ export type MaterializeResult = { ok: true } | { ok: false; reason: string };
  * repo with no `origin` hands the node nothing to clone: this is the one
  * place the node's checkout is born, by fetching the bundle into a brand new
  * `git init`.
+ * @internal node-side half of the bundle handoff, driven by its tests
  */
 export async function materializeChildCheckout(input: MaterializeChildCheckoutInput): Promise<MaterializeResult> {
   const { targetDir, branch, bytes } = input;

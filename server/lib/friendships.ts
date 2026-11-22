@@ -231,7 +231,7 @@ export function friends(db: Db, me: string): string[] {
   return relations(db, me).filter((e) => e.state === "friends").map((e) => e.personId);
 }
 
-/** Requests waiting for MY answer, newest first. */
+/** @internal read helper the friendship tests assert through. Requests waiting for MY answer, newest first. */
 export function incoming(db: Db, me: string): Array<{ id: string; since: number }> {
   return relations(db, me).filter((e) => e.state === "pending_in")
     .map((e) => ({ id: e.personId, since: e.since }));
@@ -245,6 +245,7 @@ export function incoming(db: Db, me: string): Array<{ id: string; since: number 
  * anybody, so listing it under "outgoing" would tell the sender they were
  * refused. The state on the profile says the same non-committal thing a
  * pending one does; only this server knows the difference.
+ * @internal read helper the friendship tests assert through
  */
 export function outgoing(db: Db, me: string): Array<{ id: string; since: number }> {
   return relations(db, me).filter((e) => e.state === "pending_out")

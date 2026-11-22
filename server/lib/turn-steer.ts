@@ -88,7 +88,7 @@ function setState(sessionKey: string, id: string, s: SteerState): void {
   states.set(id, { sessionKey, at: now, s });
 }
 
-/** A running turn on this session takes messages. */
+/** @internal steer tests read whether a turn takes messages. A running turn on this session takes messages. */
 export function steerOpen(sessionKey: string): boolean {
   return targets.has(sessionKey);
 }

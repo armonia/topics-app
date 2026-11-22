@@ -39,8 +39,8 @@ const TEST_TICK_MS = 50;
 process.env.TOPICS_AI_BRIDGE_ACK_MS = String(TEST_ACK_MS);
 process.env.TOPICS_AI_BRIDGE_STALL_TICK_MS = String(TEST_TICK_MS);
 
-const { AiBridgeClient, BridgeAckStalled, isRetryableBridgeError, shouldRecycleSocket } =
-  await import("./ai-bridge-client");
+const { AiBridgeClient, shouldRecycleSocket } = await import("./ai-bridge-client");
+const { BridgeAckStalled, isRetryableBridgeError } = await import("./ai-bridge-errors");
 
 let server: net.Server | null = null;
 let client: InstanceType<typeof AiBridgeClient> | null = null;

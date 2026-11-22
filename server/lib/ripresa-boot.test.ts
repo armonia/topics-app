@@ -11,9 +11,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESTART_CONTINUATIONS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
-  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
+  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS,
 } from "./ripresa-boot";
 import { ORPHAN_ERRORS } from "./orphan-tool-sweep";
+import { UNANSWERED_NOTICE } from "./resume-notices";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";

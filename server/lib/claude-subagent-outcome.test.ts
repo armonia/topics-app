@@ -11,7 +11,8 @@
  * @covers SUBAGENT-04, SUBAGENT-05
  */
 import { describe, expect, test } from "bun:test";
-import { classifySubAgentTranscript, transcriptHasPrompt } from "./claude-subagent-transcript";
+import { transcriptHasPrompt } from "./claude-subagent-transcript";
+import { classifySubAgentTranscript } from "./subagent-result";
 
 const PROMPT = "Mappa dove finisce il tool_result del provider nativo e riporta i file";
 

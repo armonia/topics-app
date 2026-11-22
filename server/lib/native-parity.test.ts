@@ -14,10 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claudeMemoryDir, readClaudeMemoryIndex, recallMemoryContext, nativeWorkingDir,
-  readUserRules, readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
+  readUserRulesSource, listSkills, skillsBlock, thinkingBudgetFor, thinkingConfigFor, clampMaxTokens, DEFAULT_MAX_TOKENS,
 } from "./native-parity";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
+const readUserRules = (h: string) => readUserRulesSource(h)?.content ?? null;
 let home: string;
 
 beforeEach(() => {

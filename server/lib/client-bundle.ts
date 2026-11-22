@@ -46,6 +46,7 @@ export function missingBundleAssets(dir: string): string[] {
  * bundle that only the clients accepting brotli would ever see, and only some
  * of them. Nothing else notices - the sizes look right, the page loads - so the
  * check is here, on the artifact, run by the build before it publishes.
+ * @internal dev tooling only, called by scripts/build-client.ts
  */
 export function mismatchedPrecompressedSiblings(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -111,6 +112,7 @@ export function precompressedOrigin(name: string): string | null {
   return m ? m[1] : null;
 }
 
+/** @internal dev tooling only, called by the client build and bundle-size scripts */
 export function unreachableAssets(assetsDir: string, roots: Iterable<string>): string[] {
   if (!existsSync(assetsDir)) return [];
   const all = filesUnder(assetsDir);

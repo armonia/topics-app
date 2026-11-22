@@ -388,6 +388,7 @@ export function classifyChildTurn(
  * How a child that just ENDED finished its last turn: the verdict of the
  * report written when the process goes. Kept for its callers; the per-turn
  * reports go through `classifyChildTurn`.
+ * @internal end-of-child verdict the outcome tests call; the runtime goes through classifyChildTurn
  */
 export function classifySubAgentTranscript(
   lines: string[] | null,
@@ -407,6 +408,7 @@ export function classifySubAgentTranscript(
  * once as `undelivered`. That report does not consume turn 1: if the prompt
  * lands after all, its real end is reported too (the dedup key carries the
  * status, `resultKey`).
+ * @internal per-turn report reader the result tests drive
  */
 export function pendingChildTurns(
   lines: readonly string[],

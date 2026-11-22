@@ -341,6 +341,7 @@ function capFromContainer(inherited: GrantLevel | null): GrantLevel | null {
  * dispositivo, la sua persona, una sua organizzazione — e un elenco che si
  * ferma alla prima non risponde alla domanda: toglierne una lascerebbe
  * l'accesso in piedi per un'altra, senza che niente lo dica.
+ * @internal explains why access holds, asserted by the grants tests
  */
 export function reasonsFor(
   db: Db,

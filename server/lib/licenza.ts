@@ -401,6 +401,7 @@ function fromLoad(carico: CaricoGettone, installationId: string, ora: number): E
  * ri-serializzato: due JSON con le stesse chiavi in ordine diverso sono due
  * stringhe diverse, e firmare l'oggetto invece del testo è il modo classico di
  * ritrovarsi con una firma che vale su un carico che nessuno ha firmato.
+ * @internal offline token check, called by scripts/conio-lib.ts and the licence tests
  */
 export function verificaGettone(gettone: string, o: OptionsVerify): Entitlement {
   const r = verifyLoad(gettone, o);

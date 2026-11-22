@@ -33,6 +33,7 @@ export interface LogBuffer {
   pendingLine: string;
 }
 
+/** @internal the log-cursor tests start every buffer from it */
 export function emptyLogBuffer(): LogBuffer {
   return { output: [], outputBytes: 0, droppedLines: 0, pendingLine: "" };
 }
