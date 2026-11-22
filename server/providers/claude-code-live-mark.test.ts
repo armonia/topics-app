@@ -268,7 +268,8 @@ describe("claude-code provider · a re-adoption refused past its scan", () => {
 
   test("a rewind capped after it dropped live frames owes them: the turn going on gets every number", async () => {
     const { ClaudeCodeProvider } = await import("./claude-code");
-    const { getAiBridgeClient, BridgeAckStalled } = await import("../lib/ai-bridge-client");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+const { BridgeAckStalled } = await import("../lib/ai-bridge-errors");
     const sessionKey = "topic:live-mark-rewind-capped";
     await seedTopic(sessionKey, "t-live-mark-rewind-capped");
     setEnv("TOPICS_CLAUDE_CLI_PATH", writeCli("rewind-capped.sh", `while read line; do

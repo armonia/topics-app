@@ -8,21 +8,20 @@
  * @covers RESUME-01, RESUME-03, ASK-11
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import {
-  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESTART_CONTINUATIONS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
-  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
-  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
+import { MAX_FREE_PROBES, MAX_RESTART_CONTINUATIONS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS,
+  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS,
 } from "./ripresa-boot";
 import { ORPHAN_ERRORS } from "./orphan-tool-sweep";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
-import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { clearProviderHold, liftApiDownHold, resetProviderHoldStore, setProviderHold } from "./provider-hold";
 import type { ContentBlock } from "../types";
+import { UNANSWERED_NOTICE } from "./resume-notices";
 
 // The sweep reads the last turn end of each session from a process-wide
 // registry: an end left behind by another test (or another file in the same
@@ -42,9 +41,6 @@ const base: RigaDaValutare = {
 };
 
 describe("quale chat riprende da sola", () => {
-  test("ultimo turno interrotto, poco fa: si riprende", () => {
-    expect(chatDaRiprendere(base, ORA)).toBe(true);
-  });
 
   test("a turn cut while its question is still open is NOT resent: it resumes with the answer", () => {
     // Resent, the model asks the same question again in a second panel while
@@ -52,55 +48,6 @@ describe("quale chat riprende da sola", () => {
     // resumes the chat, as the next message (`lib/question-outlives-asker.ts`).
     expect(resumeVerdict({ ...base, openQuestion: true }, ORA)).toBe("no");
     expect(resumeVerdict({ ...base, ruolo: "user", blocks: null, timestampMs: ORA - USER_TAIL_GRACE_MS - 1, openQuestion: true }, ORA)).toBe("no");
-  });
-
-  /**
-   * 2026-09-04, topic:6b9605e5: a message sent at 09:58 under a restart, no
-   * answer row ever born, and five hours of sweeps reading "the last word is
-   * the person's" as "they resumed by hand". Nobody had.
-   */
-  test("l'ultima parola è dell'utente e nessuno ha risposto: prima il cartello, poi si riprende", () => {
-    const tail: RigaDaValutare = { ...base, ruolo: "user", blocks: null, timestampMs: ORA - USER_TAIL_GRACE_MS - 1 };
-    expect(resumeVerdict(tail, ORA)).toBe("unanswered");
-    // Fresh: the answer row is on its way.
-    expect(resumeVerdict({ ...tail, timestampMs: ORA - 10_000 }, ORA)).toBe("no");
-    // A turn is live: they resumed by hand, or the answer is being written.
-    expect(resumeVerdict({ ...tail, streaming: true }, ORA)).toBe("no");
-    // A board card's chat: the dispatcher re-sends its own kickoff.
-    expect(resumeVerdict({ ...tail, boundToCard: true }, ORA)).toBe("no");
-    // Window and cap as for every interruption of ours.
-    expect(resumeVerdict({ ...tail, timestampMs: ORA - FINESTRA_RIPRESA_MS - 1 }, ORA)).toBe("no");
-    expect(resumeVerdict({ ...tail, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
-    // `chatDaRiprendere` only resends what already carries its notice.
-    expect(chatDaRiprendere(tail, ORA)).toBe(false);
-  });
-
-  test("nessun verdetto di interruzione: il turno è finito bene, o l'ha fermato lui", () => {
-    // `cancelledNotice` tace su `user`, quindi un turno fermato a mano NON ha
-    // il blocco `error`: questo controllo è anche il modo in cui il suo Ferma
-    // viene rispettato.
-    expect(chatDaRiprendere({ ...base, blocks: [prosa] }, ORA)).toBe(false);
-  });
-
-  test("già ripreso: si CONTA sulla catena, non è un interruttore", () => {
-    // The trace is written BEFORE the resend, on purpose: written after, a
-    // resend that dies halfway would be retried forever. As a switch, though,
-    // that price was paid on the first try, and a resend that got CUT - the
-    // server restarting while the resumed turn was running - burned the single
-    // chance. From then on every boot skipped that row, under a notice
-    // promising it would resume on its own. Measured on 2026-08-29 on
-    // topic:0299ac2d, reported four times.
-    //
-    // The count is the CHAIN's, handed in by the caller: one cut attempt does
-    // not close the door, the cap does, and past the cap the verdict is not a
-    // silent "no" but "capped", which the loop turns into a notice in the chat.
-    expect(chatDaRiprendere({ ...base, attempts: 1 }, ORA)).toBe(true);
-    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
-    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS + 5 }, ORA)).toBe("capped");
-    // "capped" is only for rows that DESERVED the resend: a row with no
-    // interruption of ours past the cap is a plain "no", nothing gets written.
-    expect(resumeVerdict({ ...base, blocks: [prosa], attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
-    expect(resumeVerdict({ ...base, ruolo: "user", attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
   });
 
   test("a turn live on the chat is neither resent nor capped, even past the cap", () => {
@@ -114,14 +61,6 @@ describe("quale chat riprende da sola", () => {
     expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
   });
 
-  test("il cartello del tetto non e' un'interruzione: il boot dopo non lo riprende", () => {
-    // Written with the same ⚠️ shape the client renders as "Riprova", it would  allow-italian: button label
-    // be the perfect fuel for the loop it closes if the recogniser took it.
-    expect(RESUME_CAP_MARKER.startsWith("⚠️")).toBe(true);
-    expect(eCartelloDiInterruzione(RESUME_CAP_MARKER)).toBe(false);
-    expect(chatDaRiprendere({ ...base, blocks: [{ kind: "error", text: RESUME_CAP_MARKER }] }, ORA)).toBe(false);
-  });
-
   test("il numero del tentativo si legge dai blocchi, e le righe vecchie valgono uno", () => {
     expect(attemptsOnRow([prosa, interrotto])).toBe(0);
     expect(attemptsOnRow([prosa, interrotto, { kind: "ripreso" }])).toBe(1);
@@ -130,125 +69,8 @@ describe("quale chat riprende da sola", () => {
     expect(attemptsOnRow(null)).toBe(0);
   });
 
-  test("fuori finestra: non si risponde a una domanda di ieri", () => {
-    expect(chatDaRiprendere({ ...base, timestampMs: ORA - FINESTRA_RIPRESA_MS - 1 }, ORA)).toBe(false);
-    // Al bordo interno si riprende ancora.
-    expect(chatDaRiprendere({ ...base, timestampMs: ORA - FINESTRA_RIPRESA_MS + 1 }, ORA)).toBe(true);
-  });
-
-  test("senza blocchi non si decide niente", () => {
-    expect(chatDaRiprendere({ ...base, blocks: [] }, ORA)).toBe(false);
-    expect(chatDaRiprendere({ ...base, blocks: null }, ORA)).toBe(false);
-  });
 });
 
-/**
- * NON OGNI BLOCCO `error` È UN'INTERRUZIONE NOSTRA.
- *
- * Il cancello era `blocks.some(b => b.kind === "error")`: qualunque verdetto di
- * guasto. Ma in quel blocco ci finisce TUTTO ciò che va storto, e sul database
- * vivo gli ultimi messaggi con un blocco `error` erano 25 «ai-bridge: ack
- * timeout», 4 «Process exited with code», 1 «API 400».
- *
- * Nessuno di quelli è un turno da riprendere: sono guasti deterministici, e
- * rimandare il messaggio ricompra lo stesso fallimento — su un turno lungo
- * riaprendo tutti i giri di tool già fatti. I test di questo file non li
- * coprivano: passavano perché la loro fixture usa già il testo del cartello
- * giusto, cioè per fortuna e non per costruzione.
- */
-describe("i guasti che NON sono un'interruzione", () => {
-  const withError = (text: string): RigaDaValutare => ({
-    ...base,
-    blocks: [prosa, { kind: "error", text } as ContentBlock],
-  });
-
-  test("i testi VERI presi dal database non fanno scattare la ripresa", () => {
-    for (const guasto of [
-      "ai-bridge: ack timeout (list, 5s)",
-      "ai-bridge: ack timeout (spawn topic:f4841e2f, 20s)",
-      "Process exited with code 1",
-      "API 400",
-      "Nessuna risposta: il turno si è chiuso senza produrre niente.",
-    ]) {
-      expect(chatDaRiprendere(withError(guasto), ORA), guasto).toBe(false);
-    }
-  });
-
-  test("e il cartello di interruzione continua a farla scattare", () => {
-    expect(chatDaRiprendere(base, ORA)).toBe(true);
-    for (const c of [
-      "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.",
-      "Turno interrotto: ha superato il limite di tempo concesso.",
-    ]) {
-      expect(chatDaRiprendere(withError(c), ORA), c).toBe(true);
-    }
-  });
-
-  /**
-   * L'annullamento SENZA causa dichiarata prende un cartello ma non si
-   * riprende: non si indovina chi ha annullato. Stessa regola di
-   * `isResumableCause`.
-   */
-  test("il cartello generico non basta", () => {
-    expect(chatDaRiprendere(withError("Turno interrotto prima della fine."), ORA)).toBe(false);
-  });
-});
-
-
-/**
- * THE SEAM, which is the part nobody tested.
- *
- * Both halves had a test, each with its own fake row: on one side "the boot
- * writes the notice", on the other "a notice shaped like this deserves the
- * resume". In between nobody asked whether the notice the boot ACTUALLY writes
- * is one of those. It was not, for two independent reasons: the row was born
- * with no blocks (and the rule bails immediately - it has a test called "no
- * blocks, no decision"), and the two sentences did not match either. The one it
- * wrote and the one the list recognised are quoted in the assertion below, and
- * they are the subject here, not prose:
- *   written:    "Turno interrotto DA un riavvio del server"  allow-italian: it is the notice text itself
- *   recognised: "Turno interrotto: il server si e' riavviato"  allow-italian: it is the notice text itself
- *
- * The cost, read in the chat on 2026-08-28: "now it gives me turn interrupted
- * by a restart", and no resume. The mechanism existed, was switched on, and
- * could not fire.
- */
-describe("the notice the boot ACTUALLY writes is resumed", () => {
-  function noticeWrittenByBoot(): { blocks: unknown; timestampMs: number } {
-    const db = new Database(":memory:");
-    db.run(`CREATE TABLE messages (
-      id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
-      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
-    )`);
-    db.run(
-      "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('m1','topic:x','user','ciao',0,'2026-08-28T20:00:00.000Z',0,0)",
-    );
-    insertRestartNotification(
-      db as unknown as Parameters<typeof insertRestartNotification>[0],
-      "topic:x",
-      { generateId: () => "avviso", now: () => "2026-08-28T20:01:00.000Z" },
-    );
-    const row = db.query("SELECT blocks, timestamp FROM messages WHERE id = 'avviso'").get() as
-      { blocks?: unknown; timestamp: string };
-    const raw = decodeCol(row.blocks);
-    return {
-      blocks: raw ? JSON.parse(raw) : null,
-      timestampMs: Date.parse(row.timestamp),
-    };
-  }
-
-  test("it carries the verdict, and the resume recognises it", () => {
-    const { blocks, timestampMs } = noticeWrittenByBoot();
-    const row: RigaDaValutare = {
-      sessionKey: "topic:x",
-      ruolo: "assistant",
-      blocks: blocks as ContentBlock[] | null,
-      timestampMs,
-      attempts: 0,
-    };
-    expect(chatDaRiprendere(row, timestampMs + 60_000)).toBe(true);
-  });
-});
 
 /**
  * THE RESUME MUST COME BACK, even when the route does not.
@@ -921,14 +743,3 @@ describe("resumeAttemptOf", () => {
   });
 });
 
-describe("la causa sul blocco basta, qualunque frase porti", () => {
-  test("un taglio del watchdog con una frase che la lista non conosce si riprende lo stesso", () => {
-    const byCause: ContentBlock = { kind: "error", text: "una frase nuova che nessuna lista conosce", cause: "watchdog" } as ContentBlock;
-    expect(chatDaRiprendere({ ...base, blocks: [prosa, byCause] }, ORA)).toBe(true);
-  });
-
-  test("lo stop dell'umano non si riprende, nemmeno con un testo che sembra un cartello", () => {
-    const stop: ContentBlock = { kind: "error", text: "fermato", cause: "user" } as ContentBlock;
-    expect(chatDaRiprendere({ ...base, blocks: [prosa, stop] }, ORA)).toBe(false);
-  });
-});

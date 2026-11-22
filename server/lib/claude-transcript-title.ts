@@ -84,14 +84,6 @@ function chooseTitle(st: TitleScanState): string | null {
   return chosen.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_LEN);
 }
 
-/** Pull the best available title out of already-read JSONL transcript text.
- *  Returns null when nothing usable is present. */
-export function extractTitleFromTranscript(raw: string): string | null {
-  const st = blankState();
-  scanLines(st, raw.split("\n"));
-  return chooseTitle(st);
-}
-
 /** Per-transcript incremental scan state, keyed by path. Transcript paths are
  *  unique per spawn/resume, so without an explicit cap this grows with every
  *  session the process has EVER seen (each entry holds a carry buffer + full

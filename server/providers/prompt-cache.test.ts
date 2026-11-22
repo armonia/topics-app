@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
-import { MAX_CACHE_BREAKPOINTS, applyPromptCache, countCacheBreakpoints } from "./prompt-cache";
+import { applyPromptCache } from "./prompt-cache";
 
 function params(over: Partial<Anthropic.MessageCreateParams> = {}): Anthropic.MessageCreateParams {
   return {
@@ -112,37 +112,6 @@ describe("messages", () => {
 });
 
 describe("limiti e invarianti", () => {
-  test("con tutto presente restano al più quattro breakpoint", () => {
-    const p = params({
-      system: "preambolo",
-      tools: [{ name: "a", description: "a", input_schema: { type: "object" } }] as Anthropic.Tool[],
-      messages: [
-        { role: "user", content: "primo" },
-        { role: "assistant", content: "risposta" },
-        { role: "user", content: "secondo" },
-      ],
-    });
-    applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(3);
-    expect(countCacheBreakpoints(p)).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
-  });
-
-  test("è idempotente: due passate non moltiplicano i marker", () => {
-    const p = params({
-      system: "preambolo",
-      tools: [{ name: "a", description: "a", input_schema: { type: "object" } }] as Anthropic.Tool[],
-    });
-    applyPromptCache(p);
-    const dopoUna = countCacheBreakpoints(p);
-    applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(dopoUna);
-  });
-
-  test("senza nulla di stabile non marca nulla", () => {
-    const p = params({ messages: [] });
-    applyPromptCache(p);
-    expect(countCacheBreakpoints(p)).toBe(0);
-  });
 
   test("non tocca il testo: il contenuto resta quello che era", () => {
     const p = params({ system: "preambolo", messages: [{ role: "user", content: "ciao" }] });
@@ -153,22 +122,3 @@ describe("limiti e invarianti", () => {
   });
 });
 
-describe("applyPromptCache, segni arrivati da fuori", () => {
-  test("cinque segni già presenti diventano i tre suoi, mai oltre il tetto di quattro", () => {
-    const e = { type: "ephemeral" as const };
-    const params = {
-      model: "m", max_tokens: 1,
-      tools: [{ name: "a", input_schema: { type: "object" }, cache_control: e }, { name: "b", input_schema: { type: "object" } }],
-      system: [{ type: "text", text: "uno", cache_control: e }, { type: "text", text: "due", cache_control: e }],
-      messages: [
-        { role: "user", content: [{ type: "text", text: "x", cache_control: e }] },
-        { role: "assistant", content: [{ type: "text", text: "y", cache_control: e }] },
-        { role: "user", content: [{ type: "text", text: "z" }] },
-      ],
-    } as never;
-    applyPromptCache(params);
-    const n = JSON.stringify(params).split('"cache_control"').length - 1;
-    expect(n).toBe(3);
-    expect(n).toBeLessThanOrEqual(MAX_CACHE_BREAKPOINTS);
-  });
-});

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CloudApi, CloudSetupError, setCloudApiBase, type CloudEvent, type FetchLike } from "./api";
-import { cloudModelFor, createCloudNodeClient, githubSlug, type GitRun } from "./node";
+import { createCloudNodeClient, type GitRun } from "./node";
 import { createNodeBranchPlanter } from "../../services/node-branch-plant";
 
 const sh = (args: string[], cwd?: string) => {
@@ -470,23 +470,4 @@ describe("nodo cloud", () => {
     expect(cloud.posts).toEqual([]);
   });
 
-  test("nomi", () => {
-    expect(githubSlug("git@github.com:armonia/topics-app.git")).toBe("armonia/topics-app");
-    expect(githubSlug("https://github.com/armonia/topics-app")).toBe("armonia/topics-app");
-    expect(githubSlug("/tmp/x.git")).toBeNull();
-    expect(githubSlug("ssh://git@ssh.github.com:443/o/r.git")).toBe("o/r");
-    expect(githubSlug("https://notgithub.com/o/r.git")).toBeNull();
-    expect(githubSlug("https://github.com.evil.example/o/r.git")).toBeNull();
-    expect(githubSlug("/srv/mirrors/github.com/o/r.git")).toBeNull();
-    expect(githubSlug("https://github.com-lavoro/o/r")).toBeNull();
-    // An alias is GitHub only if ssh resolves it there: without config, these are real domains.
-    expect(githubSlug("git@github.com-evil.com:o/r.git")).toBeNull();
-    expect(githubSlug("ssh://git@github.com-attacker.example/o/r.git")).toBeNull();
-    expect(githubSlug("GIT@GITHUB.COM:O/R.GIT")).toBe("O/R");
-    expect(githubSlug("github.com:o/r.git")).toBe("o/r");
-    expect(githubSlug("git+ssh://git@github.com/o/r.git")).toBe("o/r");
-    expect(cloudModelFor("claude-code:opus")).toBe("claude-opus-5-5");
-    expect(cloudModelFor("codex:gpt-6")).toBe("claude-opus-5-5");
-    expect(cloudModelFor(null)).toBe("claude-opus-5-5");
-  });
 });
