@@ -58,7 +58,8 @@ if (process.argv.includes('--version')) { console.log('1.0.0'); process.exit(0);
 import { existsSync, readFileSync, statSync } from 'fs';
 // The prompt reaches the child on stdin (Codex) or in a file named in argv (Muse).
 const fromFiles = process.argv.slice(2).filter((a) => existsSync(a) && statSync(a).isFile()).map((a) => readFileSync(a, 'utf8')).join(' ');
-const text = (await Bun.stdin.text()) + ' ' + fromFiles;
+// Stdin is read only without a prompt file: Muse never closes it.
+const text = fromFiles || (await Bun.stdin.text());
 if (text.includes('fail')) { console.error('boom-from-stderr'); process.exit(3); }
 // A child the deadline failed to kill must not keep the test run alive.
 setTimeout(() => process.exit(0), 8000);
