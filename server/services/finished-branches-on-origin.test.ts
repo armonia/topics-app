@@ -55,6 +55,9 @@ function branch(cwd: string, name: string, opts: { merge?: boolean } = {}) {
 }
 const onOrigin = (origin: string) => git(origin, "for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n").filter(Boolean).sort();
 const lives = (m: Record<string, BranchLife>) => () => (b: string) => m[b] ?? null;
+// Three real repositories and a push per test: with the machine loaded the 30 s
+// default ran out in the middle of the setup (22/11, load 3.4 per core).
+const REPO_TEST_TIMEOUT_MS = 120_000;
 
 describe("rami di card chiuse su origin", () => {
   test("card chiusa: il ramo dentro main va via senza tag, quello fuori main lascia prima il tag archive/", async () => {
@@ -72,7 +75,7 @@ describe("rami di card chiuse su origin", () => {
       // The archive tag is local: the public origin gets no tag in exchange for the branch.
       expect(git(origin, "tag", "-l")).toBe("");
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("card aperta, ramo che nessuna card conosce e main restano", async () => {
     const { root, origin, work } = setup();
@@ -83,7 +86,7 @@ describe("rami di card chiuse su origin", () => {
       expect(r).toEqual({ deleted: [], archived: {}, problems: [] });
       expect(onOrigin(origin)).toEqual(["fix/by-hand", "main", "topics/open"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("ramo spinto da un'altra macchina: la punta mai vista qui finisce nel tag prima del delete", async () => {
     const { root, origin, work, other } = setup();
@@ -94,7 +97,7 @@ describe("rami di card chiuse su origin", () => {
       expect(git(work, "rev-parse", "archive/claude-card-remote")).toBe(tip);
       expect(onOrigin(origin)).toEqual(["main"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("nome di tag gia' preso da un altro commit: il tag nuovo porta lo sha, il vecchio resta", async () => {
     const { root, work } = setup();
@@ -107,7 +110,7 @@ describe("rami di card chiuse su origin", () => {
       expect(git(work, "rev-parse", "archive/topics-reused")).toBe(old);
       expect(r?.deleted).toEqual(["topics/reused"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("ramo mosso fra la lettura e il delete: il lease lo tiene, il giro dopo ci riprova", async () => {
     const { root, origin, work, other } = setup();
@@ -128,7 +131,7 @@ describe("rami di card chiuse su origin", () => {
       expect(again?.deleted).toEqual(["topics/moving"]);
       expect(again?.archived["topics/moving"]).toBe("archive/topics-moving");
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("card riaperta mentre il giro archiviava: il ramo resta, il tag no danno", async () => {
     const { root, origin, work } = setup();
@@ -141,7 +144,7 @@ describe("rami di card chiuse su origin", () => {
       expect(r?.problems.join()).toContain("reopened during the pass");
       expect(onOrigin(origin)).toEqual(["main", "topics/reopened"]);
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 
   test("senza origin non tocca niente", async () => {
     const root = mkdtempSync(join(tmpdir(), "fboo-"));
@@ -149,7 +152,7 @@ describe("rami di card chiuse su origin", () => {
       spawnSync("git", ["init", "-q", "-b", "main", root], { env: gitEnv() });
       expect(await sweepFinishedBranchesOnOrigin(root, () => () => "finished")).toBeNull();
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, REPO_TEST_TIMEOUT_MS);
 });
 
 describe("vita di un ramo letta dal database della board", () => {
