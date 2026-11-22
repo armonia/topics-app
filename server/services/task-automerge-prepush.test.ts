@@ -58,6 +58,10 @@ describe("land: pre-push refusing the title", () => {
     const repo = join(dir, "repo");
     git(repo, "commit", "-q", "--allow-empty", "-m", `x ${BAD_WORD}`);
     const sha = git(repo, "rev-parse", "HEAD");
+    const probe = spawnSync(join(dir, "hooks", "pre-push"), ["origin", "origin"], {
+      cwd: repo, encoding: "utf8", input: `refs/heads/main ${sha} refs/heads/main ${git(repo, "rev-parse", "HEAD^1")}\n`,
+    });
+    expect(`${probe.status} ${probe.error ?? ""} ${probe.stderr}`).toBe("1  ");
     expect(await prePushRefuses(repo, git(repo, "rev-parse", "HEAD^1"), sha)).toBe(true);
   });
 
