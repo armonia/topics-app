@@ -137,7 +137,7 @@ describe("il riallineamento prima del land finisce nel thread", () => {
     expect(parseStatusEvent(ev.content)?.reason).toContain("riportare main nel ramo");
     // And the instruction to the agent says `git merge main`, not rebase.
     expect(r).toHaveLength(1);
-    expect(r[0][1]).toContain("git merge main");
+    expect(r[0][1]).toContain("git merge origin/main");
     expect(r[0][1]).toContain("server/db.ts");
     expect(r[0][1]).not.toContain("git rebase main");
   });
@@ -174,7 +174,7 @@ describe("il riallineamento prima del land finisce nel thread", () => {
     expect(r).toHaveLength(0);
     // The hand-off (the files, git merge main) is in the thread: the fresh session has nothing else.
     const thread = after.comments.map((c) => c.content).join("\n");
-    expect(thread).toContain("git merge main");
+    expect(thread).toContain("git merge origin/main");
     expect(thread).toContain("server/db.ts");
   });
 });
