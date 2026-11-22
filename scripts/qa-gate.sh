@@ -135,7 +135,7 @@ STATICI=(check:any check:any-budget check:ref-callbacks check:nul check:eol chec
          check:identifier-language check:sleeps check:tmp-canonical
          check:api-door
          check:untraced-tests check:module-mock-restore check:gates-orfani check:spec-coverage
-         check:migrations check:security check:deadcode)
+         check:migrations check:security check:deadcode check:deadcode-prod)
 
 echo "== guard rail statici, tipi e lint (in parallelo) =="
 (for c in "${STATICI[@]}"; do misura "$c" bun run "$c"; done) &
