@@ -182,7 +182,7 @@ describe("applyEdit", () => {
 });
 
 describe("GET /api/agent-config/persona", () => {
-  test("assembles the four layers for a known agent", async () => {
+  test("assembles the five layers for a known agent", async () => {
     const p = fixture();
     writeFileSync(join(p.home, "USER.md"), "Works in Rome, Italy.");
     const router = createAgentConfigRouter(ctx(), () => p);
@@ -194,10 +194,24 @@ describe("GET /api/agent-config/persona", () => {
     );
     const body = await res!.json();
     expect(body.agent).toBe("main");
-    expect(body.layers.map((l: { name: string }) => l.name)).toEqual(["base", "user", "identity", "agent"]);
-    expect(body.layers[1].content).toBe("Works in Rome, Italy.");
-    expect(body.layers[2].content).toBe("# Jarvis");
+    expect(body.layers.map((l: { name: string }) => l.name)).toEqual(["base", "rules", "profile", "identity", "agent"]);
+    expect(body.layers[2].content).toBe("Works in Rome, Italy.");
+    expect(body.layers[3].content).toBe("# Jarvis");
     expect(body.layers.every((l: { tokens: number }) => typeof l.tokens === "number")).toBe(true);
+  });
+
+  test("?walled=1 returns identity and profile only", async () => {
+    const p = fixture();
+    writeFileSync(join(p.home, "USER.md"), "Works in Rome, Italy.");
+    const router = createAgentConfigRouter(ctx(), () => p);
+    const res = await router(
+      new Request("http://x/api/agent-config/persona?agent=main&walled=1"),
+      new URL("http://x/api/agent-config/persona?agent=main&walled=1"),
+      "/api/agent-config/persona",
+      "GET",
+    );
+    const body = await res!.json();
+    expect(body.layers.map((l: { name: string }) => l.name)).toEqual(["profile", "identity"]);
   });
 
   test("an unknown agent answers 404, not a throw", async () => {

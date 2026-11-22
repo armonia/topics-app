@@ -250,15 +250,16 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
   return async function agentConfigRouter(req, url, pathname, method) {
     if (!pathname.startsWith("/api/agent-config")) return null;
     const p = paths();
-    // GET /api/agent-config/persona?agent=<id> — the assembled persona (base
-    // → user → identity → agent), with the token weight of each layer. Used
+    // GET /api/agent-config/persona?agent=<id>[&walled=1] — the assembled
+    // persona (base → rules → profile → identity → agent; walled guests get
+    // identity and profile only), with the token weight of each layer. Used
     // by the channel engine instead of reading the four files itself, and by
     // the context inspector (T4).
     if (method === "GET" && pathname === "/api/agent-config/persona") {
       const agentId = url.searchParams.get("agent") ?? "";
       const ws = agentId ? workspaceOf(p, agentId) : null;
       if (!ws) return ctx.json({ error: "unknown agent" }, 404);
-      return ctx.json(assemblePersona(agentId, ws, p));
+      return ctx.json(assemblePersona(agentId, ws, p, { walled: url.searchParams.get("walled") === "1" }));
     }
     if (method === "GET" && pathname === "/api/agent-config") {
       if (!existsSync(join(p.home, "config.json"))) return ctx.json({ agents: [], issues: [], health: null });

@@ -15,7 +15,7 @@ function tmp(): string {
 }
 
 describe("migratePrincipalSoul", () => {
-  test("directives go to USER.md, agent-specific additions stay in SOUL.md, both backed up", () => {
+  test("directives go to RULES.md, never USER.md, agent-specific additions stay in SOUL.md, both backed up", () => {
     const home = tmp();
     const ws = tmp();
     writeFileSync(join(ws, "SOUL.md"), "Generic text plus directives plus permissions, 10 lines.");
@@ -33,9 +33,9 @@ describe("migratePrincipalSoul", () => {
     expect(readFileSync(result.soulBackup!, "utf8")).toContain("10 lines");
   });
 
-  test("a second agent's directives append to an existing USER.md instead of erasing it", () => {
+  test("a second agent's directives append to an existing RULES.md instead of erasing it", () => {
     const home = tmp();
-    writeFileSync(join(home, "USER.md"), "Always answer in Italian.\n");
+    writeFileSync(join(home, "RULES.md"), "Always answer in Italian.\n");
     const ws = tmp();
     writeFileSync(join(ws, "SOUL.md"), "second agent's generic text");
 

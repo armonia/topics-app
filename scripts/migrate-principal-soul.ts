@@ -11,7 +11,7 @@
  *     (the shipped base already says it);
  *   - heading named with `--keep "<heading>"`: stays in the agent's SOUL
  *     (permissions that name people);
- *   - anything else: a directive, appended to the user layer (`USER.md`).
+ *   - anything else: a directive, appended to the rules layer (`RULES.md`).
  *
  * `splitSoulSections` lives here, not in `server/agents/`: only this script
  * and its test use it, and the production dead-code gate would count an
@@ -102,7 +102,7 @@ if (import.meta.main) {
   console.log(`${APPLY ? "applying to" : "dry run against"} ${soulFile}`);
   show("dropped as generic (already in the base)", plan.dropped);
   show("kept in the agent's SOUL.md", plan.kept);
-  show(`moved to ${join(paths.home, "USER.md")}`, plan.moved);
+  show(`moved to ${join(paths.home, "RULES.md")}`, plan.moved);
 
   if (!APPLY) {
     console.log("rerun with --apply to write");
