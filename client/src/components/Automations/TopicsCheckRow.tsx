@@ -13,11 +13,14 @@ import { SECTION, SECTION_COUNT, SECTION_REST } from './automationsUi';
 
 interface Voice { id: 'cards' | 'seats' | 'proofs'; red: boolean; hoursLost: number; detail: string; cause: string | null }
 
+type RoundState = 'waiting' | 'stale' | 'live';
+
 const READ_EVERY_MS = 60_000;
 
 export function TopicsCheckRow() {
   const tr = useT();
   const [voices, setVoices] = useState<Voice[] | null>(null);
+  const [round, setRound] = useState<{ state: RoundState; ageMin: number | null }>({ state: 'waiting', ageMin: null });
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -25,8 +28,11 @@ export function TopicsCheckRow() {
     const read = async () => {
       try {
         const r = await apiFetch('/api/topics-check');
-        const body = (await r.json()) as { voices?: Voice[] };
-        if (alive && r.ok && Array.isArray(body.voices)) setVoices(body.voices);
+        const body = (await r.json()) as { voices?: Voice[]; state?: RoundState; ageMin?: number | null };
+        if (alive && r.ok && Array.isArray(body.voices)) {
+          setVoices(body.voices);
+          setRound({ state: body.state ?? 'live', ageMin: body.ageMin ?? null });
+        }
       } catch { /* the row keeps what it last read */ }
     };
     void read();
@@ -36,12 +42,15 @@ export function TopicsCheckRow() {
 
   if (!voices) return null;
   const red = voices.filter((v) => v.red).length;
+  // A check that has not run, or has stopped, is never shown green.
+  const state = round.state !== 'live' ? round.state : red > 0 ? 'red' : 'green';
+  const label = state === 'waiting' ? tr('auto.check.waiting') : state === 'stale' ? tr('auto.check.stale', { n: round.ageMin ?? 0 }) : red > 0 ? tr('auto.check.red', { n: red }) : tr('auto.check.green');
   return (
-    <div data-testid="topics-check" data-state={red > 0 ? 'red' : 'green'}>
+    <div data-testid="topics-check" data-state={state}>
       <h2 className={SECTION}>
         <HeartPulse size={13} aria-hidden="true" />{tr('auto.check.title')}
-        <span className={`${SECTION_COUNT} ${red > 0 ? DANGER_TEXT : SUCCESS_TEXT}`} data-testid="topics-check-state">
-          {red > 0 ? tr('auto.check.red', { n: red }) : tr('auto.check.green')}
+        <span className={`${SECTION_COUNT} ${state === 'green' ? SUCCESS_TEXT : DANGER_TEXT}`} data-testid="topics-check-state">
+          {label}
         </span>
         <span className={SECTION_REST}>{tr('auto.check.note')}</span>
       </h2>

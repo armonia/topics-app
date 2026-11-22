@@ -32,9 +32,9 @@ const RED = [
   GREEN[2],
 ];
 
-async function fakeRound(page: Page, answer: () => unknown): Promise<void> {
+async function fakeRound(page: Page, answer: () => unknown, round: () => { state: string; ageMin: number | null } = () => ({ state: "live", ageMin: 1 })): Promise<void> {
   await page.route("**/api/topics-check", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), voices: answer() }) }));
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), ...round(), voices: answer() }) }));
 }
 
 test.describe("topics check row", () => {
@@ -47,10 +47,11 @@ test.describe("topics check row", () => {
     await openSceneInSidebar(request, scene);
   });
 
-  test("green, then red with the detail of the three voices", async ({ page }, testInfo) => {
+  test("green, then red, then stopped with the detail of the three voices", async ({ page }, testInfo) => {
     let answer: unknown = GREEN;
+    let round = { state: "live", ageMin: 1 as number | null };
     await page.setViewportSize({ width: 1440, height: 900 });
-    await fakeRound(page, () => answer);
+    await fakeRound(page, () => answer, () => round);
     await goToApp(page);
     await openMainChat(page, scene!);
     await page.getByTestId("sidebar-automations").click();
@@ -79,5 +80,16 @@ test.describe("topics check row", () => {
       await expect(check).toBeVisible();
       await page.screenshot({ path: testInfo.outputPath(`topics-check-rosso-${w}.png`) });
     }
+
+    // A check that stopped is never green, whatever its last voices said.
+    answer = GREEN;
+    round = { state: "stale", ageMin: 17 };
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.reload();
+    await openMainChat(page, scene!);
+    await page.getByTestId("sidebar-automations").click();
+    await expect(check).toHaveAttribute("data-state", "stale", { timeout: 20_000 });
+    await expect(check.getByTestId("topics-check-state")).toHaveText("verifica ferma da 17 min");
+    await page.screenshot({ path: testInfo.outputPath("topics-check-ferma-1440.png") });
   });
 });

@@ -216,6 +216,8 @@ const AUTOMATIONS_EN: Dict = {
   'auto.check.seats': 'Nodes give their seats',
   'auto.check.proofs': 'Declared proofs pass',
   'auto.check.note': 'every 5 minutes, no models',
+  'auto.check.waiting': 'waiting for the first round',
+  'auto.check.stale': 'check stopped for {n} min',
   'auto.emptyQuery': 'No automation contains «{q}».',
   'auto.decide.streak': 'failed the last {n} times',
   'auto.decide.ifBroken': 'While it stays so: {what}',

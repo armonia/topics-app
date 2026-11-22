@@ -67,8 +67,9 @@ export function parseSettings(raw: string | null | undefined): TopicsCheckSettin
 
 export type StuckCause = "person" | "offline" | "seats" | "memory" | "stay-local" | "unknown";
 export interface StuckCard { id: string; status: "todo" | "in_progress"; hours: number; cause: StuckCause }
-export interface MachineSample { id: string; name: string; online: boolean; slots: number | null; cards: number }
-export interface Move { id: string; at: number; to: string }
+export interface MachineSample { id: string; name: string; online: boolean; slots: number | null; cards: number; heartbeatAt: number }
+/** `silent`: the target machine was off and had not beaten since before the move. */
+export interface Move { id: string; at: number; to: string; silent: boolean }
 export interface CheckResult { name: string; ok: boolean; reason: string | null }
 
 export interface Sample {
@@ -84,19 +85,21 @@ export interface Sample {
 interface CardRow {
   id: string; status: "todo" | "in_progress"; machine_id: string | null; human_ask: string | null;
   stage: string | null; wait_reason: string | null; stay_local: number; last_at: string | null; board_auto: number;
+  dispatch_state: string | null; node_run_open: number;
 }
 
 /** One reading of the database at `now`. Read-only. */
 export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS): Sample {
-  const rows = db.query(`SELECT t.id, t.status, t.machine_id, t.human_ask, t.stage, t.wait_reason, t.stay_local,
+  const rows = db.query(`SELECT t.id, t.status, t.machine_id, t.human_ask, t.stage, t.wait_reason, t.stay_local, t.dispatch_state, t.node_run_open,
       MAX(t.updated_at, COALESCE(t.in_progress_at, ''), COALESCE((SELECT MAX(c.created_at) FROM task_comments c WHERE c.task_id = t.id), '')) AS last_at,
       EXISTS (SELECT 1 FROM board_settings b WHERE b.project_id = t.project_id AND b.auto_dispatch = 1) AS board_auto
     FROM tasks t WHERE t.status IN ('todo', 'in_progress') AND t.archived = 0`).all() as CardRow[];
-  const machineRows = db.query("SELECT id, name, status, slots FROM machines").all() as
-    { id: string; name: string; status: string; slots: number | null }[];
+  const machineRows = db.query("SELECT id, name, status, slots, last_heartbeat_at FROM machines").all() as
+    { id: string; name: string; status: string; slots: number | null; last_heartbeat_at: string | null }[];
   const machines: MachineSample[] = machineRows.map((m) => ({
     id: m.id, name: m.name, online: m.status === "online", slots: m.slots,
     cards: rows.filter((r) => r.machine_id === m.id).length,
+    heartbeatAt: Date.parse(m.last_heartbeat_at ?? "") || 0,
   }));
   const byId = new Map(machines.map((m) => [m.id, m]));
   const noSeats = machines.length > 0 && machines.every((m) => !m.online || m.slots === 0);
@@ -104,6 +107,8 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const stuck: StuckCard[] = [];
   for (const r of rows) {
     const hours = Math.max(0, (now - (Date.parse(r.last_at ?? "") || now)) / HOUR_MS);
+    // A turn in flight (the dispatcher's state or an open node run) is a card that is moving, however quiet.
+    if (r.dispatch_state === "working" || r.node_run_open === 1) continue;
     const waitingOnPerson = !!r.human_ask?.trim() || r.stage === "human_review";
     if (r.status === "todo") {
       // A board that does not dispatch on its own leaves its todo cards where they are on purpose.
@@ -120,10 +125,12 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
 
   const since = new Date(now - 24 * HOUR_MS).toISOString();
   const moves = (db.query("SELECT task_id, content, created_at FROM task_comments WHERE content LIKE 'Spostata %' AND created_at >= ? ORDER BY created_at DESC LIMIT 200").all(since) as
-    { task_id: string; content: string; created_at: string }[]).map((c) => ({
-    id: c.task_id, at: Date.parse(c.created_at),
-    to: /^Spostata su ([^:]+):/.exec(c.content)?.[1] ?? /^Spostata da .+? a ([^:]+):/.exec(c.content)?.[1] ?? "",
-  }));
+    { task_id: string; content: string; created_at: string }[]).map((c): Move => {
+    const at = Date.parse(c.created_at);
+    const to = /^Spostata su ([^:]+):/.exec(c.content)?.[1] ?? /^Spostata da .+? a ([^:]+):/.exec(c.content)?.[1] ?? "";
+    const target = machines.find((m) => m.name === to);
+    return { id: c.task_id, at, to, silent: !!target && !target.online && target.heartbeatAt < at };
+  });
   return { at: now, todo: rows.filter((r) => r.status === "todo").length, machines, stuck, moves };
 }
 
@@ -158,25 +165,28 @@ export function voices(samples: readonly Sample[], settings: TopicsCheckSettings
   const { thresholds: t } = settings;
   const last = samples.reduce<Sample | null>((a, s) => (!a || s.at > a.at ? s : a), null);
 
-  // 1. Cards advance: stuck cards, and bounces counted from the "moved to" notes.
+  // 1. Cards advance: stuck cards, and bounces. A healthy overflow also writes a "moved to" note, so a
+  // move is only a bounce when one card ping-pongs, or when it went to a machine that was not answering.
   const stuck = last?.stuck ?? [];
   const moves = last?.moves ?? [];
   const perCard = new Map<string, number[]>();
   for (const m of moves) perCard.set(m.id, [...(perCard.get(m.id) ?? []), m.at]);
   const windowMs = t.cardMovesWindowMin * 60_000;
-  const bouncing = [...perCard].filter(([, ats]) => ats.some((a) => ats.filter((b) => b >= a && b < a + windowMs).length >= t.cardMoves));
+  const pingPong = new Set([...perCard].filter(([, ats]) => ats.some((a) => ats.filter((b) => b >= a && b < a + windowMs).length >= t.cardMoves)).map(([id]) => id));
+  const silentMoves = moves.filter((m) => m.silent);
+  const toSilent = silentMoves.length >= t.totalMoves;
+  const bounces = moves.filter((m) => pingPong.has(m.id) || (toSilent && m.silent));
   const stuckHours = stuck.reduce((s, c) => s + c.hours, 0);
-  const bounceHours = (bouncing.length > 0 || moves.length >= t.totalMoves) ? moves.length * BOUNCE_COST_HOURS : 0;
+  const bounceHours = bounces.length * BOUNCE_COST_HOURS;
   const parts: string[] = [];
   let cause: string | null = null;
   if (stuck.length) {
     parts.push(`${stuck.length} card ferme`);
     cause = CAUSE_TEXT[mostCommon(stuck.map((c) => c.cause))!];
   }
-  if (bounceHours > 0) {
-    parts.push(`${moves.length} rimbalzi`);
-    const toOff = moves.filter((m) => last?.machines.some((x) => !x.online && x.name === m.to)).length;
-    cause ??= toOff * 2 > moves.length ? "le card vengono mandate a una macchina spenta" : "le card rimbalzano fra i nodi: segnala «solo Mac»";
+  if (bounces.length > 0) {
+    parts.push(`${bounces.length} rimbalzi`);
+    cause ??= bounces.filter((m) => m.silent).length * 2 > bounces.length ? "le card vengono mandate a una macchina spenta" : "le card rimbalzano fra i nodi: segnala «solo Mac»";
   }
   const cardsVoice: Voice = {
     id: "cards", red: parts.length > 0, hoursLost: stuckHours + bounceHours,
@@ -239,8 +249,18 @@ export function readSamples(db: Database): Sample[] {
   return (db.query("SELECT sample_json FROM topics_check_samples ORDER BY at").all() as { sample_json: string }[]).map((r) => JSON.parse(r.sample_json) as Sample);
 }
 
+export type RoundState = "waiting" | "stale" | "live";
+
+/** No sample yet is `waiting`; a last sample older than two intervals is `stale`. Neither is ever green. */
+export function roundState(samples: readonly Sample[], now: number): { state: RoundState; ageMin: number | null } {
+  const lastAt = samples.reduce<number | null>((a, s) => (a === null || s.at > a ? s.at : a), null);
+  if (lastAt === null) return { state: "waiting", ageMin: null };
+  const age = Math.max(0, now - lastAt);
+  return { state: age > 2 * SAMPLE_INTERVAL_MS ? "stale" : "live", ageMin: Math.floor(age / 60_000) };
+}
+
 export interface TopicsCheckRound {
-  /** One round: sample, run the proofs, store, trim. Returns the voices. */
+  /** One round: sample, run the proofs, store, trim. Returns the voices. A round already in flight is joined, never doubled. */
   tick(): Promise<Voice[]>;
   current(): Voice[];
 }
@@ -249,14 +269,19 @@ export function createTopicsCheck(opts: { db: Database; now?: () => number; sett
   const { db } = opts;
   const now = opts.now ?? Date.now;
   const settings = opts.settings ?? (() => parseSettings(getAppSettings().topicsCheck));
+  let inFlight: Promise<Voice[]> | null = null;
+  const run = async (): Promise<Voice[]> => {
+    const s = settings();
+    const at = now();
+    const sample: Sample = { ...sampleTopics(db, at, s.thresholds), checks: await runProofs(s.checks, s.thresholds.checkTimeoutSec, opts.run) };
+    db.query("INSERT OR REPLACE INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(at, JSON.stringify(sample));
+    db.query("DELETE FROM topics_check_samples WHERE at < ?").run(at - KEEP_SAMPLES_MS);
+    return voices(readSamples(db), s);
+  };
   return {
-    async tick() {
-      const s = settings();
-      const at = now();
-      const sample: Sample = { ...sampleTopics(db, at, s.thresholds), checks: await runProofs(s.checks, s.thresholds.checkTimeoutSec, opts.run) };
-      db.query("INSERT OR REPLACE INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(at, JSON.stringify(sample));
-      db.query("DELETE FROM topics_check_samples WHERE at < ?").run(at - KEEP_SAMPLES_MS);
-      return voices(readSamples(db), s);
+    tick() {
+      inFlight ??= run().finally(() => { inFlight = null; });
+      return inFlight;
     },
     current: () => voices(readSamples(db), settings()),
   };
