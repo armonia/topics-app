@@ -36,6 +36,8 @@ import { HubMachineRows } from './HubMachineRows';
 import { nodeRequestsLabel } from './formLevelTails';
 import { deviceRevokedLine, deviceSeenLine, deviceWhen } from '@/lib/deviceAudit';
 import { nodesOf, useMachines } from '@/state/machinesStore';
+import { healthOf, isCloudNode, useMachineHealth } from '@/state/machineHealthStore';
+import { SecurityRow } from './MachineSecurityMark';
 import { useActiveLocale, useT } from '@/hooks/useT';
 
 
@@ -58,6 +60,7 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
   // with their live state, so a node that stopped answering shows here and not
   // only in a form two levels away.
   const nodes = nodesOf(useMachines());
+  const health = useMachineHealth();
   const [remote, setRemote] = useState(0);
   // Bumped by the requests line: the Machines level opens on it, fresh.
   const [machinesAsked, setMachinesAsked] = useState(0);
@@ -154,26 +157,38 @@ export function DevicesLevel({ devices, failed = false, width, onReadDevices, de
       {devices && (
         <div className="max-h-[280px] overflow-y-auto py-1">
           {computer && (
-            <div data-testid="device-row" data-connected="true" className={ROW}>
-              <Monitor size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-app-text">
-                {tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')}
-              </span>
-              {computer.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
-              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
-            </div>
+            <SecurityRow entry={healthOf(health, null)} name={tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')} className={ROW} rowProps={{ 'data-testid': 'device-row', 'data-connected': 'true' }}>
+              {(mark) => (
+                <>
+                  <Monitor size={12} className="flex-shrink-0 text-app-text-muted" />
+                  <span className="min-w-0 truncate text-app-text">
+                    {tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')}
+                  </span>
+                  {mark}
+                  <span className="flex-1" />
+                  {computer.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+                  <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
+                </>
+              )}
+            </SecurityRow>
           )}
           {/* The PC and the Hetzner server, as the hub sees them (lib/hubMachines.ts). */}
           <HubMachineRows />
           {nodes.map((n) => (
-            <div key={n.id} data-testid="device-node-row" data-connected={n.status === 'online' ? 'true' : 'false'} className={ROW}>
-              <Server size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-app-text">{n.name}</span>
-              <span className="flex-shrink-0 text-app-text-muted">
-                {n.status === 'online' ? tr('devices.nodeOnline') : tr('devices.nodeSeen', { when: deviceWhen(Date.parse(n.lastHeartbeatAt) || null, tr, locale) })}
-              </span>
-              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${n.status === 'online' ? PALLINO_OK : 'bg-app-text-muted'}`} />
-            </div>
+            <SecurityRow key={n.id} entry={healthOf(health, n.id)} name={n.name} measured={!isCloudNode(n)} className={ROW} rowProps={{ 'data-testid': 'device-node-row', 'data-connected': n.status === 'online' ? 'true' : 'false' }}>
+              {(mark) => (
+                <>
+                  <Server size={12} className="flex-shrink-0 text-app-text-muted" />
+                  <span className="min-w-0 truncate text-app-text">{n.name}</span>
+                  {mark}
+                  <span className="flex-1" />
+                  <span className="flex-shrink-0 text-app-text-muted">
+                    {n.status === 'online' ? tr('devices.nodeOnline') : tr('devices.nodeSeen', { when: deviceWhen(Date.parse(n.lastHeartbeatAt) || null, tr, locale) })}
+                  </span>
+                  <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${n.status === 'online' ? PALLINO_OK : 'bg-app-text-muted'}`} />
+                </>
+              )}
+            </SecurityRow>
           ))}
           {active.map((d) => (
             <DeviceRow key={d.id} device={d} people={people} locale={locale} run={run} />
