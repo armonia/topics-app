@@ -34,14 +34,13 @@ const FOUR = (updates: unknown, status: string) => [
 ];
 
 async function openDevices(page: Page) {
-  await goToApp(page);
-  const card = page.getByTestId("identity-me-profile");
-  await expect(card).toBeVisible({ timeout: 20_000 });
-  await card.click();
-  await page.getByTestId("profile-menu").getByTestId("profile-menu-devices").click();
-  const level = page.getByTestId("profile-menu-devices-menu");
-  await expect(level).toBeVisible({ timeout: 10_000 });
-  return level;
+  await page.goto("/");
+  // On a phone the sidebar is a sheet that starts closed after every load: open it,
+  // then let the shared helper pick the menu's door for this width.
+  const sidebar = page.locator('[aria-label="Topics sidebar"]');
+  await sidebar.waitFor({ state: "attached", timeout: 15_000 });
+  if (!(await sidebar.isVisible())) await page.keyboard.press("ControlOrMeta+b");
+  return openUserMenuLevel(page, "devices");
 }
 
 test("each machine row carries its shield and the four checks", async ({ page }, testInfo) => {
