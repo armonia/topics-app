@@ -108,9 +108,20 @@ const AGENT_ASSIGNEE = /^(agents?|agente|agenti|ai|bot)$/i; // allow-italian: th
 /** Counts what a round computed, so a test can prove the work stays on the few old cards. */
 export interface SampleProbe { reasons: number }
 
+/** The columns of a `tasks` row this round reads. */
+interface TaskSampleRow {
+  id: string; status: "todo" | "in_progress"; project_id: string | null; created_at: string; reopened_at: string | null;
+  in_progress_at: string | null; scheduled_at: string | null; scheduled_by: string | null;
+  dispatch_state: string | null; dispatch_error: string | null; dispatch_deferred_until: string | null;
+  wait_source: string | null; wait_since: string | null; wait_reason: string | null;
+  node_run_open: number | null; machine_id: string | null; stay_local: number | null; stay_local_until: string | null;
+  parent_task_id: string | null; blocked_by_task_id: string | null;
+  human_ask: string | null; stage: string | null; assigned_to: string | null;
+}
+
 /** One reading of the database at `now`. Read-only. */
 export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS, localHost: string = hostname(), probe?: SampleProbe): Sample {
-  const rows = db.query("SELECT * FROM tasks WHERE status IN ('todo', 'in_progress') AND archived = 0").all() as any[];
+  const rows = db.query("SELECT * FROM tasks WHERE status IN ('todo', 'in_progress') AND archived = 0").all() as TaskSampleRow[];
   // Same predicate as the dispatcher: the machine-wide switch lives in app_settings and a board can only pause itself.
   const globalAuto = !!(db.query("SELECT auto_dispatch FROM app_settings LIMIT 1").get() as { auto_dispatch?: number | null } | null)?.auto_dispatch;
   const pausedBoards = new Set((db.query("SELECT project_id FROM board_settings WHERE dispatch_paused = 1").all() as { project_id: string }[]).map((r) => r.project_id));
@@ -130,7 +141,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const since = new Map<string, number>();
   for (const r of rows) {
     if (r.status === "todo") {
-      if (!globalAuto || pausedBoards.has(r.project_id)) continue;
+      if (!globalAuto || (r.project_id && pausedBoards.has(r.project_id))) continue;
       // A node that keeps failing defers the card by 5 minutes at a time: its age is the whole series (`wait_since`).
       const nodeWait = r.dispatch_error === NODE_UNREACHABLE_ERROR || r.wait_source === "machine";
       const deferral = nodeWait ? ms(r.wait_since) : Math.min(ms(r.dispatch_deferred_until), now);
@@ -139,8 +150,8 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
       since.set(r.id, Math.max(ms(r.in_progress_at) || ms(r.created_at), ms(r.reopened_at)));
     }
   }
-  const limitH = (r: any) => (r.status === "todo" ? t.todoStuckHours : t.progressStuckHours);
-  const over = (r: any) => since.has(r.id) && (now - since.get(r.id)!) / HOUR_MS >= limitH(r);
+  const limitH = (r: TaskSampleRow) => (r.status === "todo" ? t.todoStuckHours : t.progressStuckHours);
+  const over = (r: TaskSampleRow) => since.has(r.id) && (now - since.get(r.id)!) / HOUR_MS >= limitH(r);
   // One read of the threads of the cards already past a threshold, which can only make them younger:
   // a todo card is as old as its last entry into todo (`reopened_at` is written only on the way out of review
   // or done), a card in progress as its last entry into in_progress, and it lives as long as a person or an
@@ -150,7 +161,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
   const threads = db.query(
     "SELECT task_id, kind, content, created_at FROM task_comments WHERE task_id IN (SELECT value FROM json_each(?)) AND (kind = 'status' OR (kind = 'comment' AND author != 'system'))",
   ).all(JSON.stringify(firstCut.map((r) => r.id))) as { task_id: string; kind: string; content: string; created_at: string }[];
-  const statusOf = new Map(firstCut.map((r) => [r.id, r.status as "todo" | "in_progress"]));
+  const statusOf = new Map(firstCut.map((r) => [r.id, r.status]));
   for (const c of threads) {
     const status = statusOf.get(c.task_id)!;
     const life = c.kind === "status" ? statusEventEnters(c.content, status) : status === "in_progress" && !ROLE_NOTE.test(c.content);
@@ -189,7 +200,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
     return root;
   };
   /** A slot wait is lost when a plan holds it, when its machine is off, or when nothing started for a while. */
-  const queueWait = (r: any, pinnedOff: boolean): StuckCause | null => {
+  const queueWait = (r: TaskSampleRow, pinnedOff: boolean): StuckCause | null => {
     // A held resume carries the memory code without a published block; the provider's plan hold writes its own
     // sentence next to the bare queued chip, and publishes no machine block either. Only a spent plan is lost:
     // the five-hour window and the deferral after a restart end by themselves.
@@ -203,7 +214,7 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
     return noSeats ? "seats" : "unknown";
   };
   /** Why a card past its threshold has not moved, or null when its wait is one somebody chose. */
-  const classify = (r: any, reason: QueueReason | null, pinnedOff: boolean): StuckCause | null => {
+  const classify = (r: TaskSampleRow, reason: QueueReason | null, pinnedOff: boolean): StuckCause | null => {
     if (reason === null) {
       if (r.status === "todo") return r.scheduled_by && ms(r.scheduled_at) > 0 && ms(r.scheduled_at) <= now ? "missed-run" : null;
       // A resume waiting for its slot is a queue wait like any other.
