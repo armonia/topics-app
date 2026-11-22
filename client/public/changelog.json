@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.69",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.67",
     "date": "2026-11-21",
     "sections": {

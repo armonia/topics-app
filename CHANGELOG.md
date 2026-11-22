@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.69 — 2026-11-22
+
+### Sotto il cofano
+- Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
+- agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+
 ## 2.4.67 — 2026-11-21
 
 ### Sotto il cofano
