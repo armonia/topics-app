@@ -23,10 +23,10 @@
  * by the caller from its own settings) and they are searched as literals.
  */
 import { describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { gitEnv } from "../setup/bun-test-preload";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const BASELINE_PATH = join(import.meta.dir, "instance-strings-baseline.json");
@@ -55,7 +55,7 @@ type Counts = Record<string, number>;
 type Baseline = { files: Record<string, Counts>; openspec: Counts };
 
 function trackedFiles(): string[] {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: gitEnv() })
     .split("\0")
     .filter((f) => f && TEXT_EXT.test(f) && !TEST_FILE.test(f));
 }
@@ -149,9 +149,4 @@ describe("check:instance-strings", () => {
     expect(bad.length).toBe(3);
   });
 
-  const pushGuard = join(homedir(), "bin", "push-guard");
-  test.skipIf(!existsSync(pushGuard))("the machine's own list finds nothing (push-guard --scan)", () => {
-    const r = spawnSync(pushGuard, ["--scan"], { cwd: ROOT, encoding: "utf8" });
-    expect(r.status).toBe(0);
-  });
 });

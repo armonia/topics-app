@@ -1,7 +1,7 @@
 /**
  * A TLS STRIP OVER A PAGE THAT WENT ON TO LOAD MUST NOT OUTLIVE IT.
  *
- * Reported 22/11 (task 590a3979): the pane showed "Connessione non sicura" over
+ * Reported 22/11 (task 590a3979): the pane showed "Connessione non sicura" over allow-italian: the UI string, quoted
  * `support.github.com` while the Support form behind it went through fine. The
  * strip only ever went out on a fresh `navigate()` call (the url bar, a WS
  * command) — a redirect the native view follows BY ITSELF (an OAuth hop that
