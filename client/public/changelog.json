@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "nome inglese per il ref simbolico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test dei rami su origin: tetto di 120 s ai test con repo veri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.76",
     "date": "2026-11-22",
     "sections": {
@@ -8,10 +31,53 @@
       "perf": [],
       "internal": [
         {
+          "it": "Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-11-22 [skip ci]",
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I rami delle card chiuse lasciano origin a ogni giro dell'audit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dichiara WORKTREE-17 per la pulizia dei rami su origin",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
+        {
+          "it": "Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "env isolato nel test dei rami su origin",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -26,6 +92,26 @@
       "internal": [
         {
           "it": "Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged",
           "en": "",
           "scope": null
         },
@@ -45,6 +131,11 @@
           "scope": null
         },
         {
+          "it": "Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto",
           "en": "",
           "scope": null
@@ -56,6 +147,11 @@
         },
         {
           "it": "readVerdict marcato @internal: main tornava rosso su check:deadcode-prod",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests",
           "en": "",
           "scope": null
         }
@@ -228,6 +324,12 @@
           "it": "Il nodo riceve intera la revisione anche dopo un riavvio",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "start goes through serve so server.ts stays in the production graph",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check",

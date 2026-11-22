@@ -403,7 +403,7 @@
       ]
     },
 
-    "client/src/lib/selectionStyles.ts": 1231,
+    "client/src/lib/selectionStyles.ts": 1154,
 
     "client/src/lib/tabLink.test.ts": 1016,
 
@@ -506,9 +506,9 @@
 
     "server/context/assemble.ts": 1155,
 
-    "server/lib/claude-session-state.test.ts": 1015,
+    "server/lib/claude-session-state.test.ts": 963,
 
-    "server/lib/claude-session-state.ts": 1032,
+    "server/lib/claude-session-state.ts": 1025,
 
     "server/lib/claude-session-tracker.test.ts": 1266,
 
@@ -518,7 +518,7 @@
 
     "server/lib/ripresa-boot.test.ts": 934,
 
-    "server/lib/ripresa-boot.ts": 1259,
+    "server/lib/ripresa-boot.ts": 1254,
 
     "server/lib/tab-resolver.ts": 1018,
 
@@ -527,7 +527,7 @@
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 3858,
+    "server/providers/claude-code.ts": 3847,
 
     "server/providers/codex.ts": 1378,
 
@@ -614,7 +614,7 @@
 
     "server/services/ci-evidence.ts": 1042,
 
-    "server/services/dispatch-capacity.ts": 1309,
+    "server/services/dispatch-capacity.ts": 1248,
 
     "server/services/external-proxy.ts": 926,
 
@@ -632,7 +632,7 @@
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
-    "server/services/task-dispatcher-held-resume-quiet.test.ts": 860,
+    "server/services/task-dispatcher-held-resume-quiet.test.ts": 818,
 
     "server/services/task-dispatcher-overflow.test.ts": {
       "lines": 1578,
@@ -667,9 +667,9 @@
 
     "server/services/tasks.test.ts": 2857,
 
-    "server/services/tasks.ts": 930,
+    "server/services/tasks.ts": 910,
 
-    "server/services/tasks/shared.ts": 2640,
+    "server/services/tasks/shared.ts": 2617,
 
     "server/services/tasks/status.ts": 1808,
 
@@ -679,7 +679,7 @@
 
     "server/services/worktree-gc.ts": 871,
 
-    "server/utils.ts": 1476,
+    "server/utils.ts": 1459,
 
     "shared/board.test.ts": 1260,
 
@@ -690,7 +690,7 @@
       ]
     },
 
-    "shared/relay-protocol.ts": 1101,
+    "shared/relay-protocol.ts": 1098,
 
     "shared/types.ts": 1713,
 

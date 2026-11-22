@@ -12,7 +12,7 @@
 import { apiFetch } from '../shell/net';
 import { getSession, markUnpaired, publishSession, type SessionState } from './sessionState';
 
-export { getSession, subscribeSession, markUnpaired, type SessionState } from './sessionState';
+export { getSession, subscribeSession, type SessionState } from './sessionState';
 /** @internal */
 export { __resetSessionForTests } from './sessionState';
 

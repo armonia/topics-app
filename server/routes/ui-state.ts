@@ -697,11 +697,6 @@ export const UI_STATE_INIT_EXCLUDED_PREFIXES = [
   "dev-storage-probe-result",
 ] as const;
 
-/** Vero se la chiave è esclusa dallo snapshot `ui-state:init` (gemello JS del WHERE sotto). */
-export function isExcludedFromUiStateInit(key: string): boolean {
-  return UI_STATE_INIT_EXCLUDED_PREFIXES.some((p) => key.startsWith(p));
-}
-
 // Nessun `_` o `%` nei prefissi ⇒ nessun escape da fare nel LIKE.
 const INIT_EXCLUSION_WHERE = UI_STATE_INIT_EXCLUDED_PREFIXES.map(() => "key NOT LIKE ?").join(" AND ");
 const INIT_EXCLUSION_PARAMS = UI_STATE_INIT_EXCLUDED_PREFIXES.map((p) => `${p}%`);

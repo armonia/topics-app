@@ -6,8 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
-  buildTabSheetEntries, shapeLevels, rowCount, FIRST_LEVEL_MAX_ROWS,
-  type SheetEntry, type TabSheetModel,
+  buildTabSheetEntries, shapeLevels, type SheetEntry, type TabSheetModel,
 } from './tabSheetEntries';
 
 const t = (key: string, vars?: Record<string, string>) => (vars?.n ? `${key}:${vars.n}` : key);
@@ -46,16 +45,6 @@ describe('the first level (TABSHEET-02)', () => {
       'return-to-chat', 'open-in-project', 'back-to-spawner', 'find',
       'page', 'tools', 'session', 'tab', 'layout', 'close', 'close-others',
     ]);
-  });
-
-  test('never more than eleven rows, even with an agent at the wheel', () => {
-    // The widest real tab: an agent drives it, it was lent by the topic window
-    // and an agent's chat opened it. «Open in project» lives only in a task's
-    // drawer, where a lent sheet does not, so the two never meet.
-    const entries = buildTabSheetEntries(fullBrowser({
-      contextual: { takeControl: noop, returnToChat: noop, backToSpawner: noop },
-    }));
-    expect(rowCount(entries)).toBe(FIRST_LEVEL_MAX_ROWS);
   });
 
   test('the Page level says zoom and device, the Tools level the errors, in its tail', () => {

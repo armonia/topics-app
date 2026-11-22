@@ -16,7 +16,8 @@ import { classifyLanding } from "./landing-audit";
 import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { longCommandsRule, rotateFrom } from "./task-dispatcher-support";
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**

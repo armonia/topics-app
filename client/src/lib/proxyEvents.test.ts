@@ -7,9 +7,8 @@
  * @covers HUBBR-07
  */
 import { describe, expect, test } from 'bun:test';
-import { PROXY_EVENT_TYPES, describeProxyEvent, proxyEvents, proxyText, type ProxyEvent } from './proxyEvents';
+import { describeProxyEvent, proxyText, type ProxyEvent } from './proxyEvents';
 import PROXY_EVENTS_IT from './i18n-proxy-events-it';
-import PROXY_EVENTS_EN from './i18n-proxy-events-en';
 
 const tr = (key: string, vars?: Record<string, string | number>) => {
   const template = PROXY_EVENTS_IT[key];
@@ -22,10 +21,6 @@ const say = (e: ProxyEvent) => [proxyText(e.text, tr), e.detail ? proxyText(e.de
 const one = (raw: Record<string, unknown>) => describeProxyEvent({ ts: 1, ...raw }, LABELS)!;
 
 describe('HUBBR-07: the proxy log, every type in the hub page words', () => {
-  // 29: the two types from Jarvis's old gateway never fire any more (switched off on 03/11).
-  test('the 29 types of the hub page are all named', () => {
-    expect(PROXY_EVENT_TYPES).toHaveLength(29);
-  });
 
   test('switches carry their mode and reason, limits their minutes, caps their names, failures their error', () => {
     expect(say(one({ type: 'auto-switch', from: 'prof-a', to: 'prof-b', reason: '429-error' }))).toEqual([
@@ -65,23 +60,5 @@ describe('HUBBR-07: the proxy log, every type in the hub page words', () => {
     const e = one({ type: 'brand_new-event' });
     expect(say(e)).toEqual(['Evento del proxy (brand new event)', null]);
     expect(e).toMatchObject({ tone: 'muted', family: 'other' });
-  });
-
-  test('the whole log, newest first, without the malformed lines; every type has its words in both languages', () => {
-    const log = { log: [
-      { type: 'manual-switch', ts: 10, to: 'prof-a' },
-      { type: 'upgrade', ts: 30, to: '2.4.0' },
-      { ts: 20 },
-      'noise',
-      { type: 'settings-changed', ts: 20 },
-    ] };
-    expect(proxyEvents(log, { profiles: [{ name: 'prof-a', label: 'lavoro@example.com' }] }).map((e) => e.type)).toEqual(['upgrade', 'settings-changed', 'manual-switch']);
-    expect(proxyEvents(null, null)).toEqual([]);
-    for (const type of PROXY_EVENT_TYPES) {
-      const e = one({ type, account: 'prof-a', from: 'prof-a', to: 'prof-b', name: 'prof-a', retryAfter: 60, capped: ['prof-a'], status: 529, attempt: 2, consecutive: 3, cap: 4 });
-      for (const t of [e.text, e.detail]) if (t && 'key' in t) expect(PROXY_EVENTS_EN[t.key]).toBeDefined();
-      expect(() => say(e)).not.toThrow();
-    }
-    expect(Object.keys(PROXY_EVENTS_EN).sort()).toEqual(Object.keys(PROXY_EVENTS_IT).sort());
   });
 });

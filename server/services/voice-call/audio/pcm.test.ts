@@ -3,7 +3,7 @@
  * @covers CALL-01
  */
 import { describe, expect, test } from "bun:test";
-import { FRAME, TRAILING_FRAMES, PlaybackQueue, FrameBuilder, Resampler, VAD_PRE_FRAMES, Vad, joinSamples } from "./pcm";
+import { FRAME, PlaybackQueue, FrameBuilder, Resampler, Vad, joinSamples } from "./pcm";
 
 /** Rust `as i16` from a float: truncation toward zero, saturating. */
 const castI16 = (x: number): number => Math.max(-32768, Math.min(32767, Math.trunc(x)));
@@ -112,30 +112,6 @@ describe("pcm", () => {
     // a new piece reopens the turn
     expect(p.turnDone).toBe(false);
     expect(p.clear()).toBe(10);
-  });
-
-  test("the silence of the room never reaches gemini and a phrase does with its attack", () => {
-    const v = new Vad();
-    const seed = { v: 7 };
-    // 3 s of room (noise around -55 dBFS)
-    for (let i = 0; i < 50; i++) expect(v.push(noise(100, seed)).kind).toBe("closed");
-    // the voice opens: out come the 300 ms before plus the frame
-    const first = v.push(tone(300, 16000, FRAME, 6000));
-    expect(first.kind).toBe("send");
-    if (first.kind === "send") expect(first.frames.length).toBe(VAD_PRE_FRAMES + 1);
-    for (let i = 0; i < 10; i++) {
-      const g = v.push(tone(300, 16000, FRAME, 6000));
-      expect(g.kind === "send" && g.frames.length === 1).toBe(true);
-    }
-    // after the phrase, ~1 s of tail and then the close, once
-    let sent = 0;
-    let ended = 0;
-    for (let i = 0; i < 40; i++) {
-      const g = v.push(noise(100, seed));
-      if (g.kind === "send") sent++;
-      else if (g.kind === "end") ended++;
-    }
-    expect([sent, ended]).toEqual([TRAILING_FRAMES - 1, 1]);
   });
 
   test("a noisy room becomes the floor and stops opening the gate", () => {

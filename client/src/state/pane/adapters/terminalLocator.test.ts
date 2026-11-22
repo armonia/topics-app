@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  locateTerminalPane,
-  locateByPaneId,
-  type ProjectPanesStore,
+  locateTerminalPane, type ProjectPanesStore,
 } from './terminalLocator';
 import { projectPanesLocalKey } from './projectLayoutSync';
 
@@ -98,16 +96,5 @@ describe('locateTerminalPane', () => {
     // pane id equality is exact — `terminal:S1` must not match `terminal:S12`.
     const store = makeStore({ [projectPanesLocalKey('/p')]: projectRecord('terminal:S12') });
     expect(locateTerminalPane('S1', ['terminal:S12'], ['/p'], store).kind).toBe('none');
-  });
-});
-
-describe('locateByPaneId', () => {
-  it('returns none for a non-terminal pane id', () => {
-    expect(locateByPaneId('chat:abc', ['chat:abc'], [], makeStore({})).kind).toBe('none');
-  });
-
-  it('delegates to locateTerminalPane for a terminal pane id', () => {
-    const loc = locateByPaneId('terminal:S1', ['terminal:S1'], [], makeStore({}));
-    expect(loc).toEqual({ kind: 'standalone' });
   });
 });

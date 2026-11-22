@@ -202,7 +202,6 @@ export const TRAILING_FRAMES = 17; // ~1 s
 const FLOOR_FRAMES = 50; // 3 s
 const OVER_FLOOR_DB = 12;
 const MIN_VOICE_DB = -48;
-export const VAD_PRE_FRAMES = PRE_FRAMES;
 
 /**
  * Interrupting the assistant takes a real voice, not its own echo. The phone

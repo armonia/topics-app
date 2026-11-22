@@ -269,6 +269,7 @@ export interface AheadSplit {
 }
 
 /**
+ * @knipignore used by scripts/board-doctor.ts, outside the production graph
  * Le DUE liste insieme, per chi non deve solo sapere quanti commit sono suoi ma
  * anche QUALI sono degli altri — la diagnostica del board-doctor, che dalla
  * differenza tira fuori il commit estraneo più recente (l'impronta della causa
