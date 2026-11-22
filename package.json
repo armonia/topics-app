@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "postinstall": "bun run scripts/fix-node-pty-exec-bit.ts",
-    "start": "bun run server.ts",
+    "start": "bun run serve",
+    "serve": "bun server.ts",
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "build:client": "bun run scripts/build-client.ts",
