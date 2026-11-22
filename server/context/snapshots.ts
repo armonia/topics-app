@@ -64,12 +64,3 @@ export function clearSnapshots(topicId?: string): number {
   return total;
 }
 
-/**
- * Test/diagnostics helper. Returns a per-topic count of snapshots currently
- * in memory.
- */
-export function snapshotCounts(): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [k, v] of store.entries()) out[k] = v.length;
-  return out;
-}

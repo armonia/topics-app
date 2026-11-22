@@ -13,15 +13,13 @@
  * questo test lo blocca se torna.
  * @covers BROWSER-CHAT-01
  */
-import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createBrowserRouter } from "./browser";
 import {
   saveStorageState,
   loadStorageState,
-  saveLastUrl,
   loadLastUrl,
-  deleteStorageState,
 } from "../browser-state-store";
 
 // The store resolves its state from the working directory: run alone, without
@@ -80,18 +78,6 @@ function harness() {
   };
   return { del, destroyed };
 }
-
-beforeEach(async () => {
-  await deleteStorageState(CTX);
-  await deleteStorageState(ALTRO);
-  await saveStorageState(CTX, FIXTURE as never);
-  saveLastUrl(CTX, "https://example.com/dashboard");
-});
-
-afterEach(async () => {
-  await deleteStorageState(CTX);
-  await deleteStorageState(ALTRO);
-});
 
 describe("DELETE /api/browsers/:id", () => {
   test("distrugge il contesto ma lascia intatto il barattolo della sessione condivisa", async () => {
