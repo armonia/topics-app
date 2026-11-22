@@ -27,6 +27,7 @@ import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { createTaskService } from "../services/tasks";
 import { getAppSettings } from "../services/app-settings";
 import { createSecurityAlertsRound } from "./machine-security-alerts";
+import { AUDIT_POLL_MS, createDependencyAuditRound, fetchLatestAuditRun, resolveAuditSource } from "./dependency-audit-alert";
 
 /** How long to wait for a node's probe: its commands have 5 s each, in parallel, and the macOS log needs longer. */
 const REMOTE_PROBE_TIMEOUT_MS = 30_000;
@@ -175,7 +176,21 @@ export function startMachineHealth(ctx: AppContext): void {
     log: (msg) => console.warn(msg),
   });
 
+  const auditRound = createDependencyAuditRound({
+    db: ctx.db,
+    svc: createTaskService(ctx.db, {}),
+    broadcast: (event) => ctx.broadcastToAll(event as Parameters<typeof ctx.broadcastToAll>[0]),
+    projectId: () => getAppSettings().securityAlertsProjectId,
+    latestRun: async (projectId) => {
+      const row = ctx.db.query("SELECT path FROM projects WHERE id = ?").get(projectId) as { path: string } | null;
+      const source = await resolveAuditSource(row?.path ?? null);
+      return source ? fetchLatestAuditRun(source) : null;
+    },
+  });
+
   setTimeout(() => {
+    void auditRound().catch((err) => console.warn("[dependency-audit]", err));
+    setInterval(() => void auditRound().catch((err) => console.warn("[dependency-audit]", err)), AUDIT_POLL_MS).unref?.();
     void health.tick();
     setInterval(() => void health.tick(), STEP_S * 1000).unref?.();
   }, FIRST_TICK_DELAY_MS).unref?.();
