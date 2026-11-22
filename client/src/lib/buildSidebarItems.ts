@@ -5,7 +5,8 @@ import { getPaneConfig } from '../state/pane/adapters/paneConfig';
 import { attentionOf, type AttentionRows } from '../state/attention';
 import { projectAttentionChildren } from '../state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
-import { basename, tryHostname } from './path-utils';
+import { tryHostname } from './path-utils';
+import { getProjectLabel } from './projectLabel';
 import { agentTerminalIds, agentTopicIds, isAgentPath } from './agentSessions';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -71,23 +72,9 @@ export interface SidebarItem {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/**
- * Friendly display label for a workspace project path — the basename
- * with the full path as a fallback if basename can't extract one
- * (e.g. relative or single-segment paths).
- *
- * Exported so every surface that shows a project name (sidebar,
- * command palette, master strip, chat tab project chip, etc.) reads
- * from one place. Don't reimplement the `.split('/').pop()` dance at
- * a call site — use this.
- *
- * A server on Windows sends its paths with backslashes (a terminal's cwd,
- * seen in the bell on 05/11 as the whole `C:\Users\...` path): they count as
- * separators here too, so the label is the folder's name there as well.
- */
-export function getProjectLabel(projectPath: string): string {
-  return basename(projectPath.replace(/\\/g, '/')) || projectPath;
-}
+// Re-exported for the surfaces that already read it from here; it lives in
+// `projectLabel` so the boot-time bell ledger does not pull this module in.
+export { getProjectLabel };
 
 /**
  * The badge of a CHAT row: the attention number of its subject, `max(1,

@@ -22,7 +22,7 @@ import type { AttentionReason, AttentionSeenItem, AttentionTask } from '../../..
 import { notificationTargetUrl } from '../../../shared/notification-log';
 import { attentionOf, type AttentionRows } from '../state/attention';
 import { chromeAttentionSubjects } from '../state/attentionTotal';
-import { getProjectLabel } from './buildSidebarItems';
+import { getProjectLabel } from './projectLabel';
 
 export type InboxKind = 'chat' | 'terminal' | 'card';
 
