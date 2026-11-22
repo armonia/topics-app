@@ -11,7 +11,8 @@
 import type { Database } from "bun:sqlite";
 import { hangBreaker, WAKE_FAIL_THRESHOLD } from "./wake-breaker";
 import { EMPTY_RUN_PIN_MS } from "./task-dispatcher-remote-node-empty";
-import { CAUSE_TEXT, pingPongCards, type CureOutcome, type CureReport, type InvestigationSettings, type Move, type Sample, type StuckCause, type Thresholds } from "./topics-check";
+import { isAgentWorking, PARKED_STOPPED, statusEventEnters } from "../../shared/board";
+import { AGENT_ASSIGNEE, CAUSE_TEXT, pingPongCards, type CureOutcome, type CureReport, type InvestigationSettings, type Move, type Sample, type StuckCause, type Thresholds } from "./topics-check";
 import type { Task, TaskService } from "./tasks";
 
 export type ProblemCause = StuckCause | "bounce";
@@ -25,9 +26,6 @@ const INVESTIGATION_KEY = "topics-check:";
 const UNKNOWN_CURE_AUTHOR = "topics-check";
 /** Fresh shots an "unknown" card gets before it is parked for a human to look at it. */
 export const UNKNOWN_RETRY_CAP = 2;
-/** Same walk as `chainRoot` in topics-check.ts, read fresh at cure time: the sample that classified the card as
- * chain-parked can be minutes old, and the root it found in backlog may already be done or gone. */
-const MAX_CHAIN_DEPTH = 20;
 
 export interface CureDeps {
   db: Database;
@@ -70,7 +68,18 @@ export function cureDepsOf(
   };
 }
 
-interface CardState { task: Task; runOpen: boolean; /** Delegated or mirror cards are bound to their node: no cure moves them. */ bound: boolean; /** Pinned to a machine by a person, not by the system. */ personPin: boolean }
+interface CardState {
+  task: Task; runOpen: boolean;
+  /** Delegated or mirror cards are bound to their node: no cure moves them. */
+  bound: boolean;
+  /** Pinned to a machine by a person, not by the system. */
+  personPin: boolean;
+  /** `stay_local` set by a person (no pin expiry running): "none of our machines", so no cure reassigns it. */
+  stayLocal: boolean;
+  /** True when a card the sample called "unknown" has since moved on in a way the sample could not see: a live
+   * agent turn, a human question, the review stage, or a person holding it. None of these is `cure`'s to touch. */
+  waitingOnSomeoneElse: boolean;
+}
 
 export function createCures(deps: CureDeps) {
   const { db, svc } = deps;
@@ -95,39 +104,49 @@ export function createCures(deps: CureDeps) {
 
   const note = (taskId: string, content: string) => svc.addComment({ taskId, author: "system", kind: "service", content });
 
-  /** True once the blocker chain starting at `id` bottoms out at a done or archived card: nothing is left to wait on. False while it still bottoms out at a card parked in backlog, or runs past `MAX_CHAIN_DEPTH`. */
+  /** True when `id`, the DIRECT blocker (never a grandparent further up the chain), is done, archived or gone: the
+   * same predicate as the dispatcher's own `isDispatchBlocked`, so a card still waiting on its direct blocker is
+   * never declared cleared just because some ancestor further up the chain finished first. */
   function chainCleared(id: string): boolean {
-    let cur: string | null = id;
-    for (let i = 0; cur && i < MAX_CHAIN_DEPTH; i++) {
-      const row = db.query("SELECT status, archived, blocked_by_task_id AS next FROM tasks WHERE id = ?").get(cur) as { status: string; archived: number; next: string | null } | null;
-      if (!row || row.archived || row.status === "done") return true;
-      if (row.status === "backlog") return false;
-      cur = row.next;
-    }
-    return false;
+    const row = db.query("SELECT status, archived FROM tasks WHERE id = ?").get(id) as { status: string; archived: number } | null;
+    return !row || !!row.archived || row.status === "done";
   }
 
-  /** How many times `topics-check` already requeued this card for "unknown": the readable cap before it parks it instead. */
+  /** When a person (never this cure, never the dispatcher) last put the card back into `todo`: the moment the
+   * count below restarts from, so a card a person looked at and requeued does not land straight back in the park
+   * it was just pulled out of. */
+  function personReopenedAt(taskId: string): string | null {
+    const rows = db.query("SELECT author, content, created_at FROM task_comments WHERE task_id = ? AND kind = 'status' ORDER BY created_at DESC")
+      .all(taskId) as { author: string; content: string; created_at: string }[];
+    return rows.find((r) => statusEventEnters(r.content, "todo") && r.author !== "system" && r.author !== "dispatcher" && r.author !== UNKNOWN_CURE_AUTHOR)?.created_at ?? null;
+  }
+
+  /** How many times `topics-check` already requeued this card for "unknown" since it was last parked, or since a
+   * person last put it back in `todo`: the readable cap before it parks it instead. */
   const unknownRetries = (taskId: string): number =>
-    (db.query("SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND author = ? AND content LIKE 'Rimessa in coda%'")
-      .get(taskId, UNKNOWN_CURE_AUTHOR) as { n: number }).n;
+    (db.query("SELECT COUNT(*) AS n FROM task_comments WHERE task_id = ? AND author = ? AND content LIKE 'Rimessa in coda%' AND created_at > ?")
+      .get(taskId, UNKNOWN_CURE_AUTHOR, personReopenedAt(taskId) ?? "") as { n: number }).n;
 
   /** The card as the database has it now; null when it is gone or archived. */
   function read(taskId: string): CardState | null {
     const task = svc.get(taskId)?.task;
     if (!task) return null;
-    const row = db.query("SELECT node_run_open AS open, archived, delegated_start_capability_id AS delegated, claude_task_id AS cid, overflowed_at AS overflowed FROM tasks WHERE id = ?")
-      .get(taskId) as { open: number | null; archived: number | null; delegated: string | null; cid: string | null; overflowed: string | null } | null;
+    const row = db.query(
+      "SELECT node_run_open AS open, archived, delegated_start_capability_id AS delegated, claude_task_id AS cid, overflowed_at AS overflowed, stay_local_until AS stayLocalUntil FROM tasks WHERE id = ?",
+    ).get(taskId) as { open: number | null; archived: number | null; delegated: string | null; cid: string | null; overflowed: string | null; stayLocalUntil: string | null } | null;
     if (!row || row.archived) return null;
+    const personAssignee = task.status === "in_progress" && !!task.assignedTo && !AGENT_ASSIGNEE.test(task.assignedTo);
     return {
       task, runOpen: row.open === 1,
       bound: !!row.delegated || !!row.cid?.startsWith("node-run:"),
       personPin: !!task.machineId && !row.overflowed,
+      stayLocal: task.stayLocal && !(row.stayLocalUntil && Date.parse(row.stayLocalUntil) <= now()),
+      waitingOnSomeoneElse: isAgentWorking(task.dispatchState) || !!task.humanAsk?.trim() || task.stage === "human_review" || personAssignee,
     };
   }
 
   /** The cure of one cause, or false when there is none (or it had nothing to do). */
-  function cure(p: Problem, { task, runOpen, bound, personPin }: CardState): boolean {
+  function cure(p: Problem, { task, runOpen, bound, personPin, stayLocal, waitingOnSomeoneElse }: CardState): boolean {
     switch (p.cause) {
       case "offline":
       case "seats":
@@ -148,7 +167,9 @@ export function createCures(deps: CureDeps) {
         return true;
       }
       case "chain-parked": {
-        // The sample is minutes old: re-check the chain now, not what it said then.
+        // The sample is minutes old: re-check now whether the DIRECT blocker — never a grandparent further up a
+        // long chain — is done or gone. A grandparent finishing first never frees a card whose own direct
+        // blocker is still open: that is the dispatcher's own `isDispatchBlocked` rule, read fresh here too.
         if (bound || !task.blockedByTaskId || !chainCleared(task.blockedByTaskId)) return false;
         const released = svc.update({ taskId: task.id, actor: "agent", by: "topics-check", patch: { blockedByTaskId: null } });
         deps.emit(released);
@@ -156,8 +177,11 @@ export function createCures(deps: CureDeps) {
         return true;
       }
       case "unknown": {
-        // A live run or a card bound to its node is not ours to requeue or park.
-        if (runOpen || bound) return false;
+        // The sample can be up to half a minute old: re-check everything it could not see happen in the
+        // meantime. Only an `in_progress` card with no live turn, no open question, no review stage and no
+        // person holding it is actually "unknown" — a `todo` card was never the cause this cures, and a
+        // card the system cannot touch (a run, its node, a person's pin) is never this cure's to move.
+        if (task.status !== "in_progress" || runOpen || bound || personPin || stayLocal || waitingOnSomeoneElse) return false;
         const tries = unknownRetries(task.id);
         if (tries < UNKNOWN_RETRY_CAP) {
           const requeued = svc.release({
@@ -168,7 +192,7 @@ export function createCures(deps: CureDeps) {
           return true;
         }
         const parked = svc.release({
-          taskId: task.id, requeue: false, by: UNKNOWN_CURE_AUTHOR,
+          taskId: task.id, requeue: false, by: UNKNOWN_CURE_AUTHOR, parkState: PARKED_STOPPED,
           reason: `Tolta dalla coda dopo ${UNKNOWN_RETRY_CAP} tentativi a vuoto: nessun turno vivo e nessuna domanda aperta, serve un occhio umano.`, // allow-italian: board comment
         });
         deps.emit(parked);
