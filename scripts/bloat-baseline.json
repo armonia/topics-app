@@ -293,8 +293,8 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 429,
-  "clone_groups": 16,
+  "duplicated_lines": 311,
+  "clone_groups": 11,
   "files": {
     "client/src/App.tsx": 1100,
 
@@ -386,7 +386,7 @@
     "client/src/lib/buildSidebarItems.ts": 1007,
 
     "client/src/lib/i18n-en.ts": {
-      "lines": 3726,
+      "lines": 3645,
       "why": [
         "2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.",
         "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.",
@@ -395,7 +395,7 @@
     },
 
     "client/src/lib/i18n-it.ts": {
-      "lines": 4086,
+      "lines": 4005,
       "why": [
         "2026-10-15, live-terminals-launchd: 3393 measured on main 703294a85. The last +12 (over the 3381 ceiling) are the liveTerminals.* strings of #331, the menu of the terminals live on the Mac; the other +161 came in under the ceiling through D5f, D6a and D6d. Recorded by hand, this row only.",
         "2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.",
@@ -528,7 +528,7 @@
 
     "server/providers/claude-code.ts": 3847,
 
-    "server/providers/codex.ts": 1392,
+    "server/providers/codex.ts": 1347,
 
     "server/providers/index.ts": {
       "lines": 841,
@@ -538,7 +538,7 @@
     },
 
     "server/providers/muse.ts": {
-      "lines": 1096,
+      "lines": 1048,
       "why": [
         "2026-10-06, muse-provider: new file, the Muse chat provider as a deliberate CodexProvider mirror (one-shot exec + sid resume, JSONL mapping, abort, usage). The mirror is also the +113 duplicated lines / +5 clone groups recorded above."
       ]
