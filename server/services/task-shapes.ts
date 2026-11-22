@@ -355,6 +355,12 @@ export interface Task {
   deliveryBranch: string | null;
   /** Branch tip at delivery time — the handle that outlives the reaped branch. */
   deliveryCommit: string | null;
+  /**
+   * The tip a review SENT BACK, kept so the same tip handed in again is read as
+   * "no work done" instead of a new delivery. Absent in the list projection,
+   * which does not select the column: read it from `svc.get`, never from a feed row.
+   */
+  priorCommit?: string | null;
   reviewAt: string | null;
   deliveryFilesChanged: number | null;
   deliveryInsertions: number | null;
