@@ -57,10 +57,11 @@ const streamError = (ago: number, errorMessage: string) => logAt(ago, () => logS
 type Opened = { outcome: "opened" | "capped" | "off"; cardId: string | null };
 function harness(answer: string | Error = "GREEN: all regular", extra: Partial<DailyDeps> & { checks?: { name: string; command: string; tier: "5min" | "daily" }[]; opened?: Opened } = {}) {
   const prompts: string[] = [];
+  const models: string[] = [];
   const cards: { boardId: string | null; perDay: number; title: string }[] = [];
   const deps: DailyDeps = {
     now: () => NOW,
-    ask: async (prompt) => { prompts.push(prompt); if (answer instanceof Error) throw answer; return answer; },
+    ask: async (prompt, model) => { prompts.push(prompt); models.push(model); if (answer instanceof Error) throw answer; return answer; },
     openCard: (inv, title) => { cards.push({ boardId: inv.boardId, perDay: inv.perDay, title }); return extra.opened ?? { outcome: "opened", cardId: "card-1" }; },
     settings: () => ({
       daily: { hour: 7, model: "" }, language: null,
@@ -68,7 +69,7 @@ function harness(answer: string | Error = "GREEN: all regular", extra: Partial<D
     }),
     ...extra,
   };
-  return { deps, prompts, cards };
+  return { deps, prompts, models, cards };
 }
 
 describe("when the round runs", () => {
@@ -126,6 +127,13 @@ describe("what the reading carries", () => {
     expect(h.prompts[0]).not.toContain("429");
   });
 
+  test("an error 14 hours old is still today's: the day is the last 24 hours, not less", async () => {
+    streamError(14 * H, "EMFILE: too many open files");
+    const h = harness();
+    await runDaily(d, h.deps);
+    expect(h.prompts[0]).toContain("EMFILE");
+  });
+
   test("the baseline is the 7 days before the last 24 hours: errors 6.5 and 7.5 days old are seen, one 8.5 days old is not", async () => {
     streamError(6.5 * DAY, "seen within the week");
     streamError(7.5 * DAY, "seen at the far edge");
@@ -181,6 +189,18 @@ describe("what the reading carries", () => {
     expect(h.prompts[0]).toMatch(/seats: red/);
   });
 
+  test("a seat lost 30 hours ago is outside the 24 hours of the voices", async () => {
+    const machines = (slots: number) => [{ id: "n1", name: "n1", online: true, slots, cards: 0, heartbeatAt: NOW }];
+    const rows: Sample[] = [];
+    for (let i = 0; i < 14; i++) rows.push({ at: NOW - 30 * H + i * 5 * 60_000, todo: 2, machines: machines(0), stuck: [], moves: [] });
+    rows.push({ at: NOW - 21 * H, todo: 0, machines: machines(2), stuck: [], moves: [] });
+    rows.push({ at: NOW - 5 * 60_000, todo: 0, machines: machines(2), stuck: [], moves: [] });
+    for (const s of rows) d.query("INSERT INTO topics_check_samples (at, sample_json) VALUES (?, ?)").run(s.at, JSON.stringify(s));
+    const h = harness();
+    await runDaily(d, h.deps);
+    expect(h.prompts[0]).not.toMatch(/seats: red/);
+  });
+
   test("jobs without a proof are listed with their last outcome; covered, disabled and deleted ones are not", async () => {
     const job = (id: string, name: string, enabled = 1, deletedAt: string | null = null) => d.query("INSERT INTO scheduled_jobs (id, name, schedule_json, action_json, enabled, deleted_at, created_at, updated_at) VALUES (?, ?, '{}', '{}', ?, ?, ?, ?)").run(id, name, enabled, deletedAt, iso(NOW), iso(NOW));
     job("j1", "nightly-backup");
@@ -222,6 +242,12 @@ describe("what the reading carries", () => {
     expect(h.prompts[0]).toContain("nightly-proof");
   });
 
+  test("the round asks with the model of the settings", async () => {
+    const h = harness("GREEN: ok", { settings: () => ({ daily: { hour: 7, model: "cheap-model-x" }, language: null, checkRaw: parseSettings(null) }) });
+    await runDaily(d, h.deps);
+    expect(h.models).toEqual(["cheap-model-x"]);
+  });
+
   test("the sentence is asked in the app's output language", async () => {
     const h = harness("GREEN: ok", { settings: () => ({ daily: { hour: 7, model: "" }, language: "it", checkRaw: parseSettings(null) }) });
     await runDaily(d, h.deps);
@@ -259,8 +285,11 @@ describe("what a verdict does", () => {
   });
 
   test("an unreachable model: the row says why, and the 5-minute round is untouched", async () => {
-    const v = await runDaily(d, harness(new Error("no model connected")).deps);
+    const h = harness(new Error("no model connected"));
+    const v = await runDaily(d, h.deps);
     expect(v).toMatchObject({ color: "unread", reason: "unreachable", line: "no model connected" });
+    // Only a red verdict opens a card: an unread one is the model's problem, not Topics'.
+    expect(h.cards.length).toBe(0);
     const round = createTopicsCheck({ db: d, now: () => NOW, settings: () => parseSettings(null) });
     expect((await round.tick()).length).toBe(3);
     expect(readLatestVerdict(d)?.reason).toBe("unreachable");

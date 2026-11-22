@@ -108,7 +108,7 @@ test.describe("topics check row", () => {
     await expect(check.getByTestId("topics-check-state")).toHaveText("verifica ferma da 17 min");
     await page.screenshot({ path: testInfo.outputPath("topics-check-ferma-1440.png") });
   });
-  test("the daily reading: red and green read differently, and an older one says it is not today's", async ({ page }) => {
+  test("the daily reading: red and green read differently, and an older one says it is not today's", async ({ page }, testInfo) => {
     const reading = (over: Record<string, unknown>) => ({ day: "2026-11-22", old: false, color: "green", reason: null, line: "tutto regolare", cardId: null, cardNote: null, ...over });
     let daily: unknown = reading({});
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -121,6 +121,7 @@ test.describe("topics check row", () => {
     await expect(line).toContainText("Lettura del giorno, 2026-11-22: tutto regolare");
     const color = async () => line.evaluate((el) => getComputedStyle(el).color);
     const greenInk = await color();
+    await page.screenshot({ path: testInfo.outputPath("topics-check-giorno-verde-1440.png") });
 
     daily = reading({ color: "red", line: "i lavori falliscono ogni notte", cardNote: "capped" });
     await page.reload();
@@ -129,6 +130,12 @@ test.describe("topics check row", () => {
     await expect(line).toHaveAttribute("data-state", "red", { timeout: 20_000 });
     await expect(line).toContainText("nessuna card: tetto del giorno raggiunto");
     expect(await color()).not.toBe(greenInk);
+    for (const [w, h] of [[375, 812], [768, 1024], [1440, 900], [3440, 1440]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await expect(line).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath(`topics-check-giorno-rosso-${w}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
 
     daily = reading({ day: "2026-11-19", old: true });
     await page.reload();
@@ -136,5 +143,6 @@ test.describe("topics check row", () => {
     await page.getByTestId("sidebar-automations").click();
     await expect(line).toHaveAttribute("data-state", "old", { timeout: 20_000 });
     await expect(line).toContainText("non di oggi");
+    await page.screenshot({ path: testInfo.outputPath("topics-check-giorno-vecchio-1440.png") });
   });
 });
