@@ -185,8 +185,11 @@ export function createCures(deps: CureDeps) {
           // A problem with its card open is waiting on it: the cure is not tried again.
           if (inv.boardId && investigated(p, inv.boardId)) { reports.push({ key: p.key, outcome: "skipped" }); continue; }
           if (!cured.has(p.key) && cure(p, state)) { cured.add(p.key); reports.push({ key: p.key, outcome: "cured" }); continue; }
-          cured.delete(p.key);
-          reports.push({ key: p.key, outcome: investigate(p, inv) });
+          const outcome = investigate(p, inv);
+          // A capped problem keeps its cure marked as tried: otherwise the next round cures it again (a curable
+          // card would be moved every other round) and the self-check row shows the cap only half the time.
+          if (outcome !== "capped") cured.delete(p.key);
+          reports.push({ key: p.key, outcome });
         } catch (err) {
           console.warn("[topics-check] cure failed:", p.key, err instanceof Error ? err.message : err);
           reports.push({ key: p.key, outcome: "skipped" });

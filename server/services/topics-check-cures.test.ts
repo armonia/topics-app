@@ -142,6 +142,13 @@ describe("what the cures cannot clear opens one card", () => {
     h.cures.run(sample([], bounces("b", NOW)), T, ON_BOARD);
     expect(h.opened()[0]!.text).toContain("rimbalza");
   });
+  test("a curable problem under the cap stays capped: it is not cured again every other round", () => {
+    const h = setup(); h.card("a", "m1");
+    const none = { boardId: "inv", perDay: 0 };
+    const outcomes = [1, 2, 3, 4].map(() => h.cures.run(sample([stuck("a", "offline")]), T, none)[0]!.outcome);
+    expect(outcomes).toEqual(["cured", "capped", "capped", "capped"]);
+    expect(h.reassigned).toEqual(["a"]);
+  });
   test("a capped problem is asked again the next day, and says so only once a day", () => {
     const h = setup(); h.card("1"); h.card("2");
     const db = h.db;
