@@ -5,7 +5,7 @@ import { apiFetch } from '../lib/shell/net';
 export interface Chat { channel: string; chat: string; account: string; active: boolean; mention: boolean; senders: string[]; denied: string[]; hasSystem: boolean; system: string; routed: boolean; twoAgents: boolean }
 export interface Job { id: string; name: string; paused: boolean; kind: string; schedule: string; rawSchedule: { kind: string; expr?: string; minutes?: number; at?: string; tz?: string } | null; model: string | null; deliver: string | null }
 export interface Agent {
-  id: 'main' | 'gtm'; name: string; workspace: string; persona: Record<string, string>;
+  id: string; name: string; workspace: string; persona: Record<string, string>;
   accounts: { channel: string; account: string; token: string }[]; chats: Chat[]; jobs: Job[];
   model: { engine: string | null; perChannel: Record<string, Record<string, string>> };
 }
