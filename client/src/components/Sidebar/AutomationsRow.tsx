@@ -16,7 +16,7 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { useHubEverRead, useHubLive } from '@/state/hubLive';
 import { useT } from '@/hooks/useT';
 import { toFixCount } from '@/lib/automations';
-import { sidebarRowCard, ROW_ACTION_BOX, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
+import { sidebarRowCard, ROW_ACTION_BOX, ROW_PX, ROW_H, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT, ROW_CHEVRON_SLOT, TAB_LABEL_TYPE } from '@/lib/selectionStyles';
 import { SEGNALE_ATTESA } from './chromeSignals';
 import { useInboxBadge } from './Inbox';
 import { FittingTail } from './FittingTail';
@@ -37,6 +37,9 @@ export function AutomationsRow({ open }: { open: boolean }) {
       className={`flex flex-shrink-0 items-center gap-2 leading-none ${ROW_PX} ${ROW_H} select-none ${sidebarRowCard({ focused: open })}`}
       style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
     >
+      {/* Nothing opens here, but the accordion box stays reserved so the glyph
+          and the name start where the project rows' do. */}
+      <span className={ROW_CHEVRON_SLOT} aria-hidden="true" />
       <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
         <Workflow size={ROW_GLYPH} className="text-app-text-secondary" aria-hidden="true" />
       </span>

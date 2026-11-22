@@ -70,7 +70,7 @@ export interface StuckCard { id: string; status: "todo" | "in_progress"; hours: 
 export interface MachineSample { id: string; name: string; online: boolean; slots: number | null; cards: number; heartbeatAt: number }
 /** `silent`: the target machine was off and had not beaten since before the move. */
 export interface Move { id: string; at: number; to: string; silent: boolean }
-export interface CheckResult { name: string; ok: boolean; reason: string | null }
+export interface ProofResult { name: string; ok: boolean; reason: string | null }
 
 export interface Sample {
   at: number;
@@ -79,7 +79,7 @@ export interface Sample {
   stuck: StuckCard[];
   moves: Move[];
   /** Filled by the round after the proofs ran; `sampleTopics` leaves it out. */
-  checks?: CheckResult[];
+  checks?: ProofResult[];
 }
 
 interface CardRow {
@@ -236,9 +236,9 @@ export function voices(samples: readonly Sample[], settings: TopicsCheckSettings
 type Runner = typeof runBounded;
 
 /** Runs the 5-minute proofs, each under the wall-clock cap; a non-zero exit or a timeout is red. */
-export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number, run: Runner = runBounded): Promise<CheckResult[]> {
+export async function runProofs(checks: readonly CheckSpec[], timeoutSec: number, run: Runner = runBounded): Promise<ProofResult[]> {
   const shell = process.platform === "win32" ? ["cmd", "/c"] : ["sh", "-c"];
-  return Promise.all(checks.filter((c) => c.tier === "5min").map(async (c): Promise<CheckResult> => {
+  return Promise.all(checks.filter((c) => c.tier === "5min").map(async (c): Promise<ProofResult> => {
     const r = await run([...shell, c.command], timeoutSec * 1000);
     if (r.timedOut) return { name: c.name, ok: false, reason: `oltre ${timeoutSec} s` };
     if (r.missing) return { name: c.name, ok: false, reason: "comando non avviabile" };
