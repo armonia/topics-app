@@ -12,6 +12,9 @@ import { runGit } from "../lib/run-git";
 
 const HOOK_DEADLINE_MS = 60_000;
 
+/** The environment as it is NOW: under Bun a child launched without `env` sees the one the server was born with. */
+const LIVE_ENV = (): Record<string, string> => process.env as Record<string, string>;
+
 /** True only when the hook answers with a refusal. */
 async function prePushRefuses(cwd: string, base: string, sha: string): Promise<boolean> {
   return (await prePushVerdict(cwd, base, sha)).refused;
@@ -21,11 +24,11 @@ async function prePushRefuses(cwd: string, base: string, sha: string): Promise<b
 export async function prePushVerdict(cwd: string, base: string, sha: string): Promise<{ refused: boolean; detail: string }> {
   const no = (detail: string) => ({ refused: false, detail });
   // `--git-path hooks/...` ignores `core.hooksPath` on older git, so the setting is read first.
-  const configured = await runGit(cwd, ["config", "--path", "--get", "core.hooksPath"], { timeoutMs: 10_000 });
+  const configured = await runGit(cwd, ["config", "--path", "--get", "core.hooksPath"], { timeoutMs: 10_000, env: LIVE_ENV() });
   let dir = configured.code === 0 ? configured.stdout.trim() : "";
   if (dir !== "" && !isAbsolute(dir)) dir = join(cwd, dir);
   if (dir === "") {
-    const where = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { timeoutMs: 10_000 });
+    const where = await runGit(cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"], { timeoutMs: 10_000, env: LIVE_ENV() });
     if (where.code !== 0) return no(`git-path ${where.code} ${where.stderr}`);
     dir = where.stdout.trim();
   }
@@ -36,6 +39,7 @@ export async function prePushVerdict(cwd: string, base: string, sha: string): Pr
     cwd,
     stderr: "pipe",
     timeoutMs: HOOK_DEADLINE_MS,
+    env: LIVE_ENV(),
     stdinData: `refs/heads/main ${sha} refs/heads/main ${base}\n`,
   });
   return { refused: !r.spawnFailed && r.exitCode === 1, detail: `${hook} exit=${r.exitCode} spawnFailed=${r.spawnFailed} ${r.spawnError ?? ""} ${r.stderr}` };

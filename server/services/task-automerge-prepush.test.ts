@@ -13,6 +13,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
+const BASE_CONFIG_COUNT = process.env.GIT_CONFIG_COUNT;
 const BAD_WORD = "forbiddenword";
 let dir: string;
 
@@ -43,8 +44,16 @@ beforeEach(() => {
   writeFileSync(script, `#!/bin/sh\nwhile read l r s rs; do\n  if git log --format=%B "$rs..$s" | grep -qi ${BAD_WORD}; then exit 1; fi\ndone\nexit 0\n`);
   chmodSync(script, 0o755);
   git(repo, "config", "core.hooksPath", hook);
+  // The suite's isolation pins `core.hooksPath` through GIT_CONFIG_*, which beats the repo setting: a later pair wins.
+  const n = Number(BASE_CONFIG_COUNT ?? "0") || 0;
+  process.env[`GIT_CONFIG_KEY_${n}`] = "core.hooksPath";
+  process.env[`GIT_CONFIG_VALUE_${n}`] = hook;
+  process.env.GIT_CONFIG_COUNT = String(n + 1);
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  if (BASE_CONFIG_COUNT === undefined) delete process.env.GIT_CONFIG_COUNT; else process.env.GIT_CONFIG_COUNT = BASE_CONFIG_COUNT;
+  rmSync(dir, { recursive: true, force: true });
+});
 
 async function land(title: string) {
   const repo = join(dir, "repo");
