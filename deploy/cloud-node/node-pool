@@ -384,7 +384,6 @@ def from_snapshot_user_data():
     c = commit_of_mac()
     return f"""#!/bin/bash
 su - topics -c 'cd topics-app && git fetch -q origin && git checkout -q {c} && export PATH="$HOME/.topics/bun/$(tr -d "[:space:]" < .bun-version):$PATH" && bun install >/dev/null 2>&1' > /var/log/topics-align.log 2>&1
-usermod -aG adm,systemd-journal topics
 systemctl restart topics.service
 touch /var/lib/topics-node-ready
 """
