@@ -8,9 +8,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
 - agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
 
+## 2.4.68 — 2026-11-22
+
+### Sotto il cofano
+- Bloat baseline: only the overflow test entry, with its reason
+
 ## 2.4.67 — 2026-11-21
 
 ### Sotto il cofano
+- a card pinned to a machine at its seats waits in todo without spending an attempt
+- Record the new size of the overflow test file in the bloat baseline
 - Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi
 - deadcode-prod: scripts and UI gallery are not production, queue the gate, test parseCounts
 
