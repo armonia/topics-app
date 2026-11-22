@@ -9,8 +9,9 @@
  */
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import {
-  subscribeSession, markUnpaired, refreshSession, __resetSessionForTests, getSession,
+  subscribeSession, refreshSession, __resetSessionForTests, getSession,
 } from './session';
+import { markUnpaired } from './sessionState';
 
 const fetchVero = globalThis.fetch;
 

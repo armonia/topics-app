@@ -3,7 +3,8 @@
  * @covers USAGE-24
  */
 import { describe, test, expect } from "bun:test";
-import { ClaudeCodeProvider, parseCompletionStdout } from "./claude-code";
+import { ClaudeCodeProvider } from "./claude-code";
+import { parseCompletionStdout } from "./claude/cli-launch";
 
 describe("parseCompletionStdout", () => {
   test("single result object → content + usage", () => {

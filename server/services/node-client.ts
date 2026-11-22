@@ -171,6 +171,19 @@ export interface NodeRunReport {
    * would read «the node delivered no branch» over a session that failed.
    */
   reason?: string | null;
+  /**
+   * The run's card was ARCHIVED on the node (its board DELETE archives the subtree and
+   * leaves the status alone, so an archived run still reports `in_progress`). Without this
+   * bit a reattach after a restart follows a card nobody will ever move again. An older
+   * node, or the Claude cloud, does not send it: absent reads as "not archived", which is
+   * what every caller assumed before.
+   */
+  archived?: boolean;
+  /**
+   * What the run has spent on the node so far, absolute (a floor, like the local
+   * counters). An older node does not send it: absent reads as "unknown".
+   */
+  usage?: { tokens: number; cacheReadTokens: number; costCents: number } | null;
 }
 
 export type BundleResult = { empty: true } | { empty: false; bytes: Uint8Array };
@@ -529,6 +542,8 @@ export function createNodeClient(deps: NodeClientDeps): NodeClient {
         baseSha: typeof out.baseSha === "string" ? out.baseSha : null,
         stat: out.stat ?? null,
         reason: typeof out.reason === "string" ? out.reason : null,
+        archived: out.archived === true,
+        usage: parseRunUsage(out.usage),
       };
     },
 
@@ -689,4 +704,12 @@ export function removeDelegatedNodeToken(
     // Revocation in the database is authoritative. A stale file contains a
     // credential the node has already invalidated and is retried on reissue.
   }
+}
+
+/** The usage block of a run report; anything that is not three finite numbers reads as unknown. */
+function parseRunUsage(raw: unknown): NodeRunReport["usage"] {
+  if (!raw || typeof raw !== "object") return null;
+  const u = raw as Record<string, unknown>;
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0);
+  return { tokens: n(u.tokens), cacheReadTokens: n(u.cacheReadTokens), costCents: n(u.costCents) };
 }

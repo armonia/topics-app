@@ -78,6 +78,16 @@ export function readAgents(home: string, expand: (p: string) => string = (p) => 
     });
 }
 
+/** The agent whose own folder IS this topic's workspace, or `null` for an
+ *  ordinary topic. A trailing slash must not break the match: the channel
+ *  engine's `projectPath` and the registry's own `workspace` are not
+ *  guaranteed to agree on one. */
+export function resolveAgentIdForWorkspace(workspace: string | null | undefined, agents: AgentRecord[]): string | null {
+  if (!workspace) return null;
+  const normalized = workspace.replace(/\/+$/, "");
+  return agents.find((a) => a.workspace.replace(/\/+$/, "") === normalized)?.id ?? null;
+}
+
 /** `"Rino Gaetano"` → `"rino-gaetano"`. Throws when nothing usable is left. */
 export function slugifyAgentId(name: string): string {
   const id = name

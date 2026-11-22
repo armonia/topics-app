@@ -175,8 +175,3 @@ export function resolveIdentity(db: Db, cookieHeader: string | null, locale: boo
     node: isNodeDevice(db, String(riga.id)),
   };
 }
-
-/** Il confinamento derivato dalla persona e dalla proprietà locale. */
-export function confinamentoDerivato(db: Db, deviceId: string): boolean {
-  return resolvePrincipals(db, deviceId).confined;
-}

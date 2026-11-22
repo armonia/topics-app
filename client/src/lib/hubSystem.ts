@@ -190,35 +190,6 @@ export function firingAlerts(data: unknown): FiringAlert[] {
   return out;
 }
 
-// ── Red gates (/api/gates) ───────────────────────────────────────────────────
-
-export interface RedGate {
-  id: string;
-  /** The delegation class (`interattivo`, `batch`...) or the provider a brake holds. */
-  name: string;
-  kind: 'class' | 'brake';
-  reason: string;
-}
-
-/**
- * The hub's gates are the delegation decisions: one per class, plus the brake
- * in front of each batch provider. A gate is red when it says `go: false`.
- */
-export function redGates(data: unknown): RedGate[] {
-  if (!isObject(data)) return [];
-  const out: RedGate[] = [];
-  const read = (group: unknown, kind: RedGate['kind']) => {
-    if (!isObject(group)) return;
-    for (const [name, g] of Object.entries(group)) {
-      if (!isObject(g) || g.go !== false) continue;
-      out.push({ id: `${kind}:${name}`, name, kind, reason: str(g.reason) ?? '' });
-    }
-  };
-  read(data.classes, 'class');
-  read(data.brakes, 'brake');
-  return out;
-}
-
 // ── Automations (/api/automations/summary) ───────────────────────────────────
 
 export interface AutomationSummary {

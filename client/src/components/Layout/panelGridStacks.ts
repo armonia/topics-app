@@ -85,12 +85,6 @@ export function addKeysToCellStack(
   };
 }
 
-/** The column headed by `key`, flattened top-to-bottom (primary first). Used
- *  to move a whole cell, sub-stack included, into another column. */
-export function flattenCellColumn(row: PanelGridRow, key: string): string[] {
-  return [key, ...(row.cellStacks?.[key]?.items ?? [])];
-}
-
 /** A whole cell on the move: its key plus the sub-stack it was hosting. */
 export interface MovedCell {
   key: string;

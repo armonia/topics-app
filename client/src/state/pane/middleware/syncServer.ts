@@ -537,6 +537,7 @@ export function initServerSync(): void {
   }
 }
 
+/** @internal Test seam: the remote key the sync tests match their fetches against. */
 export const PANE_STORE_REMOTE_KEY = REMOTE_KEY;
 
 /**
