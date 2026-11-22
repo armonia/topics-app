@@ -6,12 +6,13 @@
  * No configuration = empty list, never an error (`readAgents("")` and an
  * unreadable `engine.json` both answer `[]`). Creating an agent writes only
  * `IDENTITY.md` into a new folder plus one entry in `engine.json`, backed up
- * first (`safeWrite`, shared with `server/routes/agent-config.ts`).
+ * first (`safeWrite`, in `./config-files`, shared with
+ * `server/routes/agent-config.ts`).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { safeWrite } from "../routes/agent-config";
+import { safeWrite } from "./config-files";
 
 export interface AgentRecord {
   id: string;
@@ -30,7 +31,8 @@ export function registryHome(env: Record<string, string | undefined> = process.e
   return env.JARVIS_CHANNELS_HOME?.trim() || join(homedir(), "Library", "Application Support", "jarvis-channels");
 }
 
-type Json = Record<string, any>;
+interface EngineAgentDef { workspace?: string; account?: string }
+interface EngineConfig { agents?: Record<string, EngineAgentDef> }
 
 /** Name and job from `IDENTITY.md`: the heading (`# Name`) and the first
  *  non-empty line after it. Missing file = both empty, never a throw. */
@@ -60,17 +62,17 @@ export function readAgents(home: string, expand: (p: string) => string = (p) => 
   if (!home) return [];
   const engineFile = join(home, "engine.json");
   if (!existsSync(engineFile)) return [];
-  let engine: Json;
+  let engine: EngineConfig;
   try {
     engine = JSON.parse(readFileSync(engineFile, "utf8"));
   } catch {
     return [];
   }
-  const agents: Json = engine.agents ?? {};
+  const agents = engine.agents ?? {};
   return Object.entries(agents)
-    .filter(([, def]) => !!(def as Json)?.workspace)
+    .filter(([, def]) => typeof def?.workspace === "string")
     .map(([id, def]) => {
-      const ws = expand((def as Json).workspace);
+      const ws = expand(def.workspace as string);
       const { name, job } = readIdentity(ws);
       return { id, name: name || id, job, workspace: ws };
     });
@@ -105,7 +107,7 @@ export function createAgent(
   const id = slugifyAgentId(name);
 
   const engineFile = join(home, "engine.json");
-  const engine: Json = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
+  const engine: EngineConfig = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
   engine.agents = engine.agents ?? {};
   if (engine.agents[id]) throw new Error(`agent ${id} already exists`);
 
@@ -131,7 +133,7 @@ export function createAgent(
  */
 export function backfillAgentAccounts(home: string, accounts: Record<string, string>): Record<string, string> {
   const engineFile = join(home, "engine.json");
-  const engine: Json = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
+  const engine: EngineConfig = existsSync(engineFile) ? JSON.parse(readFileSync(engineFile, "utf8")) : {};
   engine.agents = engine.agents ?? {};
   const written: Record<string, string> = {};
   for (const [id, account] of Object.entries(accounts)) {

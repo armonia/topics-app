@@ -15,11 +15,12 @@
  * chat edit restarts the service, but only when no turn is in flight
  * (inflight.json empty), otherwise it says it applies at the next restart.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
-import { basename, join } from "path";
+import { join } from "path";
 import { runBounded } from "../lib/bounded-spawn";
 import { readIdentity, registryHome } from "../agents/registry";
+import { readJson as readJsonFile, safeWrite } from "../agents/config-files";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = string;
@@ -33,22 +34,7 @@ export function defaultPaths(env: Record<string, string | undefined> = process.e
 }
 
 type Json = Record<string, any>;
-const readJson = (p: string): any => JSON.parse(readFileSync(p, "utf8"));
-
-/** Backup then atomic write; returns the backup path. */
-export function safeWrite(file: string, data: string, home: string, now = new Date()): string | null {
-  const dir = join(home, "backups");
-  mkdirSync(dir, { recursive: true });
-  let backup: string | null = null;
-  if (existsSync(file)) {
-    backup = join(dir, `${basename(file)}.${now.toISOString().replace(/[:.]/g, "-")}`);
-    copyFileSync(file, backup);
-  }
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, data);
-  renameSync(tmp, file);
-  return backup;
-}
+const readJson = (p: string): any => readJsonFile(p);
 
 /** The registry: everything an agent is, read from config.json, engine.json, jobs.json and its workspace. */
 export function readRegistry(paths: Paths) {
