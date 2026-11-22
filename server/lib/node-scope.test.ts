@@ -35,6 +35,7 @@ describe("the node scope", () => {
       ["POST", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/nodes/runs/run-1/bundle/extra"],
       ["POST", "/api/providers/snapshot"],
+      ["GET", "/api/machines/health"],
       ["GET", "/ws"],
     ];
     for (const [m, p] of shut) expect(isNodeAllowedRequest(p, m), `${m} ${p}`).toBe(false);

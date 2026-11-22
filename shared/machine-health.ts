@@ -9,11 +9,19 @@ export type SecurityStatus = "ok" | "warn" | "problem" | "unknown";
 export type CheckStatus = SecurityStatus | "info";
 export type CheckKey = "updates" | "disk" | "access" | "antivirus";
 
+/** A sentence the client words in its own language: `code` picks the text, `params` fill it. */
+export interface CheckMsg {
+  code: string;
+  params?: Record<string, string | number>;
+}
+
 export interface SecurityCheck {
   key: CheckKey;
   status: CheckStatus;
-  /** One sentence in Italian (it is shown to the user), 60 characters at most, no command names. */
+  /** One sentence in Italian (the tray and the alerts read it), 60 characters at most, no command names. */
   detail: string;
+  /** The same sentence as parts the client words by code, joined with ", ". Absent on a file written before this field existed: `detail` is shown then. */
+  msgs?: CheckMsg[];
 }
 
 export interface MachineSecurity {
