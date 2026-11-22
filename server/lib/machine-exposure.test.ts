@@ -65,6 +65,17 @@ describe("porte viste da fuori", () => {
     expect(await applyExposure(noPorts, "204.168.243.255", never)).toBe(noPorts);
   });
 
+  test("a lost first packet on 22 or on a port does not change the outcome", async () => {
+    const seen = new Map<number, number>();
+    const dropsFirst: PortProbe = async (_h, port) => {
+      const n = (seen.get(port) ?? 0) + 1;
+      seen.set(port, n);
+      return n >= 2;
+    };
+    const first = await measureOpenPorts("204.168.243.255", [3333], dropsFirst);
+    expect(first).toEqual([3333]);
+  });
+
   test("una connessione che esplode conta come porta chiusa", async () => {
     const flaky: PortProbe = async (_h, port) => { if (port === 22) return true; throw new Error("boom"); };
     expect(await measureOpenPorts("204.168.243.255", [3333], flaky)).toEqual([]);

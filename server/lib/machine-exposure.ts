@@ -17,6 +17,9 @@ import type { AccessFacts, MachineSecurityReport } from "../../shared/machine-he
 import { composeAccess, worstStatus } from "./machine-security";
 
 export const EXPOSURE_TIMEOUT_MS = 3_000;
+/** The control port gets more tries: one lost SYN must not discard the whole measure. */
+export const CONTROL_ATTEMPTS = 3;
+export const PORT_ATTEMPTS = 2;
 
 /** `true` if a TCP connection to `host:port` is accepted within the deadline. */
 export type PortProbe = (host: string, port: number, timeoutMs: number) => Promise<boolean>;
@@ -60,10 +63,18 @@ export function poolIpOf(stateText: string, machineId: string): string | null {
   return null;
 }
 
+/** `true` if any of `attempts` tries connects: a single lost packet is not an answer. */
+async function answersWithin(probe: PortProbe, host: string, port: number, timeoutMs: number, attempts: number): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (await probe(host, port, timeoutMs).catch(() => false)) return true;
+  }
+  return false;
+}
+
 /** The ports among `declared` that accept a connection from here; `null` if 22 does not answer (the measure proves nothing). */
 export async function measureOpenPorts(host: string, declared: number[], probe: PortProbe = tcpPortProbe, timeoutMs = EXPOSURE_TIMEOUT_MS): Promise<number[] | null> {
   const ports = [...new Set(declared)].filter((p) => p !== 22);
-  const [control, ...answers] = await Promise.all([22, ...ports].map((p) => probe(host, p, timeoutMs).catch(() => false)));
+  const [control, ...answers] = await Promise.all([22, ...ports].map((p) => answersWithin(probe, host, p, timeoutMs, p === 22 ? CONTROL_ATTEMPTS : PORT_ATTEMPTS)));
   if (!control) return null;
   return ports.filter((_, i) => answers[i]).sort((a, b) => a - b);
 }

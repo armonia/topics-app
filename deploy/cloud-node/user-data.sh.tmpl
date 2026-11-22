@@ -20,6 +20,8 @@ f=$(curl -fsSL $b/SHASUMS256.txt | awk '/linux-x64.tar.xz/{print $2}')
 curl -fsSL $b/$f | tar -xJ -C /usr/local --strip-components=1
 npm install -g --silent @NPM@ || true
 id topics >/dev/null 2>&1 || useradd -m -s /bin/bash topics
+# Read-only access to the logs the failed-login check needs: auth.log (adm) and the journal (systemd-journal)
+usermod -aG adm,systemd-journal topics
 loginctl enable-linger topics
 cat > /home/topics/setup.sh <<'EOS'
 set -ex

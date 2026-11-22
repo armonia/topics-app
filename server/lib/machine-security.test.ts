@@ -220,6 +220,18 @@ describe("parser Linux e comuni", () => {
     expect(countFailedLogins(iso, NOW - 86_400_000)).toBe(1);
   });
 
+  test("failed logins: Ubuntu 24 journal lines (sshd-session, pam_unix) count once per process", () => {
+    const text = [
+      "Nov 21 03:01:00 h sshd-session[901]: Invalid user admin from 203.0.113.7 port 1",
+      "Nov 21 03:01:02 h sshd-session[901]: pam_unix(sshd:auth): authentication failure; logname= uid=0 rhost=203.0.113.7",
+      "Nov 21 03:01:04 h sshd-session[901]: Failed password for invalid user admin from 203.0.113.7 port 1 ssh2",
+      "Nov 21 03:05:00 h sshd-session[902]: Failed publickey for root from 203.0.113.8 port 2 ssh2",
+      "-- No entries --",
+    ].join("\n");
+    expect(countFailedLogins(text)).toBe(2);
+    expect(countFailedLogins("")).toBe(0);
+  });
+
   test("gocryptfs: punti di mount e cartella dichiarata, a qualunque profondità", () => {
     expect(parseGocryptfsMounts("gocryptfs /home/u/private fuse.gocryptfs rw 0 0\n/dev/sda1 / ext4 rw 0 0\n")).toEqual(["/home/u/private"]);
     expect(findDeclaredPrivate({ targets: [{ name: "a", private: "/home/u/private" }] })).toBe("/home/u/private");
