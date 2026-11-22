@@ -228,6 +228,8 @@ export interface Task {
   overflowedAt?: string;
   /** ON THE WIRE only while it holds: the node an empty run came back from, which the overflow skips. */
   overflowSkipMachine?: string;
+  /** ON THE WIRE only while it holds: every node this card came back from (empty run, no model), all skipped. */
+  overflowSkipMachines?: string[];
   /**
    * ON THE WIRE only when set: on a node's MIRROR card, the branch its worktree
    * is born from instead of main (the origin card's own delivery branch, sent

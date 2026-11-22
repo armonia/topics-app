@@ -9,6 +9,7 @@ import { effectiveTopicsRouting, taskModelSelection } from "../../shared/task-co
 import { WorktreeRefusalError } from "./worktree-manager";
 import { BOARD_HOLD_KEY, providerHold, holdAsksAPerson, holdUntilLabel, claudeEarlyStop } from "../lib/provider-hold";
 import { providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
+import { isModelUnavailable } from "./dispatch-overflow";
 import { CHIP_QUEUED } from "./task-dispatcher-support";
 import type { DispatcherCtx } from "./task-dispatcher-context";
 
@@ -151,6 +152,8 @@ export function createProviderHold(ctx: DispatcherCtx) {
    * Il catalogo ancora in scoperta NON e' qui: quello e' `TaskProviderPendingError`, che aspetta e rimette in coda. allow-italian: la distinzione che una review ha gia' pagato
    */
   function hardRoutingBlock(error: unknown): string | null {
+    // No agent for the model on THIS machine: no retry finds one, and the origin reads the phrase to move the card.
+    if (error instanceof Error && isModelUnavailable(error)) return error.message;
     if (!(error instanceof Error) || !('code' in error)) return null;
     // MSEL-06: the switch is no longer a gate, so `task_model_unavailable` is the one permanent code left.
     return error.code === 'task_model_unavailable' ? error.message : null;

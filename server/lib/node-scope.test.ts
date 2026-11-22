@@ -11,6 +11,7 @@ describe("the node scope", () => {
       ["DELETE", "/api/nodes/runs/run-1"],
       ["GET", "/api/nodes/runs/run-1/bundle"],
       ["GET", "/api/providers/snapshot"],
+      ["GET", "/api/version"],
       ["GET", "/api/system/machine-metrics"],
       ["GET", "/api/system/machine-security"],
       ["GET", "/api/system/machine-readout"],
