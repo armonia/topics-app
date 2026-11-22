@@ -78,6 +78,10 @@ test.describe("topics check row", () => {
     for (const [w, h] of [[375, 812], [768, 1024], [1440, 900], [3440, 1440]] as const) {
       await page.setViewportSize({ width: w, height: h });
       await expect(check).toBeVisible();
+      // A new width can mount the view again, closed: the photo is of the detail.
+      const toggle = check.getByTestId("topics-check-toggle");
+      if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+      await expect(voices).toHaveCount(3);
       await page.screenshot({ path: testInfo.outputPath(`topics-check-rosso-${w}.png`) });
     }
 
