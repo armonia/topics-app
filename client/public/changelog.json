@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.4.69",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.67",
     "date": "2026-11-21",
     "sections": {
@@ -9,6 +30,11 @@
       "internal": [
         {
           "it": "Una card che torna vuota da due nodi di fila resta qui sei ore invece di rimbalzare fra i nodi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "deadcode-prod: scripts and UI gallery are not production, queue the gate, test parseCounts",
           "en": "",
           "scope": null
         }
@@ -75,6 +101,22 @@
           "it": "Drop duplicate knip.jsonc entries and a closed one-off migration",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "check-deadcode-prod: avoid non-English identifier",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "wire check:deadcode-prod in CI, drop healed blind spots",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "deadcode-prod: teach blindspots probe, qa-gate and rails test about production-only patterns",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -139,6 +181,12 @@
           "scope": null
         },
         {
+          "it": "--production gives a credible verdict, with a ratchet gate (check:deadcode-prod)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client",
           "en": "",
           "scope": null
@@ -152,6 +200,12 @@
           "it": "La pulizia dei segreti non riporta indietro le righe scritte nel frattempo",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "move test-only exclusions from ignore to production-only project negations",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "I test degli avvisi di sicurezza dichiarano MACHINE-07",
