@@ -21,9 +21,10 @@ import { useLocale, useT } from '../../hooks/useT';
 import { addCatalogue } from '../../lib/i18n';
 import PROXY_EVENTS_IT from '../../lib/i18n-proxy-events-it';
 import PROXY_EVENTS_EN from '../../lib/i18n-proxy-events-en';
-import { proxyText, type ProxyEvent, type ProxyFamily, type ProxyTone } from '../../lib/proxyEvents';
+import { accountNotes, proxyText, type ProxyEvent, type ProxyFamily, type ProxyTone } from '../../lib/proxyEvents';
 import { useMobile } from '../../hooks/useMobile';
-import { useBellActions } from '../../hooks/useBellHub';
+import { useBellActions } from '../../hooks/useBellPanel';
+import { useProxyActivity } from '../../state/proxyActivity';
 import { bellTimeLabel, type BellEntry } from '../../lib/bellGroups';
 import { jarvisHref, type DiaryEntry, type WaitingKind } from '../../lib/hubSystem';
 import { openHubPlace } from '../../lib/hubPlaces';
@@ -194,6 +195,8 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
   const now = useSharedNow();
   const button = useBellButton();
   const { closeWaiting, fix, renew } = useBellActions();
+  // An account row says how it happened from the proxy's profiles (one shared read).
+  const proxyLog = useProxyActivity(entry.source === 'account');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -402,7 +405,7 @@ export function HubRow({ entry, first, onNavigate, onShowAccounts, jarvis }: {
           ? tr('bell.account.cap')
           : tr(e.kind === 'token' ? 'bell.account.token' : 'bell.account.limit', { account: e.account ?? tr('bell.account.all') });
       // How it happened (automatic for a 429, the minutes, the proxy's error), then how often.
-      const note = (e.notes ?? []).map((n) => proxyText(n, tr)).join(', ');
+      const note = (proxyLog ? accountNotes(e.latest, proxyLog.profiles) : []).map((n) => proxyText(n, tr)).join(', ');
       const times = e.count > 1 ? tr('bell.account.times', { n: e.count }) : tr('bell.account.once');
       // An expired token is renewed from the row, as the proxy's dashboard does.
       const profile = e.kind === 'token' ? e.profile : null;

@@ -34,7 +34,7 @@ import type { WSMessage } from '../../types';
 import { useT } from '../../hooks/useT';
 import { useMobile } from '../../hooks/useMobile';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
-import { retryHub, useBellDiary, useProxyEvents } from '../../hooks/useBellHub';
+import { retryHub, useBellDiary, useProxyEvents } from '../../hooks/useBellPanel';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { rereadBellExtras } from '../../state/bellExtras';
 import { chatApi } from '../../lib/api';

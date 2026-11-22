@@ -1,6 +1,8 @@
 /**
  * The badge's figure: the count up to three figures, then thousands. «99+»
  * hid whether 104 or 900 things waited (22/11, the bell at 224).
+ *
+ * @covers NOTIF-ONE-02
  */
 import { describe, expect, test } from 'bun:test';
 import { formatBadgeCount } from './NotificationBadge';

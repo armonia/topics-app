@@ -1,7 +1,7 @@
 /**
- * WHO IS AT WORK, ONE NUMBER (22/11): the pill on the identity card («14
- * sessioni al lavoro adesso»), the tail of «Agenti e lavori» in System and
- * the foot of the bell («14 al lavoro») all say this. Before, the pill and the
+ * WHO IS AT WORK, ONE NUMBER (22/11): the pill on the identity card, the
+ * tail of the agents row in System and the foot of the bell («14 at work»)
+ * all say this. Before, the pill and the
  * foot counted Topics alone through two different rules and System added the
  * hub's agents outside Topics: three numbers for one question.
  *

@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useMemo, useEffect, type ReactNode } from 'react';
+import { Suspense, createContext, lazy, useContext, useCallback, useMemo, useEffect, type ReactNode } from 'react';
 import { attentionOf, useAttentionRows, useAttentionStore } from '../state/attention';
 import { boardLitCards, describeProjectAttention, projectAttention, projectAttentionChildren } from '../state/attentionRollups';
 import { chromeAttentionSubjects, notificationsToWithdraw, trayChatItems, type ChromeSubject } from '../state/attentionTotal';
@@ -17,10 +17,11 @@ import { trayMachines } from '../lib/trayMachines';
 import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { useDominantAction } from '../state/agentActionHooks';
 import { inboxModel, type InboxModel } from '../lib/inboxModel';
-import { bellGroups, bellTone, bellTotal, type BellGroup, type BellTone } from '../lib/bellGroups';
-import { useBellHub } from './useBellHub';
-import type { HubLiveTopic } from '../state/hubLive';
-import type { JarvisLinks } from '../lib/hubSystem';
+import { NO_HUB, bellGroups, bellTone, bellTotal, type BellGroup, type BellTone } from '../lib/bellGroups';
+import { useBellHubPart, type BellHubPart } from '../state/bellHubPart';
+
+/** The hub's part of the ledger runs in its own chunk: its parsers are not needed to paint the first frame. */
+const BellHubSource = lazy(() => import('./BellHubSource'));
 
 /**
  * THE BELL'S LEDGER: the rows of «Ora» and their total, computed once for the
@@ -34,7 +35,7 @@ export interface BellLedger {
   tone: BellTone;
   /** How many rows ask for an answer («Decidi tu»): the button's name says it. */
   decide: number;
-  hub: { present: boolean; answering: boolean; downSince: number | null; unread: HubLiveTopic[]; jarvis: JarvisLinks | null };
+  hub: Omit<BellHubPart, 'hub'>;
 }
 
 const NO_LEDGER: BellLedger = {
@@ -124,18 +125,21 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   // below, whose total the Dock, the tray, the PWA badge and the bell paint.
   const attentionSubjects = useMemo(() => chromeAttentionSubjects(attention, topics, terminalSessions), [attention, topics, terminalSessions]);
   // THE LEDGER: the Topics subjects above plus what the hub asks of the person,
-  // as the rows of «Ora». Its total is the number every surface paints.
-  const bellHub = useBellHub();
+  // as the rows of «Ora». Its total is the number every surface paints. The
+  // hub's part comes from `BellHubSource` (rendered below, lazy); before it
+  // lands the ledger is the Topics rows, as while the hub has not answered.
+  const hubPart = useBellHubPart();
   const bell = useMemo((): BellLedger => {
     const model = inboxModel(attention, topics, terminalSessions, boardTasks);
-    const groups = bellGroups(model, bellHub.hub);
-    const { present, answering, downSince, unread, jarvis } = bellHub;
+    const groups = bellGroups(model, hubPart?.hub ?? NO_HUB);
     return {
       model, groups, total: bellTotal(groups), tone: bellTone(groups),
       decide: groups.find((g) => g.key === 'decide')?.entries.length ?? 0,
-      hub: { present, answering, downSince, unread, jarvis },
+      hub: hubPart
+        ? { present: hubPart.present, answering: hubPart.answering, downSince: hubPart.downSince, unread: hubPart.unread, jarvis: hubPart.jarvis }
+        : NO_LEDGER.hub,
     };
-  }, [attention, topics, terminalSessions, boardTasks, bellHub]);
+  }, [attention, topics, terminalSessions, boardTasks, hubPart]);
   const chromeCount = bell.total;
   // The chat and terminal rows of the tray menu, from the subjects the glyph
   // counts, so the menu lists what the number says.
@@ -209,6 +213,7 @@ export function TabNotificationProvider({ children }: { children: ReactNode }) {
   return (
     <TabNotificationContext.Provider value={value}>
       {children}
+      <Suspense fallback={null}><BellHubSource /></Suspense>
     </TabNotificationContext.Provider>
   );
 }

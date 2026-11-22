@@ -7,7 +7,6 @@
  * of throwing on a field the hub renamed.
  */
 import { proxyLabels } from './proxyLabels';
-import type { ProxyText } from './proxyEvents';
 import { WAITING_KINDS, type WaitingKind } from '../../../shared/waiting-kind';
 
 type Raw = Record<string, unknown>;
@@ -384,10 +383,8 @@ export interface AccountEvent {
   count: number;
   /** The proxy's type of the latest occurrence (`cap-exhausted` is a cap, `all-exhausted` a limit). */
   type: string;
-  /** The latest occurrence as the proxy wrote it: the panel reads its notes from it (`accountNotes`). */
+  /** The latest occurrence as the proxy wrote it: the bell's row reads its notes from it (`accountNotes`). */
   latest: Record<string, unknown>;
-  /** What the latest occurrence adds, as the hub's page wrote it (how it switched and why, the minutes, the error): set by the panel. */
-  notes?: ProxyText[];
 }
 
 const ACCOUNT_EVENT_KIND: Record<string, AccountEventKind> = {

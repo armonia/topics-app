@@ -2,6 +2,8 @@
  * The bell's shared lists: the hub's counters that arrive while a read is
  * going are read right after it. Dropped, the closed bell said 217 where the
  * open panel listed 231 (22/11, on the live hub).
+ *
+ * @covers NOTIF-ONE-02
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { clearBellExtras, refreshBellExtras } from './bellExtras';
