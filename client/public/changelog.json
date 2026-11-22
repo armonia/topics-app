@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.4.80",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "trace the 596-file baseline to its source",
+          "en": "",
+          "scope": "deadcode-prod",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.79",
     "date": "2026-11-22",
     "sections": {
