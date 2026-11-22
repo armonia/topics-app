@@ -68,7 +68,7 @@ export function createClaim(ctx: DispatcherCtx) {
         const delegated = delegatedPolicy(t) !== undefined;
         const localId = (() => { try { return deps.node?.localMachineId?.() ?? null; } catch { return null; } })();
         if (overflowEligible({ ...t, delegated, description: t.description ?? t.descriptionPreview }, settings, localId)
-          && ctx.overflow.overflowOriginUnresolved(t.projectId) && ctx.overflow.anyOverflowSeatElsewhere(localId, t.overflowSkipMachine)) {
+          && ctx.overflow.overflowOriginUnresolved(t.projectId) && ctx.overflow.anyOverflowSeatElsewhere(localId, t.overflowSkipMachines)) {
           try { ctx.queue.emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort: the chip still reads "to do" */ }
           continue;
         }
