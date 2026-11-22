@@ -1748,7 +1748,17 @@ jobs:
         run: scripts/build-native-addon.sh
 
       - name: Native git status parity
-        run: bun test native/parity.test.ts server/lib/git-status.native.test.ts
+        # Two files, and `bun test` without `--timeout` only raises the default
+        # for whichever one the preload is loading at that moment: the SECOND
+        # file (git-status.native.test.ts) stayed on bun's hardcoded 5000ms, and
+        # a slow Windows runner spawning real git processes for three repo
+        # shapes ran past it. Every other multi-file `bun test` in this repo
+        # already carries this flag (see tests/setup/bun-test-preload.ts); this
+        # step was the one outlier. Run 44988011790, windows-latest, 2026-11-22.
+        # `shell: bash` explicit: the default on windows-latest is pwsh, which
+        # does not expand `${VAR:-default}`.
+        shell: bash
+        run: bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} native/parity.test.ts server/lib/git-status.native.test.ts
 
       - name: Install Bun x64 compile runtime
         if: runner.os == 'macOS'
