@@ -167,7 +167,7 @@ export function evictSessions(keys: readonly string[]): string[] {
   return evicted;
 }
 
-/** Solo per i test: riporta lo store allo stato di boot. */
+/** @internal Solo per i test: riporta lo store allo stato di boot. */
 export function __resetMessageStore(): void {
   state = {};
   perSession.clear();
@@ -175,7 +175,7 @@ export function __resetMessageStore(): void {
   touchedAt.clear();
 }
 
-/** Solo per i test e per la sonda di memoria: quanti iscritti ci sono. */
+/** @internal Solo per i test e per la sonda di memoria: quanti iscritti ci sono. */
 export function __messageStoreDebug(): { sessioni: number; iscritti: number; globali: number } {
   let iscritti = 0;
   for (const s of perSession.values()) iscritti += s.size;

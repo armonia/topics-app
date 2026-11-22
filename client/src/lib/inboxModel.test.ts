@@ -7,7 +7,7 @@
  * @covers ATTN-09, NOTIF-ONE-02
  */
 import { describe, test, expect } from 'bun:test';
-import { historyDayKey, inboxModel, markAllSeenItems } from './inboxModel';
+import { historyDayKey, inboxModel, markAllSeenItems, quietItemsOf } from './inboxModel';
 import { chromeAttentionTotal } from '../state/attentionTotal';
 import type { AttentionSnapshot } from '../../../shared/attention';
 import type { Topic, TerminalSessionInfo } from '../types';
@@ -113,6 +113,16 @@ describe('inboxModel: the quiet line', () => {
     const task = { id: 't1', kind: 'agent', label: 'verify render', startedAt: '' };
     const rows = rowsOf(snap('topic:x', { state: 'working', background: [{ id: 'c', kind: 'cron', label: '*/5', startedAt: '', recurring: true }, task] }));
     expect(inboxModel(rows, { x: topic('x') }, [], []).working[0]?.firstTask).toEqual(task);
+  });
+
+  test('the foot lists the rows the identity pill counts, one per session, with the job each waits on', () => {
+    const task = { id: 't1', kind: 'agent', label: 'verify render', startedAt: '' };
+    const rows = rowsOf(snap('topic:x', { state: 'working', background: [task] }));
+    const items = quietItemsOf([{ id: 'x', kind: 'topic', label: 'Chat X' }, { id: 's1', kind: 'terminal', label: '' }], rows);
+    expect(items.map((q) => [q.subject, q.kind, q.title, q.firstTask?.label ?? null])).toEqual([
+      ['topic:x', 'chat', 'Chat X', 'verify render'],
+      ['terminal:s1', 'terminal', 's1', null],
+    ]);
   });
 });
 

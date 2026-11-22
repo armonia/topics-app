@@ -1,5 +1,68 @@
 [
   {
+    "version": "2.4.72",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sistema degli agenti in due repo: la parte di topics-app (#1486)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.71",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.70",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "One-line @internal tags: the 136 new four-line blocks said the same thing in one line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I parser dell'hub fuori dal primo download, e i due test nuovi dicono cosa provano",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.69",
     "date": "2026-11-22",
     "sections": {
@@ -8,12 +71,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "Tag test-only hooks with @internal so knip --production skips them; baseline exports 414 -> 250",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tag test seams with @internal (accessors and tables that exist only for tests); baseline exports 250 -> 227",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md",
           "en": "",
           "scope": null
         },
         {
           "it": "agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista",
           "en": "",
           "scope": null
         }
@@ -29,7 +112,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Bloat baseline: only the overflow test entry, with its reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414",
           "en": "",
           "scope": null
         }

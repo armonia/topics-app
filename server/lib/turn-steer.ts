@@ -212,7 +212,7 @@ export function openSteerTarget(sessionKey: string): SteerTarget {
   };
 }
 
-/** For tests: forget every target, queue and state (the sink stays: the route installs it once). */
+/** @internal For tests: forget every target, queue and state (the sink stays: the route installs it once). */
 export function resetTurnSteer(): void {
   targets.clear();
   queues.clear();

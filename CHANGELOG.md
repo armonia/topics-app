@@ -2,16 +2,40 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.72 — 2026-11-22
+
+### Sotto il cofano
+- Il sistema degli agenti in due repo: la parte di topics-app (#1486)
+
+## 2.4.71 — 2026-11-22
+
+### Sotto il cofano
+- auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
+- Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
+- Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+
+## 2.4.70 — 2026-11-22
+
+### Sotto il cofano
+- One-line @internal tags: the 136 new four-line blocks said the same thing in one line
+- I parser dell'hub fuori dal primo download, e i due test nuovi dicono cosa provano
+
 ## 2.4.69 — 2026-11-22
 
 ### Sotto il cofano
+- Tag test-only hooks with @internal so knip --production skips them; baseline exports 414 -> 250
+- Tag test seams with @internal (accessors and tables that exist only for tests); baseline exports 250 -> 227
+- Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223
 - Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
 - agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+- La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista
 
 ## 2.4.68 — 2026-11-22
 
 ### Sotto il cofano
+- Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert
 - Bloat baseline: only the overflow test entry, with its reason
+- Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414
 
 ## 2.4.67 — 2026-11-21
 

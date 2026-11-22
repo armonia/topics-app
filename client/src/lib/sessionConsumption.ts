@@ -102,8 +102,5 @@ export function formatTps(v: number): string {
   return (Math.round(v * 10) / 10).toString().replace('.', ',');
 }
 
-/** The share of a process as a fraction a person reads with a pencil: «1/3». */
-export const shareFraction = (s: ConsumptionShare): string => `1/${s.of}`;
-
 /** The most a list asks for before counting the rest. */
 export const MAX_SESSIONS = 12;

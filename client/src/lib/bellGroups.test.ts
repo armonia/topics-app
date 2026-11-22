@@ -5,10 +5,10 @@
  * @covers HUBBR-07
  */
 import { describe, expect, test } from 'bun:test';
-import { BELL_GROUP_ORDER, NO_HUB, bellGroups, bellTimeLabel, hubBadgeCounts, liveBellHub, urgentAccountEvents, type BellHub } from './bellGroups';
+import { BELL_GROUP_ORDER, NO_HUB, bellGroups, bellTimeLabel, bellTone, bellTotal, liveBellHub, urgentAccountEvents, type BellHub } from './bellGroups';
 import { accountNotes } from './proxyEvents';
 import { accountEvents, contradictions, diaryForHistory, type WaitingItem } from './hubSystem';
-import { bellBadge } from '../state/attentionTotal';
+import { automationWaitsOf } from './hubGates';
 import type { InboxItem } from './inboxModel';
 import type { HubLiveState } from '../state/hubLive';
 
@@ -51,6 +51,7 @@ describe('HUBBR-06: the groups of the bell', () => {
       ...liveBellHub(LIVE),
       failed: [{ key: 'gh:docs', title: 'Docs index reindex', at: NOW - HOUR, reason: 'ha fallito alle 21:26' }],
       accounts: [],
+      automations: [],
       contradictions: [{ id: 'c0', why: 'one says English comments, the other Italian' }],
     };
     const groups = bellGroups({ waiting: [topicsItem('topic:q', NOW - HOUR)], finished: [topicsItem('topic:f', NOW, 'done')] }, hub);
@@ -86,8 +87,8 @@ describe('HUBBR-06: the groups of the bell', () => {
     expect(groups.find((g) => g.key === 'quota')!.entries.map((e) => e.key)).toEqual(['outlook:claude', 'outlook:codex', 'quota:claude:a', 'alert:muse:pace']);
     expect(groups.find((g) => g.key === 'broken')!.entries.map((e) => e.key)).toEqual(['service:docs', 'machine:pc']);
     expect(groups.find((g) => g.key === 'look')!.entries.map((e) => e.key)).toEqual(['machine:mac', 'alert:project:studio-x']);
-    // The grey figure counts them: 6 of LIVE + 2 forecasts + 2 machines.
-    expect(hubBadgeCounts(live)).toEqual({ decide: 1, alerts: 10 });
+    // The number is the rows: 1 wait + 2 broken + 4 quotas + 2 to look at.
+    expect(bellTotal(groups)).toBe(groups.reduce((n, g) => n + g.entries.length, 0));
     // A PC asleep or at work, a Mac only busy: nothing to say.
     expect(liveBellHub({ mac: { at: 1, data: { effort: { level: 1, label: 'impegnato' } } }, pc: { at: 1, data: { pc: 'dorme' } } }).machines).toEqual([]);
     expect(liveBellHub({ pc: { at: 1, data: { pc: 'sconosciuto' } } }).machines).toEqual([{ machine: 'pc', state: 'unknown', why: null, tone: 'bad' }]);
@@ -104,20 +105,42 @@ describe('HUBBR-06: the groups of the bell', () => {
   test('without the hub the bell is the Topics inbox of before', () => {
     const groups = bellGroups({ waiting: [topicsItem('topic:q', NOW)], finished: [] }, NO_HUB);
     expect(groups.map((g) => [g.key, g.entries.length])).toEqual([['decide', 1]]);
-    expect(hubBadgeCounts({})).toEqual({ decide: 0, alerts: 0 });
-    // The hub down: every topic in error, no numbers left.
-    expect(hubBadgeCounts({ attesa: { at: 2, error: 'hub not reachable' }, services: { at: 2, error: 'x' } })).toEqual({ decide: 0, alerts: 0 });
+    expect(bellTotal(groups)).toBe(1);
+    // The hub down: every topic in error, nothing of the hub's left.
+    const down = liveBellHub({ attesa: { at: 2, error: 'hub not reachable' }, services: { at: 2, error: 'x' } });
+    expect(bellTotal(bellGroups({ waiting: [], finished: [] }, { ...NO_HUB, ...down }))).toBe(0);
   });
 
-  test('the button says the figure of one group: Decidi tu in amber, else the finished in blue, else the warnings in grey', () => {
-    // 1 hub decide; alerts: 2 broken + 1 service + 1 full quota + 2 alerts.
-    const counts = hubBadgeCounts(LIVE);
-    expect(counts).toEqual({ decide: 1, alerts: 6 });
-    // 3 lit subjects, 1 of them waiting: the pill is the 2 of Decidi tu, not 3 + 1 + 6.
-    expect(bellBadge(3, 1, counts, true)).toEqual({ count: 2, tone: 'needs-you' });
-    expect(bellBadge(2, 0, { decide: 0, alerts: 4 }, true)).toEqual({ count: 2, tone: 'lit' });
-    expect(bellBadge(0, 0, { decide: 0, alerts: 4 }, true)).toEqual({ count: 4, tone: 'quiet' });
-    expect(bellBadge(0, 0, { decide: 0, alerts: 0 }, true)).toEqual({ count: 0, tone: 'quiet' });
+  test('ONE LEDGER: the button, the «Ora» tab and the Dock all say how many rows «Ora» lists', () => {
+    // 22/11: the Dock said 153 (the lit subjects), the button 104 («Decidi tu»), the tab 224 (every row).
+    const hub: BellHub = { ...NO_HUB, ...liveBellHub(LIVE) };
+    const model = { waiting: [topicsItem('topic:q', NOW)], finished: [topicsItem('topic:a', NOW, 'done'), topicsItem('topic:b', NOW, 'done')] };
+    const groups = bellGroups(model, hub);
+    const rows = groups.flatMap((g) => g.entries.map((e) => e.key));
+    expect(bellTotal(groups)).toBe(rows.length);
+    // 1 Topics wait + 1 hub wait + 2 finished + the hub's warnings: never one group alone.
+    expect(bellTotal(groups)).toBeGreaterThan(groups.find((g) => g.key === 'decide')!.entries.length + 2);
+    expect(bellTone(groups)).toBe('needs-you');
+  });
+
+  test('the colour says the first group: amber for an answer, blue for the finished, grey for warnings alone', () => {
+    expect(bellTone(bellGroups({ waiting: [], finished: [topicsItem('topic:a', NOW, 'done')] }, NO_HUB))).toBe('lit');
+    expect(bellTone(bellGroups({ waiting: [], finished: [] }, { ...NO_HUB, ...liveBellHub(LIVE), waiting: [] }))).toBe('quiet');
+    expect(bellTotal(bellGroups({ waiting: [], finished: [] }, NO_HUB))).toBe(0);
+  });
+
+  test('the automations that need you are in «Decidi tu», the same ones the Automations row counts', () => {
+    const raw = { needsYou: [
+      { key: 'cron:mail', provider: 'jarvis', title: 'Mail round', reason: '5 turns in a row with no work', since: NOW - 2 * HOUR },
+      { key: 'wf:release', provider: 'lobster', title: 'Release', reason: 'approve the deploy', since: NOW - HOUR },
+      { key: 'health:x', provider: 'health', title: 'Board push: 32% errors', reason: null },
+      { provider: 'jarvis', title: 'no key' },
+    ], broken: [{ key: 'cron:solid', title: 'Solid system' }] };
+    const automations = automationWaitsOf(raw);
+    expect(automations.map((a) => [a.key, a.gate])).toEqual([['cron:mail', false], ['wf:release', true], ['health:x', false]]);
+    const groups = bellGroups({ waiting: [topicsItem('topic:q', NOW - 3 * HOUR)], finished: [] }, { ...NO_HUB, automations });
+    // The oldest wait first; an automation with no date after the dated ones.
+    expect(groups[0]!.entries.map((e) => e.key)).toEqual(['topic:q', 'automation:cron:mail', 'automation:wf:release', 'automation:health:x']);
   });
 
   test('the button counts the proxy facts that matter: a token not renewed, every account out for an hour', () => {
@@ -131,15 +154,12 @@ describe('HUBBR-06: the groups of the bell', () => {
     const events = accountEvents(activity, null, NOW);
     // The token, and every account exhausted ten minutes ago; the cap of two hours ago, one account's limit and a switch are panel news.
     expect(urgentAccountEvents(events, NOW).map((e) => e.type).sort()).toEqual(['all-exhausted', 'refresh-failed']);
-    expect(hubBadgeCounts({}, events, NOW)).toEqual({ decide: 0, alerts: 2 });
-    expect(bellBadge(0, 0, hubBadgeCounts({}, events, NOW), true)).toEqual({ count: 2, tone: 'quiet' });
+    // «Ora» lists those two, so the number counts two; the rest is History's.
+    const groups = bellGroups({ waiting: [], finished: [] }, { ...NO_HUB, accounts: urgentAccountEvents(events, NOW) });
+    expect(bellTotal(groups)).toBe(2);
+    expect(bellTone(groups)).toBe('quiet');
     // An hour later only the token is left.
-    expect(hubBadgeCounts({}, events, NOW + HOUR)).toEqual({ decide: 0, alerts: 1 });
-  });
-
-  test('without the hub the pill is the number of the Dock (ATTN-08)', () => {
-    expect(bellBadge(4, 1, { decide: 0, alerts: 0 }, false)).toEqual({ count: 4, tone: 'needs-you' });
-    expect(bellBadge(2, 0, { decide: 0, alerts: 0 }, false)).toEqual({ count: 2, tone: 'lit' });
+    expect(urgentAccountEvents(events, NOW + HOUR)).toHaveLength(1);
   });
 
   test('the time of a row reads like the mockup: adesso, 4 min, the clock, ieri, the date', () => {
