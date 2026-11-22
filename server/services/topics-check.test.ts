@@ -33,7 +33,12 @@ function db(): Database {
     // The settings column is already in the harness's app_settings; only the table is new here.
     d.run(readFileSync(join(MIG, f), "utf8").replace(/INSERT OR IGNORE INTO schema_migrations[^;]*;/, "").replace(/ALTER TABLE app_settings[^;]*;/, ""));
   }
-  d.run(`INSERT INTO board_settings (project_id, auto_dispatch) VALUES ('${PID}', 1)`);
+  // The harness board_settings still has the dead per-board auto_dispatch; the real migrations drop it and add the pause.
+  for (const f of ["20260816112635-board-settings-drop-dead-auto-dispatch.sql", "20260816142059-board-dispatch-paused.sql"]) {
+    d.run(readFileSync(join(MIG, f), "utf8").replace(/ALTER TABLE app_settings[^;]*;/, ""));
+  }
+  d.run("UPDATE app_settings SET auto_dispatch = 1");
+  d.run(`INSERT INTO board_settings (project_id) VALUES ('${PID}')`);
   return d;
 }
 function machine(d: Database, id: string, status: "online" | "offline", slots: number | null, heartbeat = "x") {
@@ -128,6 +133,10 @@ describe("cards voice", () => {
     expect(cards([sampleTopics(a, NOW)]).red).toBe(false);
     expect(cards([sampleTopics(b, NOW)]).red).toBe(true);
   });
+  test("a card in progress idle 2.5 h is red", () => {
+    const d = db(); card(d, "p", "in_progress", 2.5 * H);
+    expect(cards([sampleTopics(d, NOW)]).red).toBe(true);
+  });
   test("threshold mutation: a todo card waiting 59 min is green, 1 h is red", () => {
     const a = db(); card(a, "t", "todo", H - 60_000);
     const b = db(); card(b, "t", "todo", H);
@@ -139,6 +148,10 @@ describe("cards voice", () => {
     const green = db(); card(green, "b", "done", H); moved(green, "b", 4, 60 * 60_000, "n1");
     expect(cards([sampleTopics(red, NOW)]).red).toBe(true);
     expect(cards([sampleTopics(green, NOW)]).red).toBe(false);
+  });
+  test("4 moves of a card in 59.5 minutes are red", () => {
+    const d = db(); card(d, "b", "done", H); moved(d, "b", 4, 59.5 * 60_000, "n1");
+    expect(cards([sampleTopics(d, NOW)]).red).toBe(true);
   });
   /** `n` cards, one move each, to the machine `to`. */
   const spread = (d: Database, n: number, to: string) => {
@@ -168,11 +181,18 @@ describe("cards voice", () => {
     expect(cards([sampleTopics(b, NOW)]).red).toBe(false);
     expect(cards([sampleTopics(c, NOW)]).red).toBe(true);
   });
-  test("a todo card on a board that does not dispatch is not stuck", () => {
-    const d = db();
-    d.run("UPDATE board_settings SET auto_dispatch = 0");
-    card(d, "t", "todo", 5 * H);
-    expect(cards([sampleTopics(d, NOW)]).red).toBe(false);
+  test("a todo card is not stuck when the machine switch is off or its board is paused", () => {
+    const off = db();
+    off.run("UPDATE app_settings SET auto_dispatch = 0");
+    card(off, "t", "todo", 5 * H);
+    const paused = db();
+    paused.run("UPDATE board_settings SET dispatch_paused = 1");
+    card(paused, "t", "todo", 5 * H);
+    const live = db();
+    card(live, "t", "todo", 5 * H);
+    expect(cards([sampleTopics(off, NOW)]).red).toBe(false);
+    expect(cards([sampleTopics(paused, NOW)]).red).toBe(false);
+    expect(cards([sampleTopics(live, NOW)]).red).toBe(true);
   });
   test("the settings move a threshold, and garbage falls back to the defaults", () => {
     const d = db(); card(d, "p", "in_progress", 3 * H);

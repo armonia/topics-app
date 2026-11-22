@@ -84,7 +84,7 @@ export interface Sample {
 
 interface CardRow {
   id: string; status: "todo" | "in_progress"; machine_id: string | null; human_ask: string | null;
-  stage: string | null; wait_reason: string | null; stay_local: number; last_at: string | null; board_auto: number;
+  stage: string | null; wait_reason: string | null; stay_local: number; last_at: string | null; board_paused: number;
   dispatch_state: string | null; node_run_open: number;
 }
 
@@ -92,8 +92,10 @@ interface CardRow {
 export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_THRESHOLDS): Sample {
   const rows = db.query(`SELECT t.id, t.status, t.machine_id, t.human_ask, t.stage, t.wait_reason, t.stay_local, t.dispatch_state, t.node_run_open,
       MAX(t.updated_at, COALESCE(t.in_progress_at, ''), COALESCE((SELECT MAX(c.created_at) FROM task_comments c WHERE c.task_id = t.id), '')) AS last_at,
-      EXISTS (SELECT 1 FROM board_settings b WHERE b.project_id = t.project_id AND b.auto_dispatch = 1) AS board_auto
+      COALESCE((SELECT 1 FROM board_settings b WHERE b.project_id = t.project_id AND b.dispatch_paused = 1), 0) AS board_paused
     FROM tasks t WHERE t.status IN ('todo', 'in_progress') AND t.archived = 0`).all() as CardRow[];
+  // Same predicate as the dispatcher: the machine-wide switch lives in app_settings and a board can only pause itself.
+  const globalAuto = !!(db.query("SELECT auto_dispatch FROM app_settings LIMIT 1").get() as { auto_dispatch?: number | null } | null)?.auto_dispatch;
   const machineRows = db.query("SELECT id, name, status, slots, last_heartbeat_at FROM machines").all() as
     { id: string; name: string; status: string; slots: number | null; last_heartbeat_at: string | null }[];
   const machines: MachineSample[] = machineRows.map((m) => ({
@@ -111,8 +113,8 @@ export function sampleTopics(db: Database, now: number, t: Thresholds = DEFAULT_
     if (r.dispatch_state === "working" || r.node_run_open === 1) continue;
     const waitingOnPerson = !!r.human_ask?.trim() || r.stage === "human_review";
     if (r.status === "todo") {
-      // A board that does not dispatch on its own leaves its todo cards where they are on purpose.
-      if (!r.board_auto || hours < t.todoStuckHours) continue;
+      // A machine or board that does not dispatch on its own leaves its todo cards where they are on purpose.
+      if (!globalAuto || r.board_paused || hours < t.todoStuckHours) continue;
     } else if (hours < t.progressStuckHours) continue;
     const pinned = r.machine_id ? byId.get(r.machine_id) : undefined;
     const cause: StuckCause = waitingOnPerson ? "person"
