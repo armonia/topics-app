@@ -20,7 +20,15 @@ import { startMcpAuthorization } from "../providers/native/mcp-oauth";
 import { agentAuthOk } from "../lib/agent-auth";
 import { detectAgents } from "../lib/detect-agents";
 import { buildAgentToolsInventory } from "../lib/agent-tools";
-import { readAgentToolsSettings, writeAgentToolsSettings } from "../lib/agent-tools-settings";
+import { readAgentToolsSettings, writeAgentToolsSettings, writeAgentToolFilter } from "../lib/agent-tools-settings";
+import { readAgents, registryHome } from "../agents/registry";
+import { resolveAgentToolFilter, filterByName, parseAgentToolFilter } from "../agents/tool-filter";
+import { homedir } from "node:os";
+
+/** Same roster `/api/agent-config` reads: the engine's own agents, by id and name. */
+function registryAgents(): Array<{ id: string; name: string }> {
+  return readAgents(registryHome(), (p) => p.replace(/^~(?=\/|$)/, homedir())).map((a) => ({ id: a.id, name: a.name }));
+}
 
 export function createMcpRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON, errorResponse } = ctx;
@@ -31,9 +39,18 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
       // of the user menu's Tools row asks every time the menu opens, and
       // opening a menu must not start a fleet of MCP processes. The level
       // itself reads without it, and that read mounts.
-      if (url.searchParams.get("peek") === "1") return json(mcpFleetStatus());
+      // `?agent=<id>` is the native engine asking for ITS turn's MCP config:
+      // the fleet status narrowed to what that agent's filter allows, the same
+      // rule the catalog page shows (`agents/tool-filter.ts`).
+      const agentId = url.searchParams.get("agent");
+      const scoped = (status: ReturnType<typeof mcpFleetStatus>) => {
+        if (!agentId) return status;
+        const filter = resolveAgentToolFilter(agentId, readAgentToolsSettings());
+        return { ...status, servers: filterByName(filter, status.servers) };
+      };
+      if (url.searchParams.get("peek") === "1") return json(scoped(mcpFleetStatus()));
       await ensureMcpFleet();
-      return json(mcpFleetStatus());
+      return json(scoped(mcpFleetStatus()));
     }
     /**
      * One call on the machine's MCP fleet, for a native turn running in its own
@@ -63,6 +80,11 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
         settings: readAgentToolsSettings(),
         fleet: mcpFleetStatus(),
         clis: detectAgents(),
+        agents: registryAgents(),
+        toolSpecs: mcpToolSpecs(),
+        // `?agent=<id>` is the gateway asking for ITS mountable children: the
+        // catalog narrowed to that agent's filter, same rule as the fleet above.
+        agentId: url.searchParams.get("agent"),
       }));
     }
     /** Park or mount an MCP server, or change the extra sources. */
@@ -79,6 +101,19 @@ export function createMcpRouter(ctx: AppContext): RouteHandler {
       });
       await remountMcpFleet();
       return json(saved);
+    }
+    /** Sets one agent's tool filter: `{ agent, mode: 'all'|'selected', servers }`. */
+    if (pathname === "/api/agent-tools/agent-filter" && method === "POST") {
+      const body = await readJSON(req) as { agent?: unknown } & Record<string, unknown> | null;
+      const agentId = typeof body?.agent === "string" ? body.agent.trim() : "";
+      if (!agentId) return errorResponse(400, "agent required");
+      try {
+        const filter = parseAgentToolFilter(body);
+        const saved = writeAgentToolFilter(agentId, filter);
+        return json(saved);
+      } catch (err) {
+        return errorResponse(400, err instanceof Error ? err.message : String(err));
+      }
     }
     if (pathname === "/api/mcp/fleet/refresh" && method === "POST") {
       await remountMcpFleet();

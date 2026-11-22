@@ -9,6 +9,7 @@
  * Video on: the recording is the proof; the screenshots go to the test's output.
  *
  * @covers CHECK-01
+ * @covers CHECK-04
  */
 import { expect, test, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
@@ -32,9 +33,14 @@ const RED = [
   GREEN[2],
 ];
 
-async function fakeRound(page: Page, answer: () => unknown, round: () => { state: string; ageMin: number | null } = () => ({ state: "live", ageMin: 1 })): Promise<void> {
+async function fakeRound(
+  page: Page, answer: () => unknown,
+  round: () => { state: string; ageMin: number | null } = () => ({ state: "live", ageMin: 1 }),
+  cures: () => unknown = () => undefined,
+  daily: () => unknown = () => null,
+): Promise<void> {
   await page.route("**/api/topics-check", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), ...round(), voices: answer() }) }));
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ at: Date.now(), ...round(), voices: answer(), cures: cures(), daily: daily() }) }));
 }
 
 test.describe("topics check row", () => {
@@ -50,8 +56,9 @@ test.describe("topics check row", () => {
   test("green, then red, then stopped with the detail of the three voices", async ({ page }, testInfo) => {
     let answer: unknown = GREEN;
     let round = { state: "live", ageMin: 1 as number | null };
+    let cures: unknown;
     await page.setViewportSize({ width: 1440, height: 900 });
-    await fakeRound(page, () => answer, () => round);
+    await fakeRound(page, () => answer, () => round, () => cures);
     await goToApp(page);
     await openMainChat(page, scene!);
     await page.getByTestId("sidebar-automations").click();
@@ -59,15 +66,20 @@ test.describe("topics check row", () => {
     await expect(check).toBeVisible({ timeout: 20_000 });
     await expect(check).toHaveAttribute("data-state", "green");
     await expect(check.getByTestId("topics-check-state")).toHaveText("Tutto avanza");
+    // No cure capped or investigated: no line about them.
+    await expect(check.getByTestId("topics-check-cures")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("topics-check-verde-1440.png") });
 
     // The next read after the round turned red: reload the view's data by reopening it.
     answer = RED;
+    // The daily cap of investigation cards was reached: the row says how many were left unopened.
+    cures = { investigated: ["c1"], capped: ["c2", "c3"] };
     await page.reload();
     await openMainChat(page, scene!);
     await page.getByTestId("sidebar-automations").click();
     await expect(check).toHaveAttribute("data-state", "red", { timeout: 20_000 });
     await expect(check.getByTestId("topics-check-state")).toHaveText("2 da guardare");
+    await expect(check.getByTestId("topics-check-cures")).toHaveText("tetto di indagini del giorno raggiunto, non aperte: 2 · card d'indagine aperte: 1");
     await check.getByTestId("topics-check-toggle").click();
     const voices = check.getByTestId("topics-check-voice");
     await expect(voices).toHaveCount(3);
@@ -95,5 +107,34 @@ test.describe("topics check row", () => {
     await expect(check).toHaveAttribute("data-state", "stale", { timeout: 20_000 });
     await expect(check.getByTestId("topics-check-state")).toHaveText("verifica ferma da 17 min");
     await page.screenshot({ path: testInfo.outputPath("topics-check-ferma-1440.png") });
+  });
+  test("the daily reading: red and green read differently, and an older one says it is not today's", async ({ page }) => {
+    const reading = (over: Record<string, unknown>) => ({ day: "2026-11-22", old: false, color: "green", reason: null, line: "tutto regolare", cardId: null, cardNote: null, ...over });
+    let daily: unknown = reading({});
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await fakeRound(page, () => GREEN, undefined, undefined, () => daily);
+    await goToApp(page);
+    await openMainChat(page, scene!);
+    await page.getByTestId("sidebar-automations").click();
+    const line = page.getByTestId("topics-check").getByTestId("topics-check-daily");
+    await expect(line).toHaveAttribute("data-state", "green", { timeout: 20_000 });
+    await expect(line).toContainText("Lettura del giorno, 2026-11-22: tutto regolare");
+    const color = async () => line.evaluate((el) => getComputedStyle(el).color);
+    const greenInk = await color();
+
+    daily = reading({ color: "red", line: "i lavori falliscono ogni notte", cardNote: "capped" });
+    await page.reload();
+    await openMainChat(page, scene!);
+    await page.getByTestId("sidebar-automations").click();
+    await expect(line).toHaveAttribute("data-state", "red", { timeout: 20_000 });
+    await expect(line).toContainText("nessuna card: tetto del giorno raggiunto");
+    expect(await color()).not.toBe(greenInk);
+
+    daily = reading({ day: "2026-11-19", old: true });
+    await page.reload();
+    await openMainChat(page, scene!);
+    await page.getByTestId("sidebar-automations").click();
+    await expect(line).toHaveAttribute("data-state", "old", { timeout: 20_000 });
+    await expect(line).toContainText("non di oggi");
   });
 });

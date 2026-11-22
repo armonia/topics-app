@@ -2,11 +2,50 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.74 — 2026-11-22
+
+### Novità
+- **machines** · security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09
+
+### Sotto il cofano
+- Il server degli e2e non scrive piu' nel file di salute della produzione
+- Verifica di Topics: ragioni solo sulle card oltre soglia, schema dei test dalle migration vere, catena fino al primo backlog, età dall'ultimo ingresso in todo e da wait_since, nodo spento con corsa aperta, piano esaurito, cause da reason.kind
+- Il rosso del riallineamento dice di fondere origin/main, non main
+- security i18n leaves are catalogues for the UI-language gate
+- Catalogo strumenti con filtro per agente applicato alla rotta del turno
+- Persona a strati condivisi fra tutti gli agenti
+- Verifica di Topics: ore della catena dalla radice parcheggiata, pesanti in memoria, velocità senza orologio
+- Rinomina inv in inventory nel test del filtro strumenti (gate lingua identificatori)
+- Le foto della sicurezza si scattano anche a 375 px
+- Verifica di Topics: la riga dei task ha un tipo, any-budget torna a 398
+- Rinomina Persona in AgentPersona e aggiunge lo script di migrazione del SOUL principale
+- Il test del filtro strumenti dichiara cosa copre e perde una funzione duplicata
+- Un porto occupato da un altro file non riprova con lo stesso numero
+- Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro
+- Il filtro degli strumenti dell'agente arriva davvero al turno nativo
+- La Verifica di Topics si legge anche sul telefono senza l'hub
+- Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
+- Direct unit tests for the filter chain the turn runs
+- Guardiano del nodo: salva le prove prima di riavviare e ruota il log del demone
+- Guardiano del nodo: la rotazione salta il log tenuto dal demone e non blocca mai l'avvio
+- Guardiano del nodo: il percorso del log del demone da config non viene piu' sovrascritto
+- fast gira anche sul nodo Windows
+- Il nodo riceve intera la revisione anche dopo un riavvio
+- Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+
 ## 2.4.73 — 2026-11-22
 
 ### Sotto il cofano
+- Fix any-budget overshoot and import cycle in agents registry
+- Verifica di Topics: la causa memoria legge dispatch_error, le attese volute e la coda non sono ore perse (deriveQueueReason), nuova causa nodo appeso, test della route
 - Rifiuto per modello: valori senza prefisso come il runner, test su due nodi saltati e su /api/version
+- Move backfillAgentAccounts out of the production registry
+- declare the requirement covered by dispatch-overflow.models
+- Verifica di Topics: il giro legge la ragione della coda da queueReasonOf e classifica per tone; orologio iniettato nella route, età dall'ingresso in todo, nodo appeso da poll/silenzio, catena in backlog, programmata scaduta
+- Tag untraced test with its covered requirement (KANBAN-76)
 - Il land del modello mancante aveva lasciato rossa la CI di main
+- machines integration fakes implement readVersion
+- take main's machines integration fakes
 
 ## 2.4.72 — 2026-11-22
 
@@ -16,16 +55,26 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.71 — 2026-11-22
 
+### Correzioni
+- **machines** · security mark hit area 24px (usability audit target-size)
+
 ### Sotto il cofano
+- Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine
+- Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8
 - auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
+- Verifica di Topics: CheckResult diventa ProofResult (no-type-mirrors), riga Automazioni allineata alla colonna del chevron (ROWALIGN-02)
 - Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
+- Un solo risolutore della cartella engine e migrazione per gli account persi
 - Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+- Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch
+- Requirement ids and coverage tags for the agents registry spec
 - Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia
 
 ## 2.4.70 — 2026-11-22
 
 ### Sotto il cofano
 - One-line @internal tags: the 136 new four-line blocks said the same thing in one line
+- Verifica di Topics: la riga Automazioni e la vista ci sono anche senza hub (solo la Verifica), e2e hub-off aggiornato
 - I parser dell'hub fuori dal primo download, e i due test nuovi dicono cosa provano
 
 ## 2.4.69 — 2026-11-22
@@ -33,15 +82,20 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Tag test-only hooks with @internal so knip --production skips them; baseline exports 414 -> 250
 - Tag test seams with @internal (accessors and tables that exist only for tests); baseline exports 250 -> 227
+- Verifica di Topics: soglie sul confine, turno vivo, spostamenti sani non contano, giro unico, stati in attesa e ferma
 - Drop four functions only their own tests called (containsWakePhrase, shareFraction, formatMatchCounter, hasConversationMedia) with those tests; baseline exports 227 -> 223
 - Agenti e Sistema: la change con barra e scenari, e il feedback del 22/11 nel DESIGN.md
 - agenti-e-sistema: canali ad albero, ereditato senza ripetizioni, strumenti e memoria come strati, memorie cercabili
+- Verifica di Topics: indice su created_at, lettura della sola finestra, misura ai volumi veri (2,4 ms con 66k commenti e 2.016 campioni)
 - La campanella, il Dock e «Ora» dicono lo stesso numero, e le automazioni che aspettano stanno nella lista
+- Registro agenti dinamico dalla configurazione del motore canali
 
 ## 2.4.68 — 2026-11-22
 
 ### Sotto il cofano
 - Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert
+- Verifica di Topics: giro dei 5 minuti con tre voci in ore perse, senza modelli
+- Mark quoted UI label comments as intentional Italian
 - Bloat baseline: only the overflow test entry, with its reason
 - Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414
 
@@ -61,12 +115,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.65 — 2026-11-21
 
+### Novità
+- **machines** · security shield beside each node and its four checks in the row (MACHINE-06)
+
 ### Correzioni
 - **ci-phase** · bisect a red landed batch instead of bouncing every card
 
 ### Sotto il cofano
 - La sonda Linux legge il firewall di iptables e filtra gli accessi falliti sul server
 - Il firewall del kernel vale acceso solo se guarda IPv4 e IPv6 su ogni interfaccia
+- **e2e** · wait on the viewport width, not a fixed sleep
 - Stop relaunching a hung paired node forever
 - Un nodo appeso non riceve più card nuove dall'overflow né le tiene legate
 - Drop duplicate knip.jsonc entries and a closed one-off migration

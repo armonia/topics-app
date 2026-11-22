@@ -100,6 +100,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       since: new Date(admissionCountingSince).toISOString(),
     }),
     isInFlight: (id) => inFlight.has(id),
+    reassignFromForbidden: (task, settings) => ctx.overflow.reassignFromForbidden(task, settings),
+    emitTask: (task) => ctx.queue.emit(task),
     // THE REMOTE LANE DOES NOT SPEND THIS MACHINE'S CAP (KANBAN-76): a card
     // running on a node costs no process, no worktree and no CPU here, and the
     // cap exists to protect exactly those. `running` in
