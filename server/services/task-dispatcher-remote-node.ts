@@ -298,10 +298,11 @@ export interface RemoteNodeLane {
   poll(): Promise<void>;
   /**
    * The restart orphan pass, for a card that names a node: `true` requeued,
-   * `false` left alone (failed to requeue, or a launch of this process is still
-   * on its way to the node), `null` not this lane's card.
+   * `false` left alone (reattached to its still-open run, failed to requeue, or a
+   * launch of this process is still on its way to the node), `null` not this
+   * lane's card.
    */
-  queueAfterRestart(task: Task): boolean | null;
+  queueAfterRestart(task: Task): Promise<boolean | null>;
   /** Cancel one confined remote run without touching another slot. */
   /** null = not remote, false = remote cancellation still unconfirmed, true = stopped. */
   cancelTask(taskId: string): Promise<boolean | null>;
@@ -1358,21 +1359,27 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
   }
 
   /**
-   * A card that names a NODE is never resumed HERE. The recovery in `reconcile`
+   * A card that names a NODE is never RESUMED here (the recovery in `reconcile`
    * ends in `resume`, which opens a local topic and a local turn: for a remote
-   * card that is the one thing KANBAN-76 forbids. Its slot lived only in
-   * memory, so after a restart the honest move is the queue - the tick
-   * re-dispatches it to the node, and that dispatch cancels the old run
-   * before creating a new one (KANBAN-77).
+   * card that is the one thing KANBAN-76 forbids), but its run is not thrown
+   * away either. `tasks.node_run_id` and the machine's `baseUrl`/token survive a
+   * restart (13/11): what lived only in memory was the slot, not the run, so
+   * this asks the node whether that run is still open and REATTACHES the slot
+   * instead of queueing over it. Only when the node says the run is gone, or
+   * answering fails, is the queue the honest move - the tick re-dispatches the
+   * card, and that dispatch cancels the old run before creating a new one
+   * (KANBAN-77). export-morti-2 lost 257 files and a clean typecheck to three
+   * restarts before this (22/11, 0ed45466).
    */
-  function queueAfterRestart(task: Task): boolean | null {
+  async function queueAfterRestart(task: Task): Promise<boolean | null> {
     if (!task.machineId || !host.client) return null;
     // Still being launched by this process: not an orphan of a restart.
     if (launching.has(task.id)) return false;
     // The chip is no sign of an orphan: a remote card's chip is copied from the node by the poll
     // (needs_input, waiting...). What persists is whether a run is still open on the node. A card a
     // human closed and dragged back to In Progress has none: nothing to relaunch, leave it be.
-    if (!svc.nodeRunIsOpen(task.id)) {
+    const runOpen = svc.nodeRunIsOpen(task.id);
+    if (!runOpen) {
       // With no open run a card is either dragged to In Progress by hand (not an orphan: leave
       // it) or CUT BY THE SERVER while the launch had not created the run yet. The two differ by
       // the cut: `interrupted_at`, written by the shutdown, is later than the entry into
@@ -1396,6 +1403,7 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
         return false;
       }
     }
+    if (runOpen && (await reattachOpenRun(task))) return false;
     try {
       svc.claimInterruption({
         taskId: task.id,
@@ -1409,6 +1417,45 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       log(`nodo: card ${task.id} non rimessa in coda dopo il riavvio`, err);
       return false;
     }
+  }
+
+  /**
+   * Asks the node whether the run this card had open before the restart is
+   * still there, and rebuilds the slot (inside the node's own seats, same as
+   * any other launch) instead of queueing over it. `false` = the node says the
+   * run is gone, or there is no way to ask it (unpaired, revoked, unreachable):
+   * the caller falls back to the queue. `primed: false` matches a fresh launch
+   * on purpose - the next poll seeds `seen` from what the node already has
+   * instead of re-mirroring it as new.
+   */
+  async function reattachOpenRun(task: Task): Promise<boolean> {
+    const client = host.client;
+    const machineId = task.machineId;
+    const runId = svc.nodeRunOf(task.id);
+    if (!client || !machineId || !runId) return false;
+    const baseUrl = client.baseUrlOf(machineId);
+    const capabilityId = task.delegatedStartCapabilityId ?? null;
+    const policy = capabilityId ? host.delegatedPolicyForTask?.(task.id) ?? null : null;
+    const token = policy
+      ? client.delegatedTokenOf?.(machineId, policy.id) ?? null
+      : client.tokenOf(machineId);
+    if (!baseUrl || !token) return false;
+    const delegation: NodeRunBinding | undefined = policy ? {
+      capabilityId: policy.id,
+      subjectPersonId: policy.initiatorPersonId,
+      subjectDeviceId: policy.initiatorDeviceId,
+    } : undefined;
+    try {
+      await client.readRun({ baseUrl, token, runId, delegation });
+    } catch (err) {
+      log(`nodo: la corsa ${runId} della card ${task.id} non è stata ritrovata dopo il riavvio, la rimetto in coda`, err);
+      return false;
+    }
+    host.beginRun(task.id, nodeSessionKey(machineId, runId));
+    const slot = inFlight.get(task.id);
+    if (!slot) return false;
+    slot.node = { machineId, baseUrl, token, runId, fails: 0, seen: new Set(), primed: false, ...(delegation ? { delegation } : {}) };
+    return true;
   }
 
   /**

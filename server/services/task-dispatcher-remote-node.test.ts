@@ -39,7 +39,7 @@ import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./t
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
-import type { NodeRunReport } from "./node-client";
+import { NodeError, type NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
 import { hangBreaker } from "./task-dispatcher-remote-node";
@@ -1503,5 +1503,90 @@ describe("una corsa remota persa non riporta mai indietro una card chiusa", () =
 
     expect(h.task().status).toBe("done");
     expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+});
+
+/**
+ * KANBAN-? — a run open on a node is not memory-only any more (13/11): the run
+ * id lives on `tasks.node_run_id`, the node's address and token live in
+ * `machines`. A restart has everything it needs to ask the node instead of
+ * cancelling and re-dispatching over a run that may be minutes from a commit
+ * (export-morti-2, 22/11, lost a clean 257-file typecheck to this three times).
+ */
+describe("una corsa sul nodo sopravvive al riavvio del server", () => {
+  const BRANCH = "topics/corsa-dopo-il-riavvio";
+
+  function restartHarness(phase: { current: "running" | "unknown" | "review" }) {
+    let capture: DeliveryCapture | null = null;
+    const h = harness({
+      bundle: new Uint8Array([1, 2, 3]),
+      planted: { planted: true, commit: "c0ffeec0ffee", commitCount: 1, reason: null },
+      readRun: () => {
+        if (phase.current === "unknown") {
+          return Promise.reject(new NodeError("not_found", "read run: 404", 404));
+        }
+        if (phase.current === "review") {
+          return Promise.resolve(report({
+            status: "review", deliveryBranch: BRANCH, deliveryCommit: "deadbeefdeadbeef", baseSha: "abcdef0123456789",
+          }));
+        }
+        return Promise.resolve(report({ status: "in_progress" }));
+      },
+    }, {
+      captureDelivery: (id) => (capture ? capture(id) : Promise.resolve(false)),
+      measureDelivery: async () => {},
+    });
+    capture = createDeliveryCapture({
+      svc: h.svc,
+      taskDeliveryRef: async (): Promise<DeliveryRef> => ({ branch: BRANCH, commit: "c0ffeec0ffee", repoPath: "/tmp/alpha" }),
+      taskCheckoutRef: async () => null,
+      ownCommitFiles: async () => { throw new Error("no worktree to read"); },
+      ownBranchFiles: async () => [],
+    });
+    return h;
+  }
+
+  it("il nodo risponde ancora running: lo slot si riaggancia, resta in_progress, nessun nuovo create né cancel — e a review atterra come sempre", async () => {
+    const phase: { current: "running" | "unknown" | "review" } = { current: "running" };
+    const h = restartHarness(phase);
+    h.seed();
+    await dispatch(h);
+    expect(h.task().status).toBe("in_progress");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+
+    // The restart: same db, same node, a brand-new dispatcher - `inFlight` is empty.
+    const afterRestart = h.restart();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+
+    expect(h.task().status).toBe("in_progress");
+    expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(false);
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1); // no new run
+    expect(h.calls.some((c) => c.startsWith("cancel"))).toBe(false); // no cancel of a live run
+
+    phase.current = "review";
+    await afterRestart.reconcile({ reason: "poll" });
+    await flush();
+
+    expect(h.task().status).toBe("review");
+    expect(h.calls.filter((c) => c === "create")).toHaveLength(1);
+  });
+
+  it("il nodo dice che la corsa non esiste: la card torna in coda con la nota del riavvio", async () => {
+    const phase: { current: "running" | "unknown" | "review" } = { current: "unknown" };
+    const h = restartHarness(phase);
+    h.seed();
+    await dispatch(h);
+    expect(h.task().status).toBe("in_progress");
+
+    // No auto-dispatch past this point: the assertion is on the requeue itself,
+    // not on whatever the ordinary tick does with a `todo` card right after.
+    h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    const afterRestart = h.restart();
+    await afterRestart.reconcile({ reason: "boot" });
+    await flush();
+
+    expect(h.task().status).toBe("todo");
+    expect(h.comments().some((c) => c.content.includes("Il server è ripartito"))).toBe(true);
   });
 });
