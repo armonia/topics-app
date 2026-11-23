@@ -58,16 +58,18 @@ beforeAll(async () => {
   bridge = await startFakeClaudeBridge(ROOT, SOCKET_PATH);
   const ctx = await createTestAppContext();
   const terminal = await import("../../server/routes/terminal");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
   router = terminal.createTerminalRouter(ctx) as typeof router;
 }, 30_000);
 
 afterAll(async () => {
   const terminal = await import("../../server/routes/terminal");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   await bridge?.close();
   bridge?.cleanup();
   delete process.env.CLAUDE_BIN;

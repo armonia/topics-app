@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import {
-  awaitProcess, clampWaitTimeout, compileUntil, openWatch, watchesForProcess, countWatches,
+  awaitProcess, clampWaitTimeout, compileUntil, openWatch, watchesForProcess,
   WAIT_DEFAULT_TIMEOUT_MS, WAIT_MAX_TIMEOUT_MS, type WaitSlice,
 } from "./process-wait";
 
@@ -159,16 +159,14 @@ describe("awaitProcess", () => {
 
 describe("registro delle attese", () => {
   it("un'attesa aperta si vede sul suo processo, e solo su quello", () => {
-    const prima = countWatches();
     const a = openWatch({ processId: "p1", label: "topic uno", timeoutMs: 1_000 });
     const b = openWatch({ processId: "p2", label: "topic due", until: "ready", timeoutMs: 1_000 });
     expect(watchesForProcess("p1").map(w => w.label)).toEqual(["topic uno"]);
     expect(watchesForProcess("p2")[0]?.until).toBe("ready");
-    expect(countWatches()).toBe(prima + 2);
     a.close();
     expect(watchesForProcess("p1")).toEqual([]);
     b.close();
-    expect(countWatches()).toBe(prima);
+    expect(watchesForProcess("p2")).toEqual([]);
   });
 
   it("due attese sullo stesso processo si contano tutt'e due", () => {

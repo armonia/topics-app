@@ -68,7 +68,7 @@ beforeAll(async () => {
   // A spawn, if one happens, runs this and leaves its argv here: never a real bridge.
   fs.writeFileSync(BRIDGE_BIN, `#!/bin/sh\necho "$@" >> ${SPAWN_LOG}\nexec sleep 5\n`, { mode: 0o755 });
   setEnv("TOPICS_PTY_BRIDGE_BIN", BRIDGE_BIN);
-  const { _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal");
+  const { _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal-bridge-socket");
   // The sockets closed here must not schedule a reconnect into the next file.
   _suppressPtyBridgeReconnectForTest(true);
 });
@@ -86,7 +86,8 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const { disconnectBridge, _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath, _suppressPtyBridgeReconnectForTest } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   _suppressPtyBridgeReconnectForTest(false);
@@ -99,7 +100,7 @@ test("a connect still in flight when the path moves is dropped, and the caller w
   const oldBridge = fakeBridge(OLD_PATH);
   const newBridge = fakeBridge(NEW_PATH);
   await Promise.all([oldBridge.listening, newBridge.listening]);
-  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
 
   _setPtyBridgeSocketPath(OLD_PATH);
@@ -116,7 +117,7 @@ test("a connect still in flight when the path moves is dropped, and the caller w
 
 test("a connect that fails after the path moved spawns no bridge on the new path", async () => {
   fs.writeFileSync(NOT_A_SOCKET, "");
-  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
   _setPtyBridgeSocketPath(NOT_A_SOCKET);
   const stale = ensureBridge();

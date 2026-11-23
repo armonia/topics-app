@@ -31,6 +31,14 @@ function setup(projectId: string | null) {
   return { round, cards };
 }
 
+test("the card stays on the hub, the only machine that reaches what it measured", async () => {
+  const { round } = setup(PID);
+  await round(machines("problem"));
+  const row = db.query("SELECT stay_local, machine_id FROM tasks WHERE claude_task_id LIKE 'security:%'").get() as { stay_local: number; machine_id: string | null };
+  expect(row).toEqual({ stay_local: 1, machine_id: null });
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test("two red rounds make one card, green closes it, red again opens a new one", async () => {
   const { round, cards } = setup(PID);
   await round(machines("problem"));

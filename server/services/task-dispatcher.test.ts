@@ -13,11 +13,21 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, UNRESOLVED_PROJECT_PARK_REASON, REQUEUE_PARKED_LABEL, REVIEW_CARD_FIELDS, REVIEW_CARD_NO_DECISION, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
 import { longCommandsRule, rotateFrom } from "./task-dispatcher-support";
+
+/** Cuts the PREVIEW_RULE block out of a composed envelope by STRUCTURE (first line "REVIEW EVIDENCE", last "One single gate"), not by searching for the constant: a test that looks for the constant it just interpolated cannot fail. */
+function extractPreviewRule(envelope: string): string | null {
+  const lines = envelope.split(/\r?\n/);
+  const from = lines.findIndex((l) => l.startsWith('REVIEW EVIDENCE'));
+  if (from < 0) return null;
+  const to = lines.findIndex((l, i) => i >= from && l.startsWith('One single gate'));
+  if (to < 0) return null;
+  return lines.slice(from, to + 1).join("\n");
+}
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**

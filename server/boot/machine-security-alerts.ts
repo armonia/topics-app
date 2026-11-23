@@ -43,6 +43,12 @@ export function createSecurityAlertsRound(deps: AlertBoardDeps) {
         idempotencyKey: `${a.key}${EPISODE_SEP}${deps.now()}`,
         description: `A security check reported: ${a.detail}\n\nThe card closes by itself when the check is green again.`,
         bar: "The check is back to ok in the next security round.",
+        // The hub measured this machine, so the hub is where it can be reached
+        // (itself, or its ssh keys for a server). On a free node slot the agent
+        // would see neither: card 07936f60 went to a cloud node for the hub's
+        // own pending update.
+        stayLocal: true,
+        stayLocalReason: "security check: only the hub that measured the machine can reach it",
       });
       deps.broadcast({ type: "task:updated", projectId, task });
     }

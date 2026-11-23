@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { stopProcessDetectionForTests } from "./processes";
+import { stopProcessDetectionForTests } from "./processes-detection";
 import { DETECTION_INTERVAL_MS, DETECTION_INTERVAL_MAX_MS, nextDetectionDelay, processDetectionViewIsOpen, bumpProcessDetection, ghostCwdProbeDue, GHOST_CWD_PROBE_MIN_INTERVAL_MS } from "./processes-detection";
 
 describe("nextDetectionDelay", () => {

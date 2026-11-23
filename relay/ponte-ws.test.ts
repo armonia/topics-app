@@ -31,7 +31,8 @@ import {
 } from "./src/ponte";
 import { creaProxyTubo } from "../server/services/relay-client";
 import { leggiFramePayload, scriviFrame, type FrameTubo } from "../shared/relay-protocol";
-import { createRelayIdentity, createHostProof, HOST_PROOF_HEADER } from "../shared/relay-identita";
+import { createRelayIdentity, HOST_PROOF_HEADER } from "../shared/relay-identita";
+import { createHostProof } from "./host-proof-test-helpers";
 import {
   GENERE_WS_APERTO, GENERE_WS_CHIUSO, leggiChiusuraWs, leggiTestaWsChiuso,
   scriviTestaWs, WS_APERTO,

@@ -76,6 +76,7 @@ export const PANE_CONFIG: Partial<Record<PaneType, PaneConfig>> = {
   agents:        { icon: 'Bot',           label: 'Agenti',       color: '#0066ff', singleton: true }, // allow-italian: a tab title the pane store keeps
   // The hub's feature map (HUBBR-18): opened from System and the palette only,
   // never from the «+» nor from a row of its own in the sidebar.
+  'system-page': { icon: 'Stethoscope',   label: 'Sistema', color: '#0066ff', singleton: true }, // allow-italian: a tab title the pane store keeps, like every label above
   features:      { icon: 'Blocks',        label: 'Funzionalità', color: '#0066ff', singleton: true }, // allow-italian: a tab title the pane store keeps, like every label above
 };
 

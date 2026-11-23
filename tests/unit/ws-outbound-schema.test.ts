@@ -9,9 +9,11 @@ import { describe, expect, test } from 'bun:test';
 import { HUB_LIVE_TOPICS } from '../../server/lib/hub-live';
 import {
   validateOutbound,
-  isRegisteredOutboundType,
-  REGISTERED_OUTBOUND_TYPES,
+  OUTBOUND_FRAME_CLASSES,
 } from '../../shared/ws-outbound';
+
+// The frame classes are a Record over every registered type, so their keys are the registry.
+const REGISTERED_OUTBOUND_TYPES = Object.keys(OUTBOUND_FRAME_CLASSES).sort();
 
 // ----- Registered types: round-trip valid payloads --------------------------
 
@@ -309,13 +311,6 @@ describe('outbound registry contract', () => {
       'worktree:new',
       'worktree:updated',
     ]);
-  });
-
-  test('isRegisteredOutboundType matches the registry', () => {
-    for (const t of REGISTERED_OUTBOUND_TYPES) {
-      expect(isRegisteredOutboundType(t)).toBe(true);
-    }
-    expect(isRegisteredOutboundType('not-yet-modeled')).toBe(false);
   });
 
   // presence:windows joined the outbound registry in 724284d3 (cross-window

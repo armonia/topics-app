@@ -316,7 +316,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         icon={Cpu}
         label={tr('statusBar.system.title')}
         testId="menu-system-status"
-        defaultOpen={openLevel === 'agents' || openLevel === 'context'}
+        defaultOpen={openLevel === 'agents'}
         minWidth={312}
         // The tallest level of the menu: the names of what is running, then
         // the numbers. On a short window the two together are more than the
@@ -424,7 +424,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
             answers, so they come in their own chunk, off the first download. */}
         {hubPresent && (
           <Suspense fallback={null}>
-            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} openContext={openLevel === 'context'} />
+            <HubSystemRows isMobile={isMobile} onNavigate={onNavigate} />
           </Suspense>
         )}
       </SubmenuItem>

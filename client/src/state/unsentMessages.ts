@@ -154,11 +154,6 @@ function subscribe(cb: () => void): () => void {
 
 const read = () => snapshot;
 
-/** @internal The same set, read outside React (tests, and any non-component caller). */
-export function onScreenSessions(): ReadonlySet<string> {
-  return snapshot;
-}
-
 /** The sessions whose unsent messages are already shown inside their chat. */
 export function useOnScreenSessions(): ReadonlySet<string> {
   return useSyncExternalStore(subscribe, read, read);

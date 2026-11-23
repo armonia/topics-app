@@ -402,7 +402,7 @@ test.describe("agents' context and feature map", () => {
     await page.emulateMedia({ colorScheme: "dark" });
   });
 
-  test("phone, 390 px: the context level is one sheet, nothing wider than the screen", async ({ browser }, testInfo) => {
+  test("phone, 390 px: the context opens in System › Harness, nothing wider than the screen", async ({ browser }, testInfo) => {
     const ctx = await browser.newContext({
       baseURL: E2E_BASE, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, colorScheme: "dark", locale: "it-IT",
       recordVideo: { dir: testInfo.outputPath("phone-video"), size: { width: 390, height: 844 } },
@@ -420,8 +420,10 @@ test.describe("agents' context and feature map", () => {
       await status.getByTestId("menu-system-context").tap();
       const level = page.getByTestId("context-level");
       await expect(level.getByTestId("context-harness")).toHaveCount(4, { timeout: 20_000 });
-      await expect(level.getByTestId("context-back")).toHaveText("Sistema");
-      await expect(level.getByTestId("context-close")).toBeVisible();
+      // The context is a section of the System page now: the page has the way
+      // back, so the embedded level carries no back or close of its own.
+      await expect(page.getByTestId("system-nav-harness")).toHaveAttribute("aria-current", "page");
+      await expect(level.getByTestId("context-back")).toHaveCount(0);
       const widths = await page.evaluate(() => ({
         doc: document.documentElement.scrollWidth,
         level: document.querySelector<HTMLElement>('[data-testid="context-level"]')!.getBoundingClientRect().right,
@@ -438,9 +440,6 @@ test.describe("agents' context and feature map", () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
       await rules.nth(0).scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath("vero-contesto-funzionalita-telefono.png") });
-      await level.getByTestId("context-back").tap();
-      await expect(level).toHaveCount(0);
-      await expect(page.getByTestId("menu-system-status-menu")).toBeVisible();
     } finally {
       await ctx.close();
     }

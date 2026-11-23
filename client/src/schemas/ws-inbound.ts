@@ -17,14 +17,9 @@
  */
 import {
   validateOutbound,
-  isRegisteredOutboundType,
-  REGISTERED_OUTBOUND_TYPES,
   STOP_CAUSES,
   type ValidationResult,
 } from '../../../shared/ws-outbound';
-
-/** @internal Test oracle: the types the server can send, read by the registry contract tests. */
-export const REGISTERED_INBOUND_TYPES = REGISTERED_OUTBOUND_TYPES;
 
 export type InboundValidationResult = ValidationResult;
 
@@ -56,9 +51,4 @@ function withoutUnknownStopCause(msg: unknown): unknown {
   const rest: Record<string, unknown> = { ...(msg as Record<string, unknown>) };
   delete rest.stopCause;
   return rest;
-}
-
-/** @internal Test oracle: read by the registry contract tests. */
-export function isRegisteredInboundType(type: string): boolean {
-  return isRegisteredOutboundType(type);
 }
