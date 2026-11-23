@@ -9,6 +9,7 @@ import { useT } from '../../hooks/useT';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { BTN } from '../Agents/AgentConfigPieces';
 import { healthTarget, openHealthTarget } from './systemNav';
+import { healthSentence } from './healthSentence';
 import type { HealthProblem } from '../../../../shared/agents-health';
 
 export function SystemHealth({ problems, reload }: { problems: HealthProblem[] | null; reload: () => Promise<void> }) {
@@ -33,7 +34,7 @@ export function SystemHealth({ problems, reload }: { problems: HealthProblem[] |
           {problems.map((p) => (
             <li key={p.id} data-testid="system-health-row" data-severity={p.severity} className="flex items-start gap-2 rounded border border-app-border p-2.5">
               <TriangleAlert size={14} aria-hidden="true" className={`mt-0.5 flex-shrink-0 ${p.severity === 'error' ? DANGER_TEXT : WARNING_TEXT}`} />
-              <span className="min-w-0 flex-1 text-prose text-app-text">{p.sentence}</span>
+              <span className="min-w-0 flex-1 text-prose text-app-text">{healthSentence(tr, p)}</span>
               <button type="button" data-testid="system-health-open" onClick={() => openHealthTarget(healthTarget(p.destination))} className={BTN}>{tr('system.health.open')}</button>
             </li>
           ))}

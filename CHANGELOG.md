@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.82 — 2026-11-23
+
+### Sotto il cofano
+- System health: jobs with no agent run as main, and problems read in the reader's language
+
 ## 2.4.81 — 2026-11-23
 
 ### Correzioni
