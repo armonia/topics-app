@@ -9,7 +9,6 @@ import {
   recordTurnEnd,
   resetTurnEndRegistry,
   takeTurnEnd,
-  turnEndRegistrySize,
 } from "./turn-end-registry";
 // `readTurnEnd` is new: through the namespace, so on the code before it only its
 // own tests fail and the rest of this file still runs.
@@ -17,6 +16,9 @@ import * as registry from "./turn-end-registry";
 import { cancelled } from "./stop-reason";
 
 beforeEach(() => resetTurnEndRegistry());
+
+/** How many of these sessions still hold a deposited end (peeking does not consume). */
+const heldCount = (keys: string[]): number => keys.filter((k) => peekTurnEnd(k)).length;
 
 describe("deposita / ritira", () => {
   it("chi ritira ottiene quello che è stato depositato", () => {
@@ -61,14 +63,14 @@ describe("deposita / ritira", () => {
 
   it("una sessionKey vuota non deposita niente", () => {
     recordTurnEnd("", { end: "end_turn" });
-    expect(turnEndRegistrySize()).toBe(0);
+    expect(peekTurnEnd("")).toBe(false);
   });
 });
 
 describe("tetto ai residui", () => {
   it("non cresce all'infinito: sfratta le sessioni più vecchie", () => {
     for (let i = 0; i < 500; i++) recordTurnEnd(`s${i}`, { end: "end_turn" });
-    expect(turnEndRegistrySize()).toBeLessThanOrEqual(200);
+    expect(heldCount(Array.from({ length: 500 }, (_, i) => `s${i}`))).toBeLessThanOrEqual(200);
     // La più vecchia è sparita, le ultime ci sono ancora.
     expect(takeTurnEnd("s0")).toBeUndefined();
     expect(takeTurnEnd("s499")).toBeDefined();
@@ -114,6 +116,6 @@ describe("reading without withdrawing, with the time of the end", () => {
     recordTurnEnd("old", cancelled("user"));
     for (let i = 0; i < 250; i++) recordTurnEnd(`s${i}`, { end: "end_turn" });
     expect(registry.readTurnEnd("old")).toBeUndefined();
-    expect(turnEndRegistrySize()).toBeLessThanOrEqual(200);
+    expect(heldCount(["old", ...Array.from({ length: 250 }, (_, i) => `s${i}`)])).toBeLessThanOrEqual(200);
   });
 });

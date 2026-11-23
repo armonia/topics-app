@@ -46,13 +46,6 @@ const NOMI: Record<string, { uno: string; molti: string; sub?: { uno: string; mo
   'shell.browserPanes': { uno: 'pannello', molti: 'pannelli' },
 };
 
-/** Test seam: l'elenco degli id nominati, per il cancello contro la deriva
- *  (`featureWeightSources.test.ts` verifica che ogni sorgente registrata abbia
- *  un nome, altrimenti la sua riga direbbe «N voci» e nessuno lo noterebbe).
- * @internal
- */
-export const NOMI_PER_TEST: Readonly<Record<string, unknown>> = NOMI;
-
 /**
  * Ids BUILT at read time, and the entry above whose name they borrow: one row
  * per project is still a count of sessions, so it says «sessione/sessioni»,  allow-italian: the two words quoted are the UI copy in NOMI

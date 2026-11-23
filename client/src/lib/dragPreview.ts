@@ -190,11 +190,3 @@ export function endDragPreview(): void {
   nodo.remove();
   nodo = null;
 }
-
-/** C'è un'anteprima accesa? Serve ai test e a chi deve decidere se il gesto è
- *  ancora vivo senza guardare il DOM.
- * @internal
- */
-export function dragPreviewActive(): boolean {
-  return nodo !== null;
-}

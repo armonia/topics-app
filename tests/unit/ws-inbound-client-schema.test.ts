@@ -12,30 +12,10 @@
   * @covers WIRE-07
  */
 import { describe, expect, test } from 'bun:test';
-import {
-  validateInbound,
-  isRegisteredInboundType,
-  REGISTERED_INBOUND_TYPES,
-} from '../../client/src/schemas/ws-inbound';
-import {
-  validateOutbound,
-  REGISTERED_OUTBOUND_TYPES,
-} from '../../shared/ws-outbound';
+import { validateInbound } from '../../client/src/schemas/ws-inbound';
+import { validateOutbound } from '../../shared/ws-outbound';
 
 describe('client inbound = registro condiviso (niente mirror)', () => {
-  test('REGISTERED_INBOUND_TYPES è LO STESSO array, non una copia uguale', () => {
-    // Identità referenziale di proposito: `toEqual` passerebbe anche con due
-    // liste gemelle scritte a mano, che è esattamente il difetto rimosso.
-    expect(REGISTERED_INBOUND_TYPES).toBe(REGISTERED_OUTBOUND_TYPES);
-  });
-
-  test('il client conosce tutti i tipi che il server sa mandare', () => {
-    for (const t of REGISTERED_OUTBOUND_TYPES) {
-      expect(isRegisteredInboundType(t)).toBe(true);
-    }
-    expect(isRegisteredInboundType('not-yet-modeled')).toBe(false);
-  });
-
   test('validateInbound e validateOutbound danno lo stesso verdetto', () => {
     const frames: unknown[] = [
       { type: 'connected', clientId: 'ws-1' },

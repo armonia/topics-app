@@ -404,6 +404,7 @@
         "!server/lib/test-node-bin.ts!",
         "!server/services/tasks-test-db.ts!",
         "!shared/relay-fake.ts!",
+        "!relay/**/*-test-helpers.ts!",
         "!server/lib/remove-dir-reporting.ts!",
         // The pure halves of the nightly disk budget job: production code, but its
         // only caller is `scripts/disk-budget-check.ts`, run by launchd
