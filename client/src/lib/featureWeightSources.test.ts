@@ -22,7 +22,7 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { registerFeatureWeightSources } from './featureWeightSources';
 import { collectFeatureWeights, _resetFeatureWeights } from './featureWeight';
-import { NOMI_PER_TEST } from './featureWeightText';
+import { rigaVoce } from './featureWeightText';
 
 let spegni: (() => void) | null = null;
 afterEach(() => { spegni?.(); spegni = null; _resetFeatureWeights(); });
@@ -93,7 +93,11 @@ describe('registerFeatureWeightSources', () => {
     // nominarla non deve passare in silenzio. `chat.messages` non e' qui perche'
     // la registra `useChat` (conosce i marker di compattazione e gli sfratti,
     // che da fuori non si vedono).
-    const senzaNome = raccogli().map(v => v.id).filter(id => !(id in NOMI_PER_TEST));
+    // Si rilegge la riga che l'utente vede, con due elementi inventati: la voce
+    // senza nome ripiega su «voci», quella nominata dice i suoi sostantivi.
+    const senzaNome = raccogli()
+      .filter(v => rigaVoce({ ...v, errore: undefined, natura: 'trattenuto', peso: { entries: 2 } }).includes('2 voci'))
+      .map(v => v.id);
     expect(senzaNome).toEqual([]);
   });
 });

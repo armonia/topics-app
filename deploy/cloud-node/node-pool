@@ -310,11 +310,20 @@ def known_file(ip):
 _SERVER_OF_IP = {}
 
 
+# One shared connection per node: every short command used to be a fresh ssh login, ~5 a minute,
+# each one a logind session on the node (card e809a470). Multiplexed commands are channels of
+# the same session. ServerAliveInterval kills a dead master in ~45 s instead of hanging callers.
+MUX_DIR = os.path.join(HOME, ".ssh", "cm")
+MUX = ["-o", "ControlMaster=auto", "-o", f"ControlPath={MUX_DIR}/topics-node-%C", "-o", "ControlPersist=10m",
+       "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+
+
 def ssh(ip, cmd, timeout=120, inp=None):
     known = known_file(ip)
     os.makedirs(os.path.dirname(known), exist_ok=True)
+    os.makedirs(MUX_DIR, mode=0o700, exist_ok=True)
     return subprocess.run(["ssh", "-i", KEY, "-o", "IdentitiesOnly=yes", "-o", "IPQoS=af41", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                           "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
+                           *MUX, "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", "-o", "LogLevel=ERROR",
                            f"root@{ip}", cmd], capture_output=True, text=True, timeout=timeout, input=inp)
 
 
@@ -375,7 +384,9 @@ def recipe():
     node_major = subprocess.run(["node", "-v"], capture_output=True, text=True).stdout.strip().lstrip("v").split(".")[0] or "22"
     with open(os.path.join(HERE, "user-data.sh.tmpl")) as f:
         t = f.read()
-    return (t.replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
+    with open(os.path.join(HERE, "logind-stale-sessions")) as f:
+        guard = f.read().rstrip("\n")
+    return (t.replace("@LOGIND_GUARD@", guard).replace("@APT@", " ".join(apt)).replace("@NPM@", " ".join(npm))
              .replace("@NODE_MAJOR@", node_major).replace("@COMMIT@", commit_of_mac()))
 
 

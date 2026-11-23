@@ -20,7 +20,10 @@ export interface HealthProblem<T extends string = string> {
   id: string;
   type: T;
   severity: HealthSeverity;
+  /** The problem in English, for logs and for a client that does not know `type`. */
   sentence: string;
+  /** The pieces of `sentence` (names, files, reasons), so the client says it in the reader's language. */
+  vars?: Record<string, string>;
   destination: HealthDestination;
 }
 

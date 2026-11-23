@@ -11,13 +11,18 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, riprendiTurniInterrotti,
+  MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
 // loads on the code before the fix, where the verdict tests must fail on the
 // verdict and not on a missing import.
 import * as boot from "./ripresa-boot";
+import { capLastCut, capNotice } from "./resume-notices";
+
+const resumeCapNotice = (opts: { restarted: boolean; cause?: unknown }): string =>
+  capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
+const RESUME_CAP_MARKER = resumeCapNotice({ restarted: true });
 import { abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
 import { RESTART_INTERRUPTED_MARKER } from "./boot-partial-sweep";
 import { closeDatabase, getDatabase, initDatabase } from "../db";
@@ -649,7 +654,7 @@ describe("the notice variants and the recogniser", () => {
   test("every cap notice keeps the retry and stays unrecognised, and a restart is blamed only when it is the cause", () => {
     for (const cause of [undefined, "watchdog", "wall-clock", "server-shutdown", "rate-limit", "tool-budget"]) {
       for (const restarted of [true, false]) {
-        const text = boot.resumeCapNotice({ restarted, cause });
+        const text = resumeCapNotice({ restarted, cause });
         const label = `${cause ?? "none"} restarted=${restarted}`;
         expect(text.startsWith("⚠️ Ripresa automatica sospesa:"), label).toBe(true);
         expect(text, label).toContain("Riprova");
@@ -657,8 +662,8 @@ describe("the notice variants and the recogniser", () => {
         expect(text.includes("riavvi"), label).toBe(blamesRestart(cause, restarted));
       }
     }
-    expect(boot.resumeCapNotice({ restarted: true, cause: "watchdog" })).not.toBe(RESUME_CAP_MARKER);
-    expect(boot.resumeCapNotice({ restarted: false, cause: "server-shutdown" })).toBe(RESUME_CAP_MARKER);
+    expect(resumeCapNotice({ restarted: true, cause: "watchdog" })).not.toBe(RESUME_CAP_MARKER);
+    expect(resumeCapNotice({ restarted: false, cause: "server-shutdown" })).toBe(RESUME_CAP_MARKER);
   });
 
   /**
@@ -671,7 +676,7 @@ describe("the notice variants and the recogniser", () => {
    */
   test("every variant counts resends, blames only the last cut, and speaks one way", () => {
     const caps = [undefined, "watchdog", "server-shutdown", "rate-limit"].flatMap((cause) =>
-      [true, false].map((restarted) => boot.resumeCapNotice({ restarted, cause })));
+      [true, false].map((restarted) => resumeCapNotice({ restarted, cause })));
     const unanswered = [null, cancelled("watchdog"), cancelled("wall-clock"), cancelled("server-shutdown"), { end: "end_turn" } as const]
       .flatMap((lastEnd) => [true, false].map((restarted) => boot.unansweredNotice({ restarted, lastEnd })));
     for (const text of caps) {

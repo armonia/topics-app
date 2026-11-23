@@ -5,7 +5,9 @@
  * @covers PROCESS-01
  */
 import { test, expect } from "bun:test";
-import { emptyLogBuffer, appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "./log-cursor";
+import { appendToLogBuffer, flushLogBuffer, sliceFromCursor, type LogBuffer } from "./log-cursor";
+
+const emptyLogBuffer = (): LogBuffer => ({ output: [], outputBytes: 0, droppedLines: 0, pendingLine: "" });
 
 const BIG = 1_000_000;
 

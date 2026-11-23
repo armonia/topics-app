@@ -91,6 +91,8 @@ export const I18N_CATALOGUES = new Set([
   "client/src/lib/i18n-system-en.ts",
   "client/src/lib/i18n-system-row-it.ts",
   "client/src/lib/i18n-system-row-en.ts",
+  "client/src/lib/i18n-health-it.ts",
+  "client/src/lib/i18n-health-en.ts",
   "client/src/lib/i18n-agents-jobs-it.ts",
   "client/src/lib/i18n-agents-jobs-en.ts",
   "client/src/lib/i18n-hub-usage-it.ts",

@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import { createTurnReasoningTranslator, withReasoningTranslation } from "./turn";
 import { createReasoningTranslationRouter } from "../routes/reasoning-translation";
-import { ReasoningTranslationService, memoryTranslationStore } from "./service";
+import { ReasoningTranslationService, type TranslationStore } from "./service";
 import type { ReasoningTranslator } from "./translator";
 import type { AppContext } from "../types";
 
@@ -18,6 +18,15 @@ const translator: ReasoningTranslator = {
   pairReady: async () => true,
   translate: async (text) => `IT(${text})`,
 };
+/** In-memory store the translation tests inject in place of the database one. */
+const memoryTranslationStore = (): TranslationStore => {
+  const rows = new Map<string, string>();
+  return {
+    get: (hash, target) => rows.get(`${hash}|${target}`) ?? null,
+    put: (hash, target, _source, text) => void rows.set(`${hash}|${target}`, text),
+  };
+};
+
 const service = () => new ReasoningTranslationService({ translator, store: memoryTranslationStore(), resolveTarget: () => "it" });
 
 const BLOCK_ONE = "First I need to read the failing test and see what it expects. Then I will check the file.";

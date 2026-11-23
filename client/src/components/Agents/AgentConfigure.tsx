@@ -25,6 +25,7 @@ import { useAgo } from './useAgo';
 import { CHANNEL_MARKS } from '../../lib/brandIcons';
 import { Select } from '../Shared/Select';
 import type { Registry } from '../../state/agentRegistry';
+import { parseIdentity, writeIdentity } from '../../../../shared/agent-identity';
 
 type Agent = Registry['agents'][number];
 type Post = (kind: string, body: object) => Promise<boolean>;
@@ -42,13 +43,6 @@ const STOPPED_REASONS = [
   'gruppo_non_ammesso', 'dm_non_ammesso', 'menziona_altri', 'mittente_non_ammesso',
 ] as const;
 const PAGE_SIZE = 10;
-
-function parseIdentity(text: string): { name: string; job: string; rest: string } {
-  const lines = text.split('\n');
-  const name = (lines[0] ?? '').replace(/^#\s*/, '').trim();
-  const job = (lines[1] ?? '').trim();
-  return { name, job, rest: lines.slice(2).join('\n').replace(/^\n+/, '') };
-}
 
 function IdentitySection({ agent, post, onNavigate }: { agent: Agent; post: Post; onNavigate: (s: ConfigureSection) => void }) {
   const tr = useT();
@@ -69,8 +63,7 @@ function IdentitySection({ agent, post, onNavigate }: { agent: Agent; post: Post
   const [soul, setSoul] = useState(agent.persona['SOUL.md'] ?? '');
   const dirty = name !== identity.name || soul !== (agent.persona['SOUL.md'] ?? '');
   const save = () => {
-    const text = `# ${name}\n${identity.job}\n${identity.rest ? `\n${identity.rest}\n` : ''}`;
-    void post('persona', { agent: agent.id, file: 'IDENTITY.md', text });
+    void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: writeIdentity(agent.persona['IDENTITY.md'] ?? '', { name }) });
   };
   const saveSoul = () => void post('persona', { agent: agent.id, file: 'SOUL.md', text: soul });
   return (
@@ -130,7 +123,7 @@ function JobSection({ agent, post }: { agent: Agent; post: Post }) {
       <input data-testid="agent-job-field" value={job} onChange={(e) => setJob(e.target.value)} className={`mt-1 ${FIELD}`} />
       <button
         type="button" data-testid="agent-job-field-save" disabled={job === identity.job} className={`mt-2 ${SAVE}`}
-        onClick={() => void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: `# ${identity.name}\n${job}\n${identity.rest ? `\n${identity.rest}\n` : ''}` })}
+        onClick={() => void post('persona', { agent: agent.id, file: 'IDENTITY.md', text: writeIdentity(agent.persona['IDENTITY.md'] ?? '', { job }) })}
       >{tr('agentConfig.save')}</button>
     </label>
   );

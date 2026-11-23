@@ -108,26 +108,6 @@ export const PINNED_TILE_ACTION_SLOT = 'w-9 md:w-7';
  * ricalcolati da `pinnedTileMetrics.test.ts` a partire da altezza e box.
  */
 export const PINNED_TILE_ACTION_INSET_CLASS = 'right-[4px] md:right-[3px]';
-/** @internal Gli stessi due numeri per l'aritmetica del test — vedi {@link PINNED_TILE_PX}. */
-export const PINNED_TILE_ACTION_INSET_PX = { wide: 3, compact: 4 } as const;
-
-/**
- * I numeri dietro le classi qui sopra, in pixel — l'unica forma in cui
- * l'invariante si può VERIFICARE.
- *
- * Non generano niente e non vanno usati per disegnare: le classi restano la
- * sorgente (Tailwind legge il sorgente). Servono al test, che rilegge le classi
- * e controlla che dicano questi numeri e che il conto torni. Senza, «altezza =
- * box + 2 × rientro» è una frase in un commento, e i commenti non diventano
- * rossi.
- * @internal
- */
-export const PINNED_TILE_PX = {
-  /** Sopra i 768px: `md:h-[34px]` di `ROW_H` / `md:w-7` di `ROW_ACTION_BOX`. */
-  wide: { tile: 34, action: 28 },
-  /** Sotto i 768px: `h-11` di `ROW_H` / `w-9` di `ROW_ACTION_BOX`. */
-  compact: { tile: 44, action: 36 },
-} as const;
 
 /**
  * THE TWO FORMS OF A PINNED TILE, and the alignment each one implies.

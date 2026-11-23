@@ -1,12 +1,14 @@
 /**
- * A node check checkout cut mid-release must not block the land (card 54e4489d).
+ * @covers LAND-04
+ *
+ * A node check checkout cut mid-release must not block the land (card 8e9c2873).
+ *
+ * @covers LAND-19
  *
  * The shutdown path: `stopReviewChecks` ends the round, the meter's `finally`
  * releases the checkout, and `process.exit` reaps the git it started. Here the
  * cut is simulated at every place it can land, on a real repository, and then
  * the same land a review approval runs is asked to merge the branch.
- *
- * @covers LAND-19
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { execFileSync } from "child_process";
@@ -89,7 +91,7 @@ function branchTrees(repo: string): Array<{ path: string; dirt: string }> {
 
 async function measureThenCut(repo: string, checks: string, cutGit: DiscardGit, cutDelete?: (p: string) => Promise<void>) {
   const lease = await openNodeCheckWorktree({
-    git: cutGit, repoPath: repo, branch: BRANCH, root: checks, taskId: "54e4489d-test",
+    git: cutGit, repoPath: repo, branch: BRANCH, root: checks, taskId: "8e9c2873-test",
     resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
     discard: cutDelete ? { deleteTree: cutDelete } : undefined,
   });
@@ -101,7 +103,7 @@ async function measureThenCut(repo: string, checks: string, cutGit: DiscardGit, 
 
 async function land(repo: string) {
   const am = createTaskAutoMerge({ resolveTaskMerge: () => ({ repoPath: repo, branch: BRANCH, defaultBranch: "main" }) });
-  return am.tryMerge("54e4489d", "Node delivery");
+  return am.tryMerge("8e9c2873", "Node delivery");
 }
 
 describe("a node check checkout cut by a shutdown does not block the land", () => {
