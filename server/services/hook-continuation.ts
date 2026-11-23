@@ -5,8 +5,8 @@
  * A `turn-end` command that exits 0 and prints `{"decision":"block","reason":
  * "<text>"}` (`lifecycle-hooks.ts` parses it) gets `<text>` sent to the same
  * chat as the next turn, so the agent carries on with its whole context and
- * its tools. The use that asked for it: an agent that ends with «puoi
- * chiuderla» is asked by a hook to run its own retrospective and apply it.
+ * its tools. The use that asked for it: an agent whose report says the session
+ * can be closed is asked by a hook to run its own retrospective and apply it.
  *
  * ── Through the chat route, like the goal loop ───────────────────────────────
  * The text goes out through `ChatGoalLoop.resend`, the same door the goal loop
