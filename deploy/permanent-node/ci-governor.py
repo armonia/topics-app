@@ -223,6 +223,22 @@ def selftest():
         assert not pending_data(os.getpid()), "letti: torna False"
         for x in (cli, conn, srv):
             x.close()
+        # freeze(): il dato arriva tra il controllo e il congelamento -> il Listener torna in marcia (senza il controllo dopo, resta fermo)
+        d2 = tempfile.mkdtemp(); os.makedirs(d2 + "/_diag"); lg = d2 + "/_diag/Runner_x.log"
+        open(lg, "w").write("x"); os.utime(lg, (time.time() - 60,) * 2)
+        state = lambda p: open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[0]
+        a = subprocess.Popen(["sleep", "60"], cwd=d2); b = subprocess.Popen(["sleep", "60"], cwd=d2)
+        try:
+            time.sleep(0.2)
+            assert freeze(a.pid) is True and state(a.pid) == "T", "log fermo da 60 s: resta congelato"
+            os.kill(a.pid, signal.SIGCONT)
+            assert freeze(b.pid, between=lambda: os.utime(lg, None)) is False, "ha scritto nel log mentre lo si fermava"
+            time.sleep(0.1)
+            assert state(b.pid) != "T", "Listener rimasto congelato con un job appena arrivato"
+        finally:
+            for p in (a, b):
+                p.kill(); p.wait()
+            import shutil; shutil.rmtree(d2, ignore_errors=True)
         old = os.getcwd(); d = tempfile.mkdtemp()
         try:
             os.makedirs(d + "/_diag"); open(d + "/_diag/Runner_x.log", "w").write("x"); os.chdir(d)
@@ -318,6 +334,20 @@ def recent_log(pid, secs=None):
         return False
 
 
+def freeze(pid, between=None):
+    """SIGSTOP al Listener e SUBITO dopo si rilegge: se tra l'ultimo controllo e il congelamento e' arrivato un dato nel socket o ha
+    scritto nel log (sta prendendo un job: 23/11 03:53:48), SIGCONT al volo e ritorna False. Misurato il 23/11 su quadra: un Listener
+    fermato dopo che ha acquisito il job lo tiene `in_progress` senza che nessuno lo esegua (con SIGSTOP si recupera riprendendolo,
+    con systemctl stop il job e' perso: nemmeno un riavvio lo riprende). `between` serve solo al selftest per simulare l'arrivo."""
+    os.kill(pid, signal.SIGSTOP)
+    if between:
+        between()
+    if pending_data(pid) or recent_log(pid):
+        os.kill(pid, signal.SIGCONT)
+        return False
+    return True
+
+
 def manual_suites():
     """Suite Playwright lanciate con systemd-run (unit run-uNNN.service) da agenti sulla macchina."""
     n = set()
@@ -409,8 +439,10 @@ def main():
                 hold_until[u] = now + HOLD_S
                 continue
             log(f"pausa {u} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
-            if not dry:
-                os.kill(gov[u]["listener"], signal.SIGSTOP)
+            if not dry and not freeze(gov[u]["listener"]):
+                log(f"pausa di {u} annullata subito: nel momento del congelamento e' arrivato un dato (sta prendendo un job)")
+                hold_until[u] = now + HOLD_S
+                continue
             paused_at[u] = now                      # i probes NON si azzerano qui: l'ultima ripresa per dato conta ancora
             last_awake.pop(u, None)
         for u in cont:
