@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.92",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "board brakes: a shorter spend chip, so the restart time stays in sight",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.90",
     "date": "2026-11-23",
     "sections": {

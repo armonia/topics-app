@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.92 — 2026-11-24
+
+### Sotto il cofano
+- board brakes: a shorter spend chip, so the restart time stays in sight
+
 ## 2.4.90 — 2026-11-23
 
 ### Correzioni
