@@ -126,7 +126,14 @@ PENDING=()
 while IFS= read -r -d '' sql_file; do
   fname="$(basename "$sql_file")"
   # pattern atteso: NNN-slug.sql oppure timestamp-slug.sql
-  if ! echo "$APPLIED" | grep -qxF "$fname"; then
+  # No pipe here: `echo "$APPLIED" | grep -q` under `pipefail` fails whenever
+  # grep exits on an early match before echo has written the whole registry
+  # (SIGPIPE, 141). The registry is ~10 KB and macOS shrinks a pipe's buffer
+  # to 4 KB under memory pressure, so on 24/11 two deploys in a row saw
+  # 002-agent-autonomy.sql, then 031-task-dispatch.sql, as "pending" and
+  # refused the reload on a "duplicate column". The here-string has no writer
+  # to kill.
+  if ! grep -qxF -- "$fname" <<<"$APPLIED"; then
     PENDING+=("$sql_file")
   fi
 done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -name '*.sql' -print0 | sort -z)
