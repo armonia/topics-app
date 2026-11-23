@@ -164,6 +164,17 @@ describe("a hook's words travel only to a resend of a row nobody answered (revie
     expect(repeatedRowMarks(chat(null), "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
   });
 
+  test("an answer the output cap cut (words + a notice without cause) is an answer", () => {
+    const cut = chat({ content: "half of the retrospective", blocks: JSON.stringify([{ kind: "error", text: "Risposta troncata al limite di output." }]) });
+    expect(userRowMarks({ repeats: repeatedRowMarks(cut, "s", "run the retrospective") })).toBeUndefined();
+    // The notice alone as the row's text (nothing was produced): no answer.
+    const empty = chat({ content: "⚠️ Nessuna risposta: il turno si è chiuso.", blocks: JSON.stringify([{ kind: "error", text: "Nessuna risposta: il turno si è chiuso." }]) });
+    expect(repeatedRowMarks(empty, "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
+    // Words then a real fault (a cause on the error): still no answer, Retry stays marked.
+    const fault = chat({ content: "half", blocks: JSON.stringify([{ kind: "error", text: "connection reset", cause: "api-unavailable" }]) });
+    expect(repeatedRowMarks(fault, "s", "run the retrospective")).toEqual([{ kind: "hook-nudge", attempt: 2 }] as never);
+  });
+
   test("defect 3: after an answer, the same words typed by the person are the person's", () => {
     const answered = chat({ content: "retrospective done", blocks: null });
     expect(userRowMarks({ repeats: repeatedRowMarks(answered, "s", "run the retrospective") })).toBeUndefined();

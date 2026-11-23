@@ -156,7 +156,13 @@ export function repeatedRowMarks(
   }
 }
 
-/** Has the model answered (words, no error) after the row at `ord`? */
+/**
+ * Has the model answered after the row at `ord`? Words count as an answer,
+ * also when the output cap cut them: that notice is an `error` block WITHOUT a
+ * `cause` (a length limit, not a fault). A row whose only words are a notice,
+ * or that carries an attributed error (a fault, a refusal), is no answer: its
+ * Retry still resends the hook's row.
+ */
 function answeredAfter(
   db: { query(sql: string): { all?(...args: string[]): unknown[] } },
   sessionKey: string,
@@ -165,10 +171,16 @@ function answeredAfter(
   const rows = (db.query(
     `SELECT content, blocks FROM messages WHERE session_key = ?1 AND role = 'assistant' AND sort_order > ?2`,
   ).all?.(sessionKey, String(ord)) ?? []) as Array<{ content: string | null; blocks: unknown }>;
+  const bare = (t: string) => t.replace(/^⚠️\s*/, "").trim();
   return rows.some((r) => {
-    if (!(r.content ?? "").trim()) return false;
-    let blocks: unknown = null;
-    try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null"); } catch { blocks = null; }
-    return !(Array.isArray(blocks) && blocks.some((b) => b?.kind === "error" || (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)));
+    const words = bare(r.content ?? "");
+    if (!words) return false;
+    let blocks: Array<{ kind?: unknown; cause?: unknown; text?: unknown }> = [];
+    try { const v = JSON.parse(decodeCol(r.blocks) ?? "null"); if (Array.isArray(v)) blocks = v; } catch { /* no blocks */ }
+    if (blocks.some((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind))) return false;
+    const errors = blocks.filter((b) => b?.kind === "error");
+    if (errors.some((b) => b.cause !== undefined)) return false;
+    // The notice alone, written as the row's text because nothing else was.
+    return !errors.some((b) => typeof b.text === "string" && bare(b.text) === words);
   });
 }
