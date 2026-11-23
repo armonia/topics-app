@@ -20,6 +20,27 @@ Annullare tutto, un comando: `systemctl disable --now ci-governor` (ExecStopPost
 Tetto più largo/stretto a caldo: drop-in `Environment=CI_MAX_JOBS=N` (o CI_LOAD_CAP) su ci-governor.service, poi restart.
 Limite noto (22/11): un solo job pesante può superare il load 24 da solo (un e2e con 4 worker
 Playwright, con 4 Chromium pesanti, dà load 28-48): il tetto sul numero di job non lo riduce, serve ridurre i worker di quel job.
+NON RIPROVARE `systemctl stop`/`start` al posto di SIGSTOP/SIGCONT (provato e scartato il 23/11, card d7c127ed). Misura su quadra:
+workflow_dispatch di specflow-agenti.yml (label fisso-quadra), runner di prova fuori dal governatore, grilletto sul log del
+Listener (_diag/Runner_*.log), un job alla volta, nessuna spesa. Dove si ferma il runner e cosa succede al job:
+
+  momento dello stop                                 stop (systemctl)                       SIGSTOP (nello stesso istante)
+  job appena ricevuto ("Acknowledging runner         torna in coda e finisce success su     resta in coda ~170 s, poi lo prende
+  request", Worker e acquisizione ancora da fare)    un altro runner, tentativo 1           un altro runner, success
+                                                     (run 45112218728, stop in 0,46 s)      (run 45112913638)
+  job gia' acquisito ("Job request ... received",    PERSO: resta in_progress su un         non provato: il Listener si riprende
+  2 s dopo la riga sopra, Worker non ancora vivo)    runner spento, nemmeno un riavvio lo   con SIGCONT e il job prosegue; il caso
+                                                     riprende; chiuso solo dal limite di    reale di Zeno (run 45107953165) era
+                                                     tempo (run 45113522164, 10 min)        questo, rimasto fermo 10 min
+
+  Da `systemctl start` al job preso (stesso job gia' in coda): 69,0 s, 4,6 s, 65,9 s. Il Listener e' vivo in 0,15-0,19 s: il ritardo
+  e' l'assegnazione di GitHub a un runner che torna online, quindi ogni ripartenza costa fino a ~70 s.
+Conclusione: prima che il job sia acquisito nessuno dei due meccanismi lo perde; dopo, lo stop lo perde per sempre e SIGSTOP lo
+tiene fermo ma recuperabile. Lo stop non toglie il rischio, costa fino a 70 s a ogni ripartenza e complica tutto (elenco delle
+unit, stato delle pause, riavvio degli altri script). La cura giusta e' non congelare chi sta prendendo un job: pending_data() e
+recent_log() prima della pausa, freeze() dopo (SIGCONT se nel frattempo e' arrivato qualcosa) e la ripresa subito di un Listener
+fermo con byte non letti o con un Worker.
+Conteggio dei job persi (barra): `~/.topics/agents/jarvis/bin/ci-lost-job-count <ISO UTC>` (API di GitHub, tutti i tentativi).
 Prove: `ci-governor --selftest` (logica pura) · `--resume` (riprende tutti) · `--status` (cosa vede, senza toccare niente) · `--dry-run`.
 """
 import json, os, re, signal, subprocess, sys, time
