@@ -8,6 +8,9 @@ import { join } from "path";
 import { defaultPaths, readRegistry } from "../routes/agent-config";
 import type { HealthInput } from "./health";
 
+/** The agent the channels engine gives a scheduled job that names none (`cron.rs`, `unwrap_or_else(|| "main")`). */
+const ENGINE_JOB_AGENT = "main";
+
 export function registryHealthInput(home: string, titles: Record<string, string>): Pick<HealthInput, "contradictions" | "jobs" | "chats"> {
   if (!existsSync(join(home, "config.json"))) return { contradictions: [], jobs: [], chats: [] };
   const { agents, issues } = readRegistry({ ...defaultPaths(), home });
@@ -17,7 +20,9 @@ export function registryHealthInput(home: string, titles: Record<string, string>
     if (issue.type === "source-contradiction" && issue.sources) {
       contradictions.push({ id: issue.ref ?? issue.text, sources: issue.sources, about: issue.text });
     } else if (issue.type === "job-without-agent") {
-      for (const j of issue.jobs ?? []) jobs.push({ id: `engine:${j.id}`, name: j.name, agentId: null });
+      // A job with no agent written runs as ENGINE_JOB_AGENT: only an installation without that
+      // agent leaves it with nobody to run it, and collectHealth reports exactly that case.
+      for (const j of issue.jobs ?? []) jobs.push({ id: `engine:${j.id}`, name: j.name, agentId: ENGINE_JOB_AGENT });
     }
   }
   // Only the chats the agents answer in: a Topics topic without a name is not a problem. With no titles at all the

@@ -110,9 +110,9 @@ export interface HealthInput {
   sharedRulesPresent: boolean;
 }
 
-function problem(type: HealthProblemType, key: string, subject: HealthSubject): HealthProblem<HealthProblemType> {
+function problem(type: HealthProblemType, key: string, subject: HealthSubject, vars: Record<string, string>): HealthProblem<HealthProblemType> {
   const def: ProblemType = HEALTH_PROBLEM_TYPES[type];
-  return { id: `${type}:${key}`, type, severity: def.severity, sentence: def.sentence(subject), destination: def.destination(subject) };
+  return { id: `${type}:${key}`, type, severity: def.severity, sentence: def.sentence(subject), vars, destination: def.destination(subject) };
 }
 
 const STORE_PROBLEM_TYPE: Record<MemoryStoreProblem["kind"], HealthProblemType> = {
@@ -127,16 +127,16 @@ export function collectHealth(input: HealthInput): HealthProblem<HealthProblemTy
 
   for (const job of input.jobs) {
     if (job.agentId && names.has(job.agentId)) continue;
-    out.push(problem("job-without-agent", job.id, { label: job.name, ref: job.id }));
+    out.push(problem("job-without-agent", job.id, { label: job.name, ref: job.id }, { job: job.name }));
   }
 
   for (const chat of input.chats) {
     if (chat.name && chat.name.trim()) continue;
-    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id, ...(chat.agentId ? { agentId: chat.agentId } : {}) }));
+    out.push(problem("chat-unnamed", chat.id, { label: chat.id, ref: chat.id, ...(chat.agentId ? { agentId: chat.agentId } : {}) }, { chat: chat.id }));
   }
 
   for (const c of input.contradictions) {
-    out.push(problem("source-contradiction", c.id, { label: c.about, ref: c.id, detail: `${c.about} (${c.sources[0]} against ${c.sources[1]})` }));
+    out.push(problem("source-contradiction", c.id, { label: c.about, ref: c.id, detail: `${c.about} (${c.sources[0]} against ${c.sources[1]})` }, { about: c.about, first: c.sources[0], second: c.sources[1] }));
   }
 
   for (const store of input.stores) {
@@ -146,24 +146,24 @@ export function collectHealth(input: HealthInput): HealthProblem<HealthProblemTy
         label: owner ? `The memory of ${names.get(owner) ?? owner}` : `The memory "${store.id}"`,
         ...(owner ? { agentId: owner } : {}),
         ref: store.id,
-      }));
+      }, owner ? { agent: names.get(owner) ?? owner } : { store: store.id }));
     }
   }
 
   for (const tool of input.tools) {
     if (tool.ok) continue;
-    out.push(problem("tool-down", tool.name, { label: tool.name, ref: tool.name, ...(tool.reason ? { detail: tool.reason } : {}) }));
+    out.push(problem("tool-down", tool.name, { label: tool.name, ref: tool.name, ...(tool.reason ? { detail: tool.reason } : {}) }, { tool: tool.name, ...(tool.reason ? { reason: tool.reason } : {}) }));
   }
 
   for (const agent of input.agents) {
     if (agent.missingPersonaFiles.length === 0) continue;
-    out.push(problem("persona-file-missing", agent.id, { label: agent.name, agentId: agent.id, detail: agent.missingPersonaFiles.join(" and ") }));
+    out.push(problem("persona-file-missing", agent.id, { label: agent.name, agentId: agent.id, detail: agent.missingPersonaFiles.join(" and ") }, { agent: agent.name, files: agent.missingPersonaFiles.join(", ") }));
   }
 
   const withRules = input.agents.filter((a) => a.hasOwnRules);
   if (!input.sharedRulesPresent && withRules.length === 1 && input.agents.length > 1) {
     const only = withRules[0];
-    out.push(problem("rules-single-agent", only.id, { label: only.name, agentId: only.id }));
+    out.push(problem("rules-single-agent", only.id, { label: only.name, agentId: only.id }, { agent: only.name }));
   }
 
   return out;
