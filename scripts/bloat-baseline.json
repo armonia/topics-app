@@ -514,6 +514,8 @@
 
     "server/lib/claude-session-tracker.ts": 1199,
 
+    "server/lib/machine-security.ts": 813,
+
     "server/lib/native-subagents.ts": 1128,
 
     "server/lib/ripresa-boot.test.ts": 935,
