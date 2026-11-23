@@ -91,7 +91,11 @@ export function brakeChipView(brakes: readonly DispatchBrake[], nowMs: number, t
 /** Why the spend cap holds: the 24h spend against the cap, and when the cards restart if nothing new is spent. */
 export function spendWhy(s: SpendStop, nowMs: number, tr: Translate, locale: string): string {
   const tag = locale === 'en' ? 'en-GB' : 'it-IT';
-  const money = (cents: number) => (cents / 100).toLocaleString(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // A whole cap reads «30», not «30,00»: the chip sits at the end of a bar that scrolls, and every character pushes the restart time out of sight.
+  const money = (cents: number) => {
+    const digits = cents % 100 === 0 ? 0 : 2;
+    return (cents / 100).toLocaleString(tag, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
   const amounts = { spent: money(s.spentCents), cap: money(s.capCents) };
   if (s.untilMs === null) return tr('brake.why.spendOpen', amounts);
   return tr('brake.why.spend', { ...amounts, when: whenLabel(s.untilMs, nowMs, tr, locale) });
