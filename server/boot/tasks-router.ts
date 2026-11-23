@@ -23,6 +23,7 @@ import { getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, r
 import { startDiscordPresence } from "../services/discord-presence";
 import { computePresenceCounts } from "../services/profile-stats";
 import { tmpdir as osTmpdir } from "node:os";
+import { openNodeCheckWorktree } from "../services/node-check-worktree";
 import type { AfterPreviewDelivery } from "./scope";
 import { late } from "./late";
 
@@ -150,16 +151,10 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
       if (!ref) return null;
-      const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
-      await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
-      await runGitCap(ref.repoPath, ["worktree", "prune"]);
-      const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
-      if (added.code !== 0) return null;
-      return {
-        cwd: path,
-        head: () => resolveCommit(path, "HEAD"),
-        release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
-      };
+      return openNodeCheckWorktree({
+        git: runGitCap, repoPath: ref.repoPath, branch: ref.branch, taskId,
+        root: join(osTmpdir(), "topics-node-checks"), resolveHead: (cwd) => resolveCommit(cwd, "HEAD"),
+      });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;
