@@ -89,7 +89,7 @@ function branchTrees(repo: string): Array<{ path: string; dirt: string }> {
 
 async function measureThenCut(repo: string, checks: string, cutGit: DiscardGit, cutDelete?: (p: string) => Promise<void>) {
   const lease = await openNodeCheckWorktree({
-    git: cutGit, repoPath: repo, branch: BRANCH, root: checks, taskId: "54e4489d-test",
+    git: cutGit, repoPath: repo, branch: BRANCH, root: checks, taskId: "8e9c2873-test",
     resolveHead: async (cwd) => git(cwd, "rev-parse", "HEAD").trim(),
     discard: cutDelete ? { deleteTree: cutDelete } : undefined,
   });
@@ -101,7 +101,7 @@ async function measureThenCut(repo: string, checks: string, cutGit: DiscardGit, 
 
 async function land(repo: string) {
   const am = createTaskAutoMerge({ resolveTaskMerge: () => ({ repoPath: repo, branch: BRANCH, defaultBranch: "main" }) });
-  return am.tryMerge("54e4489d", "Node delivery");
+  return am.tryMerge("8e9c2873", "Node delivery");
 }
 
 describe("a node check checkout cut by a shutdown does not block the land", () => {
