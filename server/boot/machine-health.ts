@@ -144,7 +144,8 @@ export function startMachineHealth(ctx: AppContext): void {
       return { cpu: metrics.cpuPct, mem: memPctFromReadout(readout) };
     },
     externalSamples: async (t, sinceS) => {
-      if (t.kind === "local" || !(await isHomePc(t.id))) return [];
+      // An ssh-only server is not in the node pool either, but it is not the PC: without this it showed the PC's history.
+      if (t.kind === "local" || sshServers.has(t.id) || !(await isHomePc(t.id))) return [];
       try { return samplesFromMinuteLog(await readFile(join(sharedToolingDir(), "usage-history", "pc-history.jsonl"), "utf8"), sinceS); } catch { return []; }
     },
     probe: async (t): Promise<MachineSecurityReport | null> => {
