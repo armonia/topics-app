@@ -23,6 +23,7 @@ import { useSharedNow } from '../../state/useSharedNow';
 import { deriveSubjectTime, formatElapsedShort, formatElapsedCompact, WORK_ELAPSED_AFTER_MS } from '../../state/workLongevity';
 import { useTopicPreview } from '../../state/topicPreviews';
 import type { WaitingOn } from '../../state/backgroundWork';
+import { useAgentsAtWork } from '../../state/childWork';
 import { timeToneClass, timeVoice } from './timeTone';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { ON_FILL_TEXT, ON_FILL_TEXT_SOFT, TIER_DONE_BG, TIER_INPUT_BG } from '../../lib/selectionStyles';
@@ -185,17 +186,22 @@ export function TopicSubline({ topicId, onFill, className = '' }: {
 }) {
   const activity = useSessionActivity(topicId);
   // A closed turn that waits on work says WHAT, in words, where the last message would sit (BGVIS-10).
-  const waitingOn = useTopicWaitingOn(topicId);
+  // A board agent's chat has no attention wait (rule 2): its agents at work say it.
+  const agents = useAgentsAtWork(topicId);
+  const waitingOn = useTopicWaitingOn(topicId) ?? (agents > 0 ? 'subagent' : null);
   if (activity) return <SessionActivityText subjectId={topicId} onFill={onFill} className={className} />;
-  if (waitingOn) return <WaitingLine on={waitingOn} onFill={onFill} className={className} />;
+  if (waitingOn) return <WaitingLine on={waitingOn} agents={agents} onFill={onFill} className={className} />;
   return <TopicPreviewLine topicId={topicId} onFill={onFill} className={className} />;
 }
 
-function WaitingLine({ on, onFill, className = '' }: { on: WaitingOn; onFill?: boolean; className?: string }) {
+/** What the closed turn waits on: the agents at work by number, when there are any, never «waiting» for work that runs. */
+function WaitingLine({ on, agents, onFill, className = '' }: { on: WaitingOn; agents: number; onFill?: boolean; className?: string }) {
   const tr = useT();
-  const text = tr(`topic.waitLine.${on}`);
+  const text = on === 'subagent' && agents > 0
+    ? (agents === 1 ? tr('topic.waitLine.agentsOne') : tr('topic.waitLine.agentsMany', { n: agents }))
+    : tr(`topic.waitLine.${on}`);
   return (
-    <span className={`truncate-tight text-mini ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-secondary'} ${className}`} title={text} data-testid="topic-waiting-on" data-waiting-on={on}>
+    <span className={`truncate-tight text-mini ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-secondary'} ${className}`} title={text} data-testid="topic-waiting-on" data-waiting-on={on} data-agents={agents || undefined}>
       {text}
     </span>
   );

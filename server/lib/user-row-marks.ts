@@ -47,6 +47,8 @@ export interface UserRowOrigin {
   repeats?: readonly ContentBlock[];
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
+  /** The outcome of a card this chat sent to work (`services/card-outcome-wake.ts`): the board's words, drawn as its envelope. */
+  cardOutcome?: unknown;
   /** The sub-agent results this row wakes the chat with (`services/subagent-wake.ts`). */
   subagentResults?: unknown;
   /** Those cards are rows of the chat already (written during a provider hold): this row only wakes it. */
@@ -88,6 +90,8 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       ? origin.commentIds.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [];
     blocks.push(ids.length ? { kind: "dispatched-envelope", commentIds: ids } : { kind: "dispatched-envelope" });
+  } else if (origin.cardOutcome === true) {
+    blocks.push({ kind: "dispatched-envelope" });
   }
   const exit = origin.processExit as { processId?: unknown; exitCode?: unknown; label?: unknown } | null | undefined;
   if (exit && typeof exit === "object" && typeof exit.processId === "string" && exit.processId) {

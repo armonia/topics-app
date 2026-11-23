@@ -130,6 +130,8 @@ describe('subjectActionFrom', () => {
   test('only a job left running: the job', () => {
     expect(subjectActionFrom({ ...base, turnOpen: false, tasks: [{ kind: 'bash' }] })).toBe('run');
     expect(subjectActionFrom({ ...base, turnOpen: false, tasks: [{ kind: 'agent' }] })).toBe('delegate');
+    // A chat waiting on its `spawn_agent` children plays the agents' movement, not a command's.
+    expect(subjectActionFrom({ ...base, turnOpen: false, tasks: [{ kind: 'subagent' }] })).toBe('delegate');
     expect(backgroundAction([{ kind: 'wake' }])).toBe('think');
   });
 });

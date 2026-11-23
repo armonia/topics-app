@@ -17,6 +17,8 @@ import { useDisclosureToggle } from './transcriptDisclosure';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { loaderActivityForAction } from '../Layout/loaderState';
 import { useTerminalAction, useTopicAction } from '../../state/agentActionHooks';
+import { shownChildState, useAgentsAtWork } from '../../state/childWork';
+import { useTerminalBackgroundTasks, useTopicBackgroundTasks } from '../../state/signals';
 import { useSubagentResultIds } from './subagentResult';
 
 /**
@@ -87,10 +89,17 @@ const SIDE_BUTTON = 'flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-0.5
 
 function AgentRow({ row }: { row: LiveAgentRow }) {
   const tr = useT();
-  const { id, name, state } = row;
+  const { id, name } = row;
   // A native child's id is its chat, a CLI child's its terminal: the loader plays what it is doing.
   const chatAction = useTopicAction(row.runtime === 'topics' ? id : undefined);
   const terminalAction = useTerminalAction(row.runtime === 'cli' ? id : undefined);
+  // A child that closed its turn while agents or a command of its own still
+  // run is at work, with the number of agents: the same answer as its own tab
+  // and its sidebar row (`shownChildState`). Nothing running: the clock.
+  const agents = useAgentsAtWork(row.runtime === 'topics' ? id : undefined);
+  const chatTasks = useTopicBackgroundTasks(row.runtime === 'topics' ? id : undefined);
+  const terminalTasks = useTerminalBackgroundTasks(row.runtime === 'cli' ? id : undefined);
+  const state = shownChildState(row.state, agents, row.runtime === 'topics' ? chatTasks : terminalTasks);
   const title = state === 'working' ? tr('subagent.busy', { name })
     : state === 'waiting' ? tr('subagent.waiting', { name })
     : state === 'awaiting' ? tr('subagent.awaiting', { name })
@@ -104,12 +113,14 @@ function AgentRow({ row }: { row: LiveAgentRow }) {
       window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
     }
   };
-  // A child waiting on its own work says so: its last line is the report it already gave.
+  // A child waiting on its own work says so: its last line is the report it
+  // already gave. At work only through its agents, it says how many.
   const preview = state === 'ended' ? row.preview || tr('livework.finished')
     : state === 'awaiting' ? tr('livework.awaiting')
+    : row.state === 'awaiting' && agents > 0 ? tr(agents === 1 ? 'topic.waitLine.agentsOne' : 'topic.waitLine.agentsMany', { n: agents })
     : row.preview;
   return (
-    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-runtime={row.runtime} className="flex min-w-0 items-center">
+    <div data-testid="subagent-row" data-subagent-id={id} data-state={state} data-agents={agents || undefined} data-runtime={row.runtime} className="flex min-w-0 items-center">
       <button type="button" onClick={open} title={title} aria-label={title} className={ROW}>
         {state === 'working'
           ? <SparkLoader size={12} activity={loaderActivityForAction(chatAction ?? terminalAction) ?? 'think'} className="flex-shrink-0" />

@@ -109,6 +109,14 @@ describe("activeAgentRowsFrom", () => {
     expect(rows.working).toEqual([]);
   });
 
+  test("a turn open and parked on a question is ONE row, waiting for you, never also at work", () => {
+    const topics = { a: topic("a") };
+    const rows = activeAgentRowsFrom([], topics, { ...quiet, hydratedStream: new Set(["a"]), attention: attention({ "t:a": "needs-you" }) });
+    expect(rows.awaitingInput).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    expect(rows.working).toEqual([]);
+    expect(activeAgentCount(rows)).toBe(0);
+  });
+
   test("a terminal gone from the roster, or a shell, has no row among the finished either", () => {
     const rows = activeAgentRowsFrom(roster, {}, { ...quiet, attention: attention({ "s:vanished": "finished", "s:t2": "finished" }) });
     expect(rows.finished).toEqual([]);
