@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.4.86",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "LAND-19: il test del checkout di controllo tagliato a meta' dichiara cosa copre (check:untraced-tests rosso su main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mac updates: count from the first skipped fix, not the latest offer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "machine-security.ts a 813 righe entra nella baseline (check:bloat rosso su main da 5b91df71a)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.85",
     "date": "2026-11-23",
     "sections": {
@@ -216,6 +243,16 @@
           "breaking": false
         },
         {
+          "it": "Lavoro in corso unico: il server sa di ogni turno, e un agente al lavoro si vede col numero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prove di SUBAGENT-30 e BGVIS-10: i due video dell'e2e e i tre momenti della tab, della sidebar e della striscia",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "engine-log: example chat ids no longer read as email accounts",
           "en": "",
           "scope": null
@@ -238,6 +275,11 @@
         },
         {
           "it": "ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "engine-log: gli esempi di chat WhatsApp nei commenti non sembrano piu' indirizzi (check:instance-strings, account 2 > 0)",
           "en": "",
           "scope": null
         },

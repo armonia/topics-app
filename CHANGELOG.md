@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.86 — 2026-11-23
+
+### Sotto il cofano
+- LAND-19: il test del checkout di controllo tagliato a meta' dichiara cosa copre (check:untraced-tests rosso su main)
+- Mac updates: count from the first skipped fix, not the latest offer
+- machine-security.ts a 813 righe entra nella baseline (check:bloat rosso su main da 5b91df71a)
+
 ## 2.4.85 — 2026-11-23
 
 ### Sotto il cofano
@@ -51,11 +58,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
 - ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
 - the nightly disk-budget check ships, so its two server modules are production code
+- Lavoro in corso unico: il server sa di ogni turno, e un agente al lavoro si vede col numero
+- Prove di SUBAGENT-30 e BGVIS-10: i due video dell'e2e e i tre momenti della tab, della sidebar e della striscia
 - engine-log: example chat ids no longer read as email accounts
 - drop the production entry for disk-budget-check, main already excludes its two pure modules
 - Security cards stay on the hub that measured the machine
 - ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)
 - ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)
+- engine-log: gli esempi di chat WhatsApp nei commenti non sembrano piu' indirizzi (check:instance-strings, account 2 > 0)
 - Fix card id cited in worktree-discard comment
 - node-check-worktree test declares what it covers (LAND-04), and names its real card
 - Tools and the phone context follow the System page (T4)
