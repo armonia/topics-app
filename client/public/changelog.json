@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.82",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "System health: jobs with no agent run as main, and problems read in the reader's language",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.81",
     "date": "2026-11-23",
     "sections": {
