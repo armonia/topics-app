@@ -645,3 +645,16 @@ consegnato non c'è in questo checkout (un impianto dal nodo fallito).
 #### Scenario: impianto fallito
 - **GIVEN** una card rimandata indietro il cui giro sul nodo torna senza impianto
 - **THEN** il land NON SHALL atterrare il ramo del giro precedente
+
+### Requirement: LAND-19 — Un worktree usa-e-getta tagliato a metà non blocca il land
+
+Il rilascio di un worktree usa-e-getta (check dei nodi, riallineamento, land)
+SHALL togliere prima la registrazione da git e solo dopo cancellare la cartella:
+un rilascio interrotto (spegnimento del server, processo ucciso) NON SHALL
+lasciare un worktree ancora registrato sul ramo e mezzo vuoto, che il land
+leggerebbe come «file non committati».
+
+#### Scenario: rilascio interrotto a metà
+- **GIVEN** il worktree dei check di una consegna da nodo, rilasciato e interrotto in un punto qualunque
+- **WHEN** il land di quella card porta il ramo su main
+- **THEN** il land SHALL riuscire senza «file non committati»

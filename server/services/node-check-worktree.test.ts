@@ -3,6 +3,8 @@
  *
  * A node check checkout cut mid-release must not block the land (card 8e9c2873).
  *
+ * @covers LAND-19
+ *
  * The shutdown path: `stopReviewChecks` ends the round, the meter's `finally`
  * releases the checkout, and `process.exit` reaps the git it started. Here the
  * cut is simulated at every place it can land, on a real repository, and then
