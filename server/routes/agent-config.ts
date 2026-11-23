@@ -27,23 +27,12 @@ import { runBounded } from "../lib/bounded-spawn";
 import { readIdentity, registryHome } from "../agents/registry";
 import { readJson as readJsonFile, safeWrite } from "../agents/config-files";
 import { assemblePersona } from "../agents/persona";
+import type { RegistryIssue } from "../../shared/agents-health";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = string;
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
 
-/** A problem the registry found. `type` is set for the ones the system health list reports. */
-export interface RegistryIssue {
-  agent: AgentId | null;
-  text: string;
-  type?: "source-contradiction" | "job-without-agent";
-  /** Stable key of the thing it is about (a chat key, an account, a channel). */
-  ref?: string;
-  /** The two places that disagree (`source-contradiction`). */
-  sources?: [string, string];
-  /** The scheduled jobs concerned (`job-without-agent`). */
-  jobs?: { id: string; name: string }[];
-}
 
 export interface Paths { home: string; expand: (p: string) => string }
 /** Same home as `/api/agents` (`registryHome`): the two routes must always

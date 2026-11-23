@@ -88,7 +88,8 @@ beforeAll(async () => {
   bridge = await startFakeBridge();
 
   ctx = await createTestAppContext();
-  const { createTerminalRouter, _setPtyBridgeSocketPath, disconnectBridge } = await import("../../server/routes/terminal");
+  const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(SOCKET_PATH);
   terminalRouter = createTerminalRouter(ctx) as typeof terminalRouter;
@@ -135,7 +136,8 @@ async function waitForReconciledRoster(): Promise<void> {
 }
 
 afterAll(async () => {
-  const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   await bridge?.close();

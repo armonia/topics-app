@@ -66,7 +66,7 @@ describe('nessun <select> nativo nel client', () => {
   test('il conteggio dei tag `<select>` è zero (esenzioni dichiarate a parte)', () => {
     const colpevoli: string[] = [];
     for (const file of sorgenti(SRC)) {
-      const rel = file.slice(SRC.length + 1);
+      const rel = file.slice(SRC.length + 1).replaceAll(String.fromCharCode(92), '/');
       if (ESENZIONI[rel]) continue;
       // Il TAG, non la parola: `<select` seguito da spazio, a-capo o `>`, in un
       // testo da cui commenti e apici inversi sono già spariti.

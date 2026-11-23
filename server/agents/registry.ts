@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { safeWrite } from "./config-files";
+import { parseIdentity } from "../../shared/agent-identity";
 
 export interface AgentRecord {
   id: string;
@@ -66,23 +67,11 @@ export function accountToAgent(home: string): (account: string) => string {
 /** Name and job from `IDENTITY.md`: the heading (`# Name`) and the first
  *  non-empty line after it. Missing file = both empty, never a throw. */
 export function readIdentity(workspace: string): { name: string; job: string } {
+  // Both formats the agents' folders hold (`- **Name:**` fields, or the
+  // heading) are read by the one parser the client also uses.
   const file = join(workspace, "IDENTITY.md");
   if (!existsSync(file)) return { name: "", job: "" };
-  const lines = readFileSync(file, "utf8").split("\n");
-  let name = "";
-  let job = "";
-  let afterHeading = false;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!afterHeading) {
-      if (line.startsWith("# ")) { name = line.slice(2).trim(); afterHeading = true; }
-      continue;
-    }
-    if (!line || line.startsWith("#")) continue;
-    job = line;
-    break;
-  }
-  return { name, job };
+  return parseIdentity(readFileSync(file, "utf8"));
 }
 
 /** Every agent the engine's config declares, in declaration order. An entry

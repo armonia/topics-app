@@ -5,10 +5,19 @@
  * read and listing goes through `ssh -o BatchMode=yes` and nothing is
  * installed or written on the server.
  */
-import { readFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckKey, MachineSecurityReport } from "../../shared/machine-health";
-import { PROBE_TIMEOUT_MS, probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
+import { probeMachineSecurity, whyNoAnswer, type ProbeEnv, type Runner, type RunResult } from "./machine-security";
+
+/**
+ * Deadline of one ssh probe command. Bigger than the local `PROBE_TIMEOUT_MS`
+ * because it also has to cover the handshake (measured 2.9-3.6 s from this
+ * Mac under normal load), which the local probes never pay.
+ */
+export const SSH_PROBE_TIMEOUT_MS = 12_000;
+/** How long the shared connection survives after the last command, so a round's later reads skip the handshake. */
+export const SSH_CONTROL_PERSIST_S = 60;
 
 export interface SshServer {
   host: string;
@@ -58,17 +67,86 @@ export function shellQuote(word: string): string {
   return `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
-/** The local `ssh` command line for one remote command. */
-export function sshArgv(server: SshServer, remote: string[], timeoutMs = PROBE_TIMEOUT_MS): string[] {
+/**
+ * The widest unix domain socket path all our platforms accept (macOS's
+ * `sizeof(sockaddr_un.sun_path)` is the tightest, 104 bytes including the
+ * trailing NUL). `ssh` substitutes `%C` with a 40 char hash of the
+ * connection params, plus a temporary suffix of up to 17 bytes while it
+ * binds the socket, so the directory itself has that much less room.
+ */
+const MAX_SOCKET_PATH_BYTES = 103;
+const CONTROL_HASH_CHARS = 40;
+const CONTROL_BIND_SUFFIX_BYTES = 17;
+
+export function fitsControlSocket(dir: string): boolean {
+  return Buffer.byteLength(join(dir, "x".repeat(CONTROL_HASH_CHARS))) + CONTROL_BIND_SUFFIX_BYTES <= MAX_SOCKET_PATH_BYTES;
+}
+
+/**
+ * Fixed, short fallback root: `os.tmpdir()` is long on macOS
+ * (`/var/folders/<..>/T`, measured 48 bytes) and that alone can push the
+ * socket over the limit again, defeating the fallback it is meant to be.
+ * `/tmp` is short on every platform we run on. One directory per OS user
+ * (not per app-data path), so it stays stable across settings.
+ */
+function fixedFallbackDir(): string | null {
+  if (typeof process.getuid !== "function") return null; // no POSIX uid (e.g. Windows): skip multiplexing instead of guessing
+  return join("/tmp", `topics-ssh-${process.getuid()}`);
+}
+
+/**
+ * Where the control sockets of `ControlPath` live. Inside the app data
+ * folder when that leaves room for `ssh`'s own hash and bind suffix;
+ * otherwise the fixed, short fallback. `null` means neither fits (or the
+ * platform cannot be trusted to): the caller probes without multiplexing,
+ * one connection per command, same as before this feature existed.
+ */
+export function sshControlDir(appDataDir: string): string | null {
+  const inData = join(appDataDir, "ssh-control");
+  if (fitsControlSocket(inData)) return inData;
+  const fallback = fixedFallbackDir();
+  return fallback && fitsControlSocket(fallback) ? fallback : null;
+}
+
+/**
+ * `/tmp` is shared by every user on the machine: before trusting a
+ * directory there for the control socket, make sure it is ours, private
+ * (0700) and not a symlink someone else planted, so a hostile user on the
+ * same box cannot hand us a socket path they control.
+ */
+export function ensureSafeControlDir(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const st = lstatSync(dir);
+    if (!st.isDirectory()) return false; // not a plain directory (e.g. a symlink): lstat does not follow it
+    if (typeof process.getuid === "function" && st.uid !== process.getuid()) return false;
+    return (st.mode & 0o777) === 0o700;
+  } catch {
+    return false;
+  }
+}
+
+/** The local `ssh` command line for one remote command. `controlDir` set reuses one connection per server across the round. */
+export function sshArgv(server: SshServer, remote: string[], opts: { timeoutMs?: number; controlDir?: string | null } = {}): string[] {
+  const { timeoutMs = SSH_PROBE_TIMEOUT_MS, controlDir } = opts;
   const argv = ["ssh", "-o", "BatchMode=yes", "-o", `ConnectTimeout=${Math.max(1, Math.ceil(timeoutMs / 1000))}`];
+  if (controlDir) argv.push("-o", "ControlMaster=auto", "-o", `ControlPath=${join(controlDir, "%C")}`, "-o", `ControlPersist=${SSH_CONTROL_PERSIST_S}s`);
   if (server.port) argv.push("-p", String(server.port));
   argv.push("--", server.user ? `${server.user}@${server.host}` : server.host, remote.map(shellQuote).join(" "));
   return argv;
 }
 
-/** A probe environment whose every access to the machine is an ssh command. */
-export function createSshProbeEnv(server: SshServer, local: Runner, now: () => number = Date.now): ProbeEnv {
-  const run: Runner = (argv, timeoutMs = PROBE_TIMEOUT_MS) => local(sshArgv(server, argv, timeoutMs), timeoutMs);
+/** The command that closes an already shared connection, so a round that is done does not wait out `ControlPersist`. */
+export function sshCloseControlArgv(server: SshServer, controlDir: string): string[] {
+  const argv = ["ssh", "-o", `ControlPath=${join(controlDir, "%C")}`, "-O", "exit"];
+  if (server.port) argv.push("-p", String(server.port));
+  argv.push(server.user ? `${server.user}@${server.host}` : server.host);
+  return argv;
+}
+
+/** A probe environment whose every access to the machine is an ssh command, sharing one connection per server. */
+export function createSshProbeEnv(server: SshServer, local: Runner, now: () => number = Date.now, controlDir?: string | null): ProbeEnv {
+  const run: Runner = (argv, timeoutMs = SSH_PROBE_TIMEOUT_MS) => local(sshArgv(server, argv, { timeoutMs, controlDir }), timeoutMs);
   return {
     platform: "linux",
     run,
@@ -117,20 +195,42 @@ export function whyUnreachable(r: RunResult): string {
 }
 
 /**
+ * The control directory a round should use for the app data folder, or
+ * `null` for no multiplexing: picks the path and makes sure it exists and
+ * is ours. The caller resolves it once, outside the round, so the round
+ * itself (and every test of it) never creates a directory of its own.
+ */
+export function resolveSshControlDir(appDataDir: string): string | null {
+  const dir = sshControlDir(appDataDir);
+  return dir && ensureSafeControlDir(dir) ? dir : null;
+}
+
+/**
  * One round on one server. A server that does not answer keeps its last
  * report (with the time it was taken) instead of replacing it with unknowns.
+ * `controlDir` is required (not optional) so a caller that forgets to wire
+ * it fails `typecheck` instead of silently losing the connection reuse;
+ * `null` means no multiplexing. With a directory, every read of the round
+ * shares one ssh connection (the handshake only happens once), closed again
+ * before returning; with `null` the round opens one connection per command,
+ * same as before this feature existed.
  */
 export async function probeSshServer(
   server: SshServer,
   local: Runner,
+  controlDir: string | null,
   last: MachineSecurityReport | null = null,
   now: () => number = Date.now,
 ): Promise<MachineSecurityReport> {
-  const env = createSshProbeEnv(server, local, now);
-  const reach = await env.run(["true"]);
-  if (reach.code !== 0) {
-    if (last && last.checked_at !== null) return last;
-    return unreachable(whyUnreachable(reach), now());
+  try {
+    const env = createSshProbeEnv(server, local, now, controlDir);
+    const reach = await env.run(["true"]);
+    if (reach.code !== 0) {
+      if (last && last.checked_at !== null) return last;
+      return unreachable(whyUnreachable(reach), now());
+    }
+    return await probeMachineSecurity(env);
+  } finally {
+    if (controlDir) await local(sshCloseControlArgv(server, controlDir), 3_000).catch(() => undefined);
   }
-  return probeMachineSecurity(env);
 }

@@ -13,17 +13,7 @@
 import type { MemoryStore, MemoryStoreProblem } from "../memory/stores";
 import { storeProblems } from "../memory/stores";
 
-export type HealthSeverity = "error" | "warning";
-
-export type HealthSection = "jobs" | "chats" | "harness" | "memory" | "tools" | "identity" | "rules";
-
-/** Where the person goes to fix it: a section of the agents' area, and the agent to open when the problem belongs to one. */
-export interface HealthDestination {
-  section: HealthSection;
-  agentId?: string;
-  /** The thing to focus inside the section (a job id, a topic id, a store id, a server name). */
-  ref?: string;
-}
+import type { HealthDestination, HealthProblem, HealthSection, HealthSeverity } from "../../shared/agents-health";
 
 export interface HealthSubject {
   /** What the problem is about, in words: a job name, an agent name, a store id. */
@@ -96,13 +86,6 @@ export const HEALTH_PROBLEM_TYPES = {
 
 export type HealthProblemType = keyof typeof HEALTH_PROBLEM_TYPES;
 
-export interface HealthProblem {
-  id: string;
-  type: HealthProblemType;
-  severity: HealthSeverity;
-  sentence: string;
-  destination: HealthDestination;
-}
 
 export interface HealthAgentInput {
   id: string;
@@ -127,7 +110,7 @@ export interface HealthInput {
   sharedRulesPresent: boolean;
 }
 
-function problem(type: HealthProblemType, key: string, subject: HealthSubject): HealthProblem {
+function problem(type: HealthProblemType, key: string, subject: HealthSubject): HealthProblem<HealthProblemType> {
   const def: ProblemType = HEALTH_PROBLEM_TYPES[type];
   return { id: `${type}:${key}`, type, severity: def.severity, sentence: def.sentence(subject), destination: def.destination(subject) };
 }
@@ -138,8 +121,8 @@ const STORE_PROBLEM_TYPE: Record<MemoryStoreProblem["kind"], HealthProblemType> 
   "index-over-limit": "memory-index-over-limit",
 };
 
-export function collectHealth(input: HealthInput): HealthProblem[] {
-  const out: HealthProblem[] = [];
+export function collectHealth(input: HealthInput): HealthProblem<HealthProblemType>[] {
+  const out: HealthProblem<HealthProblemType>[] = [];
   const names = new Map(input.agents.map((a) => [a.id, a.name]));
 
   for (const job of input.jobs) {

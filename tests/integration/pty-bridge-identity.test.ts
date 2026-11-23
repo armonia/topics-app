@@ -63,7 +63,8 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   bridge?.kill("SIGKILL");
@@ -75,8 +76,9 @@ describe.skipIf(process.platform === "win32")("a reused bridge that does not say
   test("the status names it Node, with its pid and the time it started", async () => {
     expect(fs.existsSync(SOCKET_PATH), "the old bridge has to be listening, or the test proves nothing").toBe(true);
     const terminal = await import("../../server/routes/terminal");
+    const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
     terminal.disconnectBridge();
-    terminal._setPtyBridgeSocketPath(SOCKET_PATH);
+    bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
     const { ensureBridge } = await import("../../server/routes/terminal-bridge-socket");
     await ensureBridge();
     expect(terminal.getPtyBridgeRuntimeStatus().reason).toBe("reused");

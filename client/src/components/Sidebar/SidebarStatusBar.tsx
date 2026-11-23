@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 're
 import { WifiOff, DatabaseZap } from 'lucide-react';
 import { SparkLoader } from '../Layout/StreamingIndicator';
 import { IdentityBlock } from './IdentityBlock';
+import { SystemRow } from './SystemRow';
 import type { SidebarCommands } from './ProfileMenu';
 import { SEGNALE_ATTESA, SEGNALE_GUASTO } from './chromeSignals';
 import type { ConnectionStatus } from '@/types';
@@ -212,7 +213,9 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
   );
 }
 
-export function SidebarStatusBar({ wsStatus, dataNotice, commands }: {
+export function SidebarStatusBar({ wsStatus, dataNotice, commands, systemOpen = false }: {
+  /** The System page is open in a tab: its row shows as selected. */
+  systemOpen?: boolean;
   wsStatus?: ConnectionStatus;
   dataNotice?: string | null;
   /** The commands of the column, on their way to the user card's menu: on the
@@ -233,6 +236,7 @@ export function SidebarStatusBar({ wsStatus, dataNotice, commands }: {
           block that already had `pb-1`, and the foot ended up 10px deep against
           6px at the sides — measured 2026-08-31. */}
       <div style={{ paddingBottom: 'var(--sab, 0px)' }}>
+        <SystemRow open={systemOpen} />
         <IdentityBlock
           commands={commands}
           // The alarm the title dot used to carry. It rides on the card's dot
