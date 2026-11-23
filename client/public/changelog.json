@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.85",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.82",
     "date": "2026-11-23",
     "sections": {
@@ -8,7 +24,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "ci-governor: mai congelare un Listener che sta prendendo un job",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Give the stray-daemon fixture time to listen on a loaded machine",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "System health: jobs with no agent run as main, and problems read in the reader's language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep CI as the off switch of the real-temp check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: dopo il SIGSTOP si rilegge, e se e' arrivato un job il Listener riparte subito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: nel docstring la misura che scarta systemctl stop/start al posto di SIGSTOP",
           "en": "",
           "scope": null
         }
@@ -138,6 +179,11 @@
           "scope": null
         },
         {
+          "it": "Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac",
           "en": "",
           "scope": null
@@ -155,6 +201,11 @@
         },
         {
           "it": "Codice morto in produzione di nuovo a 596: il budget disco gira da launchd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)",
           "en": "",
           "scope": null
         },
@@ -181,6 +232,16 @@
           "scope": null
         },
         {
+          "it": "ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Fix card id cited in worktree-discard comment",
           "en": "",
           "scope": null
@@ -195,6 +256,21 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Trace the node check worktree test to LAND-19",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Widen the spawn cap in the hung-git slim test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Judge real-temp escapes only on a CI runner",
+          "en": "",
+          "scope": null
         }
       ]
     }
