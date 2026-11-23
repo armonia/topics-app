@@ -73,12 +73,24 @@ describe("triage at birth", () => {
       expect((await resp.json()).duplicateOf).toBe(first.id);
     });
 
-    test("a card that is working, or waiting in review, is a twin too: it is open", async () => {
+    test("a card waiting in the queue (todo) is a twin too: it has not started", async () => {
       const first = await (await agent({ text: TWIN }))!.json();
-      db.run("UPDATE tasks SET status = 'review' WHERE id = ?", [first.id]);
+      db.run("UPDATE tasks SET status = 'todo' WHERE id = ?", [first.id]);
       const again = await (await agent({ text: TWIN_AGAIN }))!.json();
       expect(again.duplicateOf).toBe(first.id);
     });
+
+    // The callers write on the id they get back (description, due date, status): a started card is not theirs to touch.
+    for (const started of ["in_progress", "review"] as const) {
+      test(`a twin already ${started} does not absorb the request: a new card, as before`, async () => {
+        const first = await (await agent({ text: TWIN }))!.json();
+        db.run("UPDATE tasks SET status = ? WHERE id = ?", [started, first.id]);
+        const resp = (await agent({ text: TWIN_AGAIN }))!;
+        expect(resp.status).toBe(201);
+        expect((await resp.json()).duplicateOf).toBeUndefined();
+        expect(count()).toBe(2);
+      });
+    }
 
     test("a twin that is already done does not hold the new card back", async () => {
       const first = await (await agent({ text: TWIN }))!.json();

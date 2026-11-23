@@ -75,7 +75,12 @@ export function hasCardWithKey(db: Database, key: unknown): boolean {
  * The open twin gets one quiet note with the request that arrived again (never twice with the same words)
  * and is returned, so the caller reads `.id` as it always did. `null` = create normally: a person, a body
  * that opts out (`allowDuplicate`) or nests the card (`parentTaskId`: the steps of a job repeat by trade),
- * no twin, or a twin that is already done (finished work is not reopened by asking again).
+ * no twin, or a twin that already started (in progress, review, done).
+ *
+ * Only a twin that has not started absorbs the request. The callers write on the id they get back right
+ * after (board-card and task-sync patch the description and the due date, jarvis-channels moves the card
+ * to in progress and then review when its job ends), and a card some agent is working on must not be
+ * rewritten or moved by another flow.
  */
 export function mergeIntoOpenTwin(
   deps: TriageDeps,
@@ -91,7 +96,7 @@ export function mergeIntoOpenTwin(
   // Eight and not three: the open twin may sit behind several closed ones.
   for (const near of findCreationTwins(svc, projectId, text, 8)) {
     const twin = svc.get(near.task.id, { projectId })?.task;
-    if (!twin || twin.status === "done") continue;
+    if (!twin || (twin.status !== "backlog" && twin.status !== "todo")) continue;
     const description = typeof body?.description === "string" ? body.description.trim() : "";
     svc.addComment({
       taskId: twin.id, projectId, author: "system", quiet: true, once: true,
