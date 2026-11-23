@@ -34,7 +34,7 @@ export function prepareTurnMessages(turn: ChatTurnScope): Response | undefined {
         authorFor(req),
         userRowMarks({
           goalNudge: body.goalNudge, hookNudge: body.hookNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit, subagentResults: body.subagentResults, subagentResultsShown: body.subagentResultsShown, cardOutcome: body.cardOutcome,
-          repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
+          repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content), resumed: resumeAttempt > 0,
         }),
         idempotencyKey ?? undefined,
       );

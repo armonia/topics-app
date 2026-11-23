@@ -48,6 +48,13 @@ export interface UserRowOrigin {
    * the person typing it, with an edit button (cross-review of tornata 2c).
    */
   repeats?: readonly ContentBlock[];
+  /**
+   * The row is a RESUME's resend (`ripresa` on the body: the boot sweep, the
+   * goal loop's tool-budget resume), not a request somebody made. Only then
+   * does a `hook-nudge` travel through `repeats`: a person typing the same
+   * words as the hook («continua») is still the person (review of PR 1623).
+   */
+  resumed?: boolean;
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
   /** The outcome of a card this chat sent to work (`services/card-outcome-wake.ts`): the board's words, drawn as its envelope. */
@@ -116,6 +123,7 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   // its own ids. Only a bare resend takes the marks of the row it repeats.
   if (!blocks.length && origin.repeats) {
     for (const mark of origin.repeats) {
+      if (mark.kind === "hook-nudge" && origin.resumed !== true) continue;
       // No comment ids: the row it repeats already delivered them, and a second
       // anchor would draw the same words twice on the card.
       blocks.push(mark.kind === "dispatched-envelope" ? { kind: "dispatched-envelope" } : mark);

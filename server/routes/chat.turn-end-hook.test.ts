@@ -17,6 +17,7 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { setGoal } from "../services/goals";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, Topic } from "../types";
 import type { LifecycleHookPayload, HookOutcome } from "../services/lifecycle-hooks";
@@ -36,6 +37,9 @@ interface Harness {
   userRows: (sessionKey: string) => Array<{ content: string; blocks?: ContentBlock[] }>;
   /** The StreamHandler of the latest turn the route started (a continuation's too). */
   latest: () => StreamHandler | undefined;
+  /** POST a message to the route with extra body fields (a machine turn); the new turn's handler. */
+  post: (sessionKey: string, content: string, extra?: Record<string, unknown>) => Promise<StreamHandler | undefined>;
+  ctx: AppContext;
 }
 
 async function harness(opts: { providerName: string; answer: () => Promise<HookOutcome> }): Promise<Harness> {
@@ -76,6 +80,20 @@ async function harness(opts: { providerName: string; answer: () => Promise<HookO
     hooks: { run: (event: string, payload: LifecycleHookPayload) => { seen.push([event, payload]); return opts.answer(); } },
   } as never);
 
+  const post = async (sessionKey: string, content: string, extra: Record<string, unknown> = {}) => {
+    const before = captured;
+    const url = new URL("http://topics.test/api/chat");
+    const resp = await chatRouter(new Request(url.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }], ...extra }),
+    }), url, "/api/chat", "POST");
+    expect(resp?.status).toBe(200);
+    resp?.body?.cancel().catch(() => {});
+    for (let i = 0; i < 40 && captured === before; i++) await Bun.sleep(50);
+    return captured;
+  };
+
   const startTurn = async (sessionKey: string): Promise<StreamHandler> => {
     const topic: Topic = {
       id: `t-${sessionKey}`, name: "hook", slug: "hook", parentId: null, links: [],
@@ -108,7 +126,7 @@ async function harness(opts: { providerName: string; answer: () => Promise<HookO
       .filter((m) => m.role === "user")
       .map((m) => ({ content: m.content, blocks: m.blocks as ContentBlock[] | undefined }));
 
-  return { frames, seen, startTurn, assistantRows, userRows, latest: () => captured };
+  return { frames, seen, startTurn, assistantRows, userRows, latest: () => captured, post, ctx: ctx as AppContext };
 }
 
 const settle = () => Bun.sleep(80);
@@ -250,5 +268,84 @@ describe("a turn-end hook that asks to carry on (HOOKS-04)", () => {
     handler.onDone({ result: "half", turnEnd: { end: "cancelled" } });
     await settle();
     expect(h.userRows(sk).map((u) => u.content)).toEqual(["hello"]);
+  });
+
+  // ── Defects found by the independent review of PR 1623 ────────────────────
+  const hookRows = (h: Harness, sk: string) =>
+    h.userRows(sk).filter((u) => u.blocks?.some((b) => b.kind === "hook-nudge"));
+
+  test("defect 1: a machine turn in between does not reset the ceiling", async () => {
+    // The hook asks every time but the second: there a goal nudge (a machine
+    // turn, no hook attempt on its body) takes the next turn instead.
+    let call = 0;
+    const h = await harness({
+      providerName: "topics",
+      answer: async () => (++call === 2 ? { ok: true } : { ok: true, continueWith: "again" }),
+    });
+    const sk = "topic:turn-end-machine-between";
+    let turn = await h.startTurn(sk);
+    end(turn, "t0"); await settle();              // hook asks -> nudge 1
+    turn = (await nextTurn(h, turn))!;
+    end(turn, "t1"); await settle();              // hook silent
+    turn = (await h.post(sk, "Objective still open: carry on", { goalNudge: 1 }))!;
+    for (let i = 0; i < 4; i++) {
+      end(turn, `m${i}`); await settle();
+      const next = await nextTurn(h, turn);
+      if (next === turn) break;
+      turn = next!;
+    }
+    expect(hookRows(h, sk).map((u) => u.blocks)).toEqual([
+      [{ kind: "hook-nudge", attempt: 1 }],
+      [{ kind: "hook-nudge", attempt: 2 }],
+      [{ kind: "hook-nudge", attempt: 3 }],
+    ]);
+  });
+
+  test("defect 2: a hook that answers after a newer turn does not send the old continuation", async () => {
+    let release: (v: HookOutcome) => void = () => {};
+    let first = true;
+    const h = await harness({
+      providerName: "topics",
+      answer: () => {
+        if (!first) return Promise.resolve({ ok: true });
+        first = false;
+        return new Promise<HookOutcome>((r) => { release = r; });
+      },
+    });
+    const sk = "topic:turn-end-stale";
+    const t0 = await h.startTurn(sk);
+    end(t0, "done"); await settle();
+    // Meanwhile the person sends T1 and stops it.
+    const t1 = await h.post(sk, "one more thing");
+    t1!.onTextDelta("half", "half");
+    t1!.onDone({ result: "half", turnEnd: { end: "cancelled" } });
+    await settle();
+    release({ ok: true, continueWith: "stale verdict about T0" });
+    await settle();
+    expect(hookRows(h, sk)).toEqual([]);
+  });
+
+  test("defect 4: a native sub-agent's chat is never continued by a hook", async () => {
+    const h = await harness({ providerName: "topics", answer: async () => ({ ok: true, continueWith: "carry on" }) });
+    const sk = "topic:turn-end-subagent";
+    (h.ctx.db as unknown as { run: (sql: string, ...a: string[]) => void }).run(
+      `INSERT INTO subagents (id, parent_session_key, name, cwd, state, created_at, runtime, session_key) VALUES (?, 'topic:parent', 'child', ?, 'retired', ?, 'topics', ?)`,
+      `t-${sk}`, WS, new Date().toISOString(), sk,
+    );
+    const handler = await h.startTurn(sk);
+    end(handler, "report"); await settle();
+    expect(hookRows(h, sk)).toEqual([]);
+    const state = (h.ctx.db as unknown as { query: (s: string) => { get: (...a: string[]) => { state: string } } })
+      .query("SELECT state FROM subagents WHERE session_key = ?").get(sk);
+    expect(state.state).toBe("retired");
+  });
+
+  test("defect 5: an active goal owns the turn end, the hook does not buy a second turn", async () => {
+    const h = await harness({ providerName: "topics", answer: async () => ({ ok: true, continueWith: "carry on" }) });
+    const sk = "topic:turn-end-goal";
+    const handler = await h.startTurn(sk);
+    setGoal(h.ctx.db as never, { topicId: `t-${sk}`, content: "finish the refactor" });
+    end(handler, "step done"); await settle();
+    expect(hookRows(h, sk)).toEqual([]);
   });
 });

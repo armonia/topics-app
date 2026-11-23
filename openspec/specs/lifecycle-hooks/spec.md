@@ -152,14 +152,22 @@ transcript draws one compact service line and never shows the person saying
 it; the row SHALL count as the machine's everywhere a `goal-nudge` does
 (prompt numbering, sidebar preview, person usage, board column).
 
-The payload of `turn-end` SHALL carry `stop_hook_active`, true when the turn
-that just ended was itself started by a hook continuation. The system SHALL
-honour at most 3 hook continuations in a row in a session and SHALL ignore and
-log the request past that. It SHALL NOT continue a turn that did not end on its
-own (stopped, failed, discarded) or that left a question waiting on the person,
-and a refusal of the route (a 409: another turn holds the session) SHALL mean
-not sent, logged. No failure of the continuation SHALL touch the turn that
-ended.
+The payload of `turn-end` SHALL carry `stop_hook_active`, true when a chain of
+hook continuations is already running in the session. The system SHALL honour
+at most 3 hook continuations since the last row the person typed, counted on
+the stored rows (machine rows and resumes in between neither count nor reset
+it, and the count survives a restart), and SHALL ignore and log the request
+past that. It SHALL NOT continue, and SHALL log why:
+- a turn that did not end on its own (stopped, failed, discarded) or that left
+  a question waiting on the person;
+- a turn that is no longer the chat's last row when the hook answers;
+- a native sub-agent's chat (its parent drives it);
+- a turn end the goal loop owns (an active goal it will judge): one owner per
+  turn end, the goal loop first.
+A refusal of the route (a 409: another turn holds the session) SHALL mean not
+sent, logged. No failure of the continuation SHALL touch the turn that ended.
+A `hook-nudge` mark SHALL travel to a resent copy of its row only on a resume,
+never onto a message the person typed with the same words.
 
 #### Scenario: A hook asks to continue and the chat gets one marked turn
 - **GIVEN** a `turn-end` hook that exits 0 printing `{"decision":"block","reason":"run the retrospective"}`

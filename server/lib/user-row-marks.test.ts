@@ -44,8 +44,12 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ hookNudge: 1.9 })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
     expect(userRowMarks({ hookNudge: 0 })).toBeUndefined();
     expect(userRowMarks({ hookNudge: "1" })).toBeUndefined();
-    // A resend of that row (retry, resume sweep) keeps the hook's mark.
-    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }] })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
+    // A resume's resend of that row keeps the hook's mark...
+    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }], resumed: true })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
+    // ...but the person typing the same words («continua») is the person (review of PR 1623, defect 3).
+    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }] })).toBeUndefined();
+    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }, { kind: "process-exit", processId: "p", exitCode: 0, label: "x" }] }))
+      .toEqual([{ kind: "process-exit", processId: "p", exitCode: 0, label: "x" }]);
   });
 
   test("both at once: a dispatched turn the goal loop carried on", () => {

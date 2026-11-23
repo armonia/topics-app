@@ -13,7 +13,9 @@ import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { mergeReattachedRow } from "./reattachMerge";
 import type { ContentBlock } from "../types";
 import { backgroundOfTurn, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
-import { continueAfterTurnEndHook, hookNudgeAttemptOf } from "../services/hook-continuation";
+import { continueAfterTurnEndHook, hookChainLength, lastRowIdOf } from "../services/hook-continuation";
+import { turnCanContinueGoal } from "../services/goal-loop";
+import { getActiveGoal } from "../services/goals";
 import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
 import { decodeCol } from "../../shared/message-blob";
 import { commandWakeState } from "./processes";
@@ -613,22 +615,31 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
         // through this same route as a `hook-nudge` row, under the
         // brakes of `services/hook-continuation.ts`.
         if (hooks && turn.topicProvider?.name === "topics") {
-          const endedHookAttempt = hookNudgeAttemptOf(body);
+          // Fixed NOW, when the turn ends: the hook may take its whole
+          // ceiling, and its verdict is about THIS turn, not a later one.
+          const chainLength = hookChainLength(ctx.db, sessionKey);
+          const turnLastRowId = lastRowIdOf(ctx.db, sessionKey);
+          let goalOwnsTurn = false;
+          try { goalOwnsTurn = turnCanContinueGoal(goalTurn, getActiveGoal(ctx.db, matchedTopic.id)); }
+          catch { goalOwnsTurn = true; } // unreadable goal: let the goal loop have it, never two turns
           hooks.run("turn-end", {
             hook_event_name: "turn-end",
             session_id: sessionKey,
             cwd: matchedTopic.projectPath ?? WORKSPACE_DIR,
-            stop_hook_active: endedHookAttempt > 0,
+            stop_hook_active: chainLength > 0,
           }).then(async (verdict) => {
             if (verdict.ok) {
               if (!verdict.continueWith) return;
               await continueAfterTurnEndHook({
                 sessionKey,
+                subagentChat: turn.nativeChildChat === true,
                 text: verdict.continueWith,
-                endedAttempt: endedHookAttempt,
+                chainLength,
+                turnLastRowId,
                 endedCleanly: goalTurn.end === "end_turn" && !goalTurn.discarded && !turnError,
                 pendingAsk: goalTurn.pendingAsk,
-              }, { resend: goalLoop.resend });
+                goalOwnsTurn,
+              }, { db: ctx.db, resend: goalLoop.resend });
               return;
             }
             const stored = appendLocalMessage(sessionKey, "assistant", verdict.reason);
