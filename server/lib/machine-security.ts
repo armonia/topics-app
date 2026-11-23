@@ -648,8 +648,7 @@ export const WINDOWS_SCRIPTS = {
   updates: `$ErrorActionPreference='SilentlyContinue'
 Get-CimInstance Win32_QuickFixEngineering | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object { 'hotfix=' + $_.HotFixID + '|' + $_.Description + '|' + $_.InstalledOn.ToString('yyyy-MM-dd') }
 'reboot=' + (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')`,
-  // 1 = BitLocker on, 2 = off, 3/4 = in progress, 5 = suspended, 6 = locked: the shell gives it without asking for administrator rights.
-  // 0 = never turned on: a Windows 11 Pro volume answered 0 while Get-BitLockerVolume said Off / FullyDecrypted (23/11/2026).
+  // 1 = BitLocker on, 2 = off, 0 = never turned on (Get-BitLockerVolume: Off / FullyDecrypted, 23/11/2026), 3/4 = in progress, 5 = suspended, 6 = locked: no administrator rights needed.
   disk: `$ErrorActionPreference='Stop'
 $d = $env:SystemDrive; if (-not $d) { $d = 'C:' }
 'bitlocker=' + (New-Object -ComObject Shell.Application).NameSpace($d).Self.ExtendedProperty('System.Volume.BitLockerProtection')`,
