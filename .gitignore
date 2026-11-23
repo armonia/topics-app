@@ -6,6 +6,8 @@
 node_modules
 .bun/
 /.cache/checks/
+__pycache__/
+*.pyc
 
 # User data - DO NOT COMMIT
 messages/
