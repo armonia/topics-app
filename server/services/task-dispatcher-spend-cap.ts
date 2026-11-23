@@ -29,6 +29,7 @@
 import { calculateCostWithCache, modelPrice } from "../usage/pricing";
 import { costTokens } from "../../shared/token-cost";
 import type { SessionUsage } from "./transcript-usage";
+import type { DispatchSpendStop } from "../../shared/provider-hold";
 
 /** The two caps as the reserved '*' row carries them. Zero = unlimited. */
 export interface SpendCaps { perTaskCents: number; perDayCents: number }
@@ -39,6 +40,8 @@ export interface SpendBrakeDeps {
   getSpendCaps(): SpendCaps;
   /** Spend over the rolling 24h window, in cents. May throw. */
   spent24hCents(): number;
+  /** When that window falls back under `capCents` with no new spend (epoch ms), or `null`. May throw. */
+  clearsAtMs(capCents: number): number | null;
   /** The dispatcher's own log, so the two sentences land where the others do. */
   log(message: string): void;
 }
@@ -75,6 +78,8 @@ export interface SpendBrake {
   caps(): SpendCaps;
   /** The per-machine 24h brake as a reason, or `null`. */
   dayBlock(): string | null;
+  /** The same brake as numbers for the board's chip, read without a line in the log; `null` = it does not hold. */
+  dayStop(): Omit<DispatchSpendStop, "taskIds"> | null;
   /** The per-card brake as a reason, or `null`. */
   taskBlock(spentCents: number | null | undefined): string | null;
 }
@@ -115,6 +120,18 @@ export function createSpendBrake(deps: SpendBrakeDeps): SpendBrake {
     } catch { return null; }   // fail open
   }
 
+  function dayStop(): Omit<DispatchSpendStop, "taskIds"> | null {
+    const c = caps();
+    if (c.perDayCents <= 0) return null;
+    try {
+      const spent = deps.spent24hCents();
+      if (spent < c.perDayCents) return null;
+      let untilMs: number | null = null;
+      try { untilMs = deps.clearsAtMs(c.perDayCents); } catch { /* the stop is still true without its end */ }
+      return { spentCents: spent, capCents: c.perDayCents, untilMs };
+    } catch { return null; }   // fail open, as the brake does
+  }
+
   /** The per-card brake as a REASON, for the door that wants one (the resume). */
   function taskBlock(spentCents: number | null | undefined): string | null {
     const c = caps();
@@ -122,7 +139,7 @@ export function createSpendBrake(deps: SpendBrakeDeps): SpendBrake {
     return overTaskSpendCap(spentCents, c.perTaskCents) ? taskSpendMessage(spentCents, c.perTaskCents) : null;
   }
 
-  return { caps, dayBlock, taskBlock };
+  return { caps, dayBlock, dayStop, taskBlock };
 }
 
 // ── THE PRICE OF ONE SESSION ────────────────────────────────────────────────

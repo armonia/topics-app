@@ -234,6 +234,7 @@ const EN = {
 
   'sidebar.board.brake': 'Held',
   'sidebar.board.brakeTitle': 'Todo cards waiting for the brake on {who}: {n}',
+  'sidebar.board.brakeSpendTitle': 'Todo cards stopped by the 24-hour spend cap: {n}',
   'sidebar.cards.one': '1 card',
   'sidebar.cards.many': '{n} cards',
   'sidebar.cards.waiting': 'A card is waiting on an agent',

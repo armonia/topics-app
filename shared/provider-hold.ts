@@ -82,6 +82,22 @@ export interface DispatchBrake {
 export interface DispatchWork {
   held: Array<{ taskId: string; projectId: string; provider: 'claude' | 'codex' }>;
   working: Record<string, number>;
+  /** The 24h spend cap when it stops the whole queue; absent or `null` = it does not. */
+  spend?: DispatchSpendStop | null;
+}
+
+/**
+ * The 24h spend cap stopping the queue, whatever the provider: on 23/11 the
+ * board sat still for hours at 35.59 USD over a 30 USD cap and the chip said
+ * nothing, because it named only the providers' walls.
+ */
+export interface DispatchSpendStop {
+  spentCents: number;
+  capCents: number;
+  /** When the rolling 24h spend falls back under the cap if nothing new is spent; `null` = it cannot be said. */
+  untilMs: number | null;
+  /** The Todo cards it keeps waiting. */
+  taskIds: string[];
 }
 
 /**

@@ -39,6 +39,9 @@ export function createQueueSignals(ctx: DispatcherCtx) {
    */
   function dispatchWork(): DispatchWork {
     const held: DispatchWork["held"] = [];
+    // The 24h spend cap stops every card past the gates, whatever its provider.
+    const stop = ctx.admission.spendBrake.dayStop();
+    const spendHeld: string[] = [];
     const nowIso = new Date(clock()).toISOString();
     let todos: Task[] = [];
     try { todos = deps.svc.list({ scope: "all", status: "todo", rootsOnly: true }); } catch { /* no rows: nothing held */ }
@@ -55,6 +58,7 @@ export function createQueueSignals(ctx: DispatcherCtx) {
         if (t.assignedTopicId || t.dispatchAttempts >= settings.dispatchRetryCap) continue;
         if (t.dispatchDeferredUntil && t.dispatchDeferredUntil > nowIso) continue;
         if (deps.svc.isDispatchBlocked(t.id)) continue;
+        if (stop) spendHeld.push(t.id);
         // Quiet: a read for the chip, not the tick, so it neither logs the wait nor marks it announced.
         const wait = ctx.hold.taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true, true);
         if (wait) held.push({ taskId: t.id, projectId: t.projectId, provider: wait.provider });
@@ -69,7 +73,7 @@ export function createQueueSignals(ctx: DispatcherCtx) {
         working[key] = (working[key] ?? 0) + 1;
       } catch { /* the card moved: it is no longer at work here */ }
     }
-    return { held, working };
+    return { held, working, spend: stop && spendHeld.length > 0 ? { ...stop, taskIds: spendHeld } : null };
   }
 
   const memoryQueueSnapshot: ReturnType<typeof createDispatchMemoryQueueSnapshot> = createDispatchMemoryQueueSnapshot({
