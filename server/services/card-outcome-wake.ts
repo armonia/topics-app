@@ -121,7 +121,11 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
           body: JSON.stringify({
             sessionKey,
             messages: [{ role: "user", content: batch.map((b) => cardOutcomeText(b.frame, b.outcome)).join("\n\n") }],
-            dispatched: true,
+            // Not `dispatched`: that says «a card is the subject of this chat»,
+            // and the attention state then kept the person's own chat idle for
+            // the whole turn, no loader in the tab, no «finished» at its end.
+            // This turn is the chat's; the mark only says nobody typed the row.
+            cardOutcome: true,
           }),
         }),
         url, "/api/chat", "POST",

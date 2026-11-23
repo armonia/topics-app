@@ -835,7 +835,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const adottaTurnoVivo = isReattach || isWoken;
       turn.adottaTurnoVivo = adottaTurnoVivo;
       // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
-      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !body.subagentResults && !resumeAttempt;
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !body.subagentResults && !body.cardOutcome && !resumeAttempt;
       turn.sentByPerson = sentByPerson;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {

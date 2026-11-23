@@ -12,7 +12,7 @@ const frame = (over: Partial<CardFrame> = {}): CardFrame => ({
 });
 
 function harness(over: { busy?: boolean; verdict?: "wake" | "wait" | "row" } = {}) {
-  const posted: Array<{ sessionKey: string; content: string }> = [];
+  const posted: Array<{ sessionKey: string; content: string; dispatched?: boolean; cardOutcome?: boolean }> = [];
   let busy = over.busy ?? false;
   const wake = createCardOutcomeWake({
     pollMs: 5, debounceMs: 10,
@@ -20,8 +20,8 @@ function harness(over: { busy?: boolean; verdict?: "wake" | "wait" | "row" } = {
     sessionKeyOfTopic: (id) => `session:${id}`,
     canWake: () => over.verdict ?? "wake",
     route: async (req) => {
-      const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }> };
-      posted.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
+      const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }>; dispatched?: boolean; cardOutcome?: boolean };
+      posted.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content, dispatched: body.dispatched, cardOutcome: body.cardOutcome });
       return new Response("data: [DONE]\n\n");
     },
   });
@@ -81,6 +81,10 @@ describe("card outcome wake", () => {
     expect(h.posted[0]!.content).toContain('ci="pass"');
     expect(h.posted[0]!.content).toContain("Report, first line: Shipped it.");
     expect(h.posted[0]!.content).toContain('link="/task/card-1"');
+    // The chat's own turn, not a card's: `dispatched` would keep it idle in the
+    // attention state, with no loader and no «finished» (ATTN-02).
+    expect(h.posted[0]!.cardOutcome).toBe(true);
+    expect(h.posted[0]!.dispatched).toBeUndefined();
   });
 
   test("the same transition repeated does not wake again", async () => {

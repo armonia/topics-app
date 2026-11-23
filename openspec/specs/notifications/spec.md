@@ -1770,7 +1770,6 @@ numero NON SHALL venire da una cache locale.
 - **WHEN** la card parcheggiata viene rimessa in coda
 - **THEN** la tab board SHALL dire 1
 
-## MODIFIED Requirements
 ### Requirement: ATTN-05 — «Finito» vale una volta, solo con qualcosa dentro, e si spegne guardandolo
 
 Un turno che finisce con un messaggio visibile e nessun compito in volo SHALL portare il

@@ -34,7 +34,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { useTopicLoading, useTopicAwaitingInput, useTopicInProgress, useTopicBackgroundTasks, useTopicWaitingOn, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicBackgroundTasks, useTopicWaitingOn, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useTerminalBackgroundTasks, useBrowserLoading } from '../../state/signals';
 import { useTopicAction, useProjectAction, useTerminalAction, useTaskAction } from '../../state/agentActionHooks';
 import { useT } from '../../hooks/useT';
 import { loaderActivityForAction, loaderArcClass, loaderOutcomeInkClass, loaderStateFor, type LoaderState } from './loaderState';
@@ -42,6 +42,7 @@ import { LoaderBody, sharedLoaderClock, type ClockClient, type LoaderActivity } 
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 import type { WaitingOn } from '../../state/backgroundWork';
+import { useTopicAtWork } from '../../state/childWork';
 
 /**
  * THE SQUARE LOADER: 48 rounded squares that slide between shapes (the engine
@@ -175,8 +176,10 @@ interface LoaderSlotProps {
   onFill?: boolean;
   /** The movement, when the caller knows what the agent is doing (`loaderActivityForAction`). */
   activity?: LoaderActivity;
-  /** The turn is over and the chat waits on this (BGVIS-10): it reads as a wait, not as writing. */
+  /** The turn is over and the chat waits on this (BGVIS-10): the tooltip names it. */
   waitingOn?: WaitingOn;
+  /** Agents at work for this subject (`agentsAtWorkUnder`), as `data-agents` for whoever reads the slot. */
+  agents?: number;
 }
 
 /**
@@ -193,7 +196,7 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false, activity, waitingOn }: LoaderSlotProps) {
+export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false, activity, waitingOn, agents }: LoaderSlotProps) {
   const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
@@ -203,6 +206,7 @@ export function LoaderSlot({ title, className = '', size = 16, state = 'working'
       aria-label={tip}
       data-loader-state={state}
       data-waiting-on={waitingOn}
+      data-agents={agents || undefined}
     >
       <SparkLoader state={state} onFill={onFill} activity={activity} />
     </span>
@@ -281,22 +285,24 @@ export function TopicStreamingSpinner({
   const waiting = useTopicAwaitingInput(topicId);
   // In progress: a turn open, or the job a closed turn left running (attention
   // `working`, the frame the fill reads too, so the ring and a fill agree).
-  const inProgress = useTopicInProgress(topicId);
+  // Agents of its own at work beneath it keep it in progress too: a board
+  // agent's chat is idle in attention (rule 2), its sub-agents are not.
+  const { atWork, agents } = useTopicAtWork(topicId);
   const tasks = useTopicBackgroundTasks(topicId);
-  // The turn is over and the chat waits on work: said apart from a chat that writes.
-  const waitingOn = useTopicWaitingOn(topicId);
+  // The turn is over and the chat waits on work: the tooltip and `data-waiting-on` say on what.
+  const waitingOn = useTopicWaitingOn(topicId) ?? (agents > 0 ? 'subagent' : null);
   const activity = loaderActivityForAction(useTopicAction(topicId));
   const tr = useT();
-  const state = loaderStateFor({ inProgress, waiting });
+  const state = loaderStateFor({ inProgress: atWork, waiting });
   if (!state) return null;
-  // No turn open: the ring of the job left running, never the labeled clock,
-  // which times a turn. The tooltip says what runs, and that the chat is free.
+  // No turn open: the loader of the work left running, never the labeled clock,
+  // which times a turn. Work running is work (ATTN-02): the same loader as a
+  // turn, playing what runs (`delegate` for agents, `run` for a command); the
+  // slow `wait` movement is only for a wait on the person (23/11). The tooltip
+  // says what runs, how many agents, and that the chat is free.
   if (!streaming) {
-    // BGVIS-10: the slow `wait` movement and a tooltip that names what is awaited, never the ring of a chat that is writing.
-    if (waitingOn) {
-      return <LoaderSlot title={title ?? waitingTip(tr, waitingOn, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} activity="wait" waitingOn={waitingOn} />;
-    }
-    return <LoaderSlot title={title ?? backgroundTip(tr, workCount(tasks))} className={className} size={size} state={state} onFill={onFill} activity={activity} />;
+    const tip = title ?? (waitingOn ? waitingTip(tr, waitingOn, workCount(tasks), agents) : backgroundTip(tr, workCount(tasks)));
+    return <LoaderSlot title={tip} className={className} size={size} state={state} onFill={onFill} activity={activity} waitingOn={waitingOn ?? undefined} agents={agents} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
@@ -323,9 +329,13 @@ function workCount(tasks: readonly { kind: string }[]): number {
   return tasks.filter((t) => t.kind !== 'wake').length;
 }
 
-/** What the chat with no turn open waits for, and that it is free; a CLI job keeps its count («2 jobs in the background»). */
-function waitingTip(tr: ReturnType<typeof useT>, on: WaitingOn, n: number): string {
-  if (on === 'subagent') return tr('topic.waitingOnSubagent');
+/** What the chat with no turn open waits for, and that it is free; agents and CLI jobs keep their count. */
+function waitingTip(tr: ReturnType<typeof useT>, on: WaitingOn, n: number, agents: number): string {
+  if (on === 'subagent') {
+    // No child at work: they only owe a result, and the chat waits for it.
+    if (agents === 0) return tr('topic.waitingOnSubagent');
+    return agents === 1 ? tr('topic.agentsAtWorkOne') : tr('topic.agentsAtWorkMany', { n: agents });
+  }
   if (on === 'process') return tr('topic.waitingOnProcess');
   return backgroundTip(tr, n);
 }

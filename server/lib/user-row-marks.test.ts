@@ -27,6 +27,10 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ dispatched: true })).toEqual([{ kind: "dispatched-envelope" }]);
   });
 
+  test("a card's outcome waking the chat that sent it is the board's words too", () => {
+    expect(userRowMarks({ cardOutcome: true })).toEqual([{ kind: "dispatched-envelope" }]);
+  });
+
   test("the goal continuation carries its attempt number", () => {
     expect(userRowMarks({ goalNudge: 3 })).toEqual([{ kind: "goal-nudge", attempt: 3 }]);
     // A fractional or bogus value is not a continuation to invent one from.
