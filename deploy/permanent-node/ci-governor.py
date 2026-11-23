@@ -22,12 +22,15 @@ Limite noto (22/11): un solo job pesante può superare il load 24 da solo (un e2
 Playwright, con 4 Chromium pesanti, dà load 28-48): il tetto sul numero di job non lo riduce, serve ridurre i worker di quel job.
 Prove: `ci-governor --selftest` (logica pura) · `--resume` (riprende tutti) · `--status` (cosa vede, senza toccare niente) · `--dry-run`.
 """
-import os, re, signal, subprocess, sys, time
+import json, os, re, signal, subprocess, sys, time
 
 MAX_JOBS = int(os.environ.get("CI_MAX_JOBS", "2"))
 LOAD_CAP = float(os.environ.get("CI_LOAD_CAP", "24"))
 ROTATE_S = int(os.environ.get("CI_ROTATE_S", "20"))
 REAP_GRACE = int(os.environ.get("CI_REAP_GRACE", "60"))
+# un runner che non e' stato svegliato da tanto ha quasi certamente un job in coda su GitHub: passa avanti a tutto
+STARVE_S = int(os.environ.get("CI_STARVE_S", "1200"))
+STATE = os.environ.get("CI_GOV_STATE", "/var/lib/ci-governor-served.json")
 TICK = float(os.environ.get("CI_TICK", "2"))
 # esenti, nel formato <prefisso>:<n> (es. ci-runner:0 = il servizio del runner di preparazione, leggero)
 EXEMPT = {x.strip().replace(":", chr(64)) + ".service" for x in os.environ.get("CI_EXEMPT", "ci-runner:0").split(",")}
@@ -36,13 +39,21 @@ LOADLOG = os.environ.get("CI_LOAD_LOG", "/var/log/ci-load.log")
 KEEP_COMM = ("Runner.", "run.sh", "run-helper.sh", "runsvc.sh")
 
 
-def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP, rotate_s=ROTATE_S, extra=0, served=None):
+def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP, rotate_s=ROTATE_S, extra=0, served=None,
+           starve_s=STARVE_S, granted=None):
     """runners: {unit: {"worker": bool, "stopped": bool}} (solo i non esenti con un Listener).
     extra: suite Playwright lanciate a mano sul server con systemd-run (agenti): non sono job di un runner e
     non si fermano, ma pesano come un job e occupano un posto.
     served: quando ogni runner e' stato ripreso l'ultima volta (resta anche dopo la pausa): il turno va a chi
     aspetta da piu' tempo, senza di lui gli stessi due runner prendevano sempre i posti (22/11, CI di topics-app in coda 1 h 30).
-    Ritorna (da_fermare, da_riprendere). Pura: niente I/O, provata da --selftest."""
+    FAME (22/11: i job di una PR di zenocms in coda 1 h 13 mentre il tetto, il load e le suite a mano degli agenti
+    occupavano sempre i posti): un runner fermo da piu' di starve_s secondi senza essere servito ha quasi certamente un
+    job in coda su GitHub (il server non lo vede: nessun token). Passa avanti: prende un posto anche con il load sopra
+    la soglia e anche con le suite a mano, ma sempre entro max_jobs JOB DI RUNNER insieme, uno alla volta, il piu' vecchio
+    per primo, fra tutti i repo. `granted` (insieme modificato qui) tiene a mente chi e' stato ammesso cosi': finche' non
+    cede il turno per rotazione, il tetto normale non lo ferma.
+    Ritorna (da_fermare, da_riprendere). Pura a parte `granted`: niente I/O, provata da --selftest."""
+    granted = granted if granted is not None else set()
     active = [u for u, r in runners.items() if r["worker"]]
     idle = [u for u, r in runners.items() if not r["worker"]]
     busy = len(active) + extra
@@ -52,9 +63,11 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
         free = max(free, 1)
     awake = [u for u in idle if not runners[u]["stopped"]]
     stopped = [u for u in idle if runners[u]["stopped"]]
+    granted &= set(awake)                           # chi ha preso un job o e' stato fermato non e' piu' un'ammissione
+    free = max(free - len([u for u in awake if u in granted]), 0)
     # chi è sveglio da troppo e ha altri in attesa cede il posto
     stale = [u for u in awake if now - last_awake.get(u, now) >= rotate_s and stopped]
-    keep_awake = [u for u in awake if u not in stale]
+    keep_awake = [u for u in awake if u not in stale and u not in granted]
     stop = list(stale)
     if len(keep_awake) > free:                       # più svegli dei posti: fermo i più recenti
         keep_awake.sort(key=lambda u: last_awake.get(u, now))
@@ -70,6 +83,13 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
             if room == 0:
                 break
             cont.append(u); room -= 1
+    # fame: il piu' vecchio fra i fermi da piu' di starve_s passa avanti, entro max_jobs job di runner
+    served = served or {}
+    starving = sorted([u for u in stopped if u not in cont and now - served.get(u, now) >= starve_s],
+                      key=lambda u: (served.get(u, now), u))
+    awake_now = len([u for u in awake if u not in stop]) + len(cont)
+    if starving and not cont and len(active) + awake_now < max_jobs:
+        cont.append(starving[0]); granted.add(starving[0])
     return stop, cont
 
 
@@ -100,6 +120,40 @@ def selftest():
     # rotazione: con un solo posto il turno va a chi e' stato servito piu' tempo fa, non sempre agli stessi
     st, co = D({"a": R(0, 1), "b": R(0, 1), "c": R(0, 1)}, 1, 100, {}, extra=2, served={"a": 90, "b": 50, "c": 10})
     assert co == ["c"], co
+    # FAME: un job in coda da 21 minuti (runner fermo da 21 min) con il load a 30 parte, anche con 1 job in corso
+    N = 100000
+    S = lambda **k: dict(max_jobs=2, load_cap=24, starve_s=1200, **k)
+    g = set()
+    st, co = decide({"a": R(1, 0), "z": R(0, 1), "y": R(0, 1)}, 30, N, {}, served={"z": N - 21 * 60, "y": N - 60}, granted=g, **S())
+    assert co == ["z"] and g == {"z"} and st == [], (st, co, g)
+    # lo stesso a 19 minuti: sopra soglia non parte niente
+    g = set()
+    st, co = decide({"a": R(1, 0), "z": R(0, 1)}, 30, N, {}, served={"z": N - 19 * 60}, granted=g, **S())
+    assert co == [] and not g, (st, co)
+    # le suite a mano da sole non lo bloccano (due stack di un agente, nessun job di runner)
+    g = set()
+    st, co = decide({"z": R(0, 1), "y": R(0, 1)}, 30, N, {}, served={"z": N - 25 * 60, "y": N - 30}, granted=g, extra=2, **S())
+    assert co == ["z"], (st, co)
+    # ma mai oltre max_jobs job di runner: con 2 in corso non parte
+    g = set()
+    st, co = decide({"a": R(1, 0), "b": R(1, 0), "z": R(0, 1)}, 5, N, {}, served={"z": N - 40 * 60}, granted=g, **S())
+    assert co == [], (st, co)
+    # il piu' vecchio per primo, uno alla volta, fra tutti i repo
+    g = set()
+    st, co = decide({"a": R(0, 1), "b": R(0, 1), "c": R(0, 1)}, 30, N, {}, served={"a": N - 30 * 60, "b": N - 50 * 60, "c": N - 40 * 60}, granted=g, **S())
+    assert co == ["b"], (st, co)
+    # un ammesso per fame non viene fermato dal tetto normale (load alto, suite a mano), finche' non scade il suo turno
+    g = {"z"}
+    st, co = decide({"z": R(0, 0), "y": R(0, 1)}, 30, N, {"z": N - 5}, served={"z": N - 5, "y": N - 60}, granted=g, extra=2, **S())
+    assert st == [] and co == [], (st, co)
+    # a turno scaduto cede (altri in attesa) e il posto passa
+    g = {"z"}
+    st, co = decide({"z": R(0, 0), "y": R(0, 1)}, 5, N, {"z": N - 25}, served={"z": N - 25, "y": N - 60}, granted=g, **S())
+    assert st == ["z"], (st, co)
+    # preso un job, non e' piu' un'ammissione
+    g = {"z"}
+    decide({"z": R(1, 0), "y": R(0, 1)}, 5, N, {}, served={}, granted=g, **S())
+    assert g == set(), g
     # nessun job: tre posti, tre svegli
     st, co = D({k: R(0, 1) for k in "abcde"}, 1, 100, {})
     assert st == [] and len(co) == 3, (st, co)
@@ -189,7 +243,13 @@ def main():
             print(f"{u:34} worker={int(r['worker'])} listener_fermo={int(r['stopped'])}{' (esente)' if u in EXEMPT else ''}")
         print(f"load1={os.getloadavg()[0]:.1f} job in corso={sum(r['worker'] for u, r in rs.items() if u not in EXEMPT)}/{MAX_JOBS}")
         return
-    last_awake, idle_since, last_load, served = {}, {}, 0, {}
+    last_awake, idle_since, last_load, served, granted = {}, {}, 0, {}, set()
+    try:                                            # un riavvio non azzera l'attesa di chi e' fermo da ore
+        served = {k: float(v) for k, v in json.load(open(STATE)).items()}
+    except (OSError, ValueError):
+        pass
+    for u in rs:
+        served.setdefault(u, time.time())
     log(f"avvio: tetto {MAX_JOBS} job, load1 massimo per ammetterne di nuovi {LOAD_CAP}, esenti {sorted(EXEMPT)}")
 
     def resume_all(*_):
@@ -215,18 +275,24 @@ def main():
             if not r["stopped"] and not r["worker"]:
                 last_awake.setdefault(u, now)
         extra = manual_suites()
-        stop, cont = decide(gov, load1, now, last_awake, extra=extra, served=served)
+        stop, cont = decide(gov, load1, now, last_awake, extra=extra, served=served, granted=granted)
         for u in stop:
             log(f"pausa {u} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
             if not dry:
                 os.kill(gov[u]["listener"], signal.SIGSTOP)
             last_awake.pop(u, None)
         for u in cont:
-            log(f"riprendo {u} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
+            log(f"riprendo {u}{' per fame (fermo da ' + str(int((now - served.get(u, now)) / 60)) + ' min)' if u in granted else ''} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
             if not dry:
                 os.kill(gov[u]["listener"], signal.SIGCONT)
             last_awake[u] = now
             served[u] = now
+        if cont:
+            try:
+                tmp = STATE + ".tmp"
+                json.dump(served, open(tmp, "w")); os.replace(tmp, STATE)
+            except OSError:
+                pass
         # rete: runner senza job da REAP_GRACE s ma con processi rimasti
         for u, r in gov.items():
             if r["worker"]:
