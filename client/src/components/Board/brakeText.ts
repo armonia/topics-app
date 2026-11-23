@@ -92,9 +92,9 @@ export function brakeChipView(brakes: readonly DispatchBrake[], nowMs: number, t
 export function spendWhy(s: SpendStop, nowMs: number, tr: Translate, locale: string): string {
   const tag = locale === 'en' ? 'en-GB' : 'it-IT';
   const money = (cents: number) => (cents / 100).toLocaleString(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const vars = { spent: money(s.spentCents), cap: money(s.capCents) };
-  if (s.untilMs === null) return tr('brake.why.spendOpen', vars);
-  return tr('brake.why.spend', { ...vars, when: whenLabel(s.untilMs, nowMs, tr, locale) });
+  const amounts = { spent: money(s.spentCents), cap: money(s.capCents) };
+  if (s.untilMs === null) return tr('brake.why.spendOpen', amounts);
+  return tr('brake.why.spend', { ...amounts, when: whenLabel(s.untilMs, nowMs, tr, locale) });
 }
 
 /** What the chip says: the spend cap when it holds a card, else the walls that hold one, else null (no chip). */
