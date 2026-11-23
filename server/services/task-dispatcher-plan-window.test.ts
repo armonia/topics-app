@@ -130,11 +130,19 @@ const HOUR = 3_600_000;
  *
  * At noon it is +1 hour as before; in the last hour of the day it is the
  * instant just before midnight, which stays today and is still in the future.
+ *
+ * The end of the day is 23:59:59.999, not 23:59:00: with the minute as the
+ * limit, a run started in the LAST MINUTE (23:59:xx) got a reset already in
+ * the past, `claudeEarlyStop` ignores a reset that has passed, and the card
+ * started: "Expected 0, Received 2" on the CI run of 22/11, whose unit shard
+ * crossed 23:59 (reproduced with the clock set to 23:59:30). Between now and
+ * the end of the day it takes the midpoint, so it is in the future by
+ * construction for any `nowMs` but the last millisecond.
  */
 function resetToday(nowMs: number = Date.now()): number {
   const endOfDay = new Date(nowMs);
-  endOfDay.setHours(23, 59, 0, 0);
-  return Math.min(nowMs + HOUR, endOfDay.getTime());
+  endOfDay.setHours(23, 59, 59, 999);
+  return Math.min(nowMs + HOUR, nowMs + Math.floor((endOfDay.getTime() - nowMs) / 2));
 }
 
 describe("il freno della finestra del piano", () => {
