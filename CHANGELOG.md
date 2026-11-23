@@ -5,9 +5,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.82 — 2026-11-23
 
 ### Sotto il cofano
+- ci-governor: mai congelare un Listener che sta prendendo un job
 - Give the stray-daemon fixture time to listen on a loaded machine
 - System health: jobs with no agent run as main, and problems read in the reader's language
 - Keep CI as the off switch of the real-temp check
+- ci-governor: dopo il SIGSTOP si rilegge, e se e' arrivato un job il Listener riparte subito
+- ci-governor: nel docstring la misura che scarta systemctl stop/start al posto di SIGSTOP
 
 ## 2.4.81 — 2026-11-23
 
@@ -36,14 +39,18 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database
 - I server SSH non mostrano più lo storico CPU e RAM del PC
 - Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese
+- Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
 - Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
 - Land pre-push probe: run the hook through sh on Windows
 - disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo
 - Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
+- ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
 - the nightly disk-budget check ships, so its two server modules are production code
 - engine-log: example chat ids no longer read as email accounts
 - drop the production entry for disk-budget-check, main already excludes its two pure modules
 - Security cards stay on the hub that measured the machine
+- ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)
+- ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)
 - Fix card id cited in worktree-discard comment
 - node-check-worktree test declares what it covers (LAND-04), and names its real card
 - Tools and the phone context follow the System page (T4)
