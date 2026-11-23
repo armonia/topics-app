@@ -88,9 +88,9 @@ export function engineVocabulary(home: string, turnChannels: string[] = []): Eng
 
 /**
  * Splits a channel prefix on `:`. The first piece that is a channel anchors it:
- * a piece before it is the account (`jarvis:whatsapp:1@g.us:`); when the channel
+ * a piece before it is the account (`jarvis:whatsapp:<group>@g.us:`); when the channel
  * comes first, the next piece is the account only if the engine knows it
- * (`discord:visione:2:3`), else it is already the chat (`whatsapp:1@g.us:`).
+ * (`discord:visione:2:3`), else it is already the chat (`whatsapp:<group>@g.us:`).
  */
 export function parseChannelPrefix(prefix: string, known: EngineVocabulary): { account: string; chat: string } {
   const parts = prefix.split(":").filter((p) => p !== "");
