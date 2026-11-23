@@ -117,7 +117,7 @@ describe('the 24h spend cap, which stops every card whatever its provider', () =
 
   test('the chip names the cap before the walls: spend, cap and restart', () => {
     const state = readBrakeAnswer(answer, NOW);
-    expect(queueChipView(state, NOW, tr, 'it')).toEqual({ who: 'Tetto di spesa', why: '35,59 su 30,00 USD in 24 h, riparte domani alle 01:56' });
+    expect(queueChipView(state, NOW, tr, 'it')).toEqual({ who: 'Spesa 24 h', why: '35,59 su 30 USD, riparte domani alle 01:56' });
     expect(queueChipView(readBrakeAnswer({ ...answer, spend: null }, NOW), NOW, tr, 'it')?.who).toBe('Claude');
   });
 
@@ -137,7 +137,7 @@ describe('the 24h spend cap, which stops every card whatever its provider', () =
   test('the reason reads in English too', () => {
     const en = (key: string, vars: Record<string, string | number> = {}) =>
       (BRAKES_EN[key] ?? key).replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? `{${k}}`));
-    expect(spendWhy(readBrakeAnswer(answer, NOW).spend!, NOW, en, 'en')).toBe('35.59 of 30.00 USD in 24 h, resumes tomorrow at 01:56');
+    expect(spendWhy(readBrakeAnswer(answer, NOW).spend!, NOW, en, 'en')).toBe('35.59 of 30 USD, resumes tomorrow at 01:56');
   });
 });
 
