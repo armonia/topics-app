@@ -168,6 +168,19 @@ describe("parser macOS", () => {
     expect(parseMacPendingUpdates(MAC_SU_CLEAN)).toEqual([]);
   });
 
+  test("aggiornamenti in attesa: con la versione installata l'età è la prima correzione saltata, non l'ultima offerta", () => {
+    // On 26.2 the Mac skipped 26.7.2 (26/10) before 26.7.3 (09/11): behind since 26/10.
+    expect(parseMacPendingUpdates(MAC_SU, "26.2\n")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-10-26T22:25:07Z") },
+    ]);
+    // Already on 26.7.2: only 26.7.3 is missing, its own offer date. A _major never counts.
+    expect(parseMacPendingUpdates(MAC_SU, "26.7.2")).toEqual([
+      { id: "MSU_UPDATE_25G342_patch_26.7.3_minor", offeredAt: Date.parse("2026-11-09T22:26:15Z") },
+    ]);
+    // An unreadable version falls back to the pending fix's own offer.
+    expect(parseMacPendingUpdates(MAC_SU, "boh")[0]?.offeredAt).toBe(Date.parse("2026-11-09T22:26:15Z"));
+  });
+
   test("FileVault e firewall", () => {
     expect(parseFileVault("FileVault is On.\n")).toBe("on");
     expect(parseFileVault("FileVault is Off.\n")).toBe("off");
