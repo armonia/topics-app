@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { _resetCodexBinCache } from '../lib/codex-bin';
-import { CodexProvider, KILL_GRACE_MS } from './codex';
+import { CodexProvider } from './codex';
+import { KILL_GRACE_MS } from './exec-turn';
 import { ClaudeCodeProvider } from './claude-code';
 import { sharedEgressProxyEnv } from '../lib/egress-proxy';
 

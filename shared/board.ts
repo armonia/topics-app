@@ -1823,6 +1823,12 @@ export interface CheckRun {
    */
   ciRunRed?: string;
   /**
+   * The head sha of the pull request CI run a CI evidence row was read from.
+   * The gate compares it with the commit it is measuring, so a row that
+   * describes an earlier head can never be written as a verdict of this one.
+   */
+  ciCommit?: string;
+  /**
    * A NOT MEASURED CI row whose cause passes by itself: no verdict before the
    * deadline, GitHub reads failing, a push or a draft refused by the network.
    * The same commit measured again can give a verdict, so the delivery waits

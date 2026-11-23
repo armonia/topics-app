@@ -44,10 +44,11 @@
  *         TOPICS_GATE_MAX_RUN_MS  wall-clock cap (default 60 min; 0 disables)
  *         TOPICS_GATE_KILL_GRACE_MS  SIGTERM → SIGKILL window (default 10s)
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { acquireSlot, defaultNameMaxWaitMs, reclaimAfterStop, slotCount, GATE_HELD_ENV, slotAcquiredLine, type SlotHold } from "./gate-slot.ts";
 import { slotQueuedAgainLine, slotWaitingLine } from "../shared/slot-acquired.ts";
+import { shellInvocation } from "./shell-invocation.ts";
 
 /**
  * THE LOCK PROTOCOL LIVES IN `gate-slot.ts`, not here any more: the same
@@ -113,22 +114,35 @@ if (slots > 0) {
 // ran (15/09/2026, two board checks side by side under `CI`).
 if (slots > 0) console.error(slotAcquiredLine(label, Date.now() - queuedSince, RUN));
 
-// `-c`, NOT `-lc`. A login shell sources the user's profile, and this machine's
-// profile exports a NODE_OPTIONS that eslint refuses to start under
+// `-c`, NOT `-lc` on POSIX. A login shell sources the user's profile, and this
+// machine's profile exports a NODE_OPTIONS that eslint refuses to start under
 // ("--disable-warning= is not allowed"). The wrapped command must run in the
 // same bare environment `bun run` would have given it, or wrapping a gate
 // changes its result — which is the one thing a throttle must never do.
+// `/bin/sh` does not exist on Windows (the reason this wrapper never started
+// there): see `shellInvocation` in `./shell-invocation.ts` for the Windows
+// equivalent.
+const { command: shellCommand, args: shellArgs } = shellInvocation(cmd);
 // `detached` per avere un GRUPPO di processi tutto suo. Un `bun test` appeso non
 // è mai un processo solo: è la shell, il runner e ciò che il runner ha spawnato.
 // Uccidere il solo pid della shell lascia in piedi proprio i figli che tengono
 // la memoria — e quelli erano il difetto. Con il gruppo, `kill(-pid)` li prende
 // tutti in un colpo.
+// Windows has no process groups: `signalTree` below walks the same tree by
+// PID with `taskkill /t` instead.
 // The slot this process is holding covers everything it launches: the marker
 // stops the preload inside a `bun test` child from queueing for a SECOND slot
 // behind its own parent, which with one free slot would be a deadlock.
-const child = spawn("/bin/sh", ["-c", cmd], {
+const child = spawn(shellCommand, shellArgs, {
   stdio: "inherit",
-  detached: true,
+  // `detached` on win32 puts the child in its own console with no inherited
+  // stdio pipes, so a red gate shows no output at all. Windows has no process
+  // groups anyway (see `signalTree` below): this flag only matters on POSIX.
+  detached: process.platform !== "win32",
+  // The command above is already a single quoted token on win32 (see
+  // `shellInvocation`); without this, Node re-quotes it and breaks nested
+  // double quotes like the ones `typecheck`/`lint` wrap `parallel.ts` in.
+  windowsVerbatimArguments: process.platform === "win32",
   env: { ...process.env, [GATE_HELD_ENV]: label || "gate" },
 });
 let done = false;
@@ -139,6 +153,10 @@ let timedOut = false;
 function signalTree(sig: NodeJS.Signals): void {
   const pid = child.pid;
   if (pid == null) return;
+  // No process groups on Windows, and child.kill() there terminates
+  // unconditionally regardless of signal — so SIGTERM and SIGKILL both land as
+  // one `taskkill`, which is already the whole tree (`/t`).
+  if (process.platform === "win32") { try { spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"]); } catch { /* already dead */ } return; }
   try { process.kill(-pid, sig); } catch { try { child.kill(sig); } catch { /* già morto */ } }
 }
 
