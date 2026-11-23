@@ -36,10 +36,12 @@ LOADLOG = os.environ.get("CI_LOAD_LOG", "/var/log/ci-load.log")
 KEEP_COMM = ("Runner.", "run.sh", "run-helper.sh", "runsvc.sh")
 
 
-def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP, rotate_s=ROTATE_S, extra=0):
+def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP, rotate_s=ROTATE_S, extra=0, served=None):
     """runners: {unit: {"worker": bool, "stopped": bool}} (solo i non esenti con un Listener).
     extra: suite Playwright lanciate a mano sul server con systemd-run (agenti): non sono job di un runner e
     non si fermano, ma pesano come un job e occupano un posto.
+    served: quando ogni runner e' stato ripreso l'ultima volta (resta anche dopo la pausa): il turno va a chi
+    aspetta da piu' tempo, senza di lui gli stessi due runner prendevano sempre i posti (22/11, CI di topics-app in coda 1 h 30).
     Ritorna (da_fermare, da_riprendere). Pura: niente I/O, provata da --selftest."""
     active = [u for u, r in runners.items() if r["worker"]]
     idle = [u for u, r in runners.items() if not r["worker"]]
@@ -61,7 +63,8 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     cont = []
     room = free - len(keep_awake)
     if room > 0:                                    # i fermi da più tempo per primi (mai svegliati = 0)
-        for u in sorted(stopped + [s for s in stale if s not in stopped], key=lambda u: last_awake.get(u, 0)):
+        served = served or {}
+        for u in sorted(stopped + [s for s in stale if s not in stopped], key=lambda u: (served.get(u, 0), u)):
             if u in stale:
                 continue                            # appena ceduto: il turno è degli altri
             if room == 0:
@@ -77,7 +80,7 @@ def selftest():
     st, co = D({"a": R(1, 0), "b": R(1, 0), "c": R(1, 0), "d": R(0, 0), "e": R(0, 1)}, 5, 100, {"d": 100})
     assert st == ["d"] and co == [], (st, co)
     # 2 in corso: un posto, parte il fermo da più tempo
-    st, co = D({"a": R(1, 0), "b": R(1, 0), "d": R(0, 1), "e": R(0, 1)}, 5, 100, {"d": 50, "e": 10})
+    st, co = D({"a": R(1, 0), "b": R(1, 0), "d": R(0, 1), "e": R(0, 1)}, 5, 100, {}, served={"d": 50, "e": 10})
     assert st == [] and co == ["e"], (st, co)
     # load sopra il tetto: nessuna ammissione anche con posti
     st, co = D({"a": R(1, 0), "d": R(0, 1)}, 30, 100, {})
@@ -94,6 +97,9 @@ def selftest():
     # due suite a mano e nessun job di runner: ne passa comunque uno (22/11: 9 Listener fermi, run in coda da 45 minuti)
     st, co = D({k: R(0, 1) for k in "abcde"}, 40, 100, {}, extra=3)
     assert len(co) == 1, co
+    # rotazione: con un solo posto il turno va a chi e' stato servito piu' tempo fa, non sempre agli stessi
+    st, co = D({"a": R(0, 1), "b": R(0, 1), "c": R(0, 1)}, 1, 100, {}, extra=2, served={"a": 90, "b": 50, "c": 10})
+    assert co == ["c"], co
     # nessun job: tre posti, tre svegli
     st, co = D({k: R(0, 1) for k in "abcde"}, 1, 100, {})
     assert st == [] and len(co) == 3, (st, co)
@@ -183,7 +189,7 @@ def main():
             print(f"{u:34} worker={int(r['worker'])} listener_fermo={int(r['stopped'])}{' (esente)' if u in EXEMPT else ''}")
         print(f"load1={os.getloadavg()[0]:.1f} job in corso={sum(r['worker'] for u, r in rs.items() if u not in EXEMPT)}/{MAX_JOBS}")
         return
-    last_awake, idle_since, last_load = {}, {}, 0
+    last_awake, idle_since, last_load, served = {}, {}, 0, {}
     log(f"avvio: tetto {MAX_JOBS} job, load1 massimo per ammetterne di nuovi {LOAD_CAP}, esenti {sorted(EXEMPT)}")
 
     def resume_all(*_):
@@ -209,7 +215,7 @@ def main():
             if not r["stopped"] and not r["worker"]:
                 last_awake.setdefault(u, now)
         extra = manual_suites()
-        stop, cont = decide(gov, load1, now, last_awake, extra=extra)
+        stop, cont = decide(gov, load1, now, last_awake, extra=extra, served=served)
         for u in stop:
             log(f"pausa {u} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
             if not dry:
@@ -220,6 +226,7 @@ def main():
             if not dry:
                 os.kill(gov[u]["listener"], signal.SIGCONT)
             last_awake[u] = now
+            served[u] = now
         # rete: runner senza job da REAP_GRACE s ma con processi rimasti
         for u, r in gov.items():
             if r["worker"]:
