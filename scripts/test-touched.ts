@@ -34,6 +34,8 @@
  * USAGE
  *   bun run test:touched                  diff against origin/main (or main)
  *   bun run test:touched --base origin/x  diff against another base
+ *   bun run test:touched --no-full        when the selection falls back to the whole suite,
+ *                                         run nothing (the pre-review: the CI runs the suite)
  *   bun run test:touched --list           print the selection, run nothing
  * The run itself goes through scripts/test-unit-shards.ts, behind the slot in
  * the package.json script.
@@ -299,6 +301,7 @@ async function main(): Promise<number> {
   const explicit = baseIdx < 0 ? null : argv[baseIdx].includes("=") ? argv[baseIdx].split("=")[1] : argv[baseIdx + 1];
   const base = explicit ?? ["origin/main", "main"].find(refExists) ?? "main";
   const listOnly = argv.includes("--list");
+  const noFull = argv.includes("--no-full");
 
   let selection: Selection & { changed: string[] };
   try {
@@ -306,6 +309,10 @@ async function main(): Promise<number> {
   } catch (e) {
     console.error(`test-touched: cannot select against ${base} (${(e as Error).message}); running the whole suite`);
     return runShards([], listOnly);
+  }
+  if (selection.kind === "full" && noFull) {
+    console.error(`test-touched: whole suite needed (${selection.reason}); left to the CI`);
+    return 0;
   }
   if (selection.kind === "full") {
     console.error(`test-touched: WHOLE SUITE, ${selection.reason}`);

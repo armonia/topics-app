@@ -16,8 +16,15 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { shellInvocation } from "./shell-invocation.ts";
 
 const SLOT = join(import.meta.dir, "slot.ts");
+
+// Portable one-liners: `sleep` and `exit N` are POSIX shell, cmd.exe has neither, and a
+// double-quoted `bun -e` body (no inner double quotes) parses the same in both.
+const sleepMs = (ms: number) => `bun -e "setTimeout(()=>{},${ms})"`;
+const exitWith = (code: number) => `bun -e "process.exit(${code})"`;
+const NOOP = exitWith(0);
 let dir = "";
 
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "slot-test-")); });
@@ -43,6 +50,30 @@ async function slot(cmd: string, opts: { slots?: number; ms?: number; graceMs?: 
   return { code, out, err };
 }
 
+describe("cross-platform shell invocation", () => {
+  // The bug this card fixes: slot.ts hard-coded /bin/sh, which does not exist
+  // on Windows, so every gate wrapped by this script never started there.
+  test("win32 runs the command through cmd.exe, not /bin/sh", () => {
+    const { command, args } = shellInvocation("echo hi", "win32");
+    expect(command).toBe("cmd.exe");
+    expect(args).toEqual(["/d", "/s", "/c", `"echo hi"`]);
+  });
+
+  test("win32 keeps nested double quotes whole, one quoted token after /c", () => {
+    // typecheck/lint wrap scripts/parallel.ts with one command per nested
+    // quoted argument: `cmd.exe /c` only parses that correctly as ONE token.
+    const nested = `bun run scripts/parallel.ts "bun run a" "bun run b"`;
+    const { args } = shellInvocation(nested, "win32");
+    expect(args[args.length - 1]).toBe(`"${nested}"`);
+  });
+
+  test("posix keeps using /bin/sh -c", () => {
+    const { command, args } = shellInvocation("echo hi", "linux");
+    expect(command).toBe("/bin/sh");
+    expect(args).toEqual(["-c", "echo hi"]);
+  });
+});
+
 describe("the command always runs", () => {
   test("output comes through and a success stays a success", async () => {
     const r = await slot("echo ciao");
@@ -53,7 +84,7 @@ describe("the command always runs", () => {
   test("the exit code is the command's, not the wrapper's", async () => {
     // A gate that fails must still fail. Swallowing this is how a red suite
     // would start reporting green through the throttle.
-    expect((await slot("exit 7")).code).toBe(7);
+    expect((await slot(exitWith(7))).code).toBe(7);
   });
 
   test("with the throttle switched off it still runs", async () => {
@@ -65,9 +96,9 @@ describe("the command always runs", () => {
   test("with the throttle off it does not claim a slot it never took", async () => {
     // 15/09/2026: board checks under `CI` ran with the semaphore off, and the
     // card still read "0 s in the queue" from this line, as if it had worked.
-    const off = await slot("true", { slots: 0 });
+    const off = await slot(NOOP, { slots: 0 });
     expect(off.err).not.toContain("[slot] acquired");
-    const on = await slot("true", { slots: 1 });
+    const on = await slot(NOOP, { slots: 1 });
     expect(on.err).toContain("[slot] acquired");
   });
 
@@ -83,7 +114,11 @@ describe("the command always runs", () => {
   });
 });
 
-describe("un comando appeso viene abbattuto", () => {
+describe.skipIf(process.platform === "win32")("un comando appeso viene abbattuto", () => {
+  // `sleep`, `&`, `$!`, `wait` are POSIX shell, not something `cmd.exe`
+  // understands: these measure the kill-the-tree behaviour on the shell this
+  // machine actually has, not slot.ts's cross-platform wiring (see the
+  // "win32 wiring" describe above for that).
   // Il 2026-08-14 c'erano tre alberi `bun test` vivi da 12, 18 e 22 ore con
   // pochi minuti di CPU in tutto: fermi, non lenti. Non davano né verde né
   // rosso e tenevano il loro slot. Questi test misurano che ora danno rosso.
@@ -143,8 +178,8 @@ describe("it actually excludes", () => {
     // names, so what is measured is the count and not the per-name lock below.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1", { slots: 1, label: "alpha" }),
-      slot("sleep 1", { slots: 1, label: "beta" }),
+      slot(sleepMs(1000), { slots: 1, label: "alpha" }),
+      slot(sleepMs(1000), { slots: 1, label: "beta" }),
     ]);
     const elapsed = Date.now() - started;
     expect(a.code).toBe(0);
@@ -155,8 +190,8 @@ describe("it actually excludes", () => {
   test("two slots let two DIFFERENT gates through together", async () => {
     const started = Date.now();
     await Promise.all([
-      slot("sleep 1", { slots: 2, label: "alpha" }),
-      slot("sleep 1", { slots: 2, label: "beta" }),
+      slot(sleepMs(1000), { slots: 2, label: "alpha" }),
+      slot(sleepMs(1000), { slots: 2, label: "beta" }),
     ]);
     expect(Date.now() - started).toBeLessThan(1_900);
   }, 20_000);
@@ -168,8 +203,8 @@ describe("it actually excludes", () => {
     // wait the second one runs anyway rather than blocking a gate.
     const started = Date.now();
     const [a, b] = await Promise.all([
-      slot("sleep 1", { slots: 2, label: "lint" }),
-      slot("sleep 1", { slots: 2, label: "lint", maxWaitMs: 15_000 }),
+      slot(sleepMs(1000), { slots: 2, label: "lint" }),
+      slot(sleepMs(1000), { slots: 2, label: "lint", maxWaitMs: 15_000 }),
     ]);
     expect(a.code).toBe(0);
     expect(b.code).toBe(0);
@@ -179,5 +214,24 @@ describe("it actually excludes", () => {
   test("the slot comes back when the command is done", async () => {
     await slot("echo x");
     expect(readdirSync(dir).filter((f) => f.endsWith(".pid"))).toEqual([]);
+  });
+});
+
+describe("the win32 wiring, not just the helper it could stop calling", () => {
+  // Runtime assertions above still pass if slot.ts quietly goes back to
+  // `spawn("/bin/sh", ["-c", cmd])` or drops the win32 branch of
+  // `signalTree`: on this (POSIX) machine nothing exercises either path.
+  // This reads the source itself so that mutant stays red.
+  const source = readFileSync(SLOT, "utf8");
+
+  test("slot.ts picks its shell through shellInvocation, not a hard-coded /bin/sh", () => {
+    expect(source).toContain("shellInvocation(cmd)");
+    // The literal (not its mentions in comments documenting this very fix).
+    expect(source).not.toContain('"/bin/sh"');
+  });
+
+  test("signalTree's win32 branch kills the tree with taskkill", () => {
+    const win32Branch = source.slice(source.indexOf('"win32"'), source.indexOf("process.kill(-pid"));
+    expect(win32Branch).toContain("taskkill");
   });
 });

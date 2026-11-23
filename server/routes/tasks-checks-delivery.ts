@@ -7,11 +7,11 @@ import { mintSessionToken, SESSION_TOKEN_HEADER } from "../lib/session-token";
 import { topicsHome } from "../services/daemon-state";
 import { type Task } from "../services/tasks";
 import { type RealignOutcome } from "../services/task-automerge";
-import { FAST_GATES_CHECK, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type CheckRun, type ReviewCheck } from "../services/review-checks";
+import { FAST_GATES_CHECK, TOUCHED_TESTS_CHECK, hasTouchedTests, checksVerdict, formatChecksComment, formatChecksThreadSummary, formatChecksWait, hasFastGates, runReviewChecks, type CheckRun, type ReviewCheck } from "../services/review-checks";
 import { ChecksInterruptedError, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured, ciRemeasurable } from "../services/ci-evidence";
+import { ciNotMeasured, ciRemeasurable, ciRowOfThisHead } from "../services/ci-evidence";
 import type { TasksCore, TasksLate } from "./tasks-scope";
 
 /** How many pre-review check runs may execute at once (see `createChecksGate`). */
@@ -503,7 +503,13 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
     // costs seconds here instead of a queued CI run. The list lives in the
     // `gates:fast` script, the one CI runs as well. A project without it
     // (any repo but this one) is measured exactly as before.
-    if (hasFastGates(ref.cwd)) checks = [FAST_GATES_CHECK, ...checks.filter((c) => c.cmd !== FAST_GATES_CHECK.cmd)];
+    // The tests of the touched files come right after, on this machine: a red
+    // one bounces the delivery like any other check, with its output.
+    const own = [
+      ...(hasFastGates(ref.cwd) ? [FAST_GATES_CHECK] : []),
+      ...(hasTouchedTests(ref.cwd) ? [TOUCHED_TESTS_CHECK] : []),
+    ];
+    if (own.length) checks = [...own, ...checks.filter((c) => !own.some((o) => o.cmd === c.cmd))];
     // The CI evidence rows never reach a shell: they are read after the local commands.
     const localChecks = checks.filter((c) => !isCiEvidenceCheck(c));
     const ciChecks = checks.filter(isCiEvidenceCheck);
@@ -598,11 +604,19 @@ export function createTasksChecksDelivery(core: TasksCore, late: TasksLate) {
             broadcastToAll({ type: "task:updated", projectId, task: t });
           } catch { /* a link lost does not stop the gate */ }
         };
+        // A row that describes another head is checked HERE, before the
+        // remeasure loop below: as a transient NOT MEASURED it is read again
+        // on this head instead of closing the round.
         const readCi = () => ref.commit && opts?.ciEvidence
-          ? opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait }).catch((err: unknown) => {
-            if (err instanceof ChecksInterruptedError) throw err;
-            return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`, true);
-          })
+          ? opts.ciEvidence({ cwd: ref.cwd, sha: ref.commit, taskId, checks: ciChecks, onCiWait })
+            .then((rows) => rows.map((row) => {
+              const check = ciChecks.find((c) => c.cmd === row.cmd);
+              return check ? ciRowOfThisHead(row, check, ref.commit) : row;
+            }))
+            .catch((err: unknown) => {
+              if (err instanceof ChecksInterruptedError) throw err;
+              return unread(`the CI evidence reader failed: ${err instanceof Error ? err.message : String(err)}`, true);
+            })
           : Promise.resolve(unread(ref.commit ? "no CI evidence reader on this server" : "the worktree has no commit"));
         let ciRuns = await readCi();
         // A ROUND WITHOUT A VERDICT IS MEASURED AGAIN, NOT HANDED BACK. Only a
