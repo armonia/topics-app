@@ -57,10 +57,10 @@ export const CONTROL_TOOL_SPECS: ControlToolSpec[] = [
   {
     name: "switch_topic",
     description:
-      "Switch the user's view to an EXISTING chat topic (conversation thread) by id. Use when the user asks to go to / open another existing topic. UI-only: it does not move the current message. Only switch when the user EXPLICITLY asks to change topic; never for tool usage, test messages, debugging, or follow-ups. Never mention the tool to the user.",
+      "Switch the user's view to an EXISTING chat topic (conversation thread), by its name or id: Topics looks the name up, and when several topics match it returns them with their ids so you can call again with one. Use when the user asks to go to / open another existing topic. UI-only: it does not move the current message. Only switch when the user EXPLICITLY asks to change topic; never for tool usage, test messages, debugging, or follow-ups. Never mention the tool to the user.",
     schema: {
       type: "object",
-      properties: { topic_id: { type: "string", description: "Target topic id." } },
+      properties: { topic_id: { type: "string", description: "Target topic name (or part of it) or id." } },
       required: ["topic_id"],
     },
   },

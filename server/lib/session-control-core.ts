@@ -26,7 +26,8 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 /** The subset of AppContext the switch/create cores dereference. */
 export interface SessionControlDeps {
   getTopicById: (id: string) => Topic | null;
-  loadTopics: () => { topics: Record<string, Topic> };
+  /** `{ archived: false }` asks the store for the live half only (it has it on an index). */
+  loadTopics: (filter?: { archived?: boolean }) => { topics: Record<string, Topic> };
   saveSingleTopic: (topic: Topic) => void;
   slugify: (name: string) => string;
   broadcastToAll: (message: OutboundMessage) => void;
@@ -34,10 +35,71 @@ export interface SessionControlDeps {
 
 export type SwitchTopicResult =
   | { ok: true; toTopicId: string }
-  | { ok: false; code: "not_found" | "archived"; message: string };
+  | { ok: false; code: "not_found" | "archived" | "ambiguous"; message: string };
+
+/** How many candidates an ambiguous name lists back to the model. */
+const MAX_CANDIDATES = 10;
+
+function normalizeName(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function candidateLine(t: Topic): string {
+  const project = t.projectPath ? ` (project: ${t.projectPath.split("/").pop()})` : "";
+  return `- ${t.id}: ${t.name}${project}`;
+}
 
 /**
- * Switch the user's view from `current` to an EXISTING topic by id. UI-only: it
+ * Turns what the model passed into ONE live topic: an id, or a name.
+ *
+ * Why a name is accepted: the context used to carry a directory of every live
+ * topic so the model could pick an id. On 23/11/2026 that was 33.5k characters
+ * (328 lines of UUIDs, 28% of a project chat's context), and with ~755 topics
+ * created a day it changed every couple of minutes, so it was resent or broke
+ * the cache almost every turn. Looking the topic up when the switch is asked
+ * for costs one query instead.
+ *
+ * Exact name first, then a substring of it; a tie in the current project wins.
+ * Anything still ambiguous comes back with the candidates and their ids, so the
+ * model can call again with the id instead of guessing.
+ */
+function resolveSwitchTarget(
+  current: Topic,
+  ref: string,
+  deps: SessionControlDeps,
+): { ok: true; topic: Topic } | { ok: false; code: "not_found" | "ambiguous"; message: string } {
+  const byId = deps.getTopicById(ref);
+  if (byId) return { ok: true, topic: byId };
+
+  const wanted = normalizeName(ref);
+  if (!wanted) return { ok: false, code: "not_found", message: "target topic not found" };
+  const live = Object.values(deps.loadTopics({ archived: false }).topics)
+    .filter((t) => !t.archived && t.id !== current.id);
+
+  const pick = (matches: Topic[]): Topic[] => {
+    if (matches.length <= 1 || !current.projectPath) return matches;
+    const sameProject = matches.filter((t) => t.projectPath === current.projectPath);
+    return sameProject.length === 1 ? sameProject : matches;
+  };
+  const exact = pick(live.filter((t) => normalizeName(t.name) === wanted));
+  const matches = exact.length ? exact : pick(live.filter((t) => normalizeName(t.name).includes(wanted)));
+
+  if (matches.length === 1) return { ok: true, topic: matches[0] };
+  if (matches.length === 0) {
+    return { ok: false, code: "not_found", message: `target topic not found: no live topic has the id or a name matching "${ref}"` };
+  }
+  const shown = matches.slice(0, MAX_CANDIDATES).map(candidateLine).join("\n");
+  const more = matches.length > MAX_CANDIDATES ? `\n(${matches.length - MAX_CANDIDATES} more: use a longer name)` : "";
+  return {
+    ok: false,
+    code: "ambiguous",
+    message: `${matches.length} topics match "${ref}". Call switch_topic again with one of these ids:\n${shown}${more}`,
+  };
+}
+
+/**
+ * Switch the user's view from `current` to an EXISTING topic, by id or by name
+ * (`resolveSwitchTarget`). UI-only: it
  * emits the `topic:switch` broadcast (same shape the marker path used) but does
  * NOT migrate the in-flight message — a tool call can't reproduce the marker's
  * mid-turn surgery, and switch is UI-only by design.
@@ -47,11 +109,12 @@ export type SwitchTopicResult =
  */
 export function switchTopicCore(
   current: Topic,
-  targetId: string,
+  targetRef: string,
   deps: SessionControlDeps,
 ): SwitchTopicResult {
-  const target = deps.getTopicById(targetId);
-  if (!target) return { ok: false, code: "not_found", message: "target topic not found" };
+  const resolved = resolveSwitchTarget(current, targetRef, deps);
+  if (!resolved.ok) return resolved;
+  const target = resolved.topic;
   if (target.archived) return { ok: false, code: "archived", message: "target topic is archived" };
   deps.broadcastToAll({
     type: "topic:switch",
