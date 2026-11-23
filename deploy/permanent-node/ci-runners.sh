@@ -23,7 +23,9 @@
 # - HOME=/srv/rh-<i>: ci.yml derives the e2e port band from it (13910 + (i-1)*10);
 # - ci.slice with a high CPU weight (500) and a memory ceiling: on this box the CI comes first on CPU
 #   and Topics (100) takes the machine when the CI is idle (decision of 10/11, applied 22/11);
-# - a job-completed hook kills what a job left running in the runner's cgroup.
+# - a job-completed hook kills what a job left running in the runner's cgroup;
+# - ci-governor (ci-governor.py): at most CI_MAX_JOBS jobs at once on the whole server, all repos, and a
+#   reaper for what a cancelled job leaves behind (the hook above does not run on cancel).
 set -euo pipefail
 : "${REG_TOKEN:?registration token}"
 pending=0
@@ -164,8 +166,16 @@ for i in 0 $(seq 1 "$N"); do
       --url "$URL" --name "$name" --labels "$l" --no-default-labels --replace) >"/var/log/ci-runner-$i.log" 2>&1
   fi
 done
+# Cap on the parallel jobs of the whole server (every repo that has runners here, not only
+# topics-app): ci-governor.py pauses the Listeners of idle runners over the cap, so the jobs
+# wait queued on GitHub. node-pool copies both files next to this script.
+install -m 755 /root/ci-governor.py /usr/local/sbin/ci-governor
+install -m 644 /root/ci-governor.service /etc/systemd/system/ci-governor.service
 systemctl daemon-reload
 systemctl enable ci-firewall.service >/dev/null
+systemctl enable ci-governor.service >/dev/null
+# restart only when the code changed: a restart resumes every Listener and starts over (harmless, never a lost job)
+systemctl restart ci-governor.service
 systemctl restart ci-firewall.service  # a re-run must apply the rules it just wrote
 # Same value as precedenza.conf: a runtime property outranks every drop-in, so it must never disagree.
 systemctl set-property --runtime topics.service CPUWeight=100 2>/dev/null || true
