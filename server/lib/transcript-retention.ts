@@ -10,8 +10,8 @@
  * message is already stored in `topics.db` by the server itself — they are
  * the CLI's OWN resumption log, replayed only to detect a sub-agent's
  * completion event. Deleting them loses nothing a user can see in the app, so
- * pruning this folder is a different case from `media/` (FUORI of the card
- * this module was written for: never delete REFERENCED user data; see
+ * pruning this folder is a different case from `media/` (this card is
+ * scoped to never delete REFERENCED user data; see
  * `media-retention.ts` for why that one stays opt-in).
  *
  * Even so, this module never deletes: a `.jsonl` older than the configured

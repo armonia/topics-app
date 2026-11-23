@@ -6,8 +6,8 @@
  * `transcript-retention.ts`. A file under `media/` is routinely REFERENCED
  * from a live row — a message's `MEDIA:<path>` line, a task's
  * `preview_image` — and this check (`scripts/disk-budget-check.ts`)
- * deliberately never opens the live database (G5's own FUORI: this card
- * never touches it), so it has no way to tell a still-referenced file from
+ * deliberately never opens the live database (this card is scoped to never
+ * touch it), so it has no way to tell a still-referenced file from
  * an orphaned one. Deleting an unverified file here risks exactly what the
  * card rules out: user data gone with no copy. So the default keeps every
  * file, and deletion only runs once an operator sets
