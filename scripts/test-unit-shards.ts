@@ -550,8 +550,9 @@ if (import.meta.main) {
   // it (a CI runner); on a developer machine other programs add entries all the time.
   // `CI` alone is not that: the board's pre-review checks set `CI=1` on the developer
   // machine too, and there the hub and native builds wrote into the real temp folder
-  // and turned card 8e9c2873 red with no test at fault. `GITHUB_ACTIONS` is set only by a runner.
-  const escaped = process.env.GITHUB_ACTIONS === "true"
+  // and turned card 8e9c2873 red with no test at fault. `GITHUB_ACTIONS` is set only by a runner,
+  // and `CI` stays required so a caller that unsets it still switches the check off.
+  const escaped = process.env.CI && process.env.GITHUB_ACTIONS === "true"
     ? OUTER_TEMP_ROOTS.flatMap((dir, i) =>
         newEntries(outerBefore[i]!, dir)
           // The short base `testTmpDir` makes on purpose: what is INSIDE it is judged by the second root.
