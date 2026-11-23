@@ -423,6 +423,7 @@ const IT: Dict = {
   'goal.notCompacted': 'piano del turno, non sopravvive alla compattazione',
   'goal.loop.continuing': 'Obiettivo: continuo ({n})',
   'goal.loop.capped': "Obiettivo: auto-continuazione fermata, troppi turni di fila",
+  'hook.turnEnd.continuing': 'Hook di fine turno',
   'chat.dispatchEnvelope.line': 'Turno della board: l\u2019ha aperto il dispatcher',
   'chat.dispatchEnvelope.show': 'mostra il testo',
   'chat.dispatchEnvelope.hide': 'nascondi il testo',
