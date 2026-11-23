@@ -8,7 +8,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Give the stray-daemon fixture time to listen on a loaded machine",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "System health: jobs with no agent run as main, and problems read in the reader's language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep CI as the off switch of the real-temp check",
           "en": "",
           "scope": null
         }
@@ -195,6 +205,21 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Trace the node check worktree test to LAND-19",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Widen the spawn cap in the hung-git slim test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Judge real-temp escapes only on a CI runner",
+          "en": "",
+          "scope": null
         }
       ]
     }

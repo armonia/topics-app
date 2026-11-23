@@ -5,7 +5,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.82 — 2026-11-23
 
 ### Sotto il cofano
+- Give the stray-daemon fixture time to listen on a loaded machine
 - System health: jobs with no agent run as main, and problems read in the reader's language
+- Keep CI as the off switch of the real-temp check
 
 ## 2.4.81 — 2026-11-23
 
@@ -45,6 +47,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Fix card id cited in worktree-discard comment
 - node-check-worktree test declares what it covers (LAND-04), and names its real card
 - Tools and the phone context follow the System page (T4)
+- Trace the node check worktree test to LAND-19
+- Widen the spawn cap in the hung-git slim test
+- Judge real-temp escapes only on a CI runner
 
 ## 2.4.80 — 2026-11-22
 
