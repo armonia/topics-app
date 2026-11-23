@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.88 — 2026-11-23
+
+### Sotto il cofano
+- Node check checkouts no longer outlive the server that opened them
+- A turn-end hook can ask the agent to carry on, like Claude Code's Stop
+- Draw the turn-end hook's continuation as one service line
+- Prove the hook continuation on the real chat route
+- Hook continuation: count the chain on the rows, and never race a newer turn
+- Hook continuation: keep a retried hook row marked, and yield only to a turn the goal loop really bought
+- A reply the output cap cut is still an answer
+- hook-continuation: header comment in English (comment-language gate)
+
 ## 2.4.87 — 2026-11-23
 
 ### Correzioni

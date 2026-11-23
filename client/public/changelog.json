@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.4.88",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Node check checkouts no longer outlive the server that opened them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn-end hook can ask the agent to carry on, like Claude Code's Stop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Draw the turn-end hook's continuation as one service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prove the hook continuation on the real chat route",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook continuation: count the chain on the rows, and never race a newer turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook continuation: keep a retried hook row marked, and yield only to a turn the goal loop really bought",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reply the output cap cut is still an answer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "hook-continuation: header comment in English (comment-language gate)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.87",
     "date": "2026-11-23",
     "sections": {
