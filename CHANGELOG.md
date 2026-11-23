@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.87 — 2026-11-23
+
+### Correzioni
+- **security** · BitLocker never turned on answers 0, read it as off
+- **security** · keep machine-security.ts at its 813-line bloat baseline
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-23 [skip ci]
+
 ## 2.4.86 — 2026-11-23
 
 ### Sotto il cofano

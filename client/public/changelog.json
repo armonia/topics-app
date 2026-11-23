@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.4.87",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "BitLocker never turned on answers 0, read it as off",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "keep machine-security.ts at its 813-line bloat baseline",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-23 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.86",
     "date": "2026-11-23",
     "sections": {

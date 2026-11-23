@@ -1,5 +1,23 @@
 [
   {
+    "version": "2.4.87",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "BitLocker never turned on answers 0, read it as off",
+          "scope": "security"
+        },
+        {
+          "text": "keep machine-security.ts at its 813-line bloat baseline",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.81",
     "date": "2026-11-23",
     "sections": {
