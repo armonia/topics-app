@@ -1,8 +1,8 @@
 /**
  * When a card title says "I am one of a series".
  *
- * Agents open work in numbered batches: "Lavori programmati 3/8: consegna ...",
- * "Due repo T5: hub generico ...". Left alone, every batch fills the board with
+ * Agents open work in numbered batches: "Scheduled jobs 3/8: ship the report ...",
+ * "Two repos T5: generic hub ...". Left alone, every batch fills the board with
  * N sibling cards and no card that says what the batch is. The board groups them
  * under one milestone card, and the first step is recognising the title: this
  * module. Pure on purpose: text in, verdict out, no database and no clock, so
@@ -10,15 +10,15 @@
  *
  * Two schemas are recognised, and the schema is part of the series identity:
  *
- *   "<prefix> N/M"   a fraction, N <= M, M >= 2 ("Lavori programmati 3/8: ...")
- *   "<prefix> T<n>"  a tag, capital T and a number ("Due repo T5: ...")
+ *   "<prefix> N/M"   a fraction, N <= M, M >= 2 ("Scheduled jobs 3/8: ...")
+ *   "<prefix> T<n>"  a tag, capital T and a number ("Two repos T5: ...")
  *
  * The prefix is the text BEFORE the counter, with trailing spaces and colons
  * removed. It is deterministic: the same title always gives the same prefix, and
  * the milestone card is named with exactly that text.
  *
- * What is deliberately NOT a series: a date ("Riunione 12/11": N > M), a lone
- * number ("Fix 24/7": N > M), a title with no prefix ("3/8: consegna"), and a
+ * What is deliberately NOT a series: a date ("Meeting 12/11": N > M), a lone
+ * number ("Fix 24/7": N > M), a title with no prefix ("3/8: ship it"), and a
  * prefix with no letters. A false positive here is cheap (a series needs a
  * sibling before anything is grouped) but a missed series is the whole defect,
  * so the shapes accepted are the two the agents really write.
