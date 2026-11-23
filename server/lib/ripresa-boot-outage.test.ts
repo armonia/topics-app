@@ -9,12 +9,16 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
-import { resumeCapNotice, resumeVerdict, riprendiTurniInterrotti } from "./ripresa-boot";
+import { MAX_RESUME_ATTEMPTS, resumeVerdict, riprendiTurniInterrotti } from "./ripresa-boot";
+import { capLastCut, capNotice } from "./resume-notices";
 import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { avvisoPerTurno } from "./cancelled-notice";
 import { clearProviderHold, setProviderHold } from "./provider-hold";
 import { cancelled } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
+
+const resumeCapNotice = (opts: { restarted: boolean; cause?: unknown }): string =>
+  capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
 
 type Row = Parameters<typeof resumeVerdict>[0];
 

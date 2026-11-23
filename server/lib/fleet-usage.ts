@@ -389,7 +389,7 @@ function finish(
  * interval), which the `ps time` delta counts as zero.
  */
 let machineCpuSource: () => number | null = () => { try { return machineCpuPct(); } catch { return null; } };
-/** @internal */
+/** @internal Test seam: swaps the machine CPU probe for a fixed reading; the real probe depends on the host. */
 export function _setMachineCpuSource(fn: (() => number | null) | null): void {
   machineCpuSource = fn ?? (() => { try { return machineCpuPct(); } catch { return null; } });
 }
@@ -429,7 +429,7 @@ const readChildrenCpuSeconds: () => number | null = (() => {
 
 /** Where the children's CPU seconds come from, injectable for a test. */
 let childrenCpuSource: () => number | null = readChildrenCpuSeconds;
-/** @internal */
+/** @internal Test seam: swaps the children CPU probe for a fixed reading; the real probe depends on the host. */
 export function _setChildrenCpuSource(fn: (() => number | null) | null): void {
   childrenCpuSource = fn ?? readChildrenCpuSeconds;
   prevChildren = null;

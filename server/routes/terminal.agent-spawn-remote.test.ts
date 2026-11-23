@@ -16,7 +16,8 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
 import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
-import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import type { AppContext } from "../types";
 
 const AGENT_TOKEN = "f".repeat(64);

@@ -145,10 +145,13 @@ beforeAll(async () => {
   topic(PARENT, "claude-sonnet-5-5[1m]");
   topic(OTHER_PARENT, null);
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
+  const sharedMod = await import("../../server/routes/terminal-shared");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-  terminal._setAgentProfilesHome(HOME);
-  terminal._setTerminalTrackerForTests(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
+  childrenMod._setAgentProfilesHome(HOME);
+  sharedMod._setTerminalTrackerForTests(null);
   terminal.setSubAgentExitHandler((info) => { reports.push(info); info.settle?.(); });
   router = terminal.createTerminalRouter(ctx) as typeof router;
   const native = await import("../../server/lib/native-subagents");
@@ -175,11 +178,13 @@ afterAll(async () => {
   const native = await import("../../server/lib/native-subagents");
   native._resetNativeSubagents();
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
-  terminal._setAgentProfilesHome(null);
+  childrenMod._setAgentProfilesHome(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }

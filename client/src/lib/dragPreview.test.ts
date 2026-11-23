@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
-  startDragPreview, endDragPreview, dragPreviewActive, DRAG_PREVIEW_ATTR,
+  startDragPreview, endDragPreview, DRAG_PREVIEW_ATTR,
 } from './dragPreview';
 
 /**
@@ -198,7 +198,6 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
     expect(() => {
       startDragPreview({ clientX: 10, clientY: 12, dataTransfer: null }, { title: 'Senza trasporto' });
     }).not.toThrow();
-    expect(dragPreviewActive()).toBe(true);
     expect(mountedPreviews().length).toBe(1);
   });
 
@@ -225,7 +224,7 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
 describe('endDragPreview: spegne davvero, e regge piu di una chiamata', () => {
 
   test('spegnere senza aver mai acceso non lancia', () => {
-    expect(dragPreviewActive()).toBe(false);
+    expect(mountedPreviews().length).toBe(0);
     expect(() => endDragPreview()).not.toThrow();
   });
 });
