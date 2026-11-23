@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.85",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.82",
     "date": "2026-11-23",
     "sections": {

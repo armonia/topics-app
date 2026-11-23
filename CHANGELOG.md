@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.85 — 2026-11-23
+
+### Sotto il cofano
+- Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)
+
 ## 2.4.82 — 2026-11-23
 
 ### Sotto il cofano
