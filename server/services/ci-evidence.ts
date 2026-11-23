@@ -403,6 +403,20 @@ export function ciRemeasurable(rows: readonly CheckRun[]): boolean {
   return rows.some((r) => r.notMeasured === true && r.transient === true);
 }
 
+/**
+ * A CI ROW BELONGS TO THE HEAD IT WAS READ ON. A row that names the head of its
+ * run and that head is not the commit being measured is evidence of an earlier
+ * delivery (a green run of the previous tip next to a queued run of the new one),
+ * and writing it as a verdict of this commit lands code nobody measured. It
+ * becomes a transient NOT MEASURED row, so the round is measured again.
+ */
+export function ciRowOfThisHead(row: CheckRun, check: ReviewCheck, commit: string | null): CheckRun {
+  if (!row.ciCommit || !commit) return row;
+  const n = Math.min(row.ciCommit.length, commit.length);
+  if (n >= 7 && row.ciCommit.slice(0, n) === commit.slice(0, n)) return row;
+  return ciNotMeasured(check, `the CI evidence describes commit ${row.ciCommit.slice(0, 8)}, not ${commit.slice(0, 8)}`, { transient: true });
+}
+
 /** A SKIPPED row: nothing of this card's own to measure. `ok: true`, so the review gate lets the delivery through; `skipped: true`, so the card never reads it as a verdict GitHub never gave. */
 export function ciSkipped(check: ReviewCheck, reason: string): CheckRun {
   return { name: check.name, cmd: check.cmd, ok: true, code: 0, ms: 0, timedOut: false, skipped: true, tail: `SKIPPED: ${reason}` };
@@ -426,6 +440,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   if (outcome.kind === "pass") {
     return {
       name: check.name, cmd: check.cmd, ok: true, code: 0, ms, timedOut: false,
+      ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
       tail: [`${label} green on the pull request CI`, ...contextLines(outcome.run, ctx), jobList].join("\n"),
     };
   }
@@ -437,6 +452,7 @@ export function ciCheckRun(check: ReviewCheck, outcome: Exclude<CiEvidence, { ki
   return {
     name: check.name, cmd: check.cmd, ok: false, code: 1, ms, timedOut: false,
     ...(elsewhere ? { ciRunRed: elsewhere } : {}),
+    ...(outcome.run ? { ciCommit: outcome.run.head_sha } : {}),
     tail: [
       `${label} red on the pull request CI: ${outcome.failed.map((j) => j.name).join(", ")}`,
       ...(elsewhere ? [`look there first, the shards stop when unit or gates is red: ${elsewhere}`] : []),

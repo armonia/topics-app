@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ogni notte misura la cartella dati contro il DB vivo e la pota (vedi
+  scripts/disk-budget-check.ts e server/lib/disk-budget.ts). Un rosso nel log
+  è il segnale: niente qui cancella altro che i log scaduti.
+  È un MODELLO: i segnaposto __BUN__ __REPO__ __HOME__ __LOG__ li riempie
+  l'installatore (perche' un modello e non il file vero: vedi il plist del backup).
+    bun scripts/install-db-snapshot.ts --job disk-budget-check
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.armonia.topics-disk-budget-check</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__BUN__</string>
+		<string>scripts/disk-budget-check.ts</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__REPO__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>__HOME__</string>
+		<key>PATH</key>
+		<string>/usr/bin:/bin:/usr/sbin:/opt/homebrew/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>4</integer>
+		<key>Minute</key>
+		<integer>55</integer>
+	</dict>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>__LOG__</string>
+	<key>StandardErrorPath</key>
+	<string>__LOG__</string>
+</dict>
+</plist>

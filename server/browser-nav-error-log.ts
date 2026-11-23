@@ -24,7 +24,7 @@ export interface NavErrorLogEntry {
 }
 
 /** `16:03` — the clock a human reads, from an epoch ms the wire sent. */
-function hhmm(at: number): string {
+function clockTime(at: number): string {
   const d = new Date(at);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
@@ -36,7 +36,7 @@ function hhmm(at: number): string {
  * it (or for "nav error") finds this one too.
  */
 export function formatNavErrorLogLine(e: NavErrorLogEntry): string {
-  return `[BrowserService] native nav error on ${e.paneId} → ${e.host} (code ${e.code}) at ${hhmm(e.at)}: ${e.description}`;
+  return `[BrowserService] native nav error on ${e.paneId} → ${e.host} (code ${e.code}) at ${clockTime(e.at)}: ${e.description}`;
 }
 
 export function logNavError(e: NavErrorLogEntry, sink: (line: string) => void = console.warn): void {
