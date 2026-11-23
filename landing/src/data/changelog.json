@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.81",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "ssh-only servers stop timing out to «unknown»",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.77",
     "date": "2026-11-22",
     "sections": {
@@ -23,7 +37,12 @@
           "scope": "machines"
         }
       ],
-      "fixes": [],
+      "fixes": [
+        {
+          "text": "credito finito = limite che riprende da solo, non errore",
+          "scope": "motore"
+        }
+      ],
       "perf": []
     }
   },
