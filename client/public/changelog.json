@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.4.90",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "drop the topic directory, switch_topic resolves names",
+          "en": "",
+          "scope": "context",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "tool surface golden: switch_topic takes a name or an id",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.89",
     "date": "2026-11-23",
     "sections": {

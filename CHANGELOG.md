@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.90 — 2026-11-23
+
+### Correzioni
+- **context** · drop the topic directory, switch_topic resolves names
+
+### Sotto il cofano
+- tool surface golden: switch_topic takes a name or an id
+
 ## 2.4.89 — 2026-11-23
 
 ### Sotto il cofano

@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.90",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "drop the topic directory, switch_topic resolves names",
+          "scope": "context"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.87",
     "date": "2026-11-23",
     "sections": {
