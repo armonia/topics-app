@@ -6,7 +6,7 @@
  * `sleep` far longer than its ceiling: the assertion that matters is the
  * clock, because a runner that waits for the death it asked for is the bug
  * the ceiling exists to prevent.
- * @covers HOOKS-01, HOOKS-02, HOOKS-03
+ * @covers HOOKS-01, HOOKS-02, HOOKS-03, HOOKS-04
  */
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HOOK_EVENTS,
+  continuationFromStdout,
   createLifecycleHooks,
   parseHooksConfig,
   type LifecycleHookPayload,
@@ -201,5 +202,70 @@ describe("the runner: exit code is the verdict, stderr is the reason", () => {
     const out = await runner().run("worktree-create", payload({ hook_event_name: "worktree-create", cwd: join(dir, "missing") }));
     expect(out).toEqual({ ok: true });
     expect(log.some((l) => l.includes("could not start"))).toBe(true);
+  });
+});
+
+describe("turn-end can ask for one more turn on stdout (Claude Code's Stop)", () => {
+  let dir: string;
+  let file: string;
+  let log: string[];
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "lifecycle-hooks-continue-"));
+    file = join(dir, "hooks.json");
+    log = [];
+  });
+  afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+  const writeHooks = (hooks: unknown[]) => writeFileSync(file, JSON.stringify({ hooks }));
+  const runner = () => createLifecycleHooks({ file, log: (m) => log.push(m) });
+  const turnEnd = () => payload({ hook_event_name: "turn-end" });
+  const block = (reason: unknown) => `printf '%s' ${JSON.stringify(JSON.stringify({ decision: "block", reason }))}`;
+
+  test("exit 0 with {decision:block, reason} on stdout: the reason is the continuation", async () => {
+    writeHooks([{ event: "turn-end", cmd: block("run the retrospective") }]);
+    expect(await runner().run("turn-end", turnEnd())).toEqual({ ok: true, continueWith: "run the retrospective" });
+  });
+
+  test("garbage, other JSON, another decision or an empty reason on stdout: nothing", async () => {
+    for (const cmd of [
+      "echo all good",
+      `printf '%s' '{"decision":"approve","reason":"x"}'`,
+      `printf '%s' '{"decision":"block","reason":"   "}'`,
+      `printf '%s' '{"decision":"block","reason":3}'`,
+      `printf '%s' '["block"]'`,
+      `printf '%s' 'note: {"decision":"block","reason":"x"}'`,
+    ]) {
+      writeHooks([{ event: "turn-end", cmd }]);
+      expect(await runner().run("turn-end", turnEnd())).toEqual({ ok: true });
+    }
+  });
+
+  test("a non-zero exit keeps today's verdict, even with the JSON on stdout", async () => {
+    writeHooks([{ event: "turn-end", cmd: `${block("ignored")}; echo 'tests are red' >&2; exit 2` }]);
+    expect(await runner().run("turn-end", turnEnd())).toEqual({ ok: false, reason: "tests are red" });
+  });
+
+  test("any other event ignores it", async () => {
+    writeHooks([{ event: "pre-tool", cmd: block("not for you") }, { event: "task-deliver", cmd: block("nor you") }]);
+    expect(await runner().run("pre-tool", payload({ tool_name: "bash" }))).toEqual({ ok: true });
+    expect(await runner().run("task-deliver", payload({ hook_event_name: "task-deliver" }))).toEqual({ ok: true });
+  });
+
+  test("the first hook that asks wins, and the ones after it do not run", async () => {
+    const ran = join(dir, "second-ran");
+    writeHooks([
+      { event: "turn-end", cmd: "true" },
+      { event: "turn-end", cmd: block("first") },
+      { event: "turn-end", cmd: `touch ${JSON.stringify(ran)}; ${block("second")}` },
+    ]);
+    expect(await runner().run("turn-end", turnEnd())).toEqual({ ok: true, continueWith: "first" });
+    expect(await Bun.file(ran).exists()).toBe(false);
+  });
+
+  test("continuationFromStdout, the parse alone", () => {
+    expect(continuationFromStdout('  {"decision":"block","reason":" carry on "}\n')).toBe("carry on");
+    expect(continuationFromStdout("")).toBeUndefined();
+    expect(continuationFromStdout("{not json}")).toBeUndefined();
+    expect(continuationFromStdout('{"reason":"no decision"}')).toBeUndefined();
   });
 });

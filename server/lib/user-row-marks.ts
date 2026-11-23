@@ -1,9 +1,10 @@
 /**
  * WHAT MARKS A `user` ROW AS SOMETHING NOBODY TYPED.
  *
- * Two turns reach `POST /api/chat` wearing the person's role without being the
+ * Turns reach `POST /api/chat` wearing the person's role without being the
  * person: the goal continuation (a goal still open at the end of a turn buys
- * the next one, `services/goal-loop.ts`) and the dispatcher's envelope (the
+ * the next one, `services/goal-loop.ts`), the turn a user's `turn-end` hook
+ * asks for (`services/hook-continuation.ts`) and the dispatcher's envelope (the
  * kickoff, the resume, the nudge a board task starts with). Both HAVE to be
  * `user` rows, because that is the only role a provider answers.
  *
@@ -31,6 +32,8 @@ import { MACHINE_ROW_KINDS } from "../../shared/prompt-number";
 export interface UserRowOrigin {
   /** The consecutive continuation number, when the goal loop bought this turn. */
   goalNudge?: unknown;
+  /** The consecutive continuation number, when a `turn-end` hook asked for this turn (`services/hook-continuation.ts`). */
+  hookNudge?: unknown;
   /** True when the board drives this turn (`runHeadlessTurn`). */
   dispatched?: boolean;
   /** The card comments this envelope delivers, when it is a resume. */
@@ -80,6 +83,11 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   // buy anything, and marking that row would be inventing a continuation.
   if (typeof origin.goalNudge === "number" && origin.goalNudge > 0) {
     blocks.push({ kind: "goal-nudge", attempt: Math.floor(origin.goalNudge) });
+  }
+  // Same rule for the turn a user's `turn-end` hook asked for: its words are
+  // the hook's, and the transcript must not put them in the person's mouth.
+  if (typeof origin.hookNudge === "number" && origin.hookNudge > 0) {
+    blocks.push({ kind: "hook-nudge", attempt: Math.floor(origin.hookNudge) });
   }
   if (origin.dispatched === true) {
     // Ids only on a row that IS an envelope, and only when there are any: a

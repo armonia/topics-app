@@ -29,6 +29,23 @@
  * proceed and leaves one warning in the log: a veto is something a command
  * said, and a command that never answered said nothing (HOOKS-03).
  *
+ * `turn-end` CAN ASK FOR ONE MORE TURN, like Claude Code's Stop hook. A
+ * command that exits 0 and prints on stdout exactly one JSON object
+ *
+ *     {"decision":"block","reason":"<text>"}
+ *
+ * (decision `block`, `reason` a non-empty string) makes Topics send `<text>`
+ * to the same chat as the next turn, through the chat route, marked
+ * `hook-nudge` so it never reads as the person's words
+ * (`services/hook-continuation.ts`). Anything else on stdout (plain text, other
+ * JSON, a JSON with another decision) is ignored, exactly as before; a
+ * non-zero exit keeps meaning "write my stderr in the chat". The first hook
+ * that asks wins and the ones after it do not run. Any other event ignores the
+ * request. The payload of `turn-end` carries `stop_hook_active: true` when the
+ * turn that just ended was itself started by such a request, and Topics stops
+ * honouring it after 3 in a row (a script that always says "block" must not
+ * buy turns forever).
+ *
  * THE CEILING ANSWERS BY ITSELF. After `timeoutMs` the whole process tree is
  * killed, and the answer goes out after a short grace EVEN IF no exit event
  * ever arrives. Killing is a request: a command that ignores SIGTERM, or a
@@ -64,10 +81,33 @@ export interface LifecycleHookPayload {
   cwd: string;
   tool_name?: string;
   tool_input?: unknown;
+  /** `turn-end` only: the turn that just ended was started by a hook's continuation (Claude Code's Stop field). */
+  stop_hook_active?: boolean;
   [key: string]: unknown;
 }
 
-export type HookOutcome = { ok: true } | { ok: false; reason: string };
+/**
+ * `continueWith`: the text a `turn-end` hook asked to send to the chat as the
+ * next turn (see the header). Absent everywhere else.
+ */
+export type HookOutcome = { ok: true; continueWith?: string } | { ok: false; reason: string };
+
+/**
+ * The continuation a hook asked for on stdout, or undefined. Strict on
+ * purpose: only a whole JSON object with `decision: "block"` and a non-empty
+ * string `reason` counts. A script that merely prints something, or prints JSON
+ * for another tool, must not buy a turn by accident.
+ */
+export function continuationFromStdout(stdout: string): string | undefined {
+  const text = stdout.trim();
+  if (!text.startsWith("{") || !text.endsWith("}")) return undefined;
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch { return undefined; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const { decision, reason } = parsed as { decision?: unknown; reason?: unknown };
+  if (decision !== "block" || typeof reason !== "string" || reason.trim() === "") return undefined;
+  return reason.trim();
+}
 
 /** The one door the runtime, the worktree manager and the task route call. */
 export interface LifecycleHookRunner {
@@ -232,7 +272,13 @@ export function runHookCommand(
         finish({ ok: true });
         return;
       }
-      if (exitCode === 0) { finish({ ok: true }); return; }
+      if (exitCode === 0) {
+        // Only `turn-end` may ask for one more turn; for every other event the
+        // stdout stays what it always was, noise.
+        const continueWith = entry.event === "turn-end" ? continuationFromStdout(outText) : undefined;
+        finish(continueWith ? { ok: true, continueWith } : { ok: true });
+        return;
+      }
       const reason = errText.trim() || outText.trim() || `${label} exited ${exitCode === null ? "by signal" : exitCode} with no message`;
       finish({ ok: false, reason });
     });
@@ -291,7 +337,9 @@ export function createLifecycleHooks(opts: LifecycleHooksOptions): LifecycleHook
       const hooks = load().filter((h) => h.event === event && (!h.tool || h.tool === payload.tool_name));
       for (const h of hooks) {
         const outcome = await runHookCommand(h, payload, { spawn, log });
-        if (!outcome.ok) return outcome;
+        // A refusal stops the chain, and so does the first `turn-end` that
+        // asks to continue: two continuations for one turn would be two turns.
+        if (!outcome.ok || outcome.continueWith) return outcome;
       }
       return { ok: true };
     },

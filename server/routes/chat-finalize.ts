@@ -13,6 +13,7 @@ import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { mergeReattachedRow } from "./reattachMerge";
 import type { ContentBlock } from "../types";
 import { backgroundOfTurn, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { continueAfterTurnEndHook, hookNudgeAttemptOf } from "../services/hook-continuation";
 import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
 import { decodeCol } from "../../shared/message-blob";
 import { commandWakeState } from "./processes";
@@ -606,13 +607,30 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
         // way the system-message verb does, so it is read where the
         // turn was read. Native runtime alone; the CLI providers carry
         // their own hook systems.
+        //
+        // It CAN ask for one more turn (HOOKS-04, Claude Code's Stop):
+        // `{"decision":"block","reason":…}` on stdout sends the reason
+        // through this same route as a `hook-nudge` row, under the
+        // brakes of `services/hook-continuation.ts`.
         if (hooks && turn.topicProvider?.name === "topics") {
+          const endedHookAttempt = hookNudgeAttemptOf(body);
           hooks.run("turn-end", {
             hook_event_name: "turn-end",
             session_id: sessionKey,
             cwd: matchedTopic.projectPath ?? WORKSPACE_DIR,
-          }).then((verdict) => {
-            if (verdict.ok) return;
+            stop_hook_active: endedHookAttempt > 0,
+          }).then(async (verdict) => {
+            if (verdict.ok) {
+              if (!verdict.continueWith) return;
+              await continueAfterTurnEndHook({
+                sessionKey,
+                text: verdict.continueWith,
+                endedAttempt: endedHookAttempt,
+                endedCleanly: goalTurn.end === "end_turn" && !goalTurn.discarded && !turnError,
+                pendingAsk: goalTurn.pendingAsk,
+              }, { resend: goalLoop.resend });
+              return;
+            }
             const stored = appendLocalMessage(sessionKey, "assistant", verdict.reason);
             broadcastToAll({ type: "message", sessionKey, message: { id: stored.id, role: "assistant", content: verdict.reason, timestamp: stored.timestamp } });
             broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: stored.id, content: verdict.reason, preview: verdict.reason.slice(0, 100) });

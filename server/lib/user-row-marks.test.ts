@@ -39,6 +39,15 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ goalNudge: -1 })).toBeUndefined();
   });
 
+  test("the turn a turn-end hook asked for carries its own mark and attempt (HOOKS-04)", () => {
+    expect(userRowMarks({ hookNudge: 2 })).toEqual([{ kind: "hook-nudge", attempt: 2 }]);
+    expect(userRowMarks({ hookNudge: 1.9 })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
+    expect(userRowMarks({ hookNudge: 0 })).toBeUndefined();
+    expect(userRowMarks({ hookNudge: "1" })).toBeUndefined();
+    // A resend of that row (retry, resume sweep) keeps the hook's mark.
+    expect(userRowMarks({ repeats: [{ kind: "hook-nudge", attempt: 1 }] })).toEqual([{ kind: "hook-nudge", attempt: 1 }]);
+  });
+
   test("both at once: a dispatched turn the goal loop carried on", () => {
     expect(userRowMarks({ goalNudge: 1, dispatched: true })).toEqual([
       { kind: "goal-nudge", attempt: 1 },

@@ -84,7 +84,9 @@ has:
 - `turn-end` SHALL NEVER block: the turn is already over. Its reason SHALL be
   appended to the conversation as an assistant line so it is read in chat.
 
-A hook that exits zero SHALL be silent and SHALL change nothing.
+A hook that exits zero SHALL be silent and SHALL change nothing, with the one
+exception of HOOKS-04 (a `turn-end` hook that asks on stdout for one more
+turn).
 
 #### Scenario: A hook refuses bash and the message is read in chat
 - **GIVEN** a `pre-tool` hook on `bash` that writes a message on stderr and exits 1
@@ -131,3 +133,41 @@ said, and a command that ran out of time said nothing.
 - **WHEN** the event fires
 - **THEN** the action SHALL proceed
 - **AND** the failure SHALL be logged, never turned into a block
+
+### Requirement: HOOKS-04 — A turn-end hook can ask the agent to carry on
+
+A `turn-end` hook that exits zero and prints on stdout exactly one JSON object
+with `"decision": "block"` and a non-empty string `"reason"` SHALL make the
+system send `reason` to the same chat as the next turn, so the agent continues
+with its whole context and tools (the contract of Claude Code's Stop hook).
+Anything else on stdout SHALL keep the behaviour of HOOKS-02; a non-zero exit
+SHALL keep writing its stderr in the chat; any other event SHALL ignore the
+request. When several `turn-end` hooks are declared, the first that asks SHALL
+win and the ones after it SHALL NOT run.
+
+The continuation SHALL go through the chat route, the same door the goal loop
+uses, never through a second path to the provider. Its row SHALL be a `user`
+row marked with a `hook-nudge` block carrying the consecutive attempt, so the
+transcript draws one compact service line and never shows the person saying
+it; the row SHALL count as the machine's everywhere a `goal-nudge` does
+(prompt numbering, sidebar preview, person usage, board column).
+
+The payload of `turn-end` SHALL carry `stop_hook_active`, true when the turn
+that just ended was itself started by a hook continuation. The system SHALL
+honour at most 3 hook continuations in a row in a session and SHALL ignore and
+log the request past that. It SHALL NOT continue a turn that did not end on its
+own (stopped, failed, discarded) or that left a question waiting on the person,
+and a refusal of the route (a 409: another turn holds the session) SHALL mean
+not sent, logged. No failure of the continuation SHALL touch the turn that
+ended.
+
+#### Scenario: A hook asks to continue and the chat gets one marked turn
+- **GIVEN** a `turn-end` hook that exits 0 printing `{"decision":"block","reason":"run the retrospective"}`
+- **WHEN** a native turn ends on its own
+- **THEN** exactly one `user` row with content `run the retrospective` and the block `hook-nudge` (attempt 1) SHALL be written through the chat route
+- **AND** the next turn's hook payload SHALL carry `stop_hook_active: true`
+
+#### Scenario: A hook that always asks stops at the ceiling
+- **GIVEN** a `turn-end` hook that asks to continue at every turn
+- **WHEN** three hook continuations have run in a row
+- **THEN** the fourth request SHALL be ignored and logged, and no fourth row SHALL be written
