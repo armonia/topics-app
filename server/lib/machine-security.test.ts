@@ -411,6 +411,15 @@ describe("giro completo per sistema", () => {
     expect(by.antivirus).toMatchObject({ status: "ok", detail: "Defender attivo, firme del 17/11, 0 accessi falliti" });
   });
 
+  test("Windows: BitLocker mai acceso risponde 0 ed è un disco non cifrato, non una risposta sconosciuta", async () => {
+    const disk = async (answer: string) => (await probeMachineSecurity(envOf("win32", {
+      "powershell.exe": (argv) => Buffer.from(argv[4], "base64").toString("utf16le").includes("BitLockerProtection") ? psOut(answer) : MISSING,
+    }))).checks.find((c) => c.key === "disk");
+    expect(await disk("bitlocker=0")).toMatchObject({ status: "warn", detail: "Disco non cifrato (BitLocker spento)" });
+    // an empty answer (no BitLocker at all) stays unknown: nothing was read
+    expect((await disk("bitlocker="))?.status).toBe("unknown");
+  });
+
   test("Windows: protezione in tempo reale spenta = problema; riavvio in attesa = avviso", async () => {
     const env = envOf("win32", {
       "powershell.exe": (argv) => {

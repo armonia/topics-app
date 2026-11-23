@@ -649,6 +649,7 @@ export const WINDOWS_SCRIPTS = {
 Get-CimInstance Win32_QuickFixEngineering | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 8 | ForEach-Object { 'hotfix=' + $_.HotFixID + '|' + $_.Description + '|' + $_.InstalledOn.ToString('yyyy-MM-dd') }
 'reboot=' + (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')`,
   // 1 = BitLocker on, 2 = off, 3/4 = in progress, 5 = suspended, 6 = locked: the shell gives it without asking for administrator rights.
+  // 0 = never turned on: a Windows 11 Pro volume answered 0 while Get-BitLockerVolume said Off / FullyDecrypted (23/11/2026).
   disk: `$ErrorActionPreference='Stop'
 $d = $env:SystemDrive; if (-not $d) { $d = 'C:' }
 'bitlocker=' + (New-Object -ComObject Shell.Application).NameSpace($d).Self.ExtendedProperty('System.Volume.BitLockerProtection')`,
@@ -690,7 +691,7 @@ async function winDisk(env: ProbeEnv): Promise<SecurityCheck> {
   if (v === "1" || v === "6") return coded("disk", "ok", "Disco cifrato (BitLocker acceso)", { code: "disk.bitlockerOn" });
   if (v === "3" || v === "4") return coded("disk", "warn", "Cifratura del disco in corso", { code: "disk.encrypting" });
   if (v === "5") return coded("disk", "warn", "Cifratura del disco sospesa", { code: "disk.suspended" });
-  if (v === "2") return coded("disk", "warn", "Disco non cifrato (BitLocker spento)", { code: "disk.bitlockerOff" });
+  if (v === "2" || v === "0") return coded("disk", "warn", "Disco non cifrato (BitLocker spento)", { code: "disk.bitlockerOff" });
   return unknown("disk", "Cifratura del disco", "risposta non riconosciuta");
 }
 
