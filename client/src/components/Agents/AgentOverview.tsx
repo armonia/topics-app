@@ -17,12 +17,13 @@ import { ActivityList } from './ActivityList';
 import { ChannelMark } from './ChannelMark';
 import { useAgentActivity, type ActivityTurn } from './useAgentActivity';
 import { useAgo } from './useAgo';
+import { healthSentence } from '../System/healthSentence';
+import type { HealthProblem } from '../../../../shared/agents-health';
 import type { ConfigureSection } from './configureSections';
 import type { Registry } from '../../state/agentRegistry';
 
 type Agent = Registry['agents'][number];
 
-interface HealthProblem { id: string; sentence: string; destination: { section: string; agentId?: string } }
 
 const SECTION_OF_HEALTH: Record<string, ConfigureSection> = {
   jobs: 'jobs', chats: 'channels', memory: 'memory', tools: 'tools', identity: 'identity', rules: 'identity', harness: 'context',
@@ -162,7 +163,7 @@ export function AgentOverview({ reg, reload, onOpenAgent }: { reg: Registry; rel
             {problems.map((p) => (
               <li key={p.id} data-testid="agent-overview-to-fix-row" className="flex items-center gap-2 rounded border border-app-border-light px-2 py-1">
                 <span className={`h-2 w-2 flex-shrink-0 rounded-full ${PALLINO_ATTESA}`} aria-hidden="true" />
-                <span className="min-w-0 flex-1 text-prose text-app-text">{p.sentence}</span>
+                <span className="min-w-0 flex-1 text-prose text-app-text">{healthSentence(tr, p)}</span>
                 {p.destination.agentId && (
                   <button
                     type="button" data-testid="agent-overview-to-fix-open" className={BTN}
