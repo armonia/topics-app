@@ -645,3 +645,17 @@ consegnato non c'è in questo checkout (un impianto dal nodo fallito).
 #### Scenario: impianto fallito
 - **GIVEN** una card rimandata indietro il cui giro sul nodo torna senza impianto
 - **THEN** il land NON SHALL atterrare il ramo del giro precedente
+
+### Requirement: LAND-19 — Un checkout di controllo tagliato a metà non blocca il land
+
+Lo spegnimento del server può tagliare il rilascio del checkout con cui un nodo
+controlla una card (card 54e4489d) in qualunque punto: mentre git cancella
+l'albero, mentre si cancella la copia spostata da parte, fra lo spostamento e il
+`prune`. In ognuno di questi casi il land che l'approvazione della review chiede
+dopo SHALL fondere il ramo, senza che il checkout rimasto a metà lo fermi.
+
+#### Scenario: taglio in ognuno dei tre punti
+- **GIVEN** un checkout di controllo tagliato durante la cancellazione sul posto, durante la cancellazione della copia spostata, o fra lo spostamento e il `prune`
+- **WHEN** l'approvazione chiede il land del ramo della card
+- **THEN** il ramo SHALL essere fuso su main
+  (`server/services/node-check-worktree.test.ts`)

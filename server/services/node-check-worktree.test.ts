@@ -5,6 +5,8 @@
  * releases the checkout, and `process.exit` reaps the git it started. Here the
  * cut is simulated at every place it can land, on a real repository, and then
  * the same land a review approval runs is asked to merge the branch.
+ *
+ * @covers LAND-19
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { execFileSync } from "child_process";
