@@ -26,7 +26,9 @@ import json, os, re, signal, subprocess, sys, time
 
 MAX_JOBS = int(os.environ.get("CI_MAX_JOBS", "2"))
 LOAD_CAP = float(os.environ.get("CI_LOAD_CAP", "24"))
-ROTATE_S = int(os.environ.get("CI_ROTATE_S", "20"))
+# un Listener ripreso resta sveglio almeno cosi' (o fino al job): GitHub puo' metterci minuti ad assegnargli un job appena ripartito
+# (23/11: ripreso alle 02:03:07, rimesso in pausa alle 02:04:20 con il job in coda, load 15 e 2 posti liberi)
+ROTATE_S = int(os.environ.get("CI_ROTATE_S", "600"))
 REAP_GRACE = int(os.environ.get("CI_REAP_GRACE", "60"))
 # un runner che non e' stato svegliato da tanto ha quasi certamente un job in coda su GitHub: passa avanti a tutto
 STARVE_S = int(os.environ.get("CI_STARVE_S", "1200"))
@@ -95,7 +97,7 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
 
 def selftest():
     R = lambda w, s: {"worker": w, "stopped": s}
-    D = lambda *a, **k: decide(*a, max_jobs=3, load_cap=20, **k)   # indipendenti dai default di ambiente
+    D = lambda *a, **k: decide(*a, max_jobs=3, load_cap=20, rotate_s=20, **k)   # indipendenti dai default di ambiente
     # 3 job in corso, tetto 3: tutti i liberi fermi
     st, co = D({"a": R(1, 0), "b": R(1, 0), "c": R(1, 0), "d": R(0, 0), "e": R(0, 1)}, 5, 100, {"d": 100})
     assert st == ["d"] and co == [], (st, co)
@@ -122,7 +124,7 @@ def selftest():
     assert co == ["c"], co
     # FAME: un job in coda da 21 minuti (runner fermo da 21 min) con il load a 30 parte, anche con 1 job in corso
     N = 100000
-    S = lambda **k: dict(max_jobs=2, load_cap=24, starve_s=1200, **k)
+    S = lambda **k: dict(max_jobs=2, load_cap=24, starve_s=1200, rotate_s=20, **k)
     g = set()
     st, co = decide({"a": R(1, 0), "z": R(0, 1), "y": R(0, 1)}, 30, N, {}, served={"z": N - 21 * 60, "y": N - 60}, granted=g, **S())
     assert co == ["z"] and g == {"z"} and st == [], (st, co, g)
@@ -154,6 +156,19 @@ def selftest():
     g = {"z"}
     decide({"z": R(1, 0), "y": R(0, 1)}, 5, N, {}, served={}, granted=g, **S())
     assert g == set(), g
+    # SVEGLIO ALMENO 10 MINUTI (default): ripreso 73 s fa, nessun job, altri in attesa, posti liberi -> non va in pausa
+    N = 100000
+    st, co = decide({"z": R(0, 0), "y": R(0, 1), "x": R(0, 1)}, 15, N, {"z": N - 73}, served={"z": N - 73, "y": N - 5000, "x": N - 900},
+                    max_jobs=2, load_cap=24)
+    assert st == [] and "z" not in st, (st, co)
+    # lo stesso a 9 minuti e 59: ancora sveglio; a 10 minuti cede il turno
+    st, co = decide({"z": R(0, 0), "y": R(0, 1)}, 15, N, {"z": N - 599}, served={"z": N - 599, "y": N - 5000}, max_jobs=2, load_cap=24)
+    assert st == [], st
+    st, co = decide({"z": R(0, 0), "y": R(0, 1)}, 15, N, {"z": N - 601}, served={"z": N - 601, "y": N - 5000}, max_jobs=2, load_cap=24)
+    assert st == ["z"], st
+    # con un job preso non e' piu' fermabile per rotazione (e' un job, non un runner libero)
+    st, co = decide({"z": R(1, 0), "y": R(0, 1)}, 15, N, {}, served={}, max_jobs=2, load_cap=24)
+    assert "z" not in st, st
     # nessun job: tre posti, tre svegli
     st, co = D({k: R(0, 1) for k in "abcde"}, 1, 100, {})
     assert st == [] and len(co) == 3, (st, co)
@@ -250,7 +265,7 @@ def main():
         pass
     for u in rs:
         served.setdefault(u, time.time())
-    log(f"avvio: tetto {MAX_JOBS} job, load1 massimo per ammetterne di nuovi {LOAD_CAP}, esenti {sorted(EXEMPT)}")
+    log(f"avvio: tetto {MAX_JOBS} job, load1 massimo per ammetterne di nuovi {LOAD_CAP}, sveglio almeno {ROTATE_S} s, fame dopo {STARVE_S} s, esenti {sorted(EXEMPT)}")
 
     def resume_all(*_):
         for r in scan().values():
