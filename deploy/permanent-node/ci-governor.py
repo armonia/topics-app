@@ -34,6 +34,14 @@ REAP_GRACE = int(os.environ.get("CI_REAP_GRACE", "60"))
 STARVE_S = int(os.environ.get("CI_STARVE_S", "1200"))
 STATE = os.environ.get("CI_GOV_STATE", "/var/lib/ci-governor-served.json")
 TICK = float(os.environ.get("CI_TICK", "2"))
+# Un Listener congelato con SIGSTOP puo' ricevere un job nel secondo in cui lo si ferma (23/11 03:53:48: zenocms-runner@1 aveva
+# appena chiuso un job e riaperto la sessione, GitHub gli ha assegnato `cambi`, il governatore lo ha fermato: il job e' rimasto
+# fermo 10 minuti e GitHub lo ha annullato per timeout). Il Worker non c'e' ancora, quindi "worker" non lo vede: lo vede
+# il socket (byte arrivati e non letti) e il log del Listener (scrive appena prende un messaggio).
+PROBE_WINDOW = int(os.environ.get("CI_PROBE_WINDOW", "90"))   # dopo una pausa, per quanto si cerca un dato arrivato nel socket
+PROBE_MAX = int(os.environ.get("CI_PROBE_MAX", "1"))          # riprese per dato arrivato, per ogni pausa (poi resta fermo: dopo la prima e' quasi sempre una risposta vuota)
+HOLD_S = int(os.environ.get("CI_HOLD_S", "12"))               # dopo una ripresa per dato in arrivo non si ferma per 12 s (il Worker parte in 1-3 s)
+QUIET_S = int(os.environ.get("CI_QUIET_S", "8"))              # un Listener che ha scritto nel log meno di cosi' fa non si ferma
 # esenti, nel formato <prefisso>:<n> (es. ci-runner:0 = il servizio del runner di preparazione, leggero)
 EXEMPT = {x.strip().replace(":", chr(64)) + ".service" for x in os.environ.get("CI_EXEMPT", "ci-runner:0").split(",")}
 LOG = os.environ.get("CI_GOV_LOG", "/var/log/ci-governor.log")
@@ -43,7 +51,8 @@ KEEP_COMM = ("Runner.", "run.sh", "run-helper.sh", "runsvc.sh")
 
 def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP, rotate_s=ROTATE_S, extra=0, served=None,
            starve_s=STARVE_S, granted=None):
-    """runners: {unit: {"worker": bool, "stopped": bool}} (solo i non esenti con un Listener).
+    """runners: {unit: {"worker": bool, "stopped": bool, "pending": bool, "hold": bool}} (solo i non esenti con un Listener;
+    pending e hold facoltativi).
     extra: suite Playwright lanciate a mano sul server con systemd-run (agenti): non sono job di un runner e
     non si fermano, ma pesano come un job e occupano un posto.
     served: quando ogni runner e' stato ripreso l'ultima volta (resta anche dopo la pausa): il turno va a chi
@@ -56,6 +65,11 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     cede il turno per rotazione, il tetto normale non lo ferma.
     Ritorna (da_fermare, da_riprendere). Pura a parte `granted`: niente I/O, provata da --selftest."""
     granted = granted if granted is not None else set()
+    # JOB IN MANO: un Listener fermo che ha un Worker, o che ha dati non letti (r["pending"]: il job gli e' arrivato mentre lo si
+    # fermava), va ripreso subito e senza guardare i posti: il job e' gia' assegnato da GitHub e fermo il Listener lo perde.
+    # Un Listener sveglio con dati in arrivo o riletto da poco (pending) o appena ripreso (hold) non si ferma in questo giro.
+    stuck = [u for u, r in runners.items() if r["stopped"] and (r["worker"] or r.get("pending"))]
+    pinned = [u for u, r in runners.items() if not r["stopped"] and not r["worker"] and (r.get("pending") or r.get("hold"))]
     active = [u for u, r in runners.items() if r["worker"]]
     idle = [u for u, r in runners.items() if not r["worker"]]
     busy = len(active) + extra
@@ -63,8 +77,9 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     free = max(slots - busy, 0)
     if not active:                  # almeno un job di runner alla volta passa sempre: le suite a mano non affamano la CI
         free = max(free, 1)
-    awake = [u for u in idle if not runners[u]["stopped"]]
-    stopped = [u for u in idle if runners[u]["stopped"]]
+    awake = [u for u in idle if not runners[u]["stopped"] and u not in pinned]
+    stopped = [u for u in idle if runners[u]["stopped"] and u not in stuck]
+    free = max(free - len(pinned) - len([u for u in stuck if u in idle]), 0)   # occupano un posto: stanno per prendere un job
     granted &= set(awake)                           # chi ha preso un job o e' stato fermato non e' piu' un'ammissione
     free = max(free - len([u for u in awake if u in granted]), 0)
     # chi è sveglio da troppo e ha altri in attesa cede il posto
@@ -92,7 +107,7 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     awake_now = len([u for u in awake if u not in stop]) + len(cont)
     if starving and not cont and len(active) + awake_now < max_jobs:
         cont.append(starving[0]); granted.add(starving[0])
-    return stop, cont
+    return stop, stuck + cont
 
 
 def selftest():
@@ -172,6 +187,50 @@ def selftest():
     # nessun job: tre posti, tre svegli
     st, co = D({k: R(0, 1) for k in "abcde"}, 1, 100, {})
     assert st == [] and len(co) == 3, (st, co)
+    # JOB IN MANO (23/11 03:53:48): il job arriva a un Listener nello stesso istante della pausa
+    P = lambda w, s, p=False, h=False: {"worker": w, "stopped": s, "pending": p, "hold": h}
+    big = dict(max_jobs=2, load_cap=24)
+    # a) congelato mentre il job gli arrivava: ha dati non letti, load alto, 2 job in corso (nessun posto libero) -> ripreso subito
+    st, co = decide({"a": P(1, 0), "b": P(1, 0), "z": P(0, 1, p=True)}, 30, 1000, {}, **big)
+    assert co == ["z"] and st == [], (st, co)
+    # b) lo stesso senza dati non letti resta fermo: la pausa normale non cambia
+    st, co = decide({"a": P(1, 0), "b": P(1, 0), "z": P(0, 1)}, 30, 1000, {}, **big)
+    assert co == [] and st == [], (st, co)
+    # c) Worker vivo con il Listener congelato (il job e' partito e il Listener e' stato fermato dopo): ripreso subito
+    st, co = decide({"a": P(1, 0), "z": P(1, 1)}, 30, 1000, {}, **big)
+    assert co == ["z"], (st, co)
+    # d) sveglio, senza job, tetto che lo vorrebbe fermare, ma ha dati in arrivo -> non si ferma
+    st, co = decide({"a": P(1, 0), "b": P(1, 0), "z": P(0, 0, p=True)}, 30, 1000, {"z": 0}, **big)
+    assert st == [], (st, co)
+    # e) appena ripreso per un dato in arrivo (hold): non si ferma neanche dopo i 600 s di rotazione, e occupa un posto
+    st, co = decide({"a": P(1, 0), "z": P(0, 0, h=True), "y": P(0, 1)}, 5, 1000, {"z": 0}, served={"y": 900}, **big)
+    assert st == [] and co == [], (st, co)
+    # f) un runner con dati in arrivo conta come un job: con 1 job in corso e 1 in arrivo il terzo non parte
+    st, co = decide({"a": P(1, 0), "z": P(0, 0, p=True), "y": P(0, 1)}, 5, 1000, {}, served={"y": 900}, **big)
+    assert co == [], (st, co)
+    # g) dopo il job il Listener torna normale (niente pending/hold): la pausa di rotazione riparte
+    st, co = decide({"a": P(1, 0), "z": P(0, 0), "y": P(0, 1)}, 5, 1000, {"z": 0}, served={"y": 900, "z": 990}, max_jobs=2, load_cap=24, rotate_s=600)
+    assert st == ["z"], (st, co)
+    # lettura dei segnali su Linux: socket con byte non letti e log del Listener appena scritto
+    if os.path.exists("/proc/net/tcp"):
+        import socket, tempfile
+        srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+        cli = socket.create_connection(srv.getsockname()); conn, _ = srv.accept()
+        assert not pending_data(os.getpid()), "nessun dato ancora"
+        conn.sendall(b"x" * 242); time.sleep(0.2)
+        assert pending_data(os.getpid()), "242 byte non letti: pending_data deve dire True"
+        cli.recv(242); time.sleep(0.2)
+        assert not pending_data(os.getpid()), "letti: torna False"
+        for x in (cli, conn, srv):
+            x.close()
+        old = os.getcwd(); d = tempfile.mkdtemp()
+        try:
+            os.makedirs(d + "/_diag"); open(d + "/_diag/Runner_x.log", "w").write("x"); os.chdir(d)
+            assert recent_log(os.getpid(), 8), "log scritto adesso"
+            os.utime(d + "/_diag/Runner_x.log", (time.time() - 60,) * 2)
+            assert not recent_log(os.getpid(), 8), "log fermo da 60 s"
+        finally:
+            os.chdir(old); import shutil; shutil.rmtree(d, ignore_errors=True)
     print("selftest ok")
 
 
@@ -219,6 +278,46 @@ def scan():
     return rs
 
 
+def pending_data(pid):
+    """Byte arrivati e non ancora letti nei socket TCP stabiliti del processo (rx_queue; 0 = niente, vale come False): per un
+    Listener di GitHub e' la risposta del broker, quindi forse un job. Solo Linux (/proc/net/tcp); altrove 0."""
+    tot = 0
+    try:
+        inodes = set()
+        for fd in os.listdir(f"/proc/{pid}/fd"):
+            try:
+                link = os.readlink(f"/proc/{pid}/fd/{fd}")
+            except OSError:
+                continue
+            if link.startswith("socket:["):
+                inodes.add(link[8:-1])
+        if not inodes:
+            return 0
+        for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+            try:
+                rows = open(path).read().splitlines()[1:]
+            except OSError:
+                continue
+            for line in rows:
+                c = line.split()
+                if len(c) > 9 and c[3] == "01" and c[9] in inodes:
+                    tot += int(c[4].split(":")[1], 16)
+    except OSError:
+        pass
+    return tot
+
+
+def recent_log(pid, secs=None):
+    """True se il Listener ha scritto nel suo _diag da meno di `secs`: sta lavorando (ha preso un messaggio, chiuso un job)."""
+    secs = QUIET_S if secs is None else secs
+    try:
+        d = os.path.join(os.readlink(f"/proc/{pid}/cwd"), "_diag")
+        newest = max(os.path.getmtime(os.path.join(d, f)) for f in os.listdir(d) if f.startswith("Runner_"))
+        return time.time() - newest < secs
+    except (OSError, ValueError):
+        return False
+
+
 def manual_suites():
     """Suite Playwright lanciate con systemd-run (unit run-uNNN.service) da agenti sulla macchina."""
     n = set()
@@ -259,6 +358,7 @@ def main():
         print(f"load1={os.getloadavg()[0]:.1f} job in corso={sum(r['worker'] for u, r in rs.items() if u not in EXEMPT)}/{MAX_JOBS}")
         return
     last_awake, idle_since, last_load, served, granted = {}, {}, 0, {}, set()
+    paused_at, probes, hold_until = {}, {}, {}
     try:                                            # un riavvio non azzera l'attesa di chi e' fermo da ore
         served = {k: float(v) for k, v in json.load(open(STATE)).items()}
     except (OSError, ValueError):
@@ -289,19 +389,50 @@ def main():
         for u, r in gov.items():
             if not r["stopped"] and not r["worker"]:
                 last_awake.setdefault(u, now)
+        # JOB IN MANO (23/11): chi ha un dato non letto o ha scritto nel log da pochi secondi sta prendendo un job
+        for u, r in gov.items():
+            r["pending"] = False
+            r["hold"] = now < hold_until.get(u, 0)
+            if r["worker"]:
+                probes.pop(u, None)
+            elif r["stopped"]:                      # congelato: un dato arrivato dopo la pausa e' la risposta del broker
+                r["pending"] = (now - paused_at.get(u, 0) <= PROBE_WINDOW and probes.get(u, 0) < PROBE_MAX
+                                and pending_data(r["listener"]))
+            else:
+                r["pending"] = pending_data(r["listener"]) or recent_log(r["listener"])
         extra = manual_suites()
         stop, cont = decide(gov, load1, now, last_awake, extra=extra, served=served, granted=granted)
         for u in stop:
+            fresh = scan().get(u)                   # ultimo sguardo prima di congelare: il job puo' essere arrivato adesso
+            if fresh and (fresh["worker"] or pending_data(fresh["listener"]) or recent_log(fresh["listener"])):
+                log(f"non pauso {u}: sta prendendo un job (load1 {load1:.1f})")
+                hold_until[u] = now + HOLD_S
+                continue
             log(f"pausa {u} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
             if not dry:
                 os.kill(gov[u]["listener"], signal.SIGSTOP)
+            paused_at[u] = now                      # i probes NON si azzerano qui: l'ultima ripresa per dato conta ancora
             last_awake.pop(u, None)
         for u in cont:
-            log(f"riprendo {u}{' per fame (fermo da ' + str(int((now - served.get(u, now)) / 60)) + ' min)' if u in granted else ''} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
+            r = gov[u]
+            if r["stopped"] and r["worker"]:
+                motivo = " con un job in corso: il Listener non va lasciato fermo"
+            elif r["stopped"] and r["pending"]:
+                motivo = f" per {pending_data(r['listener'])} byte arrivati dopo la pausa (puo' essere un job)"
+                hold_until[u] = now + HOLD_S
+                probes[u] = probes.get(u, 0) + 1
+            elif u in granted:
+                motivo = ' per fame (fermo da ' + str(int((now - served.get(u, now)) / 60)) + ' min)'
+                probes[u] = 0
+            else:
+                motivo = ""
+                probes[u] = 0                       # ripresa normale: una pausa futura ha di nuovo il suo giro di controllo
+            log(f"riprendo {u}{motivo} (job in corso {sum(r['worker'] for r in gov.values())}+{extra} a mano/{MAX_JOBS}, load1 {load1:.1f})")
             if not dry:
                 os.kill(gov[u]["listener"], signal.SIGCONT)
             last_awake[u] = now
-            served[u] = now
+            if not (r["stopped"] and (r["worker"] or r["pending"])):
+                served[u] = now                     # un salvataggio al volo non e' un turno: non toglie il posto a chi aspetta
         if cont:
             try:
                 tmp = STATE + ".tmp"
