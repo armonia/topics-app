@@ -28,12 +28,18 @@ export interface DiscardDeps {
   deleteTree?: (path: string) => Promise<void>;
 }
 
-const ASIDE_MARK = ".discarded-";
+/** What a discard appends to the name of the copy it moves aside. */
+export const ASIDE_MARK = ".discarded-";
 
 const deleteTreeDefault = (path: string) => rm(path, { recursive: true, force: true, maxRetries: 3 });
 
-/** Remove the worktree at `path` of `repoPath` so that no interruption leaves it registered and incomplete. */
-export async function discardWorktree(git: DiscardGit, repoPath: string, path: string, deps: DiscardDeps = {}): Promise<void> {
+/**
+ * Remove the worktree at `path` of `repoPath` so that no interruption leaves it registered and incomplete.
+ * `repoPath` null: a leftover no repository is known for (its `.git` file is gone), only the folder goes.
+ * The rename is the first thing the call does, synchronously: a caller that checks a lease right before
+ * calling cannot be overtaken by an open of the same path.
+ */
+export async function discardWorktree(git: DiscardGit, repoPath: string | null, path: string, deps: DiscardDeps = {}): Promise<void> {
   const deleteTree = deps.deleteTree ?? deleteTreeDefault;
   const aside = `${path}${ASIDE_MARK}${process.pid}-${Date.now().toString(36)}`;
   let moved = false;
@@ -44,8 +50,15 @@ export async function discardWorktree(git: DiscardGit, repoPath: string, path: s
     // Missing already, or held open (Windows refuses to rename a directory
     // some process sits in): git's own remove is the fallback.
   }
-  if (!moved) await git(repoPath, ["worktree", "remove", "--force", path]).catch(() => undefined);
-  await git(repoPath, ["worktree", "prune"]).catch(() => undefined);
+  if (repoPath !== null) {
+    if (!moved) await git(repoPath, ["worktree", "remove", "--force", path]).catch(() => undefined);
+    // A `git worktree add` killed by SIGKILL (the deadline, or the reap at
+    // process.exit, see TERM_GRACE_MS in bounded-spawn.ts) leaves its
+    // registration "locked initializing", which prune skips for ever and which
+    // keeps the branch checked out. The path is the caller's own, so its lock goes.
+    await git(repoPath, ["worktree", "unlock", path]).catch(() => undefined);
+    await git(repoPath, ["worktree", "prune"]).catch(() => undefined);
+  }
   for (const leftover of asideCopiesOf(path)) await deleteTree(leftover).catch(() => undefined);
 }
 
