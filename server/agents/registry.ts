@@ -35,6 +35,35 @@ export function registryHome(env: Record<string, string | undefined> = process.e
 interface EngineAgentDef { workspace?: string; account?: string }
 interface EngineConfig { agents?: Record<string, EngineAgentDef> }
 
+/**
+ * Which agent owns a channel account, from `engine.json`'s `agents.<id>.account`
+ * (optional, declaration order breaks ties for the default). An account nobody
+ * declares — the literal `"default"` one included — falls to the first agent
+ * with no declared account. The ONE resolver both `readRegistry` (agent-config.ts)
+ * and the stopped-log reader (stopped-log.ts) use, so a chat's owner never
+ * disagrees between the two.
+ */
+export function accountToAgent(home: string): (account: string) => string {
+  const engineFile = join(home, "engine.json");
+  if (!home || !existsSync(engineFile)) return () => "";
+  let engine: EngineConfig;
+  try {
+    engine = JSON.parse(readFileSync(engineFile, "utf8"));
+  } catch {
+    return () => "";
+  }
+  const ids = Object.keys(engine.agents ?? {}).filter((id) => typeof engine.agents?.[id]?.workspace === "string");
+  const owners = new Map<string, string>();
+  let defaultAgent = "";
+  for (const id of ids) {
+    const owned = engine.agents?.[id]?.account;
+    if (owned) owners.set(owned, id);
+    else if (!defaultAgent) defaultAgent = id;
+  }
+  defaultAgent ||= ids[0] ?? "";
+  return (account: string) => (owners.has(account) ? owners.get(account)! : defaultAgent);
+}
+
 /** Name and job from `IDENTITY.md`: the heading (`# Name`) and the first
  *  non-empty line after it. Missing file = both empty, never a throw. */
 export function readIdentity(workspace: string): { name: string; job: string } {

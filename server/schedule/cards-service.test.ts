@@ -104,3 +104,16 @@ describe("card a calendario", () => {
     expect(engine.tick().created).toHaveLength(0);
   });
 });
+
+describe("last result of a recurrence (review finding)", () => {
+  test("a run that never created a card is not shown as created", () => {
+    const db = freshDb();
+    for (const file of ["20261014225051-scheduled-cards.sql", "20261121105631-scheduled-jobs.sql"]) db.run(readFileSync(join(import.meta.dir, "../db/migrations", file), "utf8"));
+    const service = createScheduledCardsService(db, () => new Date("2026-10-19T06:00:00.000Z"));
+    const card = service.create({ projectId: PID, text: "x", status: "backlog", labels: [], cron: "0 9 * * 1", timeZone: "UTC" });
+    db.run(`INSERT INTO scheduled_job_runs (id, job_id, occurrence_key, scheduled_for, status, reason, created_at)
+      VALUES ('r', '${card.id}', 'k', 'x', 'failed_to_start', 'spawn failed', '2026-10-19T09:00:00.000Z')`);
+    const [view] = service.list(PID);
+    expect([view?.lastResult, view?.lastReason]).toEqual(["skipped", "spawn failed"]);
+  });
+});

@@ -293,8 +293,8 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 429,
-  "clone_groups": 16,
+  "duplicated_lines": 311,
+  "clone_groups": 11,
   "files": {
     "client/src/App.tsx": 1100,
 
@@ -528,7 +528,7 @@
 
     "server/providers/claude-code.ts": 3847,
 
-    "server/providers/codex.ts": 1392,
+    "server/providers/codex.ts": 1347,
 
     "server/providers/index.ts": {
       "lines": 841,
@@ -538,7 +538,7 @@
     },
 
     "server/providers/muse.ts": {
-      "lines": 1096,
+      "lines": 1048,
       "why": [
         "2026-10-06, muse-provider: new file, the Muse chat provider as a deliberate CodexProvider mirror (one-shot exec + sid resume, JSONL mapping, abort, usage). The mirror is also the +113 duplicated lines / +5 clone groups recorded above."
       ]
@@ -611,7 +611,9 @@
 
     "server/routes/topics.ts": 1380,
 
-    "server/services/ci-evidence.ts": 1076,
+    "server/services/ci-evidence.test.ts": 821,
+
+    "server/services/ci-evidence.ts": 1074,
 
     "server/services/dispatch-capacity.ts": 1248,
 
