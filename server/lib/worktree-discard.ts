@@ -8,7 +8,7 @@
  * the node meter's `finally` starts the remove, and `process.exit` reaps the git
  * group a moment later (`reapBoundedGroups` in `bounded-spawn.ts`). The land
  * then found the branch "live" in that tree and refused it for 196 uncommitted
- * files (card 54e4489d, twelve check trees out of twenty-four).
+ * files (card 8e9c2873, twelve check trees out of twenty-four).
  *
  * Here the order is reversed: the tree is moved aside (one rename, atomic on
  * the same volume), the registration is pruned, and only then is the moved copy
