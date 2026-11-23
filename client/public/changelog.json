@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.89",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "skill tool: a skill folder linked from outside the root is read; a link to any other file still is not",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.88",
     "date": "2026-11-23",
     "sections": {

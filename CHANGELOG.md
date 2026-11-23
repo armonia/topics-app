@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.89 — 2026-11-23
+
+### Sotto il cofano
+- skill tool: a skill folder linked from outside the root is read; a link to any other file still is not
+
 ## 2.4.88 — 2026-11-23
 
 ### Sotto il cofano
