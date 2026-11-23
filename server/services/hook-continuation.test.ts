@@ -5,7 +5,7 @@
  */
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { HOOK_CONTINUATION_LIMIT, continueAfterTurnEndHook, hookChainLength, lastRowIdOf } from "./hook-continuation";
+import { HOOK_CONTINUATION_LIMIT, continueAfterTurnEndHook, goalBoughtTurn, hookChainLength, lastRowIdOf } from "./hook-continuation";
 
 function db() {
   const d = new Database(":memory:");
@@ -98,7 +98,21 @@ describe("continueAfterTurnEndHook", () => {
     expect(x.sent).toEqual([]);
   });
 
-  test("an active goal owns the turn end: the hook does not buy a second turn (defect 5)", async () => {
+  test("goalBoughtTurn: only a continuation or a resume the goal loop sent", () => {
+    expect(goalBoughtTurn("continued")).toBe(true);
+    expect(goalBoughtTurn("tool-budget-resumed")).toBe(true);
+    for (const o of ["achieved", "capped", "stalled", "blocked", "undecided", "busy", "skipped", "background", "error"]) expect(goalBoughtTurn(o)).toBe(false);
+  });
+
+  test("a machine notice written after the turn (a goal's stop line) is not a newer turn", async () => {
+    const { d, add } = db();
+    const last = add("assistant");
+    add("assistant", [{ kind: "goal-stop", reason: "capped" }]);
+    const x = deps(d);
+    expect(await continueAfterTurnEndHook({ ...base, turnLastRowId: last }, x.deps)).toBe("sent");
+  });
+
+  test("the goal loop bought a turn for this end: the hook does not buy a second one (defect 5)", async () => {
     const { d, add } = db();
     const x = deps(d);
     expect(await continueAfterTurnEndHook({ ...base, goalOwnsTurn: true, turnLastRowId: add("assistant") }, x.deps)).toBe("goal-owns");

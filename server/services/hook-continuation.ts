@@ -34,9 +34,14 @@
  *   may take 60 s): something newer happened, and the verdict is stale;
  * - a native sub-agent's chat: a nudge would set a retired child running
  *   again, and its parent drives it (`send_to_agent`);
- * - a turn whose active goal the goal loop is going to judge: ONE owner per
- *   turn end, and the goal loop goes first (deterministic order, never two
- *   bought turns racing on the 409).
+ * - a turn end for which the goal loop really bought a turn (continuation or
+ *   tool-budget resume): ONE turn per turn end, and the goal loop decides
+ *   first; the hook's request waits for its outcome (`goalBoughtTurn`). A goal
+ *   achieved, capped or stalled leaves the end to the hook.
+ *
+ * Known and accepted (fails on the safe side): after a restart that cut a
+ * turn, the resume's copy of an interrupted person message may leave the
+ * ceiling closed until the person writes again.
  *
  * ── Never fatal ──────────────────────────────────────────────────────────────
  * The turn that ended is over and written. Whatever goes wrong here (the route
@@ -95,11 +100,24 @@ function resumedRow(db: QueryDb, userRowId: string, parse: (raw: unknown) => Arr
   return answers.some((a) => parse(a.blocks)?.some((b) => b?.kind === "ripreso") ?? false);
 }
 
-/** The id of the session's newest row, the turn's "last word" fixed when it ended. */
+/** The goal loop's outcomes (`createGoalContinuation`) that sent the chat a turn of its own. */
+export function goalBoughtTurn(outcome: string): boolean {
+  return outcome === "continued" || outcome === "tool-budget-resumed";
+}
+
+/**
+ * The id of the session's newest row that is not a machine notice: a goal
+ * loop's stop line written after the turn is not a newer turn.
+ */
 export function lastRowIdOf(db: QueryDb, sessionKey: string): string | null {
   try {
-    const r = db.query(`SELECT id FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1`).get(sessionKey) as { id: string } | null;
-    return r?.id ?? null;
+    const rows = db.query(`SELECT id, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT ${CHAIN_SCAN_ROWS}`).all(sessionKey) as Array<{ id: string; blocks: unknown }>;
+    for (const r of rows) {
+      let blocks: unknown = null;
+      try { blocks = JSON.parse(decodeCol(r.blocks as never) ?? "null"); } catch { blocks = null; }
+      if (!hasMachineMark(Array.isArray(blocks) ? blocks : null)) return r.id;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -119,7 +137,7 @@ interface HookContinuationInput {
   endedCleanly: boolean;
   /** A question of the chat still waits on its person. */
   pendingAsk: boolean;
-  /** The goal loop owns this turn end (an active goal it will judge). */
+  /** The goal loop bought a turn for this same turn end (`goalBoughtTurn`). */
   goalOwnsTurn: boolean;
 }
 
@@ -142,7 +160,7 @@ export async function continueAfterTurnEndHook(
     if (!input.endedCleanly) { log(`${tag}, but the turn did not end on its own: not sent`); return "not-clean"; }
     if (input.pendingAsk) { log(`${tag}, but a question waits on the person: not sent`); return "waiting-human"; }
     if (input.subagentChat) { log(`${tag}, but this is a sub-agent's chat (its parent drives it): not sent`); return "subagent"; }
-    if (input.goalOwnsTurn) { log(`${tag}, but the chat's active goal owns this turn end (the goal loop decides): not sent`); return "goal-owns"; }
+    if (input.goalOwnsTurn) { log(`${tag}, but the goal loop already bought a turn for this turn end: not sent`); return "goal-owns"; }
     if (input.chainLength >= HOOK_CONTINUATION_LIMIT) {
       log(`${tag} again after ${input.chainLength} in a row: ceiling of ${HOOK_CONTINUATION_LIMIT} reached, ignored`);
       return "capped";

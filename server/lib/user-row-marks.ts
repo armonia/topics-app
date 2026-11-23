@@ -48,13 +48,6 @@ export interface UserRowOrigin {
    * the person typing it, with an edit button (cross-review of tornata 2c).
    */
   repeats?: readonly ContentBlock[];
-  /**
-   * The row is a RESUME's resend (`ripresa` on the body: the boot sweep, the
-   * goal loop's tool-budget resume), not a request somebody made. Only then
-   * does a `hook-nudge` travel through `repeats`: a person typing the same
-   * words as the hook («continua») is still the person (review of PR 1623).
-   */
-  resumed?: boolean;
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
   /** The outcome of a card this chat sent to work (`services/card-outcome-wake.ts`): the board's words, drawn as its envelope. */
@@ -123,7 +116,6 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   // its own ids. Only a bare resend takes the marks of the row it repeats.
   if (!blocks.length && origin.repeats) {
     for (const mark of origin.repeats) {
-      if (mark.kind === "hook-nudge" && origin.resumed !== true) continue;
       // No comment ids: the row it repeats already delivered them, and a second
       // anchor would draw the same words twice on the card.
       blocks.push(mark.kind === "dispatched-envelope" ? { kind: "dispatched-envelope" } : mark);
@@ -139,20 +131,44 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
  * words is the migration's alone.
  */
 export function repeatedRowMarks(
-  db: { query(sql: string): { get(...args: string[]): unknown } },
+  db: { query(sql: string): { get(...args: string[]): unknown; all?(...args: string[]): unknown[] } },
   sessionKey: string,
   content: string,
 ): ContentBlock[] | undefined {
   try {
     const row = db.query(
-      `SELECT content = ?2 AS same, blocks FROM messages WHERE session_key = ?1 AND role = 'user' AND ${NOT_STEERED_ROW}
+      `SELECT content = ?2 AS same, blocks, sort_order AS ord FROM messages WHERE session_key = ?1 AND role = 'user' AND ${NOT_STEERED_ROW}
         ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
-    ).get(sessionKey, content) as { same: number | null; blocks: unknown } | null;
+    ).get(sessionKey, content) as { same: number | null; blocks: unknown; ord: number } | null;
     if (row?.same !== 1) return undefined;
     const blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null;
-    const marks = Array.isArray(blocks) ? blocks.filter((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)) : [];
+    let marks = Array.isArray(blocks) ? blocks.filter((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)) : [];
+    // A HOOK'S WORDS TRAVEL ONLY TO A RESEND OF A ROW NOBODY ANSWERED: the
+    // Retry of a hook turn that failed, the boot resuming one that was cut.
+    // After an answer, the same words («continua») are the person typing
+    // them (review of PR 1623, defects 3 and A).
+    if (marks.some((b) => b.kind === "hook-nudge") && answeredAfter(db, sessionKey, row.ord)) {
+      marks = marks.filter((b) => b.kind !== "hook-nudge");
+    }
     return marks.length ? marks : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Has the model answered (words, no error) after the row at `ord`? */
+function answeredAfter(
+  db: { query(sql: string): { all?(...args: string[]): unknown[] } },
+  sessionKey: string,
+  ord: number,
+): boolean {
+  const rows = (db.query(
+    `SELECT content, blocks FROM messages WHERE session_key = ?1 AND role = 'assistant' AND sort_order > ?2`,
+  ).all?.(sessionKey, String(ord)) ?? []) as Array<{ content: string | null; blocks: unknown }>;
+  return rows.some((r) => {
+    if (!(r.content ?? "").trim()) return false;
+    let blocks: unknown = null;
+    try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null"); } catch { blocks = null; }
+    return !(Array.isArray(blocks) && blocks.some((b) => b?.kind === "error" || (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)));
+  });
 }

@@ -160,14 +160,18 @@ it, and the count survives a restart), and SHALL ignore and log the request
 past that. It SHALL NOT continue, and SHALL log why:
 - a turn that did not end on its own (stopped, failed, discarded) or that left
   a question waiting on the person;
-- a turn that is no longer the chat's last row when the hook answers;
+- a turn that is no longer the chat's last row when the hook answers (machine
+  notices written after it, such as a goal's stop line, do not count);
 - a native sub-agent's chat (its parent drives it);
-- a turn end the goal loop owns (an active goal it will judge): one owner per
-  turn end, the goal loop first.
+- a turn end for which the goal loop really bought a turn (continuation or
+  tool-budget resume): one turn per turn end, the goal loop decides first and
+  the hook's request waits for its outcome. A goal met, capped or stalled
+  leaves that end to the hook.
 A refusal of the route (a 409: another turn holds the session) SHALL mean not
 sent, logged. No failure of the continuation SHALL touch the turn that ended.
-A `hook-nudge` mark SHALL travel to a resent copy of its row only on a resume,
-never onto a message the person typed with the same words.
+A `hook-nudge` mark SHALL travel to a resent copy of its row (Retry, resume)
+only while nobody answered that row, never onto a message the person typed
+with the same words after an answer.
 
 #### Scenario: A hook asks to continue and the chat gets one marked turn
 - **GIVEN** a `turn-end` hook that exits 0 printing `{"decision":"block","reason":"run the retrospective"}`

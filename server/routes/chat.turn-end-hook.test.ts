@@ -42,7 +42,7 @@ interface Harness {
   ctx: AppContext;
 }
 
-async function harness(opts: { providerName: string; answer: () => Promise<HookOutcome> }): Promise<Harness> {
+async function harness(opts: { providerName: string; answer: () => Promise<HookOutcome>; verdicts?: string[] }): Promise<Harness> {
   const ctx = await createTestAppContext();
   const frames: Array<Record<string, unknown>> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { frames.push(m as Record<string, unknown>); };
@@ -61,7 +61,8 @@ async function harness(opts: { providerName: string; answer: () => Promise<HookO
     defaultModel: () => "fake-model",
     abort: async () => {},
     start: () => {}, stop: () => {},
-    complete: async () => ({ content: "" }),
+    // The goal loop's judge: an answer per call when the test gives them.
+    complete: async () => ({ content: opts.verdicts?.shift() ?? "" }),
   } as unknown as AIProvider;
 
   const seen: Array<[string, LifecycleHookPayload]> = [];
@@ -340,12 +341,52 @@ describe("a turn-end hook that asks to carry on (HOOKS-04)", () => {
     expect(state.state).toBe("retired");
   });
 
-  test("defect 5: an active goal owns the turn end, the hook does not buy a second turn", async () => {
-    const h = await harness({ providerName: "topics", answer: async () => ({ ok: true, continueWith: "carry on" }) });
+  test("defect 5: when the goal loop buys a turn, the hook does not buy a second one for the same end", async () => {
+    const h = await harness({ providerName: "topics", verdicts: ["continue", "met"], answer: async () => ({ ok: true, continueWith: "carry on" }) });
     const sk = "topic:turn-end-goal";
-    const handler = await h.startTurn(sk);
+    const t0 = await h.startTurn(sk);
     setGoal(h.ctx.db as never, { topicId: `t-${sk}`, content: "finish the refactor" });
-    end(handler, "step done"); await settle();
+    end(t0, "step done");
+    // The goal loop continues: its turn, and no hook row beside it.
+    const goalTurn = await nextTurn(h, t0);
+    expect(goalTurn).not.toBe(t0);
+    await settle();
     expect(hookRows(h, sk)).toEqual([]);
+    // The goal is met at the end of its turn: that end is the hook's, once.
+    end(goalTurn!, "all done");
+    await nextTurn(h, goalTurn!);
+    await settle();
+    const users = h.userRows(sk);
+    expect(users.filter((u) => u.blocks?.some((b) => b.kind === "goal-nudge"))).toHaveLength(1);
+    expect(hookRows(h, sk).map((u) => u.blocks)).toEqual([[{ kind: "hook-nudge", attempt: 1 }]]);
+    expect(users.at(-1)?.content).toBe("carry on");
+  });
+
+  test("B: a goal the loop does not continue (met) leaves the turn end to the hook", async () => {
+    const h = await harness({ providerName: "topics", verdicts: ["met"], answer: async () => ({ ok: true, continueWith: "run the retrospective" }) });
+    const sk = "topic:turn-end-goal-met";
+    const t0 = await h.startTurn(sk);
+    setGoal(h.ctx.db as never, { topicId: `t-${sk}`, content: "finish the refactor" });
+    end(t0, "puoi chiuderla");
+    await nextTurn(h, t0);
+    await settle();
+    expect(hookRows(h, sk).map((u) => u.content)).toEqual(["run the retrospective"]);
+  });
+
+  test("A: Retry of a hook turn that failed keeps the row marked, never the person's", async () => {
+    let asks = 1;
+    const h = await harness({ providerName: "topics", answer: async () => (asks-- > 0 ? { ok: true, continueWith: "run the retrospective" } : { ok: true }) });
+    const sk = "topic:turn-end-retry";
+    const t0 = await h.startTurn(sk);
+    end(t0, "puoi chiuderla");
+    const hookTurn = await nextTurn(h, t0);
+    hookTurn!.onError("upstream connection reset");
+    await settle();
+    // The client's Retry: the text alone, no marks on the body.
+    await h.post(sk, "run the retrospective");
+    await settle();
+    const copies = h.userRows(sk).filter((u) => u.content === "run the retrospective");
+    expect(copies.length).toBe(2);
+    expect(copies.map((u) => u.blocks)).toEqual([[{ kind: "hook-nudge", attempt: 1 }], [{ kind: "hook-nudge", attempt: 1 }]]);
   });
 });
