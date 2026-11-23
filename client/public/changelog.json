@@ -18,6 +18,22 @@
           "it": "tool surface golden: switch_topic takes a name or an id",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "security alerts: an ssh server keeps one card instead of a new one every round",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "board brakes: the chip says when the 24h spend cap stops the queue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "name the spend amounts in English for the identifier gate",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }

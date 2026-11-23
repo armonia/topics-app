@@ -9,6 +9,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - tool surface golden: switch_topic takes a name or an id
+- security alerts: an ssh server keeps one card instead of a new one every round
+- board brakes: the chip says when the 24h spend cap stops the queue
+- name the spend amounts in English for the identifier gate
 
 ## 2.4.89 — 2026-11-23
 
