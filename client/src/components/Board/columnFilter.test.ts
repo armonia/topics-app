@@ -26,6 +26,7 @@ describe('isChronicleRow: what leaves the column', () => {
   test('envelope', () => expect(isChronicleRow(session('user', [], { envelope: true }), deps)).toBe(true));
   test('process exit', () => expect(isChronicleRow(session('user', [{ kind: 'process-exit' }]), deps)).toBe(true));
   test('goal nudge', () => expect(isChronicleRow(session('user', [{ kind: 'goal-nudge' }]), deps)).toBe(true));
+  test('turn-end hook nudge', () => expect(isChronicleRow(session('user', [{ kind: 'hook-nudge', attempt: 1 }]), deps)).toBe(true));
   test('goal stop', () => expect(isChronicleRow(session('user', [{ kind: 'goal-stop' }]), deps)).toBe(true));
   test('machine stop', () => expect(isChronicleRow(session('assistant', [{ kind: 'machine-stop' }]), deps)).toBe(true));
   test('background notice', () => expect(isChronicleRow(session('assistant', [{ kind: 'background-notice' }]), deps)).toBe(true));

@@ -2,13 +2,15 @@
  * @covers TOPIC-PREVIEW-01
  */
 import { describe, it, expect } from 'bun:test';
-import { isMachineRow, machineStopOf } from './machineRow';
+import { hookNudgeOf, isMachineRow, machineStopOf } from './machineRow';
 
 describe('isMachineRow', () => {
   it('the goal loop and the board envelope are machinery', () => {
     expect(isMachineRow([{ kind: 'goal-nudge', attempt: 1 }])).toBe(true);
     expect(isMachineRow([{ kind: 'goal-stop', reason: 'stalled' }])).toBe(true);
     expect(isMachineRow([{ kind: 'dispatched-envelope' }])).toBe(true);
+    // The turn a user's turn-end hook asked for (HOOKS-04).
+    expect(isMachineRow([{ kind: 'hook-nudge', attempt: 1 }])).toBe(true);
     // The line under a turn the machine stopped: without it the live frame's
     // sentence became the chat's preview in the sidebar.
     expect(isMachineRow([{ kind: 'machine-stop', cause: 'superseded', text: 'Fermato' }])).toBe(true);
@@ -27,5 +29,17 @@ describe('machineStopOf', () => {
     expect(machineStopOf([{ kind: 'goal-stop', reason: 'capped' }])).toBeNull();
     expect(machineStopOf([{ kind: 'error', text: 'Nessuna risposta', cause: 'stall' }])).toBeNull();
     expect(machineStopOf(undefined)).toBeNull();
+  });
+});
+
+describe('hookNudgeOf (HOOKS-04)', () => {
+  it('draws the hook line from the mark and the first non-empty line of the text', () => {
+    expect(hookNudgeOf([{ kind: 'hook-nudge', attempt: 2 }], '\n  Run the retrospective  \nthen apply it')).toEqual({ attempt: 2, firstLine: 'Run the retrospective' });
+    expect(hookNudgeOf([{ kind: 'hook-nudge', attempt: 1 }], '')).toEqual({ attempt: 1, firstLine: '' });
+  });
+
+  it('is null on a row without the mark, even with the same words', () => {
+    expect(hookNudgeOf([{ kind: 'goal-nudge', attempt: 1 }], 'Run the retrospective')).toBeNull();
+    expect(hookNudgeOf(undefined, 'Run the retrospective')).toBeNull();
   });
 });

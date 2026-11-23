@@ -13,6 +13,7 @@ import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { mergeReattachedRow } from "./reattachMerge";
 import type { ContentBlock } from "../types";
 import { backgroundOfTurn, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { continueAfterTurnEndHook, goalBoughtTurn, hookChainLength, lastRowIdOf } from "../services/hook-continuation";
 import { sessionHasOpenQuestion } from "../lib/question-outlives-asker";
 import { decodeCol } from "../../shared/message-blob";
 import { commandWakeState } from "./processes";
@@ -598,7 +599,12 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
         lastAssistantText: turn.fullContent,
       };
       setTimeout(() => {
-        goalLoop.onTurnEnd(goalTurn).catch((err) => console.warn("[goal] end-of-turn hook failed:", err));
+        // The turn's last word, fixed BEFORE the goal loop can write
+        // anything: the hook's verdict is about this turn, not a later one.
+        const hookTurn = hooks && turn.topicProvider?.name === "topics"
+          ? { chainLength: hookChainLength(ctx.db, sessionKey), turnLastRowId: lastRowIdOf(ctx.db, sessionKey) }
+          : null;
+        const goalOutcome = goalLoop.onTurnEnd(goalTurn).catch((err) => { console.warn("[goal] end-of-turn hook failed:", err); return "error"; });
         // THE USER'S TURN-END HOOK, in the same deferred slot and for
         // the same reason: the SSE is already closed, and nothing here
         // waits. It cannot block (HOOKS-02): a non-zero exit only
@@ -606,13 +612,39 @@ export function createFinalizeStream(turn: ChatTurnScope): void {
         // way the system-message verb does, so it is read where the
         // turn was read. Native runtime alone; the CLI providers carry
         // their own hook systems.
-        if (hooks && turn.topicProvider?.name === "topics") {
+        //
+        // It CAN ask for one more turn (HOOKS-04, Claude Code's Stop):
+        // `{"decision":"block","reason":…}` on stdout sends the reason
+        // through this same route as a `hook-nudge` row, under the
+        // brakes of `services/hook-continuation.ts`.
+        if (hooks && hookTurn) {
+          const { chainLength, turnLastRowId } = hookTurn;
           hooks.run("turn-end", {
             hook_event_name: "turn-end",
             session_id: sessionKey,
             cwd: matchedTopic.projectPath ?? WORKSPACE_DIR,
-          }).then((verdict) => {
-            if (verdict.ok) return;
+            stop_hook_active: chainLength > 0,
+          }).then(async (verdict) => {
+            if (verdict.ok) {
+              if (!verdict.continueWith) return;
+              // ONE TURN PER TURN END, the goal loop first: the hook's
+              // request is decided only once the goal loop has, and it
+              // yields only when the goal loop really bought a turn. A goal
+              // achieved, capped or stalled leaves the end to the hook: that
+              // last turn is where a retrospective belongs.
+              const goalOwnsTurn = goalBoughtTurn(await goalOutcome);
+              await continueAfterTurnEndHook({
+                sessionKey,
+                subagentChat: turn.nativeChildChat === true,
+                text: verdict.continueWith,
+                chainLength,
+                turnLastRowId,
+                endedCleanly: goalTurn.end === "end_turn" && !goalTurn.discarded && !turnError,
+                pendingAsk: goalTurn.pendingAsk,
+                goalOwnsTurn,
+              }, { db: ctx.db, resend: goalLoop.resend });
+              return;
+            }
             const stored = appendLocalMessage(sessionKey, "assistant", verdict.reason);
             broadcastToAll({ type: "message", sessionKey, message: { id: stored.id, role: "assistant", content: verdict.reason, timestamp: stored.timestamp } });
             broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: stored.id, content: verdict.reason, preview: verdict.reason.slice(0, 100) });

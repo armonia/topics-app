@@ -419,6 +419,7 @@ const EN = {
   'goal.notCompacted': 'turn plan, does not survive compaction',
   'goal.loop.continuing': 'Goal: carrying on ({n})',
   'goal.loop.capped': 'Goal: auto-continuation stopped, too many turns in a row',
+  'hook.turnEnd.continuing': 'Turn-end hook',
   'chat.dispatchEnvelope.line': 'Board turn: the dispatcher opened it',
   'chat.dispatchEnvelope.show': 'show the text',
   'chat.dispatchEnvelope.hide': 'hide the text',

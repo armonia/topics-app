@@ -2,6 +2,7 @@
  * Is this row one the MACHINE wrote, not the person or the model?
  *
  * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`),
+ * the turn a user's `turn-end` hook asked for (`hook-nudge`),
  * the line about a chat's background work (`background-notice`), the end
  * of a command the chat launched (`process-exit`)
  * and the board's envelope (`dispatched-envelope`) are rows of the transcript
@@ -16,7 +17,7 @@ import type { MachineStopCause } from '../../../../shared/types';
 import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit', 'subagent-result']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'hook-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit', 'subagent-result']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;
@@ -33,6 +34,21 @@ export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null)
 export function machineStopOf(blocks: readonly ContentBlock[] | undefined | null): MachineStopCause | null {
   const b = blocks?.find((x) => x.kind === 'machine-stop');
   return b && b.kind === 'machine-stop' ? b.cause : null;
+}
+
+/**
+ * The turn a user's `turn-end` hook asked for, as its service line draws it:
+ * the consecutive attempt and the first non-empty line of the hook's text
+ * (`server/services/hook-continuation.ts`). Null on any other row.
+ */
+export function hookNudgeOf(
+  blocks: readonly ContentBlock[] | undefined | null,
+  content: string | null | undefined,
+): { attempt: number; firstLine: string } | null {
+  const b = blocks?.find((x) => x.kind === 'hook-nudge');
+  if (!b || b.kind !== 'hook-nudge') return null;
+  const firstLine = (content ?? '').split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  return { attempt: b.attempt, firstLine };
 }
 
 export type BackgroundNoticeBlock = Extract<ContentBlock, { kind: 'background-notice' }>;
