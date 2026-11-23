@@ -1,4 +1,6 @@
 /**
+ * @covers LAND-04
+ *
  * A node check checkout cut mid-release must not block the land (card 8e9c2873).
  *
  * @covers LAND-19
