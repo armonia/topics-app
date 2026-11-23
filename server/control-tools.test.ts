@@ -136,6 +136,46 @@ describe("dispatchControlToolCall — switch_topic", () => {
     } finally { h.cleanup(); }
   });
 
+  test("finds the target by name: exact first, then a part of it, case and spacing ignored", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      h.topics.set("a", makeTopic({ id: "a", name: "Prince of Persia remake" }));
+      h.topics.set("b", makeTopic({ id: "b", name: "Persia" }));
+      expect(await dispatchControlToolCall("switch_topic", { topic_id: "  persia " }, cur, h.deps)).toContain("b");
+      expect(await dispatchControlToolCall("switch_topic", { topic_id: "prince OF" }, cur, h.deps)).toContain("a");
+    } finally { h.cleanup(); }
+  });
+
+  test("a name that matches several topics answers with their ids and switches nothing", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur" });
+      h.topics.set("cur", cur);
+      h.topics.set("x1", makeTopic({ id: "x1", name: "Landing v1" }));
+      h.topics.set("x2", makeTopic({ id: "x2", name: "Landing v2" }));
+      h.topics.set("x3", makeTopic({ id: "x3", name: "Landing v3", archived: true }));
+      const err = await dispatchControlToolCall("switch_topic", { topic_id: "landing" }, cur, h.deps).catch((e) => e);
+      expect(err.code).toBe("ambiguous");
+      expect(err.message).toContain("x1: Landing v1");
+      expect(err.message).toContain("x2: Landing v2");
+      expect(err.message).not.toContain("x3");
+      expect(h.broadcasts.filter((b) => b.type === "topic:switch")).toHaveLength(0);
+    } finally { h.cleanup(); }
+  });
+
+  test("a tie is broken by the current topic's project", async () => {
+    const h = makeDeps();
+    try {
+      const cur = makeTopic({ id: "cur", projectPath: "/repos/alpha" });
+      h.topics.set("cur", cur);
+      h.topics.set("p1", makeTopic({ id: "p1", name: "Deploy", projectPath: "/repos/alpha" }));
+      h.topics.set("p2", makeTopic({ id: "p2", name: "Deploy", projectPath: "/repos/beta" }));
+      expect(await dispatchControlToolCall("switch_topic", { topic_id: "deploy" }, cur, h.deps)).toContain("p1");
+    } finally { h.cleanup(); }
+  });
+
   test("throws not_found for a missing target and bad_args for a missing id", async () => {
     const h = makeDeps();
     try {
