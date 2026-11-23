@@ -35,7 +35,9 @@ export async function prePushVerdict(cwd: string, base: string, sha: string): Pr
   if (dir === "") return no("no hooks dir");
   const hook = join(dir, "pre-push");
   if (!existsSync(hook)) return no(`no hook at ${hook}`);
-  const r = await runBounded([hook, "origin", "origin"], {
+  // Windows cannot exec an extensionless script; git itself runs hooks through sh there.
+  const argv = process.platform === "win32" ? ["sh", hook, "origin", "origin"] : [hook, "origin", "origin"];
+  const r = await runBounded(argv, {
     cwd,
     stderr: "pipe",
     timeoutMs: HOOK_DEADLINE_MS,
