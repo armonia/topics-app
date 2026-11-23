@@ -1,0 +1,48 @@
+#!/bin/bash
+# logind sessions stuck in "closing" after their scope is gone, on a cloud node.
+#
+# Why it happens (card e809a470, measured on systemd 255): when PID 1 loses its connection to
+# the system bus and reconnects (seen during a global OOM stall), destroy_bus() drops the list
+# of subscribed clients. logind keeps its own connection, never calls Subscribe() again, and
+# PID 1 stops broadcasting UnitRemoved/PropertiesChanged. logind then never learns that a
+# session scope ended: every ssh logout stays "closing" until SessionsMax (8192) refuses logins.
+# Restarting systemd-logind subscribes again and drops the dead sessions on startup.
+#
+#   logind-stale-sessions --check   exit 0 when no session is stale, 1 otherwise (read-only)
+#   logind-stale-sessions --heal    restart systemd-logind if the same sessions are stale in
+#                                   two samples 60 s apart (run by logind-stale-sessions.timer)
+set -u
+
+stale() {
+  # STATE is located by header name: the column order of loginctl changes between versions.
+  local closing active
+  closing=$(loginctl list-sessions --no-pager | awk 'NR==1{for(i=1;i<=NF;i++) if($i=="STATE") c=i; next} c && $c=="closing"{print $1}' | sort)
+  active=$(systemctl list-units --type=scope --state=active --plain --no-legend --no-pager 'session-*.scope' \
+    | awk '{sub(/^session-/,"",$1); sub(/\.scope$/,"",$1); print $1}' | sort)
+  comm -23 <(printf '%s\n' "$closing" | sed '/^$/d') <(printf '%s\n' "$active" | sed '/^$/d')
+}
+
+case "${1:-}" in
+  --check)
+    s=$(stale)
+    n=$(printf '%s\n' "$s" | sed '/^$/d' | wc -l | tr -d ' ')
+    echo "stale closing sessions: $n"
+    [ "$n" -eq 0 ] && exit 0
+    echo "first: $(printf '%s\n' "$s" | head -5 | tr '\n' ' ')"
+    exit 1
+    ;;
+  --heal)
+    s1=$(stale)
+    [ -z "$s1" ] && exit 0
+    sleep 60
+    both=$(comm -12 <(printf '%s\n' "$s1") <(stale))
+    [ -z "$both" ] && exit 0
+    n=$(printf '%s\n' "$both" | wc -l | tr -d ' ')
+    logger -t logind-stale-sessions "$n sessions closing with no scope for 60 s: restarting systemd-logind"
+    systemctl restart systemd-logind
+    ;;
+  *)
+    echo "usage: $0 --check | --heal" >&2
+    exit 2
+    ;;
+esac
