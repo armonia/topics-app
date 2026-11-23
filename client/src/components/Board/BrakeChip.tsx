@@ -14,6 +14,10 @@
  * to where the hub answers. «Togli il freno a Claude» lifts only Claude's
  * early stop, Topics' own margin under the five-hour wall, for the current
  * window; a provider's real wall offers no such button.
+ *
+ * The 24h spend cap is the one stop that is no provider's: it holds every card
+ * past the gates, so while it holds one the chip, the strip and the card line
+ * name it first, with the spend, the cap and when the cards restart.
  */
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronDown, CirclePause, Monitor } from 'lucide-react';
@@ -29,7 +33,7 @@ import { capMode } from '../../lib/board';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
 import { Menu } from '../Shared/Menu';
-import { brakeChipView, brakeDetail, columnNoteView, heldCount, holdingBrakes, waitingClause, workingClause } from './brakeText';
+import { brakeDetail, columnNoteView, heldCount, holdingBrakes, queueChipView, spendWhy, waitingClause, workingClause } from './brakeText';
 import { TOOLBAR_CONTROL_H } from './constants';
 
 addCatalogue('it', BRAKES_IT);
@@ -62,6 +66,7 @@ function Row({ id, held, glyph, name, state, stateTone, detail, pct }: {
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * `band`: the phone's form, a full-width row under the bar, where the bar is a
@@ -79,8 +84,9 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const capState = useGlobalDispatchCap();
   const now = Date.now();
   const holding = holdingBrakes(state);
-  const view = brakeChipView(holding, now, tr, locale);
+  const view = queueChipView(state, now, tr, locale);
   if (!view) return null;
+  const spend = state.spend;
   const metered = meteredProviders(live.pace?.data, live.gates?.data, now);
   const share = (p: string): number | null => (p === 'claude' ? state.claudeFiveHour : metered.find((m) => m.provider === p)?.fiveH ?? null);
   const muse = metered.find((m) => m.provider === 'muse') ?? null;
@@ -89,7 +95,8 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const load = typeof mac?.loadPerCore === 'number' ? mac.loadPerCore : null;
   const oneDecimal = (n: number) => n.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const cap = capState.cap && capMode(capState.cap) === 'count' ? currentCapLimit(capState) : null;
-  const lead = cap != null && Number.isFinite(cap) ? tr('brake.pop.leadCap', { cap, who: view.who }) : tr('brake.pop.lead', { who: view.who });
+  const lead = spend ? tr('brake.pop.leadSpend')
+    : cap != null && Number.isFinite(cap) ? tr('brake.pop.leadCap', { cap, who: view.who }) : tr('brake.pop.lead', { who: view.who });
   // Only an early stop holding a card can be lifted: a provider's wall cannot.
   const liftable = holding.find((b) => b.liftable && heldCount(state, b.provider) > 0) ?? null;
   const lift = async () => {
@@ -106,7 +113,7 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
         data-testid={band ? 'board-brake-band' : 'board-brake-chip'}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={tr('brake.title', { who: view.who })}
+        title={spend ? tr('brake.spend.title') : tr('brake.title', { who: view.who })}
         onClick={() => setOpen((o) => !o)}
         className={`${band ? 'flex min-h-11 w-full items-start py-2.5 text-left text-compact leading-snug' : `flex ${TOOLBAR_CONTROL_H} items-center text-mini`} min-w-0 gap-1.5 rounded border border-amber-600/35 bg-amber-500/[0.14] px-2.5 dark:border-amber-400/30 dark:bg-amber-400/[0.12] ${WARNING_TEXT}`}
       >
@@ -123,6 +130,10 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
           <p className="text-compact font-semibold text-app-text-heading">{tr('brake.pop.title')}</p>
           <p data-testid="board-brake-lead" className="mt-0.5 text-mini leading-snug text-app-text-muted">{lead}</p>
         </div>
+        {spend && (
+          <Row id="spend" held glyph={pause} name={tr('brake.spend.who')} state={tr('brake.pop.held')} stateTone={`font-semibold ${WARNING_TEXT}`}
+            detail={`${capitalize(spendWhy(spend, now, tr, locale))} · ${waitingClause(spend.held.size, tr)}`} pct={Math.min(100, (spend.spentCents / spend.capCents) * 100)} />
+        )}
         {PROVIDERS.map((p) => {
           const wall = state.brakes.find((x) => x.provider === p) ?? null;
           const working = workingClause(state.working[p] ?? 0, tr);
@@ -200,11 +211,12 @@ export function BrakeCardLine({ taskId }: { taskId: string }) {
   const tr = useT();
   const state = useDispatchBrakes();
   const provider = state.held.get(taskId);
-  if (!provider) return null;
+  const bySpend = state.spend?.held.has(taskId) ?? false;
+  if (!provider && !bySpend) return null;
   return (
     <div data-testid="board-brake-card" className={`flex items-center gap-1 text-mini font-medium ${WARNING_TEXT}`}>
       <CirclePause className="h-3 w-3 shrink-0" aria-hidden="true" />
-      {tr('brake.card.wait', { who: providerHoldLabel(provider) })}
+      {bySpend || !provider ? tr('brake.card.spend') : tr('brake.card.wait', { who: providerHoldLabel(provider) })}
     </div>
   );
 }
@@ -212,5 +224,6 @@ export function BrakeCardLine({ taskId }: { taskId: string }) {
 /** Whether the dispatcher holds this card behind a wall: the card then shows `BrakeCardLine`. */
 // eslint-disable-next-line react-refresh/only-export-components -- the hook reads the same brakes store as the components in this file
 export function useBrakeHeld(taskId: string): boolean {
-  return useDispatchBrakes().held.has(taskId);
+  const state = useDispatchBrakes();
+  return state.held.has(taskId) || (state.spend?.held.has(taskId) ?? false);
 }
