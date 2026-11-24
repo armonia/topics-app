@@ -10,10 +10,13 @@
  *   3. the cleanup preview reads the SAVED root: a folder planted in it that no
  *      row and no git knows is listed as a ghost, with its class and what the
  *      next pass would do, and the preview writes nothing (the folder is still
- *      there afterwards).
+ *      there afterwards). With no Topics marker the cleanup never moves it, so
+ *      the line offers to move it to quarantine by hand, and back.
  *
  * The root cannot be in a temp area (the server refuses it), so it lives in a
- * folder of the machine's home that the spec makes and removes.
+ * folder of the machine's home that the spec makes and removes. It already holds
+ * the planted ghost, and the server refuses a non-empty root that does not carry
+ * Topics' sentinel: the spec writes the sentinel, as Topics' first create would.
  *
  * The cross-machine and cross-harness half (second describe, same form):
  *   4. one line per machine (WORKTREE-STD-11): this one, a node that reports its
@@ -22,7 +25,7 @@
  *      `topics-worktree add` (WORKTREE-STD-14) are registered at once: the cleanup preview
  *      lists them as Topics' own, not as folders without a row waiting for a pass.
  *
- * @covers WORKTREE-STD-01, WORKTREE-STD-03, WORKTREE-STD-11, WORKTREE-STD-13, WORKTREE-STD-14
+ * @covers WORKTREE-STD-01, WORKTREE-STD-03, WORKTREE-STD-11, WORKTREE-STD-13, WORKTREE-STD-14, WORKTREE-STD-15
  */
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
@@ -36,6 +39,7 @@ import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-project";
 import { openHomePanel } from "./helpers/user-menu";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
+import { writeRootSentinel } from "../../server/services/worktree-root-ledger";
 
 const test = base;
 hermetic(test);
@@ -57,6 +61,7 @@ test.describe("Impostazioni dei worktree", () => {
 
   test.beforeAll(() => {
     mkdirSync(GHOST, { recursive: true });
+    writeRootSentinel(ROOT);
   });
 
   test.afterAll(async ({ request }) => {
@@ -128,6 +133,22 @@ test.describe("Impostazioni dei worktree", () => {
     expect(existsSync(GHOST)).toBe(true);
     await panel.getByTestId("worktrees-preview-open").click();
     await expect(line).toHaveCount(1);
+    expect(existsSync(GHOST)).toBe(true);
+
+    // No Topics marker, so the cleanup never moves it: a person can, to quarantine, and back.
+    await line.getByTestId("worktrees-quarantine").click();
+    const toQuarantine = page.getByRole("dialog", { name: "Mettere in quarantena questa cartella?" });
+    await expect(toQuarantine).toBeVisible({ timeout: 10_000 });
+    await toQuarantine.getByRole("button", { name: "Metti in quarantena" }).click();
+    const parked = list.locator('[data-testid="worktrees-preview-line"][data-class="quarantined"]').filter({ hasText: `ghost-folder-${STAMP}` });
+    await expect(parked).toHaveCount(1, { timeout: 20_000 });
+    expect(existsSync(GHOST)).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("5-in-quarantena.png") });
+    await parked.getByTestId("worktrees-restore").click();
+    const restore = page.getByRole("dialog", { name: "Ripristinare questa cartella?" });
+    await expect(restore).toBeVisible({ timeout: 10_000 });
+    await restore.getByRole("button", { name: "Ripristina" }).click();
+    await expect(line).toHaveCount(1, { timeout: 20_000 });
     expect(existsSync(GHOST)).toBe(true);
   });
 });

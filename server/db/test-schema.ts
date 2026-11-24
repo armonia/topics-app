@@ -301,7 +301,8 @@ export const APP_SETTINGS_DDL = `CREATE TABLE IF NOT EXISTS app_settings (
   cargo_target_mode TEXT,
   gc_foreign TEXT,
   worktree_abandon_days INTEGER,
-  claude_worktree_hooks TEXT
+  claude_worktree_hooks TEXT,
+  worktree_quarantine_days INTEGER
 );
 INSERT OR IGNORE INTO app_settings (id, auto_dispatch) VALUES (1, 0);`;
 

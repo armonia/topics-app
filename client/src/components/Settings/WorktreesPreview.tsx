@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderInput, GitPullRequestArrow, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, FolderInput, GitPullRequestArrow, Trash2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useConfirm } from '../../hooks/useConfirm';
 import { worktreesApi } from '../../lib/apiSystem';
@@ -18,7 +18,9 @@ const tail = (p: string): string => p.split('/').filter(Boolean).slice(-2).join(
  * worktree root and every row, the class it has, what the next pass would do and
  * what it weighs. Worktrees made by another tool (outside the root) get three
  * hand actions: adopt (a row, so the cleanup sees it), move (into the root) and
- * remove. Each asks the server for a preview first and shows why when refused.
+ * remove. A folder in the root that the cleanup only lists (no Topics marker) can
+ * be moved to quarantine by hand, and a quarantined one restored. Each asks the
+ * server for a preview first and shows why when refused.
  */
 export function WorktreesPreview() {
   const t = useT();
@@ -62,10 +64,12 @@ export function WorktreesPreview() {
       const check = await worktreesApi.relocateCheck(entry.absPath, action);
       if (!check.ok) { setNote(refusal(check)); return; }
       if (action !== 'adopt') {
+        // `worktrees.quarantine` is already the label of the quarantine setting.
+        const key = action === 'quarantine' ? 'toQuarantine' : action;
         const ok = await confirm({
-          title: t(action === 'move' ? 'worktrees.move.title' : 'worktrees.remove.title'),
-          body: t(action === 'move' ? 'worktrees.move.body' : 'worktrees.remove.body', { from: check.from, to: check.to ?? '' }),
-          confirmLabel: t(action === 'move' ? 'worktrees.move' : 'worktrees.remove'),
+          title: t(`worktrees.${key}.title`),
+          body: t(`worktrees.${key}.body`, { from: check.from, to: check.to ?? '' }),
+          confirmLabel: t(`worktrees.${key}`),
           tone: action === 'remove' ? 'danger' : 'default',
         });
         if (!ok) return;
@@ -142,6 +146,7 @@ function PreviewLine({ entry, note, onAct }: { entry: WorktreePlanEntryPayload; 
           t(`worktrees.act.${action}`),
           size,
           foreign && entry.rowId ? t('worktrees.adopted') : undefined,
+          entry.from ? t('worktrees.preview.from', { path: entry.from }) : undefined,
         ].filter(Boolean).join(' · ')}
       </div>
       {foreign && (
@@ -149,6 +154,16 @@ function PreviewLine({ entry, note, onAct }: { entry: WorktreePlanEntryPayload; 
           {!entry.rowId && <LineButton testId="worktrees-adopt" icon={<FolderInput size={13} />} label={t('worktrees.adopt')} title={t('worktrees.adopt.hint')} onClick={() => onAct('adopt')} />}
           <LineButton testId="worktrees-move" icon={<FolderInput size={13} />} label={t('worktrees.move')} onClick={() => onAct('move')} />
           <LineButton testId="worktrees-remove" icon={<Trash2 size={13} />} label={t('worktrees.remove')} onClick={() => onAct('remove')} />
+        </div>
+      )}
+      {entry.cls === 'ghost' && entry.rootAction === 'inventory' && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          <LineButton testId="worktrees-quarantine" icon={<Archive size={13} />} label={t('worktrees.toQuarantine')} title={t('worktrees.toQuarantine.hint')} onClick={() => onAct('quarantine')} />
+        </div>
+      )}
+      {entry.cls === 'quarantined' && (
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          <LineButton testId="worktrees-restore" icon={<ArchiveRestore size={13} />} label={t('worktrees.restore')} onClick={() => onAct('restore')} />
         </div>
       )}
       {note && <div className="mt-1 text-mini text-red-600 dark:text-red-400" data-testid="worktrees-line-note">{note}</div>}

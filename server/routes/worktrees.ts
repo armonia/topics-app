@@ -12,7 +12,9 @@
  *   DELETE /api/worktrees/:id                    → remove dir + (mode='branch') branch
  *   GET    /api/worktrees/gc/plan                → preview of the cleanup, per folder
  *   POST   /api/worktrees/relocate               → adopt | move | remove a worktree made
- *                                                  outside the root (`dryRun` = preview)
+ *                                                  outside the root, quarantine a leftover the
+ *                                                  GC only lists, restore a quarantined one
+ *                                                  (`dryRun` = preview)
  *   POST   /api/worktrees/register               → a worktree another tool made (hook token)
  *   GET    /api/worktrees/placement?repo=|project= → where a creator puts one (hook token)
  *   POST   /api/worktrees/unregister             → forget one whose folder is gone (hook token)
@@ -187,6 +189,8 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       const body = await readJSON(req);
       const path = stripCtrl(body?.path);
       const action = stripCtrl(body?.action) as RelocateAction;
+      // Absolute in this host's flavour (a Windows host sends `C:\\...`). Only a folder git lists
+      // for a known project is ever acted on, so the form of the path decides nothing else.
       if (!path || !isAbsoluteServerPath(path, opts.platform)) return errorResponse(400, "path must be an absolute path");
       if (!(RELOCATE_ACTIONS as readonly string[]).includes(action)) {
         return errorResponse(400, `action must be one of: ${RELOCATE_ACTIONS.join(", ")}`);

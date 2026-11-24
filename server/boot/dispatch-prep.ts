@@ -40,6 +40,7 @@ import { buildProjectCandidates, resolveProjectPath } from "../services/project-
 import { SERVER_VERSION } from "../ws-capabilities";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { createWorktreeGcRunner } from "../services/worktree-gc-runner";
+import { ownedWorktreeRoots } from "../services/worktree-root";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeBranchPlanter } from "../services/node-branch-plant";
@@ -534,6 +535,11 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     worktreeStore: ctx.worktreeStore,
     worktreeManager: ctx.worktreeManager,
     projectStore: ctx.projectStore,
+    // The roots are named HERE, by the server: current, default, and the past ones its rows prove.
+    roots: () => ownedWorktreeRoots(ctx.worktreeStore.list(), new Set(ctx.projectStore.list().map((p) => p.slug))),
+    // Claude Code, Codex or jcode started from a terminal in a folder hold it like a session of ours,
+    // inside the worktree root too: `activeAt` would call those Topics' own and skip them.
+    externalActiveAt: (absPath) => externalSessions.activeInside(absPath).length > 0,
     getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
     resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
     svc: dispatcherSvc,

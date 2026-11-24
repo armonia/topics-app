@@ -17,6 +17,7 @@ export function toPlanPayload(plan: GcPlan, projectName: (projectId: string) => 
     plannedAction: e.planned?.action ?? null,
     reason: e.planned?.action === "keep" && e.planned.reason ? e.planned.reason : e.reason,
     bytes: e.bytes,
+    from: e.from ?? null,
   }));
   return {
     entries,

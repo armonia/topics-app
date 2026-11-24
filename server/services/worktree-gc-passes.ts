@@ -18,6 +18,8 @@ export interface GcSettings {
   abandonDays: number;
   gcForeign: GcForeignMode;
   maxPerProject: number;
+  /** Days a quarantined ghost folder is kept; absent = the default. */
+  quarantineDays?: number;
 }
 
 /** A row as the passes see it. */

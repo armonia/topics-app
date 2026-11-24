@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pastRootsFromRows } from "./worktree-root-ledger";
 import { topicsHome } from "./daemon-state";
 import { resolveWorktreeRootSetting } from "./app-settings";
 import { WORKTREE_ROOT_FOLDER } from "../../shared/worktree-settings";
@@ -45,3 +46,32 @@ export function defaultWorktreeRootDir(env: NodeJS.ProcessEnv = process.env): st
   return env.TOPICS_WORKTREES_DIR || join(topicsHome(env), WORKTREE_ROOT_FOLDER);
 }
 
+
+/**
+ * EVERY ROOT THAT IS TOPICS' OWN: the current one first, then the default one,
+ * then the roots it used before (read off its rows, each proven by the sentinel
+ * Topics wrote there). The GC, the cap, the delete and the by-hand relocation
+ * all ask this one list, so a root changed twice does not drop the worktrees of
+ * the first one out of the cleanup. It is the SERVER that names the roots: the
+ * GC modules never add one of their own.
+ */
+export function ownedWorktreeRoots(
+  rows: ReadonlyArray<{ absPath: string }>,
+  projectSlugs: ReadonlySet<string>,
+  env: NodeJS.ProcessEnv = process.env,
+): { root: string; extraRoots: string[] } {
+  const root = resolve(worktreeRootDir(env));
+  const all = [root, resolve(defaultWorktreeRootDir(env)), ...pastRootsFromRows(rows, projectSlugs).map((r) => resolve(r))];
+  return { root, extraRoots: [...new Set(all)].filter((r) => r !== root) };
+}
+
+/** `ownedWorktreeRoots` read off the two stores, as one list; a store that cannot list counts as empty. */
+export function ownedRootsOfStores(stores: {
+  worktreeStore: { list(): ReadonlyArray<{ absPath: string }> };
+  projectStore: { list(): ReadonlyArray<{ slug: string }> };
+}): string[] {
+  let slugs = new Set<string>();
+  try { slugs = new Set(stores.projectStore.list().map((p) => p.slug)); } catch { /* a bench store without list */ }
+  const r = ownedWorktreeRoots(stores.worktreeStore.list(), slugs);
+  return [r.root, ...r.extraRoots];
+}

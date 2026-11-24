@@ -280,6 +280,7 @@ export interface AppBehaviorSettings {
   worktreeAbandonDays: number | null;
   /** `off` | `topics`: the worktree hooks in the Claude sessions Topics launches. `null` = topics. */
   claudeWorktreeHooks: 'off' | 'topics' | null;
+  worktreeQuarantineDays: number | null;
 }
 
 /**

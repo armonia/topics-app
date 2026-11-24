@@ -17,7 +17,8 @@
 import { describe, test, expect } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { defaultWorktreeRootDir, worktreeRootDir } from "./worktree-manager";
+import { worktreeRootDir } from "./worktree-manager";
+import { defaultWorktreeRootDir } from "./worktree-root";
 
 describe("radice dei worktree", () => {
   test("con TOPICS_HOME, i worktree stanno DENTRO quella casa", () => {

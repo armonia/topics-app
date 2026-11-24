@@ -43,10 +43,11 @@ import { removalMeansAlive, worktreeGitArgs } from "./worktree-platform";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { worktreeRootDir, defaultWorktreeRootDir } from "./worktree-root";
+import { worktreeRootDir, ownedRootsOfStores } from "./worktree-root";
+import { forgetFolderOwned, markFolderOwned, writeRootSentinel } from "./worktree-root-ledger";
 
 // The root lives in its own module (this file is at the size gate); re-exported so callers keep one import.
-export { worktreeRootDir, defaultWorktreeRootDir };
+export { worktreeRootDir };
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
@@ -430,6 +431,9 @@ export function createWorktreeManager(
       absPath,
     });
 
+    // The proof the GC asks before it may ever move this folder, written before git touches the disk.
+    writeRootSentinel(currentRoot());
+    markFolderOwned(currentRoot(), absPath, { worktreeId: row.id, projectId: input.projectId });
     // Caller broadcasts `worktree:new` with `row` immediately.
     // Materialise asynchronously, serialised per project.
     buildInFlight.add(row.id);
@@ -693,9 +697,9 @@ export function createWorktreeManager(
       // `<repo>/.claude/worktrees/`, a `git worktree add` by hand). Topics
       // forgets the row; the folder, its git registration and its branch
       // belong to whoever made them.
-      // «Ours» is the current root OR the default one: after the root moves, the
-      // checkouts made before it are still Topics' to remove.
-      if (!isInsideDir(wt.absPath, currentRoot()) && !isInsideDir(wt.absPath, defaultWorktreeRootDir())) {
+      // «Ours» is any root Topics used (current, default, past): a root moved twice still counts.
+      const ownRoot = ownedRootsOfStores(deps).find((root) => isInsideDir(wt.absPath, root));
+      if (!ownRoot) {
         if (opts.includeForeign && project && existsSync(wt.absPath)) {
           await runGit(project.path, ["worktree", "remove", wt.absPath]);
         }
@@ -767,6 +771,7 @@ export function createWorktreeManager(
       }
       const removed = deps.worktreeStore.delete(id);
       setupResults.delete(id);
+      if (!existsSync(wt.absPath)) forgetFolderOwned(ownRoot, wt.absPath);
       // Caller is responsible for the WS broadcast.
       return removed;
     });

@@ -27,6 +27,13 @@ export const DEFAULT_WORKTREE_ABANDON_DAYS = 7;
 export const WORKTREE_ABANDON_DAYS_RANGE = { min: 1, max: 365 } as const;
 
 /**
+ * Days a folder the cleanup moved to `{root}/.quarantine` is kept before it is
+ * deleted: the window in which a wrong guess can still be undone by hand.
+ */
+export const DEFAULT_WORKTREE_QUARANTINE_DAYS = 7;
+export const WORKTREE_QUARANTINE_DAYS_RANGE = { min: 1, max: 90 } as const;
+
+/**
  * Rust `target/` is the one weight that cannot be cloned: `shared` points every
  * worktree of a project at one `CARGO_TARGET_DIR`, `per-worktree` leaves cargo
  * alone (for build scripts that pin absolute paths).

@@ -132,13 +132,20 @@ describe("board settings of a merged project", () => {
   const setEffort = (db: Database, boardId: string, effort: string) =>
     db.run("INSERT INTO board_settings (project_id, dispatch_effort) VALUES (?, ?) ON CONFLICT(project_id) DO UPDATE SET dispatch_effort = excluded.dispatch_effort", [boardId, effort]);
 
-  test("without a row of its own the child reads the parent's, and keeps its own id", () => {
+  test("without a row of its own the child takes only the parent's display settings, never how it dispatches, merges or deploys", () => {
     const db = withProjects(freshDb());
     merge(db, "accorpa");
     setEffort(db, PARENT, "high");
+    // The bench table is a subset of the real one: the three columns this case reads are added here.
+    for (const col of ["dispatch_auto_merge INTEGER", "deploy_command TEXT", "language TEXT"]) db.run(`ALTER TABLE board_settings ADD COLUMN ${col}`);
+    db.run("UPDATE board_settings SET dispatch_auto_merge = 1, deploy_command = 'make deploy', dispatch_use_worktree = 0, language = 'en' WHERE project_id = ?", [PARENT]);
     const settings = svc(db).getBoardSettings(CHILD);
-    expect(settings.dispatchEffort).toBe("high");
     expect(settings.projectId).toBe(CHILD);
+    expect(settings.language).toBe("en");
+    expect(settings.dispatchEffort).toBe("medium");
+    expect(settings.dispatchAutoMerge).toBe(false);
+    expect(settings.deployCommand).toBe("");
+    expect(settings.dispatchUseWorktree).toBe(true);
   });
 
   test("its own row wins over the parent's", () => {

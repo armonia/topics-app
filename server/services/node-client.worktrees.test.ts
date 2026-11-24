@@ -144,10 +144,10 @@ describe("the heartbeat stores what the node reports", () => {
 
 const PLAN: WorktreePlanPayload = {
   entries: [
-    { absPath: "/srv/wt/p/a", projectId: "p", projectName: "p", rowId: "w1", cls: "tracked", rootAction: "judge", plannedAction: "keep", reason: "", bytes: 1_000 },
-    { absPath: "/srv/wt/p/b", projectId: "p", projectName: "p", rowId: null, cls: "orphan", rootAction: "register", plannedAction: null, reason: "", bytes: 500 },
-    { absPath: "/srv/wt/p/c", projectId: null, projectName: null, rowId: null, cls: "ghost", rootAction: "wait", plannedAction: null, reason: "", bytes: 20 },
-    { absPath: "/elsewhere/x", projectId: "p", projectName: "p", rowId: null, cls: "foreign", rootAction: "inventory", plannedAction: null, reason: "", bytes: 9_999 },
+    { absPath: "/srv/wt/p/a", projectId: "p", projectName: "p", rowId: "w1", cls: "tracked", rootAction: "judge", plannedAction: "keep", reason: "", bytes: 1_000, from: null },
+    { absPath: "/srv/wt/p/b", projectId: "p", projectName: "p", rowId: null, cls: "orphan", rootAction: "register", plannedAction: null, reason: "", bytes: 500, from: null },
+    { absPath: "/srv/wt/p/c", projectId: null, projectName: null, rowId: null, cls: "ghost", rootAction: "wait", plannedAction: null, reason: "", bytes: 20, from: null },
+    { absPath: "/elsewhere/x", projectId: "p", projectName: "p", rowId: null, cls: "foreign", rootAction: "inventory", plannedAction: null, reason: "", bytes: 9_999, from: null },
   ],
   foreignCount: 1,
   scanMs: 7,

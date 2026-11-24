@@ -8,7 +8,17 @@
  *
  *   adopt   a `reuse` row is made for it, so the cleanup sees it (nothing moves)
  *   move    `git worktree move` into `{root}/{project-slug}/{name}`, then `repair`
- *   remove  `git worktree remove` (no `--force`), the branch is never touched
+ *   remove  `git worktree remove` (no `--force`), the branch is never touched; a
+ *           detached HEAD whose commits are on no branch and not on main is refused,
+ *           because the folder is then the only thing that keeps them
+ *
+ * And two doors inside the root, for what the GC only lists:
+ *
+ *   quarantine  a folder at `{root}/{slug}/{name}` with no `.git`, no row and nothing
+ *               git lists (a leftover from before Topics marked its folders) is moved
+ *               into the root's quarantine, with every re-check the GC makes except
+ *               the marker: the person asking is the proof
+ *   restore     a quarantined folder goes back where it came from
  *
  * Every refusal is a fact read from git or the disk: a dirty tree, a submodule
  * (git itself refuses to move or remove those), a lock, a live session or a card
@@ -26,7 +36,9 @@ import type { RelocateAction, RelocateCheckPayload, RelocateRefusal, RelocateRes
 import { isInsideDir } from "../lib/path-containment";
 import { canonicalProjectFor } from "./project-path-resolver";
 import { canonicalPath, listRepoWorktrees, writeOwnerMarker, type ListedWorktree } from "./worktree-owner";
-import { nameForAdopted, type KnownProject } from "./worktree-root-gc";
+import { indexListedWorktrees, nameForAdopted, quarantineGhostFolder, type KnownProject } from "./worktree-root-gc";
+import { findQuarantined, restoreQuarantined, slugAndName, surelyAbsent } from "./worktree-root-ledger";
+import { headStatusOfCheckout } from "./worktree-head-status";
 
 export interface RelocateRow {
   id: string;
@@ -106,6 +118,7 @@ async function gatherFacts(deps: RelocateDeps, rawPath: string): Promise<Relocat
  * is written. This is the preview the person confirms before anything runs.
  */
 export async function checkRelocation(deps: RelocateDeps, action: RelocateAction, rawPath: string): Promise<RelocateCheckPayload> {
+  if (action === "quarantine" || action === "restore") return (await checkInsideRoot(deps, action, rawPath)).check;
   const facts = await gatherFacts(deps, rawPath);
   return checkWith(deps, action, facts);
 }
@@ -142,7 +155,12 @@ async function checkWith(deps: RelocateDeps, action: RelocateAction, facts: Relo
       if (existsSync(to)) refusals.push("target-exists");
       warnings.push("transcripts");
     }
-    if (action === "remove") warnings.push("branch-kept");
+    if (action === "remove") {
+      if (listed?.branch && !listed.detached) warnings.push("branch-kept");
+      else if (project && (await headStatusOfCheckout({ absPath: from, branchName: null, mode: "detached" }, project.path, deps.git)) !== "merged") {
+        refusals.push("unmerged-commits");
+      }
+    }
   }
 
   return {
@@ -153,6 +171,7 @@ async function checkWith(deps: RelocateDeps, action: RelocateAction, facts: Relo
 
 /** Runs the action, after checking it again: the folder may have changed since the preview. */
 export async function runRelocation(deps: RelocateDeps, action: RelocateAction, rawPath: string): Promise<RelocateResultPayload> {
+  if (action === "quarantine" || action === "restore") return runInsideRoot(deps, action, rawPath);
   const facts = await gatherFacts(deps, rawPath);
   const check = await checkWith(deps, action, facts);
   if (!check.ok) return { ok: false, check };
@@ -224,4 +243,64 @@ async function remove(deps: RelocateDeps, check: RelocateCheckPayload, f: Reloca
   // No `--force`: git itself refuses a dirty or locked checkout.
   const r = await deps.git(project.path, ["worktree", "remove", f.from]);
   return r.code === 0 ? { ok: true, check } : { ok: false, check, error: (r.stderr || r.stdout || "git worktree remove failed").trim() };
+}
+
+// ─── Inside the root: quarantine and restore ──────────────────────────────
+
+/** The roots, resolved: a path is compared to them only in its canonical form. */
+const rootsOf = (deps: RelocateDeps): string[] => [deps.root(), ...(deps.extraRoots?.() ?? [])].map((p) => canonicalPath(p));
+
+/** Whether a by-hand `quarantine` or `restore` may run on this path, and the root it acts in. */
+async function checkInsideRoot(
+  deps: RelocateDeps,
+  action: "quarantine" | "restore",
+  rawPath: string,
+): Promise<{ check: RelocateCheckPayload; root: string | null }> {
+  const from = canonicalPath(rawPath);
+  const refusals: RelocateRefusal[] = [];
+  let to: string | null = null;
+  let root: string | null = null;
+  if (action === "restore") {
+    for (const r of rootsOf(deps)) {
+      const q = findQuarantined(r, from);
+      if (q) { root = r; to = q.from; break; }
+    }
+    if (!root || !to) refusals.push("not-quarantined");
+    else if (!surelyAbsent(to)) refusals.push("target-exists");
+  } else {
+    root = rootsOf(deps).find((r) => slugAndName(r, from)) ?? null;
+    if (!root) refusals.push("not-a-ghost");
+    else if (surelyAbsent(from)) refusals.push("missing");
+    else if (!(await isLooseFolder(deps, from))) refusals.push("not-a-ghost");
+    else if (deps.liveInside(from)) refusals.push("live-session");
+  }
+  const check: RelocateCheckPayload = {
+    action, from, to, projectId: null, projectName: null, rowId: null,
+    ok: refusals.length === 0, refusals, warnings: [],
+  };
+  return { check, root };
+}
+
+/** A real folder with no `.git` (nor its parent), no row, and that no known repository lists. */
+async function isLooseFolder(deps: RelocateDeps, absPath: string): Promise<boolean> {
+  try {
+    if (!lstatSync(absPath).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  if (!surelyAbsent(join(absPath, ".git")) || !surelyAbsent(join(dirname(absPath), ".git"))) return false;
+  if (deps.rowAt(absPath)) return false;
+  const { listed } = await indexListedWorktrees(deps.git, deps.projects());
+  return !listed.has(absPath);
+}
+
+async function runInsideRoot(deps: RelocateDeps, action: "quarantine" | "restore", rawPath: string): Promise<RelocateResultPayload> {
+  const { check, root } = await checkInsideRoot(deps, action, rawPath);
+  if (!check.ok || !root) return { ok: false, check };
+  if (action === "restore") {
+    const back = restoreQuarantined(root, check.from);
+    return back ? { ok: true, check, to: back } : { ok: false, check, error: "the folder could not be moved back" };
+  }
+  const moved = quarantineGhostFolder(root, check.from, deps.now?.() ?? new Date(), { requireMarker: false });
+  return moved ? { ok: true, check, to: moved } : { ok: false, check, error: "the folder changed since the preview and was left where it is" };
 }

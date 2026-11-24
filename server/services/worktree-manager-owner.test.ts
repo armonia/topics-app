@@ -3,6 +3,7 @@
  * Topics' own lock and nothing else. Real git, a fake store, a temp root.
  *
  * @covers WORKTREE-STD-03
+ * @covers WORKTREE-STD-15
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -14,6 +15,7 @@ import type { ProjectStore } from "./project-store";
 import type { AppContext, Worktree } from "../types";
 import { canonicalPath, listRepoWorktrees, readOwnerMarker } from "./worktree-owner";
 import { defaultRunGit } from "./own-commits";
+import { folderOwned, hasRootSentinel, writeRootSentinel } from "./worktree-root-ledger";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
@@ -63,7 +65,8 @@ describe("owner marker and lock around create and delete", () => {
       update: (id: string, patch: Partial<Worktree>) => { const r = rows.get(id); if (!r) return null; Object.assign(r, patch); return r; },
       delete: (id: string) => rows.delete(id),
     } as unknown as WorktreeStore;
-    const projects = { get: () => ({ path: repo, id: "p1", name: "proj", slug: "proj" }) } as unknown as ProjectStore;
+    const project = { path: repo, id: "p1", name: "proj", slug: "proj" };
+    const projects = { get: () => project, list: () => [project] } as unknown as ProjectStore;
     return createWorktreeManager({ broadcastToAll: () => {} } as unknown as AppContext, { projectStore: projects, worktreeStore: store }, gcDeps);
   }
 
@@ -78,9 +81,13 @@ describe("owner marker and lock around create and delete", () => {
     expect(listed.locked).toBe(true);
     expect(listed.lockReason).toBe("topics:fresh-one");
     expect(readOwnerMarker(row.absPath)).toMatchObject({ worktreeId: row.id, projectId: "p1" });
+    // The proof the GC asks before it may ever move a folder: the root's sentinel and this folder's marker.
+    expect(hasRootSentinel(root)).toBe(true);
+    expect(folderOwned(root, row.absPath)).toBe(true);
 
     expect(await m.delete(row.id)).toBe(true);
     expect(existsSync(row.absPath)).toBe(false);
+    expect(folderOwned(root, row.absPath)).toBe(false);
     expect((await listRepoWorktrees(defaultRunGit, repo))!.some((w) => canonicalPath(w.path) === canonicalPath(row.absPath))).toBe(false);
   });
 
@@ -93,6 +100,20 @@ describe("owner marker and lock around create and delete", () => {
     await expect(m.delete(row.id)).rejects.toBeInstanceOf(WorktreeOperationError);
     expect(existsSync(row.absPath)).toBe(true);
     expect(rows.has(row.id)).toBe(true);
+  });
+
+  test("after the root moved twice, a row of the first root is still Topics' to remove", async () => {
+    const m = manager();
+    const first = join(base, "first-root");
+    process.env.TOPICS_WORKTREES_DIR = first;
+    const row = await m.create({ projectId: "p1", mode: "branch", baseRef: "main", name: "from-first" });
+    await m.awaitMaterialisation(row.id, 30_000);
+    // Two moves of the root later the first one is neither the current nor the default (the env one).
+    process.env.TOPICS_WORKTREES_DIR = join(base, "third-root");
+    writeRootSentinel(join(base, "third-root"));
+    expect(await m.delete(row.id)).toBe(true);
+    expect(existsSync(row.absPath)).toBe(false);
+    expect((await listRepoWorktrees(defaultRunGit, repo))!.some((w) => canonicalPath(w.path) === canonicalPath(row.absPath))).toBe(false);
   });
 
   test("a failing cap callback never fails a create", async () => {

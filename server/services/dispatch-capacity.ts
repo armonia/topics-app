@@ -65,7 +65,6 @@ export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
 import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, governorReading, machineBudget } from "../../shared/board";
 import { CHECKS_MEM_FLOOR_DEFAULT_GB, checksMemFloorGB } from "../../shared/checks-memory-floor";
-import { DEFAULT_WORKTREE_DISK_FLOOR_GB } from "../../shared/worktree-settings";
 import { resolveWorktreeDiskFloorGb } from "./app-settings";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -216,7 +215,8 @@ const MAX_AUTO_CAP = 8;
  * La CPU si è già presa il suo freno altrove, e più mirato: `scripts/slot.ts`
  * recinta i CANCELLI, che sono ciò che la consuma davvero.
  */
-export const DISPATCH_DISK_FLOOR_GB = DEFAULT_WORKTREE_DISK_FLOOR_GB;
+// The floor itself is the `worktree_disk_floor_gb` setting, default
+// `DEFAULT_WORKTREE_DISK_FLOOR_GB` (shared/worktree-settings.ts).
 
 /**
  * Spazio libero sul volume che ospita le worktree, in GB. `null` quando non si

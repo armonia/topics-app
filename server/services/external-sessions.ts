@@ -44,6 +44,13 @@ export interface ExternalSessionsService {
    * the board forever after any bare session the human forgot to close.
    */
   activeAt(path: string): ExternalClaudeSession[];
+  /**
+   * ACTIVE sessions the roster does not know, at or under `path`, the worktree
+   * root INCLUDED. `activeAt` drops every cwd under the root as Topics' own,
+   * which is right for the dispatcher and blind for the GC: a `claude` started
+   * from a terminal inside a Topics worktree must hold that folder too.
+   */
+  activeInside(path: string): ExternalClaudeSession[];
 }
 
 export interface ExternalSessionsDeps {
@@ -79,31 +86,35 @@ export function createExternalSessionsService(deps: ExternalSessionsDeps): Exter
   const scan = deps.scan ?? ((opts) => scanAllExternalSessions({ ...opts, log }));
   const log = deps.log ?? ((m: string, e?: unknown) => (e ? console.error("[external-sessions] " + m, e) : undefined));
 
-  let cache: ExternalClaudeSession[] = [];
-  let cachedAt = 0;
-
-  function list(opts?: { force?: boolean }): ExternalClaudeSession[] {
-    const t = now();
-    if (!opts?.force && cachedAt !== 0 && t - cachedAt < ttlMs) return cache;
-    try {
-      cache = scan({
-        knownSessionIds: new Set(deps.knownSessionIds()),
-        candidatePaths: deps.candidatePaths(),
-        projectIdFor: deps.projectIdFor,
-        projectsDir: deps.projectsDir,
-        worktreeRoot: deps.worktreeRoot,
-        windowMs: deps.windowMs ?? DEFAULT_WINDOW_MS,
-        activeMs: deps.activeMs ?? DEFAULT_ACTIVE_MS,
-        nowMs: t,
-      });
-      cachedAt = t;
-    } catch (err) {
-      // Keep the previous census: a transient fs error must never be read as
-      // "the repo is free" by the dispatcher guard.
-      log("scan failed, keeping previous census", err);
-    }
-    return cache;
+  /** One cached census; `worktreeRoot: ""` turns off the "under the root is ours" filter. */
+  function cachedCensus(worktreeRoot: string | undefined) {
+    let cache: ExternalClaudeSession[] = [];
+    let cachedAt = 0;
+    return (opts?: { force?: boolean }): ExternalClaudeSession[] => {
+      const t = now();
+      if (!opts?.force && cachedAt !== 0 && t - cachedAt < ttlMs) return cache;
+      try {
+        cache = scan({
+          knownSessionIds: new Set(deps.knownSessionIds()),
+          candidatePaths: deps.candidatePaths(),
+          projectIdFor: deps.projectIdFor,
+          projectsDir: deps.projectsDir,
+          worktreeRoot,
+          windowMs: deps.windowMs ?? DEFAULT_WINDOW_MS,
+          activeMs: deps.activeMs ?? DEFAULT_ACTIVE_MS,
+          nowMs: t,
+        });
+        cachedAt = t;
+      } catch (err) {
+        // Keep the previous census: a transient fs error must never be read as
+        // "the repo is free" by the dispatcher guard.
+        log("scan failed, keeping previous census", err);
+      }
+      return cache;
+    };
   }
+  const list = cachedCensus(deps.worktreeRoot);
+  const listWithRoot = cachedCensus("");
 
   function byProject(): ExternalSessionProjectSummary[] {
     const acc = new Map<string, ExternalSessionProjectSummary>();
@@ -132,9 +143,15 @@ export function createExternalSessionsService(deps: ExternalSessionsDeps): Exter
     return list().filter((s) => s.state === "active" && isUnder(s.cwd, path));
   }
 
+  function activeInside(path: string): ExternalClaudeSession[] {
+    if (typeof path !== "string" || !isAbsolute(path)) return [];
+    return listWithRoot().filter((s) => s.state === "active" && isUnder(s.cwd, path));
+  }
+
   return {
     list,
     byProject,
     activeAt,
+    activeInside,
   };
 }

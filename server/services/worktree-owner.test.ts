@@ -246,10 +246,12 @@ describe("the lock rule and the archives on real git (WORKTREE-STD-09)", () => {
 describe("an orphan with a v2 marker is registered at once (WORKTREE-STD-09)", () => {
   const orphan: RootFacts = {
     hasRow: false, folderPresent: true, inRoot: true, hasDotGit: true, inGitList: true,
-    isSymlink: false, liveInside: false, ageMs: 60_000, projectKnown: true,
+    isSymlink: false, liveInside: false, ageMs: 60_000, projectKnown: true, owned: true,
   };
-  test("young and unmarked waits a day; young and marked by a creator registers now", () => {
+  test("young with Topics' marker waits a day; young and marked by a creator registers now", () => {
     expect(classifyRootEntry(orphan).action).toBe("wait");
+    // No marker of any kind: somebody's checkout, only listed (WORKTREE-STD-15).
+    expect(classifyRootEntry({ ...orphan, owned: false }).action).toBe("inventory");
     expect(classifyRootEntry({ ...orphan, creatorMarked: true }).action).toBe("register");
     // A marker never claims a folder for an unknown repository.
     expect(classifyRootEntry({ ...orphan, creatorMarked: true, projectKnown: false }).action).toBe("inventory");

@@ -8,32 +8,38 @@
  * (`git worktree list`), and sorts every entry into one class:
  *
  *   tracked        row + folder inside the root: the normal sweep judges it
- *   orphan         no row, but git knows it (a `.git`, or a listed worktree): REGISTER it,
- *                  the next sweep judges it like any other
- *   ghost          no row, no `.git`, git does not list it, nobody inside it, 24 h old: REMOVE
+ *   orphan         no row, but git knows it (a `.git`, or a listed worktree) and Topics' marker
+ *                  says Topics made it: REGISTER it, the sweep judges it like any other.
+ *                  Without the marker (a `git worktree add` by hand) it is only listed.
+ *   ghost          no row, no `.git`, git does not list it, nobody inside it, 24 h old, and
+ *                  Topics' own marker says Topics made it: QUARANTINE (a rename under the root,
+ *                  deleted N days later). Without the marker it is only listed.
  *   row-no-folder  a row whose folder is gone (`error` rows included): the sweep closes it
  *   foreign        outside the root: an inventory, never removed unless `gc_foreign=merged`
  *
  * `classifyRootEntry` and `planRoot` are pure, so the classes are testable
  * without a disk; the scan and the actions sit below and take every effect as a
  * dependency. A folder git still lists is never removed with a bare `rm`.
+ *
+ * WHAT IS NEVER A WORKTREE, whatever git says (24/11/2026, 30 real folders lost):
+ * a `{root}/{slug}` that is itself a checkout (it has a `.git`) or is a known
+ * project's own path. Its subfolders are its `src/`, `docs/`, `tests/`: the scan
+ * does not descend into it and lists it as inventory.
  */
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { join, relative, isAbsolute, sep, basename } from "node:path";
+import { join, relative, isAbsolute, sep, basename, dirname } from "node:path";
 import type { GitRunner } from "./own-commits";
 import {
-  canonicalPath, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned,
+  canonicalPath, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned, worktreeAdminDir,
   type ListedWorktree, type WorktreeCreator,
 } from "./worktree-owner";
+import { folderOwned, quarantineFolder, surelyAbsent, type QuarantinedFolder } from "./worktree-root-ledger";
 import { isInsideDir } from "../lib/path-containment";
 
 export { canonicalPath };
 
 /** Nothing younger than this is ever removed. */
 export const MIN_REMOVAL_AGE_MS = 24 * 3600_000;
-/** `--check` fails when reading the root takes longer: the trigger to move the scan to a native sidecar. */
-export const ROOT_SCAN_BUDGET_MS = 2000;
 /** Folders of the root that are not projects: `_` can never be a slug. */
 const RESERVED_PREFIX = "_";
 
@@ -47,29 +53,60 @@ export interface RootEntry {
   isSymlink: boolean;
   /** Age of the folder: its birth time when the filesystem has one, else its mtime. */
   ageMs: number;
+  /** Topics' marker for this folder: in the root's ledger (`worktree-root-ledger.ts`) or in the worktree's admin folder. */
+  owned?: boolean;
+  /** `.git` is a file pointing at an admin folder that is gone: git lost this worktree. */
+  registrationLost?: boolean;
 }
 
 export interface RootScan {
   entries: RootEntry[];
+  /** `{root}/{slug}` folders that are checkouts or project paths: never descended into. */
+  checkouts: string[];
   ms: number;
+}
+
+/** What a `.git` inside a folder says, with doubt counted as presence. */
+function dotGitOf(absPath: string): { hasDotGit: boolean; standaloneRepo: boolean; registrationLost: boolean } {
+  const dotGit = join(absPath, ".git");
+  let st;
+  try { st = lstatSync(dotGit); } catch (err) {
+    // Only ENOENT means "no .git": an unreadable one is kept as if it were there.
+    const absent = (err as NodeJS.ErrnoException)?.code === "ENOENT";
+    return { hasDotGit: !absent, standaloneRepo: false, registrationLost: false };
+  }
+  if (st.isDirectory()) return { hasDotGit: true, standaloneRepo: true, registrationLost: false };
+  const admin = st.isFile() ? worktreeAdminDir(absPath) : null;
+  return { hasDotGit: true, standaloneRepo: false, registrationLost: admin !== null && surelyAbsent(admin) };
 }
 
 /**
  * Reads `{root}/{slug}/{name}`. Skips `_scratch`, `_cache` and any dot-folder at
- * the first level, and anything that is not a folder. A missing root is an empty
- * scan, not an error.
+ * the first level, and anything that is not a folder. A `{slug}` folder that has
+ * a `.git` (or any doubt about one), or that IS a known project's path, is a
+ * checkout and not a folder of worktrees: it goes to `checkouts` and is never
+ * descended into. A missing root is an empty scan, not an error.
  */
-export function scanWorktreeRoot(root: string, now: number = Date.now()): RootScan {
+export function scanWorktreeRoot(
+  root: string,
+  now: number = Date.now(),
+  opts: { projectPaths?: ReadonlySet<string> } = {},
+): RootScan {
   const t0 = performance.now();
   const entries: RootEntry[] = [];
+  const checkouts: string[] = [];
   let slugs: string[] = [];
-  try { slugs = readdirSync(root); } catch { return { entries, ms: performance.now() - t0 }; }
+  try { slugs = readdirSync(root); } catch { return { entries, checkouts, ms: performance.now() - t0 }; }
   for (const slug of slugs) {
     if (slug.startsWith(RESERVED_PREFIX) || slug.startsWith(".")) continue;
     const slugDir = join(root, slug);
     let names: string[];
     try {
       if (!lstatSync(slugDir).isDirectory()) continue;
+      if (!surelyAbsent(join(slugDir, ".git")) || opts.projectPaths?.has(canonicalPath(slugDir))) {
+        checkouts.push(slugDir);
+        continue;
+      }
       names = readdirSync(slugDir);
     } catch { continue; }
     for (const name of names) {
@@ -79,20 +116,23 @@ export function scanWorktreeRoot(root: string, now: number = Date.now()): RootSc
         const st = lstatSync(absPath);
         const isSymlink = st.isSymbolicLink();
         if (!isSymlink && !st.isDirectory()) continue;
-        let hasDotGit = false;
-        let standaloneRepo = false;
-        if (!isSymlink) { try { standaloneRepo = lstatSync(join(absPath, ".git")).isDirectory(); hasDotGit = true; } catch { /* no .git */ } }
+        const git = isSymlink ? { hasDotGit: false, standaloneRepo: false, registrationLost: false } : dotGitOf(absPath);
         const born = st.birthtimeMs > 0 ? Math.min(st.birthtimeMs, st.mtimeMs) : st.mtimeMs;
-        entries.push({ absPath, slug, name, hasDotGit, standaloneRepo, isSymlink, ageMs: Math.max(0, now - born) });
+        // Topics' proof: the root ledger's marker, or the marker `create` wrote in the worktree's admin folder.
+        const owned = folderOwned(root, absPath) || (git.hasDotGit && !git.standaloneRepo && readOwnerMarker(absPath) !== null);
+        entries.push({ absPath, slug, name, ...git, isSymlink, ageMs: Math.max(0, now - born), owned });
       } catch { /* vanished while reading */ }
     }
   }
-  return { entries, ms: performance.now() - t0 };
+  return { entries, checkouts, ms: performance.now() - t0 };
 }
 
-export type RootEntryClass = "tracked" | "orphan" | "ghost" | "row-no-folder" | "foreign";
-/** `wait` = it will qualify, not yet (too young, or somebody is inside). */
-export type RootEntryAction = "judge" | "register" | "remove-folder" | "close-row" | "inventory" | "wait";
+export type RootEntryClass = "tracked" | "orphan" | "ghost" | "row-no-folder" | "foreign" | "quarantined";
+/**
+ * `wait` = it will qualify, not yet (too young, or somebody is inside).
+ * `quarantine` = moved under `{root}/.quarantine`, `purge` = deleted from there.
+ */
+export type RootEntryAction = "judge" | "register" | "quarantine" | "purge" | "close-row" | "inventory" | "wait";
 
 export interface RootFacts {
   hasRow: boolean;
@@ -114,6 +154,10 @@ export interface RootFacts {
    * hook), so it is registered at once instead of after 24 h.
    */
   creatorMarked?: boolean;
+  /** Topics wrote the marker for this folder: the only proof that lets a ghost be moved or an orphan be registered. */
+  owned?: boolean;
+  /** git lost the registration of this worktree (its admin folder is gone). */
+  registrationLost?: boolean;
 }
 
 export interface RootVerdict {
@@ -138,16 +182,23 @@ export function classifyRootEntry(f: RootFacts): RootVerdict {
   }
   if (f.standaloneRepo) return { cls: "foreign", action: "inventory", reason: "a repository of its own, not a worktree: never registered or removed" };
   if (f.hasDotGit || f.inGitList) {
+    // git cannot answer for it any more: whatever is inside stays until a person looks.
+    if (f.registrationLost && !f.inGitList) return { cls: "orphan", action: "inventory", reason: "git lost the registration of this worktree: listed only" };
     if (!f.projectKnown) return { cls: "orphan", action: "inventory", reason: "a checkout of a repository that is not a known project" };
+    // A checkout somebody made by hand in the root: a row would hand it to the sweep, whose
+    // `git worktree remove --force` takes its ignored files (a `.env`) with it. Listed only.
+    if (!f.owned) return { cls: "orphan", action: "inventory", reason: "a checkout with no Topics marker (made by hand or by another tool): listed only, never registered or removed" };
     if (f.creatorMarked) return { cls: "orphan", action: "register", reason: "made by a registered creator (v2 marker): registered at once, then judged" };
     // A fresh folder with no row may be a create in flight: it is not claimed before a day has passed.
     return f.ageMs < MIN_REMOVAL_AGE_MS
       ? { cls: "orphan", action: "wait", reason: "git knows this checkout but no row does, younger than 24 h" }
       : { cls: "orphan", action: "register", reason: "git knows this checkout but no row does: it is registered, then judged" };
   }
+  // No proof that Topics made it: somebody's folder, listed and never touched.
+  if (!f.owned) return { cls: "ghost", action: "inventory", reason: "no .git and no Topics marker: not known to be Topics', listed only" };
   if (f.liveInside) return { cls: "ghost", action: "wait", reason: "a live session is inside" };
   if (f.ageMs < MIN_REMOVAL_AGE_MS) return { cls: "ghost", action: "wait", reason: "no .git and not listed by git, younger than 24 h" };
-  return { cls: "ghost", action: "remove-folder", reason: "no .git, not listed by git, nobody inside: left over" };
+  return { cls: "ghost", action: "quarantine", reason: "made by Topics, no .git, not listed by git, nobody inside: moved to quarantine" };
 }
 
 export interface RootRow {
@@ -166,6 +217,8 @@ export interface RootPlanEntry extends RootVerdict {
   rowId: string | null;
   /** On-disk weight in bytes, when it was measured. */
   bytes: number | null;
+  /** A quarantined folder: where it came from (moving it back restores it). */
+  from?: string | null;
 }
 
 export interface RootPlanInput {
@@ -184,6 +237,11 @@ export interface RootPlanInput {
   /** The folder carries a v2 owner marker naming its creator (see `RootFacts.creatorMarked`). */
   creatorMarked?: (entry: RootEntry) => boolean;
   now: number;
+  /** `{root}/{slug}` folders that are checkouts: listed, never descended into. */
+  checkouts?: readonly string[];
+  /** What sits in the quarantine of the roots, and after how many days it goes. */
+  quarantined?: readonly QuarantinedFolder[];
+  quarantineDays?: number;
 }
 
 /** Pure: every row and every folder of the root, classified. */
@@ -215,6 +273,7 @@ export function planRoot(input: RootPlanInput): RootPlanEntry[] {
       standaloneRepo: e.standaloneRepo === true || input.repoPaths.has(abs), inGitList: input.listed.has(abs),
       isSymlink: e.isSymlink, liveInside: input.liveInside(e.absPath) || input.liveInside(abs), ageMs: e.ageMs, projectKnown: projectId !== null,
       creatorMarked: projectId !== null && (input.creatorMarked?.(e) ?? false),
+      owned: e.owned === true, registrationLost: e.registrationLost === true,
     });
     out.push({ ...v, absPath: abs, projectId, rowId: null, bytes: null });
   }
@@ -223,6 +282,18 @@ export function planRoot(input: RootPlanInput): RootPlanEntry[] {
     if (byPath.has(abs) || scannedByPath.has(abs) || input.repoPaths.has(abs)) continue;
     if (ours(abs)) continue;
     out.push({ cls: "foreign", action: "inventory", reason: "listed by git, made by another tool", absPath: abs, projectId, rowId: null, bytes: null });
+  }
+  for (const c of input.checkouts ?? []) {
+    out.push({ cls: "foreign", action: "inventory", reason: "a checkout or a project at the level of a project folder: never descended into", absPath: canonicalPath(c), projectId: null, rowId: null, bytes: null });
+  }
+  const days = input.quarantineDays ?? 0;
+  for (const q of input.quarantined ?? []) {
+    const due = input.now - q.sinceMs >= days * 24 * 3600_000;
+    out.push({
+      cls: "quarantined", action: due ? "purge" : "wait",
+      reason: due ? `in quarantine for ${days} days: deleted on this pass` : `in quarantine, deleted after ${days} days; move it back to ${q.from} to restore it`,
+      absPath: q.path, projectId: null, rowId: null, bytes: null, from: q.from,
+    });
   }
   return out;
 }
@@ -233,15 +304,17 @@ export interface RootCounts {
   orphans: number;
   rowsWithoutFolder: number;
   foreign: number;
+  quarantined: number;
 }
 
 export function countRoot(plan: readonly RootPlanEntry[]): RootCounts {
-  const c: RootCounts = { ghosts: 0, orphans: 0, rowsWithoutFolder: 0, foreign: 0 };
+  const c: RootCounts = { ghosts: 0, orphans: 0, rowsWithoutFolder: 0, foreign: 0, quarantined: 0 };
   for (const p of plan) {
     if (p.cls === "ghost") c.ghosts++;
     else if (p.cls === "orphan") c.orphans++;
     else if (p.cls === "row-no-folder") c.rowsWithoutFolder++;
     else if (p.cls === "foreign") c.foreign++;
+    else if (p.cls === "quarantined") c.quarantined++;
   }
   return c;
 }
@@ -325,29 +398,36 @@ export async function pruneKnownRepos(
 }
 
 /**
- * Removes a ghost folder. Re-checks everything the classification assumed,
- * because the folder may have changed since: it must sit EXACTLY two levels under
- * the root, be a real directory (never a link), resolve inside the real root, and
- * still hold no `.git`. Returns false when anything is off.
+ * Moves a ghost folder into the root's quarantine, and returns where it went.
+ * Re-checks everything the classification assumed, because the folder may have
+ * changed since: it must sit EXACTLY two levels under the root, be a real
+ * directory (never a link), resolve inside the real root, still hold no `.git`,
+ * its parent must hold no `.git` either (then it is a subfolder of a checkout),
+ * and Topics' marker must still be there (unless a person asked, from the
+ * preview: `requireMarker: false`). Any doubt (an `lstat` that fails for a
+ * reason other than "not there") keeps the folder. Null when anything is off.
  */
-export async function removeGhostFolder(
+export function quarantineGhostFolder(
   root: string,
   absPath: string,
-  fsRm: (path: string) => Promise<void> = (p) => rm(p, { recursive: true, force: true }),
-): Promise<boolean> {
+  now: Date = new Date(),
+  opts: { requireMarker?: boolean } = {},
+): string | null {
   const realRoot = canonicalPath(root);
   const rel = relative(realRoot, canonicalPath(absPath));
-  if (!rel || isAbsolute(rel) || rel.split(sep).length !== 2 || rel.startsWith("_") || rel.startsWith(".")) return false;
+  if (!rel || isAbsolute(rel) || rel.split(sep).length !== 2 || rel.startsWith("_") || rel.startsWith(".")) return null;
   try {
     // lstat on the path as given: a link is not a directory here.
-    if (!lstatSync(absPath).isDirectory()) return false;
-    try { lstatSync(join(absPath, ".git")); return false; } catch { /* no .git: the premise holds */ }
-    if (realpathSync(absPath) !== join(realRoot, rel)) return false;
+    if (!lstatSync(absPath).isDirectory()) return null;
+    if (!surelyAbsent(join(absPath, ".git"))) return null;
+    if (!surelyAbsent(join(dirname(absPath), ".git"))) return null;
+    if (realpathSync(absPath) !== join(realRoot, rel)) return null;
   } catch {
-    return false;
+    return null;
   }
-  await fsRm(absPath);
-  return true;
+  // A person moving one by hand from the preview is the proof the marker stands for.
+  if (opts.requireMarker !== false && !folderOwned(realRoot, join(realRoot, rel))) return null;
+  return quarantineFolder(realRoot, join(realRoot, rel), now);
 }
 
 /** A label for a row made from a folder found on disk: lowercase, dashes, unique among the project's. */

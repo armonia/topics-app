@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-<!-- WORKTREE-STD-01..11, 13 and 14 moved to `openspec/specs/worktrees/spec.md` (the gates that read the
+<!-- WORKTREE-STD-01..11 and 13..15 moved to `openspec/specs/worktrees/spec.md` (the gates that read the
 specs, among them spec-flow's intersections gate, only see `openspec/specs/`). WORKTREE-STD-12 stays here:
 its proof is a Python test the coverage gate does not scan, so as an archived requirement it would be
 "uncovered". It moves when that proof is visible to the gate. -->

@@ -30,11 +30,13 @@ import {
   DEFAULT_WORKTREE_ABANDON_DAYS,
   DEFAULT_WORKTREE_DISK_FLOOR_GB,
   DEFAULT_WORKTREE_MAX_PER_PROJECT,
+  DEFAULT_WORKTREE_QUARANTINE_DAYS,
   GC_FOREIGN_MODES,
   CLAUDE_WORKTREE_HOOK_MODES,
   DEFAULT_CLAUDE_WORKTREE_HOOK_MODE,
   type ClaudeWorktreeHookMode,
   WORKTREE_ABANDON_DAYS_RANGE,
+  WORKTREE_QUARANTINE_DAYS_RANGE,
   WORKTREE_DISK_FLOOR_RANGE,
   WORKTREE_MAX_PER_PROJECT_RANGE,
   clampInto,
@@ -144,6 +146,8 @@ export interface AppSettings {
   worktreeAbandonDays: number | null;
   /** `off` | `topics`: the worktree hooks in the Claude sessions Topics launches. NULL = topics. */
   claudeWorktreeHooks: string | null;
+  /** Days a ghost folder moved to `{root}/.quarantine` is kept before it is deleted. NULL = the default, 7. */
+  worktreeQuarantineDays: number | null;
 }
 
 const EMPTY: AppSettings = {
@@ -184,6 +188,7 @@ const EMPTY: AppSettings = {
   gcForeign: null,
   worktreeAbandonDays: null,
   claudeWorktreeHooks: null,
+  worktreeQuarantineDays: null,
 };
 
 interface Row {
@@ -224,6 +229,7 @@ interface Row {
   gc_foreign: string | null;
   worktree_abandon_days: number | null;
   claude_worktree_hooks: string | null;
+  worktree_quarantine_days: number | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -271,6 +277,7 @@ function rowToSettings(r: Row): AppSettings {
     gcForeign: r.gc_foreign ?? null,
     worktreeAbandonDays: r.worktree_abandon_days ?? null,
     claudeWorktreeHooks: r.claude_worktree_hooks ?? null,
+    worktreeQuarantineDays: r.worktree_quarantine_days ?? null,
   };
 }
 
@@ -300,7 +307,8 @@ export function readAppSettings(): AppSettings {
                 browser_store_cache_reap_enabled, browser_store_reap_enabled,
                 browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json,
                 worktree_root, worktree_max_per_project, worktree_disk_floor_gb,
-                cargo_target_mode, gc_foreign, worktree_abandon_days, claude_worktree_hooks
+                cargo_target_mode, gc_foreign, worktree_abandon_days, claude_worktree_hooks,
+                worktree_quarantine_days
            FROM app_settings WHERE id = 1`,
     )
     .get() as Row | null;
@@ -360,6 +368,7 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   gcForeign: "gc_foreign",
   worktreeAbandonDays: "worktree_abandon_days",
   claudeWorktreeHooks: "claude_worktree_hooks",
+  worktreeQuarantineDays: "worktree_quarantine_days",
 };
 
 /**
@@ -651,6 +660,10 @@ export function resolveCargoTargetMode(s = getAppSettings()): CargoTargetMode {
 export function resolveGcForeign(s = getAppSettings()): GcForeignMode {
   const raw = (s.gcForeign ?? "").trim().toLowerCase();
   return (GC_FOREIGN_MODES as readonly string[]).includes(raw) ? (raw as GcForeignMode) : DEFAULT_GC_FOREIGN_MODE;
+}
+
+export function resolveWorktreeQuarantineDays(s = getAppSettings()): number {
+  return clampInto(s.worktreeQuarantineDays, WORKTREE_QUARANTINE_DAYS_RANGE, DEFAULT_WORKTREE_QUARANTINE_DAYS);
 }
 
 /** Setting, then `TOPICS_WORKTREE_ABANDON_DAYS` (the old knob), then 7. */
