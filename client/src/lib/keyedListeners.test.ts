@@ -1,6 +1,7 @@
 /**
- * The keyed registry behind the viewer-count bus and the client stores: a
- * subscriber hears only its own key, and unsubscribing drops it.
+ * The keyed listener registry is the push bus under the viewer count and the
+ * other client stores: a key reaches only its own listeners, and an empty key
+ * is dropped.
  *
  * @covers VIEWCNT-02
  */

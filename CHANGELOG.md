@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.96 — 2026-11-24
+
+### Correzioni
+- bring main's any budget and identifier gate back to green
+
+### Sotto il cofano
+- name the requirement the keyed listener registry test covers
+- keep the live AI bridge out of the suite
+
 ## 2.4.95 — 2026-11-24
 
 ### Correzioni
@@ -12,7 +21,17 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ## 2.4.94 — 2026-11-24
 
+### Correzioni
+- never let an isolated spawn_agent fall back to the remote fast path
+
 ### Sotto il cofano
+- memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories
+- Share one keyed listener registry across the client stores
+- Share the CLI binary resolver across claude, codex, kimi and muse
+- dup: jscpd ratchet on exact duplicated lines, wired into gates:fast
+- Remove internal duplication in files route, grants query, message thread writes and pending actions
+- Duplicate detection: description as secondary signal, commit hashes as anchors
+- Share the incremental JSONL scanner between the claude and codex transcript titles
 - client-bundle job cap above the sum of its step caps, so it never ends cancelled
 - long-session growth budget in its own push-only job, so a judged tree still gets it
 - a judged push still runs the growth job

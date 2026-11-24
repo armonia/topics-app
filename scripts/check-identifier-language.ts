@@ -480,7 +480,7 @@ export const PROJECT_WORDS = new Set([
   "truthy", "falsy", "boolean", "enum", "enums", "middleware", "callback",
   "callbacks", "timestamp", "timestamps", "throttle", "debounce", "memoize",
   "hydrate", "rehydrate", "unmount", "remount", "prefetch", "refetch", "rerender",
-  "resnapshot",
+  "resnapshot", "unsubscribe",
   "teardown", "backoff", "changeset", "workspace", "workspaces", "toolbar",
   "tooltip", "dropdown", "popover", "checkbox", "placeholder", "viewport",
   "scrollbar", "sidebar", "keyframe", "keyframes", "flex", "grid", "svg", "png",
