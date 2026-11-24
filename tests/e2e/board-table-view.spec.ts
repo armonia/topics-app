@@ -242,10 +242,10 @@ test.describe("Board — vista Tabella", () => {
 
     // Wide: the extra columns (project, owner, priority, links) are drawn.
     await page.setViewportSize({ width: 1440, height: 900 });
-    const visibleCells = await rowOf(page, "review").locator('[role="cell"]').evaluateAll(
+    // Polled: the row lays out again after the resize, and a single read can land before it does.
+    await expect.poll(() => rowOf(page, "review").locator('[role="cell"]').evaluateAll(
       (cs) => cs.filter((c) => (c as HTMLElement).offsetWidth > 0).length,
-    );
-    expect(visibleCells).toBe(7);
+    )).toBe(7);
 
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
