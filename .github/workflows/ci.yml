@@ -109,20 +109,26 @@ jobs:
       # answers "not judged" and the run is a full one, as before. The rule and its
       # cases are in the @armonia-io/spec-flow package (speed/_proof.mjs); the full
       # suite still runs every night (e2e-nightly.yml).
+      # Both steps fail open: a registry that is down or slow costs the saving, never
+      # the verdict (continue-on-error, and a 2-minute cap instead of the job's 10).
       - name: Mark the tree this pull request run tests
         if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
         run: npx --yes "@armonia-io/spec-flow@$(jq -r '.dependencies["@armonia-io/spec-flow"] // .devDependencies["@armonia-io/spec-flow"]' package.json)" tree-verdict --mark
 
       - name: Was this tree already judged by a pull request run?
         id: proof
         if: github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 2
         env:
           GH_TOKEN: ${{ github.token }}
         run: npx --yes "@armonia-io/spec-flow@$(jq -r '.dependencies["@armonia-io/spec-flow"] // .devDependencies["@armonia-io/spec-flow"]' package.json)" tree-verdict --sha "$GITHUB_SHA" --github-output || true
 
       - name: Decide which heavy jobs this change can reach
         id: scope
-        if: steps.proof.outputs.proven != 'true'
+        if: ${{ !cancelled() && steps.proof.outputs.proven != 'true' }}
         run: bun run scripts/ci-changes.ts
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -1158,16 +1164,23 @@ jobs:
           bun-version-file: .bun-version
 
       - name: Install server deps (root)
+        continue-on-error: true
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Install client deps
+        continue-on-error: true
         run: bun install --frozen-lockfile
         working-directory: client
 
       - name: Build client
+        id: build
+        continue-on-error: true
+        timeout-minutes: 6
         run: bun run build:client
 
       - name: Upload the bundle for the shards
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: client-bundle
