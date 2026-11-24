@@ -1,3 +1,9 @@
+/**
+ * The keyed registry behind the viewer-count bus and the client stores: a
+ * subscriber hears only its own key, and unsubscribing drops it.
+ *
+ * @covers VIEWCNT-02
+ */
 import { describe, expect, test } from 'bun:test';
 import { createKeyedListeners } from './keyedListeners';
 

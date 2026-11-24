@@ -86,6 +86,8 @@ const ROOTS = ["client/src", "server", "shared", "scripts", "tests"];
  * itself.
  */
 export const PROJECT_WORDS = new Set([
+  // unsubscribe: the name every subscribe/unsubscribe pair in the client stores uses (`client/src/lib/keyedListeners.ts`); the dictionary lacks it.
+  "unsubscribe",
   // ufw, netstat, softwareupdate, xprotect, powershell, gocryptfs, autopatch, tcp: the names of the OS tools and
   // services the machine security probes read (`server/lib/machine-security.ts`, `server/lib/machine-exposure.ts`).
   "ufw", "netstat", "softwareupdate", "xprotect", "powershell", "gocryptfs", "autopatch", "tcp",

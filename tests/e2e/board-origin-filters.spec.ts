@@ -169,12 +169,12 @@ test.describe("Di chi è la card", () => {
     await expect(card).toHaveAttribute("data-density", "full");
 
     // Dragging the knob: from «full» past the left end rests on «title», then back to «compact».
-    const centre = async (level: string) => {
+    const center = async (level: string) => {
       const b = (await page.getByTestId(`board-density-${level}`).boundingBox())!;
       return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
     };
-    const full = await centre("full");
-    const compact = await centre("compact");
+    const full = await center("full");
+    const compact = await center("compact");
     await page.mouse.move(full.x, full.y);
     await page.mouse.down();
     await page.mouse.move(full.x - 200, full.y, { steps: 8 });
