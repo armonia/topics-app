@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.97 — 2026-11-24
+
+### Novità
+- **sidebar** · tabs live in one place, with three states for every kind
+
+### Correzioni
+- **sidebar** · three states inside project windows, gates green, suite on the old layout
+
+### Sotto il cofano
+- an open row's circle closes its tab, the stop test and the target-size audit read it
+
 ## 2.4.96 — 2026-11-24
 
 ### Correzioni
