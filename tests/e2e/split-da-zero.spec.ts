@@ -128,6 +128,18 @@ test.describe("split, from zero", () => {
       return under < 0 ? [`${title.textContent?.trim()}: ${Math.round(under)}px`] : [];
     }));
     expect(overlaps, "a greeting climbs over its cell's title").toEqual([]);
+    // The narrowest cell's empty field stays one line: its placeholder used to
+    // wrap and make it two lines tall. Two steps of the divider take the right
+    // column to about 205 px.
+    const divider = page.locator('[data-split-divider][tabindex="0"]').first();
+    await divider.focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForTimeout(400);
+    const fieldHeights = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card] textarea")]
+      .filter((ta) => ta.getBoundingClientRect().width > 0)
+      .map((ta) => Math.round(ta.getBoundingClientRect().height)));
+    expect(new Set(fieldHeights).size, `empty fields of different heights: ${fieldHeights.join(", ")}`).toBe(1);
   });
 
   test("SPLIT-04: a divider moves with the arrows and evens out with Enter", async ({ page, request }) => {
