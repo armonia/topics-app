@@ -116,7 +116,7 @@ async function checkWith(deps: RelocateDeps, action: RelocateAction, facts: Relo
   const warnings: RelocateWarning[] = [];
   let to: string | null = null;
 
-  const roots = [deps.root(), ...(deps.extraRoots?.() ?? [])].map(canonicalPath);
+  const roots = [deps.root(), ...(deps.extraRoots?.() ?? [])].map((r) => canonicalPath(r));
   const present = existsSync(from);
   if (roots.some((r) => isInsideDir(from, r))) refusals.push("inside-root");
   else if (!present) refusals.push("missing");

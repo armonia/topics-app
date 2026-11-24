@@ -1,17 +1,23 @@
 /**
- * The owner marker and the lock Topics puts on its worktrees, on real git.
+ * The owner marker and the lock Topics puts on its worktrees, on real git; and,
+ * since the cross-node addendum, the v2 marker, the `claude-code:` lock rule and
+ * the two archive namespaces.
  *
  * @covers WORKTREE-STD-03
+ * @covers WORKTREE-STD-09
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultRunGit } from "./own-commits";
 import {
-  OWNER_MARKER_FILE, listRepoWorktrees, lockOwned, lockedByTopics, parseWorktreeList, readOwnerMarker,
-  unlockOwned, worktreeAdminDir, writeOwnerMarker,
+  OWNER_MARKER_FILE, claudeCodeLockVerdict, listRepoWorktrees, lockLiftRule, lockOwned, lockedByTopics, parseOwnerMarker,
+  parseWorktreeList, readOwnerMarker, unlockOwned, worktreeAdminDir, writeOwnerMarker,
+  type ClaudeCodeLockFacts,
 } from "./worktree-owner";
+import { alreadyArchived } from "./worktree-archive";
+import { classifyRootEntry, type RootFacts } from "./worktree-root-gc";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): { code: number; out: string } {
@@ -121,5 +127,131 @@ describe("marker and lock on a real repository", () => {
     expect(await unlockOwned(defaultRunGit, repo, abs)).toBe(true);
     git(repo, "worktree", "prune");
     expect((await listRepoWorktrees(defaultRunGit, repo))!.some((w) => w.path.endsWith("/vanished"))).toBe(false);
+  });
+});
+
+describe("marker v2 (WORKTREE-STD-09)", () => {
+  test("a v1 marker still reads, with no creator; a v2 marker carries creator, session and machine", () => {
+    expect(parseOwnerMarker({ worktreeId: "w", projectId: "p", createdAt: "c" })).toEqual({ worktreeId: "w", projectId: "p", createdAt: "c" });
+    expect(parseOwnerMarker({ worktreeId: "w", projectId: "p", createdAt: "c", creator: "claude-code", session: { id: "s", transcript: "/t.jsonl" }, machine: "m", extra: 1 }))
+      .toEqual({ worktreeId: "w", projectId: "p", createdAt: "c", creator: "claude-code", session: { id: "s", transcript: "/t.jsonl" }, machine: "m" });
+  });
+
+  test("an unknown creator reads as adopted; missing ids are no marker", () => {
+    expect(parseOwnerMarker({ worktreeId: "w", projectId: "p", creator: "someone" })?.creator).toBe("adopted");
+    expect(parseOwnerMarker({ projectId: "p" })).toBeNull();
+  });
+});
+
+describe("the claude-code: lock rule (WORKTREE-STD-09)", () => {
+  const DAY = 24 * 3600_000;
+  const ok: ClaudeCodeLockFacts = {
+    lockReason: "claude-code:s1",
+    marker: { worktreeId: "w", projectId: "p", createdAt: "x", creator: "claude-code", session: { id: "s1", transcript: "/t" } },
+    transcriptIdleMs: 8 * DAY, dirty: false, mergedOrPushed: true, ageMs: 2 * DAY, abandonMs: 7 * DAY,
+  };
+
+  test("lifted only when every fact holds", () => {
+    expect(claudeCodeLockVerdict(ok).lift).toBe(true);
+  });
+
+  test.each([
+    ["another session", { lockReason: "claude-code:s2" }],
+    ["a marker by another creator", { marker: { ...ok.marker!, creator: "codex" as const } }],
+    ["no marker", { marker: null }],
+    ["a transcript still moving", { transcriptIdleMs: 2 * DAY }],
+    ["a transcript nobody can read", { transcriptIdleMs: null }],
+    ["a dirty tree", { dirty: true }],
+    ["commits on no remote", { mergedOrPushed: false }],
+    ["younger than a day", { ageMs: DAY - 1 }],
+    ["no age", { ageMs: null }],
+    ["a prefix nobody registered", { lockReason: "codex:s1" }],
+  ] as const)("kept with %s", (_label, over) => {
+    expect(claudeCodeLockVerdict({ ...ok, ...over } as ClaudeCodeLockFacts).lift).toBe(false);
+  });
+});
+
+describe("the lock rule and the archives on real git (WORKTREE-STD-09)", () => {
+  let base: string;
+  let repo: string;
+
+  beforeAll(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), "wt-lockrule-")));
+    git(base, "init", "-q", "--bare", "-b", "main", "remote.git");
+    git(base, "init", "-q", "-b", "main", "repo");
+    repo = join(base, "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "base");
+    git(repo, "remote", "add", "origin", join(base, "remote.git"));
+    git(repo, "push", "-q", "origin", "main");
+  });
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+  function hooked(name: string, session: string, transcriptAgeDays: number, ageDays: number): string {
+    const abs = join(base, "wts", name);
+    expect(git(repo, "worktree", "add", "-q", "-b", `worktree-${name}`, abs, "main").code).toBe(0);
+    const transcript = join(base, `${session}.jsonl`);
+    writeFileSync(transcript, "{}\n");
+    const t = (Date.now() - transcriptAgeDays * 24 * 3600_000) / 1000;
+    utimesSync(transcript, t, t);
+    writeOwnerMarker(abs, {
+      worktreeId: name, projectId: "p", createdAt: new Date(Date.now() - ageDays * 24 * 3600_000).toISOString(),
+      creator: "claude-code", session: { id: session, transcript },
+    });
+    expect(git(repo, "worktree", "lock", "--reason", `claude-code:${session}`, abs).code).toBe(0);
+    return abs;
+  }
+
+  test("a claude-code lock whose session is over is lifted; one still moving is not", async () => {
+    const rule = lockLiftRule(defaultRunGit, () => 7);
+    const over = hooked("over", "s-over", 10, 3);
+    const live = hooked("live", "s-live", 0, 3);
+    expect(await unlockOwned(defaultRunGit, repo, live, rule)).toBe(false);
+    expect(await unlockOwned(defaultRunGit, repo, over, rule)).toBe(true);
+    const listed = await listRepoWorktrees(defaultRunGit, repo);
+    expect(listed!.find((w) => w.path.endsWith("/over"))!.locked).toBe(false);
+    expect(listed!.find((w) => w.path.endsWith("/live"))!.locked).toBe(true);
+  });
+
+  test("a lock with a prefix nobody registered is never lifted, even under the rule", async () => {
+    const abs = join(base, "wts", "codex-one");
+    expect(git(repo, "worktree", "add", "-q", "-b", "codex-one", abs, "main").code).toBe(0);
+    expect(git(repo, "worktree", "lock", "--reason", "codex:abc", abs).code).toBe(0);
+    expect(await unlockOwned(defaultRunGit, repo, abs, lockLiftRule(defaultRunGit, () => 0))).toBe(false);
+    expect((await listRepoWorktrees(defaultRunGit, repo))!.find((w) => w.path.endsWith("/codex-one"))!.locked).toBe(true);
+  });
+
+  test("both archive namespaces count as archived: the GC's refs and the hook's tags", async () => {
+    git(repo, "checkout", "-q", "-b", "side");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "one");
+    const a = git(repo, "rev-parse", "HEAD").out;
+    git(repo, "commit", "-q", "--allow-empty", "-m", "two");
+    const b = git(repo, "rev-parse", "HEAD").out;
+    git(repo, "commit", "-q", "--allow-empty", "-m", "three");
+    const c = git(repo, "rev-parse", "HEAD").out;
+    git(repo, "checkout", "-q", "main");
+    expect(await alreadyArchived(repo, a, defaultRunGit)).toBe(false);
+    git(repo, "update-ref", "refs/topics/archive/task-1", a);
+    git(repo, "tag", "archive/wt-hooked", b);
+    expect(await alreadyArchived(repo, a, defaultRunGit)).toBe(true);
+    expect(await alreadyArchived(repo, b, defaultRunGit)).toBe(true);
+    expect(await alreadyArchived(repo, c, defaultRunGit)).toBe(false);
+    // A tag outside the convention is not an archive.
+    git(repo, "tag", "release-1", c);
+    expect(await alreadyArchived(repo, c, defaultRunGit)).toBe(false);
+  });
+});
+
+describe("an orphan with a v2 marker is registered at once (WORKTREE-STD-09)", () => {
+  const orphan: RootFacts = {
+    hasRow: false, folderPresent: true, inRoot: true, hasDotGit: true, inGitList: true,
+    isSymlink: false, liveInside: false, ageMs: 60_000, projectKnown: true,
+  };
+  test("young and unmarked waits a day; young and marked by a creator registers now", () => {
+    expect(classifyRootEntry(orphan).action).toBe("wait");
+    expect(classifyRootEntry({ ...orphan, creatorMarked: true }).action).toBe("register");
+    // A marker never claims a folder for an unknown repository.
+    expect(classifyRootEntry({ ...orphan, creatorMarked: true, projectKnown: false }).action).toBe("inventory");
   });
 });

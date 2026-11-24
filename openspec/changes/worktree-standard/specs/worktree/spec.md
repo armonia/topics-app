@@ -76,3 +76,35 @@ Oltre il tetto di worktree per progetto il GC SHALL prima alleggerire (slim) le 
 - **GIVEN** una worktree fuori radice con un file modificato
 - **WHEN** si chiede di spostarla
 - **THEN** SHALL rispondere col motivo e restare dov'è; pulita e senza sessione viva SHALL spostarsi e la riga SHALL indicare il nuovo percorso
+
+### Requirement: WORKTREE-STD-08 — Una porta di registrazione per i worktree fatti da altri, aperta solo dal token degli hook
+
+`POST /api/worktrees/register` (`{path, creator, session?, branch?, name?}`) SHALL registrare un worktree creato da un altro strumento ed SHALL essere idempotente sul percorso: la seconda chiamata SHALL restituire la stessa riga senza crearne un'altra. Un repository che nessun progetto conosce SHALL avere risposta 202 `{class:"inventory"}` e NON SHALL scrivere niente, né nel DB né nel `.git` di quel repository. Dentro la radice SHALL nascere una riga `ready` con `source` = creatore e `session_ref`, e il marcatore v2 SHALL essere scritto o completato; fuori dalla radice SHALL nascere una riga `reuse` e NON SHALL essere scritto alcun marcatore. Un checkout principale, un percorso relativo o un creatore `topics` o sconosciuto SHALL essere rifiutati con 400. `GET /api/worktrees/placement?repo=` SHALL restituire `{root, slug, projectId}` applicando l'impostazione della radice; `POST /api/worktrees/unregister` SHALL dimenticare la riga di una cartella che non c'è più e SHALL rifiutare con 409 una cartella ancora presente. Le tre rotte SHALL richiedere il token degli hook (`claude-hooks/hook-token`) e una richiesta indirizzata a questa macchina; una credenziale delegata di nodo o un ospite SHALL essere rifiutati con 403 anche col token giusto, e senza token o con un token sbagliato la risposta SHALL essere 401, sempre prima di qualunque effetto. La tabella `worktrees` SHALL avere `source TEXT NOT NULL DEFAULT 'topics'` e `session_ref TEXT`; le righe esistenti SHALL leggersi `topics`. Adottare una sessione avviata in un worktree sotto la radice SHALL riuscire se quel percorso ha una riga o un marcatore, e SHALL restare rifiutato per una cartella che non ha né l'una né l'altro.
+
+#### Scenario: chi può aprire la porta
+- **GIVEN** una richiesta di registrazione valida
+- **WHEN** arriva senza token, con un token sbagliato, da una credenziale delegata, da un ospite o indirizzata a un altro host
+- **THEN** la risposta SHALL essere 401 o 403 e nessuna riga né marcatore SHALL essere scritto; col token degli hook da questa macchina SHALL nascere la riga, una volta sola
+
+#### Scenario: un repository ignoto
+- **GIVEN** un worktree di un repository che nessun progetto conosce
+- **WHEN** si chiede di registrarlo
+- **THEN** la risposta SHALL essere 202 `inventory` e il DB e la cartella amministrativa del worktree SHALL restare identici
+
+### Requirement: WORKTREE-STD-09 — Marcatore v2, lock per creatore e i due archivi
+
+Il marcatore `topics-owner` SHALL accettare i campi opzionali `creator`, `session {id, transcript?}` e `machine`; un marcatore v1 SHALL continuare a leggersi e un creatore ignoto SHALL leggersi `adopted`. Il motivo di un lock SHALL nominare chi l'ha preso (`<creatore>:<etichetta>`) e solo i prefissi registrati (`topics:`, `claude-code:`) SHALL avere una regola: un lock con un prefisso che nessuno ha registrato NON SHALL mai essere tolto. Un lock `claude-code:<sessione>` SHALL essere tolto solo se il marcatore dice `creator: claude-code` con la stessa sessione, il transcript non cambia da `worktree_abandon_days`, l'albero è pulito, ogni commit è su un remote e il worktree ha più di 24 ore; un fatto che non si legge vale no. Una cartella senza riga sotto la radice con un marcatore v2 di un progetto noto SHALL essere registrata subito, senza aspettare 24 ore. Quando decide se un commit è già archiviato il GC SHALL leggere entrambi gli spazi, `refs/topics/archive/*` e i tag `archive/wt-*`.
+
+#### Scenario: il lock di una sessione finita
+- **GIVEN** due worktree con lock `claude-code:`, uno con transcript fermo da 10 giorni e uno vivo, entrambi puliti e pushati
+- **WHEN** il GC applica la regola
+- **THEN** SHALL togliere il lock del primo e lasciare quello del secondo; un lock `codex:` SHALL restare in ogni caso
+
+### Requirement: WORKTREE-STD-10 — Le regole di percorso valgono anche su Windows
+
+Il confronto fra una cartella e i cwd vivi (terminali, sottoagenti, processi avviati da Topics) SHALL usare `isInsideDir` con le regole della piattaforma, mai un separatore `/` aggiunto a mano. `canonicalPath` SHALL usare il realpath nativo su Windows e il confronto fra percorsi SHALL ignorare le maiuscole lì, così due grafie dello stesso percorso SHALL portare alla stessa riga. `POST /api/worktrees/relocate` SHALL accettare un percorso assoluto di Windows (`C:\…`) e rifiutare quello relativo al disco (`C:repo`). Ogni `git worktree add` su Windows SHALL portare `-c core.longpaths=true`. Su Windows un `EBUSY` o `EPERM` nella rimozione SHALL valere «vivo»: la riga resta, il giro dopo riprova, nessun secondo `--force` né `rm`. Ogni regola SHALL ricevere la piattaforma come parametro, così che sia provata su qualunque macchina.
+
+#### Scenario: un cwd di Windows sotto la cartella
+- **GIVEN** un terminale vivo con cwd `C:\…\worktrees\repo\x\packages\a`
+- **WHEN** il GC chiede se qualcuno è dentro `C:\…\worktrees\repo\x` con piattaforma `win32`
+- **THEN** la risposta SHALL essere sì

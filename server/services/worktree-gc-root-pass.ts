@@ -14,12 +14,12 @@
 import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
 import {
-  canonicalPath, countRoot, indexListedWorktrees, planRoot, projectOfFolder, pruneKnownRepos,
+  canonicalPath, countRoot, hasCreatorMarker, indexListedWorktrees, planRoot, projectOfFolder, pruneKnownRepos,
   registerOrphan, removeGhostFolder, scanWorktreeRoot, MIN_REMOVAL_AGE_MS,
   type KnownProject, type RegisterStore, type RootCounts, type RootEntry, type RootPlanEntry, type RootRow, type RootScan,
 } from "./worktree-root-gc";
 import { isInsideDir } from "../lib/path-containment";
-import { lockedByTopics } from "./worktree-owner";
+import { lockedByTopics, lockLiftRule } from "./worktree-owner";
 
 /** What the root pass reads of a stored worktree row: the real rows satisfy it, and so do the thin rows of a test bench. */
 export interface StoredWorktree {
@@ -40,8 +40,10 @@ export interface RootPassDeps {
   liveInside: (absPath: string) => boolean;
   log: (msg: string) => void;
   now?: () => number;
-  /** Told, on every read of git's lists, which worktrees carry a lock that is not Topics' own. */
+  /** Told, on every read of git's lists, which worktrees carry a lock no rule lets Topics lift. */
   onLocks?: (lockedByOthers: Set<string>) => void;
+  /** Days of silence after which a `claude-code:` session counts as over (the `worktree_abandon_days` setting). */
+  abandonDays?: () => number;
 }
 
 export interface RootPassResult {
@@ -75,12 +77,20 @@ async function gather(deps: RootPassDeps) {
   const scanned: RootEntry[] = scans.flatMap((s) => s.entries);
   const scanMs = scans.reduce((n, s) => n + s.ms, 0);
   const { listed, repoPaths, byRepo } = await indexListedWorktrees(deps.git, projects);
-  deps.onLocks?.(new Set([...byRepo.values()].flat().filter((w) => w.locked && !lockedByTopics(w)).map((w) => canonicalPath(w.path))));
+  // Locked by others = every lock the rule does not lift: foreign prefixes always,
+  // a `claude-code:` lock until its session is over and nothing would be lost.
+  const mayLift = lockLiftRule(deps.git, deps.abandonDays ?? (() => 7));
+  const others = new Set<string>();
+  for (const w of [...byRepo.values()].flat()) {
+    if (w.locked && !lockedByTopics(w) && !(await mayLift(w).catch(() => false))) others.add(canonicalPath(w.path));
+  }
+  deps.onLocks?.(others);
   const plan = planRoot({
     root: r.root, extraRoots: r.extraRoots, rows, scanned, listed, repoPaths,
     folderPresent: (p) => existsSync(p),
     liveInside: deps.liveInside,
     projectOf: (e) => projectOfFolder(e, projects, listed),
+    creatorMarked: (e) => hasCreatorMarker(e, projects),
     now,
   });
   return { r, rows, scanned, scanMs, listed, byRepo, plan, projects };

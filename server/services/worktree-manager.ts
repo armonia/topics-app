@@ -39,6 +39,7 @@ import {
 } from "../utils/worktree-naming";
 import { makeSerialQueue } from "../lib/serial-queue";
 import { isInsideDir } from "../lib/path-containment";
+import { removalMeansAlive, worktreeGitArgs } from "./worktree-platform";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -54,7 +55,8 @@ import type { NotificationRecordInput } from "../../shared/notification-log";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { copyWorktreeIncludes, readWorktreeProjectConfig, runWorktreeCommand, worktreePort, type WorktreeSetupResult } from "./worktree-ready";
 import { defaultRunGit } from "./own-commits";
-import { lockOwned, unlockOwned, writeOwnerMarker } from "./worktree-owner";
+import { lockLiftRule, lockOwned, unlockOwned, writeOwnerMarker } from "./worktree-owner";
+import { resolveWorktreeAbandonDays } from "./app-settings";
 
 export class WorktreeRefusalError extends Error {
   constructor(reason: string) {
@@ -223,11 +225,9 @@ export function createWorktreeManager(
     // Letto alla chiamata, non alla costruzione: permette di variare l'env
     // in test (e di passare da solo-log ad armato senza riavviare il server).
     const armed = process.env.TOPICS_GHOST_REAP === "1";
-    const base = wtPath.endsWith("/") ? wtPath : wtPath + "/";
     const owned = gcDeps.listOwnedScripts().filter(s => {
       if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
-      const p = s.projectPath;
-      return p === wtPath || p.startsWith(base);
+      return !!s.projectPath && isInsideDir(s.projectPath, wtPath);
     });
     if (owned.length === 0) return;
 
@@ -311,10 +311,10 @@ export function createWorktreeManager(
   async function addWorktree(projectPath: string, absPath: string, addArgs: string[]): Promise<void> {
     const commonDir = await gitCryptDir(projectPath);
     if (!commonDir) {
-      await runGit(projectPath, ["worktree", "add", ...addArgs]);
+      await runGit(projectPath, worktreeGitArgs(["worktree", "add", ...addArgs]));
       return;
     }
-    await runGit(projectPath, ["worktree", "add", "--no-checkout", ...addArgs]);
+    await runGit(projectPath, worktreeGitArgs(["worktree", "add", "--no-checkout", ...addArgs]));
     try {
       const gitDir = resolve(absPath, (await runGit(absPath, ["rev-parse", "--git-dir"])).stdout.trim());
       const link = join(gitDir, "git-crypt");
@@ -653,6 +653,8 @@ export function createWorktreeManager(
         await rm(absPath, { recursive: true, force: true });
       } catch (err) {
         lastErr = err;
+        // Windows: a process holds a file in there. Alive: no further attempts this pass.
+        if (removalMeansAlive(err)) break;
       }
       if (!existsSync(absPath)) {
         console.log(`[WorktreeManager] folder removed by hand after git refused (attempt ${attempt}): ${absPath}`);
@@ -703,7 +705,8 @@ export function createWorktreeManager(
       }
       // The lock Topics took at creation would make git refuse both the remove
       // and the prune below; a lock with a foreign reason stays and git refuses.
-      if (project && !(await unlockOwned(defaultRunGit, project.path, wt.absPath).catch(() => true))) {
+      // A `claude-code:` lock is lifted only when its rule says the session is over (B4).
+      if (project && !(await unlockOwned(defaultRunGit, project.path, wt.absPath, lockLiftRule(defaultRunGit, () => resolveWorktreeAbandonDays())).catch(() => true))) {
         throw new WorktreeOperationError(`worktree is locked by someone else: ${wt.absPath}`, "git worktree lock with a foreign reason", null);
       }
       // Best-effort: remove from disk, then the branch if we own it.
@@ -720,6 +723,8 @@ export function createWorktreeManager(
         } catch (err: any) {
           const cause = String(err?.stderr || err?.message || err).trim();
           console.warn(`[WorktreeManager] git worktree remove failed for ${wt.absPath}:`, cause);
+          // Windows, EBUSY/EPERM: somebody is inside. The row stays for the next pass, no rm on top.
+          if (removalMeansAlive(err)) throw new WorktreeOperationError(`worktree is in use: ${wt.absPath}`, cause, null);
           // Throws when the folder survives: row and branch stay, see above.
           await removeFolderOurselves(project.path, wt.absPath, cause);
         }

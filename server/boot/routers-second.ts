@@ -31,6 +31,7 @@ import { createTabsRouter } from "../routes/tabs";
 import { createViewsRouter } from "../routes/views";
 import { createProjectsRouter } from "../routes/projects";
 import { createWorktreesRouter } from "../routes/worktrees";
+import { createRegistrationDoor } from "./worktree-register-wiring";
 import { createRelocateService } from "./worktree-relocate-wiring";
 import { toPlanPayload } from "../services/worktree-plan-payload";
 import { createMachinesRouter } from "../routes/machines";
@@ -197,6 +198,7 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
       return plan ? toPlanPayload(plan, (id) => ctx.projectStore.get(id)?.name ?? null) : null;
     },
     relocate: createRelocateService(ctx, worktreeGc),
+    registration: createRegistrationDoor(ctx),
   });
 
   // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE

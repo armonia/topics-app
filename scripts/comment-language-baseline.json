@@ -1230,7 +1230,6 @@
     "server/routes/chat.front-door.test.ts": 81,
     "server/routes/chat.ts": 119,
     "server/routes/checkpoints.ts": 10,
-    "server/routes/claude-hooks.ts": 1,
     "server/routes/clearPolicy.test.ts": 8,
     "server/routes/clearPolicy.ts": 25,
     "server/routes/commandRouting.test.ts": 3,

@@ -11,6 +11,7 @@ import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/bac
 import { delegationHookPath, hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
 import { delegationHookScript } from "../lib/delegation-policy";
 import { hookEventTime } from "../lib/hook-order";
+import { bearerMatches, isLocalhostRequest } from "../lib/hook-auth";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -103,15 +104,6 @@ export function getOrCreateHookToken(): string {
   return cachedToken;
 }
 
-function isLocalhost(req: Request): boolean {
-  // Behind Bun.serve, `req.headers.get('host')` is the Host header. We also
-  // accept the dev TLS host (localhost:3333 / 127.0.0.1:3333). The token is
-  // the real defense — this check is belt-and-braces.
-  const host = (req.headers.get("host") || "").toLowerCase();
-  if (host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]")) return true;
-  return false;
-}
-
 export function createClaudeHooksRouter(
   ctx: AppContext,
   tracker: ClaudeSessionTracker,
@@ -124,12 +116,10 @@ export function createClaudeHooksRouter(
     {
       const params = matchRoute(pathname, "/api/claude-hooks/:event");
       if (params && method === "POST") {
-        if (!isLocalhost(req)) {
+        if (!isLocalhostRequest(req)) {
           return errorResponse(403, "claude-hooks endpoint is localhost-only");
         }
-        const auth = req.headers.get("authorization") || "";
-        const m = auth.match(/^Bearer\s+([a-f0-9]+)$/i);
-        if (!m || m[1] !== token) {
+        if (!bearerMatches(req, token)) {
           return errorResponse(401, "Invalid hook token");
         }
 

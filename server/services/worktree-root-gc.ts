@@ -24,7 +24,7 @@ import { join, relative, isAbsolute, sep, basename } from "node:path";
 import type { GitRunner } from "./own-commits";
 import {
   canonicalPath, listRepoWorktrees, lockedByTopics, readOwnerMarker, unlockOwned,
-  type ListedWorktree,
+  type ListedWorktree, type WorktreeCreator,
 } from "./worktree-owner";
 import { isInsideDir } from "../lib/path-containment";
 
@@ -108,6 +108,12 @@ export interface RootFacts {
   ageMs: number;
   /** A known project could be named for it (needed to register an orphan). */
   projectKnown: boolean;
+  /**
+   * A v2 owner marker (it names its creator) for a known project: the checkout
+   * was made on purpose by a creator that follows the standard (the Claude Code
+   * hook), so it is registered at once instead of after 24 h.
+   */
+  creatorMarked?: boolean;
 }
 
 export interface RootVerdict {
@@ -133,6 +139,7 @@ export function classifyRootEntry(f: RootFacts): RootVerdict {
   if (f.standaloneRepo) return { cls: "foreign", action: "inventory", reason: "a repository of its own, not a worktree: never registered or removed" };
   if (f.hasDotGit || f.inGitList) {
     if (!f.projectKnown) return { cls: "orphan", action: "inventory", reason: "a checkout of a repository that is not a known project" };
+    if (f.creatorMarked) return { cls: "orphan", action: "register", reason: "made by a registered creator (v2 marker): registered at once, then judged" };
     // A fresh folder with no row may be a create in flight: it is not claimed before a day has passed.
     return f.ageMs < MIN_REMOVAL_AGE_MS
       ? { cls: "orphan", action: "wait", reason: "git knows this checkout but no row does, younger than 24 h" }
@@ -174,13 +181,15 @@ export interface RootPlanInput {
   folderPresent: (absPath: string) => boolean;
   liveInside: (absPath: string) => boolean;
   projectOf: (entry: RootEntry) => string | null;
+  /** The folder carries a v2 owner marker naming its creator (see `RootFacts.creatorMarked`). */
+  creatorMarked?: (entry: RootEntry) => boolean;
   now: number;
 }
 
 /** Pure: every row and every folder of the root, classified. */
 export function planRoot(input: RootPlanInput): RootPlanEntry[] {
   const out: RootPlanEntry[] = [];
-  const roots = [input.root, ...(input.extraRoots ?? [])].map(canonicalPath);
+  const roots = [input.root, ...(input.extraRoots ?? [])].map((r) => canonicalPath(r));
   const ours = (abs: string) => roots.some((r) => isInsideDir(abs, r));
   const byPath = new Map(input.rows.map((r) => [canonicalPath(r.absPath), r]));
   const scannedByPath = new Map(input.scanned.map((e) => [canonicalPath(e.absPath), e]));
@@ -205,6 +214,7 @@ export function planRoot(input: RootPlanInput): RootPlanEntry[] {
       hasRow: false, folderPresent: true, inRoot: true, hasDotGit: e.hasDotGit,
       standaloneRepo: e.standaloneRepo === true || input.repoPaths.has(abs), inGitList: input.listed.has(abs),
       isSymlink: e.isSymlink, liveInside: input.liveInside(e.absPath) || input.liveInside(abs), ageMs: e.ageMs, projectKnown: projectId !== null,
+      creatorMarked: projectId !== null && (input.creatorMarked?.(e) ?? false),
     });
     out.push({ ...v, absPath: abs, projectId, rowId: null, bytes: null });
   }
@@ -286,6 +296,12 @@ export function projectOfFolder(
   return bySlug.length === 1 ? bySlug[0]!.id : null;
 }
 
+/** The folder's marker is a v2 one (it names its creator) for one of the known projects. */
+export function hasCreatorMarker(entry: RootEntry, projects: readonly KnownProject[]): boolean {
+  const m = readOwnerMarker(entry.absPath);
+  return !!m?.creator && projects.some((p) => p.id === m.projectId);
+}
+
 /**
  * Unlock-and-prune: git forgets the worktrees whose folder is gone. A lock Topics
  * took stops `git worktree prune` from forgetting one, so when no row claims the
@@ -343,7 +359,7 @@ export function nameForAdopted(folderName: string, taken: ReadonlySet<string>): 
 }
 
 export interface RegisterStore {
-  create(input: { projectId: string; name: string; branchName: string | null; baseRef: string | null; mode: "branch" | "reuse" | "detached"; absPath: string }): { id: string };
+  create(input: { projectId: string; name: string; branchName: string | null; baseRef: string | null; mode: "branch" | "reuse" | "detached"; absPath: string; source?: WorktreeCreator; sessionRef?: string | null }): { id: string };
   update(id: string, patch: { status: "ready" }): unknown;
   listNamesForProject(projectId: string): Set<string>;
 }
@@ -360,7 +376,12 @@ export function registerOrphan(
   const detached = listedEntry ? listedEntry.detached || !listedEntry.branch : !branch;
   const mode: "branch" | "reuse" | "detached" = detached ? "detached" : branch!.startsWith("topics/") ? "branch" : "reuse";
   const name = nameForAdopted(basename(entry.absPath), store.listNamesForProject(projectId));
-  const row = store.create({ projectId, name, branchName: detached ? null : branch, baseRef: detached ? null : branch, mode, absPath: entry.absPath });
+  // Who made it and for which session, when its marker says so (v2); a v1 marker or none: Topics' own.
+  const marker = readOwnerMarker(entry.absPath);
+  const origin = marker?.creator && marker.creator !== "topics"
+    ? { source: marker.creator, sessionRef: marker.session?.transcript ?? marker.session?.id ?? null }
+    : {};
+  const row = store.create({ projectId, name, branchName: detached ? null : branch, baseRef: detached ? null : branch, mode, absPath: entry.absPath, ...origin });
   store.update(row.id, { status: "ready" });
   return row;
 }

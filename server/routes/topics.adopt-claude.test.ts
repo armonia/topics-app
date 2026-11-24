@@ -20,6 +20,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { claudeProjectDirName } from "../lib/claude-transcript-path";
 import { createTopicsRouter } from "./topics";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
+import { writeOwnerMarker } from "../services/worktree-owner";
 
 /**
  * The route finds a transcript under `homedir()`, and Bun's `homedir()` reads
@@ -39,7 +40,7 @@ if (!inFakeHome) {
     const log = out.stdout.toString() + out.stderr.toString();
     if (out.exitCode !== 0) console.error(log);
     expect(out.exitCode).toBe(0);
-    expect(log).toMatch(/\b6 pass\b/);
+    expect(log).toMatch(/\b7 pass\b/);
   }, 120_000);
 }
 
@@ -191,6 +192,33 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
       expect(body.projectPath).toBe(nested);
       expect(ctx.resolveTopicCwd(ctx.getTopicById(body.id))).toBe(nested);
       expect(ctx.worktreeStore.getByAbsPath(nested)).toBeNull();
+    } finally {
+      if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;
+    }
+  });
+
+  test("a worktree under the root that a creator MARKED is adopted onto a row (@covers WORKTREE-STD-08)", async () => {
+    // The Claude Code hook creates its checkouts under Topics' root and writes the
+    // v2 owner marker: a session started there must be adoptable, not refused.
+    const ctx0 = await createTestAppContext();
+    if (!ctx0.projectStore.getByPath(REPO)) ctx0.projectStore.create({ name: "repo", slug: "repo", path: REPO });
+    const root = join(REPO, ".topics-root-marked");
+    const marked = join(root, "repo", "hooked");
+    git(REPO, "worktree", "add", "-q", "-b", "worktree-hooked", marked);
+    const projectId = ctx0.projectStore.getByPath(REPO)!.id;
+    const sid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    writeOwnerMarker(marked, { worktreeId: "pending", projectId, createdAt: "2026-11-24T00:00:00Z", creator: "claude-code", session: { id: sid } });
+    const orig = process.env.TOPICS_WORKTREES_DIR;
+    process.env.TOPICS_WORKTREES_DIR = root;
+    try {
+      seedTranscript(marked, sid, { branch: "worktree-hooked" });
+      const { ctx, status, body } = await adopt({ sessionId: sid });
+      expect(status).toBe(201);
+      const row = ctx.worktreeStore.getByAbsPath(marked);
+      expect(row).not.toBeNull();
+      expect(body.worktreeId).toBe(row!.id);
+      expect(row!.source).toBe("claude-code");
+      expect(row!.sessionRef).toBe(sid);
     } finally {
       if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;
     }

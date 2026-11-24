@@ -3855,9 +3855,6 @@
       "idempotencySlot",
       "isWoken"
     ],
-    "server/routes/claude-hooks.ts": [
-      "isLocalhost"
-    ],
     "server/routes/context-preview.test.ts": [
       "pathnameParts"
     ],

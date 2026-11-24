@@ -28,3 +28,19 @@ export async function archiveBranchRef(
   const back = (await gitOut(repoPath, ["rev-parse", "--verify", ref], run)).trim();
   return back === tip;
 }
+
+/**
+ * The two places an archive lives (cross-node addendum, B4): the GC pins under
+ * `refs/topics/archive/*`, the Claude Code worktree hook tags `archive/wt-*`
+ * (the repository's documented tag convention for archived branches). One per
+ * hand, and the question «is this commit already archived?» must read both, or
+ * a checkout the hook archived reads as unarchived.
+ */
+export const ARCHIVE_REF_PREFIXES: readonly string[] = ["refs/topics/archive/", "refs/tags/archive/wt-"];
+
+/** True when some archive ref, in either namespace, contains `sha`. False when git cannot tell. */
+export async function alreadyArchived(repoPath: string, sha: string, run?: GitRunner): Promise<boolean> {
+  if (!/^[0-9a-f]{7,64}$/i.test(sha)) return false;
+  const out = await gitOut(repoPath, ["for-each-ref", "--contains", sha, "--format=%(refname)", "refs/topics/archive", "refs/tags/archive"], run);
+  return out.split("\n").some((ref) => ARCHIVE_REF_PREFIXES.some((ns) => ref.startsWith(ns)));
+}

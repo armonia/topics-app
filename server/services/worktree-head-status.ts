@@ -11,6 +11,7 @@
  *   folder gone, or no project      -> merged (the removal can only drop the row)
  *   no readable HEAD                -> merged (not a checkout: no commit to lose)
  *   `reuse` with a branch that exists -> the branch's own status (squash lands included)
+ *   HEAD kept by an archive ref     -> merged (either namespace: the GC's refs or the hook's tags)
  *   otherwise                       -> HEAD is an ancestor of the published main?
  *   git cannot tell                 -> unmerged (whoever could not look keeps)
  */
@@ -18,6 +19,7 @@ import { existsSync } from "node:fs";
 import type { GitRunner } from "./own-commits";
 import { commitIsIn } from "./own-commits";
 import { branchStatusFromRepo, publishedMainRef } from "./branch-status";
+import { alreadyArchived } from "./worktree-archive";
 
 export interface HeadStatusRow {
   absPath: string;
@@ -39,6 +41,7 @@ export async function headStatusOfCheckout(
     if (s === "merged") return "merged";
     if (s === "unmerged") return "unmerged";
   }
+  if (await alreadyArchived(repoPath, sha, git).catch(() => false)) return "merged";
   const main = await publishedMainRef(repoPath, git);
   return (await commitIsIn(repoPath, sha, main, { runGit: git })) === true ? "merged" : "unmerged";
 }

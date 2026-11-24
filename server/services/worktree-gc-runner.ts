@@ -28,10 +28,10 @@ import { worktreeDirtProbe } from "./task-automerge";
 import { branchExistsInRepo, branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
-import { archiveBranchRef } from "./worktree-archive";
+import { alreadyArchived, archiveBranchRef } from "./worktree-archive";
 import { commitWorktreeResidue } from "./worktree-residue";
 import { isTopicsSpawned } from "../lib/ghost-script";
-import { isInsideDir } from "../lib/path-containment";
+import { anyInsideDir, isInsideDir } from "../lib/path-containment";
 import { topicSessionKey } from "./agent-census";
 import { taskIdleDays, transcriptMtime } from "./worktree-task-idle";
 import { headStatusOfCheckout } from "./worktree-head-status";
@@ -93,6 +93,8 @@ export interface WorktreeGcDeps {
    * `terminal_sessions` after a restart counts like any other.
    */
   liveCwds?: () => string[];
+  /** Path rules for the cwd comparisons (Windows separators and case); defaults to the running platform. */
+  platform?: NodeJS.Platform;
   /**
    * Is the chat session addressed by this key mid-turn, or active within the
    * last few minutes? A chat topic bound to a worktree has no task and no
@@ -175,6 +177,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     return { abandonDays: resolveWorktreeAbandonDays(), gcForeign: resolveGcForeign(), maxPerProject: resolveWorktreeMaxPerProject() };
   };
   const git: GitRunner = deps.git ?? defaultRunGit;
+  const platform = deps.platform ?? process.platform;
 
   /**
    * La card com'e' ADESSO, a tutti i client aperti.
@@ -207,10 +210,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
    */
   const topicsProcessRunsIn = (absPath: string): boolean => {
     if (!deps.listOwnedScripts) return false;
-    const base = absPath.endsWith("/") ? absPath : absPath + "/";
     return deps.listOwnedScripts().some((s) =>
       isTopicsSpawned(s.source) && s.status === "running" && !!s.pid
-      && (s.projectPath === absPath || s.projectPath.startsWith(base)));
+      && !!s.projectPath && isInsideDir(s.projectPath, absPath, platform));
   };
 
   /**
@@ -428,12 +430,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         const kids = deps.db.prepare(
           "SELECT cwd FROM subagents WHERE state = 'running' OR ended_at IS NULL OR ended_at > ?",
         ).all(since) as { cwd: string }[];
-        const base = path.endsWith("/") ? path : `${path}/`;
-        if (kids.some((k) => k.cwd === path || k.cwd.startsWith(base))) return true;
+        if (anyInsideDir(kids.map((k) => k.cwd), path, platform)) return true;
       } catch { /* table absent in old hosts: nothing to protect */ }
-      const cwds = deps.liveCwds?.() ?? [];
-      const prefix = path.endsWith("/") ? path : `${path}/`;
-      return cwds.some((c) => c === path || c.startsWith(prefix));
+      return anyInsideDir(deps.liveCwds?.() ?? [], path, platform);
     };
     return check(absPath) || check(canonicalPath(absPath));
   };
@@ -448,6 +447,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     const repoPath = deps.projectStore.get(wt.projectId)?.path;
     if (!repoPath) return true;
     if (!(await branchExistsInRepo(repoPath, wt.branchName))) return true;
+    // Already kept by an archive ref, ours or the hook's tag: nothing more to pin.
+    const tip = await git(repoPath, ["rev-parse", "--verify", `refs/heads/${wt.branchName}^{commit}`]).catch(() => null);
+    if (tip?.code === 0 && await alreadyArchived(repoPath, tip.stdout.trim(), git).catch(() => false)) return true;
     const t = resolveTaskOf(wt.id);
     return archiveBranchRef(repoPath, wt.branchName, t.taskId ?? `wt-${wt.id}`);
   };
@@ -660,6 +662,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     projects: () => deps.projectStore.list?.() ?? [],
     git,
     onLocks: (locks) => { lockedByOthers = locks; },
+    abandonDays: () => readSettings().abandonDays,
     liveInside: (absPath) => liveCwdInside(absPath) || topicsProcessRunsIn(absPath),
     log: (msg) => console.log(msg),
   });
