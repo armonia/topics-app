@@ -28,6 +28,7 @@ import type { BrowserConsoleEntry, DeviceMode } from '../components/Browser/brow
 import type { DownloadsMenuProps } from '../components/Browser/DownloadsMenu';
 import type { BrowserLayout } from '../lib/browserLayoutPref';
 import type { ShareMode } from '../lib/sharedAuto';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /** What a browser pane can be asked to do from its tab. Every command is
  *  optional: the shared (server-streamed) pane has no DevTools, the web build
@@ -181,12 +182,10 @@ export interface BrowserPaneChrome {
 }
 
 const registry = new Map<string, BrowserPaneChrome>();
-const listeners = new Map<string, Set<() => void>>();
+const listeners = createKeyedListeners<string>();
 
 function emit(paneId: string): void {
-  const set = listeners.get(paneId);
-  if (!set) return;
-  for (const fn of set) fn();
+  listeners.emit(paneId);
 }
 
 /**
@@ -218,17 +217,7 @@ export function getBrowserPaneChrome(paneId: string): BrowserPaneChrome | undefi
 /** Listen to one pane's chrome without a hook: for a reader that follows
  *  several panes at once (the tab bar's accessible names). */
 export function subscribeBrowserPaneChrome(paneId: string, fn: () => void): () => void {
-  return subscribe(paneId, fn);
-}
-
-function subscribe(paneId: string, fn: () => void): () => void {
-  let set = listeners.get(paneId);
-  if (!set) { set = new Set(); listeners.set(paneId, set); }
-  set.add(fn);
-  return () => {
-    set.delete(fn);
-    if (set.size === 0) listeners.delete(paneId);
-  };
+  return listeners.subscribe(paneId, fn);
 }
 
 /**
@@ -238,7 +227,7 @@ function subscribe(paneId: string, fn: () => void): () => void {
  */
 export function useBrowserPaneChrome(paneId: string | undefined): BrowserPaneChrome | undefined {
   return useSyncExternalStore(
-    (fn) => (paneId ? subscribe(paneId, fn) : () => {}),
+    (fn) => (paneId ? listeners.subscribe(paneId, fn) : () => {}),
     () => (paneId ? registry.get(paneId) : undefined),
     () => undefined,
   );

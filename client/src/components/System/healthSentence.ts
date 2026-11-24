@@ -17,6 +17,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 /** The variant a type's pieces call for (a memory has an owner or only an id, a tool may say why it is down).
  *  A type with no such variant falls back to its base key. */
 function variant(vars: Record<string, string>): string {
+  if (vars.count) return '.count';
   if (vars.store) return '.store';
   if (vars.reason) return '.reason';
   if (vars.agent) return '.agent';

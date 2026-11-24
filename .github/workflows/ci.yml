@@ -65,11 +65,14 @@ jobs:
       contents: read
       pull-requests: read
       actions: read
+      checks: read # the annotation a pull request run leaves (tree-verdict)
     outputs:
-      e2e: ${{ steps.scope.outputs.e2e }}
-      tauri: ${{ steps.scope.outputs.tauri }}
+      # A tree already judged reaches no heavy job: every surface answers false.
+      e2e: ${{ steps.proof.outputs.proven == 'true' && 'false' || steps.scope.outputs.e2e }}
+      tauri: ${{ steps.proof.outputs.proven == 'true' && 'false' || steps.scope.outputs.tauri }}
       tauri_systems: ${{ steps.scope.outputs.tauri_systems }}
-      process_groups: ${{ steps.scope.outputs.process_groups }}
+      process_groups: ${{ steps.proof.outputs.proven == 'true' && 'false' || steps.scope.outputs.process_groups }}
+      proven: ${{ steps.proof.outputs.proven }}
     steps:
       # Only the directories the script reads: it builds the import closure of what
       # the macOS and Windows legs execute (scripts/ci-changes.ts, osSensitiveFiles),
@@ -89,8 +92,43 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # A PUSH TO main THAT ONLY REPEATS WHAT A PULL REQUEST ALREADY JUDGED.
+      #
+      # The pull_request run tests the merge of the branch into main, not the branch.
+      # When main has not moved, the merge commit has the SAME TREE that run already
+      # judged green, and the push run was a second full pass over the same bytes: on
+      # 23/11/2026 the median push run waited 35 minutes, and deploy and auto-bump
+      # wait for it. The pull_request run leaves its tree, base and head as an
+      # annotation of this job (`--mark`); the push run asks `tree-verdict` whether a
+      # green one tested this tree on a base that is itself judged (the same
+      # induction ci-changes.ts uses for a push; a release bump with no run of its
+      # own inherits from its parent only if it touches the version lines alone).
+      # Judged: every surface answers false and unit, gates and check are skipped, so
+      # the run is green in a couple of minutes with the verdict of the PR. A push
+      # run of its own that is red always wins. Any doubt, or an API that fails,
+      # answers "not judged" and the run is a full one, as before. The rule and its
+      # cases are in the @armonia-io/spec-flow package (speed/_proof.mjs); the full
+      # suite still runs every night (e2e-nightly.yml).
+      # Both steps fail open: a registry that is down or slow costs the saving, never
+      # the verdict (continue-on-error, and a 2-minute cap instead of the job's 10).
+      - name: Mark the tree this pull request run tests
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: npx --yes "@armonia-io/spec-flow@$(jq -r '.dependencies["@armonia-io/spec-flow"] // .devDependencies["@armonia-io/spec-flow"]' package.json)" tree-verdict --mark
+
+      - name: Was this tree already judged by a pull request run?
+        id: proof
+        if: github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npx --yes "@armonia-io/spec-flow@$(jq -r '.dependencies["@armonia-io/spec-flow"] // .devDependencies["@armonia-io/spec-flow"]' package.json)" tree-verdict --sha "$GITHUB_SHA" --github-output || true
+
       - name: Decide which heavy jobs this change can reach
         id: scope
+        if: ${{ !cancelled() && steps.proof.outputs.proven != 'true' }}
         run: bun run scripts/ci-changes.ts
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -114,6 +152,9 @@ jobs:
   # scripts/test-unit-shards.ts has the whole story and the measurements.
   unit:
     timeout-minutes: 20
+    # Only to skip a tree already judged (the `changes` job): ~15 s after the start.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.proven != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -148,13 +189,10 @@ jobs:
       # other browser tests run against fakes. The step stays until someone
       # decides to drop it or to run test:heavy here.
       - name: Install Playwright browsers (Chromium)
-        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
-        run: |
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
-            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
-          done
-          exit 1
+        # Cached .deb and browsers (.github/actions/playwright-browsers): uncached, apt took 7-19 min here (23/11/2026).
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: chromium
 
       # `main` as a ref, like `gates` has it (it
       # fetches it for the migrations gate). tests/unit/migration-number-
@@ -245,6 +283,9 @@ jobs:
   # keeps the job and step names the board reads.
   gates:
     timeout-minutes: 25
+    # Only to skip a tree already judged (the `changes` job): ~15 s after the start.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.proven != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -311,13 +352,10 @@ jobs:
       # menu was see-through in Safari while the probe only looked at Chromium).
       - name: Install Playwright browsers (Chromium and WebKit)
         id: setup
-        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
-        run: |
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium webkit && exit 0
-            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
-          done
-          exit 1
+        # Cached .deb and browsers (.github/actions/playwright-browsers): uncached, apt took 7-19 min here (23/11/2026).
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: chromium webkit
 
       # All three projects in one step. Each `typecheck:*` script uses the
       # LOCALLY pinned TypeScript 7 (alias `typescript7` in client/) — `bunx tsc` could fetch
@@ -798,24 +836,14 @@ jobs:
       #
       # Note that until the baseline is recorded this step costs nothing at all:
       # the script answers "never recorded" BEFORE spawning the bench.
-      - name: Long-session growth budget
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (github.event_name == 'push') }}
-        run: |
-          set +e
-          bun run check:growth
-          rc=$?
-          set -e
-          if [ "$rc" -eq 2 ]; then
-            echo "::warning title=Crescita di sessione non misurata::Il banco non ha prodotto una misura utilizzabile su questo runner (o la baseline non c'e'). Questo verde NON dice niente su heap, nodi DOM e listener."
-            exit 0
-          fi
-          exit "$rc"
-
   # I tre passi piu' lenti di `gates` che non dipendono dal suo bundle, su un
   # secondo runner in parallelo. Stessi comandi; `check` porta anche questo
   # verdetto.
   gates-2:
     timeout-minutes: 25
+    # Only to skip a tree already judged (the `changes` job): ~15 s after the start.
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.proven != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -846,13 +874,10 @@ jobs:
 
       - name: Install Playwright browsers (Chromium and WebKit)
         id: setup
-        # The runner apt mirror answers 503 now and then (19/11 11:32: four jobs red at once); a retry is the cure, not a looser gate.
-        run: |
-          for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium webkit && exit 0
-            echo "playwright install failed (attempt $attempt)"; sleep $((attempt * 30))
-          done
-          exit 1
+        # Cached .deb and browsers (.github/actions/playwright-browsers): uncached, apt took 7-19 min here (23/11/2026).
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: chromium webkit
 
       # The landing demo is the real client with a mock seam in place of the
       # server, and nothing in a build fails when a mock stops matching the
@@ -912,10 +937,69 @@ jobs:
   # produce both verdicts, not a skipped job that the board reads as not
   # measured. Needing `gates` costs nothing on the critical path, `gates` ends
   # before `unit` does.
+  # Long-session growth budget on its own job: it runs on EVERY push, also when
+  # the tree was already judged (`changes` skips gates and gates-2 then), because
+  # nothing else applies this budget (the nightly only records the measure).
+  growth:
+    timeout-minutes: 25
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Same install steps as `gates`, for the reasons written there.
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Install Playwright browsers (Chromium and WebKit)
+        id: setup
+        # Cached .deb and browsers (.github/actions/playwright-browsers): uncached, apt took 7-19 min here (23/11/2026).
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: chromium webkit
+
+      # The bench drives the real client: without public/ it measures nothing and
+      # exits 2, which the step below turns into a green warning.
+      - name: Build client for the growth bench
+        run: bun run build:client
+
+      - name: Long-session growth budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' && (github.event_name == 'push') }}
+        run: |
+          set +e
+          bun run check:growth
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=Crescita di sessione non misurata::Il banco non ha prodotto una misura utilizzabile su questo runner (o la baseline non c'e'). Questo verde NON dice niente su heap, nodi DOM e listener."
+            exit 0
+          fi
+          exit "$rc"
+
   check:
     timeout-minutes: 30
-    needs: [unit, gates, gates-2]
-    if: ${{ !cancelled() }}
+    needs: [changes, unit, gates, gates-2]
+    if: ${{ !cancelled() && needs.changes.outputs.proven != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Unit + integration tests
@@ -1102,6 +1186,65 @@ jobs:
     secrets:
       RUNNER_ADMIN_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN }}
 
+  # THE CLIENT BUNDLE, BUILT ONCE PER RUN.
+  #
+  # Every e2e shard built the same client (8-9 builds per run, 23/11/2026, card
+  # 14181a31), ~50 s of a runner each. This job builds it once, side by side with
+  # `e2e placement`, whose wait for runners (median 149 s between `changes` and
+  # `prepare-e2e` on 80 runs) is longer than the build: it is off the critical
+  # path. A shard that cannot download the bundle (this job red, an artifact
+  # missing) builds it itself, as before. The job continues on error (as living-doc
+  # does) and every step has a short cap, so it never turns the run red and never
+  # holds the shards long: the bundle saves time, never decides a verdict.
+  client-bundle:
+    timeout-minutes: 22
+    continue-on-error: true
+    needs: changes
+    if: ${{ needs.changes.outputs.e2e != 'false' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      # Every step continues on error, not only the job: the board reads a red job of a
+      # run still going as a red card (ci-evidence.ts runRedElsewhere).
+      - uses: actions/checkout@v5
+        continue-on-error: true
+        timeout-minutes: 2
+
+      - name: Setup Bun
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install server deps (root)
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Install client deps
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Build client
+        id: build
+        continue-on-error: true
+        timeout-minutes: 6
+        run: bun run build:client
+
+      - name: Upload the bundle for the shards
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-bundle
+          path: public/
+          retention-days: 1
+
   hcloud-delete:
     name: give back the permanent node's runners
     needs: [hcloud, e2e]
@@ -1121,7 +1264,7 @@ jobs:
     # the green `hcloud` job, and a shard sent back to that run's label would wait
     # forever for runners already given back. A re-run shard goes to ubuntu-latest.
     runs-on: ${{ needs.hcloud.outputs.attempt == format('{0}', github.run_attempt) && fromJSON(needs.hcloud.outputs.placement || '{}')[format('s{0}', matrix.shard)] || 'ubuntu-24.04' }}
-    needs: [changes, prepare-e2e, hcloud]
+    needs: [changes, prepare-e2e, hcloud, client-bundle]
     if: ${{ !cancelled() && needs.prepare-e2e.result == 'success' }}
     # WHEN NOTHING THE SHARDS READ HAS CHANGED the matrix is the single job `e2e (0)`
     # and only its first step runs; every other step of this job carries
@@ -1330,14 +1473,29 @@ jobs:
       # This step and the two Playwright steps stop when unit or gates is red
       # (see the top of this job). The token is removed from the environment
       # before the step's own script runs.
+      - name: Download the client bundle (built once by client-bundle)
+        id: bundle
+        if: ${{ needs.changes.outputs.e2e != 'false' && needs.client-bundle.result == 'success' }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: client-bundle
+          path: public/
+
       - name: Build client, and install Playwright browsers (Chromium + WebKit) meanwhile
         if: ${{ needs.changes.outputs.e2e != 'false' }}
         shell: bash scripts/e2e-stop-on-red.sh {0}
         env:
           E2E_STOP_TOKEN: ${{ github.token }}
+          BUNDLE_OUTCOME: ${{ steps.bundle.outcome }}
         run: |
           build_log="$RUNNER_TEMP/build-client.log"
-          bun run build:client > "$build_log" 2>&1 &
+          if [ "$BUNDLE_OUTCOME" = success ] && [ -f public/index.html ]; then
+            echo "client bundle from the client-bundle job: no build here" > "$build_log"
+            true &
+          else
+            bun run build:client > "$build_log" 2>&1 &
+          fi
           build_pid=$!
           if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
             npx playwright install chromium webkit

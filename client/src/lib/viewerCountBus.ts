@@ -17,9 +17,11 @@
  * mounted by different components and share no React tree.
  */
 
+import { createKeyedListeners } from './keyedListeners';
+
 type Listener = (count: number) => void;
 
-const listeners = new Map<string, Set<Listener>>();
+const listeners = createKeyedListeners<string, Listener>();
 /** How many live sockets carry pushes for the context. */
 const channels = new Map<string, number>();
 /** The last pushed value, for a subscriber that arrives after the socket did. */
@@ -28,9 +30,7 @@ const lastCount = new Map<string, number>();
 /** A socket received a count for `contextId`: fan it out. */
 export function pushViewerCount(contextId: string, count: number): void {
   lastCount.set(contextId, count);
-  const set = listeners.get(contextId);
-  if (!set) return;
-  for (const fn of [...set]) fn(count);
+  listeners.emit(contextId, count);
 }
 
 /**
@@ -40,20 +40,10 @@ export function pushViewerCount(contextId: string, count: number): void {
  * that one would leave the pane on its first reading until the next change.
  */
 export function subscribeViewerCount(contextId: string, fn: Listener): () => void {
-  let set = listeners.get(contextId);
-  if (!set) {
-    set = new Set();
-    listeners.set(contextId, set);
-  }
-  set.add(fn);
+  const unsubscribe = listeners.subscribe(contextId, fn);
   const last = lastCount.get(contextId);
   if (last !== undefined && hasViewerChannel(contextId)) fn(last);
-  return () => {
-    const s = listeners.get(contextId);
-    if (!s) return;
-    s.delete(fn);
-    if (s.size === 0) listeners.delete(contextId);
-  };
+  return unsubscribe;
 }
 
 /**
