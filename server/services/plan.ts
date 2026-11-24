@@ -237,7 +237,9 @@ export function buildPlan(
   for (const t of tasks) byProject.set(t.project_id, [...(byProject.get(t.project_id) ?? []), t]);
   for (const list of byProject.values()) {
     const open = list.filter((t) => t.status !== "done");
-    for (const g of findDuplicateGroups(open.map((t) => ({ id: t.id, text: t.text, createdAt: t.created_at })))) {
+    for (const g of findDuplicateGroups(
+      open.map((t) => ({ id: t.id, text: t.text, description: t.description, createdAt: t.created_at })),
+    )) {
       for (const d of g.duplicates) dupOf.set(d.id, g.survivor.id);
       dupOf.set(g.survivor.id, g.survivor.id);
     }
