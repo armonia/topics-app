@@ -1,4 +1,4 @@
-import type { Topic, TerminalSessionInfo, PaneType } from '@/types';
+import type { Topic, TerminalSessionInfo, PaneType } from '../types';
 import { isProjectPaneId, getProjectPathFromPaneId, projectPanesLocalKey, createPaneId, type BrowserOrigin } from '../state/pane/adapters';
 import { isUtilityPanelId, parseUtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '../state/pane/adapters/paneConfig';
