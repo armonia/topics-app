@@ -35,7 +35,7 @@ import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './D
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { standaloneSplitFitsCaps } from './panelGridStacks';
 import { cloneRow, moveCell, newCellOverCap, placeNewCell, renameKeyDeep, renameKeyInRow, type PaneDropTarget } from './gridPaneDrop';
-import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
+import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey, topicIdOfPane } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { EQUALIZE_SPLITS_EVENT, SPLIT_PANE_EVENT, heldByProjectWindow, sideZone, type EqualizeSplitsDetail, type SplitPaneDetail, type SplitSide } from '../../lib/splitCommands';
 import { notifyPaneReflow } from './paneReflow';
@@ -1479,6 +1479,7 @@ export function PanelGrid({
   // Read by the dragover to size the cell under the pointer without turning
   // soloCells into a dep of a handler that is re-created per cell, per render.
   const soloCellsRef = useRefMirror(soloCells);
+  const openPanelsRef = useRefMirror(openPanels);
 
   // (A former handleGridItemDragStart \u2014 the GRID_ITEM drag-start with its own
   // ghost image \u2014 was dead wiring: StandaloneChatGroup received it as
@@ -1606,7 +1607,11 @@ export function PanelGrid({
       // so both the refusal question and the preview are asked about that slot.
       const leafKey = leafKeyUnderPointer(e, (k) => itemMapRef.current.has(k));
       const centerKey = centerMergeTargetKey(leafKey, gridRowsRef.current[rowIdx]?.itemKeys[colIdx], (k) => itemMapRef.current.has(k));
-      if (centerKey && !standaloneCenterDropMerges({
+      // A row whose pane is not open yet (a closed pinned tile, a chat of the
+      // column) always does something at the centre: it opens there (GDROP-04).
+      const dragged = draggedPaneId();
+      const closedRow = isSidebarDrag && (!dragged || !openPanelsRef.current.includes(topicIdOfPane(dragged)));
+      if (centerKey && !closedRow && !standaloneCenterDropMerges({
         targetCellKey: centerKey,
         draggedPaneId: draggedPaneId(),
         soloCells: soloCellsRef.current,
@@ -1673,7 +1678,7 @@ export function PanelGrid({
       setFullRowDrop(null);
     }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isPaneDrag && !isGridDrag });
-  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, cellGutters, itemMapRef]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, openPanelsRef, cellGutters, itemMapRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
