@@ -96,6 +96,17 @@ if (!process.env[PRIVATE_SCRATCH_ENV]) {
 process.env.TOPICS_HOME ||= join(tmpdir(), `topics-test-no-home-${process.pid}`);
 
 /**
+ * THE LIVE AI BRIDGE STAYS OUT OF THE SUITE. A run started from inside a
+ * running app (the board's pre-review checks) inherits `TOPICS_AI_BRIDGE=1`,
+ * and then a native turn leaves the process for the real daemon: the test's
+ * stubbed `fetch` is never called, the turn hits the real API with a fake
+ * token (401), and `native-shutdown-notice` went red only there. A test that
+ * wants the bridge sets both keys itself, with a socket of its own.
+ */
+delete process.env.TOPICS_AI_BRIDGE;
+delete process.env.TOPICS_AI_BRIDGE_SOCKET;
+
+/**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
  * reporter junit sui 30 file che spawnano, a load 164 su 12 core, il test piu'
  * lento fra quelli che dipendono dal default sta a 3,32s; i due sopra i 10s
