@@ -70,8 +70,10 @@ import { AgentsRow } from './AgentsRow';
 import { useHubEverRead } from '@/state/hubLive';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
-import { closedRowRecords, CLOSE_PROJECT_INNER_PANE_EVENT } from '@/lib/closedRows';
-import { moveInOrder, orderByHand, ROW_ORDER_DRAG } from '@/lib/listOrder';
+import { useClosedRows, useCloseInnerChat } from './useClosedRows';
+import { orderByHand, ROW_ORDER_DRAG } from '@/lib/listOrder';
+import { useHandOrder } from './useHandOrder';
+import { TabStateRing } from './TabStateRing';
 import type { ClosedTabRecord } from '@/state/pane/adapters/closedTabRecord';
 import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemPaneId, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
@@ -671,22 +673,7 @@ export function TopicTree({
     }
     return m;
   }, [pinnedItems, closedTabs]);
-  // The closed rows (open / closed / archived, lib/closedRows.ts): none in the
-  // two-state model, where closing archives.
-  const closedRecords = useMemo(
-    () => (closeArchives ? [] : closedRowRecords(closedTabs, { openIds: new Set(openPanels), topics })),
-    [closeArchives, closedTabs, openPanels, topics],
-  );
-  const closedRecordById = useMemo(() => new Map(closedRecords.map((r) => [r.pane.id, r])), [closedRecords]);
-  /** A closed row's click: its tab comes back from the record, in its slot.
-   *  False when the row has no record (it opens the usual way). */
-  const reopenClosed = useCallback((item: SidebarItem): boolean => {
-    if (!item.closed || !onReopenClosedTab) return false;
-    const record = closedRecordById.get(sidebarItemPaneId(item));
-    if (!record) return false;
-    onReopenClosedTab(record);
-    return true;
-  }, [closedRecordById, onReopenClosedTab]);
+  const { closedRecords, closedProjectChats, reopenClosed } = useClosedRows({ closeArchives, closedTabs, openPanels, topics, onReopenClosedTab });
   const allItems = useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
@@ -702,7 +689,8 @@ export function TopicTree({
     browserOriginById,
     sessionLastActivityById,
     closedRecords,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById, closedRecords]);
+    closedProjectChatIds: closedProjectChats,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById, closedRecords, closedProjectChats]);
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -772,6 +760,7 @@ export function TopicTree({
   // Reorders, accordions, pins and archives move the rows instead of making
   // them jump (see useSidebarRowFlip).
   useSidebarRowFlip(colonna);
+  const { listProps: orderListProps, dropLine: orderLine, placeByFinger } = useHandOrder({ allItems, listOrder, onListOrderChange, column: colonna });
 
   /**
    * IL DITO È QUI SOPRA LA LISTA? — la stessa domanda che col mouse è implicita.
@@ -800,11 +789,11 @@ export function TopicTree({
     onMove: (paneId: string, x: number, y: number) =>
       versoIFissati.current?.move(pinKeyFromPaneId(paneId), x, y),
     onDrop: (paneId: string, x: number, y: number) => {
-      if (placeByFinger.current(paneId, x, y)) { versoIFissati.current?.cancel(); return; }
+      if (placeByFinger(paneId, x, y)) { versoIFissati.current?.cancel(); return; }
       versoIFissati.current?.drop(pinKeyFromPaneId(paneId), x, y);
     },
     onCancel: () => versoIFissati.current?.cancel(),
-  }), []);
+  }), [placeByFinger]);
 
   const sfissaDalDito = useCallback((x: number, y: number): boolean => {
     const col = colonna.current;
@@ -821,7 +810,7 @@ export function TopicTree({
     // Il gesto è finito, comunque sia finito: rilasciato, annullato con Escape,
     // uscito dalla finestra. `dragend` bolla fino a window in tutti e tre i
     // casi, ed è l'unico segnale che non oscilla mentre il cursore si muove.
-    const fine = () => { setUnpinPreview(null); setOrderDrop(null); };
+    const fine = () => setUnpinPreview(null);
     window.addEventListener('dragend', fine);
     return () => window.removeEventListener('dragend', fine);
   }, []);
@@ -952,17 +941,7 @@ export function TopicTree({
     (key: string) => parentLabel(key, ctxTopics, ctxTerminals),
     [ctxTopics, ctxTerminals],
   );
-  // A chat open INSIDE a project window closes there, through the window's own
-  // close (which archives it, the project's model). With no window to take it
-  // (the project is not mounted) the circle archives, as it always did.
-  const closeInnerChat = useCallback((projectPath: string, topicId: string) => {
-    const ev = new CustomEvent(CLOSE_PROJECT_INNER_PANE_EVENT, {
-      detail: { projectPath, paneIds: [createPaneId('chat', topicId), topicId] },
-      cancelable: true,
-    });
-    window.dispatchEvent(ev);
-    if (!ev.defaultPrevented) void handleArchive(topicId, true);
-  }, [handleArchive]);
+  const closeInnerChat = useCloseInnerChat(handleArchive);
 
   const guardedCloseTerminal = useCallback((sessionId: string) => {
     void confirmTerminalStop(sessionId).then((ok) => { if (ok) onCloseTerminal?.(sessionId); });
@@ -1897,79 +1876,12 @@ export function TopicTree({
    * sarà dopo — `filteredItems` senza i fissati, ma con QUESTO dentro — e la
    * riga compare esattamente lì.
    */
-  // ── Hand order: a drag inside a list places the row ─────────────────────
+  // ── Hand order: a drag inside a list places the row (useHandOrder) ──────
   // Each row is wrapped in a `display: contents` box that names it, so the
   // layout does not change and the drop can ask where the rows are.
   const orderRow = (item: SidebarItem) => (
     <div key={item.id} data-order-id={item.id} style={{ display: 'contents' }}>{renderItem(item)}</div>
   );
-  const orderLists = useRef(new Map<string, SidebarItem[]>());
-  const [orderDrop, setOrderDrop] = useState<{ list: string; top: number } | null>(null);
-  const orderSlot = (listEl: HTMLElement, y: number): { before: string | null; top: number } => {
-    const base = listEl.getBoundingClientRect().top;
-    const rows = [...listEl.querySelectorAll<HTMLElement>(':scope > [data-order-id]')];
-    let lastBottom = 0;
-    for (const w of rows) {
-      const r = w.firstElementChild?.getBoundingClientRect();
-      if (!r) continue;
-      if (y < r.top + r.height / 2) return { before: w.dataset.orderId ?? null, top: r.top - base - 2 };
-      lastBottom = r.bottom - base;
-    }
-    return { before: null, top: lastBottom + 1 };
-  };
-  const orderTarget = (paneId: string | null, list: SidebarItem[]) =>
-    paneId ? list.find(i => sidebarItemPaneId(i) === paneId || i.id === paneId)?.id ?? null : null;
-  const placeRow = (list: SidebarItem[], moved: string, before: string | null) => {
-    if (!onListOrderChange || moved === before) return;
-    const known = new Set(allItems.map(i => i.id));
-    onListOrderChange(moveInOrder(list.map(i => i.id), listOrder, moved, before).filter(id => known.has(id)));
-  };
-  const orderListProps = (key: string, list: SidebarItem[]): React.HTMLAttributes<HTMLDivElement> & { 'data-order-list'?: string } => {
-    if (!onListOrderChange) return {};
-    orderLists.current.set(key, list);
-    return {
-      'data-order-list': key,
-      onDragOver: (e) => {
-        const types = e.dataTransfer.types;
-        if (!(types.includes(DND_TYPES.PANEL_ID) || types.includes(ROW_ORDER_DRAG)) || !orderTarget(draggedPaneId(), list)) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const { top } = orderSlot(e.currentTarget, e.clientY);
-        setOrderDrop(prev => (prev?.list === key && prev.top === top ? prev : { list: key, top }));
-      },
-      onDragLeave: (e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOrderDrop(null);
-      },
-      onDrop: (e) => {
-        setOrderDrop(null);
-        const moved = orderTarget(draggedPaneId(), list);
-        if (!moved) return;
-        e.preventDefault();
-        placeRow(list, moved, orderSlot(e.currentTarget, e.clientY).before);
-      },
-    };
-  };
-  /** The line where a dragged row lands, drawn over the list (no reflow). */
-  const orderLine = (key: string) => orderDrop?.list === key && (
-    <div aria-hidden="true" data-testid="order-drop-line" className="pointer-events-none absolute left-1.5 right-1.5 h-0.5 rounded-full bg-primary" style={{ top: orderDrop.top }} />
-  );
-  // The finger: a row carried by touch and released over a list is placed
-  // there; released anywhere else it goes on to the pins.
-  const placeByFinger = useRef<(paneId: string, x: number, y: number) => boolean>(() => false);
-  placeByFinger.current = (paneId, x, y) => {
-    const col = colonna.current;
-    if (!col) return false;
-    for (const el of col.querySelectorAll<HTMLElement>('[data-order-list]')) {
-      const r = el.getBoundingClientRect();
-      if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
-      const list = orderLists.current.get(el.dataset.orderList ?? '') ?? [];
-      const moved = orderTarget(paneId, list);
-      if (!moved) return false;
-      placeRow(list, moved, orderSlot(el, y).before);
-      return true;
-    }
-    return false;
-  };
 
   const withUnpinPreview = (list: SidebarItem[]): React.ReactNode[] => {
     const out = list.map(orderRow);
@@ -3195,36 +3107,6 @@ function ProjectRowActions({
         />
       )}
     </span>
-  );
-}
-
-/**
- * The circle of a row that stands for a tab, for the kinds whose row has no
- * archive of its own (project, terminal, browser, utility page): an open tab
- * closes, a closed row is archived. Both run the 3 s countdown of the strip,
- * under the keys `close-tab:<pane>` and `forget-closed:<pane>`.
- */
-function TabStateRing({ paneId, name, onCloseTab, onForgetClosed }: {
-  paneId: string;
-  name: string;
-  onCloseTab?: () => void;
-  onForgetClosed?: () => void;
-}) {
-  const tr = useT();
-  const status = usePendingActionStatus(onCloseTab ? `close-tab:${paneId}` : `forget-closed:${paneId}`);
-  const label = onCloseTab ? tr('sidebar.closeTab') : tr('sidebar.archiveRow');
-  return (
-    <PendingActionRing
-      status={status}
-      size={ROW_ACTION_GLYPH}
-      boxClassName={ROW_ACTION_BOX}
-      onIdleClick={onCloseTab ?? onForgetClosed}
-      idleTitle={label}
-      idleAriaLabel={`${label} ${name}`}
-      pendingTitle={tr('sidebar.undoPending')}
-      pendingAriaLabel={`${tr('sidebar.undoPending')} ${name}`}
-      testId={onCloseTab ? 'row-close-tab' : 'row-archive-closed'}
-    />
   );
 }
 

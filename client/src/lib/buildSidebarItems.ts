@@ -59,7 +59,7 @@ export interface SidebarItem {
    * The tab is CLOSED and not archived: the row stays in the column without
    * the background of an open tab, a click reopens it from its closed record
    * and its command archives it (see `lib/closedRows.ts`). Absent on a row
-   * whose tab is open, and on every row inside a project window.
+   * whose tab is open. Inside a project window only a chat has it.
    */
   closed?: boolean;
   /** Set when this topic is open in ANOTHER window (pop-out presence). Carries
@@ -241,6 +241,9 @@ interface BuildSidebarItemsOpts {
    *  `closedRowRecords` (lib/closedRows.ts): already filtered and deduped.
    *  Each one is an `||` escape at the gate of its kind, like a pin. */
   closedRecords?: readonly ClosedTabRecord[];
+  /** Chats closed inside a project window, kept under their project as
+   *  closed rows (`closedProjectChatIds` in lib/closedRows.ts). */
+  closedProjectChatIds?: ReadonlySet<string>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
@@ -551,13 +554,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // a pinned chat keeps its row with the tab closed. A topic open in another
       // window (detachedTopicIds) is the fifth; a live sub-agent is the sixth —
       // same `||` escape pattern.
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold) continue;
+      // Closed inside the window and not archived: a closed row (lib/closedRows.ts).
+      const chatClosed = !t.archived && !hasInternalTab && !hasTopLevelTab && !!opts.closedProjectChatIds?.has(t.id);
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed) continue;
       // Sfissandola, resta qualcosa a tenerla su? Per una chat ARCHIVIATA no,
       // qualunque cosa abbia aperta: la taglia il filtro qui sopra (`:413`),
       // dove il pin è l'unica eccezione a «niente archiviate».
       const chatPinOnly = pinnedIds.has(t.id) && (t.archived
         ? !showArchived
-        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold);
+        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed);
       children.push({
         id: t.id,
         type: 'chat',
@@ -570,6 +575,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         topic: t,
         ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
         ...(chatPinOnly ? { pinOnly: true } : {}),
+        ...(chatClosed ? { closed: true } : {}),
         ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
         ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
       });

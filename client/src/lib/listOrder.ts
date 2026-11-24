@@ -2,11 +2,10 @@
  * THE ORDER OF THE COLUMN, BY HAND.
  *
  * The rows of the column (the tabs that are not pinned) keep the order the
- * person gives them by dragging (24/11: «possono riordinarselo», «a mano,
- * trascinandole»). A row the order does not know yet, a tab just opened, goes
- * on top, newest first. Nothing moves on its own any more: a row that wants
- * you is lit where it stands, and the «Per stato» view is where rows gather
- * by what they need.
+ * person gives them by dragging (asked on 24/11: reorder them by hand). A row
+ * the order does not know yet, a tab just opened, goes on top, newest first.
+ * Nothing moves on its own any more: a row that wants you is lit where it
+ * stands, and the "by state" view is where rows gather by what they need.
  */
 
 /** The drag type of a row that can only be placed in the list, not dropped

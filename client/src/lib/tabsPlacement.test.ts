@@ -22,6 +22,11 @@ describe('tabsPlacement: every tab in one place', () => {
     }
   });
 
+  test('both (the layout of before, not offered in the View level): strip and full column', () => {
+    expect(tabsPlacement('both', { phone: false, sidebarCollapsed: false }))
+      .toEqual({ strip: true, columnSkipsStrip: false });
+  });
+
   test('phone: the desktop choice does not reach it', () => {
     for (const position of ['side', 'top'] as const) {
       expect(tabsPlacement(position, { phone: true, sidebarCollapsed: true }))

@@ -76,7 +76,8 @@ import {
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
 import { isLiveSpaceId } from '../state/pane/reducers/spaces';
-import { DEFAULT_SPACE_ID } from '../state/pane/types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID } from '../state/pane/types';
+import { agedOutChats } from '../lib/closedRows';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
 import { isMachineRow } from '../components/Chat/machineRow';
@@ -1621,6 +1622,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // The global Kanban coordinator is a durable server-owned conversation:
       // closing its project-window pane only closes that local pane. It must
       // never enter the normal closed <-> archived lifecycle.
+      // With three states (closeArchives off, the default since 24/11) the
+      // chat stays as a closed row under its project (lib/closedRows.ts).
+      if (!(closePolicyRef?.current?.closeArchives ?? true)) return;
       if (id && t && !t.isGlobalOrchestrator) void archiveTopic(id, true);
     };
     const onUnarchive = (e: Event) => {
@@ -1633,7 +1637,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       window.removeEventListener('topic-archive-on-close', onArchive);
       window.removeEventListener('topic-unarchive-on-open', onUnarchive);
     };
-  }, [archiveTopic, topicsRef]);
+  }, [archiveTopic, topicsRef, closePolicyRef]);
+
+  // A closed chat whose record falls off the bounded closed stack is archived
+  // (`agedOutChats`): without it the chat had neither a closed row nor an
+  // archive entry, and only search found it. Two states: the close archived it.
+  useEffect(() => usePaneStore.subscribe((s) => s.closedStack, (next, prev) => {
+    if (closePolicyRef?.current?.closeArchives ?? true) return;
+    const openInWindow = (id: string) => Object.values(projectOpenPanesRef.current).some((ids) => ids.includes(id) || ids.includes(`chat:${id}`));
+    for (const id of agedOutChats(prev, next, CLOSED_STACK_MAX)) {
+      const t = topicsRef.current[id];
+      if (!t || t.archived || t.isGlobalOrchestrator || openPanelsRef.current.includes(id) || openInWindow(id)) continue;
+      void archiveTopic(id, true);
+    }
+  }), [archiveTopic, topicsRef, closePolicyRef, projectOpenPanesRef, openPanelsRef]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     // A deliberate tab switch releases any pending deep-link focus intent, so a
@@ -1688,6 +1705,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         const id = createPaneId('project', path);
         if (openPanelsRef.current.includes(id)) continue;
         ensurePaneRegistered({ id, type: 'project', projectPath: path });
+        // Permanent like the chats below: a lone preview pane would be
+        // REPLACED by the next one, closing a tab the person opened.
+        markTabPermanent(id);
         added.push(id);
       } else if (!key.includes(':')) {
         const topic = topicsRef.current[key];
@@ -1697,6 +1717,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           const id = createPaneId('project', topic.projectPath);
           if (openPanelsRef.current.includes(id) || added.includes(id)) continue;
           ensurePaneRegistered({ id, type: 'project', projectPath: topic.projectPath, title: topic.name });
+          markTabPermanent(id);
           added.push(id);
           continue;
         }
@@ -1706,7 +1727,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
     }
     if (added.length) setOpenPanels(prev => [...prev, ...added.filter(id => !prev.includes(id))]);
-  }, [topicsRef]);
+  }, [topicsRef, openPanelsRef]);
 
   const handleTopicDoubleClick = useCallback((topicId: string, _e?: React.MouseEvent) => {
     openPanel(topicId, 'permanent');

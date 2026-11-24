@@ -4434,7 +4434,15 @@ utilità) SHALL lasciarne la riga nella colonna senza sfondo, con UN gesto solo.
 Un clic sulla riga chiusa SHALL riaprire la tab al suo posto; il cerchio della
 riga chiusa SHALL archiviarla, e la riga SHALL uscire dalla colonna. Con
 «Chiudere una tab la archivia» acceso dal menu Vista, chiudere SHALL archiviare
-come prima.
+come prima. Una chat chiusa DENTRO una finestra di progetto SHALL restare sotto
+il suo progetto come riga chiusa, non archiviata. Una chat chiusa il cui record
+esce dalla pila delle chiuse (50) SHALL essere archiviata, così sta
+nell'archivio e non sparisce fra i due.
+
+#### Scenario: una chat di progetto chiusa resta sotto il progetto
+- **GIVEN** una chat aperta dentro la finestra del suo progetto, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della sua riga
+- **THEN** la riga resta sotto il progetto con il cerchio che archivia, e la chat non è archiviata
 
 #### Scenario: chiudi, riapri, archivia
 - **GIVEN** due chat aperte, con le opzioni di default

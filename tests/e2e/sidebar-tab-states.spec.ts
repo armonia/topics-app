@@ -12,7 +12,9 @@
  * here is what a person who never touched the View menu gets.
  */
 import { test, expect, type Page, type APIRequestContext, type Locator } from "@playwright/test";
-import { createTopic, deleteTopic, fetchTopic, seedPaneStore } from "./helpers/api-fixtures";
+import fs from "node:fs";
+import { createTopic, deleteTopic, fetchTopic, resetPaneStore, seedPaneStore, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
+import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { findRowInTabSheet, openTabSheet } from "./helpers/tab-sheet";
@@ -54,7 +56,7 @@ async function setSidebar(request: APIRequestContext, extra: Record<string, unkn
   });
 }
 
-async function gotoApp(page: Page): Promise<void> {
+async function openApp(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.locator('[aria-label="Topics sidebar"]')).toBeVisible({ timeout: 15_000 });
 }
@@ -91,11 +93,26 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     const b = await createTopic(request, `Side-B-${Date.now()}`);
     made.push(a, b);
     await openChats(request, [a, b]);
-    await gotoApp(page);
+    await openApp(page);
 
     await expect(row(page, a.id)).toHaveAttribute("data-tab-state", "open", { timeout: 10_000 });
     await expect(row(page, b.id)).toHaveAttribute("data-tab-state", "open");
     await expect(page.getByTestId("panel-tab-bar")).toHaveCount(0);
+  });
+
+  test("on top: the strip holds the open tabs and the column leaves them out", async ({ browser, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABPOS-01" });
+    const a = await createTopic(request, `Top-A-${Date.now()}`);
+    made.push(a);
+    await openChats(request, [a]);
+    const ctx = await browser.newContext({
+      storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "app-settings", value: JSON.stringify({ tabsPosition: "top" }) }] }] },
+    });
+    const page = await ctx.newPage();
+    await page.goto(E2E_BASE + "/");
+    await expect(page.locator(`[role="tab"][data-pane-id="${a.id}"]`)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(`[data-order-id="${a.id}"]`)).toHaveCount(0);
+    await ctx.close();
   });
 
   test("closing a row leaves it closed, a click opens it again, its circle archives it", async ({ page, request }) => {
@@ -107,7 +124,7 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     const b = await createTopic(request, `Close-B-${Date.now()}`);
     made.push(a, b);
     await openChats(request, [a, b]);
-    await gotoApp(page);
+    await openApp(page);
 
     // One gesture closes: the row stays, without its background (the bug of
     // before marked it "done" and wanted a second close).
@@ -132,13 +149,39 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     await expect.poll(async () => (await fetchTopic(request, b.id))?.archived, { timeout: 10_000 }).toBe(true);
   });
 
+  test("a chat closed inside its project window stays under the project, not archived", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TABPOS-02" });
+    test.setTimeout(60_000);
+    const dir = `${canonicalTmpRoot()}/e2e-tabpos-project-${Date.now()}`;
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+      const chat = await createTopic(request, `Inner-${Date.now()}`, { projectPath: dir });
+      made.push(chat);
+      await resetPaneStore(request, []);
+      await seedProjectPane(request, dir);
+      await seedProjectInnerChats(request, dir, [chat.id]);
+      await waitForPaneStoreQuiet(request);
+      await openApp(page);
+
+      const r = page.getByRole("treeitem", { name: new RegExp(chat.name) }).first();
+      await expect(r).toBeVisible({ timeout: 10_000 });
+      await r.hover();
+      await r.getByTestId("topic-row-close").click();
+      // Closed: the row stays under its project and its circle now archives.
+      await expect(r.getByTestId("topic-row-archive")).toBeAttached({ timeout: 15_000 });
+      expect((await fetchTopic(request, chat.id))?.archived).toBeFalsy();
+    } finally {
+      removeTmpDir(dir);
+    }
+  });
+
   test("a pinned tab opens on its own and cannot be closed", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "TABPOS-03" });
     const p = await createTopic(request, `Pinned-${Date.now()}`);
     made.push(p);
     await openChats(request, []);
     await setSidebar(request, { pinnedItems: [p.id] });
-    await gotoApp(page);
+    await openApp(page);
 
     await expect.poll(() => isOpen(request, p.id), { timeout: 15_000 }).toBe(true);
 
@@ -182,7 +225,7 @@ test.describe("@sidebar-tab-states tabs in the column: open, closed, archived", 
     const c = await createTopic(request, `Order-C-${Date.now()}`);
     made.push(a, b, c);
     await openChats(request, [a, b, c]);
-    await gotoApp(page);
+    await openApp(page);
     const ids = [a.id, b.id, c.id];
     await expect.poll(() => shownOrder(page, ids).then((o) => o.length), { timeout: 10_000 }).toBe(3);
 
