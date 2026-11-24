@@ -1,4 +1,4 @@
 schema: spec-driven
 created: 2026-11-24
-x-status: proposed
+x-status: done
 x-richiesta: "rivediamo anche completamente da 0 tutto il sistema di split, conservando tutte le possibilità di split ma rivedendo completamente la UI UX che era rotta"

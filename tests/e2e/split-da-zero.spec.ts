@@ -1,6 +1,6 @@
 /**
  * THE SPLIT, REDONE FROM ZERO: one vocabulary on every surface and from every
- * source (openspec/changes/split-da-zero).
+ * source (openspec/changes/archive/2026-11-24-split-da-zero).
  *
  * Measured broken on 24/11 with the tabs at the side (the default): a row of
  * the column could not split at all, the drop preview was an empty tint, a
