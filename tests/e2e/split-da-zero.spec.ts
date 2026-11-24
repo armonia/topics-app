@@ -114,7 +114,7 @@ test.describe("split, from zero", () => {
     await expect(page.locator("[data-pane-zoom]")).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("SPLIT-03: a short narrow cell keeps its empty chat's greeting under its title", async ({ page, request }) => {
+  test("SPLIT-03b: a short narrow cell keeps its empty chat's greeting under its title", async ({ page, request }) => {
     // 768 wide, one column stacked: the starters wrap and the greeting used to
     // climb over the cell's title bar.
     const [a, b, c] = made;
