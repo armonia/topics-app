@@ -74,7 +74,7 @@ beforeEach(() => {
     agentRuntime: null,
     firstRunDoneAt: null,
     worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null,
-    cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null,
+    cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null, worktreeQuarantineDays: null,
   });
 });
 

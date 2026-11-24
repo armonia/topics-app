@@ -6,18 +6,19 @@
  * @covers WORKTREE-STD-03
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   MIN_REMOVAL_AGE_MS, classifyRootEntry, countRoot, nameForAdopted, planRoot, projectOfFolder, registerOrphan,
-  removeGhostFolder, scanWorktreeRoot, type RootFacts,
+  quarantineGhostFolder, scanWorktreeRoot, type RootFacts,
 } from "./worktree-root-gc";
+import { markFolderOwned, QUARANTINE_DIR } from "./worktree-root-ledger";
 
 const DAY = 24 * 3600_000;
 const facts = (over: Partial<RootFacts> = {}): RootFacts => ({
   hasRow: false, folderPresent: true, inRoot: true, hasDotGit: false, inGitList: false, isSymlink: false,
-  liveInside: false, ageMs: 3 * DAY, projectKnown: true, ...over,
+  liveInside: false, ageMs: 3 * DAY, projectKnown: true, owned: true, ...over,
 });
 
 describe("classifyRootEntry", () => {
@@ -44,8 +45,16 @@ describe("classifyRootEntry", () => {
     expect(classifyRootEntry(facts({ hasDotGit: true, projectKnown: false }))).toMatchObject({ cls: "orphan", action: "inventory" });
   });
 
-  test("no row, no `.git`, not listed by git, a day old, nobody inside: a ghost to remove", () => {
-    expect(classifyRootEntry(facts())).toMatchObject({ cls: "ghost", action: "remove-folder" });
+  test("no row, no `.git`, not listed by git, a day old, nobody inside, Topics' marker: a ghost moved to quarantine", () => {
+    expect(classifyRootEntry(facts())).toMatchObject({ cls: "ghost", action: "quarantine" });
+  });
+
+  test("a ghost without Topics' marker is only listed, however old", () => {
+    expect(classifyRootEntry(facts({ owned: false, ageMs: 400 * DAY }))).toMatchObject({ cls: "ghost", action: "inventory" });
+  });
+
+  test("a worktree whose git registration is lost is only listed, never registered", () => {
+    expect(classifyRootEntry(facts({ hasDotGit: true, registrationLost: true }))).toMatchObject({ cls: "orphan", action: "inventory" });
   });
 
   test("a ghost is not removed while young or while a session is inside it", () => {
@@ -83,7 +92,7 @@ describe("planRoot", () => {
     });
     const byName = Object.fromEntries(plan.map((p) => [p.absPath.split("/").pop(), p.cls]));
     expect(byName).toEqual({ alive: "tracked", gone: "row-no-folder", adopted: "foreign", ghost: "ghost", orphan: "orphan" });
-    expect(countRoot(plan)).toEqual({ ghosts: 1, orphans: 1, rowsWithoutFolder: 1, foreign: 1 });
+    expect(countRoot(plan)).toEqual({ ghosts: 1, orphans: 1, rowsWithoutFolder: 1, foreign: 1, quarantined: 0 });
   });
 
   test("a worktree git lists outside the root with no row is foreign inventory; the main checkout is not", () => {
@@ -141,35 +150,86 @@ describe("scan, ghost removal and registration on a real folder", () => {
     expect(e.ageMs).toBeGreaterThan(2 * DAY);
   });
 
-  test("a ghost is removed; a folder with a `.git`, a link and a depth-1 folder are refused", async () => {
+  test("a ghost Topics made is moved to quarantine, intact; a `.git`, a link and a depth-1 folder are refused", () => {
     const ghost = mk("gamma/ghost");
     writeFileSync(join(ghost, "junk.txt"), "x");
-    expect(await removeGhostFolder(root, ghost)).toBe(true);
+    markFolderOwned(root, ghost);
+    const to = quarantineGhostFolder(root, ghost);
+    expect(to).not.toBeNull();
+    expect(to!).toContain(`${QUARANTINE_DIR}/`);
     expect(existsSync(ghost)).toBe(false);
+    expect(existsSync(join(to!, "junk.txt"))).toBe(true);
 
     const withGit = mk("gamma/withgit", { git: true });
-    expect(await removeGhostFolder(root, withGit)).toBe(false);
+    markFolderOwned(root, withGit);
+    expect(quarantineGhostFolder(root, withGit)).toBeNull();
     expect(existsSync(withGit)).toBe(true);
 
     const target = mk("gamma/target");
     const link = join(root, "gamma", "link");
     symlinkSync(target, link);
-    expect(await removeGhostFolder(root, link)).toBe(false);
+    markFolderOwned(root, link);
+    expect(quarantineGhostFolder(root, link)).toBeNull();
     expect(existsSync(target)).toBe(true);
 
-    expect(await removeGhostFolder(root, join(root, "gamma"))).toBe(false);
-    expect(await removeGhostFolder(root, join(root, "_scratch", "land"))).toBe(false);
+    expect(quarantineGhostFolder(root, join(root, "gamma"))).toBeNull();
+    expect(quarantineGhostFolder(root, join(root, "_scratch", "land"))).toBeNull();
     expect(existsSync(join(root, "gamma"))).toBe(true);
   });
 
-  test("the removal never leaves the root: a folder two levels deep elsewhere is refused", async () => {
+  test("a folder without Topics' marker is never moved, whatever it looks like", () => {
+    const stranger = mk("delta/stranger", { old: true });
+    writeFileSync(join(stranger, "notes.md"), "mine");
+    expect(quarantineGhostFolder(root, stranger)).toBeNull();
+    expect(existsSync(join(stranger, "notes.md"))).toBe(true);
+  });
+
+  test("a subfolder of a checkout is never moved, even with a marker: the parent has a `.git`", () => {
+    const checkout = mk("epsilon", { git: true });
+    const src = mk("epsilon/src");
+    markFolderOwned(root, src);
+    expect(quarantineGhostFolder(root, src)).toBeNull();
+    expect(existsSync(src)).toBe(true);
+    expect(existsSync(join(checkout, ".git"))).toBe(true);
+  });
+
+  test("a `.git` that cannot be read (permission denied, not missing) keeps the folder", () => {
+    const locked = mk("zeta/locked");
+    markFolderOwned(root, locked);
+    chmodSync(locked, 0o600); // no search bit: lstat of anything inside fails with EACCES
+    try {
+      // root reads through any permission: the case only exists for a normal user.
+      if (process.getuid?.() !== 0) expect(quarantineGhostFolder(root, locked)).toBeNull();
+    } finally {
+      chmodSync(locked, 0o755);
+    }
+    expect(existsSync(locked)).toBe(true);
+  });
+
+  test("the move never leaves the root: a folder two levels deep elsewhere is refused", () => {
     const outside = mkdtempSync(join(tmpdir(), "wt-outside-"));
     try {
       mkdirSync(join(outside, "a", "b"), { recursive: true });
-      expect(await removeGhostFolder(root, join(outside, "a", "b"))).toBe(false);
+      markFolderOwned(outside, join(outside, "a", "b"));
+      expect(quarantineGhostFolder(root, join(outside, "a", "b"))).toBeNull();
       expect(existsSync(join(outside, "a", "b"))).toBe(true);
     } finally {
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a {slug} folder that is a checkout or a project's path is listed, never descended into", () => {
+    const scanRoot = mkdtempSync(join(tmpdir(), "wt-slugscan-"));
+    try {
+      mkdirSync(join(scanRoot, "checkout", "src"), { recursive: true });
+      mkdirSync(join(scanRoot, "checkout", ".git"), { recursive: true });
+      mkdirSync(join(scanRoot, "project", "docs"), { recursive: true });
+      mkdirSync(join(scanRoot, "plain", "wt"), { recursive: true });
+      const scan = scanWorktreeRoot(scanRoot, Date.now(), { projectPaths: new Set([realpathSync(join(scanRoot, "project"))]) });
+      expect(scan.entries.map((e) => `${e.slug}/${e.name}`)).toEqual(["plain/wt"]);
+      expect(scan.checkouts.map((c) => c.split("/").pop()).sort()).toEqual(["checkout", "project"]);
+    } finally {
+      rmSync(scanRoot, { recursive: true, force: true });
     }
   });
 

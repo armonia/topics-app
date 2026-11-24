@@ -76,3 +76,17 @@ Oltre il tetto di worktree per progetto il GC SHALL prima alleggerire (slim) le 
 - **GIVEN** una worktree fuori radice con un file modificato
 - **WHEN** si chiede di spostarla
 - **THEN** SHALL rispondere col motivo e restare dov'è; pulita e senza sessione viva SHALL spostarsi e la riga SHALL indicare il nuovo percorso
+
+### Requirement: WORKTREE-STD-08 — Il GC sposta solo ciò che Topics ha fatto, e mai in modo irreversibile
+
+Una cartella senza riga SHALL essere spostata dal GC solo con una prova che l'ha fatta Topics: il marcatore `{radice}/.topics-owned/{slug}/{nome}` scritto da `create` prima di `git worktree add` (o da una riga di Topics in quella radice). Tutto il resto SHALL essere solo inventario (`foreign`/`ghost` con azione `inventory`), visibile nell'anteprima. Un `{radice}/{slug}` che ha un `.git` o che è il percorso di un progetto noto NON SHALL essere letto come cartella di worktree; una cartella il cui genitore ha un `.git` NON SHALL essere spostata; un `lstat` che fallisce per un motivo diverso da ENOENT SHALL valere «tieni». Un fantasma SHALL andare in `{radice}/.quarantine/{giorno}/{slug}/{nome}` (rinomina, contenuto intatto) e SHALL essere cancellato dopo `worktree_quarantine_days` (default 7); anteprima e `--check` SHALL mostrare cosa c'è in quarantena e da dove viene. La radice SHALL essere decisa dal server: `PUT /api/app-settings` SHALL rifiutare con un codice la home, `/`, un antenato della home, una cartella di sistema o temporanea, una cartella dentro un progetto o che contiene un progetto, e una cartella non vuota senza la sentinella `{radice}/.topics-worktree-root`; il modulo SHALL mostrarne il motivo. Le radici SHALL venire dal cablaggio del server (corrente, predefinita, passate provate dalle righe e dalla sentinella): il GC NON SHALL aggiungerne una sua. `headStatusOfCheckout` SHALL dire `unmerged` quando git fallisce, va in timeout o non riconosce il repository (registrazione persa), `merged` solo su un HEAD non nato; una worktree con la registrazione persa SHALL essere solo inventario. Rimuovere a mano una worktree con HEAD staccato e commit non su main SHALL essere rifiutato (`unmerged-commits`). Sweep, passata foreign, tetto e spostamento a mano SHALL chiedere la stessa domanda «c'è qualcuno dentro»: cwd vive, processi di Topics, chat a metà turno legata alla riga, sessioni esterne (`externalSessions.activeAt`). Un progetto figlio senza impostazioni proprie SHALL ereditare dal padre solo quelle di visualizzazione, mai dispatch, merge o deploy.
+
+#### Scenario: dati dell'utente sotto la radice
+- **GIVEN** una radice con `Documents/…`, `Projects/app/src` e un checkout completo a livello di slug, tutti vecchi di 30 giorni
+- **WHEN** gira il GC
+- **THEN** ogni cartella SHALL restare dov'è e l'anteprima SHALL elencarle come inventario
+
+#### Scenario: il fantasma di Topics
+- **GIVEN** una cartella con il marcatore di Topics, senza `.git`, vecchia di 3 giorni
+- **WHEN** gira il GC, e di nuovo dopo i giorni di quarantena
+- **THEN** SHALL essere spostata in quarantena intatta e poi cancellata

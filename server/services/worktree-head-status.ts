@@ -9,7 +9,9 @@
  * held nothing. This answers the question for real.
  *
  *   folder gone, or no project      -> merged (the removal can only drop the row)
- *   no readable HEAD                -> merged (not a checkout: no commit to lose)
+ *   unborn HEAD (git answers, no commit yet) -> merged (there is no commit to lose)
+ *   git fails, times out, or is not a repository here (a worktree whose
+ *   registration git lost answers 128 "not a git repository") -> unmerged
  *   `reuse` with a branch that exists -> the branch's own status (squash lands included)
  *   otherwise                       -> HEAD is an ancestor of the published main?
  *   git cannot tell                 -> unmerged (whoever could not look keeps)
@@ -32,8 +34,13 @@ export async function headStatusOfCheckout(
 ): Promise<"merged" | "unmerged"> {
   if (!repoPath || !existsSync(row.absPath)) return "merged";
   const head = await git(row.absPath, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).catch(() => null);
-  const sha = head && head.code === 0 ? head.stdout.trim() : "";
-  if (!sha) return "merged";
+  // `--verify --quiet` exits 1 with nothing on stdout only when the repository
+  // answered and HEAD names no commit yet. Every other failure (128 not a
+  // repository, 124 timeout, a spawn error) means nobody looked: keep.
+  if (!head) return "unmerged";
+  if (head.code === 1 && head.stdout.trim() === "") return "merged";
+  const sha = head.code === 0 ? head.stdout.trim() : "";
+  if (!sha) return "unmerged";
   if (row.mode === "reuse" && row.branchName) {
     const s = await branchStatusFromRepo(repoPath, row.branchName).catch(() => "unmerged" as const);
     if (s === "merged") return "merged";

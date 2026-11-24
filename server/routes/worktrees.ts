@@ -34,6 +34,7 @@ import { purgeWorktreeFromUiState } from "../services/ui-state-purge";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { posix, win32 } from "node:path";
 import { RELOCATE_ACTIONS, type RelocateAction, type WorktreePlanPayload } from "../../shared/worktree-plan";
 import type { RelocateService } from "../boot/worktree-relocate-wiring";
 
@@ -149,7 +150,9 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       const body = await readJSON(req);
       const path = stripCtrl(body?.path);
       const action = stripCtrl(body?.action) as RelocateAction;
-      if (!path || !path.startsWith("/")) return errorResponse(400, "path must be an absolute path");
+      // Absolute in either flavour: a Windows host sends `C:\\...`. Only a folder git lists
+      // for a known project is ever acted on, so the form of the path decides nothing else.
+      if (!path || !(posix.isAbsolute(path) || win32.isAbsolute(path))) return errorResponse(400, "path must be an absolute path");
       if (!(RELOCATE_ACTIONS as readonly string[]).includes(action)) {
         return errorResponse(400, `action must be one of: ${RELOCATE_ACTIONS.join(", ")}`);
       }

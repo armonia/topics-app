@@ -8,7 +8,9 @@
  *
  *   adopt   a `reuse` row is made for it, so the cleanup sees it (nothing moves)
  *   move    `git worktree move` into `{root}/{project-slug}/{name}`, then `repair`
- *   remove  `git worktree remove` (no `--force`), the branch is never touched
+ *   remove  `git worktree remove` (no `--force`), the branch is never touched; a
+ *           detached HEAD whose commits are on no branch and not on main is refused,
+ *           because the folder is then the only thing that keeps them
  *
  * Every refusal is a fact read from git or the disk: a dirty tree, a submodule
  * (git itself refuses to move or remove those), a lock, a live session or a card
@@ -27,6 +29,7 @@ import { isInsideDir } from "../lib/path-containment";
 import { canonicalProjectFor } from "./project-path-resolver";
 import { canonicalPath, listRepoWorktrees, writeOwnerMarker, type ListedWorktree } from "./worktree-owner";
 import { nameForAdopted, type KnownProject } from "./worktree-root-gc";
+import { headStatusOfCheckout } from "./worktree-head-status";
 
 export interface RelocateRow {
   id: string;
@@ -142,7 +145,12 @@ async function checkWith(deps: RelocateDeps, action: RelocateAction, facts: Relo
       if (existsSync(to)) refusals.push("target-exists");
       warnings.push("transcripts");
     }
-    if (action === "remove") warnings.push("branch-kept");
+    if (action === "remove") {
+      if (listed?.branch && !listed.detached) warnings.push("branch-kept");
+      else if (project && (await headStatusOfCheckout({ absPath: from, branchName: null, mode: "detached" }, project.path, deps.git)) !== "merged") {
+        refusals.push("unmerged-commits");
+      }
+    }
   }
 
   return {

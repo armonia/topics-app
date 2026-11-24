@@ -38,12 +38,10 @@ import { headStatusOfCheckout } from "./worktree-head-status";
 
 export { taskIdleDays };
 import { defaultRunGit, type GitRunner } from "./own-commits";
-import { resolveGcForeign, resolveWorktreeAbandonDays, resolveWorktreeMaxPerProject } from "./app-settings";
-import { defaultWorktreeRootDir } from "./worktree-root";
+import { resolveGcForeign, resolveWorktreeAbandonDays, resolveWorktreeMaxPerProject, resolveWorktreeQuarantineDays } from "./app-settings";
 import { runRootPass, type RootPassDeps, type RootPassResult, type StoredWorktree } from "./worktree-gc-root-pass";
 import { capPass, foreignPass, previewPass, type GcPlan, type GcRow, type GcSettings, type PassesCtx } from "./worktree-gc-passes";
 import { MIN_REMOVAL_AGE_MS, canonicalPath } from "./worktree-root-gc";
-import { resolve } from "node:path";
 
 export type { GcPlan, GcSettings };
 
@@ -78,6 +76,16 @@ export interface WorktreeGcDeps {
    * behind other installs).
    */
   worktreeManager: { delete(id: string, opts?: any): Promise<any>; isMaterialising?(id: string): boolean; worktreesDir?(): string };
+  /**
+   * The roots that are Topics' own: the current one, then every one it used
+   * before (the default, and past roots read off its rows). The server wiring
+   * names them; this module never adds one of its own, so a caller that passes
+   * a temp root scans that root and nothing else. Without it only
+   * `worktreeManager.worktreesDir()` is Topics'.
+   */
+  roots?: () => { root: string; extraRoots: string[] } | null;
+  /** A session Topics did not start (Claude Code, Codex, jcode from a terminal) is active at or under this folder. */
+  externalActiveAt?: (absPath: string) => boolean;
   /** Il progetto di un worktree, per leggere lo stato del ramo dal checkout principale. */
   projectStore: { get(id: string): { path?: string } | null | undefined; list?(): Array<{ id: string; slug: string; path: string }> };
   /** Git, injectable for tests. Default: the bounded runner of `own-commits`. */
@@ -172,7 +180,10 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   // resolver when the setting is empty.
   const readSettings = (): GcSettings => {
     if (deps.settings) return deps.settings();
-    return { abandonDays: resolveWorktreeAbandonDays(), gcForeign: resolveGcForeign(), maxPerProject: resolveWorktreeMaxPerProject() };
+    return {
+      abandonDays: resolveWorktreeAbandonDays(), gcForeign: resolveGcForeign(), maxPerProject: resolveWorktreeMaxPerProject(),
+      quarantineDays: resolveWorktreeQuarantineDays(),
+    };
   };
   const git: GitRunner = deps.git ?? defaultRunGit;
 
@@ -411,10 +422,17 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     return { taskId: t.id, status: (t.status ?? "todo") as GcTaskStatus, archived: !!t.archived };
   };
 
-  /** A folder is Topics' own: under the current root or under the default one (the setting may have moved the root). */
-  const isOurs = (absPath: string): boolean => {
+  /** The roots this runner may look at: what the wiring names, else the manager's current root alone. */
+  const rootsOf = (): { root: string; extraRoots: string[] } | null => {
+    if (deps.roots) return deps.roots();
     const root = deps.worktreeManager.worktreesDir?.();
-    return !root || isInsideDir(absPath, root) || isInsideDir(absPath, defaultWorktreeRootDir());
+    return root ? { root, extraRoots: [] } : null;
+  };
+
+  /** A folder is Topics' own: under one of its roots (the setting may have moved the root, more than once). */
+  const isOurs = (absPath: string): boolean => {
+    const r = rootsOf();
+    return !r || [r.root, ...r.extraRoots].some((root) => isInsideDir(absPath, root));
   };
 
   /** Worktrees locked by somebody other than Topics, as of the last read of git's lists. */
@@ -437,6 +455,37 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     };
     return check(absPath) || check(canonicalPath(absPath));
   };
+
+  /** A chat topic bound to this row is mid-turn, or spoke in the last minutes. */
+  const chatOnRow = (rowId: string): boolean => {
+    if (!deps.chatActive) return false;
+    try {
+      const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(rowId) as { id: string }[];
+      return rows.some((r) => deps.chatActive!(topicSessionKey(r.id)));
+    } catch { return false; }
+  };
+
+  /** The row at this path, as written or as git spells it. */
+  const rowIdAt = (absPath: string): string | null => {
+    const rows = deps.worktreeStore.list();
+    const exact = rows.find((w) => w.absPath === absPath);
+    if (exact) return exact.id;
+    const canon = canonicalPath(absPath);
+    return rows.find((w) => canonicalPath(w.absPath) === canon)?.id ?? null;
+  };
+
+  /**
+   * SOMEBODY IS INSIDE: the one answer every pass that removes or moves a folder
+   * asks (sweep, cap, foreign pass, root pass, by-hand relocation). A live
+   * terminal or sub-agent cwd, a process Topics started, a chat bound to the
+   * row that is mid-turn, or a session Topics did not start (a terminal's
+   * Claude Code, Codex, jcode).
+   */
+  const busyInside = (absPath: string, rowId: string | null = null): boolean =>
+    liveCwdInside(absPath)
+    || topicsProcessRunsIn(absPath)
+    || (rowId !== null && chatOnRow(rowId))
+    || (deps.externalActiveAt?.(absPath) ?? false);
 
   /**
    * Pins the branch tip under `refs/topics/archive/<task>` before a checkout is
@@ -474,15 +523,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // cannot name its root (tests, older hosts) judges everything, as before.
       foreign: (w) => !isOurs(w.absPath),
       lockedByOthers: (w) => lockedByOthers.has(canonicalPath(w.absPath)),
-      liveInside: (w) => {
-        if (deps.chatActive) {
-          const rows = deps.db.prepare("SELECT id FROM topics WHERE worktree_id = ?").all(w.id) as { id: string }[];
-          if (rows.some((r) => deps.chatActive!(topicSessionKey(r.id)))) return true;
-        }
-        // A `spawn_agent` child has a worktree but no card and no terminal: its
-        // folder stays while it runs and for 24h after it ended (see `liveCwdInside`).
-        return liveCwdInside(w.absPath);
-      },
+      // A `spawn_agent` child has a worktree but no card and no terminal: its
+      // folder stays while it runs and for 24h after it ended (see `liveCwdInside`).
+      liveInside: (w) => busyInside(w.absPath, w.id),
       diskPresent: (absPath) => existsSync(absPath),
       realDirt: (absPath) => worktreeDirtProbe(absPath),
       branchStatus: (w) => {
@@ -650,20 +693,16 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
 
   /** What the root pass needs from this host. */
   const rootPassDeps = (): RootPassDeps => ({
-    roots: () => {
-      const root = deps.worktreeManager.worktreesDir?.();
-      if (!root) return null;
-      const def = defaultWorktreeRootDir();
-      return { root, extraRoots: resolve(def) === resolve(root) ? [] : [def] };
-    },
+    roots: rootsOf,
+    quarantineDays: () => readSettings().quarantineDays ?? resolveWorktreeQuarantineDays(),
     store: deps.worktreeStore,
     projects: () => deps.projectStore.list?.() ?? [],
     git,
     onLocks: (locks) => { lockedByOthers = locks; },
-    liveInside: (absPath) => liveCwdInside(absPath) || topicsProcessRunsIn(absPath),
+    liveInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
     log: (msg) => console.log(msg),
   });
-  const canScanRoot = (): boolean => !!deps.worktreeManager.worktreesDir && !!deps.projectStore.list && !!deps.worktreeStore.create;
+  const canScanRoot = (): boolean => (!!deps.roots || !!deps.worktreeManager.worktreesDir) && !!deps.projectStore.list && !!deps.worktreeStore.create;
 
   // `null` when the pass failed: the `catch` below turns the failure into a result
   // instead of a rejection, so a timer that starts a pass has nothing to handle.
@@ -692,7 +731,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     folderPresent: (absPath) => existsSync(absPath),
     taskOf: resolveTaskOf,
     isInFlight: (taskId) => deps.isInFlight(taskId),
-    liveInside: (absPath) => liveCwdInside(absPath),
+    liveInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
     busyInside: (wt) => qualcosaVivoDentro(wt),
     slim: (absPath) => slimWorktree(absPath, WORKTREE_SLIM_SKIP),
     sweepOne: (wt, settings) => sweepWorktrees(withFailureCount(sweepDeps([wt], settings))),
@@ -702,7 +741,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     canScanRoot,
     removeForeign: {
       isForeign: (p) => !isOurs(p),
-      held: (w) => liveCwdInside(w.absPath) || resolveTaskOf(w.id).taskId !== null,
+      held: (w) => busyInside(w.absPath, w.id) || resolveTaskOf(w.id).taskId !== null,
       mergedAndClean: async (w) => {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
         if (!repoPath || !w.branchName || !existsSync(w.absPath)) return false;
@@ -738,7 +777,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
   return {
     runWorktreeGc,
     planWorktreeGc,
-    isBusyInside: (absPath) => liveCwdInside(absPath) || topicsProcessRunsIn(absPath),
+    isBusyInside: (absPath) => busyInside(absPath, rowIdAt(absPath)),
     isTaskActive: (worktreeId) => {
       const t = resolveTaskOf(worktreeId);
       return t.taskId !== null && !t.archived && t.status !== "done";

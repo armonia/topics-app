@@ -6,7 +6,7 @@
  */
 
 /** What the cleanup sees a folder or a row as. */
-export type WorktreePlanClass = "tracked" | "orphan" | "ghost" | "row-no-folder" | "foreign";
+export type WorktreePlanClass = "tracked" | "orphan" | "ghost" | "row-no-folder" | "foreign" | "quarantined";
 
 /** One line of the preview: a folder (or a row) and what the next pass would do to it. */
 export interface WorktreePlanEntryPayload {
@@ -16,13 +16,15 @@ export interface WorktreePlanEntryPayload {
   /** The `worktrees` row at this path, when there is one. */
   rowId: string | null;
   cls: WorktreePlanClass;
-  /** What the root pass does (`register`, `remove-folder`, `close-row`, `inventory`, `wait`, `judge`). */
+  /** What the root pass does (`register`, `quarantine`, `purge`, `close-row`, `inventory`, `wait`, `judge`). */
   rootAction: string;
   /** What the sweep would do to a tracked worktree (`reap`, `archive-then-free`, `keep`, …), when it was asked. */
   plannedAction: string | null;
   reason: string;
   /** On-disk weight in bytes, when measured. */
   bytes: number | null;
+  /** A folder in quarantine: where it came from. Moving it back there restores it. */
+  from: string | null;
 }
 
 export interface WorktreePlanPayload {
@@ -49,7 +51,8 @@ export type RelocateRefusal =
   | "live-session"
   | "locked"
   | "active-task"
-  | "target-exists";
+  | "target-exists"
+  | "unmerged-commits";
 
 /** Things worth knowing that do not stop the action. */
 export type RelocateWarning = "transcripts" | "branch-kept" | "already-adopted";

@@ -14,7 +14,7 @@
  * esattamente il caso limite: nessun nome è accettabile, e il messaggio deve
  * dirlo invece di elencare un insieme vuoto.
  *
- * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08
+ * @covers APPSET-01, BROWSER-STORE-REAP-02, BROWSER-STORE-REAP-03, BROWSER-STORE-REAP-05, BROWSER-STORE-REAP-08, WORKTREE-STD-08
  */
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
@@ -340,7 +340,7 @@ describe("worktree settings (worktree-standard T1)", () => {
   beforeEach(() => {
     updateAppSettings({
       worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null,
-      cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null,
+      cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null, worktreeQuarantineDays: null,
     });
   });
 
@@ -375,6 +375,24 @@ describe("worktree settings (worktree-standard T1)", () => {
     // A sibling of the repository is fine.
     const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot: "/data/repo-trees" }) });
     expect((await withProjects(req, new URL(req.url), "/api/app-settings", "PUT"))!.status).toBe(200);
+  });
+
+  test("a root that would hold more than Topics' worktrees is refused, with the reason the form shows", async () => {
+    const router = createAppSettingsRouter({ ...fakeCtx(), projectStore: { list: () => [{ path: "/data/projects/app" }] } } as unknown as AppContext);
+    const send = async (worktreeRoot: string) => {
+      const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot }) });
+      const res = (await router(req, new URL(req.url), "/api/app-settings", "PUT"))!;
+      const body = await res.json() as { errors?: Array<{ field: string; code?: string }> };
+      return { status: res.status, code: body.errors?.find((e) => e.field === "worktreeRoot")?.code };
+    };
+    await put({ worktreeRoot: "/data/keep" });
+    expect(await send(homedir())).toEqual({ status: 400, code: "home" });
+    expect(await send(join(homedir(), ".."))).toEqual({ status: 400, code: "home-ancestor" });
+    expect(await send("/")).toEqual({ status: 400, code: "filesystem-root" });
+    expect(await send("/data/projects")).toEqual({ status: 400, code: "contains-project" });
+    // A folder that already holds files and no Topics sentinel: this test's own folder.
+    expect(await send(import.meta.dir)).toEqual({ status: 400, code: "not-empty" });
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
   });
 
   test("null clears the root back to the default", async () => {

@@ -8,21 +8,19 @@ import type { AppContext } from "../types";
 import type { WorktreeGcRunner } from "../services/worktree-gc-runner";
 import { defaultRunGit } from "../services/own-commits";
 import { worktreeDirtProbe } from "../services/task-automerge";
-import { defaultWorktreeRootDir } from "../services/worktree-root";
+import { ownedWorktreeRoots } from "../services/worktree-root";
 import { checkRelocation, runRelocation, type RelocateDeps } from "../services/worktree-relocate";
-import { resolve } from "node:path";
 
 export function createRelocateService(
   ctx: AppContext,
   gc: Pick<WorktreeGcRunner, "isBusyInside" | "isTaskActive">,
 ) {
+  const roots = () => ownedWorktreeRoots(ctx.worktreeStore.list(), new Set(ctx.projectStore.list().map((p) => p.slug)));
   const deps = (): RelocateDeps => ({
     git: defaultRunGit,
     root: () => ctx.worktreeManager.worktreesDir(),
-    extraRoots: () => {
-      const def = defaultWorktreeRootDir();
-      return resolve(ctx.worktreeManager.worktreesDir()) === resolve(def) ? [] : [def];
-    },
+    // Every root Topics used, not only the default: a root changed twice still counts as inside.
+    extraRoots: () => roots().extraRoots,
     projects: () => ctx.projectStore.list().map((p) => ({ id: p.id, slug: p.slug, path: p.path })),
     rowAt: (absPath) => {
       const w = ctx.worktreeStore.getByAbsPath(absPath);

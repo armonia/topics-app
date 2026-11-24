@@ -13,7 +13,9 @@
  *      there afterwards).
  *
  * The root cannot be in a temp area (the server refuses it), so it lives in a
- * folder of the machine's home that the spec makes and removes.
+ * folder of the machine's home that the spec makes and removes. It already holds
+ * the planted ghost, and the server refuses a non-empty root that does not carry
+ * Topics' sentinel: the spec writes the sentinel, as Topics' first create would.
  *
  * @covers WORKTREE-STD-01, WORKTREE-STD-03
  */
@@ -26,6 +28,7 @@ import { goToApp } from "./helpers";
 import { removeTmpDir } from "./helpers/file-project";
 import { openHomePanel } from "./helpers/user-menu";
 import { E2E_BASE } from "./helpers/test-server";
+import { writeRootSentinel } from "../../server/services/worktree-root-ledger";
 
 const test = base;
 hermetic(test);
@@ -47,6 +50,7 @@ test.describe("Impostazioni dei worktree", () => {
 
   test.beforeAll(() => {
     mkdirSync(GHOST, { recursive: true });
+    writeRootSentinel(ROOT);
   });
 
   test.afterAll(async ({ request }) => {

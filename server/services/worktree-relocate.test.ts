@@ -5,6 +5,7 @@
  * under `mkdtemp`; the row store is a fake that records what it is asked.
  *
  * @covers WORKTREE-STD-07
+ * @covers WORKTREE-STD-08
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -216,5 +217,27 @@ describe("relocating worktrees made outside the root", () => {
     expect(b.ok).toBe(true);
     expect(existsSync(noRow)).toBe(false);
     expect(git(repo, "rev-parse", "--verify", "feat-wt-k").code).toBe(0);
+    expect(b.check.warnings).toContain("branch-kept");
+  });
+
+  test("remove refuses a detached HEAD whose commits are on no branch and not on main, and says no branch is kept", async () => {
+    const detached = join(outside, "wt-detached");
+    expect(git(repo, "worktree", "add", "-q", "--detach", detached, "main").code).toBe(0);
+    writeFileSync(join(detached, "only-here.txt"), "work\n");
+    git(detached, "add", "-A");
+    expect(git(detached, "commit", "-q", "-m", "only on this HEAD").code).toBe(0);
+    const preview = await checkRelocation(deps, "remove", detached);
+    expect(preview.refusals).toContain("unmerged-commits");
+    expect(preview.warnings).not.toContain("branch-kept");
+    const r = await runRelocation(deps, "remove", detached);
+    expect(r.ok).toBe(false);
+    expect(existsSync(join(detached, "only-here.txt"))).toBe(true);
+
+    // Level with main: nothing on that HEAD is lost, so it may go.
+    const level = join(outside, "wt-level");
+    expect(git(repo, "worktree", "add", "-q", "--detach", level, "main").code).toBe(0);
+    const ok = await runRelocation(deps, "remove", level);
+    expect(ok.ok).toBe(true);
+    expect(ok.check.warnings).not.toContain("branch-kept");
   });
 });

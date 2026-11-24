@@ -277,6 +277,7 @@ export interface AppBehaviorSettings {
   gcForeign: 'off' | 'merged' | null;
   /** Days of silence before an unmerged branch's worktree counts as stale. `null` = 7. */
   worktreeAbandonDays: number | null;
+  worktreeQuarantineDays: number | null;
 }
 
 /**

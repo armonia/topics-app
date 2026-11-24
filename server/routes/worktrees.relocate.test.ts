@@ -4,6 +4,7 @@
  * decisions themselves are tested on real git in `worktree-relocate.test.ts`.
  *
  * @covers WORKTREE-STD-07
+ * @covers WORKTREE-STD-08
  */
 import { describe, expect, test } from "bun:test";
 import { createWorktreesRouter } from "./worktrees";
@@ -44,6 +45,13 @@ describe("worktree relocation routes", () => {
     const { post } = build({ ok: true, check: check() }, []);
     expect((await post({ path: "rel/wt", action: "move" }))!.status).toBe(400);
     expect((await post({ path: "/x/wt", action: "burn" }))!.status).toBe(400);
+  });
+
+  test("a Windows absolute path is accepted and handed to the check as is", async () => {
+    const { post, calls } = build({ ok: true, check: check() }, []);
+    const res = await post({ path: "C:\\Users\\ann\\wt", action: "remove", dryRun: true });
+    expect(res!.status).toBe(200);
+    expect(calls).toEqual(["check:remove:C:\\Users\\ann\\wt"]);
   });
 
   test("dryRun only checks; a move runs and tells the clients the row changed", async () => {

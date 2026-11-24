@@ -142,6 +142,7 @@ function PreviewLine({ entry, note, onAct }: { entry: WorktreePlanEntryPayload; 
           t(`worktrees.act.${action}`),
           size,
           foreign && entry.rowId ? t('worktrees.adopted') : undefined,
+          entry.from ? t('worktrees.preview.from', { path: entry.from }) : undefined,
         ].filter(Boolean).join(' · ')}
       </div>
       {foreign && (

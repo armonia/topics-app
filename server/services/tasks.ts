@@ -787,13 +787,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getBoardSettings(projectId: string): BoardSettings {
-      let r = readBoardSettingsRow(db, projectId);
-      // A project merged into a parent (accorpa) uses its own settings when it has a
-      // row, and the parent's otherwise: the parent's board is where its cards are read.
-      if (!r) {
-        const inherit = inheritedSettingsBoardId(loadFamilyRows(db), projectId);
-        if (inherit) r = readBoardSettingsRow(db, inherit);
-      }
+      const r = readBoardSettingsRow(db, projectId);
+      // A project merged into a parent (accorpa) without a row of its own takes
+      // the parent's DISPLAY settings only (the language of its cards), since its
+      // cards are read on the parent's board. Never how it dispatches, merges or
+      // deploys: those act on the child's own repository, and a parent's
+      // auto-merge or deploy command run there would be a choice nobody made.
+      const inheritedLanguage = r ? null : (() => {
+        const from = inheritedSettingsBoardId(loadFamilyRows(db), projectId);
+        return from ? readBoardSettingsRow(db, from)?.language ?? null : null;
+      })();
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
@@ -815,7 +818,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // ON unless a person switched it off: an absent column or row is the default.
         dispatchOverflow: r?.dispatch_overflow == null ? true : !!r.dispatch_overflow,
         dispatchStayLocal: !!r?.dispatch_stay_local,
-        language: r?.language ?? "inherit",
+        language: r?.language ?? inheritedLanguage ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
         dispatchFanOut: Math.max(1, r?.dispatch_fanout ?? 1),

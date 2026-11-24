@@ -1,6 +1,9 @@
 /**
- * THE GC LOOKS AT THE DISK: orphans are registered, ghosts removed, rows without
- * a folder closed, foreign folders only listed, and a preview writes nothing.
+ * THE GC LOOKS AT THE DISK: orphans are registered, ghosts Topics made moved to
+ * quarantine, rows without a folder closed, foreign folders only listed, and a
+ * preview writes nothing. And it never touches what Topics did not make: user
+ * data under the root, a checkout at the level of a project folder, a folder
+ * without Topics' marker, a root it was not given.
  * Real git and real folders under `mkdtemp`; the store and the manager are fakes
  * that record what they are asked.
  *
@@ -8,12 +11,13 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
 import type { StoredWorktree } from "./worktree-gc-root-pass";
 import { lockOwned } from "./worktree-owner";
+import { markFolderOwned, QUARANTINE_DIR, listQuarantine } from "./worktree-root-ledger";
 import { defaultRunGit } from "./own-commits";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
@@ -70,10 +74,11 @@ describe("the root pass of the worktree GC, on real git", () => {
     age(abs, ageMs);
     return abs;
   }
-  function ghost(name: string, ageMs = 3 * DAY): string {
+  function ghost(name: string, ageMs = 3 * DAY, owned = true): string {
     const abs = join(root, "proj", name);
     mkdirSync(abs, { recursive: true });
     writeFileSync(join(abs, "leftover.txt"), "x");
+    if (owned) markFolderOwned(root, abs);
     age(abs, ageMs);
     return abs;
   }
@@ -112,7 +117,7 @@ describe("the root pass of the worktree GC, on real git", () => {
   test("an orphan with a .git is registered, then judged like any other row", async () => {
     const abs = mountAt("lost-one");
     const summary = await runner().runWorktreeGc();
-    expect(summary!.root).toMatchObject({ registered: 1, ghostsRemoved: 0 });
+    expect(summary!.root).toMatchObject({ registered: 1, ghostsQuarantined: 0 });
     // The row exists with the mode git implies, and the same pass judged it: no task, clean, level with main.
     expect(deleted).toHaveLength(1);
     expect(summary!.reaped).toBe(1);
@@ -168,7 +173,7 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(git(base, "clone", "-q", repo, abs).code).toBe(0);
     age(abs, 3 * DAY);
     const summary = await runner().runWorktreeGc();
-    expect(summary!.root).toMatchObject({ registered: 0, ghostsRemoved: 0 });
+    expect(summary!.root).toMatchObject({ registered: 0, ghostsQuarantined: 0 });
     expect(deleted).toEqual([]);
     expect(rows).toEqual([]);
     expect(existsSync(join(abs, ".git"))).toBe(true);
@@ -190,16 +195,145 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(rows).toHaveLength(0);
   });
 
-  test("a ghost a day old goes; a young one, one with a session inside and one with a .git stay", async () => {
+  test("a ghost Topics made, a day old, goes to quarantine intact; a young one and one with a session inside stay", async () => {
     const old = ghost("old-ghost");
     const young = ghost("young-ghost", 60_000);
     const busy = ghost("busy-ghost");
     live.push(join(busy, "sub"));
     const summary = await runner().runWorktreeGc();
-    expect(summary!.root).toMatchObject({ ghostsRemoved: 1 });
+    expect(summary!.root).toMatchObject({ ghostsQuarantined: 1 });
     expect(existsSync(old)).toBe(false);
+    const q = listQuarantine(root);
+    expect(q.map((x) => x.from)).toEqual([old]);
+    expect(existsSync(join(q[0]!.path, "leftover.txt"))).toBe(true);
     expect(existsSync(young)).toBe(true);
     expect(existsSync(busy)).toBe(true);
+  });
+
+  test("a ghost without Topics' marker is only listed, however old", async () => {
+    const stranger = ghost("stranger", 400 * DAY, false);
+    const gc = runner();
+    const summary = await gc.runWorktreeGc();
+    expect(summary!.root).toMatchObject({ ghostsQuarantined: 0 });
+    expect(existsSync(join(stranger, "leftover.txt"))).toBe(true);
+    const plan = await gc.planWorktreeGc();
+    expect(plan!.entries.find((e) => e.absPath.endsWith("/stranger"))).toMatchObject({ cls: "ghost", action: "inventory" });
+  });
+
+  test("the quarantine is deleted after the days of the setting, and the preview shows it with its origin until then", async () => {
+    const old = ghost("purge-me");
+    await runner().runWorktreeGc();
+    const [q] = listQuarantine(root);
+    expect(q!.from).toBe(old);
+    const plan = await runner().planWorktreeGc();
+    expect(plan!.entries.find((e) => e.cls === "quarantined")).toMatchObject({ action: "wait", from: old });
+    // Ten days later (the day folder is renamed back in time): the pass deletes it.
+    const dayDir = join(root, QUARANTINE_DIR, readdirSync(join(root, QUARANTINE_DIR))[0]!);
+    renameSync(dayDir, join(root, QUARANTINE_DIR, "2020-01-01"));
+    const summary = await runner({ settings: () => ({ abandonDays: 7, gcForeign: "off", maxPerProject: 50, quarantineDays: 7 }) }).runWorktreeGc();
+    expect(summary!.root).toMatchObject({ purged: 1 });
+    expect(listQuarantine(root)).toEqual([]);
+  });
+
+  test("a root holding user data older than 24 h stays intact: nothing there carries Topics' marker", async () => {
+    // The root a person might type by mistake: their home, a folder of projects, of documents.
+    for (const rel of ["Documents/taxes", "Projects/app/src", "Code/site/docs", "Pictures/2026"]) {
+      const p = join(root, rel);
+      mkdirSync(p, { recursive: true });
+      writeFileSync(join(p, "keep.txt"), "mine");
+      age(p, 30 * DAY);
+    }
+    const before = readdirSync(root).sort();
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root).toMatchObject({ ghostsQuarantined: 0, purged: 0 });
+    expect(readdirSync(root).sort()).toEqual(before);
+    for (const rel of ["Documents/taxes", "Projects/app/src", "Code/site/docs", "Pictures/2026"]) expect(existsSync(join(root, rel, "keep.txt"))).toBe(true);
+  });
+
+  test("a checkout at the level of a project folder is untouched, its src/docs/tests never read as ghosts", async () => {
+    const checkout = join(root, "whole-checkout");
+    expect(git(base, "clone", "-q", repo, checkout).code).toBe(0);
+    for (const sub of ["src", "docs", "tests"]) {
+      mkdirSync(join(checkout, sub), { recursive: true });
+      writeFileSync(join(checkout, sub, "f.txt"), sub);
+      // Even a marker planted there does not make them Topics': the parent has a `.git`.
+      markFolderOwned(root, join(checkout, sub));
+      age(join(checkout, sub), 30 * DAY);
+    }
+    const gc = runner();
+    const summary = await gc.runWorktreeGc();
+    expect(summary!.root).toMatchObject({ ghostsQuarantined: 0, registered: 0 });
+    for (const sub of ["src", "docs", "tests"]) expect(existsSync(join(checkout, sub, "f.txt"))).toBe(true);
+    const plan = await gc.planWorktreeGc();
+    expect(plan!.entries.find((e) => e.absPath.endsWith("/whole-checkout"))).toMatchObject({ cls: "foreign", action: "inventory" });
+  });
+
+  test("a {slug} folder that is a known project's own path is never descended into", async () => {
+    const projectDir = join(root, "proj-as-project");
+    mkdirSync(join(projectDir, "lib"), { recursive: true });
+    markFolderOwned(root, join(projectDir, "lib"));
+    age(join(projectDir, "lib"), 30 * DAY);
+    const gc = runner({ projectStore: { get: () => ({ path: repo }), list: () => [{ id: "p1", slug: "proj", path: repo }, { id: "p2", slug: "proj-as-project", path: projectDir }] } });
+    await gc.runWorktreeGc();
+    expect(existsSync(join(projectDir, "lib"))).toBe(true);
+  });
+
+  test("THE INCIDENT: a caller that passes a root scans only that root, never the default one under the home", async () => {
+    // A decoy Topics home with a perfect ghost in its default root: marked, a month old, nobody inside.
+    const decoyHome = join(base, "decoy-home");
+    const decoyGhost = join(decoyHome, "worktrees", "proj", "real-folder");
+    mkdirSync(decoyGhost, { recursive: true });
+    writeFileSync(join(decoyGhost, "precious.txt"), "x");
+    markFolderOwned(join(decoyHome, "worktrees"), decoyGhost);
+    age(decoyGhost, 30 * DAY);
+    const saved = process.env.TOPICS_HOME;
+    process.env.TOPICS_HOME = decoyHome;
+    try {
+      const gc = runner();
+      await gc.runWorktreeGc();
+      const plan = await gc.planWorktreeGc();
+      expect(plan!.entries.some((e) => e.absPath.includes("decoy-home"))).toBe(false);
+    } finally {
+      process.env.TOPICS_HOME = saved;
+    }
+    expect(existsSync(join(decoyGhost, "precious.txt"))).toBe(true);
+  });
+
+  test("an orphan whose git registration is lost is listed, never registered nor reaped", async () => {
+    const abs = mountAt("lost-registration");
+    writeFileSync(join(abs, "uncommitted.txt"), "only here\n");
+    rmSync(join(repo, ".git", "worktrees", "lost-registration"), { recursive: true, force: true });
+    age(abs, 3 * DAY);
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.root).toMatchObject({ registered: 0, ghostsQuarantined: 0 });
+    expect(rows).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(existsSync(join(abs, "uncommitted.txt"))).toBe(true);
+  });
+
+  test("gc_foreign=merged keeps an adopted worktree while a chat bound to its row is mid-turn, or a terminal session works in it", async () => {
+    const outside = join(base, "adopted-busy");
+    expect(git(repo, "worktree", "add", "-q", "-b", "side-busy", outside, "main").code).toBe(0);
+    rows.push({ id: "adopted", projectId: "p1", absPath: outside, branchName: "side-busy", mode: "reuse", status: "ready", createdAt: new Date(Date.now() - 9 * DAY).toISOString() });
+    db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES ('t1', 'k1', 'adopted')");
+    const merged = { settings: () => ({ abandonDays: 7, gcForeign: "merged" as const, maxPerProject: 50 }) };
+    const chatting = await runner({ ...merged, chatActive: () => true }).runWorktreeGc();
+    expect(chatting!.foreignRemoved).toBe(0);
+    db.run("DELETE FROM topics");
+    const external = await runner({ ...merged, externalActiveAt: (p) => p === outside }).runWorktreeGc();
+    expect(external!.foreignRemoved).toBe(0);
+    expect(deleted).toEqual([]);
+    expect(existsSync(outside)).toBe(true);
+  });
+
+  test("the by-hand relocation asks the same busy check: a chat mid-turn on the row, or an external session", async () => {
+    const outside = join(base, "relocate-busy");
+    mkdirSync(outside, { recursive: true });
+    rows.push({ id: "rb", projectId: "p1", absPath: outside, branchName: null, mode: "detached", status: "ready", createdAt: new Date().toISOString() });
+    db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES ('t2', 'k2', 'rb')");
+    expect(runner({ chatActive: () => true }).isBusyInside(outside)).toBe(true);
+    expect(runner({ chatActive: () => false }).isBusyInside(outside)).toBe(false);
+    expect(runner({ externalActiveAt: () => true }).isBusyInside(outside)).toBe(true);
   });
 
   test("a folder git lists is not a ghost, even without a .git file", async () => {
@@ -208,7 +342,7 @@ describe("the root pass of the worktree GC, on real git", () => {
     age(abs, 3 * DAY);
     const summary = await runner().runWorktreeGc();
     expect(existsSync(abs)).toBe(true);
-    expect(summary!.root!.ghostsRemoved).toBe(0);
+    expect(summary!.root!.ghostsQuarantined).toBe(0);
   });
 
   test("a row without a folder is closed by the sweep, `error` rows included", async () => {
@@ -276,7 +410,7 @@ describe("the root pass of the worktree GC, on real git", () => {
     expect(deleted).toEqual([]);
     const byName = Object.fromEntries(plan!.entries.map((e) => [e.absPath.split("/").pop(), e]));
     expect(byName["p-orphan"]).toMatchObject({ cls: "orphan", action: "register" });
-    expect(byName["p-ghost"]).toMatchObject({ cls: "ghost", action: "remove-folder" });
+    expect(byName["p-ghost"]).toMatchObject({ cls: "ghost", action: "quarantine" });
     expect(byName["p-missing"]).toMatchObject({ cls: "row-no-folder", action: "close-row" });
     expect(byName["p-ghost"]!.bytes).toBeGreaterThan(0);
     expect(byName["p-missing"]!.bytes).toBeNull();
