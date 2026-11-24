@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.4.92",
+    "version": "2.4.93",
     "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "reload gate: read the migrations registry without a pipe that SIGPIPE can break",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.92",
+    "date": "2026-11-23",
     "sections": {
       "new": [],
       "fixes": [],
