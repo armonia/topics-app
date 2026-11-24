@@ -144,7 +144,7 @@ export function canDropSplit(ctx: SplitDropContext): boolean {
 
 /** Standalone cells are keyed by a chat's TOPIC id while the drag shelf records
  *  the PANE id (`chat:<topicId>`), so the two only compare after this unwrap. */
-function topicIdOfPane(paneId: string): string {
+export function topicIdOfPane(paneId: string): string {
   return paneId.startsWith('chat:') ? paneId.slice('chat:'.length) : paneId;
 }
 

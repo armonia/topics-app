@@ -49,7 +49,9 @@ function source(file: string): string {
 describe('the split schematic of the sidebar', () => {
   test('every row family that stands for a pane renders it', () => {
     for (const [file, families] of Object.entries(ROWS_WITH_A_PANE)) {
-      const used = source(file).match(/<RowSplitMap\b/g) ?? [];
+      // A project row draws it through ProjectRowSplitMap, which maps the
+      // window's inner splits and falls back to the same RowSplitMap.
+      const used = source(file).match(/<(?:Project)?RowSplitMap\b/g) ?? [];
       expect(
         used.length,
         `${file} should render the split schematic on ${families.length} row ` +
