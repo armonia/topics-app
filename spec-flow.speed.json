@@ -33,5 +33,35 @@
     "maxRuns": 3,
     "ledger": "test-results/flaky-ledger.json",
     "known": {}
+  },
+  "proof": {
+    "markJob": "changes",
+    "inherit": "^chore\\(release\\): bump v",
+    "inheritPaths": "^(CHANGELOG\\.md|package\\.json|client/public/changelog\\.json|landing/src/data/changelog\\.json|desktop-tauri/src-tauri/(Cargo\\.toml|Cargo\\.lock|tauri\\.conf\\.json))$",
+    "versionOnly": "(^|/)(package\\.json|Cargo\\.toml|Cargo\\.lock|tauri\\.conf\\.json)$"
+  },
+  "audit": {
+    "buildStep": "^Build client",
+    "ownRunnerJobs": "^(prepare-e2e|e2e \\(\\d+\\))$",
+    "thresholds": {
+      "obiettivo": {
+        "prWait": 12,
+        "prWaitP80": 20,
+        "mainWait": 5,
+        "doubleShare": 0.1,
+        "stalled": 0,
+        "builds": 1,
+        "hostedShare": 0.3
+      },
+      "base": {
+        "prWait": 30,
+        "prWaitP80": 60,
+        "mainWait": 30,
+        "doubleShare": 1,
+        "stalled": 20,
+        "builds": 12,
+        "hostedShare": 1
+      }
+    }
   }
 }

@@ -86,14 +86,18 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
     expect(idle).toEqual([]);
   });
 
-  it("the measuring job starts with the run: it needs nothing", () => {
-    expect(needsOf("gates")).toEqual([]);
+  // `changes` only, and only to skip a tree a pull request run already judged: it
+  // ends a median 15 s after `gates` starts (80 runs, 23/11/2026), not the 14
+  // minutes of `unit` this test was written against.
+  it("the measuring job starts with the run: it needs only the 15-second `changes`", () => {
+    expect(needsOf("gates")).toEqual(["changes"]);
+    expect(jobBody("gates")).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.changes\.outputs\.proven != 'true' \}\}$/m);
     expect(stepsOf("gates").length).toBeGreaterThanOrEqual(10);
   });
 
   it(`the board's job \`${UNIT_JOB}\` needs the unit jobs and the gates, and runs even when they are red`, () => {
-    expect(needsOf(UNIT_JOB).sort()).toEqual(["gates", "gates-2", "unit"]);
-    expect(jobBody(UNIT_JOB)).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) \}\}$/m);
+    expect(needsOf(UNIT_JOB).sort()).toEqual(["changes", "gates", "gates-2", "unit"]);
+    expect(jobBody(UNIT_JOB)).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.changes\.outputs\.proven != 'true' \}\}$/m);
   });
 
   it(`\`${UNIT_JOB}\` runs nothing: no checkout, no install, only verdicts`, () => {
