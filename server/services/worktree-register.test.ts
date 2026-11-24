@@ -13,7 +13,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { createWorktreeStore } from "./worktree-store";
 import { canonicalPath, readOwnerMarker, worktreeAdminDir, writeOwnerMarker } from "./worktree-owner";
-import { placementFor, placementForProject, registerWorktree, unregisterWorktree, type RegisterDeps } from "./worktree-register";
+import { placementFor, registerWorktree, unregisterWorktree, type RegisterDeps } from "./worktree-register";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
@@ -156,15 +156,6 @@ describe("placement and unregister", () => {
     expect(placementFor(d, join(repo, ".git"))).toEqual({ status: 200, body: { root, slug: "repo", projectId: "p1" } });
     expect(placementFor(d, strangerRepo)).toEqual({ status: 200, body: { root, slug: "stranger", projectId: null } });
     expect(placementFor(d, "rel").status).toBe(400);
-  });
-
-  test("placement by project (`topics-worktree add <project>`): the root, the slug and the repository", () => {
-    const d = deps(undefined, { projectByRef: (ref) => (ref === "repo" || ref === "p1" ? { id: "p1", slug: "repo", path: repo } : null) });
-    expect(placementForProject(d, "repo")).toEqual({ status: 200, body: { root, slug: "repo", projectId: "p1", repo } });
-    expect(placementForProject(d, "p1").status).toBe(200);
-    expect(placementForProject(d, "nope").status).toBe(404);
-    expect(placementForProject(d, "").status).toBe(400);
-    expect(placementForProject(deps(), "repo").status).toBe(404);
   });
 
   test("unregister: a folder still there is refused, a gone one loses its row", async () => {

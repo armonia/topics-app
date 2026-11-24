@@ -8,7 +8,7 @@ import { type HookPayload } from "../lib/claude-session-state";
 import { topicsHome } from "../services/daemon-state";
 import { autoNameClaudeSession, noteClaudeHookSession, noteSubAgentStopHook } from "./terminal";
 import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/background-bash-record";
-import { delegationHookPath, hookScriptPath, worktreeHookPath, WORKTREE_HOOK_SCRIPT, writeHookScript } from "../lib/topics-hook-script";
+import { delegationHookPath, hookScriptPath, writeHookScript } from "../lib/topics-hook-script";
 import { delegationHookScript } from "../lib/delegation-policy";
 import { hookEventTime } from "../lib/hook-order";
 import { bearerMatches, isLocalhostRequest } from "../lib/hook-auth";
@@ -95,9 +95,6 @@ export function getOrCreateHookToken(): string {
     // The delegation nudge rides the same boot step: generated from the policy,
     // so its thresholds are the ones the native engine uses.
     writeHookScript(delegationHookPath(), delegationHookScript());
-    // The worktree hook rides it too: `--settings` names it, and the tools
-    // outside Topics (`topics-worktree`, the post-checkout hook) find it here.
-    writeHookScript(worktreeHookPath(), WORKTREE_HOOK_SCRIPT);
   } catch (err) {
     // Without the script every hook of a Topics session exits 127: no phases,
     // no end-of-turn notifications. The turn itself goes on (only exit 2

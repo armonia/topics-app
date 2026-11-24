@@ -23,10 +23,7 @@
  *  7. the entries are the ones of `server/lib/topics-hooks.ts`, the same
  *     definition the spawns pass through `--settings`.
  *
- *  8. `install --worktrees` adds the synchronous WorktreeCreate / WorktreeRemove
- *     pair (opt-in: a plain install leaves it alone), uninstall removes it.
- *
- * @covers CCS-06, WORKTREE-STD-13
+ * @covers CCS-06
  *
  * Hook installer idempotency. Strong proof: it runs the real script as a
  * subprocess with a temporary HOME, i.e. the same path a person takes. Partial
@@ -46,8 +43,8 @@ const settingsPath = () => join(home, ".claude", "settings.json");
 const wrapper = () => join(home, ".topics", "claude-hooks", "post-hook.sh");
 const legacyWrapper = () => `${home}/.claude/topics-hooks/post-hook.sh`;
 
-function run(cmd: "install" | "uninstall", ...flags: string[]) {
-  const r = Bun.spawnSync(["bun", SCRIPT, cmd, ...flags], {
+function run(cmd: "install" | "uninstall") {
+  const r = Bun.spawnSync(["bun", SCRIPT, cmd], {
     // TOPICS_HOME pinned too: inherited from the shell running the suite, it
     // would send the script into the real Topics home.
     env: { ...process.env, HOME: home, TOPICS_HOME: join(home, ".topics") },
@@ -420,21 +417,5 @@ describe("install-claude-hooks", () => {
     run("install");
     const s = readSettings();
     for (const event of TOPICS_HOOK_EVENTS) expect(ourEntries(s, event)).toEqual([topicsHookEntry(wrapper(), event)]);
-  });
-  test("install --worktrees adds the worktree pair once, a plain install keeps it, uninstall removes it", () => {
-    run("install");
-    expect(readSettings().hooks.WorktreeCreate).toBeUndefined();
-    run("install", "--worktrees");
-    run("install", "--worktrees");
-    const s = readSettings();
-    const script = join(home, ".topics", "claude-hooks", "worktree-hook.sh");
-    expect(ourEntries(s, "WorktreeCreate")).toEqual([{ type: "command", command: `"${script}" create`, timeout: 120, topics_app: true }]);
-    expect(ourEntries(s, "WorktreeRemove")).toEqual([{ type: "command", command: `"${script}" remove`, timeout: 60, topics_app: true }]);
-    expect((statSync(script).mode & 0o777).toString(8)).toBe("755");
-    run("install");
-    expect(ourEntries(readSettings(), "WorktreeCreate")).toHaveLength(1);
-    run("uninstall");
-    expect(readSettings().hooks?.WorktreeCreate).toBeUndefined();
-    expect(readSettings().hooks?.WorktreeRemove).toBeUndefined();
   });
 });

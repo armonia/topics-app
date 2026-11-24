@@ -14,7 +14,7 @@
  *   POST   /api/worktrees/relocate               → adopt | move | remove a worktree made
  *                                                  outside the root (`dryRun` = preview)
  *   POST   /api/worktrees/register               → a worktree another tool made (hook token)
- *   GET    /api/worktrees/placement?repo=|project= → where a creator puts one (hook token)
+ *   GET    /api/worktrees/placement?repo=        → where a creator puts one (hook token)
  *   POST   /api/worktrees/unregister             → forget one whose folder is gone (hook token)
  *
  * Every successful mutation broadcasts a `worktree:<verb>` envelope. The
@@ -41,7 +41,7 @@ import { RELOCATE_ACTIONS, type RelocateAction, type WorktreePlanPayload } from 
 import type { RelocateService } from "../boot/worktree-relocate-wiring";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
 import { bearerMatches, isLocalhostRequest } from "../lib/hook-auth";
-import { placementFor, placementForProject, registerWorktree, unregisterWorktree, type RegisterDeps } from "../services/worktree-register";
+import { placementFor, registerWorktree, unregisterWorktree, type RegisterDeps } from "../services/worktree-register";
 
 /** The three routes of the registration door. */
 const REGISTRATION_PATHS = new Set(["/api/worktrees/register", "/api/worktrees/placement", "/api/worktrees/unregister"]);
@@ -210,8 +210,7 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       if (denied) return errorResponse(denied.status, denied.error);
       const deps = opts.registration.deps();
       if (method === "GET" && pathname === "/api/worktrees/placement") {
-        const project = url.searchParams.get("project");
-        const r = project !== null ? placementForProject(deps, project) : placementFor(deps, url.searchParams.get("repo"));
+        const r = placementFor(deps, url.searchParams.get("repo"));
         return json(r.body, r.status);
       }
       if (method !== "POST") return errorResponse(405, "method not allowed");

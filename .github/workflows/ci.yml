@@ -922,17 +922,6 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: bash scripts/ci-permanent-reserve.test.sh
 
-      # Where a worktree made outside Topics is born: the Claude Code
-      # WorktreeCreate / WorktreeRemove hook and `topics-worktree`. The failures
-      # they guard: a worktree outside the root nobody cleans, a removal with no
-      # archive tag (the test carries its own mutant), a hook that blocks Claude
-      # Code when Topics is down. Temp repos and a fake server; a few seconds.
-      - name: Hook dei worktree di Claude Code e topics-worktree
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: |
-          sh scripts/claude-hooks/worktree-hook.test.sh
-          sh scripts/topics-worktree.test.sh
-
   # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
   #
   # The board reads the unit verdict of a pull request from the step "Unit +

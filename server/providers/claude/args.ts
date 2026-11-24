@@ -21,7 +21,7 @@
  * stato deciso.
  */
 
-import { mergeHooks, topicsHooksSettings, topicsWorktreeHooksSettings, type HooksBlock } from "../../lib/topics-hooks";
+import { mergeHooks, topicsHooksSettings, type HooksBlock } from "../../lib/topics-hooks";
 import { LIVE_CHECKOUT_GUARD_SETTINGS } from "../../lib/live-checkout-branch-guard";
 
 /** Ciò che serve per montare l'argv di una sessione di chat persistente. */
@@ -114,13 +114,6 @@ export interface ClaudeSpawnArgsOptions {
    * out; a terminal pane the person drives keeps its native sub-agents.
    */
   delegationHookPath?: string | null;
-  /**
-   * The worktree hook (`lib/topics-hook-script.ts` `worktreeHookPath`), as the
-   * synchronous WorktreeCreate / WorktreeRemove pair (`topicsWorktreeHooksSettings`):
-   * a worktree this session makes lands under Topics' worktree root, marked and
-   * registered. Null when `claude_worktree_hooks` is `off`.
-   */
-  worktreeHooksScriptPath?: string | null;
   /**
    * Manda il CATALOGO delle skill al modello coi soli NOMI, senza descrizioni
    * (`skillListingMaxDescChars: 1` → `- nome: …`).
@@ -457,17 +450,14 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // farebbe sparire in silenzio il primo dei due (il deferral degli schemi
     // vale −71,5% di prefisso: perderlo per l'elenco delle skill sarebbe uno
     // scambio in perdita). Chi aggiunge una leva la aggiunge QUI DENTRO.
-    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath || opts.worktreeHooksScriptPath || opts.noAttribution
+    ...(opts.toolSearch || opts.slimSkillListing || opts.mcpOutputTokens || opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath || opts.noAttribution
       ? ["--settings", JSON.stringify({
           // The two `hooks` blocks MERGED event by event: the guard and ours
           // both sit on `PreToolUse`, and a spread would keep only one.
-          ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath || opts.worktreeHooksScriptPath
+          ...(opts.blockImageReads || opts.guardLiveCheckout || opts.hooksScriptPath || opts.delegationHookPath
             ? {
                 hooks: mergeHooks(
-                  mergeHooks(
-                    opts.hooksScriptPath ? topicsHooksSettings(opts.hooksScriptPath).hooks : undefined,
-                    opts.worktreeHooksScriptPath ? topicsWorktreeHooksSettings(opts.worktreeHooksScriptPath).hooks : undefined,
-                  ),
+                  opts.hooksScriptPath ? topicsHooksSettings(opts.hooksScriptPath).hooks : undefined,
                   mergeHooks(
                     mergeHooks(
                       opts.blockImageReads ? IMAGE_READ_GUARD_SETTINGS.hooks : undefined,

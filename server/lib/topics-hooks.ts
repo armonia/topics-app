@@ -130,47 +130,6 @@ export function topicsHooksSettings(scriptPath: string): { hooks: HooksBlock } {
 }
 
 /**
- * THE WORKTREE HOOKS (change worktree-standard, track T9): where a Claude Code
- * worktree is born. With WorktreeCreate configured the CLI hands the whole job to
- * `scripts/claude-hooks/worktree-hook.sh`, which puts it under Topics' worktree
- * root with the owner marker and a `claude-code:` lock, and registers it; the
- * GC then knows whose it is. WorktreeRemove archives HEAD as a tag first.
- *
- * Kept apart from `TOPICS_HOOK_EVENTS` because they are a different kind of hook:
- * synchronous (the CLI waits for the path printed on stdout, an async hook would
- * return nothing), with their own timeouts, and switchable on their own
- * (`claude_worktree_hooks`).
- */
-export const WORKTREE_HOOK_EVENTS = ["WorktreeCreate", "WorktreeRemove"] as const;
-type WorktreeHookEvent = (typeof WORKTREE_HOOK_EVENTS)[number];
-
-/** The script's own argument for each event. */
-const WORKTREE_HOOK_VERB: Record<WorktreeHookEvent, string> = { WorktreeCreate: "create", WorktreeRemove: "remove" };
-
-/**
- * Seconds per event. The CLI documents no default for these two, so they are
- * explicit: create may wait 5 s on a fetch and then copy the
- * `.worktreeinclude` files; remove archives, deletes and prunes.
- */
-export const WORKTREE_HOOK_TIMEOUT_S: Record<WorktreeHookEvent, number> = { WorktreeCreate: 120, WorktreeRemove: 60 };
-
-export function topicsWorktreeHookEntry(scriptPath: string, event: WorktreeHookEvent): HookEntry {
-  return {
-    type: "command",
-    command: topicsHookCommand(scriptPath, WORKTREE_HOOK_VERB[event]),
-    timeout: WORKTREE_HOOK_TIMEOUT_S[event],
-    topics_app: true,
-  };
-}
-
-/** The `hooks` block of the two worktree events. No `matcher`: these events take none. */
-export function topicsWorktreeHooksSettings(scriptPath: string): { hooks: HooksBlock } {
-  const hooks: HooksBlock = {};
-  for (const event of WORKTREE_HOOK_EVENTS) hooks[event] = [{ hooks: [topicsWorktreeHookEntry(scriptPath, event)] }];
-  return { hooks };
-}
-
-/**
  * Two `hooks` blocks as one, the matchers of each event concatenated (`a`
  * first). The CLI takes ONE `--settings`, the last one, so a second lever that
  * brings hooks (the image guard on `PreToolUse`) has to share the object with

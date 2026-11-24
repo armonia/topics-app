@@ -16,22 +16,9 @@ import { dirname, join } from "node:path";
 import { topicsHome } from "../services/daemon-state";
 import { writeFileAtomic } from "./atomic-write";
 import POST_HOOK_SCRIPT from "../../scripts/claude-hooks/post-hook.sh" with { type: "text" };
-import WORKTREE_HOOK_TEXT from "../../scripts/claude-hooks/worktree-hook.sh" with { type: "text" };
-
-/** The worktree hook's text (`scripts/claude-hooks/worktree-hook.sh`, the source), embedded like the post hook. */
-export const WORKTREE_HOOK_SCRIPT: string = WORKTREE_HOOK_TEXT;
 
 export function hookScriptPath(home: string = topicsHome()): string {
   return join(home, "claude-hooks", "post-hook.sh");
-}
-
-/**
- * The Claude Code worktree hook (WorktreeCreate / WorktreeRemove), next to the
- * post hook. It is also the library of `scripts/topics-worktree` and of the
- * optional `post-checkout` git hook, which look for it here.
- */
-export function worktreeHookPath(home: string = topicsHome()): string {
-  return join(home, "claude-hooks", "worktree-hook.sh");
 }
 
 /** The delegation nudge (`lib/delegation-policy.ts`), next to the hook script. */

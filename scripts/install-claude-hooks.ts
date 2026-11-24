@@ -42,11 +42,6 @@
  *   - This script is the ONE place Topics writes under ~/.claude, and only
  *     because the user runs it by hand (`bun run hooks:install`): the server
  *     itself never touches that directory.
- *   - `install --worktrees` also registers the WorktreeCreate / WorktreeRemove
- *     pair (`topicsWorktreeHooksSettings`), so every `claude --worktree`,
- *     `EnterWorktree` and `isolation: worktree` of the machine lands under
- *     Topics' worktree root. Opt-in on its own: a plain install neither adds
- *     nor removes them, uninstall removes them with the rest.
  */
 
 import { existsSync, readFileSync, writeFileSync, rmSync } from "fs";
@@ -56,13 +51,11 @@ import {
   ASYNC_HOOK_EVENTS,
   RETIRED_HOOK_EVENTS,
   TOPICS_HOOK_EVENTS,
-  WORKTREE_HOOK_EVENTS,
   topicsHookEntry,
-  topicsWorktreeHookEntry,
   type HookEntry,
   type HookMatcher,
 } from "../server/lib/topics-hooks";
-import { hookScriptPath, worktreeHookPath, WORKTREE_HOOK_SCRIPT, writeHookScript } from "../server/lib/topics-hook-script";
+import { hookScriptPath, writeHookScript } from "../server/lib/topics-hook-script";
 import { removeDirReporting } from "../server/lib/remove-dir-reporting";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
@@ -143,7 +136,8 @@ function dropEntries(matchers: HookMatcher[], drop: ReadonlySet<HookEntry>): Hoo
 /** Rewrite `entry` in place to the canonical shape. Only the fields this script
  *  generates change; any other key keeps its value and position. Returns
  *  whether something changed. */
-function repairEntry(entry: HookEntry, event: string, canonical: HookEntry = buildEntry(event)): boolean {
+function repairEntry(entry: HookEntry, event: string): boolean {
+  const canonical = buildEntry(event);
   let changed = false;
   for (const [key, value] of Object.entries(canonical)) {
     if (entry[key] !== value) {
@@ -170,7 +164,7 @@ function removeOurEntries(settings: ClaudeSettings, event: string): number {
   return ours.size;
 }
 
-function install(withWorktrees: boolean): void {
+function install(): void {
   writeHookScript(WRAPPER_DEST);
   const settings = readSettings();
   settings.hooks = settings.hooks ?? {};
@@ -212,49 +206,14 @@ function install(withWorktrees: boolean): void {
   }
   let retired = 0;
   for (const event of RETIRED_HOOK_EVENTS) retired += removeOurEntries(settings, event);
-  const worktrees = withWorktrees ? installWorktreeHooks(settings) : null;
 
   writeSettings(settings);
   rmSync(LEGACY_HOOKS_DIR, { recursive: true, force: true });
   console.log(`✓ Hook wrapper installed at ${WRAPPER_DEST}`);
   const unchanged = TOPICS_HOOK_EVENTS.length - added - repaired;
   console.log(`✓ Settings updated at ${SETTINGS_PATH} (${added} added, ${repaired} updated, ${unchanged} already current, ${retired} retired)`);
-  if (worktrees) console.log(`✓ Worktree hooks at ${worktreeHookPath()} (${worktrees.added} added, ${worktrees.repaired} updated)`);
   console.log(`\nNext step: start Topics App so the hook token is generated.`);
   console.log(`  bun run dev:server`);
-}
-
-/**
- * The worktree pair: one marked entry per event, repaired in place when present,
- * appended to a matcher-less group otherwise. Synchronous (never `async`): the
- * CLI waits for the path the create hook prints.
- */
-function installWorktreeHooks(settings: ClaudeSettings): { added: number; repaired: number } {
-  const script = worktreeHookPath();
-  writeHookScript(script, WORKTREE_HOOK_SCRIPT);
-  settings.hooks = settings.hooks ?? {};
-  let added = 0;
-  let repaired = 0;
-  for (const event of WORKTREE_HOOK_EVENTS) {
-    const canonical = topicsWorktreeHookEntry(script, event);
-    const matchers = settings.hooks[event] ?? [];
-    const found = matchers.flatMap((m) => hooksOf(m).filter((h) => h?.topics_app === true));
-    const [keep, ...extra] = found;
-    const kept = extra.length > 0 ? dropEntries(matchers, new Set(extra)) : matchers;
-    if (keep) {
-      if (repairEntry(keep, event, canonical) || extra.length > 0) repaired += 1;
-    } else {
-      let target = kept.find((m) => !m.matcher && Array.isArray(m.hooks));
-      if (!target) {
-        target = { hooks: [] };
-        kept.push(target);
-      }
-      target.hooks!.push(canonical);
-      added += 1;
-    }
-    settings.hooks[event] = kept;
-  }
-  return { added, repaired };
 }
 
 function uninstall(): void {
@@ -264,7 +223,7 @@ function uninstall(): void {
     return;
   }
   let removed = 0;
-  for (const event of [...TOPICS_HOOK_EVENTS, ...RETIRED_HOOK_EVENTS, ...WORKTREE_HOOK_EVENTS]) removed += removeOurEntries(settings, event);
+  for (const event of [...TOPICS_HOOK_EVENTS, ...RETIRED_HOOK_EVENTS]) removed += removeOurEntries(settings, event);
   if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
   writeSettings(settings);
 
@@ -277,11 +236,11 @@ function uninstall(): void {
 }
 
 const cmd = process.argv[2] ?? "install";
-if (cmd === "install" || cmd === "--worktrees") {
-  install(process.argv.includes("--worktrees"));
+if (cmd === "install") {
+  install();
 } else if (cmd === "uninstall") {
   uninstall();
 } else {
-  console.error(`Usage: ${process.argv[1]} [install [--worktrees]|uninstall]`);
+  console.error(`Usage: ${process.argv[1]} [install|uninstall]`);
   process.exit(2);
 }
