@@ -11,6 +11,7 @@ const HEALTH_IT: Dict = {
   'health.problem.chat-unnamed': 'Una chat non ha nome ({chat}): non si capisce di cosa parla.',
   'health.problem.source-contradiction': 'Due fonti dicono cose diverse su {about}: {first} contro {second}. Scegli quale vale.',
   'health.problem.memory-unreceived.agent': 'La memoria di {agent} contiene note che nessun agente riceve.',
+  'health.problem.memory-unreceived.count': '{count} memorie di progetto contengono note che nessun agente riceve.',
   'health.problem.memory-unreceived.store': 'La memoria «{store}» contiene note che nessun agente riceve.',
   'health.problem.memory-index-missing.agent': 'La memoria di {agent} ha delle note ma nessun indice, quindi l’agente non le trova.',
   'health.problem.memory-index-missing.store': 'La memoria «{store}» ha delle note ma nessun indice, quindi l’agente non le trova.',
