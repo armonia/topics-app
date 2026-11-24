@@ -27,6 +27,12 @@ import {
   resolveClaudeCodeEnabled,
   resolveAgentRuntime,
   settingClaudeEffort,
+  resolveWorktreeRootSetting,
+  resolveWorktreeMaxPerProject,
+  resolveWorktreeDiskFloorGb,
+  resolveCargoTargetMode,
+  resolveGcForeign,
+  resolveWorktreeAbandonDays,
 } from "./app-settings";
 
 let tmpRoot: string;
@@ -67,6 +73,8 @@ beforeEach(() => {
     claudeCodePermissionMode: null, codexApprovalMode: null, claudeCodeEnabled: null,
     agentRuntime: null,
     firstRunDoneAt: null,
+    worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null,
+    cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null,
   });
 });
 
@@ -264,5 +272,51 @@ describe("resolveAgentRuntime — con quale meccanica gira un agente", () => {
   test("spazi e maiuscole non contano: è una riga scritta a mano, non un token", () => {
     updateAppSettings({ agentRuntime: "  CLI " });
     expect(resolveAgentRuntime()).toBe("cli");
+  });
+});
+
+describe("worktree settings (worktree-standard T1)", () => {
+  test("untouched: every resolver answers its default", () => {
+    expect(resolveWorktreeRootSetting()).toBeNull();
+    expect(resolveWorktreeMaxPerProject()).toBe(20);
+    expect(resolveWorktreeDiskFloorGb()).toBe(12);
+    expect(resolveCargoTargetMode()).toBe("shared");
+    expect(resolveGcForeign()).toBe("off");
+    expect(resolveWorktreeAbandonDays()).toBe(7);
+  });
+
+  test("a stored value round-trips through the real migration", () => {
+    const s = updateAppSettings({
+      worktreeRoot: "/data/wt", worktreeMaxPerProject: 5, worktreeDiskFloorGb: 30,
+      cargoTargetMode: "per-worktree", gcForeign: "merged", worktreeAbandonDays: 14,
+    });
+    expect(s.worktreeRoot).toBe("/data/wt");
+    expect(resolveWorktreeRootSetting()).toBe("/data/wt");
+    expect(resolveWorktreeMaxPerProject()).toBe(5);
+    expect(resolveWorktreeDiskFloorGb()).toBe(30);
+    expect(resolveCargoTargetMode()).toBe("per-worktree");
+    expect(resolveGcForeign()).toBe("merged");
+    expect(resolveWorktreeAbandonDays()).toBe(14);
+  });
+
+  test("a root written by hand that is relative, empty or in /tmp is ignored", () => {
+    for (const bad of ["relative/dir", "   ", "/tmp/wt", "/private/tmp/x"]) {
+      updateAppSettings({ worktreeRoot: bad });
+      expect(resolveWorktreeRootSetting()).toBeNull();
+    }
+  });
+
+  test("out-of-range dials are brought back inside; junk enums fall to the safe default", () => {
+    updateAppSettings({ worktreeMaxPerProject: 9999, worktreeDiskFloorGb: 0, cargoTargetMode: "weird", gcForeign: "all" });
+    expect(resolveWorktreeMaxPerProject()).toBe(200);
+    expect(resolveWorktreeDiskFloorGb()).toBe(1);
+    expect(resolveCargoTargetMode()).toBe("shared");
+    expect(resolveGcForeign()).toBe("off");
+  });
+
+  test("abandon days: setting, then the old env knob, then 7", () => {
+    expect(resolveWorktreeAbandonDays(getAppSettings(), { TOPICS_WORKTREE_ABANDON_DAYS: "3" })).toBe(3);
+    updateAppSettings({ worktreeAbandonDays: 10 });
+    expect(resolveWorktreeAbandonDays(getAppSettings(), { TOPICS_WORKTREE_ABANDON_DAYS: "3" })).toBe(10);
   });
 });

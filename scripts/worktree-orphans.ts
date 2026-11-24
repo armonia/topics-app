@@ -19,6 +19,10 @@
  *
  *   bun run scripts/worktree-orphans.ts            print the table, remove nothing
  *   bun run scripts/worktree-orphans.ts --apply    move the orphans to the Trash, then `git worktree prune`
+ *   bun run scripts/worktree-orphans.ts --check    exit 1 when the Topics worktree root has leaked: ghosts,
+ *                                                  unregistered orphans, rows without a folder, or a scan over 2 s
+ *                                                  (reads the database read-only: --db, TOPICS_DB, DATA_DIR, or the
+ *                                                  `data/topics.db` of this repo's main checkout)
  *
  * Only the folder goes (`trash`, never `rm`): the branch stays, and so does every commit on it.
  */
@@ -144,7 +148,40 @@ function collect(repo: string, now: number): WorktreeFacts[] {
   });
 }
 
-if (import.meta.main) {
+if (import.meta.main && process.argv.includes("--check")) {
+  const at = process.argv.indexOf("--db");
+  const dataDir = process.env.DATA_DIR ?? process.env.TOPICS_DATA_DIR;
+  // An explicit --db is the only candidate: a wrong path must not quietly check another database.
+  const candidates = at >= 0 ? [process.argv[at + 1] ?? ""] : [
+    process.env.TOPICS_DB,
+    dataDir ? join(dataDir, "topics.db") : undefined,
+    join(mainCheckout(), "data", "topics.db"),
+  ].filter((p): p is string => !!p);
+  const dbPath = candidates.find((p) => existsSync(p));
+  if (!dbPath) {
+    console.error(`no database found (tried ${candidates.join(", ")}): the check cannot tell a leak from a tracked folder`);
+    process.exit(2);
+  }
+  const { checkRoot, readRootInputs } = await import("../server/services/worktree-root-check");
+  const { worktreeRootDir, defaultWorktreeRootDir } = await import("../server/services/worktree-manager");
+  const { rows, rootSetting } = readRootInputs(dbPath);
+  const root = worktreeRootDir(process.env, rootSetting);
+  const def = defaultWorktreeRootDir();
+  const result = checkRoot({ rows, root, extraRoots: def === root ? [] : [def] });
+  for (const line of result.problems) console.log(line);
+  const c = result.counts;
+  console.log(`${root}: ${rows.length} rows, ${c.ghosts} ghosts, ${c.orphans} unregistered orphans, ${c.rowsWithoutFolder} rows without a folder, scan ${Math.round(result.scanMs)} ms`);
+  process.exit(result.exit);
+} else if (import.meta.main && process.argv.includes("--check-projects")) {
+  // Exit 1 when a project's own path is a worktree and it has no parent project.
+  const at = process.argv.indexOf("--db");
+  const dbPath = at >= 0 && process.argv[at + 1]
+    ? process.argv[at + 1]!
+    : process.env.TOPICS_DB ?? join(process.env.DATA_DIR ?? join(import.meta.dir, "..", "data"), "topics.db");
+  const { runProjectsCheck } = await import("../server/services/project-worktree-check");
+  const { worktreeRootDir } = await import("../server/services/worktree-manager");
+  process.exit(runProjectsCheck(dbPath, worktreeRootDir(process.env, null)));
+} else if (import.meta.main) {
   const repo = mainCheckout();
   const now = Date.now();
   const apply = process.argv.includes("--apply");

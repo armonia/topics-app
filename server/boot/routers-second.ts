@@ -31,6 +31,8 @@ import { createTabsRouter } from "../routes/tabs";
 import { createViewsRouter } from "../routes/views";
 import { createProjectsRouter } from "../routes/projects";
 import { createWorktreesRouter } from "../routes/worktrees";
+import { createRelocateService } from "./worktree-relocate-wiring";
+import { toPlanPayload } from "../services/worktree-plan-payload";
 import { createMachinesRouter } from "../routes/machines";
 import { createNodesRouter } from "../routes/nodes";
 import { createDelegatedRevocationRetry } from "../services/delegated-revocation-retry";
@@ -190,6 +192,11 @@ export function bootRoutersSecond(scope: AfterTasksRouter) {
     // `worktreeGc` è costruito più sotto (dopo `taskAutoMerge`): questa closure
     // quindi la closure è valida anche se il router nasce prima.
     runGc: () => worktreeGc.runWorktreeGc(),
+    planGc: async ({ weigh }) => {
+      const plan = await worktreeGc.planWorktreeGc({ weigh });
+      return plan ? toPlanPayload(plan, (id) => ctx.projectStore.get(id)?.name ?? null) : null;
+    },
+    relocate: createRelocateService(ctx, worktreeGc),
   });
 
   // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE

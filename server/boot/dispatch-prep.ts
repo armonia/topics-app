@@ -561,6 +561,10 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   });
 
 
+  // A worktree created over its project's cap triggers a cap pass at once (slim, then
+  // reap the oldest the contract admits) instead of waiting for the 30-minute timer.
+  ctx.worktreeGcDeps.afterCreate = (projectId) => { void worktreeGc.enforceCap(projectId); };
+
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });
 

@@ -22,6 +22,22 @@
 
 import { getDatabase } from "../db";
 import { warnDeprecatedEnv } from "../lib/env-alias";
+import { normalizeWorktreeRoot } from "../lib/worktree-root-setting";
+import {
+  CARGO_TARGET_MODES,
+  DEFAULT_CARGO_TARGET_MODE,
+  DEFAULT_GC_FOREIGN_MODE,
+  DEFAULT_WORKTREE_ABANDON_DAYS,
+  DEFAULT_WORKTREE_DISK_FLOOR_GB,
+  DEFAULT_WORKTREE_MAX_PER_PROJECT,
+  GC_FOREIGN_MODES,
+  WORKTREE_ABANDON_DAYS_RANGE,
+  WORKTREE_DISK_FLOOR_RANGE,
+  WORKTREE_MAX_PER_PROJECT_RANGE,
+  clampInto,
+  type CargoTargetMode,
+  type GcForeignMode,
+} from "../../shared/worktree-settings";
 import {
   OUTPUT_LANGUAGES,
   type OutputLanguage,
@@ -111,6 +127,18 @@ export interface AppSettings {
   securityAlertsProjectId: string | null;
   /** Thresholds and declared proofs of the self-check round, as a JSON object (see `topics-check.ts`). NULL = defaults, no proofs. */
   topicsCheck: string | null;
+  /** Folder every worktree is created in (`worktree-standard`, T1). NULL = `<topicsHome>/worktrees`. */
+  worktreeRoot: string | null;
+  /** Cap on the worktrees of one project. NULL = `DEFAULT_WORKTREE_MAX_PER_PROJECT`. */
+  worktreeMaxPerProject: number | null;
+  /** Free GB under which dispatch stops admitting cards. NULL = `DEFAULT_WORKTREE_DISK_FLOOR_GB`. */
+  worktreeDiskFloorGb: number | null;
+  /** `shared` | `per-worktree`. NULL = shared. */
+  cargoTargetMode: string | null;
+  /** `off` | `merged`: whether cleanup may remove worktrees made outside the root. NULL = off. */
+  gcForeign: string | null;
+  /** Days of silence before an unmerged branch's worktree counts as stale. NULL = the default, 7. */
+  worktreeAbandonDays: number | null;
 }
 
 const EMPTY: AppSettings = {
@@ -144,6 +172,12 @@ const EMPTY: AppSettings = {
   firstRunDoneAt: null,
   securityAlertsProjectId: null,
   topicsCheck: null,
+  worktreeRoot: null,
+  worktreeMaxPerProject: null,
+  worktreeDiskFloorGb: null,
+  cargoTargetMode: null,
+  gcForeign: null,
+  worktreeAbandonDays: null,
 };
 
 interface Row {
@@ -177,6 +211,12 @@ interface Row {
   first_run_done_at: string | null;
   security_alerts_project_id: string | null;
   topics_check_json: string | null;
+  worktree_root: string | null;
+  worktree_max_per_project: number | null;
+  worktree_disk_floor_gb: number | null;
+  cargo_target_mode: string | null;
+  gc_foreign: string | null;
+  worktree_abandon_days: number | null;
 }
 
 function rowToSettings(r: Row): AppSettings {
@@ -217,6 +257,12 @@ function rowToSettings(r: Row): AppSettings {
     firstRunDoneAt: r.first_run_done_at ?? null,
     securityAlertsProjectId: r.security_alerts_project_id ?? null,
     topicsCheck: r.topics_check_json ?? null,
+    worktreeRoot: r.worktree_root ?? null,
+    worktreeMaxPerProject: r.worktree_max_per_project ?? null,
+    worktreeDiskFloorGb: r.worktree_disk_floor_gb ?? null,
+    cargoTargetMode: r.cargo_target_mode ?? null,
+    gcForeign: r.gc_foreign ?? null,
+    worktreeAbandonDays: r.worktree_abandon_days ?? null,
   };
 }
 
@@ -244,7 +290,9 @@ export function readAppSettings(): AppSettings {
                 calendar_enabled, calendar_feed_url,
                 calendar_refresh_minutes, calendar_horizon_days,
                 browser_store_cache_reap_enabled, browser_store_reap_enabled,
-                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json
+                browser_store_reap_after_days, first_run_done_at, security_alerts_project_id, topics_check_json,
+                worktree_root, worktree_max_per_project, worktree_disk_floor_gb,
+                cargo_target_mode, gc_foreign, worktree_abandon_days
            FROM app_settings WHERE id = 1`,
     )
     .get() as Row | null;
@@ -297,6 +345,12 @@ const COLUMNS: Record<keyof AppSettings, string> = {
   firstRunDoneAt: "first_run_done_at",
   securityAlertsProjectId: "security_alerts_project_id",
   topicsCheck: "topics_check_json",
+  worktreeRoot: "worktree_root",
+  worktreeMaxPerProject: "worktree_max_per_project",
+  worktreeDiskFloorGb: "worktree_disk_floor_gb",
+  cargoTargetMode: "cargo_target_mode",
+  gcForeign: "gc_foreign",
+  worktreeAbandonDays: "worktree_abandon_days",
 };
 
 /**
@@ -549,4 +603,55 @@ export function resolveAgentRuntime(s = getAppSettings()): AgentRuntime {
  */
 export function resolveTurnCheckpointsEnabled(s = getAppSettings()): boolean {
   return s.turnCheckpointsEnabled === true;
+}
+
+// ---------------------------------------------------------------------------
+// Worktree settings (change worktree-standard, T1). Like `resolveTurnCheckpoints
+// Enabled`, none has an env fallback: they are machine preferences taken from
+// one form. The one exception, `TOPICS_WORKTREES_DIR`, is the root's own
+// override and is applied by `worktreeRootDir`, which exists for test isolation.
+// ---------------------------------------------------------------------------
+
+/**
+ * The root chosen in Settings, or null for "the default". A value written by
+ * hand that is not an absolute folder outside the temp areas is ignored, never
+ * promoted: creating checkouts in a surprising place is worse than creating
+ * them where they always were.
+ */
+export function resolveWorktreeRootSetting(s = getAppSettings()): string | null {
+  const raw = s.worktreeRoot;
+  if (raw == null || raw.trim() === "") return null;
+  return normalizeWorktreeRoot(raw);
+}
+
+export function resolveWorktreeMaxPerProject(s = getAppSettings()): number {
+  return clampInto(s.worktreeMaxPerProject, WORKTREE_MAX_PER_PROJECT_RANGE, DEFAULT_WORKTREE_MAX_PER_PROJECT);
+}
+
+/** Free GB under which the dispatcher stops admitting cards (replaces the old constant, which is now the default). */
+export function resolveWorktreeDiskFloorGb(s = getAppSettings()): number {
+  return clampInto(s.worktreeDiskFloorGb, WORKTREE_DISK_FLOOR_RANGE, DEFAULT_WORKTREE_DISK_FLOOR_GB);
+}
+
+export function resolveCargoTargetMode(s = getAppSettings()): CargoTargetMode {
+  const raw = (s.cargoTargetMode ?? "").trim().toLowerCase();
+  return (CARGO_TARGET_MODES as readonly string[]).includes(raw) ? (raw as CargoTargetMode) : DEFAULT_CARGO_TARGET_MODE;
+}
+
+/** Anything but an explicit `merged` is `off`: removing what Topics did not make needs a yes. */
+export function resolveGcForeign(s = getAppSettings()): GcForeignMode {
+  const raw = (s.gcForeign ?? "").trim().toLowerCase();
+  return (GC_FOREIGN_MODES as readonly string[]).includes(raw) ? (raw as GcForeignMode) : DEFAULT_GC_FOREIGN_MODE;
+}
+
+/** Setting, then `TOPICS_WORKTREE_ABANDON_DAYS` (the old knob), then 7. */
+export function resolveWorktreeAbandonDays(s = getAppSettings(), env: NodeJS.ProcessEnv = process.env): number {
+  if (s.worktreeAbandonDays != null) {
+    return clampInto(s.worktreeAbandonDays, WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS);
+  }
+  const fromEnv = env.TOPICS_WORKTREE_ABANDON_DAYS;
+  if (fromEnv != null && fromEnv.trim() !== "" && Number.isFinite(Number(fromEnv))) {
+    return clampInto(Number(fromEnv), WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS);
+  }
+  return DEFAULT_WORKTREE_ABANDON_DAYS;
 }

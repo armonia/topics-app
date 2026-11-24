@@ -177,8 +177,7 @@
       "kbdRef",
       "replayer",
       "replayerRef",
-      "scrollAccRef",
-      "unsubscribe"
+      "scrollAccRef"
     ],
     "client/src/components/Browser/NativeBrowserPlaceholder.tsx": [
       "coalesceRaf",
@@ -413,8 +412,7 @@
     ],
     "client/src/components/Layout/hooks/projectPersistence.ts": [
       "hsum",
-      "lraw",
-      "unsubscribeFromProjectLayout"
+      "lraw"
     ],
     "client/src/components/Layout/hooks/usePaneLifecycle.ts": [
       "handleUnsolo",
@@ -1066,7 +1064,6 @@
     "client/src/hooks/usePushNotifications.ts": [
       "arr",
       "setDevicePrefs",
-      "unsubscribe",
       "urlBase64ToUint8Array"
     ],
     "client/src/hooks/useRemoteBrowser.ts": [
@@ -1300,9 +1297,6 @@
     "client/src/lib/columnFlash.test.ts": [
       "chiusa",
       "riaperta"
-    ],
-    "client/src/lib/devBundleReload.ts": [
-      "unsubscribe"
     ],
     "client/src/lib/devLayoutProbe.ts": [
       "classNameDesc",
@@ -1711,8 +1705,7 @@
     ],
     "client/src/state/pane/adapters/projectLayoutSync.ts": [
       "__getUnackedProjectSyncKeys",
-      "unackedJsonByKey",
-      "unsubscribeProjectLayout"
+      "unackedJsonByKey"
     ],
     "client/src/state/pane/adapters/terminalLocator.test.ts": [
       "loc"
@@ -1727,8 +1720,7 @@
     ],
     "client/src/state/pane/middleware/serverHydrated.test.ts": [
       "applicato",
-      "ordine",
-      "unsubscribe"
+      "ordine"
     ],
     "client/src/state/pane/middleware/syncServer.ts": [
       "armaSpinta",
@@ -4686,9 +4678,6 @@
       "nota",
       "perche"
     ],
-    "server/services/task-dispatcher-runs.ts": [
-      "unsubscribeHumanHold"
-    ],
     "server/services/task-dispatcher-tick.ts": [
       "fermi",
       "fila",
@@ -5004,7 +4993,6 @@
     "server/services/worktree-gc-runner.ts": [
       "annuncia",
       "avviata",
-      "csid",
       "inVolo",
       "qualcosaVivoDentro"
     ],

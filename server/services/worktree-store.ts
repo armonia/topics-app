@@ -65,6 +65,8 @@ export interface WorktreeStore {
       branchRenamed: boolean;
       status: "pending" | "ready" | "error";
       errorMessage: string | null;
+      /** Only a by-hand move of a checkout changes where it lives (`worktree-relocate.ts`). */
+      absPath: string;
     }>,
   ): Worktree | null;
   delete(id: string): boolean;
@@ -203,6 +205,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
               : 0
             : existing.branch_renamed,
         status: patch.status ?? existing.status,
+        abs_path: patch.absPath ?? existing.abs_path,
         error_message:
           patch.errorMessage !== undefined
             ? patch.errorMessage
@@ -210,7 +213,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
       };
       try {
         db.prepare(
-          `UPDATE worktrees SET name = ?, branch_name = ?, base_ref = ?, is_pushed = ?, branch_renamed = ?, status = ?, error_message = ?, updated_at = ? WHERE id = ?`,
+          `UPDATE worktrees SET name = ?, branch_name = ?, base_ref = ?, is_pushed = ?, branch_renamed = ?, status = ?, abs_path = ?, error_message = ?, updated_at = ? WHERE id = ?`,
         ).run(
           next.name,
           next.branch_name,
@@ -218,6 +221,7 @@ export function createWorktreeStore(db: Database): WorktreeStore {
           next.is_pushed,
           next.branch_renamed,
           next.status,
+          next.abs_path,
           next.error_message,
           now,
           id,

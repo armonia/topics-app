@@ -10,6 +10,9 @@
  *   PATCH  /api/worktrees/:id                    → rename display `name` only
  *                                                  (git branch rename is deferred)
  *   DELETE /api/worktrees/:id                    → remove dir + (mode='branch') branch
+ *   GET    /api/worktrees/gc/plan                → preview of the cleanup, per folder
+ *   POST   /api/worktrees/relocate               → adopt | move | remove a worktree made
+ *                                                  outside the root (`dryRun` = preview)
  *
  * Every successful mutation broadcasts a `worktree:<verb>` envelope. The
  * create endpoint emits `worktree:new` synchronously with the row in
@@ -31,6 +34,8 @@ import { purgeWorktreeFromUiState } from "../services/ui-state-purge";
 import { unwatchGitDir } from "../git-watcher";
 import { unwatchProjectFiles } from "../file-watcher";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { RELOCATE_ACTIONS, type RelocateAction, type WorktreePlanPayload } from "../../shared/worktree-plan";
+import type { RelocateService } from "../boot/worktree-relocate-wiring";
 
 const ALLOWED_MODES = new Set(["branch", "reuse", "detached"]);
 const ALLOWED_STATUSES = new Set(["pending", "ready", "error"]);
@@ -53,6 +58,10 @@ export interface WorktreesRouterOpts {
    * Due letture (git e DB) che vivono nel boot del server, non qui.
    */
   branchInventory?: (projectPath: string) => Promise<unknown>;
+  /** The cleanup preview, read only (`weigh` adds the on-disk size of each folder). `null` = it could not be built. */
+  planGc?: (opts: { weigh: boolean }) => Promise<WorktreePlanPayload | null>;
+  /** Adopt, move or remove a worktree made outside the root, by hand. */
+  relocate?: RelocateService;
 }
 
 export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts = {}): RouteHandler {
@@ -124,6 +133,36 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       } catch (e) {
         return errorResponse(500, e instanceof Error ? e.message : String(e));
       }
+    }
+
+    // GET /api/worktrees/gc/plan — what the next cleanup would do, per folder. Writes nothing.
+    if (method === "GET" && pathname === "/api/worktrees/gc/plan") {
+      if (!opts.planGc) return errorResponse(501, "GC preview not available on this host");
+      const plan = await opts.planGc({ weigh: url.searchParams.get("weigh") === "1" });
+      return plan ? json({ plan }) : errorResponse(500, "the preview could not be built");
+    }
+
+    // POST /api/worktrees/relocate — { path, action, dryRun? }. Only folders git lists for a
+    // known project are ever acted on; a refusal is a 200 with the reasons, not an error.
+    if (method === "POST" && pathname === "/api/worktrees/relocate") {
+      if (!opts.relocate) return errorResponse(501, "relocation not available on this host");
+      const body = await readJSON(req);
+      const path = stripCtrl(body?.path);
+      const action = stripCtrl(body?.action) as RelocateAction;
+      if (!path || !path.startsWith("/")) return errorResponse(400, "path must be an absolute path");
+      if (!(RELOCATE_ACTIONS as readonly string[]).includes(action)) {
+        return errorResponse(400, `action must be one of: ${RELOCATE_ACTIONS.join(", ")}`);
+      }
+      if (body?.dryRun === true) return json({ check: await opts.relocate.check(action, path) });
+      const result = await opts.relocate.run(action, path);
+      if (result.ok) {
+        // The watchers are keyed by path: the old one would watch a folder that is no longer there.
+        if (action !== "adopt") { unwatchGitDir(path); unwatchProjectFiles(path); }
+        const row = result.rowId ? worktreeStore.get(result.rowId) : null;
+        if (action === "remove") { if (result.rowId) emit("worktree:deleted", { id: result.rowId }); }
+        else if (row) emit(action === "adopt" ? "worktree:new" : "worktree:updated", row);
+      }
+      return json(result);
     }
 
     // POST /api/worktrees/gc — una passata del GC, adesso.

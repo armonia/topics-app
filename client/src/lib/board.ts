@@ -1181,6 +1181,9 @@ export interface BoardProjectRef {
   path: string;
 }
 
+/** A project that sits under another one (accorpa / separa), in board ids. */
+export type BoardFamilyLink = import('../../../shared/project-family').BoardFamilyLink;
+
 const enc = encodeURIComponent;
 
 /** Lo stato della modalità notturna, come lo riporta il server. */
@@ -1332,7 +1335,7 @@ export const boardApi = {
    *  `newProjectDir`: la cartella in cui nascerebbe un progetto creato per
    *  nome. È dedotta lato server, e va MOSTRATA prima di creare. */
   projects: () =>
-    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null }>('/all-boards/projects'),
+    req<{ projects: BoardProjectRef[]; labelOnly?: BoardProjectRef[]; newProjectDir: string | null; families?: BoardFamilyLink[] }>('/all-boards/projects'),
   /** Per-project commits on the current branch not yet pushed — feeds the Publish control.
    *  `commits` is the exact list a push would ship (newest first, capped at 50). */
   publishStatus: () =>

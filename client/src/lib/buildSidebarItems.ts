@@ -59,6 +59,8 @@ export interface SidebarItem {
    *  reopening locally. Renders the trailing AppWindow glyph. */
   detachedWindowLabel?: string;
   projectPath?: string;      // for project items: the path; for children: their parent project
+  /** Set on a row that was folded under a parent project (accorpa): the label of the project it really belongs to. */
+  viaProject?: string;
   children?: SidebarItem[];  // only for project items (accordion content)
   /** Sub-agents this terminal spawned (orchestrator → children). Rendered
    *  nested one level deeper than the parent terminal row. Distinct from
@@ -100,7 +102,7 @@ function attentionFields(a: { count: number; since?: number }): Pick<SidebarItem
 }
 
 /** Lit rows first, among them the most recent entry into the state; then activity. */
-function byAttentionThenActivity(a: SidebarItem, b: SidebarItem): number {
+export function byAttentionThenActivity(a: SidebarItem, b: SidebarItem): number {
   const aLit = a.notificationCount > 0 ? 1 : 0;
   const bLit = b.notificationCount > 0 ? 1 : 0;
   if (aLit !== bLit) return bLit - aLit;

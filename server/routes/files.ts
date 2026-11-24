@@ -199,14 +199,14 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
     return resolveProjectPath(raw) ?? errorResponse(400, "Invalid path");
   };
   /** POST/DELETE: the JSON body plus its `path` resolved, or the error Response. */
-  const readPathBody = async (req: Request): Promise<{ body: any; resolved: string } | Response> => {
+  const readPathBody = async (req: Request) => {
     const body = await readJSON(req);
     if (!body?.path) return json({ error: "path required" }, 400);
     const resolved = resolveProjectPath(body.path);
     return resolved ? { body, resolved } : errorResponse(400, "Invalid path");
   };
   /** Same as `readPathBody`, for the stage/unstage/discard routes that also take `file` or `files`. */
-  const readPathFilesBody = async (req: Request): Promise<{ body: any; resolved: string; files: string[] } | Response> => {
+  const readPathFilesBody = async (req: Request) => {
     const body = await readJSON(req);
     const files: string[] = body?.files ?? (body?.file ? [body.file] : []);
     if (!body?.path || files.length === 0) return json({ error: "path and file(s) required" }, 400);

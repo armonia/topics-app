@@ -7,6 +7,7 @@ import { AlarmClock, AlertTriangle, ArchiveRestore, ArrowRightLeft, CalendarCloc
 import { ChatMarkdown } from '../ChatMarkdown';
 import { ContextMenuPortal } from '../Shared/ContextMenuPortal';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
+import { useIsMergedHere } from './mergedBoards';
 import { useToast } from '../Shared/Toast';
 import { questionToProse } from '../../../../shared/question-prose';
 import { isSettledParkedQuestion } from '../../../../shared/parked-question';
@@ -528,7 +529,7 @@ type CardProps = {
   density?: BoardDensity;
 };
 
-const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
+const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showProject: showProjectOwn, error, onError, onRefetch, onOpenTopic, sessionState = 'unknown', parentTitle, projectPath, live, awaiting, justMovedTo, justCreated, archived = false, density = 'full', paneBoardId: _paneBoardId, paneSettings: _paneSettings, setNodeRef, dragAttributes: attributes, dragListeners: listeners, isDragging, dragTransform, dragTransition: transition, boardTopicsRoutingDefault }: CardProps & CardDragProps & { boardTopicsRoutingDefault: boolean | null }) {
   // MSEL-01: subscribed, so a snapshot that lands after the first paint adds
   // «· via Topics»; the boolean re-renders the card only when it flips.
   const getRunsThroughTopics = () => cardRunsThroughTopics(task, getProvidersSnapshotState().snapshot, boardTopicsRoutingDefault);
@@ -913,6 +914,9 @@ const CardBody = memo(function CardBody({ estimate = null, task, onOpen, showPro
   // Human-readable project label = the dirName prefix before the id hash.
   // Project-less = truly unassigned OR the catch-all board (which runs the task
   // standalone). Both render with NO chip — the "generale" label is noise.
+  // A card of a project merged into this board (accorpa) says which project it is.
+  const mergedHere = useIsMergedHere(task.projectId);
+  const showProject = showProjectOwn || mergedHere;
   const unassigned = isProjectlessId(task.projectId);
   const projectLabel = task.projectId.replace(/-[^-]+$/, '');
   // A task in review is the APPROVAL surface, never the "steer a working agent"

@@ -1,12 +1,14 @@
 /**
  * @covers PROJECT-06
  */
-import { describe, it, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "fs";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { execFileSync } from "child_process";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, makeAliasPathFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, projectsInsideWorktrees, makeAliasPathFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
+import { gitEnv } from "../../tests/setup/bun-test-preload";
 import type { ProjectStore } from "./project-store";
 
 describe("resolveProjectPath", () => {
@@ -302,5 +304,115 @@ describe("resolveProjectPath after a move", () => {
     const link = join(outside, "app");
     symlinkSync(newPath, link);
     expect(resolveProjectPath(projectIdForPath(link), candidates, makeAliasPathFinder(home))).toBeNull();
+  });
+});
+
+
+describe("canonicalProjectFor", () => {
+  let base: string;
+  let repo: string;
+  let linked: string;
+  let alias: string;
+  let linkedAlias: string;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, stdio: "ignore", env: gitEnv() });
+
+  beforeAll(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), "canonical-project-")));
+    repo = join(base, "repo");
+    mkdirSync(join(repo, "pkg"), { recursive: true });
+    git(base, "init", "-q", repo);
+    writeFileSync(join(repo, "pkg", "a.txt"), "a");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "init");
+    linked = join(base, "wt", "feature");
+    mkdirSync(join(base, "wt"));
+    git(repo, "worktree", "add", "-q", "-b", "feature", linked);
+    alias = join(base, "repo-alias");
+    symlinkSync(repo, alias);
+    linkedAlias = join(base, "feature-alias");
+    symlinkSync(linked, linkedAlias);
+  });
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+  const rows = () => [
+    { id: "p-repo", slug: "repo", path: repo },
+    { id: "p-other", slug: "other", path: join(base, "other") },
+  ];
+
+  it("a linked worktree resolves to the project of its repository", () => {
+    expect(canonicalProjectFor(linked, rows())?.id).toBe("p-repo");
+  });
+
+  it("a symlink to the worktree and a symlink to the repo resolve to the same project", () => {
+    expect(canonicalProjectFor(linkedAlias, rows())?.id).toBe("p-repo");
+    expect(canonicalProjectFor(alias, rows())?.id).toBe("p-repo");
+  });
+
+  it("the project registered under the alias still resolves from the real path", () => {
+    expect(canonicalProjectFor(repo, [{ id: "p-alias", slug: "a", path: alias }])?.id).toBe("p-alias");
+  });
+
+  it("a subfolder of the repository stays itself: it is not the repository", () => {
+    expect(canonicalProjectFor(join(repo, "pkg"), rows())).toBeNull();
+  });
+
+  it("a folder that is not under git, or whose repository is not a project, answers null", () => {
+    expect(canonicalProjectFor(base, rows())).toBeNull();
+    expect(canonicalProjectFor(linked, [{ id: "p-other", slug: "other", path: join(base, "other") }])).toBeNull();
+  });
+
+  it("a worktree folder that is gone answers from the worktree table", () => {
+    const gone = join(base, "wt", "removed");
+    expect(canonicalProjectFor(gone, rows(), { worktreeOwner: (p) => (p === gone ? "p-repo" : null) })?.id).toBe("p-repo");
+  });
+
+  it("a worktree folder that is gone answers from where it lived: {root}/{slug}/… and .claude/worktrees", () => {
+    const root = join(base, "root");
+    expect(canonicalProjectFor(join(root, "repo", "old"), rows(), { worktreeRoot: root })?.id).toBe("p-repo");
+    expect(canonicalProjectFor(join(repo, ".claude", "worktrees", "old"), rows())?.id).toBe("p-repo");
+    expect(canonicalProjectFor(join(root, "nobody", "old"), rows(), { worktreeRoot: root })).toBeNull();
+  });
+
+  it("rejects relative and empty input", () => {
+    expect(canonicalProjectFor("", rows())).toBeNull();
+    expect(canonicalProjectFor("repo", rows())).toBeNull();
+  });
+});
+
+describe("projectsInsideWorktrees", () => {
+  let base: string;
+  let repo: string;
+  let linked: string;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, stdio: "ignore", env: gitEnv() });
+
+  beforeAll(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), "projects-in-worktrees-")));
+    repo = join(base, "repo");
+    git(base, "init", "-q", repo);
+    writeFileSync(join(repo, "a.txt"), "a");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "init");
+    linked = join(base, "wt");
+    git(repo, "worktree", "add", "-q", "-b", "feature", linked);
+  });
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+  it("flags a project at a linked worktree with no parent, and not once it has one", () => {
+    const row = { id: "w", slug: "w", path: linked, parentId: null as string | null };
+    const main = { id: "m", slug: "m", path: repo, parentId: null as string | null };
+    expect(projectsInsideWorktrees([main, row]).map((p) => p.id)).toEqual(["w"]);
+    expect(projectsInsideWorktrees([main, { ...row, parentId: "m" }])).toEqual([]);
+  });
+
+  it("flags a vanished folder under the worktree root or .claude/worktrees", () => {
+    const root = join(base, "root");
+    const rows = [
+      { id: "a", slug: "a", path: join(root, "x", "gone"), parentId: null as string | null },
+      { id: "b", slug: "b", path: join(base, "r", ".claude", "worktrees", "gone"), parentId: null as string | null },
+      { id: "c", slug: "c", path: join(base, "plain", "gone"), parentId: null as string | null },
+    ];
+    expect(projectsInsideWorktrees(rows, { worktreeRoot: root }).map((p) => p.id)).toEqual(["a", "b"]);
   });
 });

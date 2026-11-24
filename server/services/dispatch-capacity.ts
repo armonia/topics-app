@@ -65,6 +65,8 @@ export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
 import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, governorReading, machineBudget } from "../../shared/board";
 import { CHECKS_MEM_FLOOR_DEFAULT_GB, checksMemFloorGB } from "../../shared/checks-memory-floor";
+import { DEFAULT_WORKTREE_DISK_FLOOR_GB } from "../../shared/worktree-settings";
+import { resolveWorktreeDiskFloorGb } from "./app-settings";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -197,8 +199,10 @@ const MAX_AUTO_CAP = 8;
  *
  * Il tetto dice quanti agenti si vogliono insieme, e da quando esiste
  * `GLOBAL_CAP_OFF` la risposta può essere «nessun limite». Questo dice quando la
- * macchina non ne regge un altro comunque, e non è negoziabile dalle
- * impostazioni: senza, «nessun limite» significa che la coda si ferma soltanto
+ * macchina non ne regge un altro comunque. It cannot be switched off, only
+ * tuned: since worktree-standard T1 the threshold is the setting
+ * `worktree_disk_floor_gb` (1 to 500 GB) and this constant is its default.
+ * Senza un pavimento, «nessun limite» significa che la coda si ferma soltanto
  * quando il disco è pieno.
  *
  * PERCHÉ IL DISCO E NON LA CPU. Misurato il 13/08 su questo host: gli agenti
@@ -212,7 +216,7 @@ const MAX_AUTO_CAP = 8;
  * La CPU si è già presa il suo freno altrove, e più mirato: `scripts/slot.ts`
  * recinta i CANCELLI, che sono ciò che la consuma davvero.
  */
-export const DISPATCH_DISK_FLOOR_GB = 12;
+export const DISPATCH_DISK_FLOOR_GB = DEFAULT_WORKTREE_DISK_FLOOR_GB;
 
 /**
  * Spazio libero sul volume che ospita le worktree, in GB. `null` quando non si
@@ -745,11 +749,13 @@ export function dispatchResourceVerdict(
   /** Who is holding the memory outside Topics (`memory-owners.ts`), heaviest first.
    *  Only the MEMORY sentence carries it: a full disk is not somebody's app. */
   foreign: readonly MemoryFamily[] = [],
+  /** Free GB under which nothing is admitted: the machine's setting (`worktree_disk_floor_gb`), the code default when untouched. */
+  diskFloorGB: number = resolveWorktreeDiskFloorGb(),
 ): ResourceFloorVerdict {
   const free = readFreeGB(worktreesPath);
-  if (free != null && free < DISPATCH_DISK_FLOOR_GB) {
+  if (free != null && free < diskFloorGB) {
     return {
-      reason: `Disco quasi pieno: ${free.toFixed(1)} GB liberi, sotto il pavimento di ${DISPATCH_DISK_FLOOR_GB} GB. ` +
+      reason: `Disco quasi pieno: ${free.toFixed(1)} GB liberi, sotto il pavimento di ${diskFloorGB} GB. ` +
         `Ogni agente apre una worktree (~0,9 GB), e un disco pieno fa fallire le scritture del DB. ` +
         `Riprendo appena si libera spazio: niente è andato perso.`,
       kind: "disk",

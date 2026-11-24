@@ -643,6 +643,14 @@ export interface UpdateTaskPatch {
 export interface ListTasksInput {
   scope: "project" | "all";
   projectId?: string;
+  /**
+   * With `scope: "project"`: also read the cards of the projects merged into
+   * this one (`projects.parent_id` + `merge_mode = 'accorpa'`). ONLY the human
+   * board turns it on. The dispatcher and the agent doors keep the literal
+   * `project_id = ?`: a card of a child must dispatch from its own project,
+   * with its own settings, whatever board it is drawn on.
+   */
+  includeChildBoards?: boolean;
   status?: TaskStatus;
   /**
    * Only ROOT tasks (parent_task_id IS NULL). The board columns and the

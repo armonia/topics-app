@@ -336,6 +336,69 @@ describe("the cleanup of closed browsers' data: a setting, clamped when saved", 
   });
 });
 
+describe("worktree settings (worktree-standard T1)", () => {
+  beforeEach(() => {
+    updateAppSettings({
+      worktreeRoot: null, worktreeMaxPerProject: null, worktreeDiskFloorGb: null,
+      cargoTargetMode: null, gcForeign: null, worktreeAbandonDays: null,
+    });
+  });
+
+  test("a valid root is stored absolute, and ~ is expanded", async () => {
+    const r = await put({ worktreeRoot: "/data/trees/" });
+    expect(r.status).toBe(200);
+    expect(r.body.settings.worktreeRoot).toBe("/data/trees");
+    const home = await put({ worktreeRoot: "~/trees" });
+    expect(home.status).toBe(200);
+    expect(home.body.settings.worktreeRoot).toBe(join(require("os").homedir(), "trees"));
+  });
+
+  test("a relative root and a /tmp root are refused, and the stored value does not move", async () => {
+    await put({ worktreeRoot: "/data/keep" });
+    for (const bad of ["trees", "/tmp/trees", "/private/tmp/x"]) {
+      const r = await put({ worktreeRoot: bad });
+      expect({ bad, status: r.status, field: r.body.errors?.[0]?.field }).toEqual({ bad, status: 400, field: "worktreeRoot" });
+    }
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
+  });
+
+  test("a root inside a project's repository is refused: checkouts nested in a repo are the failure the standard prevents", async () => {
+    const withProjects = createAppSettingsRouter({ ...fakeCtx(), projectStore: { list: () => [{ path: "/data/repo" }] } } as unknown as AppContext);
+    await put({ worktreeRoot: "/data/keep" });
+    for (const bad of ["/data/repo", "/data/repo/.worktrees"]) {
+      const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot: bad }) });
+      const res = (await withProjects(req, new URL(req.url), "/api/app-settings", "PUT"))!;
+      const body = await res.json() as any;
+      expect({ bad, status: res.status, field: body.errors?.[0]?.field }).toEqual({ bad, status: 400, field: "worktreeRoot" });
+    }
+    expect(getAppSettings().worktreeRoot).toBe("/data/keep");
+    // A sibling of the repository is fine.
+    const req = new Request("http://localhost/api/app-settings", { method: "PUT", body: JSON.stringify({ worktreeRoot: "/data/repo-trees" }) });
+    expect((await withProjects(req, new URL(req.url), "/api/app-settings", "PUT"))!.status).toBe(200);
+  });
+
+  test("null clears the root back to the default", async () => {
+    await put({ worktreeRoot: "/data/keep" });
+    expect((await put({ worktreeRoot: null })).status).toBe(200);
+    expect(getAppSettings().worktreeRoot).toBeNull();
+  });
+
+  test("the three dials are clamped into their range, not refused", async () => {
+    const r = await put({ worktreeMaxPerProject: 5000, worktreeDiskFloorGb: 0, worktreeAbandonDays: 9999 });
+    expect(r.status).toBe(200);
+    expect(r.body.settings).toMatchObject({ worktreeMaxPerProject: 200, worktreeDiskFloorGb: 1, worktreeAbandonDays: 365 });
+  });
+
+  test("the two enums accept their values and refuse the rest", async () => {
+    expect((await put({ cargoTargetMode: "per-worktree", gcForeign: "merged" })).status).toBe(200);
+    expect(getAppSettings()).toMatchObject({ cargoTargetMode: "per-worktree", gcForeign: "merged" });
+    const bad = await put({ cargoTargetMode: "linked" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.errors[0].field).toBe("cargoTargetMode");
+    expect((await put({ gcForeign: "all" })).status).toBe(400);
+  });
+});
+
 describe("a read that failed is never answered as 'never touched'", () => {
   // The reaper reads NULL as never touched, which is ON at 60 days. So a GET
   // that swallowed a failed read and answered 200 with every field NULL would

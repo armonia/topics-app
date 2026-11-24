@@ -186,7 +186,10 @@ describe.if(inFakeHome)("POST /api/topics/adopt-claude", () => {
       const { ctx, status, body } = await adopt({ sessionId: sid });
       expect(status).toBe(201);
       expect(body.worktreeId ?? null).toBeNull();
+      // No row to run in: the chat keeps running where the CLI ran (moving it to
+      // the repository's main checkout would lose the transcript and write there).
       expect(body.projectPath).toBe(nested);
+      expect(ctx.resolveTopicCwd(ctx.getTopicById(body.id))).toBe(nested);
       expect(ctx.worktreeStore.getByAbsPath(nested)).toBeNull();
     } finally {
       if (orig === undefined) delete process.env.TOPICS_WORKTREES_DIR; else process.env.TOPICS_WORKTREES_DIR = orig;

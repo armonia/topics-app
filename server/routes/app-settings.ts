@@ -8,6 +8,19 @@ import { CALENDAR_HORIZON_CHOICES, CALENDAR_REFRESH_CHOICES } from "../../shared
 import { normalizeFeedUrl, resetCalendarCache } from "../services/calendar-feed";
 import { clampBrowserStoreReapDays } from "../../shared/browser-store-reap";
 import { OUTPUT_LANGUAGES, DISCORD_DETAIL_LEVELS, AGENT_RUNTIMES } from "../../shared/types";
+import { normalizeWorktreeRoot } from "../lib/worktree-root-setting";
+import { isInsideDir } from "../lib/path-containment";
+import {
+  CARGO_TARGET_MODES,
+  DEFAULT_WORKTREE_ABANDON_DAYS,
+  DEFAULT_WORKTREE_DISK_FLOOR_GB,
+  DEFAULT_WORKTREE_MAX_PER_PROJECT,
+  GC_FOREIGN_MODES,
+  WORKTREE_ABANDON_DAYS_RANGE,
+  WORKTREE_DISK_FLOOR_RANGE,
+  WORKTREE_MAX_PER_PROJECT_RANGE,
+  clampInto,
+} from "../../shared/worktree-settings";
 
 /**
  * GET/PUT /api/app-settings — the promoted behaviour toggles (env-var audit,
@@ -142,6 +155,18 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   firstRunDoneAt: { kind: "string" },
   securityAlertsProjectId: { kind: "string" },
   topicsCheck: { kind: "string" },
+  // Worktrees (change worktree-standard, T1). The root is normalised before it
+  // is written (`~` expanded, absolute, not in a temp area): a relative or
+  // /tmp root is refused HERE, because creating checkouts somewhere the OS
+  // cleans is the failure the standard exists to prevent.
+  worktreeRoot: { kind: "string", normalize: normalizeWorktreeRoot },
+  // The three dials are bounded, not closed sets: a number outside its range is
+  // brought back to the nearest limit, like the browser-store days.
+  worktreeMaxPerProject: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_MAX_PER_PROJECT_RANGE, DEFAULT_WORKTREE_MAX_PER_PROJECT) },
+  worktreeDiskFloorGb: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_DISK_FLOOR_RANGE, DEFAULT_WORKTREE_DISK_FLOOR_GB) },
+  cargoTargetMode: { kind: "string", allow: new Set<string>(CARGO_TARGET_MODES) },
+  gcForeign: { kind: "string", allow: new Set<string>(GC_FOREIGN_MODES) },
+  worktreeAbandonDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS) },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */
@@ -287,6 +312,16 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
         return json({ ok: false, error: "Body must be an object" }, 400);
       }
       const { patch, errors } = parsePatch(parsed as Record<string, unknown>);
+      // A worktree root inside a project's repository nests checkouts in the repo
+      // (file watchers and indexers then walk every one of them): refused here,
+      // where the projects are known.
+      if (typeof patch.worktreeRoot === "string") {
+        const root = patch.worktreeRoot;
+        const projects = ctx.projectStore?.list?.() ?? [];
+        if (projects.some((p) => p.path && isInsideDir(root, p.path))) {
+          errors.push({ field: "worktreeRoot", message: "inside a project's repository" });
+        }
+      }
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }

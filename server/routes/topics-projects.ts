@@ -5,7 +5,7 @@ import { existsSync, readdirSync, statSync } from "fs";
 import { basename, join } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
-import { scaffoldNewProject } from "../services/project-path-resolver";
+import { canonicalProjectFor, scaffoldNewProject } from "../services/project-path-resolver";
 import type { AppContext, Topic } from "../types";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 import { matchProjectRefAll, type ProjectRefCandidate } from "../lib/project-ref";
@@ -229,6 +229,23 @@ export function createProjectBinding(ctx: AppContext) {
   }
 
   /**
+   * The project a folder canonically belongs to: a linked worktree (or an alias
+   * of the repo) answers with the project of the repository, so a path that
+   * COMES IN as a worktree never opens a board of its own. Null when none of the
+   * known projects owns it.
+   */
+  function canonicalProjectOf(dir: string) {
+    try {
+      return canonicalProjectFor(dir, projectStore.list(), {
+        worktreeOwner: (abs) => worktreeStore.getByAbsPath(abs)?.projectId ?? null,
+        worktreeRoot: worktreeRootDir(),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Indovina la cartella di progetto dai messaggi. La regola sta in
    * `lib/detect-project-path.ts`, fuori da questa closure perche' dentro non
    * la poteva provare nessuno — ed e' proprio il suo ripiego ad aver legato una
@@ -249,8 +266,10 @@ export function createProjectBinding(ctx: AppContext) {
     if (topic.projectPath) return; // already bound
     const localMsgs = loadLocalMessages(topic.sessionKey);
     if (localMsgs.length < 2) return; // need at least 1 user + 1 assistant
-    const detected = detectProjectPathFromMessages(localMsgs);
-    if (detected) {
+    const mentioned = detectProjectPathFromMessages(localMsgs);
+    if (mentioned) {
+      // A worktree mentioned in passing is the repo's project, not a new one.
+      const detected = canonicalProjectOf(mentioned)?.path ?? mentioned;
       const t = getTopicById(topic.id);
       if (t && !t.projectPath) {
         // Heuristic detection: only force the project window open when the
@@ -320,6 +339,7 @@ export function createProjectBinding(ctx: AppContext) {
   return {
     isExistingDir,
     registerAdoptedWorktree,
+    canonicalProjectOf,
     lastTranscriptModel,
     resolveProjectRef,
     knownProjectPaths,

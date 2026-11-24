@@ -36,6 +36,9 @@ import type { BoardSettings, BoardSettingsPatch } from "../../shared/board";
 
 import { allWideRows } from "../lib/wide-rows";
 import type { Task, CreateTaskInput, ListTasksInput } from "./task-shapes";
+import { inheritedSettingsBoardId, mergedBoardIds } from "../../shared/project-family";
+import { loadFamilyRows } from "./project-family-rows";
+import { readBoardSettingsRow } from "./board-settings-row";
 
 import { withCardAttention } from "../attention/card-sync";
 import { CHECKS_RUNNING_SQL } from "../lib/task-timer-reads";
@@ -355,8 +358,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const params: any[] = [];
       if (input.scope === "project") {
         if (!input.projectId) throw new TaskServiceError("invalid_input", "scope=project requires projectId");
-        clauses.push("project_id = ?");
-        params.push(input.projectId);
+        const family = input.includeChildBoards ? mergedBoardIds(loadFamilyRows(db), input.projectId) : [input.projectId];
+        if (family.length > 1) {
+          clauses.push("project_id IN (SELECT value FROM json_each(?))");
+          params.push(idParam(family));
+        } else {
+          clauses.push("project_id = ?");
+          params.push(input.projectId);
+        }
       }
       // UNO STATO CHE NON ESISTE È UN ERRORE, NON UNA BOARD VUOTA. Le rotte
       // passavano `?status=` così com'era arrivato (`as any`), quindi
@@ -778,7 +787,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     getBoardSettings(projectId: string): BoardSettings {
-      const r = db.prepare("SELECT * FROM board_settings WHERE project_id = ?").get(projectId) as any;
+      let r = readBoardSettingsRow(db, projectId);
+      // A project merged into a parent (accorpa) uses its own settings when it has a
+      // row, and the parent's otherwise: the parent's board is where its cards are read.
+      if (!r) {
+        const inherit = inheritedSettingsBoardId(loadFamilyRows(db), projectId);
+        if (inherit) r = readBoardSettingsRow(db, inherit);
+      }
       return {
         projectId,
         autoDispatch: readGlobalDispatch(),
