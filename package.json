@@ -166,6 +166,7 @@
     "specflow:evidence": "./scripts/specflow-evidence.sh",
     "barra:velocita": "spec-flow speed-bar",
     "registro:instabili": "spec-flow flaky-ledger",
+    "barra:attesa": "spec-flow ci-audit",
     "build:site": "bun run changelog && cd client && bun install --frozen-lockfile && bun run build:landing && cd ../landing && bun install --frozen-lockfile && bun run build",
     "dev:site": "cd landing && bun run dev",
     "check:history-clean": "bun run scripts/scrub-history.ts --check"
@@ -179,7 +180,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@armonia-io/spec-flow": "0.4.0",
+    "@armonia-io/spec-flow": "0.5.0",
     "@hughescr/stryker-bun-runner": "1.6.0",
     "@playwright/test": "^1.58.2",
     "@stryker-mutator/core": "10.1.1",
