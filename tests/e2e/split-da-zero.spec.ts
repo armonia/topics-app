@@ -47,6 +47,14 @@ async function cellTitles(page: Page): Promise<string[]> {
     .map((c) => c.t));
 }
 
+/** N painted frames: the observers' chain (measure, setState, render) settles inside them. */
+async function frames(page: Page, n: number): Promise<void> {
+  await page.evaluate((k) => new Promise<void>((done) => {
+    const step = (left: number): void => { if (left > 0) requestAnimationFrame(() => step(left - 1)); else done(); };
+    step(k);
+  }), n);
+}
+
 /** Three cells side by side, built the way SPLIT-05 proves: from the row menu. */
 async function threeCells(page: Page, request: APIRequestContext, [a, b, c]: Array<{ id: string; name: string }>): Promise<void> {
   await resetPaneStore(request, [a.id, b.id, c.id]);
@@ -119,7 +127,7 @@ test.describe("split, from zero", () => {
     await openBeside(page, c.name, /^(Apri in basso|Open below)$/);
     await expect(cells(page)).toHaveCount(3, { timeout: 10_000 });
     await expect(page.locator('[data-testid="chat-empty-state"]:not([aria-hidden]):visible')).toHaveCount(3, { timeout: 10_000 });
-    await page.waitForTimeout(500);
+    await frames(page, 4);
     const overlaps = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card]")].flatMap((card) => {
       const greeting = card.querySelector<HTMLElement>('[data-testid="chat-empty-state"]:not([aria-hidden])');
       const title = card.querySelector<HTMLElement>('[data-testid="mobile-pane-title"]');
@@ -133,9 +141,11 @@ test.describe("split, from zero", () => {
     // column to about 205 px.
     const divider = page.locator('[data-split-divider][tabindex="0"]').first();
     await divider.focus();
+    const share = Number(await divider.getAttribute("aria-valuenow"));
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(400);
+    await expect.poll(async () => Number(await divider.getAttribute("aria-valuenow"))).toBeGreaterThan(share + 8);
+    await frames(page, 4);
     const fieldHeights = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card] textarea")]
       .filter((ta) => ta.getBoundingClientRect().width > 0)
       .map((ta) => Math.round(ta.getBoundingClientRect().height)));
