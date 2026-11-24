@@ -1,5 +1,35 @@
 [
   {
+    "version": "2.4.96",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "bring main's any budget and identifier gate back to green",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "name the requirement the keyed listener registry test covers",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keep the live AI bridge out of the suite",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.95",
     "date": "2026-11-24",
     "sections": {
@@ -28,9 +58,52 @@
     "date": "2026-11-24",
     "sections": {
       "new": [],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "never let an isolated spawn_agent fall back to the remote fast path",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
+        {
+          "it": "memory stores: read an agent's deposit from its workspace, readable store names, one grouped problem for unreceived project memories",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Share one keyed listener registry across the client stores",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Share the CLI binary resolver across claude, codex, kimi and muse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dup: jscpd ratchet on exact duplicated lines, wired into gates:fast",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Remove internal duplication in files route, grants query, message thread writes and pending actions",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Duplicate detection: description as secondary signal, commit hashes as anchors",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Share the incremental JSONL scanner between the claude and codex transcript titles",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "client-bundle job cap above the sum of its step caps, so it never ends cancelled",
           "en": "",
