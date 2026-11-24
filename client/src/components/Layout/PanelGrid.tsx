@@ -1825,7 +1825,7 @@ export function PanelGrid({
       ? explicitTarget.zone
       : computeDropZone(e, e.currentTarget as HTMLElement, cellGutters(rawDropTarget.rowIdx));
 
-    let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
+    const effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
     const sourceTopicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
     if (!effectiveKey && !sourcePaneTab && !explicitTarget && projectWindowOwnsRow(e)) return;
