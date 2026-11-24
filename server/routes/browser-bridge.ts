@@ -40,6 +40,8 @@
  *
  * Il comportamento è una mossa verbatim: cambia solo l'involucro di dispatch.
  */
+import { recordHistoryRow } from "../attention/store";
+import { loginNoticeInput } from "../mcp/login-notice";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import type { BrowserService } from "../browser-service";
 import { dispatchBrowserToolCallByContext, resolveContextIdForTopic } from "../browser-tool-dispatcher";
@@ -802,6 +804,7 @@ export function createBrowserBridgeRouter(
             detached: body.detached === true,
             ...(topicId ? { topicId } : {}),
           });
+          recordHistoryRow(loginNoticeInput({ contextId: ctxId, url: browserService.getUrl(ctxId)?.url ?? "", topicId }));
         }
         return json({ ok: true, contextId: ctxId, mounted });
       }
