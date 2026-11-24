@@ -4093,6 +4093,13 @@ const IT: Dict = {
   'projectQuota.surface.single': 'Chiamate singole',
   'projectQuota.surface.outside': 'Fuori da Topics',
   'projectQuota.chatRow': '{title}: {day} in 24 ore, {week} in 7 giorni',
+  'worktrees.machines': 'Per macchina',
+  'worktrees.machines.this': 'questa macchina',
+  'worktrees.machines.offline': 'non risponde',
+  'worktrees.machines.free': '{n} GB liberi',
+  'worktrees.machines.foreign': 'fuori radice: {n}',
+  'worktrees.machines.oldNode': 'nodo vecchio: non riferisce i suoi worktree',
+  'worktrees.machines.notReported': 'nessun riepilogo ancora',
 };
 
 

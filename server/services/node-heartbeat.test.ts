@@ -121,7 +121,7 @@ describe("what a node reports about itself", () => {
       list: () => rows,
       client: {
         readRun: async () => { throw new NodeError("not_found", "nf", 404); },
-        readVersion: async ({ baseUrl }) => { if (baseUrl.includes("b.test")) throw new Error("old"); return "1.2.3"; },
+        readVersion: async ({ baseUrl }) => { if (baseUrl.includes("b.test")) throw new Error("old"); return { version: "1.2.3", worktreeStandard: false }; },
         codingModels: async ({ baseUrl }) => { if (baseUrl.includes("b.test")) throw new Error("old"); return ["claude-sonnet-5-5"]; },
       },
       tokenOf: () => "tok",

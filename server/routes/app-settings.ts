@@ -248,6 +248,26 @@ function parsePatch(body: Record<string, unknown>): {
   return { patch, errors };
 }
 
+/**
+ * The whole validation of a settings patch: every field by its rule, and a
+ * worktree root inside a project's repository refused (it nests checkouts in the
+ * repo, and file watchers and indexers then walk every one of them). Shared with
+ * the worktree policy a primary sends its node, so both doors refuse the same values.
+ */
+export function validateSettingsPatch(
+  body: Record<string, unknown>,
+  projects: ReadonlyArray<{ path?: string | null }>,
+): { patch: Partial<AppSettings>; errors: ValidationError[] } {
+  const { patch, errors } = parsePatch(body);
+  if (typeof patch.worktreeRoot === "string") {
+    const root = patch.worktreeRoot;
+    if (projects.some((p) => p.path && isInsideDir(root, p.path))) {
+      errors.push({ field: "worktreeRoot", message: "inside a project's repository" });
+    }
+  }
+  return { patch, errors };
+}
+
 /** Genera un token URL-safe a 128-bit (22 caratteri Base64url). */
 function generateToken(): string {
   // 16 byte → 128 bit di entropia: non deducibile per tentativi.
@@ -311,17 +331,7 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       if (!parsed || typeof parsed !== "object") {
         return json({ ok: false, error: "Body must be an object" }, 400);
       }
-      const { patch, errors } = parsePatch(parsed as Record<string, unknown>);
-      // A worktree root inside a project's repository nests checkouts in the repo
-      // (file watchers and indexers then walk every one of them): refused here,
-      // where the projects are known.
-      if (typeof patch.worktreeRoot === "string") {
-        const root = patch.worktreeRoot;
-        const projects = ctx.projectStore?.list?.() ?? [];
-        if (projects.some((p) => p.path && isInsideDir(root, p.path))) {
-          errors.push({ field: "worktreeRoot", message: "inside a project's repository" });
-        }
-      }
+      const { patch, errors } = validateSettingsPatch(parsed as Record<string, unknown>, ctx.projectStore?.list?.() ?? []);
       if (errors.length > 0) {
         return json({ ok: false, errors }, 400);
       }

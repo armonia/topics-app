@@ -28,6 +28,10 @@ export function createRegistrationDoor(ctx: AppContext): { deps: () => RegisterD
         });
         return hit ? { id: hit.id, slug: hit.slug, path: hit.path } : null;
       },
+      projectByRef: (ref) => {
+        const hit = ctx.projectStore.list().find((p) => p.slug === ref || p.id === ref);
+        return hit ? { id: hit.id, slug: hit.slug, path: hit.path } : null;
+      },
       isLinkedWorktree: (p) => worktreeAdminDir(p) !== null,
       exists: (p) => existsSync(p),
       headBranch: async (p) => {

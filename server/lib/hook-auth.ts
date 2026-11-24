@@ -7,9 +7,8 @@
 import { timingSafeEqual } from "node:crypto";
 
 export function isLocalhostRequest(req: Request): boolean {
-  // Behind Bun.serve, `req.headers.get('host')` is the Host header. We also
-  // accept the dev TLS host (localhost:3333 / 127.0.0.1:3333). The token is
-  // the real defense — this check is belt-and-braces.
+  // The Host header names the machine the caller addressed; loopback names
+  // only. The token is the real defense: this check is a second lock.
   const host = (req.headers.get("host") || "").toLowerCase();
   return host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("[::1]");
 }

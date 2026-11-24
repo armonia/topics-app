@@ -108,3 +108,30 @@ Il confronto fra una cartella e i cwd vivi (terminali, sottoagenti, processi avv
 - **GIVEN** un terminale vivo con cwd `C:\…\worktrees\repo\x\packages\a`
 - **WHEN** il GC chiede se qualcuno è dentro `C:\…\worktrees\repo\x` con piattaforma `win32`
 - **THEN** la risposta SHALL essere sì
+
+### Requirement: WORKTREE-STD-11 — Il nodo riferisce, il primario decide la policy, il nodo esegue
+
+Ogni server Topics SHALL restare l'unico che scrive la propria tabella `worktrees` e tocca il proprio disco; il primario SHALL tenere solo un riepilogo per macchina in `machines.worktree_summary` (`{supported, summary:{root, count, bytes, rootFreeGb, foreign, ghosts, orphans, scanMs, at}}`), scritto dal giro di heartbeat e solo quando cambia. `GET /api/version` SHALL dichiarare `worktreeStandard: 1`; un nodo che non lo dichiara SHALL essere registrato come vecchio e saltato senza chiamarlo e senza errore, e la UI SHALL dirlo. Sul nodo: `GET /api/nodes/worktrees[?list=1]` SHALL rispondere subito con l'ultima misura (nulla finché non c'è la prima; una misura scaduta ne avvia una nuova in background, una alla volta); `PUT /api/nodes/worktree-policy` (`root`, `maxPerProject`, `diskFloorGb`, `gcForeign`, `abandonDays`, `cargoTargetMode`, `dryRun?`) SHALL scrivere nelle impostazioni del nodo con le stesse regole di `PUT /api/app-settings`, e una policy fuori schema (chiave ignota, tipo sbagliato, valore rifiutato, corpo vuoto o non oggetto) SHALL dare 400 senza scrivere niente; `POST /api/nodes/worktrees/gc` SHALL lanciare la passata del nodo, e con `dryRun=1` SHALL restituire l'anteprima senza scrivere niente. Nessuna rotta SHALL rimuovere un percorso ricevuto dal chiamante: l'unica rimozione è la passata del GC del nodo col suo contratto di sicurezza. Le tre rotte SHALL accettare solo la credenziale del primario che tiene il canale del nodo o il proprietario della macchina; una credenziale delegata SHALL essere rifiutata con 403 prima di qualunque effetto, anche col ruolo di proprietario, e così un ospite. Sul primario `GET /api/machines/worktrees` SHALL dare una riga per macchina (questa per prima, misurata qui) e `PUT /api/machines/:id/worktree-policy` / `POST /api/machines/:id/worktree-gc` SHALL controllare la forma della policy prima di chiamare il nodo e inoltrare con la credenziale del nodo, mai con una delegata. Impostazioni > Worktree SHALL mostrare per ogni macchina worktree, GB, spazio libero sotto la radice e «fuori radice».
+
+#### Scenario: chi può chiedere
+- **GIVEN** le tre rotte del nodo
+- **WHEN** arriva una credenziale delegata (anche con ruolo di proprietario), un ospite o un nodo che non tiene il canale
+- **THEN** la risposta SHALL essere 403 e nessuna misura, policy o passata SHALL partire
+
+#### Scenario: anteprima e fuori schema
+- **GIVEN** una policy con `dryRun: true`, una con una chiave ignota e una con `root: "/tmp/wt"`
+- **WHEN** il primario le manda al nodo
+- **THEN** la prima SHALL rispondere prima/dopo senza scrivere, le altre due SHALL dare 400 e le impostazioni del nodo SHALL restare identiche
+
+#### Scenario: un nodo vecchio
+- **GIVEN** un nodo la cui `/api/version` non dichiara `worktreeStandard`
+- **WHEN** gira l'heartbeat o si chiede una policy o una passata
+- **THEN** il nodo SHALL non ricevere nessuna chiamata di worktree, la riga SHALL dire «nodo vecchio» e la risposta SHALL essere 200 `skipped`
+
+### Requirement: WORKTREE-STD-12 — Il bundle che porta un repo a un nodo non resta sul primario
+
+`node-pool` (`deploy/cloud-node/node-pool`, `sync_repo`) SHALL togliere il bundle locale in ogni esito, anche quando `scp` fallisce o scade, e il nodo SHALL togliere il suo appena lo script finisce. All'inizio di ogni `giro` e di ogni `hook` SHALL togliere dalla cartella di stato i `*.bundle` il cui processo non c'è più o più vecchi di un'ora, lasciando quelli di un trasferimento vivo.
+
+#### Scenario: scp fallito
+- **GIVEN** un `sync_repo` il cui `scp` esce non zero
+- **THEN** la cartella di stato SHALL non contenere alcun `.bundle`; un bundle di un processo morto SHALL sparire al giro dopo, uno di un processo vivo e recente SHALL restare

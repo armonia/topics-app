@@ -40,6 +40,19 @@ export const GC_FOREIGN_MODES = ["off", "merged"] as const;
 export type GcForeignMode = (typeof GC_FOREIGN_MODES)[number];
 export const DEFAULT_GC_FOREIGN_MODE: GcForeignMode = "off";
 
+/**
+ * Whether the Claude Code sessions Topics launches carry the WorktreeCreate /
+ * WorktreeRemove hooks (`scripts/claude-hooks/worktree-hook.sh`): `topics`, the
+ * default, puts every `--worktree`, `EnterWorktree` and `isolation: worktree` of
+ * those sessions under the worktree root; `off` leaves Claude Code its own
+ * `<repo>/.claude/worktrees`. Every other Claude session of the machine is the
+ * opt-in installer's (`install-claude-hooks.ts --worktrees`): the server never
+ * writes the user's `~/.claude`.
+ */
+export const CLAUDE_WORKTREE_HOOK_MODES = ["off", "topics"] as const;
+export type ClaudeWorktreeHookMode = (typeof CLAUDE_WORKTREE_HOOK_MODES)[number];
+export const DEFAULT_CLAUDE_WORKTREE_HOOK_MODE: ClaudeWorktreeHookMode = "topics";
+
 /** Bring a dial into its range; anything that is not a finite number falls to `fallback`. */
 export function clampInto(n: unknown, range: { min: number; max: number }, fallback: number): number {
   if (typeof n !== "number" || !Number.isFinite(n)) return fallback;

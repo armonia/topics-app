@@ -838,6 +838,7 @@ def memory_held(state, now):
 
 
 def giro():
+    sweep_stale_bundles()
     with Lock("giro"):
         state = load_state()
         now = time.time()
@@ -922,6 +923,7 @@ def giro():
 
 
 def hook():
+    sweep_stale_bundles()
     try:
         payload = json.load(sys.stdin)
     except Exception:
@@ -963,6 +965,55 @@ def hook():
     return 0
 
 
+BUNDLE_SUFFIX = ".bundle"
+# Longer than the worst live bundle: 300 s to create it plus 600 s of scp.
+STALE_BUNDLE_S = 3600
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def sweep_stale_bundles(now=None, state_dir=None):
+    """Remove the bundles a previous run left in the state dir: the process that wrote one is gone,
+    or it is older than any live transfer. Returns the names removed. Runs at the start of every
+    `giro` and `hook`, so a leak from before the try/finally (or a SIGKILL) is gone within a minute."""
+    now = time.time() if now is None else now
+    d = state_dir or ST
+    removed = []
+    try:
+        names = os.listdir(d)
+    except FileNotFoundError:
+        return removed
+    for f in names:
+        if not f.endswith(BUNDLE_SUFFIX):
+            continue
+        path = os.path.join(d, f)
+        pid_part = f[: -len(BUNDLE_SUFFIX)].rsplit("-", 1)[-1]
+        pid = int(pid_part) if pid_part.isdigit() else None
+        try:
+            age = now - os.path.getmtime(path)
+        except FileNotFoundError:
+            continue
+        mine = pid == os.getpid()
+        if mine or (pid is not None and _pid_alive(pid) and age < STALE_BUNDLE_S):
+            continue
+        try:
+            os.remove(path)
+            removed.append(f)
+        except FileNotFoundError:
+            pass
+    if removed:
+        log(f"bundle rimasti tolti: {len(removed)}")
+    return removed
+
+
 def sync_repo(sl, origin, repo, git_name, git_email):
     """Il ramo di default del repo va sul nodo con un git bundle (anche i repo privati: il nodo non ha token).
     Il clone sul nodo firma i suoi commit con l'identità di QUESTO checkout (letta dal Mac dal dispatcher),
@@ -973,20 +1024,28 @@ def sync_repo(sl, origin, repo, git_name, git_email):
     head = subprocess.run(["git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], capture_output=True, text=True).stdout.strip() or "origin/main"
     branch = head.split("/", 1)[1]
     ref = f"refs/remotes/origin/{branch}"
-    bundle = os.path.join(ST, f"{name}-{os.getpid()}.bundle")
-    b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
-    if b.returncode != 0:
-        raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
-    _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
-    known = known_file(sl['ip'])
-    subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
-    os.remove(bundle)
+    bundle = os.path.join(ST, f"{name}-{os.getpid()}{BUNDLE_SUFFIX}")
+    # The local bundle goes in every outcome: a failed or timed-out scp used to leave it here,
+    # and nothing else ever removed it (26 bundles, 2.7 GB in ten days).
+    try:
+        b = subprocess.run(["git", "-C", repo, "bundle", "create", bundle, ref], capture_output=True, text=True, timeout=300)
+        if b.returncode != 0:
+            raise SystemExit(f"node-pool: git bundle fallito: {b.stderr[-200:]}")
+        _SERVER_OF_IP[sl["ip"]] = sl["server_id"]
+        known = known_file(sl['ip'])
+        subprocess.run(["scp", "-q", "-i", KEY, "-o", "IPQoS=none", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={known}", bundle, f"root@{sl['ip']}:/tmp/{os.path.basename(bundle)}"], check=True, timeout=600)
+    finally:
+        try:
+            os.remove(bundle)
+        except FileNotFoundError:
+            pass
     # base64, not shell-quoted: a name/email may carry an apostrophe, and this whole block already
     # sits inside a single-quoted `su -c '...'` that a stray one would break out of.
     name64 = base64.b64encode(git_name.encode()).decode()
     email64 = base64.b64encode(git_email.encode()).decode()
     script = f"""set -e
 B=/tmp/{os.path.basename(bundle)}
+trap 'rm -f $B' EXIT
 chmod 644 $B
 su - topics -c '
 set -e

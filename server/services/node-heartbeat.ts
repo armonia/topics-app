@@ -18,6 +18,7 @@
  * sleeping PC every 30 seconds would keep it awake for ever.
  */
 import type { Machine } from "../../shared/types";
+import type { MachineWorktreeReport } from "../../shared/worktree-summary";
 import { isNodeError, type NodeClient } from "./node-client";
 
 /** A run id no node has: the answer we want to this probe is «not found». */
@@ -26,7 +27,7 @@ export const PROBE_RUN_ID = "heartbeat-probe";
 export interface NodeProbeDeps {
   /** Every machine row; the probe picks the paired nodes itself. */
   list: () => Machine[];
-  client: Pick<NodeClient, "readRun"> & Partial<Pick<NodeClient, "readVersion" | "codingModels">>;
+  client: Pick<NodeClient, "readRun"> & Partial<Pick<NodeClient, "readVersion" | "codingModels" | "worktreeSummary">>;
   /** The device token of a node, `null` when this server holds none. */
   tokenOf: (machineId: string) => string | null;
   /** Writes the heartbeat of a node (the row, nothing else) and returns it; `null` when the row is gone. */
@@ -40,6 +41,12 @@ export interface NodeProbeDeps {
   isCloud: (baseUrl: string | null) => boolean;
   /** Stores what the node reported about itself (version, models); the probe reads both best-effort. */
   recordReported?: (machineId: string, input: { version?: string | null; models?: string[] | null }) => Machine | null;
+  /**
+   * Stores the node's worktree summary (T12). A node whose version does not declare
+   * `worktreeStandard` is recorded as unsupported and never asked; one whose version could
+   * not be read is left as it was.
+   */
+  recordWorktreeReport?: (machineId: string, report: MachineWorktreeReport) => void;
   log?: (message: string, err?: unknown) => void;
 }
 
@@ -62,13 +69,31 @@ async function probeOnce(deps: NodeProbeDeps): Promise<void> {
           deps.client.readVersion?.({ baseUrl: node.baseUrl, token }).catch(() => null),
           deps.client.codingModels?.({ baseUrl: node.baseUrl, token }).catch(() => null),
         ]);
-        if (version || models) row = deps.recordReported(node.id, { version, models }) ?? row;
+        if (version?.version || models) row = deps.recordReported(node.id, { version: version?.version ?? null, models }) ?? row;
+        if (version) await reportWorktrees(deps, node, token, version.worktreeStandard);
       }
       if (row) deps.onRefreshed(row);
     } catch (err) {
       deps.log?.(`nodo: battito di ${node.name} non scritto`, err);
     }
   }));
+}
+
+/** The node's worktree summary into its row; a node without the routes is skipped without a call. */
+async function reportWorktrees(
+  deps: NodeProbeDeps,
+  node: Machine & { baseUrl: string },
+  token: string,
+  supported: boolean,
+): Promise<void> {
+  if (!deps.recordWorktreeReport) return;
+  if (!supported || !deps.client.worktreeSummary) {
+    deps.recordWorktreeReport(node.id, { supported: false, summary: null });
+    return;
+  }
+  // The node answers its last measure at once; null until its first one, and then nothing is overwritten.
+  const report = await deps.client.worktreeSummary({ baseUrl: node.baseUrl, token }).catch(() => null);
+  if (report?.summary) deps.recordWorktreeReport(node.id, { supported: true, summary: report.summary });
 }
 
 /**

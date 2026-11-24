@@ -3739,6 +3739,13 @@ const EN = {
   'projectQuota.surface.single': 'Single calls',
   'projectQuota.surface.outside': 'Outside Topics',
   'projectQuota.chatRow': '{title}: {day} in 24 hours, {week} in 7 days',
+  'worktrees.machines': 'Per machine',
+  'worktrees.machines.this': 'this machine',
+  'worktrees.machines.offline': 'not answering',
+  'worktrees.machines.free': '{n} GB free',
+  'worktrees.machines.foreign': 'outside the root: {n}',
+  'worktrees.machines.oldNode': 'older node: it does not report its worktrees',
+  'worktrees.machines.notReported': 'no report yet',
 } satisfies Dict;
 
 export default EN;
