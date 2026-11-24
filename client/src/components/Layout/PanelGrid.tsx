@@ -2288,7 +2288,9 @@ export function PanelGrid({
         // reopens the column lives there, inside the frame, or zooming a cell
         // other than (0,0) would push it off-screen with no way to reopen it.
         onToggleSidebar={
-          !isZoomed && (isMobile ? key === mobileVisibleKey : rowIdx === 0 && colIdx === 0)
+          // The HEAD of cell (0,0) only: a pane stacked under it shares its
+          // row and column, and drew a second toggle mid-screen.
+          !isZoomed && (isMobile ? key === mobileVisibleKey : rowIdx === 0 && colIdx === 0 && (effectiveGridRows[0]?.itemKeys[0] ?? key) === key)
             ? onToggleSidebar
             : undefined
         }
@@ -2342,7 +2344,7 @@ export function PanelGrid({
       onProjectActiveTopicChange, onProjectOpenPanesChange,
       onCreateTerminal, handleStandaloneUtilityChange, pendingBrowserPane,
       onPendingBrowserPaneConsumed, onOpenBrowserContextIds, promoteDraft,
-      draftMeta, handleSplitPane, handleUnsoloTopic,
+      draftMeta, handleSplitPane, handleUnsoloTopic, effectiveGridRows,
       canFlattenGrid, handleResetGridLayout,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
       onClosePanelImmediate, onToggleFissato, isFissato, pinnedClosable,
