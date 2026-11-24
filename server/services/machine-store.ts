@@ -151,8 +151,8 @@ export function createMachineStore(db: Database, baseDir: string): MachineStore 
   const reportedModels = new Map<string, string[]>();
 
   // Prepared on first use: a database older than the column answers null instead of failing the store.
-  let reportStmts: { get: ReturnType<Database["prepare"]>; set: ReturnType<Database["prepare"]> } | null = null;
-  const reports = () => (reportStmts ??= {
+  let reportStatements: { get: ReturnType<Database["prepare"]>; set: ReturnType<Database["prepare"]> } | null = null;
+  const reports = () => (reportStatements ??= {
     get: db.prepare(`SELECT worktree_summary FROM machines WHERE id = ?`),
     set: db.prepare(`UPDATE machines SET worktree_summary = ? WHERE id = ?`),
   });

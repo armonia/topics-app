@@ -40,8 +40,8 @@ import { stripCtrl } from "../lib/strip-ctrl";
 import { RELOCATE_ACTIONS, type RelocateAction, type WorktreePlanPayload } from "../../shared/worktree-plan";
 import type { RelocateService } from "../boot/worktree-relocate-wiring";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
-import { bearerMatches, isLocalhostRequest } from "../lib/hook-auth";
-import { placementFor, placementForProject, registerWorktree, unregisterWorktree, type RegisterDeps } from "../services/worktree-register";
+import { bearerMatches, isLoopbackHostRequest } from "../lib/hook-auth";
+import { placementFor, placementForProject, registerWorktree, forgetWorktree, type RegisterDeps } from "../services/worktree-register";
 
 /** The three routes of the registration door. */
 const REGISTRATION_PATHS = new Set(["/api/worktrees/register", "/api/worktrees/placement", "/api/worktrees/unregister"]);
@@ -66,7 +66,7 @@ export function authorizeRegistration(
 ): { status: 401 | 403; error: string } | null {
   if (identity?.delegatedAuthorizationId) return { status: 403, error: "a delegated credential cannot register worktrees" };
   if (identity?.role === "guest") return { status: 403, error: "not available to a guest" };
-  if (!isLocalhostRequest(req)) return { status: 403, error: "worktree registration is localhost-only" };
+  if (!isLoopbackHostRequest(req)) return { status: 403, error: "worktree registration is localhost-only" };
   if (!bearerMatches(req, token)) return { status: 401, error: "invalid hook token" };
   return null;
 }
@@ -218,7 +218,7 @@ export function createWorktreesRouter(ctx: AppContext, opts: WorktreesRouterOpts
       const body = await readJSON(req);
       if (!body || typeof body !== "object") return errorResponse(400, "body must be a JSON object");
       if (pathname === "/api/worktrees/unregister") {
-        const r = unregisterWorktree(deps, body.path);
+        const r = forgetWorktree(deps, body.path);
         if (r.status === 200 && r.body.removed && r.body.id) emit("worktree:deleted", { id: r.body.id });
         return json(r.body, r.status);
       }

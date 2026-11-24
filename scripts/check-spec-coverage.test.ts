@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { gitEnv } from "../tests/setup/bun-test-preload";
 
 const SCRIPT = resolve(import.meta.dir, "check-spec-coverage.ts");
 const UNTRACED_SCRIPT = resolve(import.meta.dir, "check-untraced-tests.ts");
@@ -209,7 +210,7 @@ describe("check-untraced-tests: the `A+B` form is a declaration", () => {
   function gitRoot(testBody: string): string {
     const root = fixtureRoot();
     write(root, "scripts/probe.test.ts", testBody);
-    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["init", "-q"], { cwd: root, env: gitEnv() });
     return root;
   }
 

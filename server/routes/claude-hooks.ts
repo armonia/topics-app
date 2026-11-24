@@ -11,7 +11,7 @@ import { endBashToolCall, forgetBashRecords, noteBashToolCall } from "../lib/bac
 import { delegationHookPath, hookScriptPath, worktreeHookPath, WORKTREE_HOOK_SCRIPT, writeHookScript } from "../lib/topics-hook-script";
 import { delegationHookScript } from "../lib/delegation-policy";
 import { hookEventTime } from "../lib/hook-order";
-import { bearerMatches, isLocalhostRequest } from "../lib/hook-auth";
+import { bearerMatches, isLoopbackHostRequest } from "../lib/hook-auth";
 
 /**
  * Where the hook auth token lives: under Topics' OWN home, never under
@@ -119,7 +119,7 @@ export function createClaudeHooksRouter(
     {
       const params = matchRoute(pathname, "/api/claude-hooks/:event");
       if (params && method === "POST") {
-        if (!isLocalhostRequest(req)) {
+        if (!isLoopbackHostRequest(req)) {
           return errorResponse(403, "claude-hooks endpoint is localhost-only");
         }
         if (!bearerMatches(req, token)) {

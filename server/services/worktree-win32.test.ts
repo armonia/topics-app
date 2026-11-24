@@ -40,26 +40,26 @@ describe("containment with the Windows separator", () => {
 describe("one folder, one key", () => {
   // A fake NTFS: case-insensitive, answering with the spelling it stores.
   const stored = new Map([["c:\\users\\u\\wt\\repo\\x", "C:\\Users\\u\\wt\\repo\\x"]]);
-  const realpath = (p: string) => {
+  const windowsLinks = (p: string) => {
     const hit = stored.get(p.toLowerCase());
     if (!hit) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     return hit;
   };
 
   test("two spellings of an existing path canonicalise to the stored one", () => {
-    expect(canonicalPath("c:\\users\\u\\wt\\repo\\x", { platform: W, realpath })).toBe("C:\\Users\\u\\wt\\repo\\x");
-    expect(canonicalPath("C:/Users/U/wt/repo/x", { platform: W, realpath })).toBe("C:\\Users\\u\\wt\\repo\\x");
+    expect(canonicalPath("c:\\users\\u\\wt\\repo\\x", { platform: W, realpath: windowsLinks })).toBe("C:\\Users\\u\\wt\\repo\\x");
+    expect(canonicalPath("C:/Users/U/wt/repo/x", { platform: W, realpath: windowsLinks })).toBe("C:\\Users\\u\\wt\\repo\\x");
   });
 
   test("a path that is gone keeps its tail, and the key ignores case", () => {
-    expect(canonicalPath("c:\\users\\u\\wt\\repo\\x\\gone", { platform: W, realpath })).toBe("C:\\Users\\u\\wt\\repo\\x\\gone");
-    expect(pathKey("C:\\Nowhere\\A", { platform: W, realpath })).toBe(pathKey("c:\\nowhere\\a", { platform: W, realpath }));
+    expect(canonicalPath("c:\\users\\u\\wt\\repo\\x\\gone", { platform: W, realpath: windowsLinks })).toBe("C:\\Users\\u\\wt\\repo\\x\\gone");
+    expect(pathKey("C:\\Nowhere\\A", { platform: W, realpath: windowsLinks })).toBe(pathKey("c:\\nowhere\\a", { platform: W, realpath: windowsLinks }));
   });
 
   test("two spellings of the same path find ONE row", () => {
     const row = { id: "w1", absPath: "C:\\Users\\u\\wt\\repo\\x" } as Worktree;
     const store = { getByAbsPath: (p: string) => (p === row.absPath ? row : null), list: () => [row] };
-    const deps = { store, platform: W, canonical: (p: string) => canonicalPath(p, { platform: W, realpath }) } as unknown as Parameters<typeof rowAtPath>[0];
+    const deps = { store, platform: W, canonical: (p: string) => canonicalPath(p, { platform: W, realpath: windowsLinks }) } as unknown as Parameters<typeof rowAtPath>[0];
     expect(rowAtPath(deps, "C:\\USERS\\U\\WT\\REPO\\X")?.id).toBe("w1");
     expect(rowAtPath({ ...deps, platform: "darwin" } as typeof deps, "C:\\USERS\\U\\WT\\REPO\\X")).toBeNull();
   });

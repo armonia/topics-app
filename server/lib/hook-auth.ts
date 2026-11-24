@@ -6,7 +6,7 @@
  */
 import { timingSafeEqual } from "node:crypto";
 
-export function isLocalhostRequest(req: Request): boolean {
+export function isLoopbackHostRequest(req: Request): boolean {
   // The Host header names the machine the caller addressed; loopback names
   // only. The token is the real defense: this check is a second lock.
   const host = (req.headers.get("host") || "").toLowerCase();
