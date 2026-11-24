@@ -208,25 +208,25 @@ export function bootQuiescence(
     // rimasta dietro a un turno gia' finalizzato trattiene un riavvio per
     // nessuno, e nessuno puo' nemmeno sbloccarlo (vedi `turnAlreadyFinished`).
     //
-    // E NON QUELLE FERME SU UNA PERSONA. Un turno bloccato su una domanda (o su un
-    // permesso) a schermo e' vivo: il suo processo interroga il bridge, la sua
-    // riga e' `partial = 1`. Ma non lavora, aspetta, ed e' la quarta fonte
-    // (`parked` qui sotto) a dirlo. Contato anche come stream passava per «chat in
-    // streaming» e per un turno che un riavvio perde: un'ora di domanda senza
-    // risposta teneva `/__daemon/idle` a `idle: false`, e dieci ore dopo era
-    // ancora li' (RGATE-12). Il registro in memoria del bridge e' quello giusto da
-    // leggere: dice «aspetta una persona» nell'istante in cui lo e', e smette
-    // nell'istante in cui qualcuno risponde, senza la coda di una sonda in cache.
+    // AND NOT THE ONES PARKED ON A PERSON. A turn blocked on a question on screen
+    // is alive: its process polls the bridge and its row is `partial = 1`. But it
+    // is not working, it is waiting, and the fourth source (`parked` below) is the
+    // one that says so. Counted as a stream as well, it passed for a "chat in
+    // streaming" and for a turn a restart would lose: one unanswered question held
+    // `/__daemon/idle` at `idle: false`, and ten hours later it was still there
+    // (RGATE-12). The bridge's in-memory registry is the right thing to read: it
+    // says "waiting for a person" the instant that is true and stops the instant
+    // someone answers, without the tail of a cached probe.
     const unfinished = unfinishedStreams(activeStreams.values(), turnAlreadyFinished)
       .filter((s) => !waitingKeys.has(s.sessionKey));
     //
-    // SOLO UNA DOMANDA, E SOLO SE IL SUO BRIDGE STA ANCORA INTERROGANDO. Non un
-    // permesso: la sua decisione muore col turno (`endStream` lo chiude come
-    // interrotto), quindi tagliare quel turno la perde, e resta fra chi lavora
-    // come prima. E non una voce del registro che nessuno interroga piu': una
-    // domanda viva e' interrogata ogni 25 s, una rimasta aperta dopo uno Stop o
-    // dopo una risposta data fra due giri e' un residuo, e un residuo non deve
-    // mai nascondere un turno che lavora (`askStillPolled`).
+    // ONLY A QUESTION, AND ONLY WHILE ITS BRIDGE IS STILL POLLING. Not a
+    // permission prompt: its decision dies with the turn (`endStream` closes it as
+    // interrupted), so cutting that turn loses it, and it stays among the working
+    // ones as before. And not a registry entry nobody polls any more: a live
+    // question is polled every 25 s, one left open after a Stop or after an answer
+    // given between two legs is a leftover, and a leftover must never hide a turn
+    // that is working (`askStillPolled`).
     const { working: liveStreams, onPerson: streamsOnPerson } = splitOnPerson(unfinished, (s) => s.sessionKey, (key) => askStillPolled(key));
     const streamKeys = liveStreams.map((s) => s.sessionKey);
     // La sonda del broker si paga, e si paga solo quando serve: se una fonte più
