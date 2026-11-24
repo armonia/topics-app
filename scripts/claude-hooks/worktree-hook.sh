@@ -30,7 +30,8 @@
 # after a fetch capped at 5 s (HEAD when there is no remote). Marker
 # `.git/worktrees/<id>/topics-owner` (v2: creator, session, machine), lock
 # `claude-code:<session id>`. Remove writes the tag `archive/wt-<name>` on HEAD
-# first and removes nothing when the tag does not read back.
+# first (with any uncommitted change on top of it) and removes nothing when the
+# tag does not read back.
 #
 # POSIX sh, git and curl; jq when present, sed otherwise. No path or name of a
 # person in here: everything comes from the environment or the server.
@@ -79,12 +80,14 @@ wt_token() {
 }
 
 # One call against one base: $1 base, $2 method, $3 path, then curl's own
-# data arguments. Prints the body on a 2xx.
+# data arguments. Prints the body on a 2xx. The token goes in on stdin
+# (`--header @-`, printf is a builtin): in an argument it would be readable by
+# every user of the machine through ps or /proc/<pid>/cmdline.
 wt_curl_once() {
   _cb="$1"; _cmethod="$2"; _cpath="$3"; shift 3
-  curl --silent --insecure --fail --max-time 2 --retry 0 \
+  printf 'Authorization: Bearer %s\n' "$WT_TOKEN" | curl --silent --insecure --fail --max-time 2 --retry 0 \
     --request "$_cmethod" \
-    --header "Authorization: Bearer $WT_TOKEN" \
+    --header @- \
     --header "Content-Type: application/json" \
     "$@" "$_cb$_cpath" 2>/dev/null
 }
@@ -105,7 +108,7 @@ wt_http() {
 }
 
 wt_register() { # path creator session_id transcript branch name
-  _body="{\"path\":$(wt_json_str "$1"),\"creator\":$(wt_json_str "$2")"
+  _body="{\"path\":$(wt_json_str "$(wt_native "$1")"),\"creator\":$(wt_json_str "$2")"
   if [ -n "$3" ]; then
     _body="$_body,\"session\":{\"id\":$(wt_json_str "$3")"
     [ -n "$4" ] && _body="$_body,\"transcript\":$(wt_json_str "$4")"
@@ -116,13 +119,20 @@ wt_register() { # path creator session_id transcript branch name
   wt_http POST /api/worktrees/register --data "$_body}"
 }
 
-wt_unregister() { wt_http POST /api/worktrees/unregister --data "{\"path\":$(wt_json_str "$1")}" >/dev/null 2>&1 || true; }
+wt_unregister() { wt_http POST /api/worktrees/unregister --data "{\"path\":$(wt_json_str "$(wt_native "$1")")}" >/dev/null 2>&1 || true; }
 
 # ---------------------------------------------------------------------------
 # Paths and names.
 # ---------------------------------------------------------------------------
 
 wt_physical() { (cd "$1" 2>/dev/null && pwd -P); }
+
+# A path in the host's native form: on Git for Windows `pwd -P` says
+# `/c/Users/x`, which the server reads as `C:\c\Users\x`. Every path sent to the
+# server or printed for Claude Code goes through this.
+wt_native() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
 
 # Git's common dir of the repository holding $1, physical. Fails outside a repo.
 wt_common_dir() {
@@ -170,7 +180,7 @@ wt_default_root() { printf '%s' "${TOPICS_WORKTREES_DIR:-$WT_HOME/worktrees}"; }
 # the server's placement when it answers, the default root otherwise.
 wt_placement() {
   WT_ROOT=""; WT_SLUG=""; WT_PROJECT_ID=""
-  _resp="$(wt_http GET /api/worktrees/placement --get --data-urlencode "repo=$1")" || _resp=""
+  _resp="$(wt_http GET /api/worktrees/placement --get --data-urlencode "repo=$(wt_native "$1")")" || _resp=""
   if [ -n "$_resp" ]; then
     WT_ROOT="$(wt_json_field "$_resp" root)"
     WT_SLUG="$(wt_json_field "$_resp" slug)"
@@ -212,9 +222,7 @@ wt_write_marker() { # path creator session_id transcript project_id
 }
 
 # The path as Claude Code reads it: native form on Git for Windows.
-wt_print_path() {
-  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s\n' "$1"; fi
-}
+wt_print_path() { printf '%s\n' "$(wt_native "$1")"; }
 
 # The base of a new branch: origin's default after a fetch capped at 5 s, HEAD
 # when there is no remote or the fetch did not bring it.
@@ -329,6 +337,24 @@ wt_archive_tag() { # common name head
   printf '%s' "$_t"
 }
 
+# The commit to archive: HEAD when the tree is clean, otherwise a commit on top
+# of HEAD holding the tree as it is (modified and untracked files; ignored ones
+# stay out, as in any commit). Built in a scratch index, so neither the
+# worktree's index nor any branch moves. Fails when the snapshot cannot be made.
+wt_snapshot() { # path head
+  [ -z "$(git -C "$1" status --porcelain 2>/dev/null)" ] && { printf '%s' "$2"; return 0; }
+  _sd="$(mktemp -d 2>/dev/null)" || return 1
+  _si="$_sd/index"
+  _st="$(GIT_INDEX_FILE="$_si" git -C "$1" read-tree "$2" 2>/dev/null \
+    && GIT_INDEX_FILE="$_si" git -C "$1" add -A 2>/dev/null \
+    && GIT_INDEX_FILE="$_si" git -C "$1" write-tree 2>/dev/null)"
+  rm -rf "$_sd"
+  [ -n "$_st" ] || return 1
+  _un="$(git -C "$1" config user.name 2>/dev/null)"; _ue="$(git -C "$1" config user.email 2>/dev/null)"
+  git -C "$1" -c user.name="${_un:-topics-worktree}" -c user.email="${_ue:-topics-worktree@localhost}" \
+    commit-tree "$_st" -p "$2" -m "worktree removed with uncommitted changes" 2>/dev/null
+}
+
 wt_remove() { # path
   _p="$1"
   [ -n "$_p" ] || return 0
@@ -347,9 +373,12 @@ wt_remove() { # path
   _head="$(git -C "$_p" rev-parse --verify --quiet HEAD 2>/dev/null)"
   _branch="$(git -C "$_p" symbolic-ref --quiet --short HEAD 2>/dev/null)"
   if [ -n "$_head" ]; then
-    _tag="$(wt_archive_tag "$_common" "$(wt_sanitize_name "$(basename "$_p")")" "$_head")" \
+    # Uncommitted work goes into the archive too: `remove --force` below drops it.
+    _keep="$(wt_snapshot "$_p" "$_head")" && [ -n "$_keep" ] \
+      || wt_die "uncommitted changes in $_p could not be archived: nothing removed"
+    _tag="$(wt_archive_tag "$_common" "$(wt_sanitize_name "$(basename "$_p")")" "$_keep")" \
       || wt_die "archive tag not written for $_p: nothing removed"
-    wt_log "archived $_head as $_tag"
+    wt_log "archived $_keep as $_tag"
   fi
   wt_git_repo "$_common" worktree unlock "$_p" >/dev/null 2>&1
   wt_git_repo "$_common" worktree remove --force "$_p" >&2

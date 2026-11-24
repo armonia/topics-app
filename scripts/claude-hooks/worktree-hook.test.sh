@@ -85,6 +85,39 @@ printf '{"worktree_path":"%s"}' "$tmp/codex-wt" | sh "$hook" remove 2>/dev/null
 ok "remove: a foreign lock is refused" "$?" 1
 ok "remove: the foreign worktree stays" "$([ -d "$tmp/codex-wt" ] && echo kept || echo lost)" "kept"
 
+# --- remove keeps uncommitted work in the archive -----------------------------
+dirty_path="$(create dirty | tail -n 1)"
+echo changed > "$dirty_path/a.txt"
+echo fresh > "$dirty_path/new.txt"
+printf '{"worktree_path":"%s"}' "$dirty_path" | sh "$hook" remove 2>/dev/null
+ok "remove dirty: exit 0" "$?" 0
+ok "remove dirty: a modified file is in the archive" "$(git -C "$repo" show 'archive/wt-dirty:a.txt' 2>/dev/null)" "changed"
+ok "remove dirty: an untracked file is in the archive" "$(git -C "$repo" show 'archive/wt-dirty:new.txt' 2>/dev/null)" "fresh"
+
+# --- Git for Windows: the server gets native paths, never MSYS ones -----------
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\n[ "$1" = -m ] && shift\nprintf "C:%%s\\n" "$1"\n' > "$tmp/fakebin/cygpath"
+chmod +x "$tmp/fakebin/cygpath"
+export FAKE_ROOT="$tmp/root3"
+start_fake
+PATH="$tmp/fakebin:$PATH" create winpath >/dev/null
+ok "windows: placement asked with the native repo path" "$(/usr/bin/grep -ci '^GET /api/worktrees/placement?repo=C%3A' "$tmp/requests.log")" 1
+ok "windows: registered with the native path" \
+  "$(/usr/bin/grep '^POST /api/worktrees/register ' "$tmp/requests.log" | sed 's/^POST \/api\/worktrees\/register //' | jq -r .path)" "C:$tmp/root3/demo/winpath"
+stop_fake
+
+# --- the token never sits in a command line (ps, /proc/<pid>/cmdline) ---------
+real_curl="$(command -v curl)"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/curl-argv.log"\nexec "%s" "$@"\n' "$tmp" "$real_curl" > "$tmp/fakebin/curl"
+rm -f "$tmp/fakebin/cygpath"
+chmod +x "$tmp/fakebin/curl"
+: > "$tmp/curl-argv.log"
+start_fake
+PATH="$tmp/fakebin:$PATH" create argv >/dev/null
+ok "token: the server still got the calls" "$(/usr/bin/grep -c '^POST /api/worktrees/register ' "$tmp/requests.log")" 1
+ok "token: absent from curl's arguments" "$(/usr/bin/grep -c abcdef0123456789 "$tmp/curl-argv.log")" 0
+stop_fake
+
 # --- mutation: without the archive tag the bar must go red --------------------
 sed 's/wt_git_repo "\$1" tag "\$_t" "\$3"/true/' "$hook" > "$tmp/mutant.sh"
 if cmp -s "$hook" "$tmp/mutant.sh"; then echo "FAIL mutation not applied"; fail=1; fi
