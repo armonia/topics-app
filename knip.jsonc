@@ -436,7 +436,7 @@
       // stryker.config.mjs), never imported; knip reads `testRunner: "bun"` and looks for an
       // official `@stryker-mutator/bun-runner` that does not exist. `@stryker-mutator/core` is
       // only its `stryker` binary, run through `bun --bun stryker` which knip does not parse.
-      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core"], // typescript7: alias del TS nativo, gli script lo usano per percorso
+      "ignoreDependencies": ["ws", "@types/ws", "axe-core", "typescript7", "@hughescr/stryker-bun-runner", "@stryker-mutator/bun-runner", "@stryker-mutator/core", "jscpd"], // jscpd: run by scripts/check-dup.ts through its binary path; typescript7: alias del TS nativo, gli script lo usano per percorso
 
       // Niente `ignore`. C'era `tests/e2e/**`, ed era il motivo per cui questo
       // check dava falsi positivi a raffica: un export usato SOLO da uno spec
