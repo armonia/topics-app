@@ -15,9 +15,10 @@
  * early stop, Topics' own margin under the five-hour wall, for the current
  * window; a provider's real wall offers no such button.
  *
- * The 24h spend cap is the one stop that is no provider's: it holds every card
- * past the gates, so while it holds one the chip, the strip and the card line
- * name it first, with the spend, the cap and when the cards restart.
+ * The 24h spend cap is no provider's, and this chip does not name it: the
+ * strip at the top of Todo and the line on each held card still do, and the
+ * "In progress" column's own gauge says it is the reason the queue is held
+ * (`loadWordKey` in `dispatchLoad.ts`).
  */
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowUpRight, Check, ChevronDown, CirclePause, Monitor } from 'lucide-react';
@@ -33,7 +34,7 @@ import { capMode } from '../../lib/board';
 import { useHubEverRead, useHubLive } from '../../state/hubLive';
 import { providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
 import { Menu } from '../Shared/Menu';
-import { brakeDetail, columnNoteView, heldCount, holdingBrakes, queueChipView, spendWhy, waitingClause, workingClause } from './brakeText';
+import { brakeDetail, columnNoteView, heldCount, holdingBrakes, queueChipView, waitingClause, workingClause } from './brakeText';
 import { TOOLBAR_CONTROL_H } from './constants';
 
 addCatalogue('it', BRAKES_IT);
@@ -66,7 +67,6 @@ function Row({ id, held, glyph, name, state, stateTone, detail, pct }: {
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * `band`: the phone's form, a full-width row under the bar, where the bar is a
@@ -86,7 +86,6 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const holding = holdingBrakes(state);
   const view = queueChipView(state, now, tr, locale);
   if (!view) return null;
-  const spend = state.spend;
   const metered = meteredProviders(live.pace?.data, live.gates?.data, now);
   const share = (p: string): number | null => (p === 'claude' ? state.claudeFiveHour : metered.find((m) => m.provider === p)?.fiveH ?? null);
   const muse = metered.find((m) => m.provider === 'muse') ?? null;
@@ -95,8 +94,7 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
   const load = typeof mac?.loadPerCore === 'number' ? mac.loadPerCore : null;
   const oneDecimal = (n: number) => n.toLocaleString(locale === 'en' ? 'en-GB' : 'it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const cap = capState.cap && capMode(capState.cap) === 'count' ? currentCapLimit(capState) : null;
-  const lead = spend ? tr('brake.pop.leadSpend')
-    : cap != null && Number.isFinite(cap) ? tr('brake.pop.leadCap', { cap, who: view.who }) : tr('brake.pop.lead', { who: view.who });
+  const lead = cap != null && Number.isFinite(cap) ? tr('brake.pop.leadCap', { cap, who: view.who }) : tr('brake.pop.lead', { who: view.who });
   // Only an early stop holding a card can be lifted: a provider's wall cannot.
   const liftable = holding.find((b) => b.liftable && heldCount(state, b.provider) > 0) ?? null;
   const lift = async () => {
@@ -113,7 +111,7 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
         data-testid={band ? 'board-brake-band' : 'board-brake-chip'}
         aria-expanded={open}
         aria-haspopup="dialog"
-        title={spend ? tr('brake.spend.title') : tr('brake.title', { who: view.who })}
+        title={tr('brake.title', { who: view.who })}
         onClick={() => setOpen((o) => !o)}
         className={`${band ? 'flex min-h-11 w-full items-start py-2.5 text-left text-compact leading-snug' : `flex ${TOOLBAR_CONTROL_H} items-center text-mini`} min-w-0 gap-1.5 rounded border border-amber-600/35 bg-amber-500/[0.14] px-2.5 dark:border-amber-400/30 dark:bg-amber-400/[0.12] ${WARNING_TEXT}`}
       >
@@ -130,10 +128,6 @@ export function BrakeChip({ band = false }: { band?: boolean } = {}) {
           <p className="text-compact font-semibold text-app-text-heading">{tr('brake.pop.title')}</p>
           <p data-testid="board-brake-lead" className="mt-0.5 text-mini leading-snug text-app-text-muted">{lead}</p>
         </div>
-        {spend && (
-          <Row id="spend" held glyph={pause} name={tr('brake.spend.who')} state={tr('brake.pop.held')} stateTone={`font-semibold ${WARNING_TEXT}`}
-            detail={`${capitalize(spendWhy(spend, now, tr, locale))} · ${waitingClause(spend.held.size, tr)}`} pct={Math.min(100, (spend.spentCents / spend.capCents) * 100)} />
-        )}
         {PROVIDERS.map((p) => {
           const wall = state.brakes.find((x) => x.provider === p) ?? null;
           const working = workingClause(state.working[p] ?? 0, tr);

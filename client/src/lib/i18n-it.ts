@@ -2053,6 +2053,7 @@ const IT: Dict = {
   'board.gauge.wait.drain': 'fermo: riavvio',
   'board.gauge.wait.frozen': 'aspetta: check congelati',
   'board.gauge.wait.floorElsewhere': 'Mac fermo · nodo libero',
+  'board.gauge.wait.spend': 'fermo: tetto di spesa',
   'board.gauge.nodeFree': '{name} {used}/{slots}',
   'board.gauge.nodeFull': '{name} occupato',
   'board.gauge.nodeOffline': '{name} offline',

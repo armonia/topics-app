@@ -9,8 +9,9 @@
  * (the cards on Automatic start on another runtime), so the chip never names a
  * brake the dispatcher is not applying to a card.
  *
- * The 24h spend cap comes first: it stops every card whatever its provider,
- * so while it holds a card the chip names it instead of the walls.
+ * The 24h spend cap is NOT named here: it stops every card whatever its
+ * provider, and the one place that says so is the "In progress" column's own
+ * gauge (`loadWordKey` in `dispatchLoad.ts`), not this chip.
  */
 import { PLAN_DISPATCH_HOLD_AT, providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
 import type { DispatchBrakeState, SpendStop } from '../../state/dispatchBrakes';
@@ -101,9 +102,10 @@ export function spendWhy(s: SpendStop, nowMs: number, tr: Translate, locale: str
   return tr('brake.why.spend', { ...amounts, when: whenLabel(s.untilMs, nowMs, tr, locale) });
 }
 
-/** What the chip says: the spend cap when it holds a card, else the walls that hold one, else null (no chip). */
+/** What the chip says: the walls that hold a card, else null (no chip). The 24h
+ *  spend cap is read from the "In progress" column header instead (`loadWordKey`
+ *  in `dispatchLoad.ts`), not named here. */
 export function queueChipView(state: DispatchBrakeState, nowMs: number, tr: Translate, locale: string): BrakeChipView | null {
-  if (state.spend) return { who: tr('brake.spend.who'), why: spendWhy(state.spend, nowMs, tr, locale) };
   return brakeChipView(holdingBrakes(state), nowMs, tr, locale);
 }
 
