@@ -43,19 +43,18 @@ function card(dir: string, file: string, opts: { name: string; description?: str
   writeFileSync(join(dir, file), fm);
 }
 
-function agent(id: string): AgentRecord {
-  return { id, name: id, job: "", workspace: "" };
+function agent(id: string, workspace = ""): AgentRecord {
+  return { id, name: id, job: "", workspace };
 }
 
 describe("discoverStores", () => {
   test("an agent's own folder is always a store, always received by it, no configuration needed", () => {
     const agentsHome = tmp("memory-agents-");
-    const storeDir = join(agentsHome, "jarvis", "memory");
+    const storeDir = join(agentsHome, "folder-not-the-id", "memory");
     card(storeDir, "lesson.md", { name: "Lesson" });
     writeFileSync(join(storeDir, "MEMORY.md"), "- [Lesson](lesson.md)\n");
 
-    const stores = discoverStores([agent("jarvis")], {
-      topicsAgentsHome: agentsHome,
+    const stores = discoverStores([agent("jarvis", join(agentsHome, "folder-not-the-id"))], {
       claudeProjectsHome: tmp("memory-projects-empty-"),
       config: {},
     });
@@ -63,6 +62,7 @@ describe("discoverStores", () => {
     expect(stores).toHaveLength(1);
     expect(stores[0]!.id).toBe("agent:jarvis");
     expect(stores[0]!.cards).toHaveLength(1);
+    expect(stores[0]!.path).toBe(storeDir);
     expect(stores[0]!.receivedBy).toEqual(["jarvis"]);
     expect(storeProblems(stores[0]!)).toEqual([]);
   });
@@ -74,7 +74,6 @@ describe("discoverStores", () => {
     // no MEMORY.md written: the second part of SYSTEM-03, an index that is not just unreceived but missing
 
     const stores = discoverStores([], {
-      topicsAgentsHome: tmp("memory-agents-empty-"),
       claudeProjectsHome: projectsHome,
       config: {},
     });
@@ -87,7 +86,7 @@ describe("discoverStores", () => {
 
     const problems = storeProblems(store);
     expect(problems.map((p) => p.kind).sort()).toEqual(["index-missing", "unreceived"]);
-    expect(problems.find((p) => p.kind === "unreceived")!.text).toContain(store.id);
+    expect(problems.find((p) => p.kind === "unreceived")!.text).toContain("topics-repo");
   });
 
   test("an index past Claude Code's own limit is flagged", () => {
@@ -96,8 +95,7 @@ describe("discoverStores", () => {
     card(storeDir, "lesson.md", { name: "Lesson" });
     writeFileSync(join(storeDir, "MEMORY.md"), "x".repeat(30_000));
 
-    const stores = discoverStores([agent("visione")], {
-      topicsAgentsHome: agentsHome,
+    const stores = discoverStores([agent("visione", join(agentsHome, "visione"))], {
       claudeProjectsHome: tmp("memory-projects-empty-2-"),
       config: {},
     });
@@ -118,8 +116,7 @@ describe("discoverStores", () => {
         guest: [{ storeId: "agent:jarvis", scope: "readonly" }],
       },
     };
-    const stores = discoverStores([agent("jarvis"), agent("visione"), agent("guest")], {
-      topicsAgentsHome: agentsHome,
+    const stores = discoverStores([agent("jarvis", join(agentsHome, "jarvis")), agent("visione", join(agentsHome, "visione")), agent("guest", join(agentsHome, "guest"))], {
       claudeProjectsHome: tmp("memory-projects-empty-3-"),
       config,
     });
@@ -155,8 +152,7 @@ describe("searchStores (SYSTEM-05)", () => {
     card(jarvisDir, "lesson.md", { name: "Lesson", body: "the gateway restarts on its own" });
     card(outreachDir, "lesson.md", { name: "Lesson", body: "the outreach gateway needs a token" });
 
-    const stores = discoverStores([agent("jarvis"), agent("outreach")], {
-      topicsAgentsHome: agentsHome,
+    const stores = discoverStores([agent("jarvis", join(agentsHome, "jarvis")), agent("outreach", join(agentsHome, "outreach"))], {
       claudeProjectsHome: tmp("memory-projects-empty-4-"),
       config: {},
     });

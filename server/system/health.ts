@@ -11,7 +11,7 @@
  * rules come from `storeProblems` (T6), never re-derived here.
  */
 import type { MemoryStore, MemoryStoreProblem } from "../memory/stores";
-import { storeProblems } from "../memory/stores";
+import { storeLabel, storeProblems } from "../memory/stores";
 
 import type { HealthDestination, HealthProblem, HealthSection, HealthSeverity } from "../../shared/agents-health";
 
@@ -54,7 +54,7 @@ export const HEALTH_PROBLEM_TYPES = {
   },
   "memory-unreceived": {
     severity: "warning",
-    sentence: (s) => `${s.label} holds notes that no agent receives.`,
+    sentence: (s) => `${s.label} hold${/^\d+ /.test(s.label) ? "" : "s"} notes that no agent receives.`,
     destination: agentOrRef("memory"),
   },
   "memory-index-missing": {
@@ -139,15 +139,24 @@ export function collectHealth(input: HealthInput): HealthProblem<HealthProblemTy
     out.push(problem("source-contradiction", c.id, { label: c.about, ref: c.id, detail: `${c.about} (${c.sources[0]} against ${c.sources[1]})` }, { about: c.about, first: c.sources[0], second: c.sources[1] }));
   }
 
+  // Unreceived project memories are one problem, not hundreds: nobody is meant to receive most of them.
+  const unreceivedProjects: string[] = [];
   for (const store of input.stores) {
     for (const p of storeProblems(store)) {
+      if (p.kind === "unreceived" && store.kind === "project") {
+        unreceivedProjects.push(store.id);
+        continue;
+      }
       const owner = store.ownerAgentId;
       out.push(problem(STORE_PROBLEM_TYPE[p.kind], `${store.id}`, {
-        label: owner ? `The memory of ${names.get(owner) ?? owner}` : `The memory "${store.id}"`,
+        label: owner ? `The memory of ${names.get(owner) ?? owner}` : `The memory "${storeLabel(store)}"`,
         ...(owner ? { agentId: owner } : {}),
         ref: store.id,
-      }, owner ? { agent: names.get(owner) ?? owner } : { store: store.id }));
+      }, owner ? { agent: names.get(owner) ?? owner } : { store: storeLabel(store) }));
     }
+  }
+  if (unreceivedProjects.length > 0) {
+    out.push(problem("memory-unreceived", "projects", { label: `${unreceivedProjects.length} project memories`, ref: unreceivedProjects[0] }, { count: String(unreceivedProjects.length) }));
   }
 
   for (const tool of input.tools) {
