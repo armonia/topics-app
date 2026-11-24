@@ -99,9 +99,12 @@ async function showGlobalBoard(page: Page) {
   await page.reload();
   await page.getByTestId("pane-add-menu-trigger").first().click();
   await page.getByTestId("pane-add-menu-board").click();
-  await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15_000 });
-  await page.getByTestId("board-view-list").click();
-  await page.getByTestId("board-group-by").click();
+  // The boards of earlier steps stay mounted behind their tabs (a device copy of the pane store
+  // brings them back on reload): only the one on screen is this step's, so every handle is scoped to it.
+  const onScreen = (testId: string) => page.locator(`[data-testid="${testId}"]:visible`).first();
+  await expect(onScreen("kanban-board")).toBeVisible({ timeout: 15_000 });
+  await onScreen("board-view-list").click();
+  await onScreen("board-group-by").click();
   await page.getByRole("option", { name: "Progetto", exact: true }).click();
 }
 

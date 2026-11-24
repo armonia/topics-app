@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderInput, GitPullRequestArrow, Loader2, Trash2 } from 'lucide-react';
+import { FolderInput, GitPullRequestArrow, Trash2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useConfirm } from '../../hooks/useConfirm';
 import { worktreesApi } from '../../lib/apiSystem';
 import { formatSize } from '../Browser/downloadsModel';
+import { Spinner } from '../Shared/Spinner';
 import type { RelocateAction, RelocateCheckPayload, WorktreePlanPayload, WorktreePlanEntryPayload } from '../../../../shared/worktree-plan';
 
 /** How many lines show before «show all»: a root can hold hundreds of folders. */
@@ -93,7 +94,7 @@ export function WorktreesPreview() {
           onClick={() => { setShown(true); void load(true); }}
           className="inline-flex items-center gap-1.5 rounded-sm border border-app-border px-2.5 py-1.5 text-compact text-app-text hover:bg-app-hover disabled:opacity-40 coarse:min-h-11"
         >
-          {busy && shown ? <Loader2 size={14} className="animate-spin" /> : <GitPullRequestArrow size={14} />}
+          {busy && shown ? <Spinner size="sm" box={14} tone="current" /> : <GitPullRequestArrow size={14} />}
           {t('worktrees.preview.open')}
         </button>
       </div>

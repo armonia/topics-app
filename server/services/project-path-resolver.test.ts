@@ -6,7 +6,7 @@ import { execFileSync } from "child_process";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { buildProjectCandidates, canonicalProjectFor, projectsInsideWorktrees, makeAliasPathFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
+import { buildProjectCandidates, canonicalProjectFor, projectsInsideWorktrees, readGitCheckoutFacts, makeAliasPathFinder, resolveProjectPath, isSelectableProjectDir, newProjectParentDir, type ProjectCandidate } from "./project-path-resolver";
 import { projectIdForPath } from "./tasks";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import type { ProjectStore } from "./project-store";
@@ -414,5 +414,50 @@ describe("projectsInsideWorktrees", () => {
       { id: "c", slug: "c", path: join(base, "plain", "gone"), parentId: null as string | null },
     ];
     expect(projectsInsideWorktrees(rows, { worktreeRoot: root }).map((p) => p.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("readGitCheckoutFacts", () => {
+  let base: string;
+  let repo: string;
+  let linked: string;
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd, encoding: "utf8", env: gitEnv() });
+  /** What `git rev-parse` answers for a folder: the question the function answers without running git. */
+  const askGit = (dir: string) => {
+    const [commonDir, topLevel] = git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel").trim().split("\n");
+    return { commonDir: realpathSync(commonDir!), topLevel: realpathSync(topLevel!) };
+  };
+
+  beforeAll(() => {
+    base = realpathSync(mkdtempSync(join(tmpdir(), "git-facts-")));
+    repo = join(base, "repo");
+    mkdirSync(join(repo, "pkg", "deep"), { recursive: true });
+    git(base, "init", "-q", repo);
+    writeFileSync(join(repo, "pkg", "a.txt"), "a");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "init");
+    linked = join(base, "wt");
+    git(repo, "worktree", "add", "-q", "-b", "feature", linked);
+  });
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+
+  it("reads what git says, with no process: main checkout, linked worktree and a subfolder of each", () => {
+    for (const dir of [repo, linked, join(repo, "pkg", "deep"), join(linked, "pkg")]) {
+      expect(readGitCheckoutFacts(dir)).toEqual(askGit(dir));
+    }
+  });
+
+  it("a linked worktree shares the common dir of its repository and has its own top level", () => {
+    const main = readGitCheckoutFacts(repo)!;
+    const wt = readGitCheckoutFacts(linked)!;
+    expect(wt.commonDir).toBe(main.commonDir);
+    expect(wt.topLevel).toBe(linked);
+  });
+
+  it("answers null outside any repository", () => {
+    const loose = join(base, "loose");
+    mkdirSync(loose);
+    expect(readGitCheckoutFacts(loose)).toBeNull();
   });
 });
