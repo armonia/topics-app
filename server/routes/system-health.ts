@@ -10,7 +10,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { readAgents, registryHome } from "../agents/registry";
 import { planSoulSplit } from "../agents/soul-sections";
-import { claudeProjectsHome, discoverStores, readMemoryStoresConfig, topicsAgentsHome } from "../memory/stores";
+import { claudeProjectsHome, discoverStores, readMemoryStoresConfig } from "../memory/stores";
 import { mcpFleetStatus } from "../providers/native/mcp-fleet";
 import { channelsDbPath, readChannelTitles, readTurnChannels } from "./agent-channels";
 import { registryHealthInput } from "../system/registry-health";
@@ -76,7 +76,7 @@ export function createSystemHealthRouter(ctx: Pick<AppContext, "json" | "db">): 
       missingPersonaFiles: personaGaps(a.workspace),
       hasOwnRules: soulHoldsRules(a.workspace),
     }));
-    const stores = discoverStores(records, { topicsAgentsHome: topicsAgentsHome(), claudeProjectsHome: claudeProjectsHome(), config: readMemoryStoresConfig(home) });
+    const stores = discoverStores(records, { claudeProjectsHome: claudeProjectsHome(), config: readMemoryStoresConfig(home) });
     const registry = registryHealthInput(home, readChannelTitles(channelsDbPath()));
     const tools = mcpFleetStatus().servers.map((s) => ({ name: s.name, ok: s.state === "ready" || s.state === "excluded", reason: s.reason }));
     const problems = collectHealth({

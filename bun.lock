@@ -13,7 +13,7 @@
         "zod": "^4.6.6",
       },
       "devDependencies": {
-        "@armonia-io/spec-flow": "0.4.0",
+        "@armonia-io/spec-flow": "0.5.0",
         "@hughescr/stryker-bun-runner": "1.6.0",
         "@playwright/test": "^1.58.2",
         "@stryker-mutator/core": "10.1.1",
@@ -35,7 +35,7 @@
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],
 
-    "@armonia-io/spec-flow": ["@armonia-io/spec-flow@0.4.0", "", { "peerDependencies": { "@playwright/test": ">=1.40.0" }, "optionalPeers": ["@playwright/test"], "bin": { "spec-flow": "dist/cli.mjs" } }, "sha512-PzZ6n+3uM6esGjBATpY7Zk1rI0iBYBSgoTrXqh76jPFOpiczfPc3k/XYsIqsK3iM6kuLYkAcM1EEmEVN4CCppA=="],
+    "@armonia-io/spec-flow": ["@armonia-io/spec-flow@0.5.0", "", { "peerDependencies": { "@playwright/test": ">=1.40.0" }, "optionalPeers": ["@playwright/test"], "bin": { "spec-flow": "dist/cli.mjs" } }, "sha512-lS+dyVgoz9gOM+7/l5pkiWt/iPJY+z9xxMqRpTxqlyZe6jQ4vbeSLN7a/pGF5ZJ9TOJbH11DsefS3S1wub/sUw=="],
 
     "@babel/code-frame": ["@babel/code-frame@8.0.6", "", { "dependencies": { "@babel/helper-validator-identifier": "^8.0.6", "js-tokens": "^10.0.0" } }, "sha512-uMHhvmDmwFiLuiozaoRYTZHqMFuu3fem/X9JY78lohAuLoh8LSGGC8JqUzo2cVuBsBxkjMZNk56CE7ock8Xxkw=="],
 
