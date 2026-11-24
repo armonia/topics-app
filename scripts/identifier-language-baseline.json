@@ -2948,9 +2948,7 @@
     "server/lib/grants-query.ts": [
       "dentro",
       "fuori",
-      "lista",
       "negati",
-      "perTipo",
       "righe"
     ],
     "server/lib/grants.test.ts": [
