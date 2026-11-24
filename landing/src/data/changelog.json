@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.96",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "bring main's any budget and identifier gate back to green",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.95",
     "date": "2026-11-24",
     "sections": {
@@ -8,6 +22,20 @@
         {
           "text": "a turn waiting for a person is parked, not streaming (#1634)",
           "scope": "restart-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.94",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "never let an isolated spawn_agent fall back to the remote fast path",
+          "scope": null
         }
       ],
       "perf": []

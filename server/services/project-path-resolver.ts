@@ -23,8 +23,7 @@
  * The pure `resolveProjectPath(id, candidates)` is unit-tested; the impure
  * `buildProjectCandidates` (fs + store reads) is assembled in server.ts.
  */
-import { spawnSync } from "child_process";
-import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
@@ -134,18 +133,38 @@ export interface CanonicalProjectDeps {
   worktreeRoot?: string;
 }
 
-/** `git rev-parse` for a folder: common dir and top level, both with symlinks resolved. */
+/** The git dir a `.git` FILE points at (a linked worktree or a submodule), resolved against the file's folder. */
+function gitDirOfFile(file: string): string | null {
+  const m = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(file, "utf8"));
+  return m ? resolve(dirname(file), m[1]!) : null;
+}
+
+/**
+ * Common dir and top level of a folder, both with symlinks resolved, read off the
+ * `.git` entries the way git reads them: a directory is the common dir itself; a
+ * file names a git dir whose `commondir` leads to the shared one (a linked
+ * worktree), or is the common dir when it has none (a submodule).
+ *
+ * NO process is spawned on purpose. The dispatcher asks this on every tick for
+ * every board, and a synchronous `git rev-parse` there stops the event loop for as
+ * long as git takes (LOOP-SPAWN-01), which under load is far more than the read
+ * itself. `null` when no `.git` is found up the tree or an entry cannot be read.
+ */
 export function readGitCheckoutFacts(dir: string): GitCheckoutFacts | null {
-  const r = spawnSync(
-    "git",
-    ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"],
-    { cwd: dir, encoding: "utf8", timeout: 5_000, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } },
-  );
-  if (r.status !== 0 || !r.stdout) return null;
-  const [commonDir, topLevel] = r.stdout.split("\n");
-  if (!commonDir || !topLevel) return null;
   try {
-    return { commonDir: realpathSync(commonDir), topLevel: realpathSync(topLevel) };
+    for (let top = resolve(dir); ; top = dirname(top)) {
+      const dotGit = join(top, ".git");
+      let isDir: boolean | null = null;
+      try { isDir = statSync(dotGit).isDirectory(); } catch { /* no .git here: look one folder up */ }
+      if (isDir !== null) {
+        const gitDir = isDir ? dotGit : gitDirOfFile(dotGit);
+        if (!gitDir) return null;
+        let commonDir = gitDir;
+        try { commonDir = resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim()); } catch { /* no commondir: the git dir is the common one */ }
+        return { commonDir: realpathSync(commonDir), topLevel: realpathSync(top) };
+      }
+      if (dirname(top) === top) return null;
+    }
   } catch {
     return null;
   }

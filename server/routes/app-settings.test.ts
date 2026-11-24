@@ -19,7 +19,7 @@
 
 import { describe, expect, test, beforeAll, afterAll, beforeEach, spyOn } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
@@ -350,7 +350,7 @@ describe("worktree settings (worktree-standard T1)", () => {
     expect(r.body.settings.worktreeRoot).toBe("/data/trees");
     const home = await put({ worktreeRoot: "~/trees" });
     expect(home.status).toBe(200);
-    expect(home.body.settings.worktreeRoot).toBe(join(require("os").homedir(), "trees"));
+    expect(home.body.settings.worktreeRoot).toBe(join(homedir(), "trees"));
   });
 
   test("a relative root and a /tmp root are refused, and the stored value does not move", async () => {

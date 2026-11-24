@@ -23,6 +23,12 @@ interface DeferredActionsArgs {
   browserCtx: ReturnType<typeof useBrowserContexts>;
   sidebarIsPinned: (id: string) => boolean;
   sidebarTogglePin: (id: string) => void;
+  pinnedCloseBlocked: PanelHandlers['pinnedCloseBlocked'];
+  /** Drops a closed-tab record: a closed row archived. */
+  removeClosedTab: (id: string) => void;
+  /** View setting: closing a chat archives it (the two-state model). Off, a
+   *  closed chat is a closed row and unpinning one archives nothing. */
+  closeArchives: boolean;
 }
 
 /**
@@ -33,6 +39,7 @@ export function useDeferredActions({
   topics, topicsRef, focusedPanelId, visiblePanels, openPanels, projectOpenPanes,
   handleClosePanel, handleFocusPanel, handleArchiveProject, handleCloseTerminal,
   archiveTopic, browserCtx, sidebarIsPinned, sidebarTogglePin,
+  pinnedCloseBlocked, closeArchives, removeClosedTab,
 }: DeferredActionsArgs) {
   // ── Pending-action wrappers (Things3-style soft-destructive flow) ──
   // Each soft-destructive action (close tab, archive topic, archive project)
@@ -79,6 +86,7 @@ export function useDeferredActions({
   }, [handleClosePanel]);
 
   const handleClosePanelDeferred = useCallback((topicId: string, onCommit?: () => void) => {
+    if (pinnedCloseBlocked(topicId)) return;
     const topic = topics[topicId];
     const label = topic?.name || topicId.replace(/^[a-z]+:/, '') || 'Tab';
     // Pre-shift focus to the tab that WILL receive focus on commit, so the
@@ -120,7 +128,7 @@ export function useDeferredActions({
         ? () => handleFocusPanel(focusBeforeClose!)
         : undefined,
     });
-  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel]);
+  }, [topics, handleClosePanel, enqueueAndTick, focusedPanelId, visiblePanels, handleFocusPanel, pinnedCloseBlocked]);
 
   const handleArchiveTopicDeferred = useCallback((topicId: string, archive: boolean): Promise<boolean> => {
     const topic = topicsRef.current[topicId];
@@ -144,6 +152,17 @@ export function useDeferredActions({
     });
     return Promise.resolve(true);
   }, [topicsRef, archiveTopic, enqueueAndTick]);
+
+  // A closed row that is not a chat archived from the column: its closed
+  // record goes after the same 3 s window, and the row with it.
+  const handleForgetClosedDeferred = useCallback((paneId: string, label?: string) => {
+    enqueueAndTick({
+      key: `forget-closed:${paneId}`,
+      kind: 'archive-topic',
+      label: label || paneId.replace(/^[a-z]+:/, ''),
+      commit: () => { removeClosedTab(paneId); },
+    });
+  }, [enqueueAndTick, removeClosedTab]);
 
   const handleArchiveProjectDeferred = useCallback((projectPath: string, archive: boolean): Promise<boolean> => {
     if (!archive) return handleArchiveProject(projectPath, false);
@@ -178,6 +197,8 @@ export function useDeferredActions({
    */
   const unpinAlsoArchives = useCallback((id: string): boolean => {
     if (
+      // Three states: an unpinned closed chat stays a closed row.
+      !closeArchives ||
       !sidebarIsPinned(id) ||
       id.startsWith('project:') ||
       id.startsWith('terminal:') ||
@@ -192,7 +213,7 @@ export function useDeferredActions({
       openPanels.includes(createPaneId('project', pp)),
     );
     return !openTopLevel && !openInLiveProject;
-  }, [sidebarIsPinned, topicsRef, openPanels, projectOpenPanes]);
+  }, [closeArchives, sidebarIsPinned, topicsRef, openPanels, projectOpenPanes]);
   const handleTogglePin = useCallback((id: string) => {
     // Chat-only unpin-while-closed archive semantics. Projects (`project:<path>`),
     // terminals (`terminal:<id>`) and browsers (`browser:<ctx>`) don't archive on
@@ -207,15 +228,17 @@ export function useDeferredActions({
   // we wrap it in the 3 s soft window. Right-click bypasses (touch
   // overflow menu) still call the raw handlers directly.
   const handleCloseTerminalDeferred = useCallback((sessionId: string, sessionName?: string) => {
+    if (pinnedCloseBlocked(createPaneId('terminal', sessionId))) return;
     enqueueAndTick({
       key: `close-terminal:${sessionId}`,
       kind: 'close-terminal',
       label: sessionName || 'Terminal',
       commit: async () => { await handleCloseTerminal(sessionId); },
     });
-  }, [handleCloseTerminal, enqueueAndTick]);
+  }, [handleCloseTerminal, enqueueAndTick, pinnedCloseBlocked]);
 
   const handleCloseBrowserDeferred = useCallback((contextId: string) => {
+    if (pinnedCloseBlocked(createPaneId('browser', contextId))) return;
     enqueueAndTick({
       key: `close-browser:${contextId}`,
       kind: 'close-browser',
@@ -253,12 +276,13 @@ export function useDeferredActions({
         await browserCtx.closeContext(contextId);
       },
     });
-  }, [browserCtx, enqueueAndTick, handleClosePanel]);
+  }, [browserCtx, enqueueAndTick, handleClosePanel, pinnedCloseBlocked]);
 
   return {
     handleClosePanelImmediate, handleClosePanelDeferred,
     handleArchiveTopicDeferred, handleArchiveProjectDeferred,
     unpinAlsoArchives, handleTogglePin,
     handleCloseTerminalDeferred, handleCloseBrowserDeferred,
+    handleForgetClosedDeferred,
   };
 }

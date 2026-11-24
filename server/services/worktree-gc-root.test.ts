@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
+import type { StoredWorktree } from "./worktree-gc-root-pass";
 import { lockOwned } from "./worktree-owner";
 import { defaultRunGit } from "./own-commits";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -28,7 +29,8 @@ function git(cwd: string, ...args: string[]): { code: number; out: string } {
   return { code: r.exitCode, out: new TextDecoder().decode(r.stdout).trim() };
 }
 
-type Row = { id: string; projectId: string; absPath: string; branchName: string | null; mode: "branch" | "reuse" | "detached"; status: "pending" | "ready" | "error"; createdAt: string; name?: string };
+/** A fake row: what the root pass reads of a stored worktree (the real contract), plus what `create` is given. */
+type Row = StoredWorktree & { mode: "branch" | "reuse" | "detached"; status: "pending" | "ready" | "error"; createdAt: string; name?: string };
 
 describe("the root pass of the worktree GC, on real git", () => {
   let base: string, repo: string, root: string;
@@ -85,7 +87,7 @@ describe("the root pass of the worktree GC, on real git", () => {
     const deps: WorktreeGcDeps = {
       db,
       worktreeStore: {
-        list: () => rows,
+        list: (): StoredWorktree[] => rows,
         update: (id, patch) => { const r = rows.find((x) => x.id === id); if (r) Object.assign(r, patch); return r; },
         create: (i) => { const r: Row = { id: `row-${nextId++}`, ...i, status: "pending", createdAt: new Date().toISOString() }; rows.push(r); return r; },
         listNamesForProject: (pid) => new Set(rows.filter((r) => r.projectId === pid).map((r) => r.name ?? "")),
@@ -128,6 +130,9 @@ describe("the root pass of the worktree GC, on real git", () => {
     git(abs, "add", "-A");
     expect(git(abs, "commit", "-q", "-m", "work").code).toBe(0);
     const tip = git(abs, "rev-parse", "HEAD").out;
+    // Writing and committing touched the folder: age it again AFTER the work, or on a filesystem
+    // with a real birth time (Linux) it reads as born a moment ago and the pass waits.
+    age(abs, 3 * DAY);
     const summary = await runner().runWorktreeGc();
     // The orphan is registered, judged unmerged and with no task: the checkout goes, the commits stay reachable.
     expect(summary!.root).toMatchObject({ registered: 1 });

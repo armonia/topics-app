@@ -112,7 +112,8 @@ test.describe("Impostazioni dei worktree", () => {
     const panel = await openForm(page);
     await expect(panel.getByTestId("worktrees-root")).toHaveValue(ROOT, { timeout: 15_000 });
 
-    await expect(panel.getByTestId("worktrees-preview-summary")).toContainText(/cartell[ae]/, { timeout: 15_000 });
+    // One ghost is planted, so the summary counts one folder, in the singular form.
+    await expect(panel.getByTestId("worktrees-preview-summary")).toContainText("1 cartella ·", { timeout: 15_000 });
     await panel.getByTestId("worktrees-preview-open").click();
     const list = panel.getByTestId("worktrees-preview-list");
     await expect(list).toBeVisible({ timeout: 20_000 });
