@@ -273,7 +273,7 @@
     "client/src/components/Sidebar/SidebarSystemMenu.tsx": 7,
     "client/src/components/Sidebar/SpaceGroups.tsx": 130,
     "client/src/components/Sidebar/TopicItem.tsx": 100,
-    "client/src/components/Sidebar/TopicTree.tsx": 667,
+    "client/src/components/Sidebar/TopicTree.tsx": 661,
     "client/src/components/Sidebar/VersionPanel.tsx": 24,
     "client/src/components/Sidebar/boardProjectChips.test.ts": 65,
     "client/src/components/Sidebar/boardProjectChips.ts": 214,

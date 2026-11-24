@@ -22,7 +22,7 @@ hermetic(test);
  * ON A TAB they are now SUCCESSIVE STATES of one slot (CHROME-12 as modified by
  * `tab-one-slot`): while the turn runs the slot is Stop, with no Close beside
  * it; once stopped, the same slot is Close. The sidebar row keeps its rail with
- * both commands in order, stop then archive, which the second test measures.
+ * both commands in order, stop then the circle that takes the row out of the way (close on an open tab, archive on a closed row), which the second test measures.
  * The geometry of the tab's slot is measured in `tab-one-slot.spec.ts`.
  *
  * It is a BEHAVIOUR, not a layout: video on, the .webm is the evidence.
@@ -163,9 +163,9 @@ test.describe.serial("Ferma prima di Chiudi", () => {
     await row.hover();
     const stop = row.locator('[data-testid="topic-row-stop"]');
     await expect(stop).toBeVisible({ timeout: 5_000 });
-    const archive = row.locator('[data-testid="topic-row-archive"]');
-    await expect(archive).toBeVisible({ timeout: 5_000 });
-    expect(await leftEdge(stop), "Ferma sta a sinistra del comando che archivia").toBeLessThan(await leftEdge(archive));
+    const circle = row.locator('[data-testid="topic-row-close"]');
+    await expect(circle).toBeVisible({ timeout: 5_000 });
+    expect(await leftEdge(stop), "Ferma sta a sinistra del cerchio che chiude la tab").toBeLessThan(await leftEdge(circle));
 
     await stop.click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });

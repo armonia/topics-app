@@ -509,8 +509,10 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
       || (isBrowser && !!a.onRenameBrowser));
 
     // Layout: only where it has effect. Not on the phone (no splits are drawn
-    // there) and not in the topic window (it has none).
-    const withLayout = inBar;
+    // there) and not in the topic window (it has none). The title of a cell
+    // on a desktop with the tabs at the side has it: it hands the layout
+    // commands in, and it is the only door to them (StandaloneChatGroup).
+    const withLayout = inBar || (surface === 'title' && !!(a.onSplitRight || a.onToggleZoom || a.onResetLayout || a.canMoveToSpace));
     const zoomAvailable = withLayout && !!a.onToggleZoom && (!!a.isZoomed || !!a.canZoom) && !isDraftPaneId(id);
     const moveToGroup = withLayout && a.canMoveToSpace && !isDetachedWindow() ? (() => {
       // The AUTHORITATIVE store pane: the bar's `panes` are rebuilt from ids
