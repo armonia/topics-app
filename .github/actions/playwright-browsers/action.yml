@@ -40,7 +40,7 @@ runs:
         key: ${{ steps.key.outputs.id }}-${{ hashFiles(inputs.lockfile) }}
         restore-keys: ${{ steps.key.outputs.id }}-
 
-    - name: Install browsers (retried: the apt mirror answers 503 now and then)
+    - name: Install browsers, retried because the apt mirror answers 503 now and then
       shell: bash
       run: |
         if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
