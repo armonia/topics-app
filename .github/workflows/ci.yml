@@ -1147,9 +1147,12 @@ jobs:
   # `e2e placement`, whose wait for runners (median 149 s between `changes` and
   # `prepare-e2e` on 80 runs) is longer than the build: it is off the critical
   # path. A shard that cannot download the bundle (this job red, an artifact
-  # missing) builds it itself, as before: the bundle saves time, never a verdict.
+  # missing) builds it itself, as before. The job continues on error (as living-doc
+  # does) and every step has a short cap, so it never turns the run red and never
+  # holds the shards long: the bundle saves time, never decides a verdict.
   client-bundle:
     timeout-minutes: 10
+    continue-on-error: true
     needs: changes
     if: ${{ needs.changes.outputs.e2e != 'false' }}
     runs-on: ubuntu-24.04
@@ -1165,10 +1168,12 @@ jobs:
 
       - name: Install server deps (root)
         continue-on-error: true
+        timeout-minutes: 3
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Install client deps
         continue-on-error: true
+        timeout-minutes: 3
         run: bun install --frozen-lockfile
         working-directory: client
 
@@ -1181,6 +1186,7 @@ jobs:
       - name: Upload the bundle for the shards
         if: steps.build.outcome == 'success'
         continue-on-error: true
+        timeout-minutes: 2
         uses: actions/upload-artifact@v4
         with:
           name: client-bundle
