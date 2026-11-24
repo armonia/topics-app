@@ -2,7 +2,7 @@
 
 ## Barra eseguibile
 ```
-bun test client/src/lib/splitIntent.test.ts                   # T1-T2: zona → intento, per sorgente, superficie e tetto
+bun test client/src/components/Layout/gridPaneDrop.test.ts  # T1: dove atterra una pane, per ogni sorgente, e i tetti
 bun test client/src/components/Layout/splitKeyboard.test.ts   # T3-T6: frecce sul divisore, fuoco fra celle
 bun test client/src/components/Shared/tabSheetEntries.test.ts # T5: Disposizione completa in ogni foglio
 bun test client/src/components/Shared/SplitMiniMap.test.ts    # T7: mappa per gli split di progetto
@@ -26,7 +26,7 @@ Dato una griglia con una cella
 Quando trascino una riga sul bordo destro e mi fermo
 Allora l'impronta occupa la metà destra della cella e porta icona e nome della chat
 E sul centro l'impronta è un contorno dell'intera cella, senza velo
-E al tetto delle quattro colonne il bordo destro non si offre
+E al tetto delle colonne (`MAX_COLS_PER_ROW`) il bordo destro non si offre
 
 ## Scenario: la cella dice cosa contiene (SPLIT-03)
 Dato una griglia divisa in due, tab di lato

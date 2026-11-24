@@ -11,7 +11,7 @@ The grid and the project window SHALL read one intent from the drop zone, whatev
 
 ### Requirement: SPLIT-02 — L'anteprima è l'impronta della pane, con il suo nome
 
-During a drag exactly one indicator SHALL be painted: on an edge, the area the pane will occupy, carrying the icon and name of the dragged item; on the centre, an outline of the cell without a fill. An edge that would exceed the 4 × 4 cap SHALL NOT be offered.
+During a drag exactly one indicator SHALL be painted: on an edge, the area the pane will occupy, carrying the icon and name of the dragged item; on the centre, an outline of the cell without a fill. An edge that would exceed the column, row or stack cap (`constants.ts`) SHALL NOT be offered.
 
 #### Scenario: impronta sul bordo destro
 - **GIVEN** a grid with one cell

@@ -9,7 +9,7 @@ Misurato il 24/11 sull'app vera (dati di prova, 1440 px):
 - **I divisori non si usano da tastiera** (`role=separator` senza fuoco né valore) e la mini mappa non c'è per gli split dentro un progetto.
 
 ## Cosa cambia
-1. **Un vocabolario su ogni superficie** (griglia, finestra di progetto) e da ogni sorgente (riga della colonna, tab, tessera fissata, testata della cella): bordo della cella = dividi da quel lato; centro = apri qui; bordo della superficie = riga o colonna intera. Al tetto dei 4 × 4 il bordo di quell'asse non si offre.
+1. **Un vocabolario su ogni superficie** (griglia, finestra di progetto) e da ogni sorgente (riga della colonna, tab, tessera fissata, testata della cella): bordo della cella = dividi da quel lato; centro = apri qui; bordo della superficie = riga o colonna intera. Al tetto di colonne, righe o pile (`constants.ts`) il bordo di quell'asse non si offre.
 2. **L'anteprima è l'impronta vera**: la parte che la pane occuperà, con icona e nome di ciò che porti; il centro è un contorno, non un velo su tutta la cella.
 3. **Testata della cella** quando la superficie è divisa e le tab stanno di lato: icona, nome, Ingrandisci, Togli dallo split. Si trascina come una tab, il clic dà il fuoco, la cella col fuoco ha la testata accesa.
 4. **Divisori**: filo a riposo, accento in hover e trascinamento, doppio clic pareggia; da tastiera Tab ci arriva, le frecce spostano del 5%, Invio pareggia, il valore si legge (`aria-valuenow`).
@@ -17,7 +17,7 @@ Misurato il 24/11 sull'app vera (dati di prova, 1440 px):
 6. **Fuoco fra le celle da tastiera**: ⌘⌥ + frecce.
 7. **Mini mappa anche per gli split dentro un progetto**, sulla riga del progetto.
 
-Resta tutto ciò che c'è: gli scenari di LAYOUT-01, la colonna impilata contro la riga intera, il tetto 4 × 4, il doppio clic che pareggia, lo zoom (corredo e sola cella), gli spazi, gli split fluttuanti, la persistenza, nessun ricaricamento quando una pane cambia cella (SPLITPERF-01), il telefono senza split.
+Resta tutto ciò che c'è: gli scenari di LAYOUT-01, la colonna impilata contro la riga intera, i tetti di colonne, righe e pile, il doppio clic che pareggia, lo zoom (corredo e sola cella), gli spazi, gli split fluttuanti, la persistenza, nessun ricaricamento quando una pane cambia cella (SPLITPERF-01), il telefono senza split.
 
 ## Barra
 `specs/acceptance.md`: test unitari per traccia, `tests/e2e/split-da-zero.spec.ts` con video SPLIT-01..07, mutazioni sui punti critici, e prima/dopo a 375, 768, 1440 e 3440 px. Ciò che è verde resta verde (le spec di split esistenti girano in CI).
