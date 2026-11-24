@@ -182,3 +182,14 @@ describe("performance/spec.md dice quali budget bloccano", () => {
     expect(spec).toMatch(/exit 2 = not measured/i);
   });
 });
+
+describe("the growth job builds the client before its bench", () => {
+  it("a build:client step precedes check:growth", () => {
+    const ci = readFileSync(CI, "utf8");
+    const job = ci.slice(ci.indexOf("\n  growth:"));
+    const build = job.indexOf("run: bun run build:client");
+    const bench = job.indexOf("bun run check:growth");
+    expect(build).toBeGreaterThan(0);
+    expect(build).toBeLessThan(bench);
+  });
+});
