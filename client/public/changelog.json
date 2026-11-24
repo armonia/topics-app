@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.4.97",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [
+        {
+          "it": "tabs live in one place, with three states for every kind",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "three states inside project windows, gates green, suite on the old layout",
+          "en": "",
+          "scope": "sidebar",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an open row's circle closes its tab, the stop test and the target-size audit read it",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.96",
     "date": "2026-11-24",
     "sections": {
