@@ -26,7 +26,10 @@
  *  8. `install --worktrees` adds the synchronous WorktreeCreate / WorktreeRemove
  *     pair (opt-in: a plain install leaves it alone), uninstall removes it.
  *
- * @covers CCS-06, WORKTREE-STD-13
+ * The installer of CCS-06 is the one that writes the WorktreeCreate / WorktreeRemove pair of
+ * WORKTREE-STD-13 (point 8), idempotently: that meeting is the joint group below.
+ *
+ * @covers CCS-06+WORKTREE-STD-13
  *
  * Hook installer idempotency. Strong proof: it runs the real script as a
  * subprocess with a temporary HOME, i.e. the same path a person takes. Partial

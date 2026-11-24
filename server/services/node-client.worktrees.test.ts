@@ -5,7 +5,10 @@
  * `machines.worktree_summary`, and the node's summary measured from its
  * cleanup preview without ever making the heartbeat wait.
  *
- * @covers WORKTREE-STD-11
+ * The node's credential and the `machines` row are the meeting with MACHINE-02: the three calls carry
+ * the node cookie and never a delegation, and the summary lives in `machines.worktree_summary`.
+ *
+ * @covers WORKTREE-STD-11+MACHINE-02
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

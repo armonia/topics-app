@@ -4,7 +4,12 @@
  * Real git and real folders under `mkdtemp`; the store and the manager are fakes
  * that record what they are asked.
  *
- * @covers WORKTREE-STD-03
+ * The root pass hands what it finds to the sweep of WORKTREE-09, and these tests run both on real git:
+ * an orphan is registered and then judged like any other row, an unmerged tip is pinned under the
+ * archive ref before its checkout is freed, a locked or young folder is kept. That meeting is the one
+ * `**Intersects:**` declares, hence the joint group below.
+ *
+ * @covers WORKTREE-STD-03+WORKTREE-09
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
