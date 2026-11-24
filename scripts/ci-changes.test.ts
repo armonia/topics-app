@@ -361,15 +361,15 @@ describe("the lists against the import closure of what each job runs", () => {
 });
 
 describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
-  type Step = { name?: string; uses?: string; if?: string };
-  type Job = { needs?: string | string[]; if?: string; strategy?: { matrix?: Record<string, string | string[]> }; steps?: Step[] };
+  type Step = { name?: string; id?: string; uses?: string; if?: string; run?: string; "continue-on-error"?: boolean; "timeout-minutes"?: number };
+  type Job = { needs?: string | string[]; if?: string; outputs?: Record<string, string>; strategy?: { matrix?: Record<string, string | string[]> }; steps?: Step[] };
   const doc = (Bun as unknown as { YAML: { parse(text: string): { jobs: Record<string, Job> } } }).YAML.parse(readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8"));
   const jobs = doc.jobs;
 
   const E2E_FAMILY = new Set(["prepare-e2e", "e2e"]);
   const truthyResult = (v: unknown) => !(v === "" || v === 0 || v === false || v === null || v === undefined);
 
-  type Answer = { e2e: string; tauri: string; process_groups: string; tauri_systems: string };
+  type Answer = { e2e: string; tauri: string; process_groups: string; tauri_systems: string; proven?: string };
   const answerOf = (files: string[]): Answer => {
     const v = classify(files, OS_CLOSURE);
     return {
@@ -380,20 +380,22 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
     };
   };
 
-  type Ctx = { answer: Answer; event: string; shard?: number };
+  type Ctx = { answer: Answer; event: string; shard?: number; steps?: Record<string, Record<string, string>> };
 
   /** The value of a dotted name, for the few contexts ci.yml reads in the e2e family. Anything else throws. */
   function lookup(path: string, ctx: Ctx): unknown {
     const changes = /^needs\.changes\.outputs\.(\w+)$/.exec(path);
     if (changes) return (ctx.answer as Record<string, string>)[changes[1]!] ?? "";
     if (path === "needs.prepare-e2e.outputs.plan-ok") return "";
-    if (/^steps\.\w+\.outputs\.\w+$/.test(path)) return "";
+    const step = /^steps\.(\w+)\.outputs\.(\w+)$/.exec(path);
+    if (step) return ctx.steps?.[step[1]!]?.[step[2]!] ?? "";
     if (path === "github.event_name") return ctx.event;
     // The Hetzner server of the e2e shards (hcloud jobs): a same-repo event, no server.
     if (path === "github.repository" || path === "github.event.pull_request.head.repo.full_name") return "armonia/topics-app";
     if (path === "needs.hcloud.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     if (path === "needs.prepare-e2e.result") return "success";
     if (path === "needs.changes.result") return "success";
+    if (path === "needs.client-bundle.result") return ctx.answer.e2e === "false" ? "skipped" : "success";
     // `e2e` always ends success, even when the answer is false (the single `e2e (0)`): the
     // living-doc job reads it and must still skip itself on that answer.
     if (path === "needs.e2e.result") return "success";
@@ -499,12 +501,15 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
 
   const EXEMPT = "Nothing the e2e shards read has changed";
 
+  // unit, gates and gates-2 need `changes` only for its `proven` answer (a tree a pull
+  // request run already judged): no path answer reaches them, see the next test.
   it("only unit, gates, gates-2, check and changes never wait for a path", () => {
     const needsOf = (j: Job) => [j.needs ?? []].flat();
-    expect(needsOf(jobs.unit!)).toEqual([]);
-    expect(needsOf(jobs.gates!)).toEqual([]);
-    expect(needsOf(jobs["gates-2"]!)).toEqual([]);
-    expect(needsOf(jobs.check!).sort()).toEqual(["gates", "gates-2", "unit"]);
+    for (const name of ["unit", "gates", "gates-2"]) {
+      expect(needsOf(jobs[name]!), name).toEqual(["changes"]);
+      expect(jobs[name]!.if, name).toBe("${{ !cancelled() && needs.changes.outputs.proven != 'true' }}");
+    }
+    expect(needsOf(jobs.check!).sort()).toEqual(["changes", "gates", "gates-2", "unit"]);
     expect(needsOf(jobs.changes!)).toEqual([]);
     for (const name of ["prepare-e2e", "e2e", "process-groups", "tauri"]) expect(needsOf(jobs[name]!), name).toContain("changes");
   });
@@ -522,6 +527,62 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
   it("the same on a push to main: one job, only the notice", () => {
     const run = plan(answerOf(["docs/x.md"]), "push");
     expect(run.e2e).toEqual([{ leg: "0", steps: [EXEMPT] }]);
+  });
+
+  /** The answer the `changes` job hands on, computed from its own output expressions. */
+  const changesOutputs = (scope: Answer, proven: string): Answer => {
+    const ctx: Ctx = { answer: scope, event: "push", steps: { scope: { ...scope }, proof: { proven } } };
+    return Object.fromEntries(Object.entries(jobs.changes!.outputs!).map(([k, v]) => [k, String(evaluate(v, ctx))])) as Answer;
+  };
+
+  it("the outputs of `changes`: a judged tree answers false everywhere, otherwise the scope passes through", () => {
+    const scope = answerOf(["server/index.ts"]);
+    expect(scope.e2e).toBe("true");
+    const judged = changesOutputs(scope, "true");
+    expect([judged.e2e, judged.tauri, judged.process_groups, judged.proven]).toEqual(["false", "false", "false", "true"]);
+    for (const proven of ["", "false"]) {
+      const open = changesOutputs(scope, proven);
+      expect([open.e2e, open.tauri, open.process_groups]).toEqual([scope.e2e, scope.tauri, scope.process_groups]);
+    }
+  });
+
+  it("the tree steps of `changes` fail open: a broken or slow registry costs the saving, never the verdict", () => {
+    const steps = jobs.changes!.steps!;
+    const mark = steps.find((st) => st.run?.includes("tree-verdict --mark"))!;
+    const proof = steps.find((st) => st.id === "proof")!;
+    const scope = steps.find((st) => st.id === "scope")!;
+    for (const st of [mark, proof]) {
+      expect(st["continue-on-error"], st.name).toBe(true);
+      expect(st["timeout-minutes"], st.name).toBeLessThanOrEqual(2);
+    }
+    expect(proof.run).toMatch(/--github-output \|\| true$/);
+    // the scope runs whatever happened to the proof, unless it said proven
+    const scopeRuns = (proven: string) => truthyResult(evaluate(scope.if!, { answer: answerOf([]), event: "push", steps: { proof: { proven } } }));
+    expect([scopeRuns(""), scopeRuns("false"), scopeRuns("true")]).toEqual([true, true, false]);
+  });
+
+  it("client-bundle is never a verdict and the shards build when its bundle is missing", () => {
+    expect((jobs["client-bundle"] as Job & { "continue-on-error"?: boolean })["continue-on-error"]).toBe(true);
+    // every step, checkout and setup included: a red job of a run still going is a red card on the board
+    for (const st of jobs["client-bundle"]!.steps!) {
+      expect(st["continue-on-error"], st.name).toBe(true);
+    }
+    const shard = jobs.e2e!.steps!;
+    expect(shard.find((st) => st.id === "bundle")?.["continue-on-error"]).toBe(true);
+    const build = shard.find((st) => st.name?.startsWith("Build client"))!.run!;
+    expect(build).toMatch(/if \[ "\$BUNDLE_OUTCOME" = success \] && \[ -f public\/index\.html \]; then[\s\S]*else\s+bun run build:client/);
+  });
+
+  it("a push to main whose tree a pull request run already judged: no suite, no heavy step", () => {
+    const judged = changesOutputs(answerOf(["server/index.ts"]), "true");
+    const run = plan(judged, "push");
+    expect(Object.keys(run).sort()).toEqual(["changes", "e2e", "growth", "prepare-e2e"]);
+    expect(run.e2e).toEqual([{ leg: "0", steps: [EXEMPT] }]);
+  });
+
+  it("the same push without that proof runs the suite", () => {
+    const run = plan(changesOutputs(answerOf(["server/index.ts"]), ""), "push");
+    for (const name of ["unit", "gates", "gates-2", "check"]) expect(Object.keys(run), name).toContain(name);
   });
 
   it("a client change: nine e2e legs with their steps, the exempt step nowhere, no tauri, no process-groups", () => {

@@ -282,18 +282,19 @@ Mac, un operatore) non aveva un cammino che non cambiasse lo stato. Il server
 SHALL esporre `GET /__daemon/idle`, di SOLA LETTURA, dietro lo stesso loopback e
 lo stesso bearer degli altri `/__daemon/*`.
 
-La risposta SHALL dire `idle`, `inFlight` (`taskDispatcher.busyCount()`),
-`holding` (la frase di `whatIsStillWorking`, `null` se niente trattiene),
+La risposta SHALL dire `idle` (niente LAVORA: vedi RGATE-12), `inFlight`
+(`taskDispatcher.busyCount()`), `holding` (la frase di `whatIsStillWorking`,
+`null` se niente trattiene, comprese le chat ferme su una persona),
 `unrecoverable` (card in volo più chat non riadottabili: la somma che il
-cancello passa a `quiescenceVerdict`) e `alreadyWaiting` (se un'attesa di
-riavvio è già in corso). SHALL leggere gli stessi predicati del cancello e NON
-SHALL avviare un'attesa, toccare la porta del dispatcher (`drain`/`undrain`) né
-mandare segnali.
+cancello passa a `quiescenceVerdict`), `waitingOnPerson` (quante chat aspettano
+una persona) e `alreadyWaiting` (se un'attesa di riavvio è già in corso). SHALL
+leggere gli stessi predicati del cancello e NON SHALL avviare un'attesa, toccare
+la porta del dispatcher (`drain`/`undrain`) né mandare segnali.
 
 #### Scenario: server a riposo
 - **GIVEN** un server senza turni in volo e senza attese di riavvio
 - **WHEN** arriva `GET /__daemon/idle` con il token del daemon
-- **THEN** la risposta SHALL essere 200 con `idle: true`, `holding: null`, `alreadyWaiting: false`
+- **THEN** la risposta SHALL essere 200 con `idle: true`, `holding: null`, `waitingOnPerson: 0`, `alreadyWaiting: false`
 - **AND** il server SHALL essere ancora in vita dopo la risposta, senza attesa avviata
 
 #### Scenario: senza token
@@ -427,3 +428,79 @@ chiedere e la card resterebbe `in_progress` con la spia dei check spenta al boot
 - **GIVEN** una consegna a cui il cancello ha risposto «ancora in corso» senza aver mai risolto un checkout, su una card che porta il commit di una misura precedente
 - **WHEN** il processo dopo riparte
 - **THEN** la consegna riemessa SHALL riallinearsi su main prima di misurare
+
+### Requirement: RGATE-12 — Un turno che aspetta una PERSONA non LAVORA
+
+Una chat bloccata su una domanda (`ask_user_question`) a schermo è viva: il suo
+processo interroga il bridge ogni 25 secondi, la sua riga è `partial = 1`, e per
+la domanda non c'è nessun orologio che la chiuda. Ma non sta lavorando: aspetta.
+Il cancello SHALL contarla fra le chat ferme su una domanda e NON SHALL contarla
+anche fra gli stream o i turni aperti del broker.
+
+Contata due volte, vinceva la voce sbagliata: il 24/11/2026 una domanda lasciata
+senza risposta alle 02:06 teneva `GET /__daemon/idle` a `idle: false` alle
+11:58, con «3 chat in streaming», e uno script che decide il sonno del Mac
+doveva ignorare a mano ogni chat senza messaggi da un'ora. Non c'era niente da
+ripulire: il turno era davvero aperto, la domanda davvero senza risposta. Era
+sbagliata l'ETICHETTA, e con lei ogni conto che ne discende — la frase che
+nomina cosa trattiene, `unadoptable`, `workingChats` e `lostWorkingChats`.
+Quest'ultimo è il guasto che RGATE-09 vieta già a parole («una chat ferma su
+una DOMANDA resta fuori»): un riavvio a zero turni si sarebbe fermato dietro una
+domanda per tutto il tempo in cui nessuno rispondeva.
+
+Chi aspetta una persona SHALL essere riconosciuto dal registro del bridge, che
+dice «aspetta» nell'istante in cui è vero e smette nell'istante in cui qualcuno
+risponde, e non da una sonda in cache. Ma il registro è memoria e può
+mentire: una voce che il bridge non interroga più da oltre due minuti e mezzo
+(`ASK_POLL_LIVE_MS`: la gamba più lunga più la finestra di ritentativo) è un
+residuo, e un residuo NON SHALL mai nascondere un turno che lavora. Un
+predicato che non si riesce a leggere lascia il turno fra quelli che LAVORANO:
+il dubbio protegge il turno.
+
+Vale per le DOMANDE e non per i permessi. La decisione di un permesso muore col
+turno (`endStream` lo chiude come interrotto), quindi tagliare quel turno la
+perde: resta fra chi lavora, e trattiene come prima.
+
+`GET /__daemon/idle` SHALL rispondere `idle: true` quando l'unica cosa che
+trattiene sono chat ferme su una persona, e SHALL contarle in `waitingOnPerson`.
+Una chat che le righe dicono ferma ma che il registro non ha ancora confermato
+(subito dopo un boot, prima della gamba successiva del suo figlio) SHALL contare
+come lavoro e non anche come ferma.
+
+Il riavvio tratta una chat ferma su una domanda come ogni chat: se il suo
+processo torna dopo il riavvio non aspetta, altrimenti ha il minuto delle chat
+(`chatGraceMs`) e poi parte, perché la domanda sopravvive sulla sua riga. Uno
+stream fermo su una domanda SHALL contare nel calcolo del minuto, o un turno
+nativo che gira in questo processo verrebbe tagliato al primo giro senza il
+tempo di scrivere la risposta. Una riga rimasta `partial = 1` senza una domanda
+aperta e senza un processo che la regga NON SHALL essere contata da nessuna
+fonte: da sola non è un turno.
+
+Una gamba che ritira una risposta dal buffer SHALL chiudere la domanda che
+aveva riaperto (ogni gamba apre la domanda): una risposta data fra due gambe
+lasciava la domanda «aperta» per sempre, e un turno che ha ripreso a lavorare
+sarebbe sembrato fermo su una persona.
+
+#### Scenario: la domanda lasciata aperta tutta la notte
+- **GIVEN** una chat il cui turno è bloccato su una domanda senza risposta da ore, il cui bridge continua a interrogare
+- **WHEN** arriva `GET /__daemon/idle`
+- **THEN** la risposta SHALL avere `idle: true` e `waitingOnPerson: 1`
+- **AND** `holding` SHALL nominare «chat ferma su una domanda», non «chat in streaming»
+
+#### Scenario: accanto a una chat che lavora
+- **GIVEN** una chat ferma su una domanda e un'altra che sta streammando
+- **THEN** `idle` SHALL essere `false` e `holding` SHALL nominare solo quella che lavora
+- **AND** la chat ferma SHALL essere contata in `waitingOnPerson`
+
+#### Scenario: la risposta arriva
+- **GIVEN** una chat ferma su una domanda
+- **WHEN** la persona risponde e il turno riprende
+- **THEN** la chat SHALL tornare fra quelle che lavorano al giro successivo, senza etichetta rimasta
+
+#### Scenario: un residuo del registro
+- **GIVEN** una voce di domanda aperta che il bridge non interroga da più di `ASK_POLL_LIVE_MS`
+- **THEN** il turno su quella sessione SHALL essere contato come lavoro, non come fermo su una persona
+
+#### Scenario: un permesso a schermo
+- **GIVEN** un turno bloccato su un permesso
+- **THEN** il turno SHALL restare fra quelli che lavorano e trattenere come prima
