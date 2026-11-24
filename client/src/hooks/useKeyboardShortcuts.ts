@@ -28,7 +28,7 @@ import { undo as undoUndo, redo as undoRedo, isTextInputFocused, isRawKeySurface
 import { cancelLatestPendingClose } from '../contexts/PendingActionContext';
 import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type ClosedTabRecord } from '../state/pane/adapters';
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
-import { arrowDirection, cellBoxesOnScreen, neighbourCell } from '../components/Layout/splitKeyboard';
+import { arrowDirection, cellBoxesOnScreen, neighborCell } from '../components/Layout/splitKeyboard';
 import type { ZoomScope } from '../components/Layout/zoomScope';
 import { paneZoomActions } from '../state/paneZoom';
 import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
@@ -464,7 +464,7 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
         const cells = cellBoxesOnScreen();
         const from = focusedPanelIdRef.current;
         const fromId = from && cells.some((c) => c.id === from) ? from : cells[0]?.id;
-        const next = fromId ? neighbourCell(cells, fromId, focusDir) : null;
+        const next = fromId ? neighborCell(cells, fromId, focusDir) : null;
         if (next) {
           e.preventDefault();
           setFocusedPanelId(next);

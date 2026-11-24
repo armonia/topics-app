@@ -2,7 +2,7 @@
  * @covers SPLIT-04 @covers SPLIT-06
  */
 import { describe, expect, test } from 'bun:test';
-import { KEY_STEP, KEY_STEP_FINE, dividerKeyAction, neighbourCell, type CellBox } from './splitKeyboard';
+import { KEY_STEP, KEY_STEP_FINE, dividerKeyAction, neighborCell, type CellBox } from './splitKeyboard';
 
 describe('a divider from the keyboard (SPLIT-04)', () => {
   test('the arrows along its axis move it, Shift makes the step fine', () => {
@@ -27,16 +27,16 @@ const grid: CellBox[] = [
 
 describe('the focus walks to the cell beside (SPLIT-06)', () => {
   test('right from the left column lands on the right column, up and down walk the stack', () => {
-    expect(['top-right', 'bottom-right'].includes(neighbourCell(grid, 'left', 'right') ?? '')).toBe(true);
-    expect(neighbourCell(grid, 'top-right', 'down')).toBe('bottom-right');
-    expect(neighbourCell(grid, 'bottom-right', 'up')).toBe('top-right');
-    expect(neighbourCell(grid, 'bottom-right', 'left')).toBe('left');
+    expect(['top-right', 'bottom-right'].includes(neighborCell(grid, 'left', 'right') ?? '')).toBe(true);
+    expect(neighborCell(grid, 'top-right', 'down')).toBe('bottom-right');
+    expect(neighborCell(grid, 'bottom-right', 'up')).toBe('top-right');
+    expect(neighborCell(grid, 'bottom-right', 'left')).toBe('left');
   });
 
-  test('at the edge of the layout there is no neighbour', () => {
-    expect(neighbourCell(grid, 'left', 'left')).toBeNull();
-    expect(neighbourCell(grid, 'top-right', 'up')).toBeNull();
-    expect(neighbourCell(grid, 'gone', 'right')).toBeNull();
+  test('at the edge of the layout there is no neighbor', () => {
+    expect(neighborCell(grid, 'left', 'left')).toBeNull();
+    expect(neighborCell(grid, 'top-right', 'up')).toBeNull();
+    expect(neighborCell(grid, 'gone', 'right')).toBeNull();
   });
 
   test('a cell in line wins over a nearer one off the line', () => {
@@ -45,6 +45,6 @@ describe('the focus walks to the cell beside (SPLIT-06)', () => {
       { id: 'in-line', left: 700, top: 300, width: 300, height: 200 },
       { id: 'off-line', left: 350, top: 0, width: 300, height: 150 },
     ];
-    expect(neighbourCell(row, 'a', 'right')).toBe('in-line');
+    expect(neighborCell(row, 'a', 'right')).toBe('in-line');
   });
 });

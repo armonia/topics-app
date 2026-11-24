@@ -1756,14 +1756,14 @@ export function PanelGrid({
       // Only a single-pane cell moves as a whole cell: the primary of a
       // multi-tab cell [A,B] is extracted, and the cell stays, re-keyed to B.
       const sourceCell = soloCellsRef.current.find(c => c.includes(paneId));
-      const primaryOfMulti = !!sourceCell && sourceCell.length > 1 && sourceCell[0] === paneId;
+      const primaryOfShared = !!sourceCell && sourceCell.length > 1 && sourceCell[0] === paneId;
       // A lone pane dropped on its own cell changes nothing.
-      if (t.targetKey === newKey && !primaryOfMulti) { done(); return; }
-      if (itemMapRef.current.has(newKey) && !primaryOfMulti) {
+      if (t.targetKey === newKey && !primaryOfShared) { done(); return; }
+      if (itemMapRef.current.has(newKey) && !primaryOfShared) {
         key = newKey;
       } else {
         if (newCellOverCap(gridRowsRef.current, t)) { done(); return; }
-        const remainderKey = primaryOfMulti ? soloCellKey(sourceCell.slice(1)) : null;
+        const remainderKey = primaryOfShared ? soloCellKey(sourceCell.slice(1)) : null;
         setSoloCells(prev => extractToOwnCell(prev, paneId));
         setGridRows(prev => placeNewCell(prev, newKey, remainderKey, t));
         done();
@@ -1923,12 +1923,12 @@ export function PanelGrid({
     // placed before its pane exists vanishes in the same render.
     if (!effectiveKey && !sourcePaneTab && sourceTopicId) {
       const rowTarget: PaneDropTarget = { ...target, zone: actualZone };
-      const centre = actualZone === 'center';
+      const atCenter = actualZone === 'center';
       const targetPrimary = target.targetKey.startsWith('solo:') ? target.targetKey.slice('solo:'.length) : null;
       if (!openPanels.includes(sourceTopicId)) {
-        pendingSidebarLandingRef.current = { topicId: sourceTopicId, targetPrimary, edge: centre ? undefined : rowTarget };
+        pendingSidebarLandingRef.current = { topicId: sourceTopicId, targetPrimary, edge: atCenter ? undefined : rowTarget };
         window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: sourceTopicId, mode: 'permanent' } }));
-      } else if (centre) {
+      } else if (atCenter) {
         landSidebarDrop(sourceTopicId, targetPrimary);
       } else {
         applyPaneDrop({ paneId: sourceTopicId }, rowTarget);

@@ -4,7 +4,7 @@
  *
  * The divider follows the WAI-ARIA window splitter: the arrows along its axis
  * move it, Shift makes the step fine, Enter evens the band out (what a
- * double-click does). The neighbour is chosen by geometry, not by the order
+ * double-click does). The neighbor is chosen by geometry, not by the order
  * of the model: the cell whose centre lies in that direction, nearest first,
  * with a penalty for drifting off the line, so «right» from a short cell in a
  * stacked column lands on the cell you see on its right.
@@ -41,7 +41,7 @@ export function arrowDirection(key: string): FocusDirection | null {
 }
 
 /** The cell beside `fromId` in `dir`, or null at the edge of the layout. */
-export function neighbourCell(cells: readonly CellBox[], fromId: string, dir: FocusDirection): string | null {
+export function neighborCell(cells: readonly CellBox[], fromId: string, dir: FocusDirection): string | null {
   const from = cells.find((c) => c.id === fromId);
   if (!from) return null;
   const cx = from.left + from.width / 2;
