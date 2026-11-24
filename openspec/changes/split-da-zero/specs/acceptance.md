@@ -5,7 +5,7 @@
 bun test client/src/components/Layout/gridPaneDrop.test.ts  # T1: dove atterra una pane, per ogni sorgente, e i tetti
 bun test client/src/components/Layout/splitKeyboard.test.ts   # T3-T6: frecce sul divisore, fuoco fra celle
 bun test client/src/components/Shared/tabSheetEntries.test.ts # T5: Disposizione completa in ogni foglio
-bun test client/src/components/Shared/SplitMiniMap.test.ts    # T7: mappa per gli split di progetto
+bun test client/src/state/projectSplitMaps.test.ts           # T7: mappa per gli split di progetto
 pw-remote -- npx playwright test tests/e2e/split-da-zero.spec.ts  # SPLIT-01..07, video in videos/split/
 ```
 Mutazioni che devono fare rosso:
