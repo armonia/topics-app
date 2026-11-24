@@ -38,7 +38,8 @@ try {
   mkdirSync(repo, { recursive: true });
 
   // Git identity and hooks of the probe, not of the machine that runs it.
-  const gitEnv: NodeJS.ProcessEnv = {
+  // An index-signature type, so `delete` on a key the platform's env type does not name still checks.
+  const gitEnv: Record<string, string | undefined> = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: join(base, "gitconfig"),

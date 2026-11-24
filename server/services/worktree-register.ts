@@ -83,6 +83,8 @@ function cleanSession(v: unknown, platform: NodeJS.Platform): { id: string; tran
   if (v === undefined || v === null) return null;
   if (typeof v !== "object") return "bad";
   const s = v as { id?: unknown; transcript?: unknown };
+  // A control byte in the session id is refused, not stripped: the caller sent something that is not an id.
+  // eslint-disable-next-line no-control-regex -- the control bytes are exactly what this pattern refuses
   if (typeof s.id !== "string" || !s.id || s.id.length > SESSION_FIELD_MAX || /[\0-\x1f]/.test(s.id)) return "bad";
   if (s.transcript === undefined || s.transcript === null) return { id: s.id };
   if (!isAbsoluteServerPath(s.transcript, platform) || s.transcript.length > SESSION_FIELD_MAX) return "bad";
