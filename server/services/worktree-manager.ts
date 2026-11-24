@@ -667,9 +667,7 @@ export function createWorktreeManager(
       if (attempt < RM_ATTEMPTS) await new Promise((r) => setTimeout(r, RM_RETRY_MS));
     }
     const detail = lastErr instanceof Error ? lastErr.message : String(lastErr ?? "folder still present");
-    console.error(
-      `[WorktreeManager] cannot remove worktree folder ${absPath} (git: ${cause}; rm: ${detail}), row kept so the GC retries`,
-    );
+    console.error(`[WorktreeManager] cannot remove worktree folder ${absPath} (git: ${cause}; rm: ${detail}), row kept so the GC retries`);
     try {
       gcDeps.notify?.({
         kind: "other",
@@ -683,10 +681,7 @@ export function createWorktreeManager(
     throw new WorktreeOperationError(`worktree folder could not be removed: ${absPath}`, detail, null);
   }
 
-  async function del(
-    id: string,
-    opts: DeleteWorktreeOptions = {},
-  ): Promise<boolean> {
+  async function del(id: string, opts: DeleteWorktreeOptions = {}): Promise<boolean> {
     const wt = deps.worktreeStore.get(id);
     if (!wt) return false;
     const project = deps.projectStore.get(wt.projectId);

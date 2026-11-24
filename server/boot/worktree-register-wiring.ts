@@ -13,6 +13,7 @@ import { defaultWorktreeRootDir } from "../services/worktree-root";
 import { canonicalPath, readOwnerMarker, worktreeAdminDir, writeOwnerMarker } from "../services/worktree-owner";
 import { defaultRunGit } from "../services/own-commits";
 import { getOrCreateHookToken } from "../routes/claude-hooks";
+import { forgetFolderOwned, markFolderOwned, writeRootSentinel } from "../services/worktree-root-ledger";
 
 export function createRegistrationDoor(ctx: AppContext): { deps: () => RegisterDeps; token: () => string | null } {
   const deps = (): RegisterDeps => {
@@ -42,6 +43,8 @@ export function createRegistrationDoor(ctx: AppContext): { deps: () => RegisterD
       store: ctx.worktreeStore,
       readMarker: readOwnerMarker,
       writeMarker: writeOwnerMarker,
+      markOwned: (r, p, info) => writeRootSentinel(r) && markFolderOwned(r, p, info),
+      forgetOwned: forgetFolderOwned,
       machine: () => hostname(),
     };
   };

@@ -2,9 +2,11 @@
  * The worktree routes of a node (`/api/nodes/worktrees`, `/worktree-policy`,
  * `/worktrees/gc`) and their primary half (`/api/machines/...`): who may call
  * them, a policy out of schema refused, a dry run that writes nothing, and a
- * node that does not speak the protocol skipped without a call.
+ * node that does not speak the protocol skipped without a call. The node judges
+ * a root the primary sends with its OWN safety rules (its home, its disk, Topics'
+ * sentinel), and a cleanup asked from the primary removes nothing it was sent.
  *
- * @covers WORKTREE-STD-11
+ * @covers WORKTREE-STD-11, WORKTREE-STD-16
  */
 import { describe, expect, test } from "bun:test";
 import type { AppContext } from "../types";
@@ -57,6 +59,14 @@ function context(identity: Identity, db = fakeDb(["node-dev"], "node-dev")): App
   } as unknown as AppContext;
 }
 
+/**
+ * The node's own machine, named rather than read: its home, its temp folder and
+ * what its disk holds. Neither the test runner's home nor its disk decides.
+ */
+const NODE_HOME = "/data/home";
+const NODE_DOCS = "/data/home/Documents";
+const HOST = { home: NODE_HOME, osTmp: "/data/tmp", nonEmpty: (abs: string) => abs === NODE_HOME || abs === NODE_DOCS };
+
 function nodeSide(identity: Identity, db?: ReturnType<typeof fakeDb>) {
   const effects: string[] = [];
   let settings: Partial<AppSettings> = { worktreeRoot: null, worktreeMaxPerProject: null, gcForeign: null };
@@ -70,7 +80,7 @@ function nodeSide(identity: Identity, db?: ReturnType<typeof fakeDb>) {
     plan: async () => { effects.push("plan"); return { entries: [], foreignCount: 0, scanMs: 1, overCap: [] }; },
     runGc: async () => { effects.push("gc"); return { reaped: 1 }; },
     settings: () => settings,
-    validate: (body) => validateSettingsPatch(body, [{ path: "/repos/app" }]),
+    validate: (body) => validateSettingsPatch(body, [{ path: "/repos/app" }], HOST),
     apply: (patch) => { effects.push(`apply:${JSON.stringify(patch)}`); settings = { ...settings, ...patch }; },
   };
   const router = createNodeWorktreesRouter(context(identity, db), () => deps);
@@ -167,7 +177,34 @@ describe("the policy the primary sends", () => {
   });
 });
 
+describe("the root the primary sends is judged by the node's own safety rules", () => {
+  test("the node's home, a folder that holds it, its temp folder and a non-empty folder without Topics' sentinel are refused, nothing written", async () => {
+    const { call, effects } = nodeSide(OWNER);
+    const cases: Array<[string, string]> = [[NODE_HOME, "home"], ["/data", "home-ancestor"], ["/data/tmp/wt", "temp"], [NODE_DOCS, "not-empty"]];
+    for (const [root, code] of cases) {
+      const res = (await call("PUT", "/api/nodes/worktree-policy", { root }))!;
+      expect(res.status, root).toBe(400);
+      expect((await res.json()).errors[0], root).toMatchObject({ field: "root", code });
+    }
+    expect(effects.filter((e) => e.startsWith("apply"))).toEqual([]);
+  });
+
+  test("an empty folder under the node's home is the node's to use: accepted as sent", async () => {
+    const { call, effects } = nodeSide(OWNER);
+    const res = (await call("PUT", "/api/nodes/worktree-policy", { root: "/data/home/wt" }))!;
+    expect(res.status).toBe(200);
+    expect(effects[0]).toBe(`apply:${JSON.stringify({ worktreeRoot: "/data/home/wt" })}`);
+  });
+});
+
 describe("the cleanup asked from the primary", () => {
+  test("paths in the body are never acted on: the node runs its own pass, nothing else", async () => {
+    const { call, effects } = nodeSide(OWNER);
+    const res = (await call("POST", "/api/nodes/worktrees/gc", { paths: ["/home/me/Documents"], remove: ["/srv/wt/app/x"], force: true }))!;
+    expect(res.status).toBe(200);
+    expect(effects).toEqual(["gc", "invalidate"]);
+  });
+
   test("dryRun=1 is the preview: no pass runs", async () => {
     const { call, effects } = nodeSide(OWNER);
     const res = (await call("POST", "/api/nodes/worktrees/gc?dryRun=1"))!;

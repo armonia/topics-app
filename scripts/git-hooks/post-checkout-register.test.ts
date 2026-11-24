@@ -3,10 +3,10 @@
  * new worktree with Topics, and nothing else does. Real git, a test hooksPath
  * and an in-process fake of the registration door; the hook never blocks git.
  *
- * @covers WORKTREE-STD-14
+ * @covers WORKTREE-STD-14, WORKTREE-STD-16
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync, chmodSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
@@ -92,5 +92,24 @@ describe("post-checkout-register", () => {
     expect(r.code).toBe(0);
     expect(existsSync(join(wt, ".git"))).toBe(true);
     expect(seen).toHaveLength(0);
+    // Outside the root nothing is marked: the folder is not Topics' to clean.
+    expect(existsSync(join(await adminDir(wt), "topics-owner"))).toBe(false);
+  });
+
+  test("Topics down, a worktree added inside the root still gets Topics' proof: ledger entry and owner marker", async () => {
+    const root = join(home, "worktrees");
+    const wt = join(root, "repo", "in-root");
+    mkdirSync(join(root, "repo"), { recursive: true });
+    const r = await gitWith({ TOPICS_APP_URL: "http://127.0.0.1:9" }, repo, "worktree", "add", "-q", "-b", "in-root", wt);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(readFileSync(join(root, ".topics-owned", "repo", "in-root"), "utf8")).creator).toBe("adopted");
+    expect(existsSync(join(root, ".topics-worktree-root"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(await adminDir(wt), "topics-owner"), "utf8")).creator).toBe("adopted");
   });
 });
+
+async function adminDir(wt: string): Promise<string> {
+  const p = Bun.spawn(["git", "-C", wt, "rev-parse", "--path-format=absolute", "--git-dir"], { env: gitEnv({}), stdout: "pipe" });
+  await p.exited;
+  return (await new Response(p.stdout).text()).trim();
+}

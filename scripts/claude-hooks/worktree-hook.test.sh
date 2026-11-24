@@ -3,7 +3,7 @@
 # WorktreeCreate / WorktreeRemove hook. Exit 0 = every case holds.
 # A temporary repo and TOPICS_HOME, a fake Topics server for the cases that
 # need one; nothing outside the temp folder is read or written.
-# @covers WORKTREE-STD-13
+# @covers WORKTREE-STD-13, WORKTREE-STD-16
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 hook="$here/worktree-hook.sh"
@@ -40,6 +40,8 @@ ok "git worktree list has it, locked claude-code:" \
   "$(git -C "$repo" worktree list --porcelain | awk -v p="$want" '/^worktree /{c=substr($0,10)} /^locked/{if(c==p)print substr($0,8)}')" "claude-code:s-1"
 ok ".worktreeinclude: ignored file copied" "$(cat "$want/.env" 2>/dev/null)" "secret"
 ok ".worktreeinclude: a file that is not ignored stays behind" "$([ -e "$want/notes.local" ] && echo copied || echo absent)" "absent"
+ok "ledger: the root carries Topics' sentinel" "$([ -f "$root/.topics-worktree-root" ] && echo yes || echo no)" "yes"
+ok "ledger: the folder has its entry, naming the creator" "$(jq -r .creator "$root/.topics-owned/demo-repo/feature-x-y" 2>/dev/null)" "claude-code"
 
 # --- idempotent ---------------------------------------------------------------
 before="$(git -C "$repo" worktree list | wc -l | tr -d ' ')"
@@ -63,6 +65,7 @@ ok "server up: asked placement for the repo" "$(/usr/bin/grep -c '^GET /api/work
 reg="$(/usr/bin/grep '^POST /api/worktrees/register ' "$tmp/requests.log" | sed 's/^POST \/api\/worktrees\/register //')"
 ok "server up: registered through the door" "$(printf '%s' "$reg" | jq -r '.creator + " " + .session.id + " " + .path')" "claude-code s-2 $tmp/root2/demo/srv"
 ok "server up: marker carries the project id" "$(jq -r .projectId "$(git -C "$tmp/root2/demo/srv" rev-parse --path-format=absolute --git-dir)/topics-owner")" "p1"
+ok "server up: the ledger entry sits under placement's root" "$([ -f "$tmp/root2/.topics-owned/demo/srv" ] && echo yes || echo no)" "yes"
 stop_fake
 
 # --- remove -------------------------------------------------------------------
@@ -72,6 +75,7 @@ ok "remove: exit 0" "$code" 0
 ok "remove: the folder is gone" "$([ -e "$want" ] && echo there || echo gone)" "gone"
 ok "remove: tag archive/wt-<name> on HEAD" "$(git -C "$repo" rev-parse --verify --quiet 'refs/tags/archive/wt-feature-x-y^{commit}')" "$head"
 ok "remove: the branch is gone" "$(git -C "$repo" rev-parse --verify --quiet refs/heads/worktree-feature-x-y || echo none)" "none"
+ok "remove: the ledger entry goes with the folder" "$([ -e "$root/.topics-owned/demo-repo/feature-x-y" ] && echo there || echo gone)" "gone"
 printf '{"worktree_path":"%s"}' "$want" | sh "$hook" remove 2>/dev/null
 ok "remove again: nothing to do, exit 0" "$?" 0
 
@@ -84,6 +88,16 @@ git -C "$repo" worktree lock --reason "codex:x" "$tmp/codex-wt"
 printf '{"worktree_path":"%s"}' "$tmp/codex-wt" | sh "$hook" remove 2>/dev/null
 ok "remove: a foreign lock is refused" "$?" 1
 ok "remove: the foreign worktree stays" "$([ -d "$tmp/codex-wt" ] && echo kept || echo lost)" "kept"
+
+# --- remove: a worktree with no Topics proof is never removed ----------------
+# Made by hand next to the hook's ones, no lock, no marker, no ledger entry, and
+# an ignored file `remove --force` would take with it.
+byhand="$root/demo-repo/by-hand"
+git -C "$repo" worktree add -q -b by-hand "$byhand" >/dev/null 2>&1
+echo mine > "$byhand/.env"
+printf '{"worktree_path":"%s"}' "$byhand" | sh "$hook" remove 2>/dev/null
+ok "remove: a worktree without a Topics marker is refused" "$?" 1
+ok "remove: it stays, its ignored .env intact" "$(cat "$byhand/.env" 2>/dev/null)" "mine"
 
 # --- remove keeps uncommitted work in the archive -----------------------------
 dirty_path="$(create dirty | tail -n 1)"
@@ -128,6 +142,16 @@ if [ "$mut_code" = 0 ] && [ ! -e "$mut_path" ]; then
   echo "FAIL mutation survived: removed without an archive tag"; fail=1
 else
   echo "ok   mutation (no archive tag) is caught"
+fi
+
+# --- mutation: without the proof gate the by-hand worktree must be lost -------
+sed '/carries no Topics marker/d; s/\[ -r "\$_admin\/topics-owner" \] || \[ -n "\$_entry" \] \\/true/' "$hook" > "$tmp/mutant2.sh"
+if cmp -s "$hook" "$tmp/mutant2.sh"; then echo "FAIL mutation (proof gate) not applied"; fail=1; fi
+printf '{"worktree_path":"%s"}' "$byhand" | sh "$tmp/mutant2.sh" remove 2>/dev/null
+if [ -e "$byhand" ]; then
+  echo "FAIL mutation survived: the by-hand worktree was kept without the proof gate"; fail=1
+else
+  echo "ok   mutation (no proof gate) is caught"
 fi
 
 exit $fail

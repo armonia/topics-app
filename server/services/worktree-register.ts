@@ -10,14 +10,17 @@
  *
  *   register   idempotent on the path. A repository no project knows: 202, an
  *              inventory answer, nothing written anywhere (not even in that
- *              repository's `.git`). Inside the root: a `ready` row and the v2
- *              owner marker. Outside: a `reuse` row and no marker (the folder is
- *              not Topics' to mark).
+ *              repository's `.git`). Inside the root: a `ready` row, the v2
+ *              owner marker and the root ledger's entry (the GC's proof that the
+ *              folder came through Topics, still there if the `.git` goes).
+ *              Outside: a `reuse` row and no marker (the folder is not Topics'
+ *              to mark).
  *   placement  where a creator should put a checkout of a repository (or of a
  *              project, by slug): the one place that applies the root setting,
  *              so nobody re-reads the DB.
- *   unregister forgets the row of a checkout whose folder is gone. A folder still
- *              there is refused: forgetting it would only make it an orphan.
+ *   unregister forgets the row (and the ledger entry) of a checkout whose folder
+ *              is gone. A folder still there is refused: forgetting it would only
+ *              make it an orphan.
  *
  * Every effect is a dependency, so the decisions are tested without a server.
  */
@@ -67,6 +70,14 @@ export interface RegisterDeps {
   };
   readMarker: (path: string) => OwnerMarker | null;
   writeMarker: (path: string, marker: OwnerMarker) => boolean;
+  /**
+   * Writes the root ledger's entry of `{root}/{slug}/{name}` (and the root's
+   * sentinel): `worktree-root-ledger.ts`. False when the path is not exactly two
+   * levels under that root, or the disk refused.
+   */
+  markOwned: (root: string, absPath: string, info: { worktreeId: string; projectId: string }) => boolean;
+  /** Drops the ledger entry of a folder that is gone. */
+  forgetOwned: (root: string, absPath: string) => void;
   /** This machine's id, or its host name. */
   machine: () => string;
   now?: () => Date;
@@ -100,9 +111,10 @@ export function rowAtPath(deps: Pick<RegisterDeps, "store" | "platform" | "canon
   return deps.store.list().find((w) => pathKey(w.absPath, { platform: "win32", realpath: deps.canonical }) === key) ?? null;
 }
 
-function inAnyRoot(deps: RegisterDeps, absPath: string): boolean {
+/** The root that holds this path, canonical, or null. */
+function rootOf(deps: Pick<RegisterDeps, "roots" | "canonical" | "platform">, absPath: string): string | null {
   const platform = deps.platform ?? process.platform;
-  return deps.roots().some((r) => isInsideDir(absPath, deps.canonical(r), platform));
+  return deps.roots().map((r) => deps.canonical(r)).find((r) => isInsideDir(absPath, r, platform)) ?? null;
 }
 
 /**
@@ -131,7 +143,8 @@ export async function registerWorktree(deps: RegisterDeps, req: RegisterRequest)
   }
 
   const absPath = deps.canonical(req.path);
-  const inRoot = inAnyRoot(deps, absPath);
+  const root = rootOf(deps, absPath);
+  const inRoot = root !== null;
   const project = deps.projectFor(absPath);
   // An unknown repository: an inventory answer, and nothing written anywhere.
   if (!project) return { status: 202, body: { class: "inventory", inRoot } };
@@ -158,8 +171,9 @@ export async function registerWorktree(deps: RegisterDeps, req: RegisterRequest)
     created = true;
   }
 
-  // Inside the root the marker is written or completed; outside the folder is not ours to mark.
-  if (inRoot) {
+  // Inside the root the markers are written or completed; outside the folder is not ours to mark.
+  if (root !== null) {
+    deps.markOwned(root, absPath, { worktreeId: row.id, projectId: project.id });
     const prior = deps.readMarker(absPath);
     deps.writeMarker(absPath, {
       worktreeId: row.id,
@@ -205,7 +219,7 @@ export function placementForProject(
 
 /** Forgets the row of a checkout whose folder is gone. Unknown path: nothing to do. */
 export function forgetWorktree(
-  deps: Pick<RegisterDeps, "store" | "platform" | "canonical" | "exists">,
+  deps: Pick<RegisterDeps, "store" | "platform" | "canonical" | "exists" | "roots" | "forgetOwned">,
   path: unknown,
 ): { status: 200; body: { removed: boolean; id: string | null } } | { status: 400 | 409; body: { error: string } } {
   if (!isAbsoluteServerPath(path, deps.platform ?? process.platform)) return { status: 400, body: { error: "path must be an absolute path" } };
@@ -215,5 +229,7 @@ export function forgetWorktree(
   // A row Topics made is dropped by Topics' own delete, which also handles its branch and its card.
   if ((row.source ?? "topics") === "topics") return { status: 409, body: { error: "a worktree Topics made is removed by Topics, not unregistered" } };
   if (deps.exists(absPath)) return { status: 409, body: { error: "the folder is still there: remove it first, or let the GC judge it" } };
+  const root = rootOf(deps, absPath);
+  if (root !== null) deps.forgetOwned(root, absPath);
   return { status: 200, body: { removed: deps.store.delete(row.id), id: row.id } };
 }

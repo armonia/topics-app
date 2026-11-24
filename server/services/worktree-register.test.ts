@@ -1,9 +1,10 @@
 /**
  * The registration door for worktrees another tool made: idempotent on the path,
  * silent on an unknown repository, a row and a v2 marker inside the root, a
- * `reuse` row and no marker outside it.
+ * `reuse` row and no marker outside it. Inside the root it also writes the root
+ * ledger's entry, the GC's proof that the folder came through Topics.
  *
- * @covers WORKTREE-STD-08
+ * @covers WORKTREE-STD-08, WORKTREE-STD-16
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
@@ -14,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { createWorktreeStore } from "./worktree-store";
 import { canonicalPath, readOwnerMarker, worktreeAdminDir, writeOwnerMarker } from "./worktree-owner";
 import { placementFor, placementForProject, registerWorktree, forgetWorktree, type RegisterDeps } from "./worktree-register";
+import { folderOwned, forgetFolderOwned, hasRootSentinel, markFolderOwned, writeRootSentinel } from "./worktree-root-ledger";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
@@ -72,6 +74,8 @@ function deps(store: RegisterDeps["store"] = freshStore(), over: Partial<Registe
     store,
     readMarker: readOwnerMarker,
     writeMarker: writeOwnerMarker,
+    markOwned: (r, p, info) => writeRootSentinel(r) && markFolderOwned(r, p, info),
+    forgetOwned: forgetFolderOwned,
     machine: () => "test-host",
     now: () => new Date("2026-11-24T10:00:00Z"),
     ...over,
@@ -88,6 +92,9 @@ describe("POST /api/worktrees/register, the decisions", () => {
     const row = d.store.getByAbsPath(inside)!;
     expect(row).toMatchObject({ status: "ready", mode: "branch", branchName: "worktree-bold-oak", source: "claude-code", sessionRef: "/t/s-1.jsonl" });
     expect(readOwnerMarker(inside)).toMatchObject({ worktreeId: row.id, projectId: "p1", creator: "claude-code", session: { id: "s-1", transcript: "/t/s-1.jsonl" }, machine: "test-host" });
+    // The ledger entry under the root: the proof the GC asks, still there if the `.git` goes.
+    expect(folderOwned(root, inside)).toBe(true);
+    expect(hasRootSentinel(root)).toBe(true);
   });
 
   test("idempotent: the second call answers the same row and creates nothing", async () => {
@@ -119,6 +126,7 @@ describe("POST /api/worktrees/register, the decisions", () => {
     expect(r.body).toMatchObject({ class: "foreign", inRoot: false });
     expect(d.store.getByAbsPath(outside)).toMatchObject({ mode: "reuse", source: "codex" });
     expect(readOwnerMarker(outside)).toBeNull();
+    expect(existsSync(join(base, "elsewhere", ".topics-owned"))).toBe(false);
   });
 
   test("refusals: relative path, missing or `topics` creator, a main checkout, a bad session", async () => {
@@ -181,10 +189,14 @@ describe("POST /api/worktrees/register, the decisions", () => {
       headBranch: async () => "worktree-x",
       readMarker: () => null,
       writeMarker: () => true,
+      // A Windows root is not a folder of this machine: the ledger write is recorded, never done.
+      markOwned: (r, p) => { owned.push(`${r}|${p}`); return true; },
     });
+    const owned: string[] = [];
     const r = await registerWorktree(d, { path: "E:\\wt\\repo\\x", creator: "claude-code" });
     expect(r.status).toBe(200);
     if (r.status === 200) expect(r.body.inRoot).toBe(true);
+    expect(owned).toEqual(["E:\\wt|E:\\wt\\repo\\x"]);
   });
 });
 
@@ -215,6 +227,19 @@ describe("placement and unregister", () => {
     expect(forgetWorktree(gone, outside)).toMatchObject({ status: 200, body: { removed: true } });
     expect(d.store.list()).toHaveLength(0);
     expect(forgetWorktree(gone, outside)).toEqual({ status: 200, body: { removed: false, id: null } });
+  });
+
+  test("unregister of a folder gone from the root drops its ledger entry with the row", async () => {
+    const d = deps();
+    const gonePath = join(root, "repo", "gone-oak");
+    git(repo, "worktree", "add", "-q", "-b", "worktree-gone-oak", gonePath);
+    expect((await registerWorktree(d, { path: gonePath, creator: "codex" })).status).toBe(200);
+    expect(folderOwned(root, gonePath)).toBe(true);
+    // The folder goes; its entry stays until the door is told.
+    git(repo, "worktree", "remove", "--force", gonePath);
+    expect(folderOwned(root, gonePath)).toBe(true);
+    expect(forgetWorktree(deps(d.store), gonePath)).toMatchObject({ status: 200, body: { removed: true } });
+    expect(existsSync(join(root, ".topics-owned", "repo", "gone-oak"))).toBe(false);
   });
 
   test("unregister never drops a row Topics made: its own delete handles branch and card", () => {

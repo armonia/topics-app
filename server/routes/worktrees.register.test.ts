@@ -46,6 +46,8 @@ function build(identity: Identity = { role: "owner", deviceId: null }) {
     },
     readMarker: () => null,
     writeMarker: (p) => { effects.push(`marker:${p}`); return true; },
+    markOwned: (r, p) => { effects.push(`owned:${r}:${p}`); return true; },
+    forgetOwned: (r, p) => { effects.push(`forget:${r}:${p}`); },
     machine: () => "h",
   });
   const router = createWorktreesRouter(ctx, { registration: { deps, token: () => TOKEN } });
@@ -96,7 +98,7 @@ describe("who may open the registration door", () => {
     const res = await call("POST", "/api/worktrees/register", { body: REGISTER });
     expect(res!.status).toBe(200);
     expect(await res!.json()).toMatchObject({ id: "w1", class: "tracked", inRoot: true, created: true });
-    expect(effects).toEqual(["create:/r/repo/x", "update", "marker:/r/repo/x"]);
+    expect(effects).toEqual(["create:/r/repo/x", "update", "owned:/r:/r/repo/x", "marker:/r/repo/x"]);
     expect(sent[0]).toMatchObject({ type: "worktree:new", worktree: { id: "w1" } });
     // Idempotent: the second call creates nothing and announces nothing.
     const again = await call("POST", "/api/worktrees/register", { body: REGISTER });

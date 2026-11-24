@@ -33,6 +33,15 @@
 # first (with any uncommitted change on top of it) and removes nothing when the
 # tag does not read back.
 #
+# OWNERSHIP, THE GC'S ONLY PROOF. Inside the root every folder made here also
+# gets Topics' ledger entry, `{root}/.topics-owned/{slug}/{name}` (and the root
+# its sentinel `{root}/.topics-worktree-root`), written BEFORE `git worktree add`,
+# the same files `server/services/worktree-root-ledger.ts` writes for Topics' own
+# worktrees. Without it the cleanup only lists a folder: a checkout whose `.git`
+# went missing would stay forever, and one a person made by hand next to it must
+# never be moved. `register` writes the same proof for a checkout it is told
+# about inside the root; `remove` refuses a worktree that carries no proof at all.
+#
 # POSIX sh, git and curl; jq when present, sed otherwise. No path or name of a
 # person in here: everything comes from the environment or the server.
 #   TOPICS_HOME            Topics' home (default ~/.topics): token and default root
@@ -221,6 +230,32 @@ wt_write_marker() { # path creator session_id transcript project_id
   printf '%s,"machine":%s}\n' "$_m" "$(wt_json_str "$_host")" > "$_a/topics-owner"
 }
 
+# Topics' ledger under a root (see the header): sentinel of the root, then the
+# entry of `{slug}/{name}`. An entry already there is kept as it is.
+wt_mark_owned() { # root slug name creator
+  mkdir -p "$1/.topics-owned/$2" 2>/dev/null || return 1
+  _now="$(wt_json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  [ -e "$1/.topics-worktree-root" ] || printf '{"createdAt":%s}\n' "$_now" > "$1/.topics-worktree-root" 2>/dev/null
+  [ -e "$1/.topics-owned/$2/$3" ] && return 0
+  printf '{"creator":%s,"createdAt":%s}\n' "$(wt_json_str "$4")" "$_now" > "$1/.topics-owned/$2/$3" 2>/dev/null
+}
+
+# The ledger entry of a worktree folder $1 (`{root}/{slug}/{name}`), printed when it is a file.
+wt_owned_entry() {
+  _e="$(dirname "$(dirname "$1")")/.topics-owned/$(basename "$(dirname "$1")")/$(basename "$1")"
+  [ -f "$_e" ] && printf '%s' "$_e"
+}
+
+# $1 sits exactly at `{root}/{slug}/{name}` of the physical root $2.
+wt_in_root() {
+  [ -n "$2" ] || return 1
+  [ "$(dirname "$(dirname "$1")")" = "$2" ] || return 1
+  case "$(basename "$(dirname "$1")")/$(basename "$1")" in
+    .*|*/.*|_*|*/_*) return 1 ;;
+  esac
+  return 0
+}
+
 # The path as Claude Code reads it: native form on Git for Windows.
 wt_print_path() { printf '%s\n' "$(wt_native "$1")"; }
 
@@ -262,6 +297,13 @@ wt_copy_includes() { # src_top dst
 # Create: the one path shared by the hook and `topics-worktree add`.
 # ---------------------------------------------------------------------------
 
+# A failed `git worktree add`: with no folder left, its ledger entry would only
+# wait for somebody else's folder of the same name, so it goes too.
+wt_add_failed() {
+  [ -e "$1" ] || { _e="$(wt_owned_entry "$1")" && rm -f "$_e"; }
+  wt_die "git worktree add failed for $1"
+}
+
 # $1 cwd, $2 wanted name, $3 creator, $4 session id, $5 transcript. Prints the path.
 wt_create() {
   _cwd="$1"; _creator="$3"; _sid="$4"; _tr="$5"
@@ -271,8 +313,10 @@ wt_create() {
   wt_placement "$_common"
 
   _parent="$WT_ROOT/$WT_SLUG"
+  _owned_root=""
   if mkdir -p "$_parent" 2>/dev/null && [ -w "$_parent" ]; then
     _parent="$(wt_physical "$_parent")"
+    _owned_root="$(dirname "$_parent")"
   else
     # Last resort: Claude Code's own place. Never leave the session without a worktree.
     [ -n "$_main" ] || wt_die "root $WT_ROOT is not writable and the repository has no main checkout"
@@ -294,15 +338,21 @@ wt_create() {
   _path="$_parent/$_name"
   _branch="worktree-$_name"
 
+  # The proof the cleanup asks before it ever moves this folder, written before
+  # git touches the disk (the fallback under the repository is not a root).
+  if [ -n "$_owned_root" ]; then
+    wt_mark_owned "$_owned_root" "$WT_SLUG" "$_name" "$_creator" || wt_log "ledger entry not written for $_path"
+  fi
+
   # The post-checkout hook of the new worktree must not register it under
   # another creator before this script does.
   TOPICS_WORKTREE_REGISTER=skip
   export TOPICS_WORKTREE_REGISTER
   if git -C "$_cwd" rev-parse --verify --quiet "refs/heads/$_branch" >/dev/null 2>&1; then
-    git -C "$_cwd" worktree add "$_path" "$_branch" >&2 || wt_die "git worktree add failed for $_path"
+    git -C "$_cwd" worktree add "$_path" "$_branch" >&2 || wt_add_failed "$_path"
   else
     _base_ref="$(wt_base_ref "$_cwd")"
-    git -C "$_cwd" worktree add -b "$_branch" "$_path" "$_base_ref" >&2 || wt_die "git worktree add failed for $_path"
+    git -C "$_cwd" worktree add -b "$_branch" "$_path" "$_base_ref" >&2 || wt_add_failed "$_path"
   fi
 
   _top="$(git -C "$_cwd" rev-parse --show-toplevel 2>/dev/null)"
@@ -370,6 +420,11 @@ wt_remove() { # path
       *) wt_die "refusing: $_p is locked by somebody else ($(cat "$_admin/locked"))" ;;
     esac
   fi
+  # Nothing reaches deletion without Topics' proof: the owner marker a creator
+  # wrote in the admin folder, or the ledger entry under the root.
+  _entry="$(wt_owned_entry "$_p")"
+  [ -r "$_admin/topics-owner" ] || [ -n "$_entry" ] \
+    || wt_die "refusing: $_p carries no Topics marker (not made through Topics' doors)"
   _head="$(git -C "$_p" rev-parse --verify --quiet HEAD 2>/dev/null)"
   _branch="$(git -C "$_p" symbolic-ref --quiet --short HEAD 2>/dev/null)"
   if [ -n "$_head" ]; then
@@ -384,6 +439,7 @@ wt_remove() { # path
   wt_git_repo "$_common" worktree remove --force "$_p" >&2
   wt_git_repo "$_common" worktree prune >/dev/null 2>&1
   if [ -e "$_p" ]; then wt_die "the folder is still there: $_p"; fi
+  [ -n "$_entry" ] && rm -f "$_entry"
   # Only the branch this script names, and only while it still points at what
   # was archived: a branch that moved on is somebody's work.
   case "$_branch" in
@@ -418,9 +474,30 @@ wt_cmd_register() { # path
   [ -n "${1:-}" ] && [ -d "$1" ] || wt_die "usage: topics-worktree register <path>"
   _p="$(wt_physical "$1")"
   _b="$(git -C "$_p" symbolic-ref --quiet --short HEAD 2>/dev/null)"
+  wt_mark_registered "$_p"
   _resp="$(wt_register "$_p" "${TOPICS_WORKTREE_CREATOR:-adopted}" "" "" "$_b" "")" \
     || wt_die "Topics did not answer: the cleanup registers $_p on its own within a day"
   printf '%s\n' "$_resp"
+}
+
+# A linked worktree told about through `register`, inside the root (the one
+# Topics places in, or the default one): the ledger entry and, when the admin
+# folder has none, the owner marker naming its creator. What the door writes
+# with Topics up, written here too so a checkout registered while Topics is down
+# is still provably made through Topics. Outside the root nothing is marked.
+wt_mark_registered() { # physical path
+  [ -f "$1/.git" ] || return 0
+  _rc="$(wt_common_dir "$1")" || return 0
+  wt_placement "$_rc"
+  _creator="${TOPICS_WORKTREE_CREATOR:-adopted}"
+  for _r in "$WT_ROOT" "$(wt_default_root)"; do
+    _rp="$(wt_physical "$_r")" || continue
+    wt_in_root "$1" "$_rp" || continue
+    wt_mark_owned "$_rp" "$(basename "$(dirname "$1")")" "$(basename "$1")" "$_creator" || wt_log "ledger entry not written for $1"
+    _a="$(wt_admin_dir "$1")" && [ -e "$_a/topics-owner" ] \
+      || wt_write_marker "$1" "$_creator" "" "" "$WT_PROJECT_ID" || wt_log "owner marker not written for $1"
+    return 0
+  done
 }
 
 wt_cmd_list() {

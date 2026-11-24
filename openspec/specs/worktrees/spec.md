@@ -813,3 +813,17 @@ Una cartella senza riga SHALL essere spostata dal GC solo con una prova che l'ha
 - **GIVEN** una cartella con il marcatore di Topics, senza `.git`, vecchia di 3 giorni
 - **WHEN** gira il GC, e di nuovo dopo i giorni di quarantena
 - **THEN** SHALL essere spostata in quarantena intatta e poi cancellata
+
+### Requirement: WORKTREE-STD-16 — Ogni porta fra macchine e strumenti lascia la prova di Topics, e niente si cancella senza
+
+Ogni cartella che nasce dentro la radice da una porta che non è il `create` di Topics SHALL ricevere la stessa prova che il GC chiede (WORKTREE-STD-15): la voce `{radice}/.topics-owned/{slug}/{nome}` e la sentinella della radice. L'hook WorktreeCreate di Claude Code e `topics-worktree add` SHALL scriverla prima di `git worktree add` (e toglierla se l'add fallisce senza lasciare la cartella), anche con Topics spento; la ricaduta `<repo>/.claude/worktrees` NON SHALL riceverla. La porta di registrazione SHALL scriverla per un worktree dentro la radice, accanto al marcatore v2, e `unregister` SHALL toglierla con la riga; fuori dalla radice NON SHALL scrivere niente. `topics-worktree register` e l'hook `post-checkout-register` SHALL scrivere voce e marcatore v2 (se manca) per un worktree dentro la radice anche quando il server non risponde, e niente fuori. L'hook WorktreeRemove NON SHALL rimuovere un worktree che non porta né il marcatore `topics-owner` nella cartella di amministrazione né la voce della radice (uscita 1, cartella e file ignorati intatti), e dopo la rimozione SHALL togliere la voce. Sul nodo, la radice mandata dal primario SHALL essere giudicata con le regole del nodo (la sua home, il suo disco, la sua sentinella, i suoi progetti) e il rifiuto SHALL tornare al primario col suo codice; `POST /api/nodes/worktrees/gc` SHALL far girare solo la passata del nodo, senza passarle niente del corpo della richiesta.
+
+#### Scenario: un worktree fatto a mano nella radice
+- **GIVEN** un `git worktree add` senza hook dentro `{radice}/{slug}/`, senza lock né marcatore, con un `.env` ignorato
+- **WHEN** Claude Code chiama `remove` su quel percorso
+- **THEN** l'uscita SHALL essere 1 e la cartella col suo `.env` SHALL restare; un worktree nato dall'hook SHALL invece essere rimosso e la sua voce SHALL sparire
+
+#### Scenario: la radice di un nodo
+- **GIVEN** un nodo con la home `/data/home`
+- **WHEN** il primario gli manda come radice `/data/home`, `/data`, la sua cartella temporanea o `/data/home/Documents` non vuota senza sentinella
+- **THEN** la risposta SHALL essere 400 col codice del rifiuto e le impostazioni del nodo SHALL restare identiche

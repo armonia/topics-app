@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Bar of scripts/topics-worktree (add, register, list). Exit 0 = every case holds.
 # A temporary repo and TOPICS_HOME, a fake Topics server for the cases that need one.
-# @covers WORKTREE-STD-14
+# @covers WORKTREE-STD-14, WORKTREE-STD-16
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 tw="$here/topics-worktree"
@@ -20,16 +20,24 @@ ok "add <path>: {root}/{slug}/{name}" "$out" "$root/demo/my-task"
 ok "add: branch worktree-<name>" "$(git -C "$out" symbolic-ref --short HEAD)" "worktree-my-task"
 ok "add: creator defaults to adopted" "$(marker_of "$out" creator)" "adopted"
 ok "add: no lock nobody could lift" "$(git -C "$repo" worktree list --porcelain | /usr/bin/grep -c '^locked')" 0
+ok "add: Topics' ledger entry under the root" "$(jq -r .creator "$root/.topics-owned/demo/my-task" 2>/dev/null)" "adopted"
 out2="$(TOPICS_WORKTREE_CREATOR=codex sh "$tw" add "$repo" second 2>/dev/null)"
 ok "add: the creator comes from TOPICS_WORKTREE_CREATOR" "$(marker_of "$out2" creator)" "codex"
 sh "$tw" add demo 2>/dev/null
 ok "add <project> with Topics down: refused, exit 1" "$?" 1
 sh "$tw" register "$out" >/dev/null 2>&1
 ok "register with Topics down: exit 1" "$?" 1
+# A bare `git worktree add` inside the root, told about while Topics is down:
+# the proof is written all the same, so the cleanup may later judge it.
+inroot="$root/demo/told"
+git -C "$repo" worktree add -q -b told "$inroot" >/dev/null 2>&1
+TOPICS_WORKTREE_CREATOR=jcode sh "$tw" register "$inroot" >/dev/null 2>&1
+ok "register inside the root, Topics down: ledger entry" "$(jq -r .creator "$root/.topics-owned/demo/told" 2>/dev/null)" "jcode"
+ok "register inside the root, Topics down: owner marker" "$(marker_of "$inroot" creator)" "jcode"
 
 # --- list -----------------------------------------------------------------------
 listed="$(sh "$tw" list 2>/dev/null | cut -f1,3 | sort | tr '\n' ' ')"
-ok "list: every worktree under the root, with its creator" "$listed" "demo/my-task	adopted demo/second	codex "
+ok "list: every worktree under the root, with its creator" "$listed" "demo/my-task	adopted demo/second	codex demo/told	jcode "
 
 # --- with Topics up ------------------------------------------------------------
 export FAKE_ROOT="$tmp/root2" FAKE_REPO="$repo"
@@ -45,6 +53,8 @@ sh "$tw" register "$manual" >/dev/null 2>&1
 ok "register <path>: exit 0" "$?" 0
 reg="$(/usr/bin/grep '^POST /api/worktrees/register ' "$tmp/requests.log" | sed 's/^POST \/api\/worktrees\/register //')"
 ok "register <path>: path, branch and creator sent" "$(printf '%s' "$reg" | jq -r '.path + " " + .branch + " " + .creator')" "$manual by-hand adopted"
+ok "register outside the root: no owner marker" "$([ -e "$(git -C "$manual" rev-parse --path-format=absolute --git-dir)/topics-owner" ] && echo marked || echo none)" "none"
+ok "register outside the root: no ledger anywhere near it" "$([ -e "$tmp/.topics-owned" ] && echo marked || echo none)" "none"
 stop_fake
 
 sh "$tw" bogus >/dev/null 2>&1
