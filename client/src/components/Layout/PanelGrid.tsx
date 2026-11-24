@@ -293,6 +293,9 @@ interface PanelGridProps {
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
   // Mobile sidebar toggle
   onToggleSidebar?: () => void;
+  /** The top-level tab strip is drawn (desktop): off when the sidebar column
+   *  holds the tabs. Decided by `lib/tabsPlacement.ts` in App. */
+  tabStrip?: boolean;
   // Initial tab overrides for standalone panels
   panelInitialTab?: Record<string, import('../../types').PanelTab>;
   onPanelInitialTabConsumed?: (topicId: string) => void;
@@ -328,6 +331,8 @@ interface PanelGridProps {
   // `terminal:<sessionId>`), forwarded to each StandaloneChatGroup → PaneTabBar.
   onToggleFissato?: (pinKey: string) => void;
   isFissato?: (pinKey: string) => boolean;
+  /** View setting: a pinned tab can be closed (see StandaloneChatGroup). */
+  pinnedClosable?: boolean;
 }
 
 /* ================================================================== */
@@ -340,6 +345,7 @@ export function PanelGrid({
   onClosePanelImmediate: rawClosePanelImmediate,
   onToggleFissato,
   isFissato,
+  pinnedClosable = true,
   onReorderPanels,
   onOpenPanelAt,
   nextPanelMode: _nextPanelMode = 'side',
@@ -361,6 +367,7 @@ export function PanelGrid({
   onWSMessage,
   onUpdateTopic,
   onToggleSidebar,
+  tabStrip = true,
   panelInitialTab,
   onPanelInitialTabConsumed,
   pendingProjectPane,
@@ -2620,6 +2627,7 @@ export function PanelGrid({
         onWSMessage={onWSMessage}
         onUpdateTopic={onUpdateTopic}
         mobile={isMobile}
+        tabStrip={tabStrip}
         // Il comando che riapre la colonna sta sul riquadro in alto a sinistra,
         // che è quello che l'occhio guarda per primo. Sul telefono i riquadri
         // non sono affiancati e se ne vede UNO: se restasse legato alla cella
@@ -2662,6 +2670,7 @@ export function PanelGrid({
         onMergeIntoCell={handleMergeIntoCell}
         onToggleFissato={onToggleFissato}
         isFissato={isFissato}
+        pinnedClosable={pinnedClosable}
         // Pool reorders merge back into App.openPanels; a SOLO cell's reorder
         // rewrites its cell in soloCells (its persisted tab order) — without
         // this only solo cells silently lost the reorder on reload.
@@ -2688,8 +2697,9 @@ export function PanelGrid({
       draftMeta, handleSplitPane, handleUnsoloTopic,
       canFlattenGrid, handleResetGridLayout,
       handleMergeIntoCell, handlePersistPoolReorder, handlePersistCellOrder,
-      onClosePanelImmediate, onToggleFissato, isFissato,
+      onClosePanelImmediate, onToggleFissato, isFissato, pinnedClosable,
       isMobile, mobileVisibleKey, isZoomed, canZoom, handleToggleZoom,
+      tabStrip,
     ],
   );
 

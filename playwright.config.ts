@@ -308,7 +308,11 @@ export default defineConfig({
     // Done, so a test starts with the column shown. board-group-density checks the default.
     // Same for the origin preset: a board opens on «My work», which hides cards in progress
     // and the agents' cards; the suite starts on «All» and board-origin-filters checks the default.
-    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }] }] },
+    // Same for the tabs: since 24/11 a new client lists its tabs in the column (`tabsPosition:
+    // side`), closing a tab leaves a closed row and pinned tabs cannot be closed. Fifty specs
+    // drive the top strip and expect a closed tab to leave, so the suite starts with the
+    // three options of before; sidebar-tab-states.spec.ts checks the new defaults.
+    storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [{ name: "topics.board.showDone", value: "true" }, { name: "topics.board.preset", value: "all" }, { name: "app-settings", value: JSON.stringify({ tabsPosition: "top", closeArchives: true, pinnedClosable: true }) }] }] },
     video: EVIDENCE && VIDEO ? "on" : "retain-on-failure",
     // `E2E_SHOT=1`: uno screenshot alla fine di OGNI test, non solo sui rossi. Serve alle
     // ANTEPRIME delle card della living-doc: senza, la card mostra un rettangolo grigio col nome

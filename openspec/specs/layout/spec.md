@@ -4414,3 +4414,63 @@ con le voci del suo tipo tranne Disposizione, e bersagli di almeno 44 px.
 - **WHEN** l'utente tiene premuto il titolo
 - **THEN** il foglio della chat si apre dal basso a tutta larghezza, con Chiudi, Impostazioni della chat e il livello Tab
 - **AND** nessun bersaglio è più basso di 44 px e non c'è Disposizione
+
+### Requirement: TABPOS-01 — Le tab stanno in un posto solo, sopra o di lato
+
+Le tab di primo livello SHALL comparire in UN posto solo: nella colonna (default)
+o nella barra in alto, a scelta dal menu Vista. Con le tab di lato la barra in
+alto NON SHALL esserci, e ciò che serviva della barra SHALL restare raggiungibile
+dalla riga del titolo: il foglio della tab con Disposizione, il «+» che aggiunge
+nella cella, la chiusura.
+
+#### Scenario: il default
+- **GIVEN** un client che non ha mai toccato il menu Vista e due chat aperte
+- **THEN** nessun `panel-tab-bar` è visibile e le due chat sono righe della colonna con lo sfondo delle tab aperte
+
+### Requirement: TABPOS-02 — Ogni tab ha tre stati: aperta, chiusa, archiviata
+
+Chiudere una tab di primo livello (chat, progetto, terminale, browser, pagina di
+utilità) SHALL lasciarne la riga nella colonna senza sfondo, con UN gesto solo.
+Un clic sulla riga chiusa SHALL riaprire la tab al suo posto; il cerchio della
+riga chiusa SHALL archiviarla, e la riga SHALL uscire dalla colonna. Con
+«Chiudere una tab la archivia» acceso dal menu Vista, chiudere SHALL archiviare
+come prima.
+
+#### Scenario: chiudi, riapri, archivia
+- **GIVEN** due chat aperte, con le opzioni di default
+- **WHEN** l'utente preme il cerchio della seconda riga
+- **THEN** la riga resta con `data-tab-state="closed"`, la tab non è più aperta e la chat non è archiviata
+- **WHEN** clicca la riga
+- **THEN** la riga torna `open`
+- **WHEN** la chiude di nuovo e preme il cerchio della riga chiusa
+- **THEN** la riga esce dalla colonna e la chat è archiviata
+
+### Requirement: TABPOS-03 — Le fissate si aprono da sole e non si chiudono
+
+Una tab fissata SHALL essere aperta al caricamento, e NON SHALL chiudersi: il suo
+foglio NON SHALL offrire Chiudi (resta «Rimuovi dai Fissati»), e ⌘W nella app
+SHALL lasciarla aperta con un avviso che dice di rimuoverla dai Fissati. Con
+«Le fissate si possono chiudere» acceso dal menu Vista, si chiudono come le
+altre e non si riaprono da sole.
+
+#### Scenario: chiudere una fissata
+- **GIVEN** una chat fissata e nessuna tab aperta
+- **WHEN** l'app si carica
+- **THEN** la chat fissata è aperta
+- **WHEN** l'utente la mette in primo piano e apre il foglio del titolo
+- **THEN** il foglio non ha Chiudi in nessun livello, ha «Rimuovi dai Fissati», e la tab resta aperta
+
+### Requirement: TABPOS-04 — Le righe stanno nell'ordine dato a mano
+
+Le righe della colonna SHALL stare nell'ordine in cui l'utente le trascina, e
+l'ordine SHALL sopravvivere a un ricaricamento e viaggiare fra i dispositivi con
+lo stato della sidebar. Una riga che l'ordine non conosce ancora (una tab appena
+aperta) SHALL andare in cima. Una riga che chiede attenzione NON SHALL saltare
+in cima: si accende dove sta.
+
+#### Scenario: trascina e ricarica
+- **GIVEN** tre chat aperte, in colonna nell'ordine A, B, C
+- **WHEN** l'utente trascina C sul bordo alto di A
+- **THEN** la colonna mostra C, A, B
+- **WHEN** ricarica la pagina
+- **THEN** la colonna mostra ancora C, A, B

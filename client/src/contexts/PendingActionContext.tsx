@@ -338,7 +338,9 @@ export function useTopicPendingStatus(
   // and carries the topic-level intent (close-tab only kills the open
   // pane, archive removes the topic from the listing).
   if (!options.isArchived) candidates.push(`archive-topic:${topicId}`);
-  candidates.push(`close-tab:chat:${topicId}`);
+  // A top-level chat tab closes under its bare id, one inside a project
+  // window under `chat:<id>`.
+  candidates.push(`close-tab:${topicId}`, `close-tab:chat:${topicId}`);
   return firstPendingStatus(pending, candidates);
 }
 
