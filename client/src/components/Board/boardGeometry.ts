@@ -49,6 +49,9 @@ export const COLUMN_FRAME = 'flex flex-col rounded-lg border border-app-border b
 /** The frame of a column with no cards: the same box (border width included, so nothing shifts), no line and no fill. */
 export const COLUMN_FRAME_BARE = 'flex flex-col rounded-lg border border-transparent';
 
+/** The class a row carries while it fades its edges (the `scroll-edge-fade` utility in index.css, a mask). */
+export const SOFT_EDGE_CLASS = 'scroll-edge-fade';
+
 /**
  * The room a sideways-scrolling row of columns keeps, in ONE place for the
  * board's row and the rows inside the project lanes.
@@ -71,7 +74,7 @@ export const COLUMN_FRAME_BARE = 'flex flex-col rounded-lg border border-transpa
  * scrollable area of a flex scroller on the engines measured
  * (tests/e2e/board-columns-scroll-edges.spec.ts, KANBAN-122).
  */
-const COLUMNS_ROW_ROOM = 'scroll-edge-fade px-2 pb-4 scroll-px-2 [--edge-room:0.5rem] sm:px-3 sm:scroll-px-3 sm:[--edge-room:0.75rem]';
+const COLUMNS_ROW_ROOM = `${SOFT_EDGE_CLASS} px-2 pb-4 scroll-px-2 [--edge-room:0.5rem] sm:px-3 sm:scroll-px-3 sm:[--edge-room:0.75rem]`;
 
 /** The columns row in the kanban grid (snap classes are added by the board). */
 export const COLUMNS_ROW_GRID = `flex h-full min-w-0 gap-2 overflow-x-auto pt-3 sm:gap-3 ${COLUMNS_ROW_ROOM}`;
