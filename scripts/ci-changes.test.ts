@@ -576,7 +576,7 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
   it("a push to main whose tree a pull request run already judged: no suite, no heavy step", () => {
     const judged = changesOutputs(answerOf(["server/index.ts"]), "true");
     const run = plan(judged, "push");
-    expect(Object.keys(run).sort()).toEqual(["changes", "e2e", "prepare-e2e"]);
+    expect(Object.keys(run).sort()).toEqual(["changes", "e2e", "growth", "prepare-e2e"]);
     expect(run.e2e).toEqual([{ leg: "0", steps: [EXEMPT] }]);
   });
 
