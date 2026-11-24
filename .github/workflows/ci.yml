@@ -1151,7 +1151,7 @@ jobs:
   # does) and every step has a short cap, so it never turns the run red and never
   # holds the shards long: the bundle saves time, never decides a verdict.
   client-bundle:
-    timeout-minutes: 16
+    timeout-minutes: 22
     continue-on-error: true
     needs: changes
     if: ${{ needs.changes.outputs.e2e != 'false' }}
