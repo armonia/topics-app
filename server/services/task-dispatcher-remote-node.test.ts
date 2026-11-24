@@ -1037,6 +1037,41 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
   });
 
+  it("a node delivery emits task-deliver once, and a hook that throws does not block the review", async () => {
+    for (const throws of [false, true]) {
+      const seen: { event: string; payload: LifecycleHookPayload }[] = [];
+      const hooks: LifecycleHookRunner = {
+        run: async (event, payload) => {
+          seen.push({ event, payload });
+          if (event === "task-deliver" && throws) throw new Error("hook broke");
+          return { ok: true };
+        },
+      };
+      const h = harness({
+        hooks,
+        bundle: new Uint8Array([1, 2, 3, 4]),
+        readRun: () =>
+          Promise.resolve(report({
+            status: "review",
+            dispatchState: "delivered",
+            deliveryBranch: "topics/corsa-remota",
+            deliveryCommit: "deadbeefdeadbeef",
+            baseSha: "abcdef0123456789",
+          })),
+      });
+      h.seed();
+      await dispatch(h);
+      await poll(h);
+      await flush(10);
+
+      expect(h.task().status).toBe("review");
+      const delivers = seen.filter((c) => c.event === "task-deliver");
+      expect(delivers).toHaveLength(1);
+      expect(delivers[0].payload.task_id).toBe(TASK);
+      expect(delivers[0].payload.node_run).toBe(true);
+    }
+  });
+
   it("il ramo che non si pianta arriva comunque in review, col motivo scritto", async () => {
     const h = harness({
       bundle: new Uint8Array([9, 9]),
