@@ -661,6 +661,9 @@ export default defineConfig({
         // The Board's origin filters, owner chips and Workflow view, shot on the engine the desktop app ships in.
         "**/board-origin-filters.spec.ts",
         "**/board-frenato.spec.ts",
+        // The columns row's scrollbar band and its end room: the overlay scrollbar and the flex
+        // padding-end are WKWebView behaviour, so the bars are measured on the shell's engine.
+        "**/board-columns-scroll-edges.spec.ts",
         // The hub's status signals in the bell, the diary's kinds and the services' groups, same reason as the bell.
         "**/hub-status-signals.spec.ts",
         // The live-terminals menu: used mostly from remote, i.e. from phone

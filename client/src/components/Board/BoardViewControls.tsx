@@ -3,18 +3,19 @@
  * list, cards), the grouping («group by» and «then by») and whether the Done
  * column is shown. Out of `KanbanBoardPane` so the pane keeps its size budget.
  */
-import { AlignJustify, CheckCircle2, Equal, List, SquareKanban, UsersRound, Workflow } from 'lucide-react';
+import { AlignJustify, CheckCircle2, Columns3, Equal, List, RectangleVertical, SquareKanban, Table2, UsersRound, Workflow } from 'lucide-react';
 import { useRef } from 'react';
 import { useT } from '../../hooks/useT';
 import { BOARD_DENSITIES, type BoardDensity, type BoardGroupBy } from './boardGeometry';
 import { groupKeysFor } from './boardGrouping';
 import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 import { Select } from '../Shared/Select';
+import { COLUMNS_MODES, type ColumnsMode } from './columnsMode';
 import { DETAIL_LEVELS, type DetailLevel } from './detailLevel';
 
-const VIEW_ICON = { grid: SquareKanban, list: List, plan: UsersRound, workflow: Workflow } as const;
+const VIEW_ICON = { grid: SquareKanban, list: List, table: Table2, plan: UsersRound, workflow: Workflow } as const;
 
-/** ONE selector with the four views, each with its name and a tooltip that says what it shows. Arrow keys move along it (a radio group). */
+/** ONE selector with the five views, each with its name and a tooltip that says what it shows. Arrow keys move along it (a radio group). */
 export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange: (next: DetailLevel) => void }) {
   const tr = useT();
   return (
@@ -141,5 +142,22 @@ export function DoneToggle({ showDone, onShowDone }: { showDone: boolean; onShow
       className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${showDone ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
       title={tr(showDone ? 'board.toolbar.done.hide' : 'board.toolbar.done.show')}
     ><CheckCircle2 className="h-3.5 w-3.5" /></button>
+  );
+}
+
+const COLUMNS_ICON = { split: Columns3, single: RectangleVertical } as const;
+
+/** «Columns»: the status columns side by side, or ONE column holding every status. A toggle that shows the mode it leads to. */
+export function ColumnsToggle({ value, onChange }: { value: ColumnsMode; onChange: (next: ColumnsMode) => void }) {
+  const tr = useT();
+  const next = COLUMNS_MODES[(COLUMNS_MODES.indexOf(value) + 1) % COLUMNS_MODES.length]!;
+  const Icon = COLUMNS_ICON[value];
+  return (
+    <button
+      type="button" data-testid="board-columns-toggle" data-columns={value} aria-pressed={value === 'single'}
+      aria-label={tr('board.columns.label')} title={`${tr('board.columns.label')}: ${tr(`board.columns.${value}`)} (${tr(`board.columns.${next}Title`)})`}
+      onClick={() => onChange(next)}
+      className={`grid ${TOOLBAR_CONTROL_H} ${TOOLBAR_ICON_W} shrink-0 place-items-center rounded ${value === 'single' ? 'bg-black/10 dark:bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-black/5 dark:hover:bg-white/5'}`}
+    ><Icon className="h-3.5 w-3.5" aria-hidden="true" /></button>
   );
 }
