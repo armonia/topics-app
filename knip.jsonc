@@ -345,6 +345,10 @@
         "scripts/canonicalizza-progetti.ts",
         "scripts/migrate-uuid-board-ids.ts",
         "scripts/*.test.ts",             // run by `bun test ./scripts` in test:unit
+        // `bun scripts/backfill-project-parents.ts [--db <path>] [--apply]` - the
+        // manual door of the project-family backfill the server also runs at boot.
+        // Dry run unless `--apply`; run by hand, imported by nobody.
+        "scripts/backfill-project-parents.ts",
         // Everything else under scripts/ stays a PROJECT file only (see the
         // `project` list below). Listing the folder here — with or without `!` —
         // would re-grant the amnesty this narrowing exists to remove: any dead
