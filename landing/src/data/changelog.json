@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.95",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a turn waiting for a person is parked, not streaming (#1634)",
+          "scope": "restart-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.90",
     "date": "2026-11-23",
     "sections": {

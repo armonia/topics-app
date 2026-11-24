@@ -31,7 +31,7 @@ import { describe, test, expect, setSystemTime, jest } from "bun:test";
 import type { ToolCall } from "../../server/types";
 import { decodeCol } from "../../shared/message-blob";
 import {
-  beginAsk, endAsk, hasPendingAsk, pendingAskVerdict, _dropAskStateLikeARestart, ASK_BUFFER_TTL_MS,
+  beginAsk, endAsk, hasPendingAsk, deliverAnswer, pendingAskVerdict, _dropAskStateLikeARestart, ASK_BUFFER_TTL_MS,
 } from "../../server/lib/ask-user-bridge";
 import { isHumanHold } from "../../server/lib/human-hold";
 import { finalizeOrphanedRunningTools } from "../../server/lib/boot-orphan-tools";
@@ -184,6 +184,27 @@ describe("a question survives the process that asked it", () => {
       jest.useRealTimers();
     }
     expect(server.lateMessages).toEqual([]);
+  });
+});
+
+describe("a leg that collects a buffered answer leaves no question open", () => {
+  test("an answer given between two legs and not written on the row closes the ask the next leg re-opens", async () => {
+    const sk = "topic:q-buffered-only";
+    askOnRow(sk, "toolu_q_buffered");
+    const server = bootServer();
+    expect((await server.leg(sk)).body).toEqual({ pending: true });
+    expect(hasPendingAsk(sk)).toBe(true);
+
+    // Delivered straight to the rendez-vous (no row written): `deliverAnswer`
+    // closes the ask, no waiter is registered, so the answer is buffered.
+    deliverAnswer(sk, { [QUESTION]: "next" }, { questions: [QUESTION] });
+    expect(hasPendingAsk(sk)).toBe(false);
+
+    // The next leg opens the ask again (every leg does), takes the answer from
+    // the buffer and returns it. The question is over: nothing may be left open,
+    // or the gate would keep calling a working turn "waiting for a person".
+    expect((await server.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
+    expect(hasPendingAsk(sk)).toBe(false);
   });
 });
 
