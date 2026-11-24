@@ -55,6 +55,15 @@ async function frames(page: Page, n: number): Promise<void> {
   }), n);
 }
 
+/** The chat just opened takes the keyboard into its field, a frame after it
+ *  lands: a focus given before that is taken away, and the next key is typed
+ *  in the field. Wait for the LAST opened chat's field (the one before it took
+ *  the focus first) before handing the focus to a divider. */
+async function fieldHasFocus(page: Page, lastOpened: string): Promise<void> {
+  const cell = cells(page).filter({ has: page.getByTestId("cell-title-handle").filter({ hasText: lastOpened }) });
+  await expect(cell.locator("textarea:focus")).toHaveCount(1, { timeout: 5_000 });
+}
+
 /** Three cells side by side, built the way SPLIT-05 proves: from the row menu. */
 async function threeCells(page: Page, request: APIRequestContext, [a, b, c]: Array<{ id: string; name: string }>): Promise<void> {
   await resetPaneStore(request, [a.id, b.id, c.id]);
@@ -139,6 +148,7 @@ test.describe("split, from zero", () => {
     // The narrowest cell's empty field stays one line: its placeholder used to
     // wrap and make it two lines tall. Two steps of the divider take the right
     // column to about 205 px.
+    await fieldHasFocus(page, c.name);
     const divider = page.locator('[data-split-divider][tabindex="0"]').first();
     await divider.focus();
     const share = Number(await divider.getAttribute("aria-valuenow"));
@@ -154,6 +164,7 @@ test.describe("split, from zero", () => {
 
   test("SPLIT-04: a divider moves with the arrows and evens out with Enter", async ({ page, request }) => {
     await threeCells(page, request, made);
+    await fieldHasFocus(page, made[2].name);
     const divider = page.locator('[data-split-divider][tabindex="0"]').first();
     await divider.focus();
     const axis = await divider.getAttribute("data-resize-axis");
