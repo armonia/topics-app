@@ -42,11 +42,11 @@ import { isInsideDir } from "../lib/path-containment";
 import { provisionTauriSidecars } from "./worktree-sidecars";
 import { existsSync, mkdirSync, statSync, cpSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { worktreeRootDir, defaultWorktreeRootDir, ownedRootsOfStores } from "./worktree-root";
+import { worktreeRootDir, ownedRootsOfStores } from "./worktree-root";
 import { forgetFolderOwned, markFolderOwned, writeRootSentinel } from "./worktree-root-ledger";
 
 // The root lives in its own module (this file is at the size gate); re-exported so callers keep one import.
-export { worktreeRootDir, defaultWorktreeRootDir };
+export { worktreeRootDir };
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";

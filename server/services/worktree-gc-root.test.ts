@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { createWorktreeGcRunner, type WorktreeGcDeps } from "./worktree-gc-runner";
 import type { StoredWorktree } from "./worktree-gc-root-pass";
 import { lockOwned } from "./worktree-owner";
-import { markFolderOwned, QUARANTINE_DIR, listQuarantine } from "./worktree-root-ledger";
+import { folderOwned, markFolderOwned, OWNED_DIR, QUARANTINE_DIR, listQuarantine } from "./worktree-root-ledger";
 import { defaultRunGit } from "./own-commits";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
@@ -71,6 +71,8 @@ describe("the root pass of the worktree GC, on real git", () => {
     const abs = join(root, "proj", name);
     mkdirSync(join(root, "proj"), { recursive: true });
     expect(git(repo, "worktree", "add", "-q", "-b", `topics/${name}`, abs, "main").code).toBe(0);
+    // `create` writes this marker before `git worktree add`: an orphan Topics made carries it.
+    markFolderOwned(root, abs);
     age(abs, ageMs);
     return abs;
   }
@@ -144,6 +146,7 @@ describe("the root pass of the worktree GC, on real git", () => {
     const abs = join(root, "proj", "detached-one");
     mkdirSync(join(root, "proj"), { recursive: true });
     expect(git(repo, "worktree", "add", "-q", "--detach", abs, "main").code).toBe(0);
+    markFolderOwned(root, abs);
     writeFileSync(join(abs, "only-here.txt"), "work\n");
     git(abs, "add", "-A");
     expect(git(abs, "commit", "-q", "-m", "only on this HEAD").code).toBe(0);
@@ -165,6 +168,70 @@ describe("the root pass of the worktree GC, on real git", () => {
     await runner().runWorktreeGc();
     expect(deleted).toEqual([]);
     expect(existsSync(abs)).toBe(true);
+  });
+
+  /** A worktree adopted on `feat` (already merged into main), later detached with a commit only it holds. */
+  function adoptedThenDetached(abs: string): string {
+    git(repo, "branch", "-q", "feat", "main");
+    expect(git(repo, "worktree", "add", "-q", abs, "feat").code).toBe(0);
+    rows.push({ id: "drifted", projectId: "p1", absPath: abs, branchName: "feat", mode: "reuse", status: "ready", createdAt: new Date(Date.now() - 9 * DAY).toISOString() });
+    git(abs, "checkout", "-q", "--detach");
+    writeFileSync(join(abs, "work.txt"), "the only copy\n");
+    git(abs, "add", "-A");
+    expect(git(abs, "commit", "-q", "-m", "unique work").code).toBe(0);
+    age(abs, 3 * DAY);
+    return git(abs, "rev-parse", "HEAD").out;
+  }
+
+  test("a reuse row whose HEAD left its merged branch for commits of its own is kept by the sweep: HEAD is judged, not the stored branch", async () => {
+    const abs = join(root, "proj", "adopted");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    adoptedThenDetached(abs);
+    const summary = await runner().runWorktreeGc();
+    expect(summary!.reaped).toBe(0);
+    expect(deleted).toEqual([]);
+    expect(existsSync(join(abs, "work.txt"))).toBe(true);
+  });
+
+  test("gc_foreign=merged keeps an adopted worktree whose HEAD left its merged branch for commits of its own", async () => {
+    const abs = join(base, "elsewhere", "adopted");
+    mkdirSync(join(base, "elsewhere"), { recursive: true });
+    adoptedThenDetached(abs);
+    const summary = await runner({ settings: () => ({ abandonDays: 7, gcForeign: "merged", maxPerProject: 50 }) }).runWorktreeGc();
+    expect(summary!.foreignRemoved).toBe(0);
+    expect(deleted).toEqual([]);
+  });
+
+  test("a worktree a person made by hand in the root, with no Topics marker, is listed only: no row, no removal, its ignored .env intact", async () => {
+    writeFileSync(join(repo, ".gitignore"), ".env\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "ignore");
+    const abs = join(root, "proj", "my-own");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    expect(git(repo, "worktree", "add", "-q", "-b", "mine", abs, "main").code).toBe(0);
+    writeFileSync(join(abs, ".env"), "API_KEY=only-copy\n");
+    age(abs, 3 * DAY);
+    const gc = runner();
+    const summary = await gc.runWorktreeGc();
+    expect(summary!.root).toMatchObject({ registered: 0 });
+    expect(rows).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(existsSync(join(abs, ".env"))).toBe(true);
+    // Nothing writes Topics' proof for it after the fact.
+    expect(folderOwned(root, abs)).toBe(false);
+    const plan = await gc.planWorktreeGc();
+    expect(plan!.entries.find((e) => e.absPath.endsWith("/my-own"))).toMatchObject({ cls: "orphan", action: "inventory" });
+  });
+
+  test("a row that already sat in the root before the marker existed earns its marker on the first pass", async () => {
+    const abs = join(root, "proj", "before-upgrade");
+    mkdirSync(join(root, "proj"), { recursive: true });
+    expect(git(repo, "worktree", "add", "-q", "-b", "topics/before-upgrade", abs, "main").code).toBe(0);
+    rows.push({ id: "old-row", projectId: "p1", absPath: abs, branchName: "topics/before-upgrade", mode: "branch", status: "ready", createdAt: new Date(Date.now() - 9 * DAY).toISOString() });
+    live.push(abs);
+    expect(existsSync(join(root, OWNED_DIR, "proj", "before-upgrade"))).toBe(false);
+    await runner().runWorktreeGc();
+    expect(existsSync(join(root, OWNED_DIR, "proj", "before-upgrade"))).toBe(true);
   });
 
   test("a standalone clone (a .git DIRECTORY) under the root is never registered nor removed: it is not a worktree", async () => {

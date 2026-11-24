@@ -10,14 +10,15 @@
  *   3. the cleanup preview reads the SAVED root: a folder planted in it that no
  *      row and no git knows is listed as a ghost, with its class and what the
  *      next pass would do, and the preview writes nothing (the folder is still
- *      there afterwards).
+ *      there afterwards). With no Topics marker the cleanup never moves it, so
+ *      the line offers to move it to quarantine by hand, and back.
  *
  * The root cannot be in a temp area (the server refuses it), so it lives in a
  * folder of the machine's home that the spec makes and removes. It already holds
  * the planted ghost, and the server refuses a non-empty root that does not carry
  * Topics' sentinel: the spec writes the sentinel, as Topics' first create would.
  *
- * @covers WORKTREE-STD-01, WORKTREE-STD-03
+ * @covers WORKTREE-STD-01, WORKTREE-STD-03, WORKTREE-STD-08
  */
 import { test as base, expect, type Page } from "@playwright/test";
 import { existsSync, mkdirSync } from "node:fs";
@@ -122,6 +123,22 @@ test.describe("Impostazioni dei worktree", () => {
     expect(existsSync(GHOST)).toBe(true);
     await panel.getByTestId("worktrees-preview-open").click();
     await expect(line).toHaveCount(1);
+    expect(existsSync(GHOST)).toBe(true);
+
+    // No Topics marker, so the cleanup never moves it: a person can, to quarantine, and back.
+    await line.getByTestId("worktrees-quarantine").click();
+    const toQuarantine = page.getByRole("dialog", { name: "Mettere in quarantena questa cartella?" });
+    await expect(toQuarantine).toBeVisible({ timeout: 10_000 });
+    await toQuarantine.getByRole("button", { name: "Metti in quarantena" }).click();
+    const parked = list.locator('[data-testid="worktrees-preview-line"][data-class="quarantined"]').filter({ hasText: `ghost-folder-${STAMP}` });
+    await expect(parked).toHaveCount(1, { timeout: 20_000 });
+    expect(existsSync(GHOST)).toBe(false);
+    await page.screenshot({ path: testInfo.outputPath("5-in-quarantena.png") });
+    await parked.getByTestId("worktrees-restore").click();
+    const restore = page.getByRole("dialog", { name: "Ripristinare questa cartella?" });
+    await expect(restore).toBeVisible({ timeout: 10_000 });
+    await restore.getByRole("button", { name: "Ripristina" }).click();
+    await expect(line).toHaveCount(1, { timeout: 20_000 });
     expect(existsSync(GHOST)).toBe(true);
   });
 });

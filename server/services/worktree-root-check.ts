@@ -19,13 +19,16 @@
 import { existsSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {
-  ROOT_SCAN_BUDGET_MS, canonicalPath, countRoot, planRoot, scanWorktreeRoot,
+  canonicalPath, countRoot, planRoot, scanWorktreeRoot,
   type RootCounts, type RootPlanEntry, type RootRow,
 } from "./worktree-root-gc";
 import { normalizeWorktreeRoot } from "../lib/worktree-root-setting";
 import { listQuarantine, pastRootsFromRows } from "./worktree-root-ledger";
 import { defaultWorktreeRootDir, worktreeRootDir } from "./worktree-root";
 import { resolve } from "node:path";
+
+/** `--check` fails when reading the root takes longer: the trigger to move the scan to a native sidecar. */
+const ROOT_SCAN_BUDGET_MS = 2000;
 
 export interface RootCheckResult {
   /** 0 clean, 1 leaked or too slow. */

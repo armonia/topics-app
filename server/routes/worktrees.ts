@@ -12,7 +12,9 @@
  *   DELETE /api/worktrees/:id                    → remove dir + (mode='branch') branch
  *   GET    /api/worktrees/gc/plan                → preview of the cleanup, per folder
  *   POST   /api/worktrees/relocate               → adopt | move | remove a worktree made
- *                                                  outside the root (`dryRun` = preview)
+ *                                                  outside the root, quarantine a leftover the
+ *                                                  GC only lists, restore a quarantined one
+ *                                                  (`dryRun` = preview)
  *
  * Every successful mutation broadcasts a `worktree:<verb>` envelope. The
  * create endpoint emits `worktree:new` synchronously with the row in

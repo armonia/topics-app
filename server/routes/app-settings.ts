@@ -277,7 +277,22 @@ function generateToken(): string {
     .replace(/=+$/, "");
 }
 
-export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
+/**
+ * What the root check reads of this machine: its home, its temp folder and the
+ * disk. The server passes nothing and gets the real ones; a test names its own,
+ * so the verdict does not depend on where its checkout or its HOME happen to be.
+ */
+interface RootCheckHost {
+  home?: string;
+  osTmp?: string;
+  nonEmpty?: (abs: string) => boolean;
+}
+
+const folderHoldsSomething = (abs: string): boolean => {
+  try { return readdirSync(abs).some((n) => n !== ".DS_Store"); } catch { return false; }
+};
+
+export function createAppSettingsRouter(ctx: AppContext, host: RootCheckHost = {}): RouteHandler {
   const { json } = ctx;
 
   return async function appSettingsRouter(
@@ -341,12 +356,15 @@ export function createAppSettingsRouter(ctx: AppContext): RouteHandler {
       if (typeof rawRoot === "string" && rawRoot.trim() !== "") {
         const verdict = worktreeRootRefusal(rawRoot, {
           projectPaths: (ctx.projectStore?.list?.() ?? []).map((p) => p.path).filter(Boolean),
-          nonEmpty: (abs) => { try { return readdirSync(abs).some((n) => n !== ".DS_Store"); } catch { return false; } },
+          nonEmpty: host.nonEmpty ?? folderHoldsSomething,
           isTopicsRoot: (abs) => hasRootSentinel(abs) || resolve(abs) === resolve(defaultWorktreeRootDir()),
-        });
+        }, { home: host.home, osTmp: host.osTmp });
         for (let i = errors.length - 1; i >= 0; i--) if (errors[i]!.field === "worktreeRoot") errors.splice(i, 1);
         if ("refusal" in verdict) {
           errors.push({ field: "worktreeRoot", code: verdict.refusal, message: ROOT_REFUSAL_TEXT[verdict.refusal] });
+        } else {
+          // What is stored is exactly the path that was judged.
+          patch.worktreeRoot = verdict.root;
         }
       }
       if (errors.length > 0) {

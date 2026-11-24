@@ -86,6 +86,19 @@ describe("headStatusOfCheckout on real git", () => {
     expect(await headStatusOfCheckout(row(ahead), repo, defaultRunGit)).toBe("unmerged");
   });
 
+  test("a reuse row is judged by its stored branch only while HEAD is on it: detached with a commit of its own, it is unmerged", async () => {
+    git(repo, "branch", "-q", "feat", "main");
+    const wt = join(base, "adopted");
+    expect(git(repo, "worktree", "add", "-q", wt, "feat").code).toBe(0);
+    const reuse = { absPath: wt, branchName: "feat", mode: "reuse" as const };
+    expect(await headStatusOfCheckout(reuse, repo, defaultRunGit)).toBe("merged");
+    git(wt, "checkout", "-q", "--detach");
+    writeFileSync(join(wt, "work.txt"), "the only copy\n");
+    git(wt, "add", "-A");
+    expect(git(wt, "commit", "-q", "-m", "unique work").code).toBe(0);
+    expect(await headStatusOfCheckout(reuse, repo, defaultRunGit)).toBe("unmerged");
+  });
+
   test("a worktree whose admin folder is gone is unmerged, with its files where they were", async () => {
     const lost = join(base, "lost");
     expect(git(repo, "worktree", "add", "-q", "--detach", lost, "main").code).toBe(0);

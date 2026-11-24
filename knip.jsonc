@@ -415,7 +415,13 @@
         // (scripts/launchd/com.armonia.topics-disk-budget-check.plist.in), and
         // scripts/ is outside the production graph.
         "!server/lib/disk-budget.ts!",
-        "!server/lib/log-retention.ts!"
+        "!server/lib/log-retention.ts!",
+        // The `--check` and `--projects` halves of `bun run worktrees:orphans`
+        // (scripts/worktree-orphans.ts), a command run by hand or by the bar of
+        // the worktree-standard change: production code with no caller in the
+        // server, for the same reason as the disk budget above.
+        "!server/services/worktree-root-check.ts!",
+        "!server/services/project-worktree-check.ts!"
       ],
       // `ws` e `@types/ws` sono USATE, da `tests/e2e/helpers/node-websocket.ts`,
       // che da' alle spec un WebSocket anche su Node 20 (dove non e' globale: la

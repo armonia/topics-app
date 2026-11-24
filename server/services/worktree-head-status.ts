@@ -12,7 +12,9 @@
  *   unborn HEAD (git answers, no commit yet) -> merged (there is no commit to lose)
  *   git fails, times out, or is not a repository here (a worktree whose
  *   registration git lost answers 128 "not a git repository") -> unmerged
- *   `reuse` with a branch that exists -> the branch's own status (squash lands included)
+ *   a row whose HEAD is still on its stored branch -> the branch's own status (squash lands included)
+ *   (a checkout adopted on `feat` and later detached, with commits on top, is judged
+ *   by its HEAD: the stored branch says nothing about what the folder holds now)
  *   otherwise                       -> HEAD is an ancestor of the published main?
  *   git cannot tell                 -> unmerged (whoever could not look keeps)
  */
@@ -41,11 +43,17 @@ export async function headStatusOfCheckout(
   if (head.code === 1 && head.stdout.trim() === "") return "merged";
   const sha = head.code === 0 ? head.stdout.trim() : "";
   if (!sha) return "unmerged";
-  if (row.mode === "reuse" && row.branchName) {
+  if (row.mode !== "detached" && row.branchName && await headIsOnBranch(row.absPath, row.branchName, git)) {
     const s = await branchStatusFromRepo(repoPath, row.branchName).catch(() => "unmerged" as const);
     if (s === "merged") return "merged";
     if (s === "unmerged") return "unmerged";
   }
   const main = await publishedMainRef(repoPath, git);
   return (await commitIsIn(repoPath, sha, main, { runGit: git })) === true ? "merged" : "unmerged";
+}
+
+/** HEAD in this checkout is the stored branch itself, not a detached or other one. */
+async function headIsOnBranch(absPath: string, branchName: string, git: GitRunner): Promise<boolean> {
+  const ref = await git(absPath, ["symbolic-ref", "-q", "HEAD"]).catch(() => null);
+  return !!ref && ref.code === 0 && ref.stdout.trim() === `refs/heads/${branchName}`;
 }

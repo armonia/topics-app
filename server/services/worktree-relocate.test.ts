@@ -15,6 +15,7 @@ import { defaultRunGit } from "./own-commits";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 import { canonicalPath, listRepoWorktrees, readOwnerMarker } from "./worktree-owner";
 import { checkRelocation, runRelocation, type RelocateDeps, type RelocateRow } from "./worktree-relocate";
+import { folderOwned, listQuarantine } from "./worktree-root-ledger";
 
 const dirs: string[] = [];
 afterAll(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
@@ -239,5 +240,51 @@ describe("relocating worktrees made outside the root", () => {
     const ok = await runRelocation(deps, "remove", level);
     expect(ok.ok).toBe(true);
     expect(ok.check.warnings).not.toContain("branch-kept");
+  });
+
+  test("a leftover the GC only lists (no marker, no .git, no row) can be moved to quarantine by hand, and restored", async () => {
+    const leftover = join(root, "repo", "before-markers");
+    mkdirSync(leftover, { recursive: true });
+    writeFileSync(join(leftover, "build.log"), "x");
+    const preview = await checkRelocation(deps, "quarantine", leftover);
+    expect(preview).toMatchObject({ ok: true, refusals: [] });
+    const moved = await runRelocation(deps, "quarantine", leftover);
+    expect(moved.ok).toBe(true);
+    expect(existsSync(leftover)).toBe(false);
+    expect(existsSync(join(moved.to!, "build.log"))).toBe(true);
+    expect(listQuarantine(canonicalPath(root)).map((q) => q.from)).toEqual([canonicalPath(leftover)]);
+    // Restored on purpose: back where it was, and with no marker, so the GC does not move it again.
+    const back = await runRelocation(deps, "restore", moved.to!);
+    expect(back).toMatchObject({ ok: true, to: canonicalPath(leftover) });
+    expect(existsSync(join(leftover, "build.log"))).toBe(true);
+    expect(folderOwned(canonicalPath(root), canonicalPath(leftover))).toBe(false);
+  });
+
+  test("the by-hand quarantine refuses a checkout, a folder git lists, a row, a live session, a subfolder and anything outside the root", async () => {
+    const slugDir = join(root, "repo");
+    mkdirSync(slugDir, { recursive: true });
+    const checkout = join(slugDir, "a-checkout");
+    expect(git(repo, "worktree", "add", "-q", "-b", "c1", checkout, "main").code).toBe(0);
+    const listedNoGit = join(slugDir, "listed");
+    expect(git(repo, "worktree", "add", "-q", "-b", "c2", listedNoGit, "main").code).toBe(0);
+    rmSync(join(listedNoGit, ".git"));
+    const withRow = join(slugDir, "with-row");
+    mkdirSync(withRow);
+    rows.push({ id: "r9", projectId: "p1", name: "with-row", absPath: withRow, branchName: null, mode: "detached" });
+    const busy = join(slugDir, "busy");
+    mkdirSync(busy);
+    live.push(busy);
+    const deep = join(slugDir, "a-checkout", "src");
+    mkdirSync(deep, { recursive: true });
+    const elsewhere = join(outside, "loose");
+    mkdirSync(elsewhere);
+    for (const [p, why] of [[checkout, "not-a-ghost"], [listedNoGit, "not-a-ghost"], [withRow, "not-a-ghost"], [busy, "live-session"], [deep, "not-a-ghost"], [elsewhere, "not-a-ghost"], [join(slugDir, "gone"), "missing"]] as const) {
+      const r = await runRelocation(deps, "quarantine", p);
+      expect({ p, refusals: r.check.refusals }).toEqual({ p, refusals: [why] });
+      expect(r.ok).toBe(false);
+    }
+    expect(existsSync(join(checkout, ".git"))).toBe(true);
+    expect(existsSync(busy)).toBe(true);
+    expect((await checkRelocation(deps, "restore", join(root, ".quarantine", "x", "repo", "y"))).refusals).toEqual(["not-quarantined"]);
   });
 });

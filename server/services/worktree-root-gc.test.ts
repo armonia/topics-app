@@ -53,6 +53,11 @@ describe("classifyRootEntry", () => {
     expect(classifyRootEntry(facts({ owned: false, ageMs: 400 * DAY }))).toMatchObject({ cls: "ghost", action: "inventory" });
   });
 
+  test("a checkout with no Topics marker (a `git worktree add` by hand) is only listed, however old", () => {
+    expect(classifyRootEntry(facts({ hasDotGit: true, owned: false, ageMs: 400 * DAY }))).toMatchObject({ cls: "orphan", action: "inventory" });
+    expect(classifyRootEntry(facts({ inGitList: true, owned: false, ageMs: 400 * DAY }))).toMatchObject({ cls: "orphan", action: "inventory" });
+  });
+
   test("a worktree whose git registration is lost is only listed, never registered", () => {
     expect(classifyRootEntry(facts({ hasDotGit: true, registrationLost: true }))).toMatchObject({ cls: "orphan", action: "inventory" });
   });

@@ -35,8 +35,13 @@ export interface WorktreePlanPayload {
   overCap: Array<{ projectId: string; projectName: string | null; count: number; max: number }>;
 }
 
-/** The three things a person may do by hand with a worktree made by another tool. */
-export const RELOCATE_ACTIONS = ["adopt", "move", "remove"] as const;
+/**
+ * What a person may do by hand: adopt, move or remove a worktree made by another
+ * tool (outside the root); move to quarantine a folder in the root that the GC
+ * only lists (no Topics marker, so it never moves it on its own); restore a
+ * quarantined folder where it came from.
+ */
+export const RELOCATE_ACTIONS = ["adopt", "move", "remove", "quarantine", "restore"] as const;
 export type RelocateAction = (typeof RELOCATE_ACTIONS)[number];
 
 /** Why an action is refused. Every code is a fact about the folder, never a guess. */
@@ -52,7 +57,11 @@ export type RelocateRefusal =
   | "locked"
   | "active-task"
   | "target-exists"
-  | "unmerged-commits";
+  | "unmerged-commits"
+  /** `quarantine`: not a folder with no `.git`, no row and nothing git lists, two levels under the root. */
+  | "not-a-ghost"
+  /** `restore`: not a folder in the quarantine of a root. */
+  | "not-quarantined";
 
 /** Things worth knowing that do not stop the action. */
 export type RelocateWarning = "transcripts" | "branch-kept" | "already-adopted";

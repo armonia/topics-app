@@ -10,7 +10,8 @@
  *
  *   {root}/.topics-worktree-root          the sentinel: Topics uses this root
  *   {root}/.topics-owned/{slug}/{name}    one marker per folder Topics made
- *   {root}/.quarantine/{day}/{slug}/{name}   where a ghost goes instead of `rm`
+ *   {root}/.quarantine/{day}-{ms}/{slug}/{name}   where a ghost goes instead of `rm`;
+ *                                         `{ms}` is the moment of the move, the clock of the purge
  *
  * Everything lives in dot-folders at the first level, which the scan skips, and
  * nothing lives inside a checkout (a file there would show up in `git status`).
@@ -103,8 +104,8 @@ const dayOf = (d: Date): string => d.toISOString().slice(0, 10);
 export function quarantineFolder(root: string, absPath: string, now: Date = new Date()): string | null {
   const at = slugAndName(root, absPath);
   if (!at) return null;
-  let target = join(root, QUARANTINE_DIR, dayOf(now), at.slug, at.name);
-  if (!surelyAbsent(target)) target = join(root, QUARANTINE_DIR, `${dayOf(now)}-${now.getTime()}`, at.slug, at.name);
+  // The folder name carries the exact moment of the move: the purge counts from it, not from the day.
+  const target = join(root, QUARANTINE_DIR, `${dayOf(now)}-${now.getTime()}`, at.slug, at.name);
   if (!surelyAbsent(target)) return null;
   try {
     mkdirSync(dirname(target), { recursive: true });
@@ -125,6 +126,19 @@ export interface QuarantinedFolder {
   sinceMs: number;
 }
 
+/**
+ * When the folders under `{root}/.quarantine/{dir}` were moved there: the `{ms}` of
+ * `{day}-{ms}`. A bare `{day}` (no moment recorded) counts from the END of that UTC
+ * day, never earlier than the move. Anything else is not a quarantine folder: null.
+ */
+function movedAt(dir: string): number | null {
+  const stamped = /^\d{4}-\d{2}-\d{2}-(\d{10,})$/.exec(dir);
+  if (stamped) return Number(stamped[1]);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dir)) return null;
+  const day = Date.parse(dir);
+  return Number.isFinite(day) ? day + DAY_MS : null;
+}
+
 /** Everything in the quarantine of a root. A root without one is an empty list. */
 export function listQuarantine(root: string): QuarantinedFolder[] {
   const base = join(root, QUARANTINE_DIR);
@@ -132,8 +146,8 @@ export function listQuarantine(root: string): QuarantinedFolder[] {
   let days: string[] = [];
   try { days = readdirSync(base); } catch { return out; }
   for (const day of days) {
-    const since = Date.parse(day.slice(0, 10));
-    if (!Number.isFinite(since)) continue;
+    const since = movedAt(day);
+    if (since === null) continue;
     let slugs: string[] = [];
     try { slugs = readdirSync(join(base, day)); } catch { continue; }
     for (const slug of slugs) {
@@ -171,14 +185,22 @@ export async function purgeQuarantine(
   return purged;
 }
 
-/** Moves a quarantined folder back where it came from. Refused when the origin is taken again. */
+/** The quarantined folder at this path, in this root, or null. */
+export function findQuarantined(root: string, quarantinedPath: string): QuarantinedFolder | null {
+  return listQuarantine(root).find((x) => x.path === quarantinedPath) ?? null;
+}
+
+/**
+ * Moves a quarantined folder back where it came from. Refused when the origin is
+ * taken again. The marker is NOT written back: a person restored it on purpose,
+ * and with the marker the next pass would move it to quarantine again.
+ */
 export function restoreQuarantined(root: string, quarantinedPath: string): string | null {
-  const q = listQuarantine(root).find((x) => x.path === quarantinedPath);
+  const q = findQuarantined(root, quarantinedPath);
   if (!q || !surelyAbsent(q.from)) return null;
   try {
     mkdirSync(dirname(q.from), { recursive: true });
     renameSync(q.path, q.from);
-    markFolderOwned(root, q.from);
     return q.from;
   } catch {
     return null;

@@ -164,11 +164,14 @@ async function headBranchOf(git: GitRunner, absPath: string): Promise<string | n
   return r.code === 0 && name && name !== "HEAD" ? name : null;
 }
 
+/** A stored row as the foreign pass reads it: with its mode, so the HEAD check knows what it is looking at. */
+type ForeignRow = StoredWorktree & { mode: "branch" | "reuse" | "detached" };
+
 export interface ForeignDeps {
   /** The row's folder is outside Topics' roots. */
   isForeign: (absPath: string) => boolean;
-  /** The row's branch is merged into main and the tree is clean. */
-  mergedAndClean: (row: { id: string; projectId: string; absPath: string; branchName: string | null }) => Promise<boolean>;
+  /** What the row's folder holds is on main (its HEAD, not only its stored branch) and the tree is clean. */
+  mergedAndClean: (row: ForeignRow) => Promise<boolean>;
   /** A live session, a running turn, or a task still active holds the row. */
   held: (row: { id: string; absPath: string }) => boolean;
   remove: (id: string) => Promise<boolean>;
@@ -181,7 +184,7 @@ export interface ForeignDeps {
  * default is `off` and then this never runs. The branch is never touched, and git
  * itself refuses a dirty or locked folder.
  */
-export async function removeMergedForeign(rows: readonly StoredWorktree[], d: ForeignDeps, now: number = Date.now()): Promise<number> {
+export async function removeMergedForeign(rows: readonly ForeignRow[], d: ForeignDeps, now: number = Date.now()): Promise<number> {
   let removed = 0;
   for (const w of rows) {
     if (w.status !== "ready" || !d.isForeign(w.absPath)) continue;

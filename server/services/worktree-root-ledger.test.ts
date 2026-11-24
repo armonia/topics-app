@@ -54,14 +54,16 @@ describe("the worktree root ledger", () => {
   test("a quarantined folder keeps its content, says where it came from, and can be moved back", () => {
     const wt = folder("proj/ghost");
     markFolderOwned(root, wt);
-    const to = quarantineFolder(root, wt, new Date("2026-11-20T10:00:00Z"))!;
-    expect(to).toBe(join(root, QUARANTINE_DIR, "2026-11-20", "proj", "ghost"));
+    const at = new Date("2026-11-20T10:00:00Z");
+    const to = quarantineFolder(root, wt, at)!;
+    expect(to).toBe(join(root, QUARANTINE_DIR, `2026-11-20-${at.getTime()}`, "proj", "ghost"));
     expect(existsSync(join(to, "f.txt"))).toBe(true);
     expect(folderOwned(root, wt)).toBe(false);
-    expect(listQuarantine(root)).toEqual([{ path: to, from: wt, sinceMs: Date.parse("2026-11-20") }]);
+    expect(listQuarantine(root)).toEqual([{ path: to, from: wt, sinceMs: at.getTime() }]);
     expect(restoreQuarantined(root, to)).toBe(wt);
     expect(existsSync(join(wt, "f.txt"))).toBe(true);
-    expect(folderOwned(root, wt)).toBe(true);
+    // Restored on purpose: no marker, or the next pass would move it to quarantine again.
+    expect(folderOwned(root, wt)).toBe(false);
     expect(listQuarantine(root)).toEqual([]);
   });
 
@@ -78,13 +80,38 @@ describe("the worktree root ledger", () => {
     const old = quarantineFolder(root, folder("proj/old"), new Date("2026-11-10T10:00:00Z"))!;
     const fresh = quarantineFolder(root, folder("proj/fresh"), new Date("2026-11-24T10:00:00Z"))!;
     // A stray file at the day level is not a quarantined folder.
-    writeFileSync(join(root, QUARANTINE_DIR, "2026-11-10", "stray.txt"), "x");
+    const dayDir = join(old, "..", "..");
+    writeFileSync(join(dayDir, "stray.txt"), "x");
     expect(await purgeQuarantine(root, 7, now)).toBe(1);
     expect(existsSync(old)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
-    expect(existsSync(join(root, QUARANTINE_DIR, "2026-11-10", "stray.txt"))).toBe(true);
+    expect(existsSync(join(dayDir, "stray.txt"))).toBe(true);
     expect(await purgeQuarantine(root, 1, now)).toBe(1);
     expect(existsSync(fresh)).toBe(false);
+  });
+
+  test("the purge counts from the moment of the move, not from midnight of its day", async () => {
+    const movedAt = Date.parse("2026-11-24T23:58:00Z");
+    const late = quarantineFolder(root, folder("proj/late"), new Date(movedAt))!;
+    // Three minutes later, with the shortest setting the Settings offer: still there.
+    expect(await purgeQuarantine(root, 1, movedAt + 3 * 60_000)).toBe(0);
+    expect(existsSync(late)).toBe(true);
+    // A minute short of a day: still there; a full day: gone.
+    expect(await purgeQuarantine(root, 1, movedAt + DAY - 60_000)).toBe(0);
+    expect(existsSync(late)).toBe(true);
+    expect(await purgeQuarantine(root, 1, movedAt + DAY)).toBe(1);
+    expect(existsSync(late)).toBe(false);
+  });
+
+  test("a quarantine folder named with a day only counts from the END of that day; any other name is not a quarantine", async () => {
+    const legacy = join(root, QUARANTINE_DIR, "2026-11-24", "proj", "old-style");
+    const stranger = join(root, QUARANTINE_DIR, "my-stuff", "proj", "keep");
+    mkdirSync(legacy, { recursive: true });
+    mkdirSync(stranger, { recursive: true });
+    expect(await purgeQuarantine(root, 1, Date.parse("2026-11-25T23:59:00Z"))).toBe(0);
+    expect(existsSync(legacy)).toBe(true);
+    expect(await purgeQuarantine(root, 1, Date.parse("2026-11-26T00:00:00Z"))).toBe(1);
+    expect(existsSync(stranger)).toBe(true);
   });
 
   test("past roots come from Topics' rows, and only from a root that carries the sentinel", () => {

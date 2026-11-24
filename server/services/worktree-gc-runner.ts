@@ -745,7 +745,9 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       mergedAndClean: async (w) => {
         const repoPath = deps.projectStore.get(w.projectId)?.path;
         if (!repoPath || !w.branchName || !existsSync(w.absPath)) return false;
-        if ((await branchStatusFromRepo(repoPath, w.branchName)) !== "merged") return false;
+        // HEAD-aware: a row adopted on a merged branch and then detached, with
+        // commits on top, is judged by what the folder holds now.
+        if ((await headStatusOfCheckout(w, repoPath, git)) !== "merged") return false;
         const dirt = await worktreeDirtProbe(w.absPath);
         return dirt.ok && dirt.paths.length === 0 && dirt.unregistered !== true;
       },

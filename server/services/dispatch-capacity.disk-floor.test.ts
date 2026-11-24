@@ -6,7 +6,8 @@
  * names the number that was used.
  */
 import { describe, expect, test } from "bun:test";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, dispatchResourceVerdict } from "./dispatch-capacity";
+import { DISPATCH_MEM_FLOOR_GB, dispatchResourceVerdict } from "./dispatch-capacity";
+import { DEFAULT_WORKTREE_DISK_FLOOR_GB as DISPATCH_DISK_FLOOR_GB } from "../../shared/worktree-settings";
 import type { HeldMemory } from "./mem-signal";
 
 const wideMemory = (): HeldMemory => ({ measurable: true, latestGB: DISPATCH_MEM_FLOOR_GB + 8, heldGB: DISPATCH_MEM_FLOOR_GB + 8, coveredMs: 120_000 });
