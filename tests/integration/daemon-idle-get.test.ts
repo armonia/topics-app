@@ -9,9 +9,19 @@
  * of the handler body would not see a `waitForDispatcherQuiescent` added by
  * mistake upstream of it.
  *
- * Three things to pin down:
+ * The real server only sees ROWS here (nothing registers a question in its
+ * memory): that the same chat is not ALSO counted as a stream, and every other
+ * rule of the split, is proven where the registry can be driven, in
+ * `server/boot/quiescence.test.ts`.
+ *
+ * Four things to pin down:
  *   - the answer has the promised shape (`idle`, `inFlight`, `holding`,
- *     `unrecoverable`, `alreadyWaiting`) and a server at rest says "idle";
+ *     `unrecoverable`, `waitingOnPerson`, `alreadyWaiting`) and a server at rest
+ *     says "idle";
+ *   - a row left `partial = 1` for hours is not a turn, and a chat parked on a
+ *     question nobody answered is not WORK: `idle` stays true, the question is
+ *     counted apart (RGATE-12). The rows are written from outside, into the
+ *     database the server has open, like a restart leaves them;
  *   - same door as the other `/__daemon/*` routes: no bearer, 401;
  *   - it is REALLY read-only: after several GETs no wait has started
  *     (`alreadyWaiting` stays false) and the process is still alive. A GET that
@@ -19,9 +29,10 @@
  *     the first lap and SIGTERM itself: that is the mutant this test must turn
  *     red.
  *
- * @covers RGATE-08
+ * @covers RGATE-08, RGATE-12
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import { join } from "node:path";
 import { spawnRealServer, testTmpDir, type RealServer } from "./helpers";
@@ -60,6 +71,7 @@ describe("GET /__daemon/idle", () => {
       inFlight: 0,
       holding: null,
       unrecoverable: 0,
+      waitingOnPerson: 0,
       alreadyWaiting: false,
     });
   });
@@ -94,3 +106,83 @@ describe("GET /__daemon/idle", () => {
     expect(alive()).toBe(true);
   });
 });
+
+/**
+ * An assistant row as a turn that never ended leaves it. Written into the
+ * server's own database from a second connection (WAL: both may be open).
+ */
+function seedPartialRow(opts: { id: string; sessionKey: string; ageHours: number; tool?: Record<string, unknown> }): void {
+  const db = new Database(join(ROOT, "data", "topics.db"));
+  try {
+    const at = new Date(Date.now() - opts.ageHours * 3_600_000).toISOString();
+    const toolCalls = opts.tool ? JSON.stringify([{ id: `${opts.id}-tool`, name: "ask_user_question", startedAt: Date.parse(at), ...opts.tool }]) : null;
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, tool_calls, partial, timestamp, sort_order) VALUES (?, ?, 'assistant', '', ?, 1, ?, 1)",
+      [opts.id, opts.sessionKey, toolCalls, at],
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/** Leave the database as found, so the next test starts from the same rows. */
+function clearSeededRows(): void {
+  const db = new Database(join(ROOT, "data", "topics.db"));
+  try { db.run("DELETE FROM messages WHERE partial = 1"); } finally { db.close(); }
+}
+
+/**
+ * The gate reads the rows through a probe it caches for 5 s
+ * (`QUIESCENCE_BROKER_PROBE_MS`, server/boot/quiescence.ts): poll until it has
+ * looked. The fixed 6 s waits below are that window plus a second.
+ */
+async function idleUntil(accept: (body: Record<string, unknown>) => boolean): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 20_000;
+  let body: Record<string, unknown> = {};
+  while (Date.now() < deadline) {
+    const res = await fetch(`${server.baseUrl}/__daemon/idle`, { headers: bearer() });
+    body = await res.json() as Record<string, unknown>;
+    if (accept(body)) return body;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return body;
+}
+
+describe("GET /__daemon/idle over rows a turn left behind", () => {
+  afterEach(clearSeededRows);
+
+  test("a row left partial for hours, with nothing running behind it, is not counted", async () => {
+    seedPartialRow({ id: "stale-partial", sessionKey: "topic:5ca1ab1e", ageHours: 10 });
+    // Look past the probe's cache: the answer must not move.
+    await new Promise((r) => setTimeout(r, 6_000));
+    const res = await fetch(`${server.baseUrl}/__daemon/idle`, { headers: bearer() });
+    const body = await res.json();
+    expect(body.idle).toBe(true);
+    expect(body.holding).toBeNull();
+    expect(body.waitingOnPerson).toBe(0);
+  }, 30_000);
+
+  test("a chat parked on an unanswered question is listed, and is not work", async () => {
+    seedPartialRow({ id: "open-question", sessionKey: "topic:0b0e0b0e", ageHours: 10, tool: { status: "waiting_for_input" } });
+    const body = await idleUntil((b) => b.waitingOnPerson === 1);
+    // Ten hours of silence on a question that has no clock: nothing is
+    // computing, so the machine is idle; the sentence still names who waits.
+    expect(body.waitingOnPerson).toBe(1);
+    expect(body.idle).toBe(true);
+    expect(body.holding).toBe("1 chat ferma/e su una domanda (topic:0b0e0b0e)");
+    expect(body.inFlight).toBe(0);
+    expect(body.unrecoverable).toBe(0);
+  }, 30_000);
+
+  test("a question whose asker is gone holds nothing, and says nothing", async () => {
+    // `askerGone`: no process is blocked on it any more, so it is not parked.
+    seedPartialRow({ id: "orphan-question", sessionKey: "topic:0f0f0f0f", ageHours: 3, tool: { status: "waiting_for_input", askerGone: true } });
+    await new Promise((r) => setTimeout(r, 6_000));
+    const res = await fetch(`${server.baseUrl}/__daemon/idle`, { headers: bearer() });
+    const body = await res.json();
+    expect(body.waitingOnPerson).toBe(0);
+    expect(body.holding).toBeNull();
+    expect(body.idle).toBe(true);
+  }, 30_000);
+});
+
