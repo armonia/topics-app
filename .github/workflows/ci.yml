@@ -1151,7 +1151,7 @@ jobs:
   # does) and every step has a short cap, so it never turns the run red and never
   # holds the shards long: the bundle saves time, never decides a verdict.
   client-bundle:
-    timeout-minutes: 10
+    timeout-minutes: 16
     continue-on-error: true
     needs: changes
     if: ${{ needs.changes.outputs.e2e != 'false' }}
@@ -1159,9 +1159,15 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Every step continues on error, not only the job: the board reads a red job of a
+      # run still going as a red card (ci-evidence.ts runRedElsewhere).
       - uses: actions/checkout@v5
+        continue-on-error: true
+        timeout-minutes: 2
 
       - name: Setup Bun
+        continue-on-error: true
+        timeout-minutes: 2
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version

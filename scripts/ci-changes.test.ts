@@ -563,7 +563,8 @@ describe("ci.yml obeys the answer: the workflow is evaluated, not read", () => {
 
   it("client-bundle is never a verdict and the shards build when its bundle is missing", () => {
     expect((jobs["client-bundle"] as Job & { "continue-on-error"?: boolean })["continue-on-error"]).toBe(true);
-    for (const st of jobs["client-bundle"]!.steps!.filter((x) => x.run || x.uses?.startsWith("actions/upload-artifact"))) {
+    // every step, checkout and setup included: a red job of a run still going is a red card on the board
+    for (const st of jobs["client-bundle"]!.steps!) {
       expect(st["continue-on-error"], st.name).toBe(true);
     }
     const shard = jobs.e2e!.steps!;
