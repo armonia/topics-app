@@ -30,6 +30,15 @@ describe('placeNewCell: a pane gets its own cell beside the target', () => {
     expect(rows[0].cellStacks?.['solo:c']?.items).toEqual(['solo:b']);
   });
 
+  test('top edge of a cell: the new pane heads the column, the old one stacks under it', () => {
+    const rows = placeNewCell(
+      [{ itemKeys: ['standalone', 'solo:c'], widths: [0.5, 0.5] }],
+      'solo:b', null, { targetKey: 'solo:c', zone: 'top' },
+    );
+    expect(rows[0].itemKeys).toEqual(['standalone', 'solo:b']);
+    expect(rows[0].cellStacks?.['solo:b']?.items).toEqual(['solo:c']);
+  });
+
   test('a strip above the grid: a full-width row on top', () => {
     const rows = placeNewCell(one(), 'solo:b', null, { targetKey: 'standalone', zone: 'top', fullRow: true });
     expect(rows.map((r) => r.itemKeys)).toEqual([['solo:b'], ['standalone']]);

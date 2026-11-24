@@ -37,6 +37,7 @@ import { standaloneSplitFitsCaps } from './panelGridStacks';
 import { cloneRow, moveCell, newCellOverCap, placeNewCell, renameKeyDeep, renameKeyInRow, type PaneDropTarget } from './gridPaneDrop';
 import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
+import { EQUALIZE_SPLITS_EVENT, SPLIT_PANE_EVENT, heldByProjectWindow, sideZone, type EqualizeSplitsDetail, type SplitPaneDetail, type SplitSide } from '../../lib/splitCommands';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
@@ -1037,8 +1038,11 @@ export function PanelGrid({
   // split without capturing a stale handler (same pattern as
   // useProjectLayout's handleSplitGroupRef). Assigned right after the
   // callback below.
-  const handleSplitPaneRef = useRef<((topicId: string, direction: 'right' | 'down') => void) | null>(null);
-  const handleSplitPane = useCallback((topicId: string, direction: 'right' | 'down', opts?: SplitPaneOptions) => {
+  const handleSplitPaneRef = useRef<((topicId: string, direction: SplitSide) => void) | null>(null);
+  const handleSplitPane = useCallback((topicId: string, direction: SplitSide, opts?: SplitPaneOptions) => {
+    // Left and up are the mirror of right and down: same caps, same cell, the
+    // new one on the other side (SPLIT-05).
+    const horizontal = direction === 'right' || direction === 'left';
     // D8: any intent to REORGANISE the grid leaves the zoom BEFORE it applies,
     // so the grid you see is always the one the command acts on.
     //
@@ -1117,11 +1121,11 @@ export function PanelGrid({
     // not row 0 (with multiple rows the old check gated the wrong row: a
     // full row 0 blocked splits in a roomy row 1 and vice versa). Matches
     // the drag path's targetRowIdx-based guard.
-    if (direction === 'right') {
+    if (horizontal) {
       const targetRow = sourceRowIdx >= 0 ? currentRows[sourceRowIdx] : currentRows[0];
       if (targetRow && targetRow.itemKeys.length >= MAX_COLS_PER_ROW) return;
     }
-    if (direction === 'down') {
+    if (!horizontal) {
       // Cap the in-cell stack depth — beyond ~3 the panes get too squat to
       // be useful. MAX_ROWS doesn't apply (we don't add rows).
       const sourceRow = currentRows[sourceRowIdx];
@@ -1161,9 +1165,14 @@ export function PanelGrid({
     setGridRows(prev => {
       // Re-check limits in the updater — `prev` may have shifted between
       // the ref read above and React running this updater.
-      if (direction === 'right') {
+      if (horizontal) {
         const guardRow = sourceRowIdx >= 0 && sourceRowIdx < prev.length ? prev[sourceRowIdx] : prev[0];
         if (guardRow && guardRow.itemKeys.length >= MAX_COLS_PER_ROW) return prev;
+      }
+      // Left / up on a placed cell: the same landing a drop on that edge of
+      // the pane's own column takes (gridPaneDrop.placeNewCell).
+      if ((direction === 'left' || direction === 'up') && sourceRowIdx >= 0 && sourceRowIdx < prev.length) {
+        return placeNewCell(prev, soloKey, remainderKey, { targetKey: sourcePrimary, zone: sideZone(direction) });
       }
 
       // Deep clone — including cellStacks — so we never mutate prev shape.
@@ -1207,7 +1216,7 @@ export function PanelGrid({
       const effectivePrimary =
         remainderKey && sourcePrimary === sourceKey ? remainderKey : sourcePrimary;
 
-      if (direction === 'down') {
+      if (!horizontal) {
         if (sourceRowIdx === -1 || rows.length === 0) {
           // Bootstrap: gridRows is empty (first split). The user's source
           // pane lives inside a group that hasn't been materialized into
@@ -1228,12 +1237,14 @@ export function PanelGrid({
             (effectivePrimary && effectivePrimary !== soloKey ? effectivePrimary : null) ||
             (remainderKey && remainderKey !== soloKey ? remainderKey : null) ||
             (liveItems.find(i => i.key === 'standalone')?.key ?? null);
-          const bootstrapRow = hostKey
+          // Up puts the new pane on top: it heads the column, the host stacks under.
+          const [head, under] = direction === 'up' ? [soloKey, hostKey] : [hostKey, soloKey];
+          const bootstrapRow = hostKey && head && under
             ? {
-                itemKeys: [hostKey],
+                itemKeys: [head],
                 widths: [1],
                 cellStacks: {
-                  [hostKey]: { items: [soloKey], heights: [0.5, 0.5] },
+                  [head]: { items: [under], heights: [0.5, 0.5] },
                 },
               }
             : { itemKeys: [soloKey], widths: [1] };
@@ -1292,7 +1303,7 @@ export function PanelGrid({
           (remainderKey && remainderKey !== soloKey ? remainderKey : null) ||
           (liveItems.find(i => i.key === 'standalone')?.key ?? null);
         rows = hostKey
-          ? [{ itemKeys: [hostKey, soloKey], widths: [0.5, 0.5] }]
+          ? [{ itemKeys: direction === 'left' ? [soloKey, hostKey] : [hostKey, soloKey], widths: [0.5, 0.5] }]
           : [{ itemKeys: [soloKey], widths: [1] }];
       } else {
         const targetRow = sourceRowIdx >= 0 && sourceRowIdx < rows.length
@@ -1300,10 +1311,11 @@ export function PanelGrid({
           : rows[0];
         // Insert immediately to the right of the source column when we
         // have one — better UX than always at the end of the row.
-        const insertAt = sourceColIdx >= 0 ? sourceColIdx + 1 : targetRow.itemKeys.length;
+        const left = direction === 'left';
+        const insertAt = sourceColIdx >= 0 ? sourceColIdx + (left ? 0 : 1) : (left ? 0 : targetRow.itemKeys.length);
         // Split the source column's width with the new pane; siblings keep their
         // manual sizes (was `1/n` — the menu "Split Right" reset the whole row).
-        const donorIdx = sourceColIdx >= 0 ? sourceColIdx : Math.max(0, targetRow.itemKeys.length - 1);
+        const donorIdx = sourceColIdx >= 0 ? sourceColIdx : (left ? 0 : Math.max(0, targetRow.itemKeys.length - 1));
         const prevWidths = targetRow.widths;
         targetRow.itemKeys.splice(insertAt, 0, soloKey);
         targetRow.widths = splitColumnWidths(prevWidths, donorIdx, insertAt);
@@ -1384,7 +1396,7 @@ export function PanelGrid({
      cella prima che la pane esista lo farebbe cancellare nello stesso render.
      Quindi si registra l'intenzione e la si applica quando la pane compare,
      con la stessa forma del `pendingSoloPanelId` qui sotto. ---- */
-  const pendingSidebarLandingRef = useRef<{ topicId: string; targetPrimary: string | null; edge?: PaneDropTarget } | null>(null);
+  const pendingSidebarLandingRef = useRef<{ topicId: string; targetPrimary: string | null; edge?: PaneDropTarget; split?: SplitSide } | null>(null);
 
   /* ---- Auto-solo: a newly created utility pane (terminal/browser) created via
          quick-create should land in its own grid cell rather than join the
@@ -1767,9 +1779,26 @@ export function PanelGrid({
     if (!pending) return;
     if (!openPanels.includes(pending.topicId)) return;
     pendingSidebarLandingRef.current = null;
-    if (pending.edge) applyPaneDrop({ paneId: pending.topicId }, pending.edge);
+    if (pending.split) handleSplitPane(pending.topicId, pending.split);
+    else if (pending.edge) applyPaneDrop({ paneId: pending.topicId }, pending.edge);
     else landSidebarDrop(pending.topicId, pending.targetPrimary);
-  }, [openPanels, landSidebarDrop, applyPaneDrop]);
+  }, [openPanels, landSidebarDrop, applyPaneDrop, handleSplitPane]);
+
+  // «Apri a destra», «Dividi in alto»… from any sheet (lib/splitCommands). A
+  // pane a project window holds is that window's; a chat that is not open yet
+  // opens first and splits once its pane exists, like a row dropped on an edge.
+  useEffect(() => {
+    const onSplit = (ev: Event) => {
+      const { paneId, side } = (ev as CustomEvent<SplitPaneDetail>).detail ?? {};
+      if (!paneId || !side || heldByProjectWindow(paneId)) return;
+      if (openPanels.includes(paneId)) { handleSplitPane(paneId, side); return; }
+      if (!topics[paneId]) return;
+      pendingSidebarLandingRef.current = { topicId: paneId, targetPrimary: null, split: side };
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: paneId, mode: 'permanent' } }));
+    };
+    window.addEventListener(SPLIT_PANE_EVENT, onSplit);
+    return () => window.removeEventListener(SPLIT_PANE_EVENT, onSplit);
+  }, [openPanels, topics, handleSplitPane]);
 
   const handleGridItemDropCapture = useCallback((
     e: React.DragEvent,
@@ -2396,6 +2425,26 @@ export function PanelGrid({
       setGridRows(prev => prev.map((r, i) => (i === rowIdx ? { ...r, widths: weightedWidths(rowColumnWeights(r)) } : r)));
     }
   }, [setGridRowHeights, setGridRows, rowHeightWeights, rowColumnWeights, gridRowsRef]);
+
+  // «Pareggia» from a sheet: every divider of the grid at once, the same
+  // weighted shares a double-click gives one of them, stacked columns included.
+  useEffect(() => {
+    const onEqualize = (ev: Event) => {
+      const { paneId } = (ev as CustomEvent<EqualizeSplitsDetail>).detail ?? {};
+      if (!paneId || heldByProjectWindow(paneId) || !openPanels.includes(paneId)) return;
+      const rows = gridRowsRef.current.map(r => ({
+        ...r,
+        widths: weightedWidths(rowColumnWeights(r)),
+        ...(r.cellStacks ? {
+          cellStacks: Object.fromEntries(Object.entries(r.cellStacks).map(([k, s]) => [k, { ...s, heights: equalizeWidths(s.items.length + 1) }])),
+        } : {}),
+      }));
+      setGridRows(rows);
+      setGridRowHeights(weightedWidths(rowHeightWeights(rows)));
+    };
+    window.addEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    return () => window.removeEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+  }, [openPanels, gridRowsRef, rowColumnWeights, rowHeightWeights, setGridRows, setGridRowHeights]);
 
   // One leaf = one top-level cell. Reuses renderGroupForKey + the exact legacy
   // drop-capture wrapper + <CellSubStack>, so DnD and sub-stacks behave as today.

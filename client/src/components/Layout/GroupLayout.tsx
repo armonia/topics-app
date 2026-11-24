@@ -18,6 +18,7 @@ import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane, canDropSplit, centerDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
+import { EQUALIZE_SPLITS_EVENT, SPLIT_PANE_EVENT, sideZone, type EqualizeSplitsDetail, type SplitPaneDetail } from '../../lib/splitCommands';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
@@ -1146,6 +1147,36 @@ export function GroupLayout({
       onUpdateRows(rows.map((r, i) => (i === rowIdx ? { ...r, widths: equalizeWidths(r.groupIds.length) } : r)));
     }
   }, [rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
+
+  // Layout commands from any sheet (lib/splitCommands): this window acts only
+  // for a pane it holds. A split is a drop of the pane on that edge of its own
+  // group; «Pareggia» evens every divider at once.
+  useEffect(() => {
+    const onSplit = (ev: Event) => {
+      const { paneId, side } = (ev as CustomEvent<SplitPaneDetail>).detail ?? {};
+      const member = paneId && side ? memberOf(paneId) : null;
+      if (!member || !side || !onSplitGroup) return;
+      onSplitGroup(member.groupId, member.paneId, member.groupId, sideZone(side));
+    };
+    const onEqualize = (ev: Event) => {
+      const { paneId } = (ev as CustomEvent<EqualizeSplitsDetail>).detail ?? {};
+      if (!paneId || !memberOf(paneId)) return;
+      onUpdateRows(rows.map(r => ({
+        ...r,
+        widths: equalizeWidths(r.groupIds.length),
+        ...(r.cellStacks ? {
+          cellStacks: Object.fromEntries(Object.entries(r.cellStacks).map(([k, s]) => [k, { ...s, heights: equalizeWidths(s.groupIds.length + 1) }])),
+        } : {}),
+      })));
+      onUpdateRowHeights(weightedWidths(rows.map(rowVerticalDepth)));
+    };
+    window.addEventListener(SPLIT_PANE_EVENT, onSplit);
+    window.addEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    return () => {
+      window.removeEventListener(SPLIT_PANE_EVENT, onSplit);
+      window.removeEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    };
+  }, [memberOf, onSplitGroup, rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
 
   // "Reimposta pannelli" — flatten every split back to a single row of equal
   // columns (cellStacks dissolve; nothing closes). Null = already flat, so

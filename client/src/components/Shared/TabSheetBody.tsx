@@ -64,6 +64,7 @@ import { buildTabSheetEntries, DEVICE_LABEL_KEY, type SheetEntry, type TabSheetM
 import { ControlRow, type ControlRenderers } from './tabSheetControls';
 import type { TabSheetDoor } from '../../state/tabSheet';
 import type { TabSheetTarget } from './tabSheetTypes';
+import { requestEqualize, requestSplit } from '../../lib/splitCommands';
 import { Spinner } from './Spinner';
 
 /** Past this an address stops being read and starts being scanned. */
@@ -582,6 +583,11 @@ function useTabSheetModel({ target, chrome, working, splitLayoutAvailable, space
         zoom: zoomAvailable ? { zoomed: !!a.isZoomed, toggle: (scope) => a.onToggleZoom?.(id, scope) } : undefined,
         splitRight: splitLayoutAvailable && a.onSplitRight ? () => a.onSplitRight?.(id) : undefined,
         splitDown: splitLayoutAvailable && a.onSplitDown ? () => a.onSplitDown?.(id) : undefined,
+        // Left and up go by the layout event: the surface that holds the pane
+        // acts, the same one that answers right and down here.
+        splitLeft: splitLayoutAvailable && a.onSplitRight ? () => requestSplit(id, 'left') : undefined,
+        splitUp: splitLayoutAvailable && a.onSplitDown ? () => requestSplit(id, 'up') : undefined,
+        equalize: splitLayoutAvailable && a.onResetLayout ? () => requestEqualize(id) : undefined,
         resetLayout: splitLayoutAvailable ? a.onResetLayout : undefined,
         moveToGroup,
         detach: a.onDetach ? () => a.onDetach?.(id) : undefined,
