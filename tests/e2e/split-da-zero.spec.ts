@@ -106,6 +106,30 @@ test.describe("split, from zero", () => {
     await expect(page.locator("[data-pane-zoom]")).toHaveCount(0, { timeout: 5_000 });
   });
 
+  test("SPLIT-03: a short narrow cell keeps its empty chat's greeting under its title", async ({ page, request }) => {
+    // 768 wide, one column stacked: the starters wrap and the greeting used to
+    // climb over the cell's title bar.
+    const [a, b, c] = made;
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await resetPaneStore(request, [a.id, b.id, c.id]);
+    await goToApp(page);
+    await expect(row(page, c.name)).toBeVisible({ timeout: 20_000 });
+    await openBeside(page, b.name, /^(Apri a destra|Open on the right)$/);
+    await expect(cells(page)).toHaveCount(2, { timeout: 10_000 });
+    await openBeside(page, c.name, /^(Apri in basso|Open below)$/);
+    await expect(cells(page)).toHaveCount(3, { timeout: 10_000 });
+    await expect(page.locator('[data-testid="chat-empty-state"]:not([aria-hidden]):visible')).toHaveCount(3, { timeout: 10_000 });
+    await page.waitForTimeout(500);
+    const overlaps = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-split-card]")].flatMap((card) => {
+      const greeting = card.querySelector<HTMLElement>('[data-testid="chat-empty-state"]:not([aria-hidden])');
+      const title = card.querySelector<HTMLElement>('[data-testid="mobile-pane-title"]');
+      if (!greeting || !title) return [];
+      const under = greeting.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
+      return under < 0 ? [`${title.textContent?.trim()}: ${Math.round(under)}px`] : [];
+    }));
+    expect(overlaps, "a greeting climbs over its cell's title").toEqual([]);
+  });
+
   test("SPLIT-04: a divider moves with the arrows and evens out with Enter", async ({ page, request }) => {
     await threeCells(page, request, made);
     const divider = page.locator('[data-split-divider][tabindex="0"]').first();
@@ -163,10 +187,10 @@ test.describe("split, from zero", () => {
     await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 6, { steps: 4 });
     // The pane body, above the composer (which takes drops of its own).
     await page.mouse.move(right.x + right.width / 2, right.y + right.height / 3, { steps: 12 });
-    const centre = page.locator('[data-grid-split-overlay="center"]');
-    await expect(centre).toBeVisible({ timeout: 5_000 });
-    await expect(centre).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(centre.locator("[data-drop-label]")).toContainText(a.name);
+    const centerOverlay = page.locator('[data-grid-split-overlay="center"]');
+    await expect(centerOverlay).toBeVisible({ timeout: 5_000 });
+    await expect(centerOverlay).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    await expect(centerOverlay.locator("[data-drop-label]")).toContainText(a.name);
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2, { steps: 8 });
     await page.mouse.up();
     await expect(cells(page)).toHaveCount(2);
