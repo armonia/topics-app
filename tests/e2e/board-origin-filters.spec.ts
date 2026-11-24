@@ -168,6 +168,22 @@ test.describe("Di chi è la card", () => {
     await page.getByTestId("board-density-full").click();
     await expect(card).toHaveAttribute("data-density", "full");
 
+    // Dragging the knob: from «full» past the left end rests on «title», then back to «compact».
+    const centre = async (level: string) => {
+      const b = (await page.getByTestId(`board-density-${level}`).boundingBox())!;
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    };
+    const full = await centre("full");
+    const compact = await centre("compact");
+    await page.mouse.move(full.x, full.y);
+    await page.mouse.down();
+    await page.mouse.move(full.x - 200, full.y, { steps: 8 });
+    await expect(card).toHaveAttribute("data-density", "title");
+    await page.mouse.move(compact.x, compact.y, { steps: 4 });
+    await page.mouse.up();
+    await expect(card).toHaveAttribute("data-density", "compact");
+    await expect(slider).toHaveAttribute("aria-valuetext", "Compatte");
+
     await page.getByTestId("board-view-workflow").click();
     const flow = page.getByTestId("workflow-view");
     await expect(flow).toBeVisible();

@@ -83,7 +83,7 @@ export interface TableLayout {
  * window's: an open drawer narrows the table too. The global board has one more
  * column (the project) and so needs a wider pane.
  *
- * The age column is 6rem on purpose: its header, «Aggiornato» in Italian (the
+ * The age column is 6rem on purpose: its header, «Aggiornato» in Italian (the (allow-italian: quotes the UI label)
  * longest of the two languages), is 57px wide at this size, and with the sort
  * arrow and the button's padding it wants ~89px. At 3.5rem and 4rem it read
  * «Aggior…» (`board-table-view.spec.ts` measures every label against its box).

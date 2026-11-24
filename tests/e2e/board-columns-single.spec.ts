@@ -1,6 +1,6 @@
 /**
  * board-columns-single.spec.ts — empty columns without a background, and the
- * «Colonne: separate | una» switch.
+ * «Colonne: separate | una» switch. (allow-italian: quotes the UI label)
  *
  * Two projects, three statuses seeded (backlog, todo, in progress) and the
  * review column left EMPTY on purpose: its absence of fill is the signal, not

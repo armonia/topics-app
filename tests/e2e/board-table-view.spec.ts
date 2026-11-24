@@ -5,7 +5,7 @@
  * every sort has an order that differs from every other one:
  *
  *   alfa: «Zeta rifare il login»   todo         priority 1 (Bassa)
- *         «Alfa scrivere i docs»   in_progress  priority 3 (Alta)
+ *         «Alfa scrivere i docs»   in_progress  priority 3 (Alta) (allow-italian: quotes the UI label)
  *   zeta: «Gamma pulire backlog»   backlog      priority 2 (Media)
  *         «Beta revisione sicurezza» review     priority 4 (Urgente)
  *
@@ -224,7 +224,7 @@ test.describe("Board — vista Tabella", () => {
       await expect(page.getByTestId("board-table")).toBeVisible();
       await expect(rowOf(page, "review")).toBeVisible();
       await noSideScroll(page);
-      // No header label is cut to «Aggior…»: «Aggiornato» is the longest label in Italian and English.
+      // No header label is cut to «Aggior…»: «Aggiornato» is the longest label in Italian and English. (allow-italian: quotes the UI label)
       const cut = await page.locator('[data-testid^="board-table-sort-"] > span').evaluateAll(
         (els) => els.filter((e) => e.scrollWidth > e.clientWidth).map((e) => `${e.textContent} wants ${e.scrollWidth}px of ${e.clientWidth}px`),
       );

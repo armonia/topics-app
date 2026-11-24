@@ -12,6 +12,7 @@ import { TOOLBAR_CONTROL_H, TOOLBAR_ICON_W } from './constants';
 import { Select } from '../Shared/Select';
 import { COLUMNS_MODES, type ColumnsMode } from './columnsMode';
 import { DETAIL_LEVELS, type DetailLevel } from './detailLevel';
+import { densityStopForDrag, densityStopForPress } from './densityStops';
 
 const VIEW_ICON = { grid: SquareKanban, list: List, table: Table2, plan: UsersRound, workflow: Workflow } as const;
 
@@ -51,22 +52,41 @@ export function ViewSelector({ value, onChange }: { value: DetailLevel; onChange
  * compact card, the whole card. Few lines on the left, many on the right, like
  * a zoom. A slider (not three buttons) because the stops are an order.
  *
- * ONE target: a click or a tap anywhere on it picks the nearest stop, and the
- * two glyphs at the ends step down or up. The dots and glyphs are drawing, not
+ * ONE target: a press anywhere on it picks the nearest stop, and the two
+ * glyphs at the ends step down or up. Holding the press and moving DRAGS the
+ * knob along the track (mouse, pen or finger): the pointer is captured, so the
+ * drag keeps following outside the 40px track, and past an end it rests on
+ * that end instead of stepping again. The dots and glyphs are drawing, not
  * buttons: three 16px buttons side by side cannot each be a 44px target under a
  * finger (KANBAN-MOBILE-02), while the whole slider is.
  */
 export function DensitySlider({ value, onChange }: { value: BoardDensity; onChange: (next: BoardDensity) => void }) {
   const tr = useT();
   const track = useRef<HTMLSpanElement>(null);
+  // The stop the knob sits on during a drag: `at` comes from the last render,
+  // and a fast drag fires several moves before the next one.
+  const dragAt = useRef<number | null>(null);
   const at = BOARD_DENSITIES.indexOf(value);
   const last = BOARD_DENSITIES.length - 1;
   const go = (i: number) => onChange(BOARD_DENSITIES[Math.max(0, Math.min(last, i))]!);
-  const pick = (clientX: number) => {
+  const ratioAt = (clientX: number): number | null => {
     const r = track.current?.getBoundingClientRect();
-    if (!r || r.width === 0) return;
-    const ratio = (clientX - r.left) / r.width;
-    go(ratio < 0 ? at - 1 : ratio > 1 ? at + 1 : Math.round(ratio * last));
+    return !r || r.width === 0 ? null : (clientX - r.left) / r.width;
+  };
+  const press = (clientX: number) => {
+    const ratio = ratioAt(clientX);
+    if (ratio === null) return;
+    const next = densityStopForPress(ratio, at, last);
+    dragAt.current = next;
+    go(next);
+  };
+  const drag = (clientX: number) => {
+    const ratio = ratioAt(clientX);
+    if (ratio === null || dragAt.current === null) return;
+    const next = densityStopForDrag(ratio, last);
+    if (next === dragAt.current) return;
+    dragAt.current = next;
+    go(next);
   };
   return (
     <div
@@ -81,8 +101,16 @@ export function DensitySlider({ value, onChange }: { value: BoardDensity; onChan
         e.preventDefault();
         go(at + step);
       }}
-      onClick={(e) => pick(e.clientX)}
-      className={`mx-0.5 flex ${TOOLBAR_CONTROL_H} shrink-0 cursor-pointer items-center gap-1 rounded px-1 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        press(e.clientX);
+      }}
+      onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) drag(e.clientX); }}
+      onPointerUp={() => { dragAt.current = null; }}
+      onPointerCancel={() => { dragAt.current = null; }}
+      // `touch-none`: a finger moving on the knob drags it instead of scrolling the toolbar.
+      className={`mx-0.5 flex ${TOOLBAR_CONTROL_H} shrink-0 cursor-pointer touch-none select-none items-center gap-1 rounded px-1 text-app-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary coarse:min-h-11`}
     >
       <span aria-hidden="true" title={tr('board.density.less')} className="grid place-items-center hover:text-app-text"><Equal className="h-3.5 w-3.5" /></span>
       <span ref={track} className="relative flex h-4 w-10 items-center">
