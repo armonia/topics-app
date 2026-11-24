@@ -24,7 +24,6 @@ import {
   searchStores,
   storeProblems,
   storesForTurn,
-  topicsAgentsHome,
   writeCard,
   type MemoryStore,
 } from "../memory/stores";
@@ -43,7 +42,7 @@ function loadStores(deps: MemoryStoresDeps): MemoryStore[] {
   const home = deps.engineHome();
   const agents = readAgents(home, deps.expand);
   const config = readMemoryStoresConfig(home);
-  return discoverStores(agents, { topicsAgentsHome: topicsAgentsHome(), claudeProjectsHome: claudeProjectsHome(), config });
+  return discoverStores(agents, { claudeProjectsHome: claudeProjectsHome(), config });
 }
 
 export function createMemoryStoresRouter(ctx: Pick<AppContext, "json">, deps: MemoryStoresDeps = defaultMemoryStoresDeps()): RouteHandler {
