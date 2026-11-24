@@ -8,6 +8,7 @@ import { terminalSubject, topicSubject } from '../../../shared/attention';
 import { tryHostname } from './path-utils';
 import { getProjectLabel } from './projectLabel';
 import { agentTerminalIds, agentTopicIds, isAgentPath } from './agentSessions';
+import type { ClosedTabRecord } from '../state/pane/adapters/closedTabRecord';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,13 @@ export interface SidebarItem {
    * Vale solo sui fissati: su una riga non fissata è sempre assente.
    */
   pinOnly?: boolean;
+  /**
+   * The tab is CLOSED and not archived: the row stays in the column without
+   * the background of an open tab, a click reopens it from its closed record
+   * and its command archives it (see `lib/closedRows.ts`). Absent on a row
+   * whose tab is open. Inside a project window only a chat has it.
+   */
+  closed?: boolean;
   /** Set when this topic is open in ANOTHER window (pop-out presence). Carries
    *  the Tauri window label so a click can `window_focus_label` it instead of
    *  reopening locally. Renders the trailing AppWindow glyph. */
@@ -231,6 +239,13 @@ interface BuildSidebarItemsOpts {
    *  was created. Default empty for callers that don't wire it (falls back to
    *  createdAt, the pre-existing behavior). */
   sessionLastActivityById?: Map<string, number>;
+  /** Closed top-level tabs that keep a row until archived, from
+   *  `closedRowRecords` (lib/closedRows.ts): already filtered and deduped.
+   *  Each one is an `||` escape at the gate of its kind, like a pin. */
+  closedRecords?: readonly ClosedTabRecord[];
+  /** Chats closed inside a project window, kept under their project as
+   *  closed rows (`closedProjectChatIds` in lib/closedRows.ts). */
+  closedProjectChatIds?: ReadonlySet<string>;
 }
 
 export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
@@ -243,6 +258,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   const agentTerms = agentIds.size === 0 ? null : agentTerminalIds(opts.topics, allTerminals);
   const terminalSessions = agentTerms?.size ? allTerminals.filter((t) => !agentTerms.has(t.id)) : allTerminals;
   const openPanelSet = new Set(openPanels);
+  const closedById = new Map((opts.closedRecords ?? []).map((r) => [r.pane.id, r]));
 
   const items: SidebarItem[] = [];
 
@@ -269,13 +285,16 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // the only surviving title/url once the pane is stripped from the project
     // snapshot. Kept as a low-priority fallback so a live title always wins.
     const origin = browserOriginById.get(paneId);
+    // A closed top-level browser: its record is the only place its page lives
+    // once the server context is gone.
+    const closedRecord = projectPath ? undefined : closedById.get(paneId);
     // Resolution order: persisted page title (store for top-level panes, else the
     // project-localStorage lift) → durable origin title → server context title →
     // hostname → "Browser". The persisted title is what the tab bar shows, so
     // leading with it keeps the sidebar row and the tab in sync for native panes
     // the server can't title.
-    const persistedTitle = paneTitleById.get(paneId) || projectBrowserTitles.get(paneId) || origin?.title || '';
-    const url = bc?.url || origin?.url || '';
+    const persistedTitle = paneTitleById.get(paneId) || projectBrowserTitles.get(paneId) || origin?.title || closedRecord?.pane.title || '';
+    const url = bc?.url || origin?.url || closedRecord?.pane.url || '';
     const hostname = url && url !== 'about:blank' ? tryHostname(url) : '';
     return {
       id: paneId,
@@ -293,7 +312,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // browser pin was invisible even where the affordance existed.
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
       ...(pinnedIds.has(paneId) && !(tabAperta ?? openPanelSet.has(paneId)) ? { pinOnly: true } : {}),
-      browser: bc ?? { id: contextId, url: origin?.url || '', title: origin?.title || '', lastActivity: 0 },
+      ...(closedRecord && !openPanelSet.has(paneId) ? { closed: true } : {}),
+      browser: bc ?? { id: contextId, url, title: persistedTitle, lastActivity: closedRecord?.closedAt ?? 0 },
     };
   };
 
@@ -536,13 +556,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // a pinned chat keeps its row with the tab closed. A topic open in another
       // window (detachedTopicIds) is the fifth; a live sub-agent is the sixth —
       // same `||` escape pattern.
-      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold) continue;
+      // Closed inside the window and not archived: a closed row (lib/closedRows.ts).
+      const chatClosed = !t.archived && !hasInternalTab && !hasTopLevelTab && !!opts.closedProjectChatIds?.has(t.id);
+      if (!t.archived && !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed) continue;
       // Sfissandola, resta qualcosa a tenerla su? Per una chat ARCHIVIATA no,
       // qualunque cosa abbia aperta: la taglia il filtro qui sopra (`:413`),
       // dove il pin è l'unica eccezione a «niente archiviate».
       const chatPinOnly = pinnedIds.has(t.id) && (t.archived
         ? !showArchived
-        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold);
+        : !hasInternalTab && !hasTopLevelTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed);
       children.push({
         id: t.id,
         type: 'chat',
@@ -555,6 +577,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
         topic: t,
         ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
         ...(chatPinOnly ? { pinOnly: true } : {}),
+        ...(chatClosed ? { closed: true } : {}),
         ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
         ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
       });
@@ -622,7 +645,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
     // Project shows if: has project tab, or has visible children — or is
     // pinned (Fissati escape; pin keys use the raw-path item id form).
-    if (!hasProjectTab && children.length === 0 && !pinnedIds.has(`project:${pp}`)) continue;
+    // A closed project tab keeps its row until archived (the closed state).
+    const projectClosed = !hasProjectTab && closedById.has(projectPaneId);
+    if (!hasProjectTab && children.length === 0 && !pinnedIds.has(`project:${pp}`) && !projectClosed) continue;
 
     children.sort(byAttentionThenActivity);
 
@@ -664,7 +689,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // Il caso che ha fatto sparire «edm contratto»: un progetto le cui chat
       // sono tutte archiviate non ha figli visibili e, senza tab, esisteva in
       // sidebar SOLO perché fissato.
-      ...(pinnedIds.has(`project:${pp}`) && !hasProjectTab && children.length === 0 ? { pinOnly: true } : {}),
+      ...(pinnedIds.has(`project:${pp}`) && !hasProjectTab && children.length === 0 && !projectClosed ? { pinOnly: true } : {}),
+      ...(projectClosed ? { closed: true } : {}),
     });
   }
 
@@ -684,14 +710,15 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // tab, a pending notification (unread / Claude needs-you), a pin, being open
     // in another window (detachedTopicIds), or a live sub-agent — same `||` escape.
     const hasTab = openPanelSet.has(t.id);
+    const chatClosed = !hasTab && !t.archived && closedById.has(t.id);
     if (!t.archived) {
-      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold) continue;
+      if (!hasTab && notificationCount === 0 && !pinnedIds.has(t.id) && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed) continue;
     }
     // Stessa lettura del ramo dentro-progetto: archiviata, il pin è l'unica
     // deroga a «niente archiviate» (riga sopra), tab aperta o no.
     const chatPinOnly = pinnedIds.has(t.id) && (t.archived
       ? !showArchived
-      : !hasTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold);
+      : !hasTab && notificationCount === 0 && !detachedTopicIds.has(t.id) && !subAgentsHold && !chatClosed);
     items.push({
       id: t.id,
       type: 'chat',
@@ -703,6 +730,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       topic: t,
       ...(pinnedIds.has(t.id) ? { pinned: true } : {}),
       ...(chatPinOnly ? { pinOnly: true } : {}),
+      ...(chatClosed ? { closed: true } : {}),
       ...(detachedTopicIds.has(t.id) ? { detachedWindowLabel: detachedTopicIds.get(t.id)!.windowLabel ?? "" } : {}),
       ...(chatSubAgents.length ? { subAgents: chatSubAgents } : {}),
     });
@@ -710,6 +738,8 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
 
   // ── 4. Standalone terminals ──────────────────────────────────────────────
   // Show only if terminal tab is open (running terminals with open tabs)
+
+  const emittedTerminalIds = new Set<string>();
 
   for (const ts of standaloneTerminals) {
     const paneId = `terminal:${ts.id}`;
@@ -722,7 +752,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     // same as pinned chats. Pin key is the pane-id form `terminal:<sessionId>`.
     // A lit terminal stays with its tab closed, like a lit chat (ATTN-14).
     const termAttention = terminalRowAttention(ts.id, attention);
-    if (!openPanelSet.has(paneId) && !orchestratorManaged && !pinnedIds.has(paneId) && termAttention.count === 0) continue;
+    const termClosed = !openPanelSet.has(paneId) && closedById.has(paneId);
+    if (!openPanelSet.has(paneId) && !orchestratorManaged && !pinnedIds.has(paneId) && termAttention.count === 0 && !termClosed) continue;
+    emittedTerminalIds.add(paneId);
     items.push({
       id: paneId,
       type: 'terminal',
@@ -733,8 +765,31 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       archived: false,
       terminal: ts,
       ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
-      ...(pinnedIds.has(paneId) && !openPanelSet.has(paneId) && !orchestratorManaged && termAttention.count === 0 ? { pinOnly: true } : {}),
+      ...(pinnedIds.has(paneId) && !openPanelSet.has(paneId) && !orchestratorManaged && termAttention.count === 0 && !termClosed ? { pinOnly: true } : {}),
+      ...(termClosed ? { closed: true } : {}),
       ...(subAgents.length ? { subAgents } : {}),
+    });
+  }
+
+  // Closed terminals whose session is no longer in the roster (the close
+  // retires it after its grace window) or lives under a project: the record
+  // is what reopens them, resuming the conversation (reopenClosedTab).
+  for (const [paneId, record] of closedById) {
+    if (record.pane.type !== 'terminal' || emittedTerminalIds.has(paneId) || openPanelSet.has(paneId)) continue;
+    const sessionId = paneId.slice('terminal:'.length);
+    const meta = record.terminal ?? {};
+    const sessionType = meta.sessionType ?? 'shell';
+    items.push({
+      id: paneId,
+      type: 'terminal',
+      name: meta.name || record.pane.title || 'Terminal',
+      icon: sessionType === 'claude-code' ? 'claude' : sessionType === 'codex' ? 'codex' : 'terminal',
+      lastActivity: record.closedAt ?? 0,
+      notificationCount: 0,
+      archived: false,
+      closed: true,
+      terminal: { id: sessionId, name: meta.name || record.pane.title || 'Terminal', createdAt: new Date(record.closedAt ?? 0).toISOString(), cwd: meta.cwd ?? '', command: '', clients: 0, type: sessionType },
+      ...(pinnedIds.has(paneId) ? { pinned: true } : {}),
     });
   }
 
@@ -763,6 +818,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   for (const paneId of pinnedIds) {
     if (paneId.startsWith('browser:')) topLevelBrowserIds.add(paneId);
   }
+  for (const [paneId, record] of closedById) {
+    if (record.pane.type === 'browser') topLevelBrowserIds.add(paneId);
+  }
   for (const paneId of topLevelBrowserIds) {
     if (projectInternalBrowserIds.has(paneId)) continue;
     items.push(buildBrowserItem(paneId));
@@ -773,8 +831,9 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
   // doesn't. Before this, the Board generale tab was the ONE open tab with no
   // sidebar presence — "dovrebbe essere uguale per tutti il sistema". Label +
   // icon come from PANE_CONFIG (the same source the tab bar uses).
-  for (const paneId of openPanelSet) {
-    if (!isUtilityPanelId(paneId)) continue;
+  const utilityIds = new Set([...openPanelSet].filter(isUtilityPanelId));
+  for (const paneId of closedById.keys()) if (isUtilityPanelId(paneId)) utilityIds.add(paneId);
+  for (const paneId of utilityIds) {
     const utilType = parseUtilityPanelType(paneId);
     if (!utilType) continue;
     // 'board' is the ONE utility with a dedicated sidebar row of its own (the
@@ -802,6 +861,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
       // No attention subject, like the tab: 0 on both surfaces.
       notificationCount: 0,
       archived: false,
+      ...(!openPanelSet.has(paneId) ? { closed: true } : {}),
     });
   }
 

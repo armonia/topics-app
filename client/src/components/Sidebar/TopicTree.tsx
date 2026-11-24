@@ -70,7 +70,12 @@ import { AgentsRow } from './AgentsRow';
 import { useHubEverRead } from '@/state/hubLive';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { useClosedRows, useCloseInnerChat } from './useClosedRows';
+import { orderByHand, ROW_ORDER_DRAG } from '@/lib/listOrder';
+import { useHandOrder } from './useHandOrder';
+import { TabStateRing } from './TabStateRing';
+import type { ClosedTabRecord } from '@/state/pane/adapters/closedTabRecord';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemPaneId, sidebarItemSpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
@@ -290,6 +295,16 @@ function SidebarRowList({ children, className = '', ...rest }: HTMLAttributes<HT
  * l'evento prima che scenda è l'unico modo di coprirli tutti senza ripetere
  * `consumeClick()` in ognuno.
  */
+/** A row dragged out of the column carries its pane, as a tab of the strip
+ *  does: the grid's cells and the group cards read the same payload. A closed
+ *  one has no pane to place, so it can only be placed in the list. */
+function startPaneDrag(e: React.DragEvent, paneId: string, open: boolean): void {
+  if (open) e.dataTransfer.setData(DND_TYPES.PANEL_ID, paneId);
+  e.dataTransfer.setData(ROW_ORDER_DRAG, paneId);
+  rememberDraggedPane(paneId);
+  e.dataTransfer.effectAllowed = 'move';
+}
+
 function LongPressRow({
   isTouch,
   children,
@@ -432,7 +447,32 @@ export interface TopicTreeProps {
   /** "New topic in this worktree" from a worktree section header: opens the
    *  creation dialog with that project and worktree preselected. */
   onNewTopicInWorktree?: (projectPath: string, worktreeId: string) => void;
+  /**
+   * The panes the strip on top already shows, when the tabs live there
+   * (`lib/tabsPlacement.ts`): their rows and their pinned tiles are left out,
+   * so a tab is never listed twice. The navigation rows, the pinned tiles of
+   * what is closed (a shortcut, not a tab) and every row that is not one of
+   * these tabs (waiting for you, unread, another group) stay. Absent = the
+   * column holds the tabs and shows them all. A reorder made while tiles are
+   * hidden keeps them in place: the layout is merged (`mergePinnedLayout`).
+   */
+  stripPaneIds?: ReadonlySet<string>;
+  /** Close the tab of a top-level row (the deferred close of the strip's X). */
+  onCloseTab?: (paneId: string) => void;
+  /** Reopen a closed row from its record, back in its slot. */
+  onReopenClosedTab?: (record: ClosedTabRecord) => void;
+  /** Archive a closed row that is not a chat: its record goes, and the row
+   *  with it. A chat archives through `onArchiveTopic`. */
+  onForgetClosedTab?: (paneId: string, label?: string) => void;
+  /** View setting: closing archives (the two-state model), so no closed rows. */
+  closeArchives?: boolean;
+  /** The hand order of the rows (lib/listOrder.ts) and its writer: a drag
+   *  inside the list places a row. */
+  listOrder?: readonly string[];
+  onListOrderChange?: (next: string[]) => void;
 }
+
+const EMPTY_ORDER: readonly string[] = [];
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
@@ -489,6 +529,13 @@ export function TopicTree({
   paneSpaceById,
   worktrees = [],
   onNewTopicInWorktree,
+  stripPaneIds,
+  onCloseTab,
+  onReopenClosedTab,
+  onForgetClosedTab,
+  closeArchives = false,
+  listOrder = EMPTY_ORDER,
+  onListOrderChange,
 }: TopicTreeProps) {
   const tr = useT();
   const toast = useToast();
@@ -628,7 +675,8 @@ export function TopicTree({
     }
     return m;
   }, [pinnedItems, closedTabs]);
-  const builtItems = useMemo(() => buildSidebarItems({
+  const { closedRecords, closedProjectChats, reopenClosed } = useClosedRows({ closeArchives, closedTabs, openPanels, topics, onReopenClosedTab });
+  const allItems = useFoldMergedProjects(useMemo(() => buildSidebarItems({
     topics,
     workspaceProjects,
     terminalSessions,
@@ -642,9 +690,9 @@ export function TopicTree({
     paneTitleById,
     browserOriginById,
     sessionLastActivityById,
-  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById]);
-  // Accorpa: the topics of projects merged into a parent sit under the parent's entry.
-  const allItems = useFoldMergedProjects(builtItems);
+    closedRecords,
+    closedProjectChatIds: closedProjectChats,
+  }), [topics, workspaceProjects, terminalSessions, browserContexts, showArchived, openPanels, projectOpenPanes, attention, pinnedIds, detachedTopicIds, paneTitleById, browserOriginById, sessionLastActivityById, closedRecords, closedProjectChats]));
 
   // Union of every open pane id — top-level panes AND panes open inside any
   // project window. The sidebar used to check only the top-level `openPanels`,
@@ -673,9 +721,11 @@ export function TopicTree({
 
   const { page: archivePage, showMore: showMoreArchived, pagedRows } = useArchivedSidebarPages(showArchived, !!searchQuery.trim(), activeTopicIds);
 
+  // The rows in the hand order (lib/listOrder.ts): new ones on top, the rest
+  // where the person put them. Nothing moves by itself.
   const filteredItems = useMemo(
-    () => filterSidebarItems(allItems, searchQuery),
-    [allItems, searchQuery]
+    () => orderByHand(filterSidebarItems(allItems, searchQuery), listOrder),
+    [allItems, searchQuery, listOrder]
   );
 
   // Le card da disegnare (una per gruppo) e l'accordion. Chiuse per scelta
@@ -712,6 +762,7 @@ export function TopicTree({
   // Reorders, accordions, pins and archives move the rows instead of making
   // them jump (see useSidebarRowFlip).
   useSidebarRowFlip(colonna);
+  const { listProps: orderListProps, dropLine: orderLine, placeByFinger } = useHandOrder({ allItems, listOrder, onListOrderChange, column: colonna });
 
   /**
    * IL DITO È QUI SOPRA LA LISTA? — la stessa domanda che col mouse è implicita.
@@ -739,10 +790,12 @@ export function TopicTree({
   const ditoVersoIFissati = useMemo(() => ({
     onMove: (paneId: string, x: number, y: number) =>
       versoIFissati.current?.move(pinKeyFromPaneId(paneId), x, y),
-    onDrop: (paneId: string, x: number, y: number) =>
-      versoIFissati.current?.drop(pinKeyFromPaneId(paneId), x, y),
+    onDrop: (paneId: string, x: number, y: number) => {
+      if (placeByFinger(paneId, x, y)) { versoIFissati.current?.cancel(); return; }
+      versoIFissati.current?.drop(pinKeyFromPaneId(paneId), x, y);
+    },
     onCancel: () => versoIFissati.current?.cancel(),
-  }), []);
+  }), [placeByFinger]);
 
   const sfissaDalDito = useCallback((x: number, y: number): boolean => {
     const col = colonna.current;
@@ -798,12 +851,12 @@ export function TopicTree({
     }
     return pinnedItems.flatMap(id => {
       const item = byId.get(id);
-      return item ? [item] : [];
+      return item && !stripPaneIds?.has(sidebarItemPaneId(item)) ? [item] : [];
     });
-  }, [filteredItems, pinnedItems, boardTaskCount, showBoardRow, searchQuery]);
+  }, [filteredItems, pinnedItems, boardTaskCount, showBoardRow, searchQuery, stripPaneIds]);
   const unpinnedItems = useMemo(
-    () => filteredItems.filter(i => !i.pinned),
-    [filteredItems]
+    () => filteredItems.filter(i => !i.pinned && !stripPaneIds?.has(sidebarItemPaneId(i))),
+    [filteredItems, stripPaneIds]
   );
 
   /**
@@ -890,6 +943,8 @@ export function TopicTree({
     (key: string) => parentLabel(key, ctxTopics, ctxTerminals),
     [ctxTopics, ctxTerminals],
   );
+  const closeInnerChat = useCloseInnerChat(handleArchive);
+
   const guardedCloseTerminal = useCallback((sessionId: string) => {
     void confirmTerminalStop(sessionId).then((ok) => { if (ok) onCloseTerminal?.(sessionId); });
   }, [confirmTerminalStop, onCloseTerminal]);
@@ -928,49 +983,56 @@ export function TopicTree({
     const Icon = UTILITY_ROW_ICONS[item.icon] ?? LayoutGrid;
     const utilType = item.id.slice(2, -2);
     const isFocused = focusedTopicId === item.id;
+    const isOpen = openPanels.includes(item.id);
+    const open = () => {
+      if (reopenClosed(item)) return;
+      window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: utilType } }));
+    };
     return (
-      <button
+      // A card with the name as its button and the circle beside it, like every
+      // other row: a single <button> could not hold a command of its own, and
+      // a closed page needs one to be archived.
+      <div
         key={item.id}
-        type="button"
         role="treeitem"
         aria-selected={isFocused}
         data-testid={`sidebar-utility-${utilType}`}
-        onClick={() => window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: utilType } }))}
-        // La card di ogni altra riga, CHIAMATA invece che ricopiata: era una
-        // seconda scrittura a mano della stessa cosa (`px-1.5` contro ROW_PX,
-        // `rounded-md` contro `rounded-lg`, `12px` che è ROW_INSET × 2 scritto in
-        // cifre), quindi divergeva dal contratto a ogni ritocco della card vera.
-        // `gap-2` e glifo nello slot condiviso: stessa colonna del nome della
-        // riga board, dei terminali e dei browser (vedi ROW_GLYPH_SLOT).
-        className={`flex items-center gap-2 ${ROW_PX} ${ROW_H} select-none ${
-          sidebarRowCard({ focused: isFocused })
+        data-tab-state={isOpen ? 'open' : 'closed'}
+        // La card di ogni altra riga, CHIAMATA invece che ricopiata. `gap-2` e
+        // glifo nello slot condiviso: stessa colonna del nome della riga board,
+        // dei terminali e dei browser (vedi ROW_GLYPH_SLOT).
+        className={`group ${ROW_CARD} flex items-center gap-2 ${ROW_PX} ${ROW_H} select-none ${
+          sidebarRowCard({ focused: isFocused, tab: isOpen ? 'open' : 'closed' })
         }`}
         style={{ width: `calc(100% - ${ROW_INSET * 2}px)` }}
       >
-        {/* The accordion column, empty: a utility row has nothing to expand,
-            but it stands in the column of rows that do (see ROW_CHEVRON_SLOT),
-            so its glyph starts where their glyph starts. */}
-        <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
-        {/* Glifo NEUTRO, la stessa decisione già presa per la riga della board
-            («il verde faceva sembrare la board un tipo a parte»): nella sidebar
-            il colore dice uno STATO — attenzione, selezione — non un'identità.
-            Questo `text-emerald-400` era l'ultimo verde rimasto, e su una riga
-            accanto alla board ormai grigia leggeva come «questa è speciale». */}
-        <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
-          <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
-        </span>
-        <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`} data-row-name="utility">{item.name}</span>
-        {/* Split schematic, like every other row: a utility pane (agents,
-            statistics, cron) lives in a grid cell exactly as a chat does, and
-            its row used to be the only one that could not say which. Its pane
-            id IS the row id (`__<type>__`). */}
+        <button type="button" onClick={open} className="flex items-center gap-2 flex-1 min-w-0 h-full text-left">
+          {/* The accordion column, empty: a utility row has nothing to expand,
+              but it stands in the column of rows that do (see ROW_CHEVRON_SLOT),
+              so its glyph starts where their glyph starts. */}
+          <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />
+          {/* Glifo NEUTRO: nella sidebar il colore dice uno STATO (attenzione,
+              selezione), non un'identità. */}
+          <span className={ROW_GLYPH_SLOT} data-row-glyph-slot="glyph">
+            <Icon size={ROW_GLYPH} className="text-app-text-secondary" />
+          </span>
+          <span className={`${TAB_LABEL_TYPE} flex-1 text-left truncate`} data-row-name="utility">{item.name}</span>
+        </button>
+        {/* Split schematic, like every other row: its pane id IS the row id. */}
         <RowSplitMap paneId={item.id} />
-        {/* Was missing entirely: the row rendered no badge at all, so an agents
-            pane could light up its TAB (pinned by tab-notifications.spec.ts
-            TAB-BADGE-10/11) and stay silent here. Suppressed while focused, the
-            same rule the chat row uses. */}
+        {/* Suppressed while focused, the same rule the chat row uses. */}
         {!isFocused && <NotificationBadge count={item.notificationCount} />}
-      </button>
+        {(isOpen ? onCloseTab : item.closed && onForgetClosedTab) && (
+          <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
+            <TabStateRing
+              paneId={item.id}
+              name={item.name}
+              onCloseTab={isOpen && onCloseTab ? () => onCloseTab(item.id) : undefined}
+              onForgetClosed={!isOpen && onForgetClosedTab ? () => onForgetClosedTab(item.id, item.name) : undefined}
+            />
+          </span>
+        )}
+      </div>
     );
   };
 
@@ -1070,6 +1132,16 @@ export function TopicTree({
   const renderChatItem = (item: SidebarItem, depth = 0, opts?: { chip?: boolean }) => {
     const topic = item.topic!;
     const isOpen = openPanels.includes(topic.id);
+    // Open inside its project window (a nested row): the circle closes it there.
+    const openInProject = depth > 0 && !!topic.projectPath
+      && (allOpenPaneIds.has(createPaneId('chat', topic.id)) || allOpenPaneIds.has(topic.id));
+    const closeTab = item.archived
+      ? undefined
+      : isOpen && onCloseTab
+        ? () => onCloseTab(topic.id)
+        : openInProject
+          ? () => closeInnerChat(topic.projectPath!, topic.id)
+          : undefined;
     const worktree = opts?.chip === false ? null : worktreeChipFor(topic, worktreesById);
     // Focused directly, OR the active inner chat of the focused project.
     const isFocused = focusedTopicId === topic.id
@@ -1092,10 +1164,12 @@ export function TopicTree({
            no need to drill it through. */
         notificationCount={item.notificationCount}
         onToggle={() => {}}
-        onClick={(e) => handleChatRowClick(topic.id, item.detachedWindowLabel, e)}
+        onClick={(e) => { if (!reopenClosed(item)) handleChatRowClick(topic.id, item.detachedWindowLabel, e); }}
         onDoubleClick={(e) => onTopicDoubleClick(topic.id, e)}
         onContextMenu={(e) => onTopicContextMenu(e, topic)}
         onArchive={handleArchive}
+        onCloseTab={closeTab}
+        tab={depth === 0 ? (isOpen ? 'open' : 'closed') : undefined}
         // Col dito la riga si fissa trascinandola in cima, come col mouse. Solo
         // se non è GIÀ fissata: la sua tessera c'è, e il gesto sarebbe un
         // bersaglio che si accende senza rispondere.
@@ -1254,8 +1328,17 @@ export function TopicTree({
         depth={depth}
         pinned={!!item.pinned}
         lastActivity={item.lastActivity}
-        onTerminalClick={handleTerminalRowClick}
-        onCloseTerminal={onCloseTerminal ? guardedCloseTerminal : undefined}
+        onTerminalClick={item.closed && onReopenClosedTab ? () => { reopenClosed(item); } : handleTerminalRowClick}
+        // A top-level terminal row closes its TAB, like the strip's X: the
+        // session resumes from the closed row. Killing it outright is what a
+        // nested row (inside a project) still does.
+        onCloseTerminal={item.closed
+          ? undefined
+          : depth === 0 && isOpen && onCloseTab
+            ? (sid) => { void confirmTerminalStop(sid).then((ok) => { if (ok) onCloseTab(paneId); }); }
+            : onCloseTerminal ? guardedCloseTerminal : undefined}
+        onArchiveClosed={item.closed && onForgetClosedTab ? () => onForgetClosedTab(paneId, item.name) : undefined}
+        tab={depth === 0 ? (isOpen ? 'open' : 'closed') : undefined}
         onOpenAsProject={onOpenAsProject}
         // La stessa rete del drop e delle tessere: un terminale chiuso vive in
         // sidebar solo finché è fissato, e la voce di menu non lo dice.
@@ -1294,8 +1377,10 @@ export function TopicTree({
         isFocused={isFocused}
         isOpen={isOpen}
         pinned={!!item.pinned}
-        onOpenBrowser={onOpenBrowser}
-        onCloseBrowser={onCloseBrowser}
+        onOpenBrowser={item.closed && onReopenClosedTab ? () => { reopenClosed(item); } : onOpenBrowser}
+        onCloseBrowser={item.closed ? undefined : onCloseBrowser}
+        onArchiveClosed={item.closed && onForgetClosedTab ? () => onForgetClosedTab(paneId, item.name) : undefined}
+        tab={depth === 0 ? (allOpenPaneIds.has(paneId) ? 'open' : 'closed') : undefined}
         onTogglePin={onTogglePin
           ? () => (item.pinned ? sfissaConRete(paneId, onTogglePin) : onTogglePin(paneId))
           : undefined}
@@ -1373,6 +1458,7 @@ export function TopicTree({
           // ORA lo stesso menu del mouse (evento `contextmenu` sintetizzato,
           // stesso `onContextMenu` qui sotto): un menu solo, per costruzione.
           isTouch={isTouch}
+          data-tab-state={isProjectOpen ? 'open' : 'closed'}
           // `ROW_PX` su entrambi i lati. Il commento che stava qui descriveva un
           // `pl-1 pr-2` che il codice non porta più da tempo: un'asimmetria
           // documentata e non applicata è peggio di nessun commento, perché il
@@ -1385,7 +1471,7 @@ export function TopicTree({
             // dopo aver selezionato altro (prima tornava blu, perché la fase Claude
             // resta `awaiting-user` fino al turno dopo). `folderFilled` resta come
             // valvola per i figli che nessuna soglia può raggiungere.
-            sidebarRowCard({ focused: folderFilled, attention: projectFill })
+            sidebarRowCard({ focused: folderFilled, attention: projectFill, tab: isProjectOpen ? 'open' : 'closed' })
           }`}
           data-attention={projTier ?? undefined}
           data-attention-fill={projectFill ?? undefined}
@@ -1464,6 +1550,7 @@ export function TopicTree({
                 // del progetto E ci atterra sopra (`setPendingProjectFocus`),
                 // che è esattamente la richiesta; senza chat si apre il
                 // progetto e basta, che è tutto ciò che c'è da aprire.
+                if (reopenClosed(item)) return;
                 const firstChat = allChats[0];
                 if (firstChat) onTopicClick(firstChat.id);
                 else onProjectClick?.(pp);
@@ -1473,7 +1560,7 @@ export function TopicTree({
                 // Already the focused project — repeat click collapses/expands.
                 toggleProject(item.id);
               } else {
-                if (onProjectClick) onProjectClick(pp);
+                if (!reopenClosed(item) && onProjectClick) onProjectClick(pp);
                 if (!isExpanded) toggleProject(item.id);
               }
             }}
@@ -1599,6 +1686,9 @@ export function TopicTree({
             allArchived={allArchived}
             isExpanded={isExpanded}
             isTouch={isTouch}
+            onCloseTab={isProjectOpen && onCloseTab ? () => onCloseTab(projectPaneId) : undefined}
+            onForgetClosed={item.closed && onForgetClosedTab ? () => onForgetClosedTab(projectPaneId, item.name) : undefined}
+            paneId={projectPaneId}
             onArchiveProject={onArchiveProject}
             onNewTopicInProject={onNewTopicInProject}
             onAddProjectPane={onAddProjectPane}
@@ -1788,8 +1878,15 @@ export function TopicTree({
    * sarà dopo — `filteredItems` senza i fissati, ma con QUESTO dentro — e la
    * riga compare esattamente lì.
    */
+  // ── Hand order: a drag inside a list places the row (useHandOrder) ──────
+  // Each row is wrapped in a `display: contents` box that names it, so the
+  // layout does not change and the drop can ask where the rows are.
+  const orderRow = (item: SidebarItem) => (
+    <div key={item.id} data-order-id={item.id} style={{ display: 'contents' }}>{renderItem(item)}</div>
+  );
+
   const withUnpinPreview = (list: SidebarItem[]): React.ReactNode[] => {
-    const out = list.map(item => renderItem(item));
+    const out = list.map(orderRow);
     if (!unpinPreview) return out;
     const tessera = pinnedBlock.find(i => i.id === unpinPreview);
     if (!tessera) return out;
@@ -2261,8 +2358,15 @@ export function TopicTree({
                   onToggle={() => toggleGroup(card.id)}
                 >
                   {rows.length > 0
-                    ? <SidebarRowList>{pagedRows(`space:${card.id}`, rows, items => items.map(renderItem))}</SidebarRowList>
-                    : <div data-sidebar-flip className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
+                    ? (
+                      <SidebarRowList className="relative" {...orderListProps(`space:${card.id}`, rows)}>
+                        {pagedRows(`space:${card.id}`, rows, items => items.map(orderRow))}
+                        {orderLine(`space:${card.id}`)}
+                      </SidebarRowList>
+                    )
+                    // With the tabs on top the active group's rows are in the
+                    // strip: «no tabs» would be false, so the card says nothing.
+                    : !stripPaneIds && <div data-sidebar-flip className="px-3 py-1 text-mini text-app-text-muted">{tr('sidebar.noTabs')}</div>}
                 </SpaceGroupCard>
               );
             })}
@@ -2281,7 +2385,10 @@ export function TopicTree({
                 {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
               </>
             )}
-            <SidebarRowList data-testid="sidebar-timeline">{pagedRows('timeline', unpinnedItems, withUnpinPreview)}</SidebarRowList>
+            <SidebarRowList data-testid="sidebar-timeline" className="relative" {...orderListProps('timeline', unpinnedItems)}>
+              {pagedRows('timeline', unpinnedItems, withUnpinPreview)}
+              {orderLine('timeline')}
+            </SidebarRowList>
           </>
         ) : null}
         {/* Vista per STATO: le stesse sezioni collassabili, ma i bucket sono
@@ -2476,10 +2583,7 @@ export function TopicTree({
             projectPath={projectContextMenu.projectPath}
             onDone={() => setProjectContextMenu(null)}
           />
-          <ProjectFamilyMenu
-            projectPath={projectContextMenu.projectPath}
-            onDone={() => setProjectContextMenu(null)}
-          />
+          <ProjectFamilyMenu projectPath={projectContextMenu.projectPath} onDone={() => setProjectContextMenu(null)} />
           {onArchiveProject && (
             <button
               onClick={() => {
@@ -2570,9 +2674,13 @@ interface TerminalSidebarItemProps {
   /** Pin/unpin this terminal ("Fissa" / "Rimuovi dai Fissati") — surfaced in
    *  the right-click context menu and the touch overflow menu. */
   onTogglePin?: () => void;
+  /** A closed row: the circle archives it (see TabStateRing). */
+  onArchiveClosed?: () => void;
+  /** A top-level row that stands for a tab (see sidebarRowCard). */
+  tab?: 'open' | 'closed';
 }
 
-function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin }: TerminalSidebarItemProps) {
+function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount = 0, isTouch, depth = 0, projectName, pinned, lastActivity, onTerminalClick, onCloseTerminal, onOpenAsProject, onTogglePin, onArchiveClosed, tab }: TerminalSidebarItemProps) {
   const tr = useT();
   // UN menu solo, da tutte e tre le porte: tasto destro, «tieni premuto», «...».
   // null = chiuso; posizionato sul cursore, agganciato al viewport come quello
@@ -2602,6 +2710,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
     // che qui serve perché l'`onClick` sta sul bottone DENTRO la riga.
     <LongPressRow
       isTouch={isTouch && hasMenu}
+      data-tab-state={tab}
       // Same three-state model as chat (TopicItem) so selection means the SAME
       // thing on every sidebar row: the focused item gets the shared neutral
       // SELECTED_SURFACE (= the focused tab), merely-open is subtle, else quiet.
@@ -2609,9 +2718,13 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
       // proprio callout di selezione mentre tieni premuto.
       className={[
         `group/terminal ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} ${TAB_LABEL_TYPE} select-none`,
-        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, attention: attentionTier, tab }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
+      // Dragged into the grid like a tab of the strip: onto a cell, into a
+      // group card. Only an open top-level tab, the one the grid can place.
+      draggable={!isTouch && depth === 0}
+      onDragStart={(e) => startPaneDrag(e, `terminal:${s.id}`, isOpen)}
       data-pinned={pinned ? 'true' : undefined}
       data-terminal-row={s.id}
       data-attention={attentionTier ?? undefined}
@@ -2720,6 +2833,11 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
             pendingTitle="Annulla chiusura"
             pendingAriaLabel={`Annulla chiusura ${s.name}`}
           />
+        </span>
+      )}
+      {onArchiveClosed && (
+        <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
+          <TabStateRing paneId={`terminal:${s.id}`} name={s.name} onForgetClosed={onArchiveClosed} />
         </span>
       )}
 
@@ -2937,11 +3055,18 @@ function ProjectArchiveButton({ projectPath, allArchived, onArchive }: ProjectAr
 function ProjectRowActions({
   pp, allArchived, isExpanded, isTouch,
   onArchiveProject, onNewTopicInProject, onAddProjectPane,
+  onCloseTab, onForgetClosed, paneId,
 }: {
   pp: string;
   allArchived: boolean;
   isExpanded: boolean;
   isTouch: boolean;
+  /** The project tab is open: the circle closes it. */
+  onCloseTab?: () => void;
+  /** The project tab is closed and kept as a closed row: the circle archives
+   *  the row (its record), not the project's chats. */
+  onForgetClosed?: () => void;
+  paneId: string;
   onArchiveProject?: (projectPath: string, archive: boolean) => Promise<boolean>;
   onNewTopicInProject?: (projectPath: string) => void;
   onAddProjectPane?: (projectPath: string, type: PaneType, subType?: string) => void;
@@ -2975,7 +3100,9 @@ function ProjectRowActions({
           )
         )
       )}
-      {onArchiveProject && (
+      {onCloseTab || onForgetClosed ? (
+        <TabStateRing paneId={paneId} name={pp.split('/').filter(Boolean).pop() ?? pp} onCloseTab={onCloseTab} onForgetClosed={onForgetClosed} />
+      ) : onArchiveProject && (
         <ProjectArchiveButton
           projectPath={pp}
           allArchived={allArchived}
@@ -3015,9 +3142,13 @@ interface BrowserSidebarItemProps {
   onOpenBrowser?: (id: string) => void;
   onCloseBrowser?: (id: string) => void;
   onTogglePin?: () => void;
+  /** A closed row: the circle archives it (see TabStateRing). */
+  onArchiveClosed?: () => void;
+  /** A top-level row that stands for a tab (see sidebarRowCard). */
+  tab?: 'open' | 'closed';
 }
 
-function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, onOpenBrowser, onCloseBrowser, onTogglePin }: BrowserSidebarItemProps) {
+function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, onOpenBrowser, onCloseBrowser, onTogglePin, onArchiveClosed, tab }: BrowserSidebarItemProps) {
   const tr = useT();
   // v3 sidebar↔topbar sync: also check `close-tab:browser:<id>` so the
   // sidebar browser row shows the countdown when the close is initiated
@@ -3044,10 +3175,13 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
         // leggero di un progetto. Il peso non è un modo di dire «meno
         // importante», è parte dell'identità del carattere.
         `group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} cursor-pointer select-none ${TAB_LABEL_TYPE} ${ROW_PX}`,
-        sidebarRowCard({ focused: isFocused, open: isOpen }),
+        sidebarRowCard({ focused: isFocused, open: isOpen, tab }),
       ].filter(Boolean).join(' ')}
       style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
+      draggable={depth === 0}
+      onDragStart={(e) => startPaneDrag(e, `browser:${bc.id}`, isOpen || isFocused)}
       data-pinned={pinned ? 'true' : undefined}
+      data-tab-state={tab}
       {...press.handlers}
       data-pressing={press.pressed || undefined}
       onClick={() => { if (press.consumeClick()) return; onOpenBrowser?.(bc.id); }}
@@ -3110,6 +3244,11 @@ function BrowserSidebarItem({ bc, itemName, depth, isFocused, isOpen, pinned, on
             pendingTitle="Annulla chiusura"
             pendingAriaLabel={`Annulla chiusura browser ${itemName}`}
           />
+        </span>
+      )}
+      {onArchiveClosed && (
+        <span className={`${ROW_ACTIONS} ${ROW_ACTION_BOX}`}>
+          <TabStateRing paneId={`browser:${bc.id}`} name={itemName} onForgetClosed={onArchiveClosed} />
         </span>
       )}
       {ctxMenu && (
