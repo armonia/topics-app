@@ -13,8 +13,9 @@
  *              repository's `.git`). Inside the root: a `ready` row and the v2
  *              owner marker. Outside: a `reuse` row and no marker (the folder is
  *              not Topics' to mark).
- *   placement  where a creator should put a checkout of a repository: the one
- *              place that applies the root setting, so nobody re-reads the DB.
+ *   placement  where a creator should put a checkout of a repository (or of a
+ *              project, by slug): the one place that applies the root setting,
+ *              so nobody re-reads the DB.
  *   unregister forgets the row of a checkout whose folder is gone. A folder still
  *              there is refused: forgetting it would only make it an orphan.
  *
@@ -47,6 +48,8 @@ export interface RegisterDeps {
   canonical: (path: string) => string;
   /** The project a checkout belongs to, through git's common dir; null for an unknown repository. */
   projectFor: (path: string) => RegisterProject | null;
+  /** The project named by its slug or id; absent = placement by project answers 404. */
+  projectByRef?: (ref: string) => RegisterProject | null;
   /** The folder is a LINKED worktree (its `.git` is a file). */
   isLinkedWorktree: (path: string) => boolean;
   /** The folder exists. */
@@ -166,6 +169,21 @@ export function placementFor(
   const project = deps.projectFor(repoDir);
   const slug = project?.slug || basename(repoDir.replace(/\\/g, "/")).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "repo";
   return { status: 200, body: { root: deps.roots()[0]!, slug, projectId: project?.id ?? null } };
+}
+
+/**
+ * Where a checkout of a project goes, by the project's slug or id: what
+ * `topics-worktree add <project>` asks, since a tool outside Topics knows the
+ * name of a project and not the folder of its repository.
+ */
+export function placementForProject(
+  deps: Pick<RegisterDeps, "roots" | "projectByRef">,
+  ref: unknown,
+): { status: 200; body: { root: string; slug: string; projectId: string; repo: string } } | { status: 400 | 404; body: { error: string } } {
+  if (typeof ref !== "string" || !ref.trim() || ref.length > 200) return { status: 400, body: { error: "project must be a slug or an id" } };
+  const project = deps.projectByRef?.(ref.trim()) ?? null;
+  if (!project) return { status: 404, body: { error: "no such project" } };
+  return { status: 200, body: { root: deps.roots()[0]!, slug: project.slug, projectId: project.id, repo: project.path } };
 }
 
 /** Forgets the row of a checkout whose folder is gone. Unknown path: nothing to do. */

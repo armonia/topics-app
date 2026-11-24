@@ -397,6 +397,14 @@ describe("worktree settings (worktree-standard T1)", () => {
     expect(bad.body.errors[0].field).toBe("cargoTargetMode");
     expect((await put({ gcForeign: "all" })).status).toBe(400);
   });
+
+  test("claude_worktree_hooks: off or topics, nothing else (WORKTREE-STD-13)", async () => {
+    expect((await put({ claudeWorktreeHooks: "off" })).status).toBe(200);
+    expect(getAppSettings().claudeWorktreeHooks).toBe("off");
+    expect((await put({ claudeWorktreeHooks: "all" })).status).toBe(400);
+    expect((await put({ claudeWorktreeHooks: null })).status).toBe(200);
+    expect(getAppSettings().claudeWorktreeHooks).toBeNull();
+  });
 });
 
 describe("a read that failed is never answered as 'never touched'", () => {

@@ -12,6 +12,7 @@ import { normalizeWorktreeRoot } from "../lib/worktree-root-setting";
 import { isInsideDir } from "../lib/path-containment";
 import {
   CARGO_TARGET_MODES,
+  CLAUDE_WORKTREE_HOOK_MODES,
   DEFAULT_WORKTREE_ABANDON_DAYS,
   DEFAULT_WORKTREE_DISK_FLOOR_GB,
   DEFAULT_WORKTREE_MAX_PER_PROJECT,
@@ -167,6 +168,7 @@ const FIELD_RULES: Record<keyof AppSettings, FieldRule> = {
   cargoTargetMode: { kind: "string", allow: new Set<string>(CARGO_TARGET_MODES) },
   gcForeign: { kind: "string", allow: new Set<string>(GC_FOREIGN_MODES) },
   worktreeAbandonDays: { kind: "int", clamp: (n) => clampInto(n, WORKTREE_ABANDON_DAYS_RANGE, DEFAULT_WORKTREE_ABANDON_DAYS) },
+  claudeWorktreeHooks: { kind: "string", allow: new Set<string>(CLAUDE_WORKTREE_HOOK_MODES) },
 };
 
 /** Coerce+validate an incoming patch. Returns the clean patch or errors. */

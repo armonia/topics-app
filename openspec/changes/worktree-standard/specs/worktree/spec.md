@@ -135,3 +135,26 @@ Ogni server Topics SHALL restare l'unico che scrive la propria tabella `worktree
 #### Scenario: scp fallito
 - **GIVEN** un `sync_repo` il cui `scp` esce non zero
 - **THEN** la cartella di stato SHALL non contenere alcun `.bundle`; un bundle di un processo morto SHALL sparire al giro dopo, uno di un processo vivo e recente SHALL restare
+
+### Requirement: WORKTREE-STD-13 — L'hook WorktreeCreate / WorktreeRemove di Claude Code mette i worktree nella radice
+
+`scripts/claude-hooks/worktree-hook.sh create` SHALL leggere dal payload di Claude Code `name`, `cwd`, `session_id` e `transcript_path`, creare il worktree in `{radice}/{slug}/{nome}` (radice e slug da `GET /api/worktrees/placement`, oppure `TOPICS_WORKTREES_DIR` o `{TOPICS_HOME}/worktrees` e il nome della cartella del repository quando il server non risponde) sul ramo `worktree-<nome>` da `origin/HEAD` (dopo un fetch di al più 5 secondi; `HEAD` senza remote), copiare i file di `.worktreeinclude` che sono anche ignorati da git, scrivere il marcatore v2 con `creator: claude-code`, sessione, transcript e macchina, prendere il lock `claude-code:<sessione>`, registrarlo con `POST /api/worktrees/register` e stampare il percorso come ultima riga dello stdout, tutto il resto su stderr. Un nome SHALL essere ridotto alla regola `^[a-z][a-z0-9-]{0,63}$` (`Feature/X+Y` → `feature-x-y`); una cartella altrui con lo stesso nome SHALL far scegliere `-2`; la stessa richiesta ripetuta SHALL ristampare lo stesso percorso senza un secondo worktree. Con Topics spento il worktree SHALL nascere lo stesso; con la radice non scrivibile SHALL nascere in `<repo>/.claude/worktrees/<nome>`. `remove` SHALL scrivere prima il tag `archive/wt-<nome>` sull'HEAD e, se non si rilegge uguale, NON SHALL rimuovere niente; poi SHALL togliere cartella e ramo `worktree-<nome>` (solo se punta ancora all'HEAD archiviato) e chiamare `unregister`. Su un checkout principale o su un lock con un prefisso diverso da `claude-code:` SHALL uscire 1 senza toccare niente. Le sessioni Claude che Topics avvia (chat, board, terminali) SHALL portare la coppia di hook nel loro unico `--settings`, sincrona, con timeout 120 e 60 secondi, salvo `claude_worktree_hooks = off` (default `topics`); `install-claude-hooks.ts install --worktrees` SHALL aggiungerla una volta sola al `settings.json` globale e `uninstall` SHALL toglierla.
+
+#### Scenario: Topics spento
+- **GIVEN** un repository e `TOPICS_HOME` temporanei, nessun server
+- **WHEN** Claude Code chiama l'hook con `name: "Feature/X+Y"`
+- **THEN** l'ultima riga dello stdout SHALL essere `{TOPICS_HOME}/worktrees/{slug}/feature-x-y`, il marcatore SHALL dire `creator: claude-code` e `git worktree list` SHALL mostrarlo con il lock `claude-code:<sessione>`
+
+#### Scenario: rimozione
+- **GIVEN** quel worktree
+- **WHEN** Claude Code chiama `remove`
+- **THEN** il tag `archive/wt-feature-x-y` SHALL puntare al suo HEAD e cartella e ramo SHALL essere spariti; sul checkout principale o su un lock `codex:` l'uscita SHALL essere 1 e la cartella SHALL restare
+
+### Requirement: WORKTREE-STD-14 — Una porta per ogni altro strumento: `topics-worktree` e l'hook git `post-checkout`
+
+`scripts/topics-worktree` SHALL usare la stessa libreria dell'hook: `add <percorso del repo|progetto> [nome]` SHALL creare `{radice}/{slug}/{nome}` col marcatore v2 del creatore dato da `TOPICS_WORKTREE_CREATOR` (default `adopted`) e senza lock, `register <percorso>` SHALL registrare un worktree esistente, `list` SHALL elencare i worktree sotto la radice col loro creatore. Un progetto per nome SHALL richiedere il server (`GET /api/worktrees/placement?project=` restituisce anche `repo`), un percorso no. L'hook git opzionale `scripts/git-hooks/post-checkout-register` SHALL registrare il nuovo worktree di un `git worktree add` nudo (HEAD precedente tutto zeri, `.git` file), SHALL ignorare ogni altro checkout e il clone, SHALL saltare i worktree che l'hook di Claude Code crea da sé (`TOPICS_WORKTREE_REGISTER=skip`) e SHALL uscire 0 in ogni caso, anche senza server: non SHALL mai bloccare git.
+
+#### Scenario: un `git worktree add` a mano
+- **GIVEN** `core.hooksPath` con `post-checkout-register` e un server Topics
+- **WHEN** si fa `git worktree add -b x <cartella>`
+- **THEN** il server SHALL ricevere una sola registrazione con quel percorso; senza server git SHALL uscire 0 e la cartella SHALL esserci
