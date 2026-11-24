@@ -1,6 +1,5 @@
-import { existsSync } from "fs";
 import { join } from "path";
-import { agentBinPath } from "./agent-bin-paths";
+import { HOME, WINDOWS_NPM_DIR, createBinResolver } from "./cli-bin";
 
 /**
  * Resolve the OpenAI `codex` CLI binary by absolute path.
@@ -19,79 +18,29 @@ import { agentBinPath } from "./agent-bin-paths";
  * (`providers/codex.ts`, `codex exec`) and the interactive PTY route
  * (`routes/terminal.ts`) so the two never disagree on where codex lives.
  */
-// `$HOME` does not exist on Windows — it is `%USERPROFILE%` there. Reading only
-// HOME made every candidate collapse to a relative path `existsSync` resolves
-// against the server's cwd, so on Windows the probe could only return null.
-const HOME = process.env.HOME || process.env.USERPROFILE || "";
+const bin = createBinResolver({
+  agentId: "codex",
+  binary: "codex",
+  envVar: "CODEX_BIN",
+  windowsDirs: [
+    join(HOME, ".local/bin"),
+    join(HOME, ".bun/bin"),
+    WINDOWS_NPM_DIR,
+    join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
+    join(HOME, "AppData/Local/Programs/codex"),
+  ],
+  posixPaths: [
+    "/opt/homebrew/bin/codex",
+    "/usr/local/bin/codex",
+    "/Applications/Codex.app/Contents/Resources/codex",
+    join(HOME, "Applications/Codex.app/Contents/Resources/codex"),
+    join(HOME, ".bun/bin/codex"),
+    join(HOME, ".local/bin/codex"),
+    join(HOME, ".npm-global/bin/codex"),
+  ],
+});
 
-const IS_WINDOWS = process.platform === "win32";
+export const resolveCodexBin = bin.resolve;
 
-/**
- * The names a CLI can have on this platform. On Windows an executable carries its
- * extension, and which one depends on the install method: a real `.exe` for a
- * native installer, a `.cmd` shim for an npm/bun global. The bare name matches
- * neither. See the twin note in `claude-bin.ts` — the two must never disagree.
- */
-function names(base: string): string[] {
-  return IS_WINDOWS ? [`${base}.exe`, `${base}.cmd`, `${base}.bat`, base] : [base];
-}
-
-function candidates(base: string, dirs: string[]): string[] {
-  const out: string[] = [];
-  for (const dir of dirs) for (const n of names(base)) out.push(join(dir, n));
-  return out;
-}
-
-const CANDIDATES = IS_WINDOWS
-  ? candidates("codex", [
-      join(HOME, ".local/bin"),
-      join(HOME, ".bun/bin"),
-      join(process.env.APPDATA || join(HOME, "AppData/Roaming"), "npm"),
-      join(HOME, "AppData/Local/Microsoft/WinGet/Links"),
-      join(HOME, "AppData/Local/Programs/codex"),
-    ])
-  : [
-      "/opt/homebrew/bin/codex",
-      "/usr/local/bin/codex",
-      "/Applications/Codex.app/Contents/Resources/codex",
-      join(HOME, "Applications/Codex.app/Contents/Resources/codex"),
-      join(HOME, ".bun/bin/codex"),
-      join(HOME, ".local/bin/codex"),
-      join(HOME, ".npm-global/bin/codex"),
-    ];
-
-let cached: string | null = null;
-
-/**
- * Absolute path to the codex binary, or `null` if it can't be found anywhere
- * (not installed). Honors the path chosen in Settings first, then `$CODEX_BIN`, then PATH (`Bun.which`), then the
- * known install locations above. Result is memoized.
- */
-export function resolveCodexBin(): string | null {
-  if (cached) return cached;
-
-  // The path somebody pointed at in Settings wins over every guess: it is the
-  // one answer that is not a probe. See `agent-bin-paths.ts`.
-  const chosen = agentBinPath("codex");
-  if (chosen) return (cached = chosen);
-
-  const envBin = process.env.CODEX_BIN;
-  if (envBin && existsSync(envBin)) return (cached = envBin);
-
-  const inPath = Bun.which("codex");
-  if (inPath) return (cached = inPath);
-
-  for (const candidate of CANDIDATES) {
-    try {
-      if (existsSync(candidate)) return (cached = candidate);
-    } catch {
-      /* keep probing */
-    }
-  }
-  return null;
-}
-
-/** Reset the memoized path — for tests that mutate the environment. */
-export function _resetCodexBinCache(): void {
-  cached = null;
-}
+/** Reset the memoized path, for tests that mutate the environment. */
+export const _resetCodexBinCache = bin.resetCache;

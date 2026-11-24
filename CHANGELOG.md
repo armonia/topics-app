@@ -2,10 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.95 — 2026-11-24
+
+### Correzioni
+- **restart-gate** · a turn waiting for a person is parked, not streaming (#1634)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-24 [skip ci]
+
+## 2.4.94 — 2026-11-24
+
+### Sotto il cofano
+- client-bundle job cap above the sum of its step caps, so it never ends cancelled
+- long-session growth budget in its own push-only job, so a judged tree still gets it
+- a judged push still runs the growth job
+- growth job builds the client before its bench
+
 ## 2.4.93 — 2026-11-24
 
 ### Sotto il cofano
 - reload gate: read the migrations registry without a pipe that SIGPIPE can break
+- main skips a tree a pull request already judged; Playwright deps cached in unit and gates; client built once per run
+- playwright-browsers action: a step name with ': ' broke the YAML of the composite
+- tree steps and client-bundle fail open; tests evaluate the proven outputs and guard the bundle fallback
+- client-bundle continues on error with short step caps; the board's contract test knows the e2e needs client-bundle
+- every step of client-bundle continues on error, so the board never reads it red while the run goes on
 
 ## 2.4.92 — 2026-11-23
 

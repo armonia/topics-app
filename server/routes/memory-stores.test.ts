@@ -14,7 +14,7 @@ beforeEach(() => {
   const engine = join(root, "engine");
   mkdirSync(engine, { recursive: true });
   for (const id of ["alpha", "beta", "gamma", "delta"]) {
-    const dir = join(root, "topics", "agents", id, "memory");
+    const dir = join(root, `ws-${id}`, "memory");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "MEMORY.md"), `- [${id}-index](card.md)\n`);
     writeFileSync(join(dir, "card.md"), "---\nname: card\n---\nbody\n");

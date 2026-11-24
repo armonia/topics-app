@@ -265,6 +265,48 @@ export function unfinishedStreams<T extends { sessionKey: string; messageId: str
 }
 
 /**
+ * Of the turns that are open, the ones WORKING and the ones only WAITING for a
+ * person. WHAT counts as waiting is the caller's predicate: the gate passes the
+ * open QUESTIONS whose asker is still polling, not the permission prompts (a
+ * permission's decision dies with the turn, so that turn is not one to cut).
+ *
+ * THE SAME TURN WAS COUNTED TWICE. A chat blocked on `ask_user_question` is a
+ * live stream (its process polls the bridge for the answer, its row is
+ * `partial = 1`) AND a chat parked on a question, the fourth source of the gate.
+ * Streams are read first, so the chat was reported as "in streaming" and
+ * counted among the turns a restart would lose: measured on a live install, a
+ * question left unanswered overnight kept `GET /__daemon/idle` at `idle: false`
+ * for ten hours, and a restart at zero turns (RGATE-09: "a chat parked on a
+ * QUESTION stays out of it") would have frozen behind it for as long as nobody
+ * answered, which is the freeze RGATE-09 was written to end.
+ *
+ * Nothing is wrong with the turn, and nothing is cleaned: a question has no
+ * clock (it ends when somebody answers or cancels). What was wrong is the
+ * LABEL, and with it every count that hangs off the label.
+ *
+ * `keyOf` is there because the two callers hand over different things: the
+ * stream registry's entries and the bare session keys of the broker.
+ *
+ * WHICH WAY THE DOUBT FALLS: a predicate that throws leaves the turn WORKING.
+ * Here, as in `unfinishedStreams`, the doubt protects a live turn from being
+ * cut, and a turn mistaken for a waiting one is the one a restart then cuts.
+ */
+export function splitOnPerson<T>(
+  turns: Iterable<T>,
+  keyOf: (turn: T) => string,
+  waitsForPerson: (sessionKey: string) => boolean,
+): { working: T[]; onPerson: T[] } {
+  const working: T[] = [];
+  const onPerson: T[] = [];
+  for (const turn of turns) {
+    let waiting = false;
+    try { waiting = waitsForPerson(keyOf(turn)); } catch { waiting = false; }
+    (waiting ? onPerson : working).push(turn);
+  }
+  return { working, onPerson };
+}
+
+/**
  * L'attesa è finita?
  *
  * PERCHÉ È UNA FUNZIONE. La regola viveva dentro il `for(;;)` di

@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import type { ChatMessage } from '../types';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * Which chats hold only the TAIL of their history right now, and how to get
@@ -66,11 +67,10 @@ const UNKNOWN: HistoryCompleteness = { state: 'unknown' };
 const COMPLETE: HistoryCompleteness = { state: 'complete' };
 
 const bySession = new Map<string, HistoryCompleteness>();
-const listeners = new Map<string, Set<() => void>>();
+const listeners = createKeyedListeners<string>();
 
 function notify(sessionKey: string): void {
-  const subs = listeners.get(sessionKey);
-  if (subs) for (const fn of subs) fn();
+  listeners.emit(sessionKey);
 }
 
 function set(sessionKey: string, next: HistoryCompleteness): void {
@@ -123,18 +123,7 @@ export function isHistoryIncomplete(c: HistoryCompleteness): c is Extract<Histor
 }
 
 function subscribe(sessionKey: string, fn: () => void): () => void {
-  let subs = listeners.get(sessionKey);
-  if (!subs) {
-    subs = new Set();
-    listeners.set(sessionKey, subs);
-  }
-  subs.add(fn);
-  return () => {
-    const s = listeners.get(sessionKey);
-    if (!s) return;
-    s.delete(fn);
-    if (s.size === 0) listeners.delete(sessionKey);
-  };
+  return listeners.subscribe(sessionKey, fn);
 }
 
 /** The completeness of this session's transcript, live. */
