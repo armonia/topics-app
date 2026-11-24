@@ -1,5 +1,24 @@
 [
   {
+    "version": "2.4.97",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [
+        {
+          "text": "tabs live in one place, with three states for every kind",
+          "scope": "sidebar"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "three states inside project windows, gates green, suite on the old layout",
+          "scope": "sidebar"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.96",
     "date": "2026-11-24",
     "sections": {
