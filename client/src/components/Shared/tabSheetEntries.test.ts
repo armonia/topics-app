@@ -2,7 +2,7 @@
  * The shape of the tab sheet, without a DOM: what sits on the first level, in
  * which order, and what a level with one row or none becomes.
  *
- * @covers TABSHEET-02 @covers TABSHEET-03
+ * @covers TABSHEET-02 @covers TABSHEET-03 @covers SPLIT-05
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -130,5 +130,21 @@ describe('every command has one place (TABSHEET-03)', () => {
     const tab = entries.find((e) => e.id === 'tab');
     expect(tab?.kind === 'level' && tab.children.map((c) => c.kind === 'action' ? c.label : c.id))
       .toEqual(['tab.menu.pinProject', 'tab.menu.unpinTab']);
+  });
+});
+
+describe('the layout level speaks every side (SPLIT-05)', () => {
+  test('four sides, then even out, then reset, in that order', () => {
+    const entries = buildTabSheetEntries(fullBrowser({
+      layout: { splitRight: noop, splitLeft: noop, splitDown: noop, splitUp: noop, equalize: noop, resetLayout: noop },
+    }));
+    const all = reachable(entries);
+    const order = ['split-right', 'split-left', 'split-down', 'split-up', 'equalize', 'reset-layout'];
+    expect(all.filter((id) => order.includes(id))).toEqual(order);
+  });
+
+  test('a surface that cannot split offers no side and no even out', () => {
+    const all = reachable(buildTabSheetEntries(fullBrowser({ layout: { detach: noop } })));
+    expect(all.filter((id) => id.startsWith('split-') || id === 'equalize')).toEqual([]);
   });
 });

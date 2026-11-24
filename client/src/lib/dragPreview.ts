@@ -69,6 +69,13 @@ const GRAB_Y = 20;
 
 let nodo: HTMLElement | null = null;
 let agganciato = false;
+// The title of the card in flight, for the drop footprint to name what lands.
+let titleInFlight: string | null = null;
+
+/** The name of what is being dragged, or null with no card in flight. */
+export function draggedTitle(): string | null {
+  return titleInFlight;
+}
 
 function costruisci(spec: DragPreviewSpec): HTMLElement {
   const card = document.createElement('div');
@@ -174,6 +181,7 @@ export function startDragPreview(
 ): void {
   endDragPreview();
   aggancia();
+  titleInFlight = spec.title;
   const card = costruisci(spec);
   document.body.appendChild(card);
   nodo = card;
@@ -186,6 +194,7 @@ export function startDragPreview(
 /** Spegne l'anteprima. Idempotente: le porte di spegnimento sono tante e
  *  scattano anche tutte insieme. */
 export function endDragPreview(): void {
+  titleInFlight = null;
   if (!nodo) return;
   nodo.remove();
   nodo = null;

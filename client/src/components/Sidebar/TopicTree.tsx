@@ -36,7 +36,7 @@ import { useBoardTasks } from '@/lib/boardTasksStore';
 import { openTaskInApp } from '@/lib/openTaskLink';
 import { openCardsOf, taskCardPhase } from '@/lib/taskCardState';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner, TaskActionLoader } from '@/components/Layout/StreamingIndicator';
-import { RowSplitMap } from './RowSplitMap';
+import { ProjectRowSplitMap, RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
 import { isAccordionOpen, readOpenedAccordions, summarizeSubagents, toggledAccordions, writeOpenedAccordions } from '@/lib/subagentAccordion';
@@ -1617,7 +1617,7 @@ export function TopicTree({
               only (user preference), never on the top tab bar.
               Fuori dal binario quieto: è un segnale di POSIZIONE, non di stato,
               e sta a sinistra di quanto il comando può coprire. */}
-          <RowSplitMap paneId={pp} onFill={projOnFill} />
+          <ProjectRowSplitMap projectPath={pp} onFill={projOnFill} />
           {/* THE AGGREGATE CUE ONLY WHILE THE FOLDER IS SHUT.
               A project glyph says "something in here is working", and it is the
               only way to know while the accordion is closed. Open it and every

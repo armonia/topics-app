@@ -19,6 +19,7 @@ import {
 } from '../../state/pane/adapters';
 import { isRealUrl, shouldPersistBrowserTitle } from '../../state/pane/browserPaneUrl';
 import { computeProjectGridWeight, setProjectGridWeight, clearProjectGridWeight } from '../../state/projectGridWeights';
+import { projectSplitMap, publishProjectSplitMap } from '../../state/projectSplitMaps';
 import { sendFocusTopic, sendBlur } from '../../lib/focusMessaging';
 import { useClaudeSkipPermissions } from '../../hooks/useClaudePrefs';
 import { useProjectPersistenceLoad } from './hooks/useProjectPersistenceLoad';
@@ -234,6 +235,13 @@ export function ProjectWindowPane({
     return () => clearProjectGridWeight(projectPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the extent IS the payload: depending on the `gridWeight` object would re-run on every rows rebuild, which is the bug this avoids
   }, [projectPath, gridWeight.cols, gridWeight.rows]);
+
+  // The map of this window's own splits, for the project's row (SPLIT-07).
+  const splitMap = useMemo(() => projectSplitMap(rows, rowHeights, focusedGroupId), [rows, rowHeights, focusedGroupId]);
+  useEffect(() => {
+    publishProjectSplitMap(projectPath, splitMap);
+  }, [projectPath, splitMap]);
+  useEffect(() => () => publishProjectSplitMap(projectPath, undefined), [projectPath]);
   const { setRows, setRowHeights, setSidebarCollapsed } = layout.setters;
   const pinPaneById = layout.handlers.pinPaneById;
   const handleOpenFile = layout.handlers.openFile;
