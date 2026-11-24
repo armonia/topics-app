@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.95 — 2026-11-24
+
+### Correzioni
+- **restart-gate** · a turn waiting for a person is parked, not streaming (#1634)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-24 [skip ci]
+
 ## 2.4.94 — 2026-11-24
 
 ### Sotto il cofano

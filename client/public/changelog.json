@@ -1,5 +1,29 @@
 [
   {
+    "version": "2.4.95",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a turn waiting for a person is parked, not streaming (#1634)",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-24 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.94",
     "date": "2026-11-24",
     "sections": {
