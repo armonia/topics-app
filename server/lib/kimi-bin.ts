@@ -1,6 +1,5 @@
-import { existsSync } from "fs";
 import { join } from "path";
-import { agentBinPath } from "./agent-bin-paths";
+import { HOME, WINDOWS_NPM_DIR, createBinResolver } from "./cli-bin";
 
 /**
  * Resolve the Kimi Code CLI binary by absolute path.
@@ -18,75 +17,26 @@ import { agentBinPath } from "./agent-bin-paths";
  * the bare name, which still surfaces a plain "command not found" instead of a
  * tab that opens and stays empty.
  */
-// `$HOME` does not exist on Windows — it is `%USERPROFILE%` there. Reading only
-// HOME made every candidate collapse to a relative path `existsSync` resolves
-// against the server's cwd, so on Windows the probe could only return null.
-const HOME = process.env.HOME || process.env.USERPROFILE || "";
+const bin = createBinResolver({
+  agentId: "kimi-code",
+  binary: "kimi",
+  envVar: "KIMI_BIN",
+  windowsDirs: [
+    join(HOME, ".kimi-code/bin"),
+    join(HOME, ".local/bin"),
+    join(HOME, ".bun/bin"),
+    WINDOWS_NPM_DIR,
+  ],
+  posixPaths: [
+    join(HOME, ".kimi-code/bin/kimi"), // official installer, the only known location
+    "/opt/homebrew/bin/kimi",
+    "/usr/local/bin/kimi",
+    join(HOME, ".local/bin/kimi"),
+    join(HOME, ".bun/bin/kimi"),
+  ],
+});
 
-const IS_WINDOWS = process.platform === "win32";
+export const resolveKimiBin = bin.resolve;
 
-/**
- * The names a CLI can have on this platform. On Windows an executable carries
- * its extension, and which one depends on how it was installed. See the twin
- * note in `claude-bin.ts` / `codex-bin.ts` — the three must never disagree.
- */
-function names(base: string): string[] {
-  return IS_WINDOWS ? [`${base}.exe`, `${base}.cmd`, `${base}.bat`, base] : [base];
-}
-
-function candidates(base: string, dirs: string[]): string[] {
-  const out: string[] = [];
-  for (const dir of dirs) for (const n of names(base)) out.push(join(dir, n));
-  return out;
-}
-
-const CANDIDATES = IS_WINDOWS
-  ? candidates("kimi", [
-      join(HOME, ".kimi-code/bin"),
-      join(HOME, ".local/bin"),
-      join(HOME, ".bun/bin"),
-      join(process.env.APPDATA || join(HOME, "AppData/Roaming"), "npm"),
-    ])
-  : [
-      join(HOME, ".kimi-code/bin/kimi"), // official installer, the only known location
-      "/opt/homebrew/bin/kimi",
-      "/usr/local/bin/kimi",
-      join(HOME, ".local/bin/kimi"),
-      join(HOME, ".bun/bin/kimi"),
-    ];
-
-let cached: string | null = null;
-
-/**
- * Absolute path to the `kimi` binary, or `null` if it can't be found anywhere
- * (not installed). Honors the path chosen in Settings first, then `$KIMI_BIN`, then PATH (`Bun.which`), then the
- * known install locations above. Result is memoized.
- */
-export function resolveKimiBin(): string | null {
-  if (cached) return cached;
-
-  // The path somebody pointed at in Settings wins over every guess: it is the
-  // one answer that is not a probe. See `agent-bin-paths.ts`.
-  const chosen = agentBinPath("kimi-code");
-  if (chosen) return (cached = chosen);
-
-  const envBin = process.env.KIMI_BIN;
-  if (envBin && existsSync(envBin)) return (cached = envBin);
-
-  const inPath = Bun.which("kimi");
-  if (inPath) return (cached = inPath);
-
-  for (const candidate of CANDIDATES) {
-    try {
-      if (existsSync(candidate)) return (cached = candidate);
-    } catch {
-      /* keep probing */
-    }
-  }
-  return null;
-}
-
-/** Reset the memoized path — for tests that mutate the environment. */
-export function _resetKimiBinCache(): void {
-  cached = null;
-}
+/** Reset the memoized path, for tests that mutate the environment. */
+export const _resetKimiBinCache = bin.resetCache;

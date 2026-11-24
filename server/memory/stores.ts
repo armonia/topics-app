@@ -5,7 +5,8 @@
  * Measured 2026-11-22: a second agent had 108 cards in its memory folder but
  * no `memory` key in the channel engine's config, so no turn of its ever saw
  * the index — an invisible failure. The fix is the default, not a flag: an
- * agent's OWN folder (`<topics agents home>/<id>/memory`) is always a store
+ * agent's OWN folder (`<its workspace>/memory`, the workspace the registry
+ * reports: the folder name need not equal the agent id) is always a store
  * and always auto-received, with no configuration required. Configuration
  * only ADDS sharing: `engine.json`'s `agents.<id>.memory` grants a scope on
  * another store — `"shared"` (auto-received alongside the agent's own) or
@@ -27,7 +28,6 @@ import { parseFrontMatter } from "../lib/agent-profiles";
 import { MEMORY_INDEX_MAX_CHARS, MEMORY_INDEX_MAX_LINES } from "../lib/native-parity";
 import type { AgentRecord } from "../agents/registry";
 import { readJson, safeWrite } from "../agents/config-files";
-import { topicsHome } from "../services/daemon-state";
 
 export type MemoryStoreScope = "own" | "shared" | "readonly";
 
@@ -35,6 +35,13 @@ export type MemoryStoreScope = "own" | "shared" | "readonly";
 export interface MemoryGrant {
   storeId: string;
   scope: Extract<MemoryStoreScope, "shared" | "readonly">;
+}
+
+/** A store said in words: the agent's id, or the last two segments of a project folder's encoded path (`-a-b-topics-app` becomes `topics-app`). */
+export function storeLabel(store: Pick<MemoryStore, "id" | "kind" | "ownerAgentId">): string {
+  if (store.kind === "agent") return store.ownerAgentId ?? store.id;
+  const parts = store.id.replace(/^project:/, "").split("-").filter(Boolean);
+  return parts.slice(-2).join("-") || store.id;
 }
 
 export interface MemoryStoreIndex {
@@ -81,11 +88,6 @@ function readSafe(path: string): string {
   } catch {
     return "";
   }
-}
-
-/** `<topics home>/agents`, where every always-on agent's own folder lives (`shared/agent-home.ts`). */
-export function topicsAgentsHome(env: Record<string, string | undefined> = process.env, home = homedir()): string {
-  return join(topicsHome(env, home), "agents");
 }
 
 /** Root Claude Code keeps its per-project transcripts and memory under. */
@@ -171,7 +173,6 @@ export function readMemoryStoresConfig(engineHome: string): MemoryStoresConfig {
 }
 
 export interface DiscoverStoresOptions {
-  topicsAgentsHome: string;
   claudeProjectsHome: string;
   config: MemoryStoresConfig;
 }
@@ -187,7 +188,7 @@ export function discoverStores(agents: AgentRecord[], opts: DiscoverStoresOption
   const stores = new Map<string, MemoryStore>();
 
   for (const agent of agents) {
-    const path = join(opts.topicsAgentsHome, agent.id, "memory");
+    const path = join(agent.workspace, "memory");
     const id = `agent:${agent.id}`;
     stores.set(id, {
       id,
@@ -242,17 +243,17 @@ export function storeProblems(store: MemoryStore): MemoryStoreProblem[] {
     problems.push({
       storeId: store.id,
       kind: "unreceived",
-      text: `"${store.id}" ha ${store.cards.length} schede ma nessun agente la riceve`,
+      text: `"${storeLabel(store)}" ha ${store.cards.length} schede ma nessun agente la riceve`,
     });
   }
   if (store.cards.length > 0 && !store.index) {
-    problems.push({ storeId: store.id, kind: "index-missing", text: `"${store.id}" ha schede ma non ha un indice (MEMORY.md)` });
+    problems.push({ storeId: store.id, kind: "index-missing", text: `"${storeLabel(store)}" ha schede ma non ha un indice (MEMORY.md)` });
   }
   if (store.index?.overLimit) {
     problems.push({
       storeId: store.id,
       kind: "index-over-limit",
-      text: `l'indice di "${store.id}" supera il limite (${MEMORY_INDEX_MAX_LINES} righe / ${MEMORY_INDEX_MAX_CHARS} caratteri)`,
+      text: `l'indice di "${storeLabel(store)}" supera il limite (${MEMORY_INDEX_MAX_LINES} righe / ${MEMORY_INDEX_MAX_CHARS} caratteri)`,
     });
   }
   return problems;

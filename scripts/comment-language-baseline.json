@@ -815,7 +815,7 @@
     "server/app-context/app-statements.ts": 36,
     "server/app-context/message-branches.ts": 45,
     "server/app-context/message-thread-reads.ts": 34,
-    "server/app-context/message-thread-writes.ts": 69,
+    "server/app-context/message-thread-writes.ts": 63,
     "server/app-context/stream-registry.ts": 5,
     "server/boot-orphan-scan.test.ts": 34,
     "server/boot/boot-sweeps.ts": 8,

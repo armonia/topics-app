@@ -163,3 +163,12 @@ describe("registryHealthInput", () => {
     expect(types(dir, { "x": "y" })).toEqual([]);
   });
 });
+
+describe("unreceived project memories", () => {
+  test("hundreds of them are one problem with a count, not one problem each", () => {
+    const stores = ["-a-one", "-a-two", "-a-three"].map((id) => store({ id: `project:${id}`, kind: "project", receivedBy: [] }));
+    const problems = collectHealth({ ...healthy(), stores }).filter((p) => p.type === "memory-unreceived");
+    expect(problems).toHaveLength(1);
+    expect(problems[0]!.vars).toEqual({ count: "3" });
+  });
+});
