@@ -541,6 +541,8 @@ export function StandaloneChatGroup({
   // hands `onResetLayout` only while it is split.
   const inSplit = !mobile && !tabStrip && !!onResetLayout;
   const cellLit = inSplit && !!focusedPanelId && validatedOrderedIds.includes(focusedPanelId);
+  // The room under the traffic lights, on the toggle cell only (the header below says why).
+  const lightsInset = onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : undefined;
 
   // Cross-group drop: accept a tab dragged from another group (solo or project).
   // When a tab is dropped onto another group's tab bar:
@@ -1060,7 +1062,7 @@ export function StandaloneChatGroup({
             is what keeps the strip clear of the lights on every frame. */}
         <div
           className={`${CHROME_BAR} pr-0 select-none app-drag-region ${onToggleSidebar ? 'content-chrome-inset' : ''}`}
-          style={onToggleSidebar || cellLit ? { ...(onToggleSidebar ? { paddingLeft: `var(${CONTENT_CHROME_INSET_PROPERTY}, 0px)` } : {}), ...(cellLit ? FOCUSED_CELL_EDGE : {}) } : undefined}
+          style={cellLit ? { ...lightsInset, ...FOCUSED_CELL_EDGE } : lightsInset}
           data-cell-lit={inSplit ? String(cellLit) : undefined}
           {...DRAG_REGION}
         >
