@@ -48,11 +48,12 @@ const SPEC = join(ROOT, "performance/spec.md");
  */
 const ABSTAINING_GATES = ["check:route-latency", "check:ink", "check:growth"] as const;
 
-/** The step of the `gates` job that runs this script, body included. */
+/** The step of the `gates` job (or `growth` for the growth budget) that runs this script, body included. */
 function stepRunning(script: string): string {
   const lines = readFileSync(CI, "utf8").split("\n");
-  const start = lines.findIndex((l) => l === "  gates:");
-  if (start < 0) throw new Error("job gates not found in ci.yml");
+  const job = script === "check:growth" ? "  growth:" : "  gates:";
+  const start = lines.findIndex((l) => l === job);
+  if (start < 0) throw new Error(`job ${job.trim()} not found in ci.yml`);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     if (/^ {2}[a-z][\w-]*:/.test(lines[i]!)) {
