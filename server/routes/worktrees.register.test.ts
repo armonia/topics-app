@@ -17,7 +17,7 @@ type Identity = { role: "owner" | "guest"; deviceId: string | null; delegatedAut
 function build(identity: Identity = { role: "owner", deviceId: null }) {
   const effects: string[] = [];
   const sent: unknown[] = [];
-  const rows = new Map<string, { id: string; projectId: string; absPath: string }>();
+  const rows = new Map<string, { id: string; projectId: string; absPath: string; source?: string }>();
   const ctx = {
     json: (body: unknown, status = 200) => new Response(JSON.stringify(body), { status }),
     readJSON: async (req: Request) => req.json(),
@@ -123,7 +123,7 @@ describe("the three routes", () => {
     const { call, rows, sent } = build();
     await call("POST", "/api/worktrees/register", { body: REGISTER });
     expect((await call("POST", "/api/worktrees/unregister", { body: { path: "/r/repo/x" } }))!.status).toBe(409);
-    rows.set("/r/repo/gone", { id: "w9", projectId: "p1", absPath: "/r/repo/gone" });
+    rows.set("/r/repo/gone", { id: "w9", projectId: "p1", absPath: "/r/repo/gone", source: "claude-code" });
     const res = await call("POST", "/api/worktrees/unregister", { body: { path: "/r/repo/gone" } });
     expect(await res!.json()).toEqual({ removed: true, id: "w9" });
     expect(sent.at(-1)).toMatchObject({ type: "worktree:deleted", worktree: { id: "w9" } });

@@ -34,6 +34,7 @@ export interface RegisterRequest {
   path: unknown;
   creator: unknown;
   session?: unknown;
+  /** Checked for shape only: the branch recorded is the one checked out there. */
   branch?: unknown;
   name?: unknown;
 }
@@ -102,6 +103,18 @@ function inAnyRoot(deps: RegisterDeps, absPath: string): boolean {
   return deps.roots().some((r) => isInsideDir(absPath, deps.canonical(r), platform));
 }
 
+/**
+ * The branch was born with this checkout, so the cleanup may delete it with the
+ * folder: the hook's own `worktree-<folder name>`, or one of Topics' `topics/*`.
+ * Any other branch (a feature checked out by hand, a branch the user had before)
+ * makes a `reuse` row, whose removal leaves the branch alone. Outside the root
+ * nothing is ever `branch`.
+ */
+function creatorOwnsBranch(branch: string, absPath: string): boolean {
+  const folder = basename(absPath.replace(/\\/g, "/"));
+  return branch === `worktree-${folder}` || branch.startsWith("topics/");
+}
+
 export async function registerWorktree(deps: RegisterDeps, req: RegisterRequest): Promise<RegisterOutcome> {
   const platform = deps.platform ?? process.platform;
   if (!isAbsoluteServerPath(req.path, platform)) return { status: 400, body: { error: "path must be an absolute path" } };
@@ -124,13 +137,15 @@ export async function registerWorktree(deps: RegisterDeps, req: RegisterRequest)
     return { status: 400, body: { error: "path is not a linked worktree (a main checkout is never registered)" } };
   }
 
+  // The branch is read off the checkout, never taken from the body: a `branch` row's
+  // removal runs `git branch -D` on it. Read BEFORE the row lookup, so lookup and
+  // insert run with no await between them and two calls for one path cannot both insert.
+  const branch = await deps.headBranch(absPath);
   let row = rowAtPath(deps, absPath);
   let created = false;
   if (row && row.projectId !== project.id) return { status: 409, body: { error: "the path already belongs to another project" } };
   if (!row) {
-    const branch = typeof req.branch === "string" ? req.branch : await deps.headBranch(absPath);
-    // Outside the root the branch is never Topics' to delete: always `reuse`.
-    const mode: "branch" | "reuse" | "detached" = !branch ? "detached" : inRoot ? "branch" : "reuse";
+    const mode: "branch" | "reuse" | "detached" = !branch ? "detached" : inRoot && creatorOwnsBranch(branch, absPath) ? "branch" : "reuse";
     const wanted = typeof req.name === "string" && isValidWorktreeName(req.name) ? req.name : basename(absPath);
     const name = nameForAdopted(wanted, deps.store.listNamesForProject(project.id));
     row = deps.store.create({
@@ -187,7 +202,7 @@ export function placementForProject(
 }
 
 /** Forgets the row of a checkout whose folder is gone. Unknown path: nothing to do. */
-export function unregisterWorktree(
+export function forgetWorktree(
   deps: Pick<RegisterDeps, "store" | "platform" | "canonical" | "exists">,
   path: unknown,
 ): { status: 200; body: { removed: boolean; id: string | null } } | { status: 400 | 409; body: { error: string } } {
@@ -195,6 +210,8 @@ export function unregisterWorktree(
   const absPath = deps.canonical(path);
   const row = rowAtPath(deps, absPath);
   if (!row) return { status: 200, body: { removed: false, id: null } };
+  // A row Topics made is dropped by Topics' own delete, which also handles its branch and its card.
+  if ((row.source ?? "topics") === "topics") return { status: 409, body: { error: "a worktree Topics made is removed by Topics, not unregistered" } };
   if (deps.exists(absPath)) return { status: 409, body: { error: "the folder is still there: remove it first, or let the GC judge it" } };
   return { status: 200, body: { removed: deps.store.delete(row.id), id: row.id } };
 }

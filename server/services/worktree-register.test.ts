@@ -13,7 +13,7 @@ import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { createWorktreeStore } from "./worktree-store";
 import { canonicalPath, readOwnerMarker, worktreeAdminDir, writeOwnerMarker } from "./worktree-owner";
-import { placementFor, placementForProject, registerWorktree, unregisterWorktree, type RegisterDeps } from "./worktree-register";
+import { placementFor, placementForProject, registerWorktree, forgetWorktree, type RegisterDeps } from "./worktree-register";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
@@ -131,6 +131,44 @@ describe("POST /api/worktrees/register, the decisions", () => {
     expect(d.store.list()).toHaveLength(0);
   });
 
+  test("a branch the creator did not make stays the user's: `reuse`, never deleted by the cleanup", async () => {
+    // A hand-made `git worktree add <root>/repo/feat feature` registered by the
+    // post-checkout hook: `mode: branch` would make the removal `git branch -D feature`.
+    const feat = join(root, "repo", "feat");
+    git(repo, "branch", "feature");
+    git(repo, "worktree", "add", "-q", feat, "feature");
+    try {
+      const d = deps();
+      const r = await registerWorktree(d, { path: feat, creator: "adopted" });
+      expect(r.status).toBe(200);
+      expect(d.store.getByAbsPath(feat)).toMatchObject({ mode: "reuse", branchName: "feature" });
+    } finally {
+      git(repo, "worktree", "remove", "--force", feat);
+    }
+  });
+
+  test("the branch is read off the checkout, never taken from the body", async () => {
+    // A body naming `main` would put `git branch -D main` in the removal of a `branch` row.
+    const d = deps();
+    const r = await registerWorktree(d, { path: inside, creator: "claude-code", branch: "main" });
+    expect(r.status).toBe(200);
+    expect(d.store.getByAbsPath(inside)).toMatchObject({ mode: "branch", branchName: "worktree-bold-oak" });
+  });
+
+  test("two registrations of one path at once: one row, both answered 200", async () => {
+    // The hook and a cleanup pass (or a retried call) can land together; the second
+    // must read the first one's row, not throw on the UNIQUE path.
+    const slow = deps(freshStore(), { headBranch: async (p) => { await Bun.sleep(20); return git(p, "rev-parse", "--abbrev-ref", "HEAD"); } });
+    const [a, b] = await Promise.all([
+      registerWorktree(slow, { path: inside, creator: "claude-code" }),
+      registerWorktree(slow, { path: inside, creator: "claude-code" }),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    if (a.status !== 200 || b.status !== 200) return;
+    expect(b.body.id).toBe(a.body.id);
+    expect(slow.store.list()).toHaveLength(1);
+  });
+
   test("a Windows path is accepted with platform win32", async () => {
     const store = freshStore();
     const d = deps(store, {
@@ -171,11 +209,19 @@ describe("placement and unregister", () => {
     const d = deps();
     const r = await registerWorktree(d, { path: outside, creator: "codex" });
     expect(r.status).toBe(200);
-    expect(unregisterWorktree(d, outside).status).toBe(409);
+    expect(forgetWorktree(d, outside).status).toBe(409);
     expect(d.store.list()).toHaveLength(1);
     const gone = deps(d.store, { exists: () => false });
-    expect(unregisterWorktree(gone, outside)).toMatchObject({ status: 200, body: { removed: true } });
+    expect(forgetWorktree(gone, outside)).toMatchObject({ status: 200, body: { removed: true } });
     expect(d.store.list()).toHaveLength(0);
-    expect(unregisterWorktree(gone, outside)).toEqual({ status: 200, body: { removed: false, id: null } });
+    expect(forgetWorktree(gone, outside)).toEqual({ status: 200, body: { removed: false, id: null } });
+  });
+
+  test("unregister never drops a row Topics made: its own delete handles branch and card", () => {
+    const store = freshStore();
+    const own = store.create({ projectId: "p1", name: "card", branchName: "topics/card", baseRef: "main", mode: "branch", absPath: join(root, "repo", "card") });
+    const gone = deps(store, { exists: () => false });
+    expect(forgetWorktree(gone, own.absPath).status).toBe(409);
+    expect(store.get(own.id)).not.toBeNull();
   });
 });

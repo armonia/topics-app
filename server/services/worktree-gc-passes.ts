@@ -29,6 +29,7 @@ export interface GcRow {
   mode: "branch" | "reuse" | "detached";
   status?: string;
   createdAt?: string;
+  source?: string;
 }
 
 /** The preview of a pass: nothing is written, every folder and row gets a class, an action and a weight. */
@@ -61,7 +62,7 @@ export interface PassesCtx {
   removeForeign: Parameters<typeof removeMergedForeign>[1];
 }
 
-const asGc = (w: GcRow): GcWorktree => ({ id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode });
+const asGc = (w: GcRow): GcWorktree => ({ id: w.id, projectId: w.projectId, absPath: w.absPath, branchName: w.branchName, mode: w.mode, source: w.source, createdAt: w.createdAt });
 
 /**
  * Over the cap: slim the checkouts nobody is in, then try the oldest ones against
