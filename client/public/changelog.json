@@ -1,5 +1,889 @@
 [
   {
+    "version": "2.4.95",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a turn waiting for a person is parked, not streaming (#1634)",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-24 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.94",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "client-bundle job cap above the sum of its step caps, so it never ends cancelled",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "long-session growth budget in its own push-only job, so a judged tree still gets it",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a judged push still runs the growth job",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "growth job builds the client before its bench",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.93",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "reload gate: read the migrations registry without a pipe that SIGPIPE can break",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "main skips a tree a pull request already judged; Playwright deps cached in unit and gates; client built once per run",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "playwright-browsers action: a step name with ': ' broke the YAML of the composite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tree steps and client-bundle fail open; tests evaluate the proven outputs and guard the bundle fallback",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "client-bundle continues on error with short step caps; the board's contract test knows the e2e needs client-bundle",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "every step of client-bundle continues on error, so the board never reads it red while the run goes on",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.92",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "board brakes: a shorter spend chip, so the restart time stays in sight",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.90",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "drop the topic directory, switch_topic resolves names",
+          "en": "",
+          "scope": "context",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "tool surface golden: switch_topic takes a name or an id",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "security alerts: an ssh server keeps one card instead of a new one every round",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "board brakes: the chip says when the 24h spend cap stops the queue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "name the spend amounts in English for the identifier gate",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.89",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "skill tool: a skill folder linked from outside the root is read; a link to any other file still is not",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.88",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Node check checkouts no longer outlive the server that opened them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn-end hook can ask the agent to carry on, like Claude Code's Stop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Draw the turn-end hook's continuation as one service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prove the hook continuation on the real chat route",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook continuation: count the chain on the rows, and never race a newer turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Hook continuation: keep a retried hook row marked, and yield only to a turn the goal loop really bought",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reply the output cap cut is still an answer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "hook-continuation: header comment in English (comment-language gate)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.87",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "BitLocker never turned on answers 0, read it as off",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        },
+        {
+          "it": "keep machine-security.ts at its 813-line bloat baseline",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-23 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.86",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "LAND-19: il test del checkout di controllo tagliato a meta' dichiara cosa copre (check:untraced-tests rosso su main)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Mac updates: count from the first skipped fix, not the latest offer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "machine-security.ts a 813 righe entra nella baseline (check:bloat rosso su main da 5b91df71a)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.85",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.82",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "ci-governor: mai congelare un Listener che sta prendendo un job",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Give the stray-daemon fixture time to listen on a loaded machine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "System health: jobs with no agent run as main, and problems read in the reader's language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep CI as the off switch of the real-temp check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: dopo il SIGSTOP si rilegge, e se e' arrivato un job il Listener riparte subito",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: nel docstring la misura che scarta systemctl stop/start al posto di SIGSTOP",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.81",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "ssh-only servers stop timing out to «unknown»",
+          "en": "",
+          "scope": "security",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fase CI: la classificazione dei guasti passa in ci-evidence-fault.ts, ci-evidence.ts e il suo test tornano sotto il cricchetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test di untracked-files: git e lo script girano con gitEnv(), come chiede il cancello git-env-nei-test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "names and jobs read from IDENTITY.md in both of its formats",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fix scripts/slot.ts win32 wiring: output and nested quotes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "System page: own pane type system-page, Select in the Log filters, agents in the Tools e2e stub (T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test untracked-files: git col suo ambiente isolato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Select gate: normalise path separators so the exemption matches on Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "exec-turn test: fake CLIs for every case, Muse prompt read from its file, hung child exits by itself",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Relay tests: sign host proofs from a test helper, not a shared export",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo cloud: togli usermod dai template, aspetta il via libera sulla sicurezza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "exec-turn test: fake CLI reads the argv prompt file before stdin (Muse never closes stdin)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stopped-log filters use Shared Select, not native <select>",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Pre-review: run the tests of the touched files on the machine doing the review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "route-table test: add agentPermissionsRouter to GOLDEN_ORDER",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Remove the dead chain-parked unblock cure, fill in the daily-checks doc",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pre-push e gates:fast di nuovo verdi su main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Make slot and parallel tests portable: bun -e one-liners instead of POSIX sleep/exit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline del bloat: ci-evidence.test.ts a 821 righe con i due test della testa ereditata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I server SSH non mostrano più lo storico CPU e RAM del PC",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land pre-push probe: run the hook through sh on Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Codice morto in produzione di nuovo a 596: il budget disco gira da launchd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the nightly disk-budget check ships, so its two server modules are production code",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Lavoro in corso unico: il server sa di ogni turno, e un agente al lavoro si vede col numero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Prove di SUBAGENT-30 e BGVIS-10: i due video dell'e2e e i tre momenti della tab, della sidebar e della striscia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "engine-log: example chat ids no longer read as email accounts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "drop the production entry for disk-budget-check, main already excludes its two pure modules",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Security cards stay on the hub that measured the machine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "engine-log: gli esempi di chat WhatsApp nei commenti non sembrano piu' indirizzi (check:instance-strings, account 2 > 0)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix card id cited in worktree-discard comment",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "node-check-worktree test declares what it covers (LAND-04), and names its real card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tools and the phone context follow the System page (T4)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Trace the node check worktree test to LAND-19",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Widen the spawn cap in the hung-git slim test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Judge real-temp escapes only on a CI runner",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.80",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "System page: Health, Harness, Tools, Memories and Log in one pane, with the sidebar row and its problem count (T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "cura chain-parked e unknown (T2)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Nodo cloud: log degli accessi leggibili (gruppi adm e systemd-journal) e misura dell'esposizione con piu' tentativi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Audit delle dipendenze rosso: una card sulla board degli avvisi, chiusa quando torna verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stopped-log reads the engine's real log schema, all 8 stop reasons in words",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fase CI: i passi che falliscono (push, draft PR) nel log; un guasto della board non rimanda in review una card già atterrata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "machine-health: a node whose build lacks the security route reports unknown checks instead of silence",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Meno @internal: via gli alias di test e i re-export che nessuno usa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "trace the 596-file baseline to its source",
+          "en": "",
+          "scope": "deadcode-prod",
+          "breaking": false
+        },
+        {
+          "it": "Fuse duplicated blocks: shared exec-turn helpers for Codex and Muse, MCP connection base class, shared judge helpers for the measurement scripts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nodo cloud: gruppi di lettura log anche dallo snapshot, ultima misura di esposizione tenuta con limite di eta'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix scripts/slot.ts: run gates on win32 without /bin/sh",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Audit delle dipendenze: card legata all'id della run, repo dal remote git, token e log",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "System page: one shared health reading, Log reads the real engine.log and process.log, @covers on the new tests (T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "gate rossa quando ci sono file nuovi fuori da git",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Fase CI: guasto della board solo per timeout, rete o credenziali; primo push di nuovo passeggero; dopo 3 giri con guasto il segno si chiude con una nota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Shared exec-turn: tests that turn both providers red, deadline entry for the shared spawn, baseline and orphan comments cleaned",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "System page: Log lines as time/agent/chat/text with real account parsing and per-file limit; column counts and agent links; Harness where-to-change; per-agent tool access with Limit; named memory stores (T4)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "una card aperta assorbe una nuova run rossa, ancora una sola",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Esposizione nodo: ultima misura in una memoria passata dal chiamante, niente reset di stato di modulo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "fix AGENTS-05 e2e route/locator, open-section-on-phone in one tap, stopped register fits the 768px column",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "fix the unknown and chain-parked cures per review",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Meno @internal: test sui moduli veri, via export di sola prova, motivo su ogni seam rimasto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.79",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Add Agents navigation: overview, agent page, Configure with a channel tree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un figlio nativo si pilota anche da una sessione diversa dal genitore",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Log server degli errori di navigazione nativa, striscia spenta su navigazione riuscita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "per-agent activity from channel turns, validated route edits, English comments (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "schedule words comment marked as quoted Italian (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "channel tree on one column grid, human model names, thread title first in activity (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Permissions route and view, stopped-turns register (T3 follow-up)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "nome inglese per il ref simbolico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test dei rami su origin: tetto di 120 s ai test con repo veri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.76",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-22 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I rami delle card chiuse lasciano origin a ogni giro dell'audit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "dichiara WORKTREE-17 per la pulizia dei rami su origin",
+          "en": "",
+          "scope": "worktrees",
+          "breaking": false
+        },
+        {
+          "it": "Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "env isolato nel test dei rami su origin",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.75",
     "date": "2026-11-22",
     "sections": {
@@ -8,7 +892,37 @@
       "perf": [],
       "internal": [
         {
+          "it": "Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Close the six reasons not to reattach a node run after a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores tests cover the SYSTEM-PAGE-01 requirement",
           "en": "",
           "scope": null
         },
@@ -18,12 +932,32 @@
           "scope": null
         },
         {
+          "it": "Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il consumo di un giro su nodo arriva all'origine e conta nei punti del progetto della card",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto",
           "en": "",
           "scope": null
         },
         {
+          "it": "Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "readVerdict marcato @internal: main tornava rosso su check:deadcode-prod",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests",
           "en": "",
           "scope": null
         }
@@ -42,7 +976,14 @@
           "breaking": false
         }
       ],
-      "fixes": [],
+      "fixes": [
+        {
+          "it": "credito finito = limite che riprende da solo, non errore",
+          "en": "",
+          "scope": "motore",
+          "breaking": false
+        }
+      ],
       "perf": [],
       "internal": [
         {
@@ -113,6 +1054,16 @@
         },
         {
           "it": "Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cartello dice «credito esaurito» invece di «limite di richieste»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto del bundle segue la misura della CI (+233 byte del cartello del credito)",
           "en": "",
           "scope": null
         },
@@ -198,7 +1149,18 @@
           "scope": null
         },
         {
+          "it": "start goes through serve so server.ts stays in the production graph",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Memory stores: list, search, edit and archive every agent/project deposit",
           "en": "",
           "scope": null
         },
@@ -214,6 +1176,11 @@
         },
         {
           "it": "Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename Italian test identifier to pass check:identifier-language",
           "en": "",
           "scope": null
         },
@@ -342,9 +1309,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "neutralize a merge message the repo's pre-push refuses, keep the id prefix",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "give the pre-push land test its own git identity for CI",
+          "en": "",
+          "scope": "land",
+          "breaking": false
         },
         {
           "it": "Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8",
@@ -362,6 +1341,12 @@
           "scope": null
         },
         {
+          "it": "repo-local identity and a direct hook check in the pre-push land test",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
           "it": "Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar",
           "en": "",
           "scope": null
@@ -372,14 +1357,44 @@
           "scope": null
         },
         {
+          "it": "read core.hooksPath explicitly and run the hook through runBounded",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico",
           "en": "",
           "scope": null
         },
         {
+          "it": "show what the hook answered when it does not refuse",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "instance-strings ratchet (check:instance-strings), wired into pre-push; comment-only harness paths cleaned",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "surface why the hook did not refuse",
+          "en": "",
+          "scope": "land",
+          "breaking": false
+        },
+        {
+          "it": "read the hook with the live environment; test pins hooksPath over the suite isolation",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "Requirement ids and coverage tags for the agents registry spec",
@@ -500,6 +1515,11 @@
           "scope": null
         },
         {
+          "it": "Lavori programmati: le occorrenze perse con il giro ancora aperto sono overlap, e un giro senza card non risulta creato",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Bloat baseline: only the overflow test entry, with its reason",
           "en": "",
           "scope": null
@@ -552,6 +1572,12 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "wait for sidebar rows before measuring touch heights",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
         {
           "it": "Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito",
           "en": "",
@@ -638,6 +1664,22 @@
     }
   },
   {
+    "version": "2.4.64",
+    "date": "2026-11-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Disk budget: pure ratio+cap evaluation, a measuring script, and a generic log retention",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.62",
     "date": "2026-11-21",
     "sections": {
@@ -650,6 +1692,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Le righe CI portano la testa del loro giro: un verde della testa precedente non diventa pass della nuova",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep",
@@ -701,6 +1748,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Una riga CI di un'altra testa si rilegge sulla testa nuova invece di chiudere il giro",
+          "en": "",
+          "scope": null
         },
         {
           "it": "I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client",

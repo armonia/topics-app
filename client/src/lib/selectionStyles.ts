@@ -722,6 +722,7 @@ export const ROW_GLYPH_SLOT = `w-[18px] self-stretch shrink-0 flex items-center 
  * Since 03/09 (card 058ea722) it is the ceiling of the rows WITH a glyph only:
  * a row without one draws no glyph box any more and comes in at
  * {@link SIDEBAR_LABEL_GUTTER_BARE_MAX}.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const SIDEBAR_LABEL_GUTTER_MAX = 52;
 
@@ -732,6 +733,7 @@ export const SIDEBAR_LABEL_GUTTER_MAX = 52;
  * 03/09: the accordion, one gap, the name. What separates it from
  * {@link SIDEBAR_LABEL_GUTTER_MAX} is exactly one glyph box plus its gap,
  * which is the only thing allowed to move a name to the right.
+ * @knipignore used by e2e specs, outside the production graph
  */
 export const SIDEBAR_LABEL_GUTTER_BARE_MAX = 30;
 
@@ -831,35 +833,6 @@ export const ROW_CHEVRON_SLOT = `${ROW_CHEVRON_SLOT_BARE} ${ROW_LEAD_TIGHTEN}`;
 export const ROW_ACTION_BOX = 'w-9 h-9 md:w-7 md:h-7';
 
 /**
- * L'ALTEZZA UTILE DELLA RIGA DI CHROME, e il respiro che lascia a ciò che ci sta
- * dentro.
- *
- * ED È 40, NON PIÙ 39, da quando la riga non porta il `border-b`: quel pixel di
- * bordo mangiava l'altezza del contenuto e rompeva la divisione — (39 − 28)/2 =
- * 5,5 sopra e sotto contro i 6 di lato, cioè mezzo pixel di scarto fra il
- * respiro verticale e quello orizzontale dello STESSO bottone. Con la barra
- * diventata vetro (`.pane-chrome-bar`) il contenuto vale 40 e il conto torna.
- *
- * `chromeRowInset` NON decide niente: RIPORTA. Lo spazio verticale attorno a un
- * box dentro questa riga non è una scelta, cade fuori dall'aritmetica — e serve
- * saperlo per una ragione sola, controllare che il comando e la TAB che gli sta
- * accanto lascino lo stesso respiro. Ci stanno entrambi a 28 col mouse (6 e 6) e
- * a 36 col dito (2 e 2), perché ora hanno la stessa misura e lo stesso
- * breakpoint: il bloccaggio è in `selectionStyles.test.ts`.
- */
-export const CHROME_ROW_CONTENT_H = 40;
-export function chromeRowInset(box: number): number {
-  return (CHROME_ROW_CONTENT_H - box) / 2;
-}
-/** I due box di {@link ROW_ACTION_BOX} in pixel, e il loro incasso. Espressi
- *  qui perché servono in CLASSI (`md:`), non in uno stile in linea: il
- *  breakpoint che decide il box deve essere lo STESSO che decide la riserva a
- *  destra della strip, o su qualche dispositivo i due si disallineano — cosa
- *  che un predicato JS (`isMobile` vale <768, ma <1024 se il puntatore è
- *  grossolano) non garantirebbe. */
-export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
-
-/**
  * QUANTO IL COMANDO STA LONTANO DAL BORDO DELLA RIGA — ed è {@link ROW_INSET},
  * non il respiro verticale.
  *
@@ -878,12 +851,6 @@ export const ROW_ACTION_BOX_PX = { touch: 36, desktop: 28 } as const;
  * `ROW_INSET` e fallisce appena i due si separano.
  */
 export const CHROME_ROW_ACTION_INSET = 'right-[6px]';
-/** Lo stesso incasso, specchiato: il comando che apre la sidebar sta in TESTA
- *  alla riga come il «+» sta in coda. Era `pl-1` su un box da 24px forzato con
- *  due `!important` — «è troppo piccolo e deve essere allineato graficamente al
- *  tasto di aggiunta» (Attilio, 08/08). Stesso box, stesso incasso, stessa
- *  scatola rialzata: le due estremità della riga si leggono come una coppia. */
-export const CHROME_ROW_ACTION_INSET_LEFT = 'left-[6px]';
 /**
  * DOVE SI FERMA LA STRIP: bordo + comando + un'aria uguale a quella del bordo.
  *
@@ -952,43 +919,6 @@ export const CHROME_BAR = 'pane-chrome-bar chrome-glass flex items-center h-10 f
  *  dell'incasso — l'uguaglianza la controlla `selectionStyles.test.ts`. */
 export const CHROME_BAR_H = 40;
 export const CHROME_BAR_H_VAR = { '--chrome-bar-h': `${CHROME_BAR_H}px` } as CSSProperties;
-
-/**
- * THE SUBORDINATE ROW: shorter than the app's, but the tab stays centred like
- * everywhere else — same gap above and below.
- *
- * A project window has two chrome rows: the app's, with the project TAB, and
- * below it the project's own, with its panes. Each used to carry its own 6px
- * of air, so between the tab above (ending at y=34) and the card below
- * (starting at y=46) ran TWELVE px, while every other pair of app cards has
- * six. «Still see the tab bars too far apart» (Attilio, 09/08): the child row
- * dropped to 34 = box(28) + ROW_INSET(6) with the inset all at the tail
- * (`md:pb-[6px]`), so as not to repeat the air the row above had already
- * spent. That fixed the gap between the rows, but it pushed the tab to the
- * TOP edge of its own row — "tabs stuck to the top edge" (card 18/11):
- * `items-center` centres inside whatever space is left AFTER padding-bottom,
- * and with the box (28) equal to that space (34-6) there was nothing left to
- * centre within.
- *
- * Now the inset splits in two (3 above, 3 below): the tab is centred in ITS
- * OWN row again, like every other one. The gap between the two rows grows
- * from 6 to 9 (the 6 below the app row plus the 3 above this one), but that
- * stays far from the doubled 12 of before — and a lopsided tab is more
- * visible than a gap three px wider.
- *
- * ABOVE 768px ONLY: with touch the tab is 36 and the row already leaves 2 on
- * each side (symmetric there too, never the problem), and 36 in 34 would not
- * fit anyway (the bar's `overflow-hidden` would clip it). There it stays 40.
- *
- * `--chrome-bar-h` can NOT stay the inline style of {@link CHROME_BAR_H_VAR}:
- * no media query reaches an inline style, and that variable feeds both the
- * panes' top inset (`paneCellTopInset`) and the gap above the conversation.
- * It becomes a pair of utilities at the SAME breakpoint as `md:h-[34px]` —
- * not a hand-written `@media (min-width: 768px)`: `md:` is 48rem, and with a
- * different root font-size the two predicates would drift apart. The same
- * mismatch already paid for once (tab 28 and command 36 on the same row).
- */
-export const CHROME_ROW_SUB_H = ROW_ACTION_BOX_PX.desktop + ROW_INSET;
 export const CHROME_BAR_SUB =
   'pane-chrome-bar chrome-glass flex items-center h-10 md:h-[34px] flex-shrink-0 overflow-hidden min-w-0';
 /** La variabile, per la card che possiede una barra subordinata. Va al POSTO di
@@ -1059,15 +989,6 @@ export const ROW_ACTION_GLYPH = 16;
 export const ROW_CARD = 'row-card';
 export const ROW_TRAIL = 'row-trail';
 export const ROW_ACTIONS = 'row-actions';
-/** L'incasso destro del GLIFO di {@link ROW_ACTIONS}, scritto in `index.css`
- *  come letterale (nessuna media query legge una costante TS). Vale
- *  {@link ROW_PX} risolto in pixel — il bordo interno del contenuto, dove si
- *  fermano anche i segnali quieti che il comando copre — e il CSS ci sottrae
- *  metà della differenza fra scatola e glifo, così è il cerchio disegnato ad
- *  atterrare lì, non la sua scatola. L'uguaglianza la ricalcola
- *  `selectionStyles.test.ts`: se il padding della riga cambia, il test indica il
- *  CSS invece di lasciarli separare. */
-export const ROW_ACTIONS_INSET_PX = 8;
 
 /**
  * ARCHIVIATO È FATTO, ED È UNO STATO SOLO.

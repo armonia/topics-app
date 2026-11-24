@@ -19,7 +19,8 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-scripts-ports-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, processDetectionViewIsOpen, stopProcessDetectionForTests } = await import("./processes");
+const { createProcessesRouter } = await import("./processes");
+const { processDetectionViewIsOpen, stopProcessDetectionForTests } = await import("./processes-detection");
 const { serverSpawnCounts } = await import("../lib/spawn-metrics");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-scripts-ports-project-")));

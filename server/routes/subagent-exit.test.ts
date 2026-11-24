@@ -3,7 +3,8 @@
  */
 import { describe, it, expect } from "bun:test";
 import { formatSubAgentExitBody, formatSubAgentExitMessage } from "./subagent-exit";
-import type { SubAgentOutcome } from "../lib/claude-subagent-transcript";
+
+import type { SubAgentOutcome } from "../lib/subagent-result";
 
 const completed = (text: string): SubAgentOutcome => ({ status: "completed", partial: false, text });
 

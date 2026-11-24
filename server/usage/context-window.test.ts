@@ -15,11 +15,11 @@ import {
   windowModelFor,
   windowForMeasure,
   classifyContext,
-  contextLevel,
   DEFAULT_CONTEXT_WINDOW,
-  CONTEXT_WARN_PERCENT,
-  CONTEXT_CRITICAL_PERCENT,
 } from "./context-window";
+import { contextLevel } from "../../shared/context-thresholds";
+import { CONTEXT_CRITICAL_PERCENT } from "../../shared/context-thresholds";
+import { CONTEXT_WARN_PERCENT } from "../../shared/context-thresholds";
 
 describe("contextWindowFor", () => {
   it("riconosce i nomi pieni che arrivano dal provider, data compresa", () => {

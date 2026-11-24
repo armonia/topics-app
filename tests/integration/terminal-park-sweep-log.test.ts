@@ -21,9 +21,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
-import {
-  _terminalSessionsForTests, createTerminalRouter, parkIdleClaudeSessions, setTerminalMemPressure, type TerminalSession,
-} from "../../server/routes/terminal";
+import { createTerminalRouter, parkIdleClaudeSessions, setTerminalMemPressure } from "../../server/routes/terminal";
+import { _terminalSessionsForTests } from "../../server/routes/terminal-shared";
+import { type TerminalSession } from "../../server/routes/terminal-state";
 import type { AppContext } from "../../server/types";
 
 const ROOT = testTmpDir("terminal-park-sweep-log");

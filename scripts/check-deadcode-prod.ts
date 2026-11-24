@@ -13,6 +13,19 @@
  * Entries that ship carry `!` in knip.jsonc. Development scripts and the UI
  * gallery (built to dist-ui, no workflow runs it) do not: they are not production. Files that live only for tests
  * (harnesses, test kits) are excluded from `project` with `!...!` in knip.jsonc.
+ *
+ * The 596 baseline as of 2026-11-22, traced one directory at a time (checked
+ * with `bun run check:deadcode`, which counts tests and the gallery as users
+ * and reports zero): 241 are `client/src/ui-gallery/**`, 354 are
+ * `client/src/ui/**` (the design-system components, copy and demo fixtures
+ * the gallery renders — a work in progress, last touched the same day),
+ * and 1 is `server/agents/persona-migrate.ts`, reached only by
+ * `scripts/migrate-principal-soul.ts` (a hand-run script, so not a `!` entry).
+ * None of the 596 is an orphan nobody imports: every one is live through the
+ * gallery, its fixtures, or a test, which is why there is nothing here to
+ * delete today without breaking that work. The count falls only as pieces of
+ * `client/src/ui` get wired into real app components (`PeopleUsageBox.tsx`
+ * already pulls two from `ui/primitives`), not by pruning this tree by hand.
  */
 import { join } from "node:path";
 

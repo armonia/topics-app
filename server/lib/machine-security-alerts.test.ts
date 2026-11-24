@@ -4,12 +4,12 @@
  * @covers MACHINE-07
  */
 import { describe, expect, test } from "bun:test";
-import type { CheckKey, CheckStatus } from "../../shared/machine-health";
+import type { CheckKey, CheckMsg, CheckStatus } from "../../shared/machine-health";
 import { alertKey, securityAlerts, WARN_AS_PROBLEM_MS, type MachineRound, type TrackedChecks } from "./machine-security-alerts";
 
 const H = 3_600_000;
-const round = (status: CheckStatus, key: CheckKey = "access"): Record<string, MachineRound> => ({
-  m1: { name: "Node one", security: { checked_at: 1, status: "ok", checks: [{ key, status, detail: `${key} is ${status}` }] } },
+const round = (status: CheckStatus, key: CheckKey = "access", msgs?: CheckMsg[]): Record<string, MachineRound> => ({
+  m1: { name: "Node one", security: { checked_at: 1, status: "ok", checks: [{ key, status, detail: `${key} is ${status}`, msgs }] } },
 });
 const KEY = alertKey("m1", "access");
 
@@ -48,6 +48,12 @@ describe("securityAlerts (MACHINE-07)", () => {
   test("warn opens a card only after 24 hours, counted from the first warn", () => {
     expect(play([["warn", 0], ["warn", WARN_AS_PROBLEM_MS - 1]]).opened).toEqual([]);
     expect(play([["warn", 0], ["warn", WARN_AS_PROBLEM_MS]]).opened).toEqual([KEY]);
+  });
+
+  test("a warn carrying its own age (days >= 1) opens the card on the first round, not the next day", () => {
+    const withDays = (days: number): Record<string, MachineRound> => round("warn", "access", [{ code: "updates.macWaitingOld", params: { days } }]);
+    const plan = securityAlerts({}, withDays(12), new Set(), 0);
+    expect(plan.open).toEqual([{ key: KEY, title: "Node one: access is warn", detail: "access is warn" }]);
   });
 
   test("a warn interrupted by ok starts counting again", () => {

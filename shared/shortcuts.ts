@@ -84,9 +84,6 @@ export const ALT = 'Alt';
  *  there it IS the same key. */
 export const CTRL = 'Ctrl';
 
-/** The tokens above, for the renderer that maps them to the local spelling. */
-export const MODIFIER_TOKENS = [MOD, SHIFT, ALT, CTRL] as const;
-
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
     title: 'General',
@@ -234,7 +231,9 @@ function forwardedCmdChars(): { always: string[]; shiftOnly: string[] } {
   return { always: [...always].sort(byCodepoint), shiftOnly: [...shiftOnly].sort(byCodepoint) };
 }
 
-/** Emit `shortcuts_generated.rs`. Called by `scripts/gen-shortcuts.ts` (writes
+/**
+ * @knipignore used by scripts/gen-shortcuts.ts, outside the production graph
+ * Emit `shortcuts_generated.rs`. Called by `scripts/gen-shortcuts.ts` (writes
  *  the file) and by the test (compares against the committed file). Keep the
  *  output byte-for-byte deterministic. */
 export function renderRustModule(): string {

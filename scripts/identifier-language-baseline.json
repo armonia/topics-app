@@ -1328,10 +1328,7 @@
       "elemento"
     ],
     "client/src/lib/dragPreview.test.ts": [
-      "INTENTI",
       "ScattoRegistrato",
-      "dopo",
-      "intenti",
       "presa",
       "presaDedotta",
       "primo",
@@ -1339,10 +1336,6 @@
       "rimaste",
       "scatto",
       "secondo",
-      "selettori",
-      "sorgente",
-      "superficie",
-      "testo",
       "testoDi",
       "traslazioneDi",
       "trovate",
@@ -1398,7 +1391,6 @@
       "PesoDichiarato",
       "Proprietario",
       "VocePeso",
-      "inventarioVisibile",
       "ordinaVoci",
       "pesoDaVoce",
       "proprietari",
@@ -1421,7 +1413,6 @@
     ],
     "client/src/lib/featureWeightText.ts": [
       "NOMI",
-      "NOMI_PER_TEST",
       "RIGHE_NEL_TOOLTIP",
       "bloccoTooltip",
       "coppia",
@@ -1586,7 +1577,6 @@
       "vicino"
     ],
     "client/src/lib/selectionStyles.test.ts": [
-      "frazionari",
       "riga",
       "risolvi",
       "sezione"
@@ -1689,9 +1679,6 @@
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"
     ],
-    "client/src/state/layout/legacyAdapters.test.ts": [
-      "approxGrid"
-    ],
     "client/src/state/messageStore.test.ts": [
       "lasciata",
       "primaDiLasciarla",
@@ -1790,7 +1777,6 @@
       "EVENTO_PAGINA_PROFILO",
       "apriProfilo",
       "dimenticaPaginaProfilo",
-      "paginaProfiloChiesta",
       "richiesta"
     ],
     "client/src/state/signals.ts": [
@@ -2957,12 +2943,10 @@
     "server/lib/grants-query.test.ts": [
       "RADICE",
       "esploso",
-      "principali",
-      "ragioni"
+      "principali"
     ],
     "server/lib/grants-query.ts": [
       "dentro",
-      "dirette",
       "fuori",
       "lista",
       "negati",
@@ -2986,7 +2970,6 @@
       "aggiungi"
     ],
     "server/lib/identity.ts": [
-      "confinamentoDerivato",
       "riga"
     ],
     "server/lib/idle-gc.test.ts": [
@@ -3290,7 +3273,6 @@
       "FINESTRA_RIPRESA_MS",
       "RigaDaValutare",
       "candidati",
-      "chatDaRiprendere",
       "conTraccia",
       "messaggio",
       "righe",
@@ -3721,10 +3703,6 @@
     ],
     "server/providers/prompt-cache.test.ts": [
       "dopoUna"
-    ],
-    "server/providers/prompt-cache.ts": [
-      "MAX_CACHE_BREAKPOINTS",
-      "countCacheBreakpoints"
     ],
     "server/providers/registry-acp.test.ts": [
       "acpConfig",
@@ -5086,9 +5064,6 @@
       "findPricing",
       "pricing"
     ],
-    "server/usage/token-sql.test.ts": [
-      "CASI"
-    ],
     "server/usage/turn-usage.test.ts": [
       "casi"
     ],
@@ -5247,8 +5222,6 @@
       "prosa"
     ],
     "shared/relay-crypto.test.ts": [
-      "busta",
-      "letto",
       "parti",
       "testo"
     ],
@@ -5256,10 +5229,8 @@
       "BUSTA_V",
       "apri",
       "chiaro",
-      "chiave",
       "componiLink",
       "importa",
-      "leggiLink",
       "nuovaChiave",
       "parti",
       "sigilla"
@@ -5432,7 +5403,6 @@
       "dividiBinario",
       "dividiTesto",
       "emetti",
-      "haContenutoOpaco",
       "involucro",
       "latoDiStream",
       "leggiFrame",
@@ -5529,7 +5499,6 @@
       "daMessaggio"
     ],
     "shared/tool-call-detail.ts": [
-      "ZodInferredToolCallDetail",
       "lspSchema"
     ],
     "shared/tray-board.test.ts": [
@@ -7677,11 +7646,6 @@
       "sessione",
       "turno",
       "vecchia"
-    ],
-    "tests/unit/tool-call-detail-schema.test.ts": [
-      "ZodInferredToolCallDetail",
-      "_CheckTsAssignableToZod",
-      "_CheckZodAssignableToTs"
     ],
     "tests/unit/version-lockstep.test.ts": [
       "atteso",

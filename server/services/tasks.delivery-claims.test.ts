@@ -18,7 +18,8 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { type Database } from "bun:sqlite";
 import { freshDb } from "./tasks-test-db";
-import { createTaskService, deliveryNotesInFlight } from "./tasks";
+import { createTaskService } from "./tasks";
+import { deliveryNotesInFlight } from "./tasks/shared";
 
 const PID = "topics-app-test01";
 let db: Database;

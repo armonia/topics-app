@@ -32,6 +32,7 @@
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
+import { existsSync } from "fs";
 import { worktreeRegistrationLost } from "./worktree-registration";
 import { carriedBranch, isPlainBranchName, UNPLANTED_DELIVERY_COMMIT } from "./branch-on-origin";
 import { findAttributionViolations } from "./land-attribution-gate";
@@ -41,6 +42,8 @@ import { branchContentIsOnMain, branchContentWasOnMain, commitStatusFromRepo } f
 import { landedMergeRange } from "./task-diff-range";
 import { resolveLandingBase } from "./worktree-base-ref";
 import { runGit } from "../lib/run-git";
+import { discardWorktree } from "../lib/worktree-discard";
+import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
 import { MIGRATIONS_DIR, findNumberCollisions } from "../../shared/migration-numbers";
 import { makeSerialQueue } from "../lib/serial-queue";
@@ -663,7 +666,10 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
       for (const raw of r.stdout.split("\n")) {
         const line = raw.trim();
         if (line.startsWith("worktree ")) path = line.slice("worktree ".length).trim() || null;
-        else if (line === `branch refs/heads/${target.branch}`) return path;
+        // A registration whose tree is gone (a discard killed between its
+        // rename and its prune, `worktree-discard.ts`) is no live checkout:
+        // the realign makes its own, and its `prune` drops this one.
+        else if (line === `branch refs/heads/${target.branch}`) return path && existsSync(path) ? path : null;
       }
       return null;
     }
@@ -758,8 +764,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           };
         }
       } else {
-        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        await discardWorktree(runGit, repoPath, wtPath);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, target.branch]);
         if (add.code !== 0) {
           return {
@@ -811,8 +816,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         return null;
       } finally {
         if (!live) {
-          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+          await discardWorktree(runGit, repoPath, wtPath);
         }
       }
     }
@@ -914,6 +918,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
     // worktree). The caller reacts per area: client/ → rebuild the served bundle,
     // server → restart, desktop-tauri → native rebuild.
     async function finishMerged(cwd: string, live: boolean, checkoutBranch: string): Promise<AutoMergeResult> {
+      // The title may carry text the repo's pre-push refuses: keep only the id prefix then.
+      await neutralizeRefusedMergeMessage(cwd, `merge task ${taskId}`).catch(() => false);
       const rev = await runGit(cwd, ["rev-parse", "--short", "HEAD"]);
       const diff = await runGit(cwd, ["diff", "--name-only", "HEAD^1", "HEAD"]);
       const files = diff.code === 0 ? diff.stdout.split("\n").filter(Boolean) : [];
@@ -1563,8 +1569,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // but NOT running yet (the live server serves `cur`) → landedNotLive.
         const wtPath = join(tmpdir(), "topics-land", createHash("sha1").update(repoPath).digest("hex").slice(0, 16));
         // Clear any leftover from a previous crashed land before re-adding.
-        await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-        await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+        await discardWorktree(runGit, repoPath, wtPath);
         const add = await runGit(repoPath, ["worktree", "add", wtPath, defaultBranch]);
         if (add.code !== 0) {
           return { status: "skipped", code: "worktree-add-failed", reason: `impossibile creare il worktree di land su '${defaultBranch}': ${(add.stderr || add.stdout).trim().slice(-200) || "git worktree add fallito"}` };
@@ -1583,8 +1588,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
           return { status: "conflict", branch };
         } finally {
-          await runGit(repoPath, ["worktree", "remove", "--force", wtPath]).catch(() => undefined);
-          await runGit(repoPath, ["worktree", "prune"]).catch(() => undefined);
+          await discardWorktree(runGit, repoPath, wtPath);
         }
       } catch (e) {
         log(`[automerge] tryMerge failed for ${taskId}`, e);

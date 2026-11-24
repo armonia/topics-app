@@ -14,6 +14,16 @@ import type { TaskService } from "../services/tasks-service-types";
 /** A card's idempotency key is `<alert key>@<time>`: one episode per key, so a check that goes red again after a close opens a new card. */
 const EPISODE_SEP = "@";
 
+/**
+ * The alert key of a card, cut at the LAST separator: an ssh server's machine
+ * id carries an `@` of its own (`ssh:root@host`), and a cut at the first one
+ * lost the card, so every round opened a new one (22 cards in two hours).
+ */
+function alertKeyOf(idempotencyKey: string): string {
+  const at = idempotencyKey.lastIndexOf(EPISODE_SEP);
+  return at < 0 ? idempotencyKey : idempotencyKey.slice(0, at);
+}
+
 export interface AlertBoardDeps {
   db: AppContext["db"];
   svc: TaskService;
@@ -34,7 +44,7 @@ export function createSecurityAlertsRound(deps: AlertBoardDeps) {
     const rows = deps.db
       .query("SELECT id, claude_task_id FROM tasks WHERE project_id = ? AND claude_task_id LIKE ? AND archived = 0 AND status != 'done'")
       .all(projectId, `${ALERT_KEY_PREFIX}%`) as Array<{ id: string; claude_task_id: string }>;
-    const idByKey = new Map(rows.map((r) => [r.claude_task_id.split(EPISODE_SEP)[0]!, r.id]));
+    const idByKey = new Map(rows.map((r) => [alertKeyOf(r.claude_task_id), r.id]));
 
     const plan = securityAlerts(prev, machines, new Set(idByKey.keys()), deps.now());
     for (const a of plan.open) {
@@ -43,6 +53,12 @@ export function createSecurityAlertsRound(deps: AlertBoardDeps) {
         idempotencyKey: `${a.key}${EPISODE_SEP}${deps.now()}`,
         description: `A security check reported: ${a.detail}\n\nThe card closes by itself when the check is green again.`,
         bar: "The check is back to ok in the next security round.",
+        // The hub measured this machine, so the hub is where it can be reached
+        // (itself, or its ssh keys for a server). On a free node slot the agent
+        // would see neither: card 07936f60 went to a cloud node for the hub's
+        // own pending update.
+        stayLocal: true,
+        stayLocalReason: "security check: only the hub that measured the machine can reach it",
       });
       deps.broadcast({ type: "task:updated", projectId, task });
     }

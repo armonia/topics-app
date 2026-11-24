@@ -2,18 +2,237 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.95 — 2026-11-24
+
+### Correzioni
+- **restart-gate** · a turn waiting for a person is parked, not streaming (#1634)
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-24 [skip ci]
+
+## 2.4.94 — 2026-11-24
+
+### Sotto il cofano
+- client-bundle job cap above the sum of its step caps, so it never ends cancelled
+- long-session growth budget in its own push-only job, so a judged tree still gets it
+- a judged push still runs the growth job
+- growth job builds the client before its bench
+
+## 2.4.93 — 2026-11-24
+
+### Sotto il cofano
+- reload gate: read the migrations registry without a pipe that SIGPIPE can break
+- main skips a tree a pull request already judged; Playwright deps cached in unit and gates; client built once per run
+- playwright-browsers action: a step name with ': ' broke the YAML of the composite
+- tree steps and client-bundle fail open; tests evaluate the proven outputs and guard the bundle fallback
+- client-bundle continues on error with short step caps; the board's contract test knows the e2e needs client-bundle
+- every step of client-bundle continues on error, so the board never reads it red while the run goes on
+
+## 2.4.92 — 2026-11-23
+
+### Sotto il cofano
+- board brakes: a shorter spend chip, so the restart time stays in sight
+
+## 2.4.90 — 2026-11-23
+
+### Correzioni
+- **context** · drop the topic directory, switch_topic resolves names
+
+### Sotto il cofano
+- tool surface golden: switch_topic takes a name or an id
+- security alerts: an ssh server keeps one card instead of a new one every round
+- board brakes: the chip says when the 24h spend cap stops the queue
+- name the spend amounts in English for the identifier gate
+
+## 2.4.89 — 2026-11-23
+
+### Sotto il cofano
+- skill tool: a skill folder linked from outside the root is read; a link to any other file still is not
+
+## 2.4.88 — 2026-11-23
+
+### Sotto il cofano
+- Node check checkouts no longer outlive the server that opened them
+- A turn-end hook can ask the agent to carry on, like Claude Code's Stop
+- Draw the turn-end hook's continuation as one service line
+- Prove the hook continuation on the real chat route
+- Hook continuation: count the chain on the rows, and never race a newer turn
+- Hook continuation: keep a retried hook row marked, and yield only to a turn the goal loop really bought
+- A reply the output cap cut is still an answer
+- hook-continuation: header comment in English (comment-language gate)
+
+## 2.4.87 — 2026-11-23
+
+### Correzioni
+- **security** · BitLocker never turned on answers 0, read it as off
+- **security** · keep machine-security.ts at its 813-line bloat baseline
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-23 [skip ci]
+
+## 2.4.86 — 2026-11-23
+
+### Sotto il cofano
+- LAND-19: il test del checkout di controllo tagliato a meta' dichiara cosa copre (check:untraced-tests rosso su main)
+- Mac updates: count from the first skipped fix, not the latest offer
+- machine-security.ts a 813 righe entra nella baseline (check:bloat rosso su main da 5b91df71a)
+
+## 2.4.85 — 2026-11-23
+
+### Sotto il cofano
+- Test del freno della finestra: rosso nell'ultimo minuto del giorno (#1613)
+
+## 2.4.82 — 2026-11-23
+
+### Sotto il cofano
+- ci-governor: mai congelare un Listener che sta prendendo un job
+- Give the stray-daemon fixture time to listen on a loaded machine
+- System health: jobs with no agent run as main, and problems read in the reader's language
+- Keep CI as the off switch of the real-temp check
+- ci-governor: dopo il SIGSTOP si rilegge, e se e' arrivato un job il Listener riparte subito
+- ci-governor: nel docstring la misura che scarta systemctl stop/start al posto di SIGSTOP
+
+## 2.4.81 — 2026-11-23
+
+### Correzioni
+- **security** · ssh-only servers stop timing out to «unknown»
+
+### Sotto il cofano
+- Fase CI: la classificazione dei guasti passa in ci-evidence-fault.ts, ci-evidence.ts e il suo test tornano sotto il cricchetto
+- Test di untracked-files: git e lo script girano con gitEnv(), come chiede il cancello git-env-nei-test
+- names and jobs read from IDENTITY.md in both of its formats
+- Fix scripts/slot.ts win32 wiring: output and nested quotes
+- System page: own pane type system-page, Select in the Log filters, agents in the Tools e2e stub (T4)
+- Test untracked-files: git col suo ambiente isolato
+- Select gate: normalise path separators so the exemption matches on Windows
+- exec-turn test: fake CLIs for every case, Muse prompt read from its file, hung child exits by itself
+- Relay tests: sign host proofs from a test helper, not a shared export
+- Nodo cloud: togli usermod dai template, aspetta il via libera sulla sicurezza
+- exec-turn test: fake CLI reads the argv prompt file before stdin (Muse never closes stdin)
+- stopped-log filters use Shared Select, not native <select>
+- Pre-review: run the tests of the touched files on the machine doing the review
+- route-table test: add agentPermissionsRouter to GOLDEN_ORDER
+- Remove the dead chain-parked unblock cure, fill in the daily-checks doc
+- Pre-push e gates:fast di nuovo verdi su main
+- Make slot and parallel tests portable: bun -e one-liners instead of POSIX sleep/exit
+- Baseline del bloat: ci-evidence.test.ts a 821 righe con i due test della testa ereditata
+- Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database
+- I server SSH non mostrano più lo storico CPU e RAM del PC
+- Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese
+- Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
+- Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
+- Land pre-push probe: run the hook through sh on Windows
+- disk-budget-check e' un ingresso di produzione (job launchd notturno), non uno script di sviluppo
+- Codice morto in produzione di nuovo a 596: il budget disco gira da launchd
+- ci-governor: il turno va a chi aspetta da piu' tempo (prima prendevano sempre gli stessi due runner e la CI di topics-app restava in coda)
+- the nightly disk-budget check ships, so its two server modules are production code
+- Lavoro in corso unico: il server sa di ogni turno, e un agente al lavoro si vede col numero
+- Prove di SUBAGENT-30 e BGVIS-10: i due video dell'e2e e i tre momenti della tab, della sidebar e della striscia
+- engine-log: example chat ids no longer read as email accounts
+- drop the production entry for disk-budget-check, main already excludes its two pure modules
+- Security cards stay on the hub that measured the machine
+- ci-governor: un runner fermo da oltre 20 minuti passa avanti (fame)
+- ci-governor: un Listener ripreso resta sveglio almeno 10 minuti (o fino al job)
+- engine-log: gli esempi di chat WhatsApp nei commenti non sembrano piu' indirizzi (check:instance-strings, account 2 > 0)
+- Fix card id cited in worktree-discard comment
+- node-check-worktree test declares what it covers (LAND-04), and names its real card
+- Tools and the phone context follow the System page (T4)
+- Trace the node check worktree test to LAND-19
+- Widen the spawn cap in the hung-git slim test
+- Judge real-temp escapes only on a CI runner
+
+## 2.4.80 — 2026-11-22
+
+### Sotto il cofano
+- System page: Health, Harness, Tools, Memories and Log in one pane, with the sidebar row and its problem count (T4)
+- cura chain-parked e unknown (T2)
+- Nodo cloud: log degli accessi leggibili (gruppi adm e systemd-journal) e misura dell'esposizione con piu' tentativi
+- Audit delle dipendenze rosso: una card sulla board degli avvisi, chiusa quando torna verde
+- stopped-log reads the engine's real log schema, all 8 stop reasons in words
+- Fase CI: i passi che falliscono (push, draft PR) nel log; un guasto della board non rimanda in review una card già atterrata
+- machine-health: a node whose build lacks the security route reports unknown checks instead of silence
+- Meno @internal: via gli alias di test e i re-export che nessuno usa
+- **deadcode-prod** · trace the 596-file baseline to its source
+- Fuse duplicated blocks: shared exec-turn helpers for Codex and Muse, MCP connection base class, shared judge helpers for the measurement scripts
+- Nodo cloud: gruppi di lettura log anche dallo snapshot, ultima misura di esposizione tenuta con limite di eta'
+- Fix scripts/slot.ts: run gates on win32 without /bin/sh
+- Audit delle dipendenze: card legata all'id della run, repo dal remote git, token e log
+- System page: one shared health reading, Log reads the real engine.log and process.log, @covers on the new tests (T4)
+- gate rossa quando ci sono file nuovi fuori da git
+- Fase CI: guasto della board solo per timeout, rete o credenziali; primo push di nuovo passeggero; dopo 3 giri con guasto il segno si chiude con una nota
+- Shared exec-turn: tests that turn both providers red, deadline entry for the shared spawn, baseline and orphan comments cleaned
+- System page: Log lines as time/agent/chat/text with real account parsing and per-file limit; column counts and agent links; Harness where-to-change; per-agent tool access with Limit; named memory stores (T4)
+- una card aperta assorbe una nuova run rossa, ancora una sola
+- Esposizione nodo: ultima misura in una memoria passata dal chiamante, niente reset di stato di modulo
+- fix AGENTS-05 e2e route/locator, open-section-on-phone in one tap, stopped register fits the 768px column
+- fix the unknown and chain-parked cures per review
+- Meno @internal: test sui moduli veri, via export di sola prova, motivo su ogni seam rimasto
+
+## 2.4.79 — 2026-11-22
+
+### Sotto il cofano
+- Add Agents navigation: overview, agent page, Configure with a channel tree
+- un figlio nativo si pilota anche da una sessione diversa dal genitore
+- Log server degli errori di navigazione nativa, striscia spenta su navigazione riuscita
+- per-agent activity from channel turns, validated route edits, English comments (T3)
+- overview with To fix on top and filtered activity, agent page Now/Errors/Upcoming/How it is made, Configure summaries, searchable channel tree with threads (T3)
+- schedule words comment marked as quoted Italian (T3)
+- channel tree on one column grid, human model names, thread title first in activity (T3)
+- strings in their own catalogue, readJson in configSummary, e2e testid for scheduled jobs (T3)
+- typed readJson calls in configSummary, agents dictionaries listed as catalogues in ui-language scan (T3)
+- Codex passa da un proxy locale che salta l'indirizzo morto di chatgpt.com
+- Proxy di Codex: URL col segreto costruito per campi, nomi che il cancello conosce
+- Permissions route and view, stopped-turns register (T3 follow-up)
+- Test del proxy: niente limiti di tempo stretti, reggono un Mac a load 30
+
+## 2.4.77 — 2026-11-22
+
+### Correzioni
+- nome inglese per il ref simbolico
+
+### Sotto il cofano
+- Rotta dei problemi di sistema: contraddizioni e lavori dal registro, chat dei canali senza nome, regole nel SOUL
+- Test dei rami su origin: tetto di 120 s ai test con repo veri
+
+## 2.4.76 — 2026-11-22
+
+### Sotto il cofano
+- Restore live-code tests deleted with dead helpers, rewritten on the live functions; fix Card.test for the removed LiveToolLine
+- **e2e** · aggiorna durate shard dal nightly del 2026-11-22 [skip ci]
+- bloat lowered only for shortened files; language ratchets re-recorded; test fixes for lint and bloat
+- I rami delle card chiuse lasciano origin a ogni giro dell'audit
+- **worktrees** · dichiara WORKTREE-17 per la pulizia dei rami su origin
+- Destructure the dynamic import so the dead-code gate sees terminal-bridge-socket
+- env isolato nel test dei rami su origin
+- Rotta unica dei problemi di sistema degli agenti: un tipo per problema con frase, gravità e destinazione
+- Spazzata dei rami: i nodi non toccano i rami delle card altrui, e la vita si rilegge prima del delete
+- browser-close-keeps-session: seed the session before each test again (the deleted helper also did the seeding)
+
 ## 2.4.75 — 2026-11-22
 
 ### Sotto il cofano
+- Memory stores: the turn of an agent receives its own index (storesForTurn wired into context assembly)
+- Dead exports in shared/: test-only guards deleted with their tests, script-used ones tagged @knipignore
+- Dead exports in server/lib and server/providers: dead helpers deleted with their tests, script-used and seam ones tagged
+- Dead exports in server/services and server/routes: test-only helpers deleted with their tests, the rest tagged
+- Dead exports in the rest of server/: test-only helpers deleted with their tests, the rest tagged
 - Close the six reasons not to reattach a node run after a restart
+- Memory stores tests cover the SYSTEM-PAGE-01 requirement
 - Riaggancio dopo il riavvio: i test provano lo slot di run-2 e archived su tutta la catena
+- Dead exports in client/src: dead helpers deleted with their tests, repointed barrels, true seams tagged
+- Il consumo di un giro su nodo arriva all'origine e conta nei punti del progetto della card
 - Giro giornaliero: i test mordono finestra, modello e card, e l'e2e lascia le foto
+- Memory stores: GET /api/memory-stores/turn gives an agent its scoped indexes; the turn assembler no longer pushes them
 - readVerdict marcato @internal: main tornava rosso su check:deadcode-prod
+- Dead exports in server/ and shared/ (rest): barrels repointed to their source modules, test-only helpers deleted with their tests
 
 ## 2.4.74 — 2026-11-22
 
 ### Novità
 - **machines** · security mark codes+i18n, route whitelist, statusVisual colours, no shield on cloud node, renumber MACHINE-09
+
+### Correzioni
+- **motore** · credito finito = limite che riprende da solo, non errore
 
 ### Sotto il cofano
 - Il server degli e2e non scrive piu' nel file di salute della produzione
@@ -30,6 +249,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il test del filtro strumenti dichiara cosa copre e perde una funzione duplicata
 - Un porto occupato da un altro file non riprova con lo stesso numero
 - Persona a cinque strati: regole e profilo separati, AGENTS.md nello strato agente, variante per ospiti nel muro
+- Il cartello dice «credito esaurito» invece di «limite di richieste»
+- Il tetto del bundle segue la misura della CI (+233 byte del cartello del credito)
 - Il filtro degli strumenti dell'agente arriva davvero al turno nativo
 - La Verifica di Topics si legge anche sul telefono senza l'hub
 - Guardiano del nodo Windows: logica di decisione provata da Pester, config esterna, installer
@@ -46,10 +267,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - fast gira anche sul nodo Windows
 - Verifica di Topics T2: le cure toccano solo card in todo senza corsa aperta, un problema per nodo, pin pubblicato, tetto riprovato il giorno dopo
 - Il nodo riceve intera la revisione anche dopo un riavvio
+- start goes through serve so server.ts stays in the production graph
 - Verifica di Topics T2: cure ristrette a card libere, bounce contato dopo la cura, interruttore aperto = attesa, tetto che sopravvive al riavvio, report delle cure in GET /api/topics-check
+- Memory stores: list, search, edit and archive every agent/project deposit
 - Commenti di node-run-brief a posto per il gate della lingua
 - Fix the reattach-on-restart path for a still-open node run
 - Commenti di node-run-brief in inglese: main tornava rosso su check:comment-language
+- Rename Italian test identifier to pass check:identifier-language
 - Unblock check:comment-language on node-run-brief after the main realign
 - Verifica di Topics T2: bounce curato e indagine reggono al riavvio, il tetto resta nella riga della Verifica, cablaggio dei deps provato
 - un problema sotto il tetto resta capped, non torna curato a giri alterni
@@ -81,14 +305,22 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **machines** · security mark hit area 24px (usability audit target-size)
 
 ### Sotto il cofano
+- neutralize a merge message the repo's pre-push refuses, keep the id prefix
 - Verifica di Topics: stesso predicato del dispatcher (app_settings.auto_dispatch e board_settings.dispatch_paused), test sullo schema delle migration vere, tre test sul confine
+- **land** · give the pre-push land test its own git identity for CI
 - Spunta T1 in tasks.md: registro agenti già landato in 244072d4fd8
 - auth.ts: reflow the test-runner comment so its @internal tag fits under the 800-line ceiling
 - Verifica di Topics: CheckResult diventa ProofResult (no-type-mirrors), riga Automazioni allineata alla colonna del chevron (ROWALIGN-02)
+- **land** · repo-local identity and a direct hook check in the pre-push land test
 - Il nome del progetto in un modulo suo: il registro della campanella non si porta dietro la sidebar
 - Un solo risolutore della cartella engine e migrazione per gli account persi
+- read core.hooksPath explicitly and run the hook through runBounded
 - Con l'hub acceso la campanella chiusa legge le sue liste: hub-off le ammette, e HUBBR-06 dice il numero unico
+- **land** · show what the hook answered when it does not refuse
+- instance-strings ratchet (check:instance-strings), wired into pre-push; comment-only harness paths cleaned
 - Verifica di Topics: la riga Automazioni sta sola sopra il blocco fissato (niente slot chevron, ROWALIGN-03), filtro in sidebar-chevron-column, attesa della riga in sidebar-row-touch
+- **land** · surface why the hook did not refuse
+- read the hook with the live environment; test pins hooksPath over the suite isolation
 - Requirement ids and coverage tags for the agents registry spec
 - Nodi dichiarano versione e modelli; un nodo senza il modello della card non la riceve e il rifiuto non parcheggia
 
@@ -118,6 +350,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Remove the unwired «Per te» summary sweep and its UI; keep for_you columns inert
 - Verifica di Topics: giro dei 5 minuti con tre voci in ore perse, senza modelli
 - Mark quoted UI label comments as intentional Italian
+- Lavori programmati: le occorrenze perse con il giro ancora aperto sono overlap, e un giro senza card non risulta creato
 - Bloat baseline: only the overflow test entry, with its reason
 - Drop isGhostScript and hasRunningScriptsInWorktree: nothing in production calls them; baseline 416 -> 414
 
@@ -132,6 +365,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.4.66 — 2026-11-21
 
 ### Sotto il cofano
+- **e2e** · wait for sidebar rows before measuring touch heights
 - Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
 - Il Cloud col freno aperto non riprende la card che ha appena lasciato
 
@@ -154,10 +388,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - wire check:deadcode-prod in CI, drop healed blind spots
 - deadcode-prod: teach blindspots probe, qa-gate and rails test about production-only patterns
 
+## 2.4.64 — 2026-11-21
+
+### Sotto il cofano
+- Disk budget: pure ratio+cap evaluation, a measuring script, and a generic log retention
+
 ## 2.4.62 — 2026-11-21
 
 ### Sotto il cofano
 - a capo vero nella condizione del prep fermo (un \n letterale passava «n» come argomento in più)
+- Le righe CI portano la testa del loro giro: un verde della testa precedente non diventa pass della nuova
 - Fondi 4 copie di sleep con timer unref in server/lib/unref-sleep
 - Land senza niente da fondere: chiude la card solo se il ramo è verificato vuoto; la decisione non si riprova (logica in tasks-land-nothing.ts)
 - tasks-land-nothing: tipo del broadcast dal core
@@ -168,6 +408,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Singular day in reboot-required warning (SEC-01 T4)
 - runsOf restituisce RunRow invece di Record<string, any>
 - --production gives a credible verdict, with a ratchet gate (check:deadcode-prod)
+- Una riga CI di un'altra testa si rilegge sulla testa nuova invece di chiudere il giro
 - I tipi dei lavori programmati hanno un nome loro, non quello di un tipo del client
 - La pulizia dei segreti cerca il DB dove sta davvero
 - La pulizia dei segreti non riporta indietro le righe scritte nel frattempo

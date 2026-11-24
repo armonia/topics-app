@@ -169,13 +169,3 @@ export function firstOccurrence(schedule: JobSchedule, now: Date): Date | null {
   return nextOccurrence(schedule, now);
 }
 
-/** Next `count` occurrences after `from`, for the preview. */
-export function previewOccurrences(schedule: JobSchedule, from: Date, count: number): Date[] {
-  const out: Date[] = [];
-  let cursor: Date | null = firstOccurrence(schedule, from);
-  while (cursor && out.length < count) {
-    out.push(cursor);
-    cursor = schedule.kind === 'every' ? new Date(cursor.getTime() + schedule.minutes * 60_000) : nextOccurrence(schedule, cursor);
-  }
-  return out;
-}

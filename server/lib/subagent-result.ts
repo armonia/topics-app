@@ -384,37 +384,6 @@ export function classifyChildTurn(
   return turnVerdict(fold, opts);
 }
 
-/**
- * How a child that just ENDED finished its last turn: the verdict of the
- * report written when the process goes. Kept for its callers; the per-turn
- * reports go through `classifyChildTurn`.
- */
-export function classifySubAgentTranscript(
-  lines: string[] | null,
-  ending: SubAgentEnding,
-  exitCode: number | null = null,
-): SubAgentOutcome {
-  const turn = Math.max(1, lines ? promptCount(lines) : 1);
-  return classifyChildTurn(lines, turn, { ending, exitCode })!;
-}
-
-/**
- * The turns a LIVE child has finished and not yet reported, oldest first. A
- * turn the next prompt superseded without an end of its own is skipped: it has
- * no outcome, and the turn after it does.
- *
- * Before the first prompt, a seed older than `UNDELIVERED_AFTER_MS` is reported
- * once as `undelivered`. That report does not consume turn 1: if the prompt
- * lands after all, its real end is reported too (the dedup key carries the
- * status, `resultKey`).
- */
-export function pendingChildTurns(
-  lines: readonly string[],
-  s: { turnsReported: number; seededAt: number | null; now: number; undeliveredReported: boolean },
-): Array<{ turn: number; outcome: SubAgentOutcome }> {
-  return pendingTallyTurns(tallyOf(lines), s);
-}
-
 /** `pendingChildTurns` over a transcript already folded. */
 export function pendingTallyTurns(
   t: TranscriptTally,

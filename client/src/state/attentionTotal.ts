@@ -69,14 +69,6 @@ export function chromeAttentionSubjects(
   return out;
 }
 
-export function chromeAttentionTotal(
-  rows: AttentionRows,
-  topics: Record<string, Topic>,
-  terminalSessions: readonly TerminalSessionInfo[],
-): number {
-  return chromeAttentionSubjects(rows, topics, terminalSessions).length;
-}
-
 /** How many chats and terminals the tray menu lists: the menu stays short. */
 export const TRAY_CHAT_ROWS = 8;
 

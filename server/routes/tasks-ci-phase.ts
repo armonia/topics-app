@@ -333,7 +333,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
    * card carried is the card's own business (`bounced`, `asked`), and the watch of main must not open a
    * second card for it. A `green` card does not hold a red back: the measure said green, the push said red.
    */
-  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" };
+  type AfterMark = { commit: string; who: "human" | "auto" | null; repo: string | null; at: string; settled?: "green" | "bounced" | "asked" | "faulted" };
 
   function readAfter(taskId: string): AfterMark | null {
     try {
@@ -491,6 +491,14 @@ export function createCiPhase(deps: CiPhaseDeps) {
       settleAfter(taskId, "asked");
       askPersonAfter(projectId, taskId, `La CI dopo il land non dà un esito: ${why.split("\n")[0]!.slice(0, 220)}. Il lavoro è già su main.`);
     },
+    // The board could not measure it, round after round: the mark closes, one note says so, the card stays done.
+    abandon: (_projectId, taskId, why) => {
+      settleAfter(taskId, "faulted");
+      deps.svc.addComment({
+        taskId, author: "system", kind: "service", replaces: ["CI non misurata"],
+        content: `CI dopo il land non misurata, smetto di riprovare: ${why.slice(0, 220)}. Il lavoro è già su main e la card resta chiusa; il guasto è della board, la CI di main lo misura comunque al push.`,
+      });
+    },
     stillWanted: (_projectId, taskId) => {
       const mark = readAfter(taskId);
       if (!mark || mark.settled) return false;
@@ -511,7 +519,7 @@ export function createCiPhase(deps: CiPhaseDeps) {
     for (const r of rows) {
       let mark: AfterMark;
       try { mark = JSON.parse(r.ci_after) as AfterMark; } catch { continue; }
-      if (mark.settled === "green" || !mark.commit || Date.parse(mark.at) < recent) continue;
+      if (mark.settled === "green" || mark.settled === "faulted" || !mark.commit || Date.parse(mark.at) < recent) continue;
       if (await port.entersAt(mark.commit, sha).catch(() => false)) return true;
     }
     return false;

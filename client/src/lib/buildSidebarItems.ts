@@ -786,7 +786,7 @@ export function buildSidebarItems(opts: BuildSidebarItemsOpts): SidebarItem[] {
     if (utilType === 'board') continue;
     // Automations have their own row above the Board too (HUBBR-14), selected
     // while the tab is open: a generic row would list them twice.
-    if (utilType === 'automations' || utilType === 'agents') continue;
+    if (utilType === 'automations' || utilType === 'agents' || utilType === 'system-page') continue;
     // The feature map is at hand, not in sight (HUBBR-18): System and the
     // palette open it, the tab bar holds it, the sidebar never lists it.
     if (utilType === 'features') continue;

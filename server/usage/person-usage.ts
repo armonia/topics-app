@@ -170,12 +170,12 @@ export function collectCalls(db: Database, o: CollectOptions): Call[] {
   // Author lines per session: also before the window, a long session works for whoever wrote yesterday.
   const lines = new Map<string, AuthorMark[]>();
   // Rows written by the machine (subagent results, end of a process, goal
-  // nudge) continue the work of whoever asked for it: they do not change the author.
+  // nudge, turn-end hook nudge) continue the work of whoever asked for it: they do not change the author.
   const users = db.query(`SELECT id, session_key sk, timestamp ts, author_person_id pid, substr(content, 1, 4000) text,
       (blocks LIKE '%"kind":"dispatched-envelope"%' AND content NOT LIKE '%<messaggio da=%') machine
     FROM messages WHERE role = 'user' AND timestamp > ? AND timestamp <= ?
       AND (blocks IS NULL OR (blocks NOT LIKE '%"kind":"subagent-result"%' AND blocks NOT LIKE '%"kind":"process-exit"%'
-        AND blocks NOT LIKE '%"kind":"goal-nudge"%'))
+        AND blocks NOT LIKE '%"kind":"goal-nudge"%' AND blocks NOT LIKE '%"kind":"hook-nudge"%'))
     ORDER BY timestamp`)
     .all(iso(o.sinceMs - 7 * 24 * HOUR_MS), iso(o.untilMs)) as Array<{ id: string; sk: string; ts: string; pid: string | null; text: string; machine: number }>;
   for (const u of users) {

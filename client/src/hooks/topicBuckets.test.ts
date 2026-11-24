@@ -12,18 +12,7 @@ import { describe, expect, test } from 'bun:test';
 import type { Topic } from '../types';
 import { createThrottledLocalWriter, type WriterStorage } from '../lib/throttledLocalWrite';
 import {
-  ARCHIVED_CACHE_KEY,
-  LIVE_CACHE_KEY,
-  emptyBuckets,
-  mergeBuckets,
-  persistBuckets,
-  readTopicCaches,
-  replaceArchived,
-  replaceLive,
-  splitByArchived,
-  toListShape,
-  upsertTopics,
-  vanishedFrom,
+  ARCHIVED_CACHE_KEY, LIVE_CACHE_KEY, emptyBuckets, persistBuckets, readTopicCaches, replaceArchived, replaceLive, toListShape, upsertTopics, vanishedFrom,
 } from './topicBuckets';
 
 function topic(id: string, archived: boolean, extra: Partial<Topic> = {}): Topic {
@@ -49,16 +38,6 @@ function buckets(live: Topic[], archived: Topic[]) {
     archived: Object.fromEntries(archived.map((t) => [t.id, t])),
   };
 }
-
-describe('splitByArchived / mergeBuckets', () => {
-  test('a mixed map is sorted by its flag and reads back as one map', () => {
-    const mixed = { a: topic('a', false), b: topic('b', true), c: topic('c', false) };
-    const b = splitByArchived(mixed);
-    expect(Object.keys(b.live).sort()).toEqual(['a', 'c']);
-    expect(Object.keys(b.archived)).toEqual(['b']);
-    expect(mergeBuckets(b)).toEqual(mixed);
-  });
-});
 
 describe('upsertTopics keeps the identity of the half it did not touch', () => {
   test('updating a live topic leaves the archived bucket as the same object', () => {

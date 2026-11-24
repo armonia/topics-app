@@ -17,7 +17,10 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-stop-fresh-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, getScriptsSnapshot, listBackgroundShells, registerBackgroundShell, startProcessDetection, stopProcessDetectionForTests } = await import("./processes");
+const { createProcessesRouter, startProcessDetection } = await import("./processes");
+const { stopProcessDetectionForTests } = await import("./processes-detection");
+const { getScriptsSnapshot } = await import("./processes-snapshot");
+const { listBackgroundShells, registerBackgroundShell } = await import("./processes-shells");
 const { setSessionCliPid } = await import("../providers/session-pids");
 const { getDescendantPids, killProcessTree } = await import("../lib/process-tree");
 

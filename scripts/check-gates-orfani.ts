@@ -25,6 +25,10 @@ export const REASONS: Record<string, string> = {
     "direbbe niente; in una worktree di consegna i rami ci sono per forza, quindi in " +
     "`static-rails` sarebbe sempre rosso. Gira da `scripts/git-hooks/pre-push`, cioe' " +
     "nel momento in cui qualcuno sta per dire fatto, e stampa senza mai bloccare.",
+  "check:instance-strings":
+    "e' lo stesso file `tests/unit/no-instance-strings.test.ts`, che la CI esegue gia' " +
+    "nel giro unit, e che `scripts/git-hooks/pre-push` lancia sul checkout vivo prima di " +
+    "ogni push; lo script e' solo la scorciatoia a mano per lo stesso test.",
   "check:lockfile":
     "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
     "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
@@ -56,6 +60,12 @@ export const REASONS: Record<string, string> = {
     "quella cartella la costruisce (o la stubba) il workflow stesso, e non esiste un checkout " +
     "principale da cui prenderla: il cancello uscirebbe verde per il motivo sbagliato. Gira a " +
     "mano in un worktree, e `bun run sidecars:sync` e' la sua cura.",
+  "check:disk-budget":
+    "misura la cartella dati REALE (`~/.topics`) contro il DB vivo, cioe' lo stato di questa " +
+    "postazione, non il codice: su un checkout di CI non esiste ne' l'uno ne' l'altro. La " +
+    "logica di giudizio (`server/lib/disk-budget.ts`, ratio G5 + cap per cartella) e' pura ed " +
+    "e' lei a girare nella suite; questo script e' la sua meta' impura, pensata per un job " +
+    "notturno (`scripts/launchd/com.armonia.topics-disk-budget-check.plist.in`), non per la CI.",
   "check:scroll-fluidity":
     "dipende dalla CADENZA dello schermo e in CI non puo' decidere: misura i frame persi " +
     "scorrendo una chat, la baseline `scripts/scroll-fluidity-baseline.json` e' registrata a 120 Hz (8,3 ms) " +

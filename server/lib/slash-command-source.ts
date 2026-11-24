@@ -19,7 +19,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync, realpathSync } from "fs";
-import { join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { homedir } from "os";
 import { readCliCommandList } from "../providers/claude/events";
 
@@ -57,6 +57,25 @@ export interface SlashCommandSource {
   /** Il file da cui viene il corpo. */
   path: string;
   body: string;
+}
+
+/**
+ * A skill folder that is a symbolic link out of the root is still a skill.
+ * The hub (`~/.agents/skills`) is made of links to where each skill lives
+ * (`~/.claude/setup/marketplace/skills/<name>`): with the root check alone
+ * every one of them (33 of 33 on 2026-11-23) was listed in the prompt and then
+ * refused by the `skill` tool. What stays refused is a link that reads
+ * something else: the real file must be a `SKILL.md` in a folder named as the
+ * skill, so a link to a secret file is never read.
+ */
+function linkedSkill(file: string, name: string): boolean {
+  let real: string;
+  try {
+    real = realpathSync(file);
+  } catch {
+    return false;
+  }
+  return basename(real) === "SKILL.md" && basename(dirname(real)) === name;
 }
 
 /** Il percorso risolto sta davvero DENTRO una delle radici ammesse? */
@@ -102,7 +121,7 @@ export function readSlashCommandSource(
   for (const c of candidates) {
     const file = resolve(c.file);
     if (!existsSync(file)) continue;
-    if (!contained(file, c.roots)) continue;
+    if (!contained(file, c.roots) && !(c.kind === "skill" && linkedSkill(file, name))) continue;
     try {
       const body = readFileSync(file, "utf-8").slice(0, maxBytes);
       return { name, kind: c.kind, path: file, body };

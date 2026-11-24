@@ -30,9 +30,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 // under every ~4 min to avoid cold writes on tasks with gaps > 5 min between turns.
 const EPHEMERAL = { type: "ephemeral" as const, ttl: "1h" as const };
 
-/** Massimo di breakpoint accettati dall'API. Qui è un'asserzione, non un budget da spendere. */
-export const MAX_CACHE_BREAKPOINTS = 4;
-
 /**
  * Applica i breakpoint IN-PLACE. Idempotente: rimarcare gli stessi confini
  * lascia i params identici, così un chiamante che la invoca due volte non
@@ -98,16 +95,3 @@ function markLastMessage(params: Anthropic.MessageCreateParams): void {
   }
 }
 
-/** @internal Quanti breakpoint porta questo payload. Esposta per i test e per una diagnostica onesta. */
-export function countCacheBreakpoints(params: Anthropic.MessageCreateParams): number {
-  let n = 0;
-  const bump = (v: unknown) => {
-    if (v && typeof v === "object" && (v as Record<string, unknown>).cache_control) n++;
-  };
-  if (Array.isArray(params.tools)) params.tools.forEach(bump);
-  if (Array.isArray(params.system)) params.system.forEach(bump);
-  for (const m of params.messages ?? []) {
-    if (Array.isArray(m.content)) m.content.forEach(bump);
-  }
-  return n;
-}

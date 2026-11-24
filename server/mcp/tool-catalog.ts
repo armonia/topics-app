@@ -705,10 +705,10 @@ export const TOOLS = [
   {
     name: "switch_topic",
     description:
-      "Switch the user's view to an EXISTING chat topic (conversation thread) by id. Use when the user asks to go to / open another topic. UI-only: it does not move the current message. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to switch); use open_project to move a terminal tab into a project instead.",
+      "Switch the user's view to an EXISTING chat topic (conversation thread), by its name or id: Topics looks the name up, and when several topics match it returns them with their ids so you can call again with one. Use when the user asks to go to / open another topic. UI-only: it does not move the current message. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to switch); use open_project to move a terminal tab into a project instead.",
     inputSchema: {
       type: "object",
-      properties: { topic_id: { type: "string", description: "Target topic id." } },
+      properties: { topic_id: { type: "string", description: "Target topic name (or part of it) or id." } },
       required: ["topic_id"],
     },
     annotations: MODIFICA,

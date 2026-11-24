@@ -76,8 +76,7 @@ import { createToolResponseRoutes } from "./topics-tool-response";
 import { createCommandRoutes } from "./topics-commands";
 
 
-export { removeTopicFromUiStateValue, retractTopicTombstoneFromUiStateValue, purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
-export { topicPreviewText } from "./topics-preview";
+export { purgeTopicFromUiState, reopenDepsFor } from "./topics-ui-state";
 
 /**
  * `paneAttachedTo` — «una pane viva sta guardando questo contextId?». Il

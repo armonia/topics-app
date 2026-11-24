@@ -63,11 +63,6 @@ export function clearRetirement(db: Database, kind: RetirementKind, refId: strin
   return (res?.changes ?? 0) > 0;
 }
 
-export function isRetired(db: Database, kind: RetirementKind, refId: string): boolean {
-  const row = db.query("SELECT 1 AS x FROM retirements WHERE kind = ? AND ref_id = ?").get(kind, refId);
-  return !!row;
-}
-
 /** Gli id ritirati di una specie, come insieme — per i confronti in memoria. */
 export function retiredIds(db: Database, kind: RetirementKind): Set<string> {
   const rows = db.query("SELECT ref_id FROM retirements WHERE kind = ?").all(kind) as { ref_id: string }[];

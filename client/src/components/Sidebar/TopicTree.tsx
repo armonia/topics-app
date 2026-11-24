@@ -40,6 +40,8 @@ import { RowSplitMap } from './RowSplitMap';
 import { useTerminalAttentionFill, attentionFillFor, useSessionLastActivity } from '@/state/signals';
 import { attentionOf, needsSeen, sendAttentionSeen, useAttentionRows } from '@/state/attention';
 import { isAccordionOpen, readOpenedAccordions, summarizeSubagents, toggledAccordions, writeOpenedAccordions } from '@/lib/subagentAccordion';
+import { useChildren } from '@/state/childWork';
+import { agentsAtWorkUnder } from '../../../../shared/live-work';
 import { projectAttention } from '@/state/attentionRollups';
 import { terminalSubject, topicSubject } from '../../../../shared/attention';
 import { useProjectFocusStore } from '@/state/projectFocus';
@@ -527,6 +529,8 @@ export function TopicTree({
   // renderProjectItem closure can derive a project's rollup synchronously: the
   // same rows the tab bar and every row read.
   const attention = useAttentionRows();
+  // The live sub-agents, for the number the accordion header says at work.
+  const liveChildren = useChildren();
   /** A project's chats with something to see: what «Mark all read» sends to the seen door. */
   const unseenChatSubjects = (topicIds: readonly string[]): string[] =>
     topicIds.map(topicSubject).filter((subject) => needsSeen(attentionOf(attention, subject)));
@@ -1144,13 +1148,18 @@ export function TopicTree({
   const renderSubagentNest = (parentId: string, subAgents: SidebarItem[], depth: number) => {
     const summary = summarizeSubagents(subAgents, subagentIsWorking, subagentIsFocused, subagentNeedsYou);
     const open = isAccordionOpen(parentId, openedSubagents, summary);
-    const label = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
+    // How many work right now, at any depth: the same number as the parent's tab.
+    const atWork = agentsAtWorkUnder([...liveChildren.values()], parentId);
+    const count = summary.count === 1 ? tr('sidebar.subagents.one') : tr('sidebar.subagents.many', { n: summary.count });
+    const label = atWork > 0 ? `${count} · ${tr('sidebar.subagents.atWork', { n: atWork })}` : count;
     return (
       <>
         <button
           type="button"
           onClick={() => toggleSubagents(parentId)}
           aria-expanded={open}
+          data-testid="subagents-accordion"
+          data-agents={atWork || undefined}
           className={`flex items-center h-6 text-mini text-app-text-secondary hover:text-app-text transition-colors`}
           style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP, gap: COLUMN_GAP }}
         >
@@ -1158,7 +1167,7 @@ export function TopicTree({
           <span>{label}</span>
           {summary.needsYou
             ? <span role="img" aria-label={tr('sidebar.subagents.needsYou')} className="inline-flex"><STATUS_ICON.wait size={11} aria-hidden="true" className={STATUS_INK.wait} /></span>
-            : summary.working && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
+            : (summary.working || atWork > 0) && <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT.working}`} aria-label={tr('sidebar.subagents.working')} />}
         </button>
         {open && subAgents.map(child => renderSubAgentItem(child, depth))}
       </>

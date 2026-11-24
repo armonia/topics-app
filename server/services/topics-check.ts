@@ -127,7 +127,7 @@ const CAUSE_OF_KIND: Partial<Record<QueueReasonKind, StuckCause>> = {
 };
 
 /** An assignee that names the agent, not a person: the board writes it on cards it hands to an agent. */
-const AGENT_ASSIGNEE = /^(agents?|agente|agenti|ai|bot)$/i; // allow-italian: the generic word boards use for the agent
+export const AGENT_ASSIGNEE = /^(agents?|agente|agenti|ai|bot)$/i; // allow-italian: the generic word boards use for the agent
 
 /** Counts what a round computed, so a test can prove the work stays on the few old cards. */
 export interface SampleProbe { reasons: number }

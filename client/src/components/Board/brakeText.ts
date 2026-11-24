@@ -8,9 +8,12 @@
  * verdict card by card. A wall that holds no card is not named by the chip
  * (the cards on Automatic start on another runtime), so the chip never names a
  * brake the dispatcher is not applying to a card.
+ *
+ * The 24h spend cap comes first: it stops every card whatever its provider,
+ * so while it holds a card the chip names it instead of the walls.
  */
 import { PLAN_DISPATCH_HOLD_AT, providerHoldLabel, type DispatchBrake } from '../../../../shared/provider-hold';
-import type { DispatchBrakeState } from '../../state/dispatchBrakes';
+import type { DispatchBrakeState, SpendStop } from '../../state/dispatchBrakes';
 
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 type Provider = DispatchBrake['provider'];
@@ -85,6 +88,25 @@ export function brakeChipView(brakes: readonly DispatchBrake[], nowMs: number, t
   return { who: tr('brake.both', { a: names[0], b: names[1] }), why };
 }
 
+/** Why the spend cap holds: the 24h spend against the cap, and when the cards restart if nothing new is spent. */
+export function spendWhy(s: SpendStop, nowMs: number, tr: Translate, locale: string): string {
+  const tag = locale === 'en' ? 'en-GB' : 'it-IT';
+  // A whole cap reads «30», not «30,00»: the chip sits at the end of a bar that scrolls, and every character pushes the restart time out of sight.
+  const money = (cents: number) => {
+    const digits = cents % 100 === 0 ? 0 : 2;
+    return (cents / 100).toLocaleString(tag, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  };
+  const amounts = { spent: money(s.spentCents), cap: money(s.capCents) };
+  if (s.untilMs === null) return tr('brake.why.spendOpen', amounts);
+  return tr('brake.why.spend', { ...amounts, when: whenLabel(s.untilMs, nowMs, tr, locale) });
+}
+
+/** What the chip says: the spend cap when it holds a card, else the walls that hold one, else null (no chip). */
+export function queueChipView(state: DispatchBrakeState, nowMs: number, tr: Translate, locale: string): BrakeChipView | null {
+  if (state.spend) return { who: tr('brake.spend.who'), why: spendWhy(state.spend, nowMs, tr, locale) };
+  return brakeChipView(holdingBrakes(state), nowMs, tr, locale);
+}
+
 /** The count of held cards as a clause: one card waits, N cards wait. */
 export function waitingClause(n: number, tr: Translate): string {
   return tr(n === 1 ? 'brake.cards.waitOne' : 'brake.cards.wait', { n });
@@ -108,6 +130,14 @@ interface ColumnNoteView {
  * the walls that hold them, and the first restart among those walls.
  */
 export function columnNoteView(state: DispatchBrakeState, todoIds: ReadonlySet<string>, nowMs: number, tr: Translate, locale: string): ColumnNoteView | null {
+  const spend = state.spend;
+  const spendHeld = spend ? [...todoIds].filter((id) => spend.held.has(id)).length : 0;
+  if (spend && spendHeld > 0) {
+    const one = spendHeld === 1;
+    const head = tr(one ? 'brake.column.spendHeadOne' : 'brake.column.spendHead', { n: spendHeld });
+    if (spend.untilMs === null) return { head, tail: tr(one ? 'brake.column.spendOpenOne' : 'brake.column.spendOpen') };
+    return { head, tail: tr(one ? 'brake.column.tailOne' : 'brake.column.tail', { when: whenLabel(spend.untilMs, nowMs, tr, locale) }) };
+  }
   const brakes = holdingBrakes(state, todoIds);
   if (brakes.length === 0) return null;
   const n = brakes.reduce((sum, b) => sum + heldCount(state, b.provider, todoIds), 0);

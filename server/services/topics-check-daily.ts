@@ -201,12 +201,6 @@ const defaultSettings = () => {
 
 const parseRow = (json: string): DailyVerdict => JSON.parse(json) as DailyVerdict;
 
-/** @internal Test seam: the verdict stored for `day`, or null (the service reads only the newest). */
-export function readVerdict(db: Database, day: string): DailyVerdict | null {
-  const r = db.query("SELECT verdict_json FROM topics_check_daily WHERE day = ?").get(day) as { verdict_json: string } | null;
-  return r ? parseRow(r.verdict_json) : null;
-}
-
 /** The newest verdict, for the self-check row. */
 export function readLatestVerdict(db: Database): DailyVerdict | null {
   const r = db.query("SELECT verdict_json FROM topics_check_daily ORDER BY day DESC LIMIT 1").get() as { verdict_json: string } | null;

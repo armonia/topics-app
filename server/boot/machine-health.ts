@@ -18,7 +18,8 @@ import type { MachineSecurityReport } from "../../shared/machine-health";
 import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
-import { probeSshServer, readSshServers, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { probeSshServer, readSshServers, resolveSshControlDir, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { probeUnavailableReport } from "../lib/machine-security";
 import { runBounded } from "../lib/machine-security-env";
 import { localSecurityProbe } from "../routes/machine-security";
 import { NODE_SESSION_COOKIE, readNodeToken } from "../services/node-client";
@@ -26,6 +27,7 @@ import { isCloudBaseUrl } from "../providers/claude-cloud/node";
 import { createTaskService } from "../services/tasks";
 import { getAppSettings } from "../services/app-settings";
 import { createSecurityAlertsRound } from "./machine-security-alerts";
+import { AUDIT_POLL_MS, createDependencyAuditRound, fetchLatestAuditRun, resolveAuditSource } from "./dependency-audit-alert";
 
 /** How long to wait for a node's probe: its commands have 5 s each, in parallel, and the macOS log needs longer. */
 const REMOTE_PROBE_TIMEOUT_MS = 30_000;
@@ -73,6 +75,22 @@ async function isHomePc(machineId: string): Promise<boolean> {
     const slots = (JSON.parse(await readFile(join(sharedToolingDir(), "node-pool", "state.json"), "utf8")) as { slots?: Record<string, { machine_id?: string }> }).slots ?? {};
     return !Object.values(slots).some((slot) => slot.machine_id === machineId);
   } catch { return true; }
+}
+
+/** The node's security report; a 404 means its build predates the route, which is an answer worth recording. */
+async function fetchNodeProbe(ctx: AppContext, id: string, baseUrl: string): Promise<MachineSecurityReport | null> {
+  const token = readNodeToken(ctx.STATE_DIR, id);
+  if (!token) return null;
+  try {
+    const res = await fetch(`${baseUrl}/api/system/machine-security`, {
+      headers: { Accept: "application/json", Cookie: `${NODE_SESSION_COOKIE}=${token}` },
+      signal: AbortSignal.timeout(REMOTE_PROBE_TIMEOUT_MS),
+    });
+    if (res.status === 404) return probeUnavailableReport(Date.now());
+    return res.ok ? ((await res.json()) as MachineSecurityReport) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function startMachineHealth(ctx: AppContext): void {
@@ -126,18 +144,20 @@ export function startMachineHealth(ctx: AppContext): void {
       return { cpu: metrics.cpuPct, mem: memPctFromReadout(readout) };
     },
     externalSamples: async (t, sinceS) => {
-      if (t.kind === "local" || !(await isHomePc(t.id))) return [];
+      // An ssh-only server is not in the node pool either, but it is not the PC: without this it showed the PC's history.
+      if (t.kind === "local" || sshServers.has(t.id) || !(await isHomePc(t.id))) return [];
       try { return samplesFromMinuteLog(await readFile(join(sharedToolingDir(), "usage-history", "pc-history.jsonl"), "utf8"), sinceS); } catch { return []; }
     },
     probe: async (t): Promise<MachineSecurityReport | null> => {
       if (t.kind === "local") return probeLocal();
       const ssh = sshServers.get(t.id);
       if (ssh) {
-        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null);
+        const controlDir = resolveSshControlDir(ctx.APP_DATA_DIR);
+        const report = await probeSshServer(ssh, runBounded, controlDir, lastSsh.get(t.id) ?? null, Date.now);
         lastSsh.set(t.id, report);
         return report;
       }
-      const report = await fetchNodeJson<MachineSecurityReport>(ctx, t.id, baseUrlOf.get(t.id) ?? "", "/api/system/machine-security", REMOTE_PROBE_TIMEOUT_MS);
+      const report = await fetchNodeProbe(ctx, t.id, baseUrlOf.get(t.id) ?? "");
       // The node is reached through a tunnel; its public address (if it has one) is in the node pool's register.
       return report ? applyExposure(report, await publicHostOf(t.id)).catch(() => report) : null;
     },
@@ -158,7 +178,21 @@ export function startMachineHealth(ctx: AppContext): void {
     log: (msg) => console.warn(msg),
   });
 
+  const auditRound = createDependencyAuditRound({
+    db: ctx.db,
+    svc: createTaskService(ctx.db, {}),
+    broadcast: (event) => ctx.broadcastToAll(event as Parameters<typeof ctx.broadcastToAll>[0]),
+    projectId: () => getAppSettings().securityAlertsProjectId,
+    latestRun: async (projectId) => {
+      const row = ctx.db.query("SELECT path FROM projects WHERE id = ?").get(projectId) as { path: string } | null;
+      const source = await resolveAuditSource(row?.path ?? null);
+      return source ? fetchLatestAuditRun(source) : null;
+    },
+  });
+
   setTimeout(() => {
+    void auditRound().catch((err) => console.warn("[dependency-audit]", err));
+    setInterval(() => void auditRound().catch((err) => console.warn("[dependency-audit]", err)), AUDIT_POLL_MS).unref?.();
     void health.tick();
     setInterval(() => void health.tick(), STEP_S * 1000).unref?.();
   }, FIRST_TICK_DELAY_MS).unref?.();

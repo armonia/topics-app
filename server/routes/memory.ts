@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
-import { isAbsolute, join, relative, resolve, sep } from "path";
+import { isAbsolute, relative, resolve, sep } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { isGlobalOrchestratorTopic } from "../services/global-orchestrator-session";
 
@@ -185,17 +185,3 @@ export function createMemoryRouter(ctx: AppContext): RouteHandler {
   };
 }
 
-/**
- * Load combined memory content for injection into system prompt.
- * Called from topics.ts during chat message sending.
- */
-export function loadMemoryForTopic(baseDir: string, topicId: string, options?: { includeTopic?: boolean }): string {
-  if (options?.includeTopic === false) return "";
-  const topicPath = join(baseDir, "memory", `${topicId}.md`);
-  if (!existsSync(topicPath)) return "";
-  try {
-    const content = readFileSync(topicPath, "utf-8").trim();
-    if (!content) return "";
-    return `\n\n## Memory\nThe following memories/notes have been saved for context:\n\n### Topic Memory\n${content}`;
-  } catch { return ""; }
-}

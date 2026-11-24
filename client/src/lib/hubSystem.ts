@@ -2,7 +2,7 @@
  * Readers of the hub's live topics (state/hubLive.ts): waiting items, alerts,
  * red gates, automations, services and quotas, for the places of Topics that
  * show them (openspec/changes/hub-smistamento). Pure functions over the hub's
- * JSON: the hub owns the shapes (~/.claude/jarvis/tools/usage-hub/src/server.mjs),
+ * JSON: the hub owns the shapes (<harness-home>/tools/usage-hub/src/server.mjs),
  * so everything here is defensive and drops what it does not recognise instead
  * of throwing on a field the hub renamed.
  */
@@ -187,35 +187,6 @@ export function firingAlerts(data: unknown): FiringAlert[] {
     if (!message) return;
     out.push({ id: str(raw.id) ?? `alert-${i}`, subject: str(raw.subject) ?? '', message, source: str(raw.source) ?? '' });
   });
-  return out;
-}
-
-// ── Red gates (/api/gates) ───────────────────────────────────────────────────
-
-export interface RedGate {
-  id: string;
-  /** The delegation class (`interattivo`, `batch`...) or the provider a brake holds. */
-  name: string;
-  kind: 'class' | 'brake';
-  reason: string;
-}
-
-/**
- * The hub's gates are the delegation decisions: one per class, plus the brake
- * in front of each batch provider. A gate is red when it says `go: false`.
- */
-export function redGates(data: unknown): RedGate[] {
-  if (!isObject(data)) return [];
-  const out: RedGate[] = [];
-  const read = (group: unknown, kind: RedGate['kind']) => {
-    if (!isObject(group)) return;
-    for (const [name, g] of Object.entries(group)) {
-      if (!isObject(g) || g.go !== false) continue;
-      out.push({ id: `${kind}:${name}`, name, kind, reason: str(g.reason) ?? '' });
-    }
-  };
-  read(data.classes, 'class');
-  read(data.brakes, 'brake');
   return out;
 }
 

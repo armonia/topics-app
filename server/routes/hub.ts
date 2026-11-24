@@ -1,7 +1,7 @@
 /**
  * `/api/hub/*` and `/api/switchboard/*`: the bridge to the usage hub (:3360)
  * and to switchboard (:3335), the two always-on local services whose UI moves
- * into Topics (plan: ~/.claude/jarvis/docs/hub-in-topics.md, track 0).
+ * into Topics (plan: <harness-home>/docs/hub-in-topics.md, track 0).
  *
  *   /api/hub/<rest>?q          -> <hub>/api/<rest>?q
  *   /api/switchboard/<rest>?q  -> <switchboard>/api/<rest>?q

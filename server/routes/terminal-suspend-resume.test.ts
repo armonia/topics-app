@@ -14,13 +14,10 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { configureNativeSubagents, _resetNativeSubagents } from "../lib/native-subagents";
 import { insertSubagent } from "../lib/subagent-store";
 import { recordTurnStart } from "../providers/turn-end-registry";
-import {
-  _resetRosterReconciled,
-  _setSeedPromptHandlerForTests,
-  _setPtyBridgeSocketPath,
-  createTerminalRouter,
-  disconnectBridge,
-} from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
+import { _resetRosterReconciled } from "./terminal-bridge-roster";
+import { _setSeedPromptHandlerForTests, subAgentNotFound } from "./terminal-children";
 import type { AppContext, RouteHandler } from "../types";
 
 const SUSPEND = String.fromCharCode(26);
@@ -267,5 +264,107 @@ describe("resumed terminal sends with the engine ready", () => {
       configureNativeSubagents(null);
       _resetNativeSubagents();
     }
+  });
+});
+
+describe("a native child driven from a session that did not spawn it", () => {
+  /** A scheduled run opens a fresh chat each time: not the parent the child was born under. */
+  const OTHER = "topic:other-caller";
+  const PARENT = "topic:resume-parent";
+
+  async function requestAs(caller: string, agentId: string, action: "send" | "read" | "stop", body?: object): Promise<Response> {
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(caller)}/agents/${agentId}/${action}`);
+    const response = await router(
+      new Request(url, {
+        method: action === "read" ? "GET" : "POST",
+        headers: { "content-type": "application/json", "x-daemon-token": daemonToken },
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+      url,
+      url.pathname,
+      action === "read" ? "GET" : "POST",
+    );
+    if (!response) throw new Error(`no route for ${action}`);
+    return response;
+  }
+
+  function configureIdleEngine(): void {
+    configureNativeSubagents({
+      route: async (req) => {
+        const body = await req.json() as { sessionKey: string; clientMessageId: string };
+        recordTurnStart(body.sessionKey, "cross-session-turn", { byPerson: false, key: body.clientMessageId });
+        return new Response(null, { status: 200 });
+      },
+      isBusy: () => false,
+      getTopicBySessionKey: () => null,
+      saveTopic: () => {},
+      loadMessages: () => [],
+      engineReady: () => true,
+    });
+  }
+
+  test("send is accepted and names the parent session its result wakes", async () => {
+    const id = crypto.randomUUID();
+    addEndedChild({ id, runtime: "topics", sessionKey: `child:${id}` });
+    configureIdleEngine();
+    try {
+      const response = await requestAs(OTHER, id, "send", { input: "continue" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, resumed: true, wakes: PARENT });
+    } finally {
+      configureNativeSubagents(null);
+      _resetNativeSubagents();
+    }
+  });
+
+  test("send from the parent itself carries no wakes field", async () => {
+    const id = crypto.randomUUID();
+    addEndedChild({ id, runtime: "topics", sessionKey: `child:${id}` });
+    configureIdleEngine();
+    try {
+      const response = await requestAs(PARENT, id, "send", { input: "continue" });
+      expect(response.status).toBe(200);
+      expect(await response.json()).not.toHaveProperty("wakes");
+    } finally {
+      configureNativeSubagents(null);
+      _resetNativeSubagents();
+    }
+  });
+
+  test("read is open to any session", async () => {
+    const id = crypto.randomUUID();
+    addEndedChild({ id, runtime: "topics", sessionKey: `child:${id}` });
+    const response = await requestAs(OTHER, id, "read");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ events: [], source: "chat" });
+  });
+
+  test("stop stays with the parent: another session gets a 404 that names the owner", async () => {
+    const id = crypto.randomUUID();
+    addEndedChild({ id, runtime: "topics", sessionKey: `child:${id}` });
+    const response = await requestAs(OTHER, id, "stop");
+    expect(response.status).toBe(404);
+    const { error } = await response.json() as { error: string };
+    expect(error).toContain(PARENT);
+    expect(getDatabase().query("SELECT state FROM subagents WHERE id = ?").get(id)).toEqual({ state: "retired" });
+  });
+});
+
+describe("subAgentNotFound", () => {
+  test("an id that exists under another session says whose it is", () => {
+    const id = crypto.randomUUID();
+    addEndedChild({ id, runtime: "topics", sessionKey: `child:${id}` });
+    const message = subAgentNotFound(id);
+    expect(message).toContain("resume test child");
+    expect(message).toContain("topic:resume-parent");
+    expect(message).toContain("only that session can drive it");
+  });
+
+  test("an id that exists nowhere stays the bare answer", () => {
+    expect(subAgentNotFound(crypto.randomUUID())).toBe("sub-agent not found");
+  });
+
+  test("a built-in Agent tool id keeps its own explanation", () => {
+    expect(subAgentNotFound("a6a16ed2dbeb2ede4")).toContain("built-in Agent tool");
   });
 });

@@ -1,5 +1,79 @@
 [
   {
+    "version": "2.4.95",
+    "date": "2026-11-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a turn waiting for a person is parked, not streaming (#1634)",
+          "scope": "restart-gate"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.90",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "drop the topic directory, switch_topic resolves names",
+          "scope": "context"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.87",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "BitLocker never turned on answers 0, read it as off",
+          "scope": "security"
+        },
+        {
+          "text": "keep machine-security.ts at its 813-line bloat baseline",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.81",
+    "date": "2026-11-23",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "ssh-only servers stop timing out to «unknown»",
+          "scope": "security"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.77",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "nome inglese per il ref simbolico",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.74",
     "date": "2026-11-22",
     "sections": {
@@ -9,7 +83,12 @@
           "scope": "machines"
         }
       ],
-      "fixes": [],
+      "fixes": [
+        {
+          "text": "credito finito = limite che riprende da solo, non errore",
+          "scope": "motore"
+        }
+      ],
       "perf": []
     }
   },

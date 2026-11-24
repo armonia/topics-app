@@ -16,7 +16,8 @@ import { closeDatabase, getDatabase, initDatabase } from "../db";
 import { getSubagent, insertSubagent, markSubagentRemote } from "../lib/subagent-store";
 import { SETTLE_TRIES, createRemoteSubagentWiring } from "../lib/subagent-remote-wiring";
 import { bundleBranch } from "../services/branch-on-origin";
-import { _setPtyBridgeSocketPath, createTerminalRouter, disconnectBridge } from "./terminal";
+import { createTerminalRouter, disconnectBridge } from "./terminal";
+import { _setPtyBridgeSocketPath } from "./terminal-bridge-socket";
 import type { AppContext } from "../types";
 
 const AGENT_TOKEN = "f".repeat(64);
@@ -182,6 +183,61 @@ test("a spawn in a git repo with origin and a free node starts remotely, never a
     const createRunBody = (calls[0] as { body: { baseBranch?: string | null; branchBundle?: string } }).body;
     expect(createRunBody.baseBranch).toBe(body.branch);
     expect(typeof createRunBody.branchBundle).toBe("string");
+  } finally {
+    try { closeDatabase(); } catch { /* best effort */ }
+  }
+});
+
+test("isolation:'worktree' never takes the remote fast path, even with a free node (WORKTREE-17)", async () => {
+  // Before the fix, the remote path ran first regardless of `isolation` and
+  // answered with `cwd` = the PARENT's own checkout and `branch` = the
+  // snapshot name used to cut the node's bundle, never a worktree: the exact
+  // shape of the production-checkout bug this test guards against.
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-spawn-remote-isolation-"));
+  topicsHome = join(tempRoot, "topics-home");
+  mkdirSync(topicsHome, { recursive: true });
+  writeFileSync(join(topicsHome, "daemon-state.json"), JSON.stringify({ pid: 1, port: 1, token: AGENT_TOKEN, startedAt: "x" }));
+  process.env.TOPICS_HOME = topicsHome;
+  mkdirSync(join(tempRoot, "state", "nodes"), { recursive: true });
+  const machineId = "node-fake-isolation";
+  writeFileSync(join(tempRoot, "state", "nodes", `${machineId}.token`), "t".repeat(32));
+  initDatabase(resolve(import.meta.dir, "../.."), tempRoot);
+
+  const origin = join(tempRoot, "origin.git");
+  mkdirSync(origin, { recursive: true });
+  git(origin, "init", "-q", "--bare");
+  const childRepo = join(tempRoot, "repo");
+  git(tempRoot, "clone", "-q", origin, "repo");
+  writeFileSync(join(childRepo, "a.txt"), "base\n");
+  git(childRepo, "add", ".");
+  git(childRepo, "commit", "-q", "-m", "base");
+  git(childRepo, "push", "-q", "origin", "HEAD");
+
+  let created = 0;
+  const ctx = baseCtx(tempRoot, machineId, "http://fake-node.test", {
+    nodeClient: { createRun: async () => { created += 1; return { runId: "run-should-not-happen" }; } },
+    // No project owns this directory in this bare test context: the local
+    // worktree path must refuse with an error, never fall through to the node.
+    projectStore: { getByPath: () => null },
+    worktreeStore: { getByAbsPath: () => null },
+  } as unknown as Partial<AppContext>);
+
+  try {
+    const router = createTerminalRouter(ctx);
+    const url = new URL("http://topics.test/api/sessions/pty%3Aparent-isolation/agents/spawn");
+    const response = await router(
+      new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-daemon-token": AGENT_TOKEN },
+        body: JSON.stringify({ prompt: "do it", cwd: childRepo, isolation: "worktree" }),
+      }),
+      url, url.pathname, "POST",
+    );
+    // The node is never asked for an isolated child...
+    expect(created).toBe(0);
+    // ...and with no worktree, the call fails outright: never a 200 with the
+    // parent's own cwd and a branch that is not a worktree.
+    expect(response?.status).not.toBe(200);
   } finally {
     try { closeDatabase(); } catch { /* best effort */ }
   }

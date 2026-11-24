@@ -87,6 +87,31 @@ describe("readSlashCommandSource", () => {
     expect(readSlashCommandSource("furbo", { home, cwd })).toBeNull();
   });
 
+  test("a skill folder linked from outside the root is read (the hub is made of links)", () => {
+    const real = mkdtempSync(join(tmpdir(), "sc-real-"));
+    mkdirSync(join(real, "retro"));
+    writeFileSync(join(real, "retro", "SKILL.md"), "---\nname: retro\n---\n\nMisura la sessione.");
+    symlinkSync(join(real, "retro"), join(home, ".claude", "skills", "retro"));
+    const out = readSlashCommandSource("retro", { home, cwd });
+    expect(out?.kind).toBe("skill");
+    expect(out?.body).toContain("Misura la sessione");
+    rmSync(real, { recursive: true, force: true });
+  });
+
+  test("a linked skill folder does not open a way to a secret file", () => {
+    const real = mkdtempSync(join(tmpdir(), "sc-real-"));
+    mkdirSync(join(real, "furba"));
+    symlinkSync(segreto, join(real, "furba", "SKILL.md"));
+    symlinkSync(join(real, "furba"), join(home, ".claude", "skills", "furba"));
+    expect(readSlashCommandSource("furba", { home, cwd })).toBeNull();
+    // nor a folder linked under another name
+    mkdirSync(join(real, "altra"));
+    writeFileSync(join(real, "altra", "SKILL.md"), "corpo");
+    symlinkSync(join(real, "altra"), join(home, ".claude", "skills", "travestita"));
+    expect(readSlashCommandSource("travestita", { home, cwd })).toBeNull();
+    rmSync(real, { recursive: true, force: true });
+  });
+
   test("il corpo si tronca invece di caricare un file enorme", () => {
     writeFileSync(join(home, ".claude", "commands", "grosso.md"), "x".repeat(5000));
     expect(readSlashCommandSource("grosso", { home, cwd, maxBytes: 100 })?.body.length).toBe(100);

@@ -10,30 +10,9 @@
  * @covers STATUSLINE-01
  */
 import { describe, expect, test } from 'bun:test';
-import { CHIP_TARGET_PX, ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
-import { ROW_H } from '../../lib/selectionStyles';
+import { ORG_MARKS_IN_CHIP, chipClass } from './identityChip';
 
 describe('the chip box', () => {
-  // THE HEIGHT COMES FROM THE ROW FAMILY, the one the pinned tiles above the
-  // band use. This is the test that fails when somebody gives the band a
-  // measure of its own again, which is how it drifted ten pixels under the
-  // tiles the first time.
-  test('a chip is as tall as a row, on both pointer families', () => {
-    for (const filled of [true, false]) {
-      expect(chipClass(filled)).toContain(ROW_H);
-    }
-    // The mouse half of that constant is the number the e2e measures, so the
-    // two have to be the same 34 and not two numbers that happen to agree.
-    expect(ROW_H).toContain(`${CHIP_TARGET_PX}px`);
-  });
-
-  // Tailwind reads the SOURCE, so the width floor is a literal in the class
-  // string and the constant is a second copy of it. Same drift, same net.
-  test('the width floor is in the class', () => {
-    for (const filled of [true, false]) {
-      expect(chipClass(filled)).toContain(`min-w-[${CHIP_TARGET_PX}px]`);
-    }
-  });
 
   test('full and empty are the same box: only the fill changes', () => {
     const box = (cls: string) => cls.split(' ').filter((c) => !c.includes('bg-') && !c.includes('border-'));

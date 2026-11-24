@@ -394,6 +394,7 @@ function fromLoad(carico: CaricoGettone, installationId: string, ora: number): E
 }
 
 /**
+ * @knipignore used by scripts/conio-lib.ts, outside the production graph
  * Da un gettone a un entitlement. **Non solleva mai**: ogni strada che non
  * arriva a una firma buona finisce sul piano gratuito con un motivo diverso.
  *

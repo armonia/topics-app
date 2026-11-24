@@ -1,6 +1,6 @@
 {
   "name": "topics-app",
-  "version": "2.4.75",
+  "version": "2.4.95",
   "description": "Desktop workspace for coding agents: editor, diff viewer, terminal, browser and a task board, one topic at a time. Agents run inside Topics, not one process each: 200 sessions answering at once fit in 162 MB.",
   "author": "Armonia",
   "license": "MIT",
@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "postinstall": "bun run scripts/fix-node-pty-exec-bit.ts",
-    "start": "bun run server.ts",
+    "start": "bun run serve",
+    "serve": "bun server.ts",
     "dev:server": "bun --watch run server.ts",
     "dev:client": "cd client && bun run dev",
     "build:client": "bun run scripts/build-client.ts",
@@ -56,6 +57,7 @@
     "check:eol": "bun run scripts/check-eol.ts",
     "check:api-door": "bun run scripts/check-api-door.ts",
     "check:quality-bar": "bun run scripts/quality-bar.ts",
+    "check:instance-strings": "bun test tests/unit/no-instance-strings.test.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:backup-residue": "bun run scripts/check-backup-residue.ts",
     "check:repo-pulito": "bun run scripts/check-repo-pulito.ts",
@@ -112,6 +114,7 @@
     "worktrees:orphans": "bun run scripts/worktree-orphans.ts",
     "check:lockfile": "bun install --frozen-lockfile && cd client && bun install --frozen-lockfile && cd ../landing && bun install --frozen-lockfile",
     "report:disk": "bun run scripts/disk-report.ts",
+    "check:disk-budget": "bun run scripts/disk-budget-check.ts",
     "review:open-prs": "bun run scripts/review-open-prs.ts",
     "report:webcontent": "bun run scripts/webcontent-owners.ts",
     "report:branches": "bun run scripts/branch-audit.ts",
@@ -143,6 +146,7 @@
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
     "test:touched": "bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts'",
+    "test:touched:review": "bun run scripts/slot.ts test:touched -- 'bun run scripts/test-touched.ts --no-full'",
     "test:unit": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'",
     "test:unit:shuffle": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --shuffle'",
     "test:unit:durations": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --record'",
@@ -162,6 +166,7 @@
     "specflow:evidence": "./scripts/specflow-evidence.sh",
     "barra:velocita": "spec-flow speed-bar",
     "registro:instabili": "spec-flow flaky-ledger",
+    "barra:attesa": "spec-flow ci-audit",
     "build:site": "bun run changelog && cd client && bun install --frozen-lockfile && bun run build:landing && cd ../landing && bun install --frozen-lockfile && bun run build",
     "dev:site": "cd landing && bun run dev",
     "check:history-clean": "bun run scripts/scrub-history.ts --check"
@@ -175,7 +180,7 @@
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@armonia-io/spec-flow": "0.4.0",
+    "@armonia-io/spec-flow": "0.5.0",
     "@hughescr/stryker-bun-runner": "1.6.0",
     "@playwright/test": "^1.58.2",
     "@stryker-mutator/core": "10.1.1",

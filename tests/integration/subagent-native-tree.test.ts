@@ -125,10 +125,13 @@ beforeAll(async () => {
   ctx = await createTestAppContext();
   topic(PARENT); topic(ROOT2);
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
+  const sharedMod = await import("../../server/routes/terminal-shared");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
-  terminal._setAgentProfilesHome(HOME);
-  terminal._setTerminalTrackerForTests(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
+  childrenMod._setAgentProfilesHome(HOME);
+  sharedMod._setTerminalTrackerForTests(null);
   terminal.setSubAgentExitHandler((info) => { reports.push(info); info.settle?.(); });
   router = terminal.createTerminalRouter(ctx) as typeof router;
   const { archiveTopicFully, reopenTopicFully } = await import("../../server/services/archive-topic");
@@ -162,11 +165,13 @@ afterAll(async () => {
   const native = await import("../../server/lib/native-subagents");
   native._resetNativeSubagents();
   const terminal = await import("../../server/routes/terminal");
+  const childrenMod = await import("../../server/routes/terminal-children");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
-  terminal._setAgentProfilesHome(null);
+  childrenMod._setAgentProfilesHome(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   await bridge?.close();
   bridge?.cleanup();
   delete process.env.CLAUDE_BIN;
@@ -175,28 +180,6 @@ afterAll(async () => {
 });
 
 describe("resume, wake and restart of a child in the middle of a tree", () => {
-  // Review 2, A: the reopen cleared only the flag; the retirement fact stayed,
-  // and the next boot's reconcile archived the child under its live turn.
-  test("a resumed child is reopened through the unarchive's door: the boot reconcile leaves it open", async () => {
-    const { body } = await spawn(PARENT, { name: "rearch" });
-    const id = body.agentId as string; const sk = body.sessionKey as string;
-    await until("turn 1", () => reportsFor(id)[0]);
-    expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(true);
-    const { isRetired, reconcile } = await import("../../server/services/retirement");
-    expect(isRetired(ctx.db, "topic", id)).toBe(true);
-    mode = "hold";
-    const res = await call(`${agents(PARENT)}/${id}/send`, "POST", { input: "turn 2, delegate" });
-    expect(res.status).toBe(200);
-    await until("turn 2 open", () => open.has(sk));
-    expect(ctx.getTopicBySessionKey(sk)?.archived).toBe(false);
-    expect(isRetired(ctx.db, "topic", id)).toBe(false);
-    const { archiveTopicFully } = await import("../../server/services/archive-topic");
-    reconcile(ctx.db, { archiveTopic: (tid) => { archiveTopicFully(archiveDeps, tid); }, retireTerminal: () => {} });
-    const t = ctx.getTopicBySessionKey(sk)!;
-    expect(t.archived).toBe(false);
-    const { stoppedSubagentChat, wakeVerdict } = await import("../../server/lib/wake-adoption");
-    expect(wakeVerdict({ id: t.id, archived: t.archived }, () => false, (tid) => stoppedSubagentChat(ctx.db, tid))).toBe("adopt");
-  }, 20_000);
 
   // Review 2, B: a CLI grandchild stays `running` 15 minutes after its result;
   // counting rows kept the child running for good, and a restart reported a

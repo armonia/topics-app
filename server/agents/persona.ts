@@ -32,6 +32,9 @@ export interface AgentPersonaLayer {
   name: AgentPersonaLayerName;
   content: string;
   tokens: number;
+  /** The files behind this layer, when it merges more than one (today only the `agent` layer
+   *  does). The Configure > Context received section breaks the weight down to this level. */
+  files?: { name: string; tokens: number }[];
 }
 
 export interface AgentPersona {
@@ -60,9 +63,10 @@ function layer(name: AgentPersonaLayerName, content: string): AgentPersonaLayer 
   return { name, content, tokens: estimateTokens(content) };
 }
 
-/** Reads the files in order and joins the non-empty ones as one layer. */
-function readAll(...paths: string[]): string {
-  return paths.map(readSafe).filter(Boolean).join("\n\n");
+/** Reads the files in order, joins the non-empty ones as one layer, and keeps each file's own weight. */
+function readAll(...paths: string[]): { content: string; files: { name: string; tokens: number }[] } {
+  const files = paths.map((p) => ({ name: p.split("/").pop()!, tokens: estimateTokens(readSafe(p)) })).filter((f) => f.tokens > 0);
+  return { content: paths.map(readSafe).filter(Boolean).join("\n\n"), files };
 }
 
 export interface AssembleOptions {
@@ -88,7 +92,10 @@ export function assemblePersona(agentId: string, workspace: string, paths: Paths
         layer("rules", readSafe(join(paths.home, "RULES.md"))),
         layer("profile", profile),
         identity,
-        layer("agent", readAll(join(workspace, "SOUL.md"), join(workspace, "AGENTS.md"))),
+        (() => {
+          const { content, files } = readAll(join(workspace, "SOUL.md"), join(workspace, "AGENTS.md"));
+          return { ...layer("agent", content), files };
+        })(),
       ];
   const text = layers.filter((l) => l.content).map((l) => l.content).join("\n\n");
   return { agent: agentId, layers, text };

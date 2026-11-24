@@ -228,7 +228,7 @@ const MIRROR_KEY_PREFIX = "node-run:";
  */
 /**
  * A card whose text names this Mac's own files (the home folder, launchd): a node has none of them, and the run
- * comes back empty. Measured 10/11: five cards on ~/.claude/jarvis came back empty from the PC twice in 2-5 min.
+ * comes back empty. Measured 10/11: five cards on <harness-home> came back empty from the PC twice in 2-5 min.
  */
 const MAC_ONLY_PATH = /(^|[\s`'"(])(~\/|\/Users\/)|\bLaunchAgents\b|\blaunchd\b|\blaunchctl\b/;
 export function namesMacOnlyPaths(task: { text?: string | null; description?: string | null }): boolean {

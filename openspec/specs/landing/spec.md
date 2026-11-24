@@ -645,3 +645,34 @@ consegnato non c'è in questo checkout (un impianto dal nodo fallito).
 #### Scenario: impianto fallito
 - **GIVEN** una card rimandata indietro il cui giro sul nodo torna senza impianto
 - **THEN** il land NON SHALL atterrare il ramo del giro precedente
+
+### Requirement: LAND-19 — Un worktree usa-e-getta tagliato a metà non blocca il land
+
+Il rilascio di un worktree usa-e-getta (check dei nodi, riallineamento, land)
+SHALL togliere prima la registrazione da git e solo dopo cancellare la cartella:
+un rilascio interrotto (spegnimento del server, processo ucciso) NON SHALL
+lasciare un worktree ancora registrato sul ramo e mezzo vuoto, che il land
+leggerebbe come «file non committati».
+
+#### Scenario: rilascio interrotto a metà
+- **GIVEN** il worktree dei check di una consegna da nodo, rilasciato e interrotto in un punto qualunque
+- **WHEN** il land di quella card porta il ramo su main
+- **THEN** il land SHALL riuscire senza «file non committati»
+
+### Requirement: LAND-20 — Nessun checkout usa-e-getta dei nodi sopravvive al server che lo ha aperto
+
+Il checkout su cui si misura una consegna da nodo SHALL sparire dal disco e da
+`git worktree list` anche quando il processo che lo ha aperto muore a metà misura
+(riavvio, uccisione) o il suo `git worktree add` si ferma a metà: al riavvio il
+server SHALL scartare ogni checkout della propria cartella che non sta usando.
+La spazzata NON SHALL toccare i checkout di un altro server (un server di test
+con la sua `TOPICS_HOME`, nello stesso `$TMPDIR`).
+
+#### Scenario: checkout lasciati da un processo morto
+- **GIVEN** un checkout intero e registrato, la copia messa da parte da un rilascio interrotto e una cartella svuotata senza `.git`
+- **WHEN** il server riparte
+- **THEN** la cartella dei checkout SHALL essere vuota e `git worktree list` SHALL mostrare solo il checkout principale
+
+#### Scenario: checkout in uso
+- **GIVEN** una misura che apre il suo checkout mentre la spazzata d'avvio gira, o il checkout di un altro server
+- **THEN** la spazzata NON SHALL toccarlo

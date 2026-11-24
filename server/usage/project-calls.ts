@@ -131,6 +131,7 @@ export function collectProjectCalls(db: Database, folders: FolderResolver, o: Co
   collectNative(db, owners, o, push, chatSurface);
   collectTranscripts(owners, o, push, chatSurface);
   collectRecords(db, owners, o, push);
+  collectNodeCards(db, o, calls, folders);
   return calls;
 }
 
@@ -173,6 +174,36 @@ function collectTranscripts(owners: Owners, o: CollectOptions, push: Push, chatS
       const weight = callWeight(c.model, c.tokens);
       if (root?.topic) push(c.ts, weight, chatSurface(root.topic, subagent), root.topic, c.cwd ?? sub?.cwd ?? null, false);
       else push(c.ts, weight, "outside", null, c.cwd, true);
+    }
+  }
+}
+
+/**
+ * Cards whose run happened on a node: the spend never touched this machine's
+ * messages or transcripts, it arrives as the card's own ledger (`agent_spend`,
+ * fed by the node's report). Each booking is a call of its weight in the card's
+ * project. A card with tokens but no ledger (the node could not price it) counts
+ * once, at its last update, weighed by its tokens.
+ */
+function collectNodeCards(db: Database, o: CollectOptions, calls: QuotaCall[], folders: FolderResolver): void {
+  const cards = db.query(
+    `SELECT id, project_id, updated_at, COALESCE(agent_tokens,0) tokens, COALESCE(agent_cache_read_tokens,0) cr
+     FROM tasks WHERE node_run_id IS NOT NULL AND (COALESCE(agent_tokens,0) > 0 OR COALESCE(agent_cost_cents,0) > 0)`,
+  ).all() as Array<{ id: string; project_id: string | null; updated_at: string; tokens: number; cr: number }>;
+  const ledger = db.query("SELECT at, cents FROM agent_spend WHERE task_id = ? AND cents > 0");
+  for (const c of cards) {
+    const where = { projectId: c.project_id, projectPath: c.project_id ? folders.pathOfId(c.project_id) : null, chatId: null, surface: "card" as const };
+    const rows = ledger.all(c.id) as Array<{ at: string; cents: number }>;
+    if (rows.length === 0) {
+      const ts = Date.parse(c.updated_at);
+      if (Number.isFinite(ts) && ts > o.sinceMs && ts <= o.untilMs) {
+        calls.push({ ...where, ts, weight: callWeight(null, { input: c.tokens, output: 0, cacheWrite: 0, cacheRead: c.cr }) });
+      }
+      continue;
+    }
+    for (const r of rows) {
+      const ts = Date.parse(r.at);
+      if (Number.isFinite(ts) && ts > o.sinceMs && ts <= o.untilMs) calls.push({ ...where, ts, weight: r.cents * 10_000 });
     }
   }
 }

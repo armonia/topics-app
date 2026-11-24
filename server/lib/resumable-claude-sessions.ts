@@ -123,11 +123,6 @@ function remember(path: string, mtimeMs: number, size: number, parsed: Parsed): 
   }
 }
 
-/** @internal Drop the cache (tests). */
-export function clearResumableCache(): void {
-  cache.clear();
-}
-
 /** The order of the list: newest first, then the session id, so a cursor is exact even on equal mtimes. */
 function after(a: { mtimeMs: number; sessionId: string }, cursor: { mtimeMs: number; sessionId: string }): boolean {
   return a.mtimeMs < cursor.mtimeMs || (a.mtimeMs === cursor.mtimeMs && a.sessionId > cursor.sessionId);

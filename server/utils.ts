@@ -96,7 +96,7 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 
 // Re-exported so the routes and tests that import these from "./utils" keep
 // their import lines: they moved with the message row codec.
-export { restoreToolCallsFromBlocks, sanitizeToolCallDetail } from "./app-context/message-thread-reads";
+export { restoreToolCallsFromBlocks } from "./app-context/message-thread-reads";
 
 export function createAppContext(baseDir: string): AppContext {
   // CLI PORT override: BUN_PORT beats .env PORT (Bun auto-loads .env first)

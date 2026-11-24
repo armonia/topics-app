@@ -963,6 +963,15 @@ export function createRemoteNodeLane(host: RemoteNodeHost): RemoteNodeLane {
       try { emit(svc.setDispatchState({ taskId, state: report.dispatchState })); }
       catch (err) { log(`nodo: chip non specchiato su ${taskId}`, err); }
     }
+    // The node's spend lands on THIS card, so the origin's project meter sees it.
+    // Absolute floors: the same report twice moves nothing.
+    if (report.usage && (report.usage.tokens > 0 || report.usage.costCents > 0)) {
+      try {
+        emit(svc.raiseAgentUsage({
+          taskId, tokens: report.usage.tokens, cacheReadTokens: report.usage.cacheReadTokens, costCents: report.usage.costCents,
+        }));
+      } catch (err) { log(`nodo: consumo non specchiato su ${taskId}`, err); }
+    }
     if (!node.primed) {
       // The FIRST report carries what the node wrote before anybody polled:
       // its own "mirrored from <origin>" note, which is this board's own

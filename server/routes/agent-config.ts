@@ -27,10 +27,12 @@ import { runBounded } from "../lib/bounded-spawn";
 import { readIdentity, registryHome } from "../agents/registry";
 import { readJson as readJsonFile, safeWrite } from "../agents/config-files";
 import { assemblePersona } from "../agents/persona";
+import type { RegistryIssue } from "../../shared/agents-health";
 import type { AppContext, RouteHandler } from "../types";
 
 export type AgentId = string;
 export const PERSONA_FILES = ["IDENTITY.md", "SOUL.md"] as const;
+
 
 export interface Paths { home: string; expand: (p: string) => string }
 /** Same home as `/api/agents` (`registryHome`): the two routes must always
@@ -42,6 +44,8 @@ export function defaultPaths(env: Record<string, string | undefined> = process.e
 type Json = Record<string, any>;
 const readJson = (p: string): any => readJsonFile(p);
 
+const ruleSource = (g: Json): string => `config.json rules.groups (account ${g.account ?? "default"}, mention ${!!g.mention}, active ${!!g.active})`;
+
 /** The registry: everything an agent is, read from config.json, engine.json, jobs.json and its workspace. */
 export function readRegistry(paths: Paths) {
   const cfg: Json = readJson(join(paths.home, "config.json"));
@@ -50,7 +54,7 @@ export function readRegistry(paths: Paths) {
   const rules: Json = cfg.rules ?? {};
   const groups: Json[] = rules.groups ?? [];
   const routes: Json[] = rules.agents ?? [];
-  const issues: { agent: AgentId | null; text: string }[] = [];
+  const issues: RegistryIssue[] = [];
 
   const ids = (Object.keys(engine.agents ?? {}) as AgentId[]).filter((id) => !!engine.agents[id]?.workspace);
   // Which account belongs to which agent, and who takes everything no agent
@@ -75,13 +79,30 @@ export function readRegistry(paths: Paths) {
   if (ids.length > 1) {
     for (const key of Object.keys(cfg.channels?.discord ?? {})) {
       if (key === "default" || accountOwners.has(key)) continue;
-      issues.push({ agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}` });
+      issues.push({
+        agent: null, text: `account Discord "${key}": nessun agente lo dichiara, oggi va a ${defaultAgent}`,
+        type: "source-contradiction", ref: `account:${key}`, sources: [`config.json channels.discord.${key}`, "engine.json agents"],
+      });
     }
+  }
+
+  // Which agents follow a chat — its own group row, read across every agent, not only the one
+  // asking. The channel tree (AGENTS-04 feedback: "mappatura chat → agente") shows this per node
+  // instead of making the person open `rules.agents` by hand.
+  const chatAgents = new Map<string, AgentId[]>();
+  for (const g of groups) {
+    if (g.chat === "*") continue;
+    const key = `${g.channel}:${g.chat}`;
+    const agentId = agentOfAccount(g.account);
+    const list = chatAgents.get(key) ?? [];
+    if (!list.includes(agentId)) list.push(agentId);
+    chatAgents.set(key, list);
   }
 
   const agents = ids.map((id) => {
     const ws = paths.expand(engine.agents[id].workspace);
-    const name = readIdentity(ws).name || id;
+    const identity = readIdentity(ws);
+    const name = identity.name || id;
     const persona = Object.fromEntries(PERSONA_FILES.map((f) => {
       const p = join(ws, f);
       return [f, existsSync(p) ? readFileSync(p, "utf8") : ""];
@@ -99,6 +120,11 @@ export function readRegistry(paths: Paths) {
         active: !!g.active, mention: !!g.mention, senders: (g.senders ?? []) as string[], denied: (g.denied ?? []) as string[],
         hasSystem: !!g.system, system: (g.system ?? "") as string, routed: routedChats.has(`${g.channel}:${g.chat}`),
         twoAgents: groups.filter((x) => x.channel === g.channel && x.chat === g.chat).length > 1 && routedToOthers.has(`${g.channel}:${g.chat}`),
+        // Optional tree-grouping hints: `category` has no writer today (no source populates it
+        // yet, kept for when the bridge's cache gains Discord channel categories), so in
+        // production it stays undefined and the tree simply has one level less.
+        category: (g.category ?? undefined) as string | undefined,
+        followedBy: chatAgents.get(`${g.channel}:${g.chat}`) ?? [id],
       }));
     const agentJobs = jobs
       .filter((j) => (j.run?.kind === "agent" ? (j.run.agent ?? defaultAgent) : defaultAgent) === id)
@@ -109,7 +135,7 @@ export function readRegistry(paths: Paths) {
         model: (j.run?.model as string) ?? null, deliver: j.deliver ? `${j.deliver.channel}:${j.deliver.chat}` : null,
       }));
     const models = id === defaultAgent ? rules.models ?? {} : {};
-    return { id, name, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
+    return { id, name, job: identity.job, workspace: ws, persona, accounts, chats, jobs: agentJobs, model: { engine: engine.model ?? null, perChannel: models } };
   });
 
   // Incoherences: one chat with different rules for different agents, models written in several forms.
@@ -120,23 +146,42 @@ export function readRegistry(paths: Paths) {
     if (list.length < 2 || k.endsWith(":*")) continue;
     if (routes.some((r) => r.agent && r.agent !== defaultAgent && `${r.channel}:${r.chat}` === k)) continue;
     const diff = list.some((g) => g.mention !== list[0].mention || g.active !== list[0].active);
-    issues.push({ agent: null, text: `${k}: regola scritta ${list.length} volte (${ids.length} agenti)${diff ? ", con menzione/attiva diverse" : ""}` });
+    issues.push({
+      agent: null, text: `${k}: regola scritta ${list.length} volte (${ids.length} agenti)${diff ? ", con menzione/attiva diverse" : ""}`,
+      // Only a repeat with different values is a contradiction; an identical copy is redundant, not wrong.
+      ...(diff ? { type: "source-contradiction" as const, ref: k, sources: [ruleSource(list[0]), ruleSource(list.find((g) => g.mention !== list[0].mention || g.active !== list[0].active)!)] as [string, string] } : {}),
+    });
   }
   for (const [ch, m] of Object.entries(rules.models ?? {}) as [string, Json][]) {
     // engine.json's model is only the fallback for turns no rule names (engine.rs), so a channel
     // rule that differs from it is not a conflict.
     const forms = Object.keys(m).filter((k) => k !== "*").map((k) => k.replace(/^\+|@.*$/g, ""));
-    if (new Set(forms).size < forms.length) issues.push({ agent: defaultAgent, text: `modelli ${ch}: lo stesso numero scritto in più forme` });
+    if (new Set(forms).size < forms.length) {
+      issues.push({
+        agent: defaultAgent, text: `modelli ${ch}: lo stesso numero scritto in più forme`,
+        type: "source-contradiction", ref: `models:${ch}`, sources: [`config.json rules.models.${ch}`, "config.json rules.models (same number, another form)"],
+      });
+    }
   }
-  const implicit = jobs.filter((j) => j.run?.kind === "agent" && !j.run.agent).length;
-  if (implicit) issues.push({ agent: defaultAgent, text: `${implicit} lavori a orario senza agente scritto (vanno all'agente predefinito)` });
-  return { agents, issues };
+  const implicit = jobs.filter((j) => j.run?.kind === "agent" && !j.run.agent);
+  if (implicit.length) {
+    issues.push({
+      agent: defaultAgent, text: `${implicit.length} lavori a orario senza agente scritto (vanno all'agente predefinito)`,
+      type: "job-without-agent", jobs: implicit.map((j) => ({ id: String(j.id), name: String(j.name ?? j.id) })),
+    });
+  }
+  // The raw chat → agent overrides (`rules.agents`), passed through as-is so the channel tree can
+  // show and change them without the person opening `config.json` by hand.
+  const routesOut = routes.filter((r) => r.channel && r.chat).map((r) => ({ channel: r.channel as string, chat: r.chat as string, agent: r.agent as string }));
+  return { agents, issues, routes: routesOut };
 }
 
 export type Edit =
   | { kind: "chat"; channel: string; chat: string; account?: string; active?: boolean; mention?: boolean; system?: string; senders?: string[] }
   | { kind: "job"; id: string; paused?: boolean; schedule?: Json }
-  | { kind: "persona"; agent: AgentId; file: string; text: string };
+  | { kind: "persona"; agent: AgentId; file: string; text: string }
+  /** `agent: null` removes the override — the chat goes back to its default (unrouted) agent. */
+  | { kind: "route"; channel: string; chat: string; agent: AgentId | null };
 
 const CRON_FIELD = /^[\d*,/-]+$/;
 /** A schedule jarvis-channels can run: a 5-field cron, every N minutes, or one ISO time. */
@@ -200,6 +245,31 @@ export function applyEdit(paths: Paths, e: Edit): { file: string; backup: string
       if (!Array.isArray(e.senders) || e.senders.some((x) => typeof x !== "string" || !/^[+\w@.:-]+$/.test(x.trim()))) throw new Error("senders must be a list of ids");
       const list = [...new Set(e.senders.map((x) => x.trim()).filter(Boolean))];
       if (list.length) g.senders = list; else delete g.senders;
+    }
+    const text = JSON.stringify(cfg, null, 2) + "\n";
+    JSON.parse(text);
+    return { file, backup: safeWrite(file, text, paths.home), restart: true };
+  }
+  if (e.kind === "route") {
+    if (e.agent !== null && typeof e.agent !== "string") throw new Error("agent must be an id or null");
+    for (const k of ["channel", "chat"] as const) {
+      if (typeof e[k] !== "string" || !e[k].trim()) throw new Error(`${k} must be a non-empty string`);
+    }
+    if (e.agent !== null) {
+      const engine: Json = existsSync(join(paths.home, "engine.json")) ? readJson(join(paths.home, "engine.json")) : {};
+      if (!engine.agents?.[e.agent]) throw new Error("unknown agent");
+    }
+    const file = join(paths.home, "config.json");
+    const cfg: Json = readJson(file);
+    cfg.rules ??= {};
+    const list: Json[] = (cfg.rules.agents ??= []);
+    const i = list.findIndex((r) => r.channel === e.channel && r.chat === e.chat);
+    if (e.agent === null) {
+      if (i >= 0) list.splice(i, 1);
+    } else if (i >= 0) {
+      list[i].agent = e.agent;
+    } else {
+      list.push({ channel: e.channel, chat: e.chat, agent: e.agent });
     }
     const text = JSON.stringify(cfg, null, 2) + "\n";
     JSON.parse(text);
@@ -275,7 +345,7 @@ export function createAgentConfigRouter(ctx: Pick<AppContext, "json">, paths: ()
     }
     if (method !== "POST") return null;
     const kind = pathname.slice("/api/agent-config/".length);
-    if (!["chat", "job", "persona"].includes(kind)) return null;
+    if (!["chat", "job", "persona", "route"].includes(kind)) return null;
     let body: Json;
     try { body = await req.json(); } catch { return ctx.json({ error: "invalid JSON body" }, 400); }
     try {

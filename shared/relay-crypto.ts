@@ -135,18 +135,3 @@ export function componiLink(base: string, relayId: string, shareRef: string, chi
   return u.toString();
 }
 
-export function leggiLink(href: string): { relayId: string; shareRef: string; chiave: string } | null {
-  try {
-    const u = new URL(href);
-    const m = u.pathname.match(/\/g\/([^/]+)\/([^/]+)\/?$/);
-    const chiave = u.hash.replace(/^#/, "");
-    if (!m || !chiave) return null;
-    return {
-      relayId: decodeURIComponent(m[1]),
-      shareRef: decodeURIComponent(m[2]),
-      chiave,
-    };
-  } catch {
-    return null;
-  }
-}

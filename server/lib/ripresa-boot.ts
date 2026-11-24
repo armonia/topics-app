@@ -61,8 +61,7 @@ import {
   eCartelloDiInterruzione, isOutage, isOutsideCause, isRestartNotice, isResumableCause, outageCutNotResent,
   STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
-import {
-  UNANSWERED_NOTICE, unansweredNotice, capNotice, capLastCut,
+import { unansweredNotice, capNotice, capLastCut,
 } from "./resume-notices";
 
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
@@ -126,9 +125,8 @@ export const MAX_FREE_PROBES = 8;
  */
 export const USER_TAIL_GRACE_MS = 2 * 60_000;
 // The words the sweep writes in a chat: lib/resume-notices.ts.
-export { UNANSWERED_NOTICE, unansweredNotice };
-export const RESUME_CAP_MARKER = capNotice(MAX_RESUME_ATTEMPTS, capLastCut({ restarted: true }));
-export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
+export { unansweredNotice };
+function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
   return capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
 }
 
@@ -346,11 +344,6 @@ export function resumeAttemptOf(body: { ripresa?: unknown } | null | undefined):
   const value = body?.ripresa;
   if (typeof value === "number" && value > 0) return value;
   return value === true ? 1 : 0;
-}
-
-/** The yes/no of `resumeVerdict`, for the callers that only resend. */
-export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
-  return resumeVerdict(r, oraMs) === "resend";
 }
 
 /**

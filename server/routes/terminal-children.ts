@@ -181,7 +181,7 @@ export function liveCliChildren(parentSessionKey: string) {
  * production; a test points it at a fake one, as it does the bridge socket.
  */
 let agentProfilesHome: string | null = null;
-/** @internal */
+/** @internal Test seam: points the agent profiles at a temp dir instead of the real home. */
 export function _setAgentProfilesHome(home: string | null): void {
   agentProfilesHome = home;
 }
@@ -204,9 +204,17 @@ export function endedChildForRead(parentKey: string, agentId: string): TerminalS
  *  (`a` + 16-17 hex) is said to be one: 11 `read_agent` calls passed such an
  *  id and read a bare "not found" they could not act on. */
 export function subAgentNotFound(agentId: string): string {
-  return /^a[0-9a-f]{16,17}$/.test(agentId)
-    ? `sub-agent not found: "${agentId}" is the id of a built-in Agent tool call, not a spawn_agent agentId`
-    : "sub-agent not found";
+  if (/^a[0-9a-f]{16,17}$/.test(agentId)) {
+    return `sub-agent not found: "${agentId}" is the id of a built-in Agent tool call, not a spawn_agent agentId`;
+  }
+  // An id that exists under another chat is not "not found": said bare, the
+  // caller retried the same id twice and gave up (card bd72a5bf).
+  let row: ReturnType<typeof getSubagent> = null;
+  try { row = getSubagent(getDatabase(), agentId); } catch { /* no database: the bare answer */ }
+  if (row) {
+    return `sub-agent not found among this session's children: "${agentId}" ("${row.name}") was spawned by another session (${row.parentSessionKey}), and only that session can drive it; spawn a new sub-agent from here instead`;
+  }
+  return "sub-agent not found";
 }
 
 /** Ended children a `send_to_agent` is bringing back right now. */

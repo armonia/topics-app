@@ -5,10 +5,10 @@
  *
  * @covers CMDUI-03
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { clearResumableCache, listResumableClaudeSessions, parseTranscriptTitle, type ResumableFs } from "./resumable-claude-sessions";
-import { clearExternalSessionCache, scanExternalClaudeSessions } from "./external-claude-sessions";
+import { listResumableClaudeSessions, parseTranscriptTitle, type ResumableFs } from "./resumable-claude-sessions";
+import { scanExternalClaudeSessions } from "./external-claude-sessions";
 import { claudeProjectDirName } from "./claude-transcript-path";
 
 const ROOT = "/fake/.claude/projects";
@@ -58,11 +58,6 @@ function transcript(cwd: string, extra: Array<Record<string, unknown>> = [], bra
 }
 
 const DIR = claudeProjectDirName(PROJECT);
-
-beforeEach(() => {
-  clearResumableCache();
-  clearExternalSessionCache();
-});
 
 describe("parseTranscriptTitle", () => {
   test("the name given with /rename wins, then the CLI's title, then the last question", () => {

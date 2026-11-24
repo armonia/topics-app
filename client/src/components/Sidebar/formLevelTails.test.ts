@@ -14,41 +14,13 @@
 import { describe, expect, test } from 'bun:test';
 import { t, missingKeys, ensureLocaleLoaded, type Locale } from '../../lib/i18n';
 import {
-  calendarTail, claudePlanCompact, claudeSubscription, nodeRequestsLabel, nodesTail, planRowLabel, planRowTail, planTail, providersCountTail, claudePlanWarning, runsOnClaudePlan,
-  subscriptionLabel, toolsTail, usageLine, weekUsageLine,
+  calendarTail, claudeSubscription, nodeRequestsLabel, nodesTail, planRowLabel, planRowTail, providersCountTail, claudePlanWarning, subscriptionLabel, toolsTail, usageLine,
 } from './formLevelTails';
 import type { ProvidersSnapshot } from '../../types';
 
 const it = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 9, 2, 12);
-
-describe('planTail', () => {
-  test('the free plan is «Gratuito», with nothing to warn about', () => {
-    expect(planTail({ plan: 'free', seats: 1, expiresAt: null }, NOW, it)).toEqual({ text: 'Gratuito', warn: false });
-  });
-
-  test('a team plan says its seats, and a far expiry stays quiet', () => {
-    expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW + 200 * DAY }, NOW, it))
-      .toEqual({ text: 'Team · 5 posti', warn: false });
-    expect(planTail({ plan: 'team', seats: 1, expiresAt: null }, NOW, it)?.text).toBe('Team · 1 posto');
-  });
-
-  test('inside thirty days the expiry LEADS the tail, in the warning tone', () => {
-    // First, not last: the tail truncates at its right end, and in a 288 px
-    // menu the end was the warning (`user-menu-forms.spec.ts` measures it).
-    expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW + 12 * DAY + 1000 }, NOW, it))
-      .toEqual({ text: 'Scade tra 12 g · Team · 5 posti', warn: true });
-    expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW + 3_600_000 }, NOW, it)?.text)
-      .toBe('Scade oggi · Team · 5 posti');
-    expect(planTail({ plan: 'team', seats: 5, expiresAt: NOW - 2 * DAY }, NOW, it))
-      .toEqual({ text: 'Scaduto · Team · 5 posti', warn: true });
-  });
-
-  test('a plan not read yet says nothing', () => {
-    expect(planTail(null, NOW, it)).toBeNull();
-  });
-});
 
 describe('subscriptionLabel', () => {
   test('the names a person uses', () => {
@@ -138,32 +110,6 @@ describe('claudePlanWarning (model selector revision §4.5, AC-33)', () => {
   });
 });
 
-describe('claudePlanCompact', () => {
-  const max = { type: 'max', tier: 'default_claude_max_20x' };
-
-  test('the plan and the five-hour window in one line', () => {
-    expect(claudePlanCompact(max, { utilization: 41.6 }, it)).toEqual({ text: 'Max 20x · 5 h al 42%', warn: false });
-  });
-
-  test('past the warning threshold the line asks for attention', () => {
-    expect(claudePlanCompact(max, { utilization: 80 }, it)).toEqual({ text: 'Max 20x · 5 h al 80%', warn: true });
-  });
-
-  test('either half alone, and nothing with neither', () => {
-    expect(claudePlanCompact(max, null, it)).toEqual({ text: 'Max 20x', warn: false });
-    expect(claudePlanCompact(null, { utilization: 10 }, it)).toEqual({ text: '5 h al 10%', warn: false });
-    expect(claudePlanCompact({ type: 'mystery', tier: null }, null, it)).toBeNull();
-    expect(claudePlanCompact(null, null, it)).toBeNull();
-  });
-
-  test('only the Claude runtimes run on the plan', () => {
-    expect(runsOnClaudePlan('claude-code')).toBe(true);
-    expect(runsOnClaudePlan('topics')).toBe(true);
-    expect(runsOnClaudePlan('codex')).toBe(false);
-    expect(runsOnClaudePlan(null)).toBe(false);
-  });
-});
-
 describe('toolsTail, calendarTail, nodesTail', () => {
   const server = (state: 'ready' | 'failed' | 'excluded' | 'needs-auth') => ({ name: state, transport: null, state, tools: [], skills: [] });
 
@@ -229,26 +175,6 @@ describe('nodeRequestsLabel', () => {
     expect(nodeRequestsLabel(1, it)).toBe('1 richiesta da un altro computer aspetta una risposta');
     expect(nodeRequestsLabel(1, (key, vars) => t(key, 'en', vars))).toBe('1 request from another computer is waiting for an answer');
     expect(nodeRequestsLabel(3, it)).toBe('3 richieste da altri computer aspettano una risposta');
-  });
-});
-
-/** @covers CMDUI-05 */
-describe('the week after the five hours', () => {
-  const max = { type: 'max', tier: 'default_claude_max_20x' };
-
-  test('the compact line adds the week after the five hours', () => {
-    expect(claudePlanCompact(max, { utilization: 38 }, it, { utilization: 78 })).toEqual({ text: 'Max 20x · 5 h al 38% · sett. 78%', warn: true });
-    expect(claudePlanCompact(max, { utilization: 10 }, it, { utilization: 20 })).toEqual({ text: 'Max 20x · 5 h al 10% · sett. 20%', warn: false });
-  });
-
-  test('the week alone warns too: its block stops work for days', () => {
-    expect(claudePlanCompact(null, null, it, { utilization: 90 })).toEqual({ text: 'sett. 90%', warn: true });
-  });
-
-  test('the panel line names the day and the hour of the reset', () => {
-    expect(weekUsageLine({ utilization: 77.6, resetsAtMs: 1 }, () => 'sab 13:00', it)).toBe('Settimana al 78% · riparte sab 13:00');
-    expect(weekUsageLine({ utilization: 12, resetsAtMs: null }, () => 'x', it)).toBe('Settimana al 12%');
-    expect(weekUsageLine(null, () => 'x', it)).toBeNull();
   });
 });
 

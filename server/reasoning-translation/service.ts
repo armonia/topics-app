@@ -55,15 +55,6 @@ export function sqliteTranslationStore(db: Database): TranslationStore {
   };
 }
 
-/** In-memory store, for tests and for a process whose database is not up. */
-export function memoryTranslationStore(): TranslationStore {
-  const rows = new Map<string, string>();
-  return {
-    get: (hash, target) => rows.get(`${hash}|${target}`) ?? null,
-    put: (hash, target, _source, text) => void rows.set(`${hash}|${target}`, text),
-  };
-}
-
 export function hashSentence(sentence: string): string {
   return createHash("sha256").update(sentence).digest("hex");
 }

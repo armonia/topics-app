@@ -375,6 +375,7 @@ async function watchChildren(): Promise<void> {
 }
 
 /**
+ * @knipignore re-exported by routes/terminal.ts, which an open branch is editing
  * Retire every live child due for it, now. The watch does it on its tick; a
  * test calls it with a clock moved forward instead of waiting 15 minutes.
  */

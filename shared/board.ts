@@ -368,22 +368,6 @@ export const RECOMMENDED_OPTION_RULE =
   "WHEN YOU OFFER OPTIONS, YOUR PICK GOES FIRST AND SAYS SO. Put the option you would choose as the first element of `options` and end its label with \" (consigliata)\", or \" (recommended)\" when you are writing in English. In the same one-line question, add why in a few words. Only when you truly have no preference, say that instead and name what would settle it. A neutral list hands the human a decision you were in a position to make. NEVER MARK A LABEL THE BOARD EXECUTES ITSELF: `Landa su main`, `Landa e pubblica`, `Approva il piano`, `Da rivedere`, `Rimetti in coda i sottotask`, `Archivia i sottotask`, `Promuovi i sottotask a task`, `La prendo in mano io`. Those are a contract the server matches BY VALUE, and a suffix breaks it. A marked `Landa su main` is no longer a merge order but a question that only wakes you up again, and a marked `Approva il piano` never registers the comment as the plan. Offer those VERBATIM and put your pick first by ORDER alone."; // allow-italian: the reserved labels are quoted verbatim on purpose, the server matches them by value
 
 /**
- * Ritaglia il blocco `PREVIEW_RULE` da un envelope già composto, per STRUTTURA
- * (prima riga «EVIDENZA DI REVIEW…», ultima «Cancello unico…») e non
- * cercandovi la costante: un test che cerca la costante che ha appena
- * interpolato non può fallire, e questo invece deve fallire il giorno in cui
- * qualcuno riscrive il testo a mano dentro un envelope.
- */
-export function extractPreviewRule(envelope: string): string | null {
-  const lines = envelope.split('\n');
-  const from = lines.findIndex((l) => l.startsWith('REVIEW EVIDENCE'));
-  if (from < 0) return null;
-  const to = lines.findIndex((l, i) => i >= from && l.startsWith('One single gate'));
-  if (to < 0) return null;
-  return lines.slice(from, to + 1).join('\n');
-}
-
-/**
  * Il PESO di un task: quanto MORDE LA MACCHINA mentre gira, non quanto è
  * difficile. Sono due assi diversi e vanno tenuti separati — un algoritmo
  * ambiguo è `fable` e non consuma niente; un `bun run build` è banale da
@@ -979,21 +963,10 @@ export interface QueueReason {
 }
 
 /**
- * Every kind, as data. The union above is the contract; this is the same list
- * a test can walk to prove that each branch has somewhere to be written.
- * @internal
- */
-export const QUEUE_REASON_KINDS: QueueReasonKind[] = [
-  'slot', 'blocked', 'deferred', 'attempts', 'dispatch_off', 'no_project',
-  'parent_review', 'parent_turn', 'parent_idle', 'heavy_hold', 'heavy_busy',
-  'resource_floor', 'resource_pressure', 'spend_cap', 'node_unreachable', 'plan_window',
-  'checklist_frozen', 'children_parked', 'parked', 'no_agent', 'unknown',
-];
-
-/**
  * The base keys each kind can emit. A kind with more than one entry is a kind
  * whose sentence changes shape, not just its numbers: one step against three,
  * a deferral in minutes against one on the clock, Backlog against Review.
+ * @internal Parity guard: the catalogue tests walk it so every kind has its i18n keys in both languages.
  */
 export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   slot: ['board.queue.slot.first', 'board.queue.slot.ahead'],
@@ -1027,11 +1000,6 @@ export const QUEUE_REASON_MESSAGE_KEYS: Record<QueueReasonKind, string[]> = {
   ],
   unknown: ['board.queue.unknown'],
 };
-
-/** The three catalogue entries every base key of a kind needs, flattened. */
-export function queueReasonKeys(kind: QueueReasonKind): string[] {
-  return QUEUE_REASON_MESSAGE_KEYS[kind].flatMap((base) => [`${base}.head`, `${base}.detail`, `${base}.title`]);
-}
 
 /**
  * The `dispatch_error` a silent node writes on the card. A SENTINEL, not prose:
@@ -1854,6 +1822,12 @@ export interface CheckRun {
    * "e2e red on the pull request CI" would be the wrong sentence for it.
    */
   ciRunRed?: string;
+  /**
+   * The head sha of the pull request CI run a CI evidence row was read from.
+   * The gate compares it with the commit it is measuring, so a row that
+   * describes an earlier head can never be written as a verdict of this one.
+   */
+  ciCommit?: string;
   /**
    * A NOT MEASURED CI row whose cause passes by itself: no verdict before the
    * deadline, GitHub reads failing, a push or a draft refused by the network.

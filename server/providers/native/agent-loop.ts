@@ -412,7 +412,7 @@ export async function pingPromptCache(
       method: "POST", headers: apiHeaders(token, longWindow), body: JSON.stringify(body), signal: abort.signal,
     });
     if (!res.ok || !res.body) {
-      throw new Error(`keep-alive answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
+      throw new Error(`keep-alive answered ${res.status} from ${new URL(anthropicMessagesUrl()).host}: ${(await res.text().catch(() => "")).slice(0, 300)}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -512,6 +512,8 @@ async function streamOnce(
   if (!res.ok) {
     const answeredAt = Date.now();
     const detail = await res.text().catch(() => "");
+    // Host only (never the token): tells whether the account proxy answered.
+    console.warn(`[native] API ${res.status} from ${new URL(apiUrl).host}: ${detail.slice(0, 200)}`);
     // The engine held a request to the end of its hold and said 429: no
     // account freed up (it logs `cap-exhausted` in the same tick). Trying
     // again would park the next attempt for another hold, up to the policy's
@@ -530,6 +532,7 @@ async function streamOnce(
       spiegaErrore(res.status, detail, opts.model),
       res.status,
       parseRetryAfter(res.headers.get("retry-after")),
+      detail,
     );
   }
   if (!res.body) throw new ApiTransportError("API answered 200 with an empty body", false);

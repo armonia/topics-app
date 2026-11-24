@@ -21,7 +21,8 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTasksRouter } from "./tasks";
-import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { createTaskService, LAND_ACTION_LABEL } from "../services/tasks";
+import { PUBLISH_ACTION_LABEL } from "../../shared/board";
 import { t as label } from "../../client/src/lib/i18n";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 

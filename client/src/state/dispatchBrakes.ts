@@ -17,7 +17,7 @@
 import { useSyncExternalStore } from 'react';
 import { apiFetch } from '../lib/shell/net';
 import { subscribeFrames } from '../lib/wsFrameBus';
-import type { DispatchBrake, DispatchWork } from '../../../shared/provider-hold';
+import type { DispatchBrake, DispatchSpendStop, DispatchWork } from '../../../shared/provider-hold';
 
 const POLL_MS = 60_000;
 /** A card that moves is a burst of frames: one read after it settles. */
@@ -32,9 +32,19 @@ export interface DispatchBrakeState {
   working: Readonly<Record<string, number>>;
   /** Claude's five-hour share, for the row of a Claude that is free. */
   claudeFiveHour: number | null;
+  /** The 24h spend cap when it keeps at least one Todo card waiting, whatever its provider. */
+  spend: SpendStop | null;
 }
 
-const EMPTY: DispatchBrakeState = { brakes: [], held: new Map(), working: {}, claudeFiveHour: null };
+export interface SpendStop {
+  spentCents: number;
+  capCents: number;
+  /** When the cards restart if nothing new is spent; `null` = it cannot be said. */
+  untilMs: number | null;
+  held: ReadonlySet<string>;
+}
+
+const EMPTY: DispatchBrakeState = { brakes: [], held: new Map(), working: {}, claudeFiveHour: null, spend: null };
 
 let current: DispatchBrakeState = EMPTY;
 let wire = '';
@@ -68,9 +78,19 @@ function isHeld(raw: unknown): raw is DispatchWork['held'][number] {
   return !!h && typeof h.taskId === 'string' && (h.provider === 'claude' || h.provider === 'codex');
 }
 
+/** The spend stop as the store keeps it: none past its end, and none that holds no card. */
+function readSpend(raw: unknown, nowMs: number): SpendStop | null {
+  const s = raw as Partial<DispatchSpendStop> | null;
+  if (!s || typeof s.spentCents !== 'number' || typeof s.capCents !== 'number' || !Array.isArray(s.taskIds)) return null;
+  const untilMs = typeof s.untilMs === 'number' ? s.untilMs : null;
+  if (untilMs !== null && untilMs <= nowMs) return null;
+  const held = new Set(s.taskIds.filter((id): id is string => typeof id === 'string'));
+  return held.size > 0 ? { spentCents: s.spentCents, capCents: s.capCents, untilMs, held } : null;
+}
+
 /** The server's answer as the store keeps it; a held card of a wall past its end is dropped with it. */
 export function readBrakeAnswer(body: unknown, nowMs: number): DispatchBrakeState {
-  const b = (body ?? {}) as { brakes?: unknown; held?: unknown; working?: unknown; claudeFiveHour?: unknown };
+  const b = (body ?? {}) as { brakes?: unknown; held?: unknown; working?: unknown; claudeFiveHour?: unknown; spend?: unknown };
   const brakes = liveBrakes(Array.isArray(b.brakes) ? b.brakes.filter(isBrake) : [], nowMs);
   const walls = new Set(brakes.map((x) => x.provider));
   const held = new Map<string, DispatchBrake['provider']>();
@@ -80,7 +100,7 @@ export function readBrakeAnswer(body: unknown, nowMs: number): DispatchBrakeStat
     for (const [k, v] of Object.entries(b.working as Record<string, unknown>)) if (typeof v === 'number' && v > 0) working[k] = v;
   }
   const five = typeof b.claudeFiveHour === 'number' && Number.isFinite(b.claudeFiveHour) ? b.claudeFiveHour : null;
-  return { brakes, held, working, claudeFiveHour: five };
+  return { brakes, held, working, claudeFiveHour: five, spend: readSpend(b.spend, nowMs) };
 }
 
 let lastBody: unknown = null;
@@ -88,7 +108,7 @@ let lastBody: unknown = null;
 function adopt(body: unknown): void {
   lastBody = body;
   const next = readBrakeAnswer(body, Date.now());
-  const key = JSON.stringify([next.brakes, [...next.held], next.working, next.claudeFiveHour]);
+  const key = JSON.stringify([next.brakes, [...next.held], next.working, next.claudeFiveHour, next.spend && { ...next.spend, held: [...next.spend.held] }]);
   if (key === wire) return;
   wire = key;
   current = next;
@@ -99,7 +119,7 @@ function adopt(body: unknown): void {
 /** The end of a brake is an event the server sends no frame for: a timer reads again then. */
 function armExpiry(): void {
   if (expiry !== null) { clearTimeout(expiry); expiry = null; }
-  const ends = current.brakes.map((b) => b.untilMs).filter((t): t is number => t !== null);
+  const ends = [...current.brakes.map((b) => b.untilMs), current.spend?.untilMs ?? null].filter((t): t is number => t !== null);
   if (ends.length === 0 || listeners.size === 0) return;
   expiry = setTimeout(() => { expiry = null; adopt(lastBody); void read(); }, Math.max(0, Math.min(...ends) - Date.now()) + 1_000);
 }

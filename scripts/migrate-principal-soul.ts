@@ -13,9 +13,8 @@
  *     (permissions that name people);
  *   - anything else: a directive, appended to the rules layer (`RULES.md`).
  *
- * `splitSoulSections` lives here, not in `server/agents/`: only this script
- * and its test use it, and the production dead-code gate would count an
- * export reachable only from a hand-run script as unused.
+ * The cutting lives in `server/agents/soul-sections.ts`: the system health
+ * route uses the same cut to tell when an agent still carries rules.
  *
  * Dry run by default: prints what moves where. `--apply` writes, backed up
  * first (`migratePrincipalSoul`).
@@ -26,42 +25,8 @@ import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { migratePrincipalSoul, type PersonaSplit } from "../server/agents/persona-migrate";
+import { planSoulSplit, type SoulPlan, type SoulSection } from "../server/agents/soul-sections";
 import { defaultPaths } from "../server/routes/agent-config";
-
-export interface SoulSection { heading: string; text: string }
-export interface SoulPlan { dropped: SoulSection[]; kept: SoulSection[]; moved: SoulSection[] }
-
-const headingOf = (line: string): string => line.replace(/^##\s+/, "").trim().toLowerCase();
-
-/** Cuts a markdown document into its preamble plus one section per `## ` heading. */
-export function splitSoulSections(soul: string): SoulSection[] {
-  const sections: SoulSection[] = [];
-  let current: SoulSection = { heading: "", text: "" };
-  for (const line of soul.split("\n")) {
-    if (/^##\s+/.test(line)) {
-      sections.push(current);
-      current = { heading: headingOf(line), text: `${line}\n` };
-    } else {
-      current.text += `${line}\n`;
-    }
-  }
-  sections.push(current);
-  return sections.filter((s) => s.text.trim());
-}
-
-/** Decides where each section goes, given the shipped base and the headings to keep. */
-export function planSoulSplit(soul: string, baseSoul: string, keep: string[]): SoulPlan {
-  const baseHeadings = new Set(splitSoulSections(baseSoul).map((s) => s.heading).filter(Boolean));
-  const keepHeadings = new Set(keep.map((k) => k.trim().toLowerCase()));
-  const plan: SoulPlan = { dropped: [], kept: [], moved: [] };
-  for (const s of splitSoulSections(soul)) {
-    if (s.heading && keepHeadings.has(s.heading)) plan.kept.push(s);
-    else if (s.heading && baseHeadings.has(s.heading)) plan.dropped.push(s);
-    else if (s.heading) plan.moved.push(s);
-    else plan.dropped.push(s); // the preamble is the generic title block
-  }
-  return plan;
-}
 
 export function toPersonaSplit(plan: SoulPlan): PersonaSplit {
   const join2 = (xs: SoulSection[]): string => xs.map((s) => s.text.trim()).join("\n\n");

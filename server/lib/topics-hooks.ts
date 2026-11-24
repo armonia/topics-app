@@ -39,6 +39,7 @@ export const TOPICS_HOOK_EVENTS = [
 // an older CLI; the live watch signal is the `PreToolUse` of `Monitor`
 // (`server/lib/claude-session-state.ts`). Install removes our stale entries for
 // these events and uninstall cleans them up too.
+/** @knipignore used by scripts/install-claude-hooks.ts, outside the production graph */
 export const RETIRED_HOOK_EVENTS = ["MonitorArmed", "MonitorClosed"] as const;
 
 // Registered with `async: true`, so Claude Code does not wait for them. The

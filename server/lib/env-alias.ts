@@ -20,25 +20,9 @@ export function warnDeprecatedEnv(alias: string, canonical: string): void {
   );
 }
 
-/**
- * Read `canonical`, falling back to a deprecated `alias`. When the alias is the
- * one that supplies the value, emit a one-time deprecation warning. Empty
- * strings are treated as unset. Returns undefined when neither is set.
- */
-export function readEnvWithAlias(canonical: string, alias: string): string | undefined {
-  const primary = process.env[canonical];
-  if (primary != null && primary !== '') return primary;
-  const legacy = process.env[alias];
-  if (legacy != null && legacy !== '') {
-    warnDeprecatedEnv(alias, canonical);
-    return legacy;
-  }
-  return undefined;
-}
-
 // Test-only: reset the one-shot warning ledger so each test observes a fresh
 // "first use" of an alias.
-/** @internal */
+/** @internal Test seam: forgets which deprecated aliases already warned, so each test sees the first warning. */
 export function __resetDeprecatedEnvWarnings(): void {
   warnedAliases.clear();
 }

@@ -188,6 +188,3 @@ export function transcriptHasPrompt(lines: string[], promptSnippet: string): boo
   return false;
 }
 
-// The classification of a child's turns lives in `subagent-result.ts`; it is
-// re-exported here for the callers that read it with the transcript.
-export { classifySubAgentTranscript, type SubAgentOutcome } from './subagent-result';

@@ -1105,6 +1105,21 @@ export type ContentBlock =
    */
   | { kind: 'goal-nudge'; attempt: number }
   /**
+   * A user's `turn-end` hook asked for this turn (HOOKS-04).
+   *
+   * The hook printed `{"decision":"block","reason":…}` and the server sent the
+   * reason to the chat as the next turn (`server/services/hook-continuation.ts`).
+   * Like `goal-nudge` the row is `user` (the only role a provider answers) and
+   * this block keeps the transcript from showing the person saying it: the
+   * client draws one compact service line with the first line of `content`.
+   * A client older than this block draws the row as a plain bubble with the
+   * hook's text, which is still the right words, just not the right author.
+   *
+   * `attempt` is the consecutive hook continuation (1 = the first), the number
+   * the ceiling of 3 counts.
+   */
+  | { kind: 'hook-nudge'; attempt: number }
+  /**
    * The auto-continuation stopped on its own, and says why.
    *
    * `capped` = the ceiling of consecutive continuations; `stalled` = two turns

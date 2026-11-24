@@ -27,19 +27,7 @@ export type MotivoLicenza =
   | "expired"
   | "valid";
 
-/**
- * Tutti e sette, elencati.
- *
- * Serve a chi deve girarci sopra — un test che controlla di avere una frase per
- * ciascuno, per esempio. Senza, quell'elenco si riscrive a mano nel test, e un
- * elenco scritto a mano è la stessa copia che il tipo condiviso ha appena
- * tolto di mezzo: resterebbe a sette mentre il tipo passa a otto, e il test
- * continuerebbe a dire di sì.
- *
- * `satisfies` lo lega al tipo: se un motivo nuovo non finisce anche qui, non
- * compila.
- * @internal
- */
+/** @internal every reason listed, so a test can iterate them; `satisfies` ties it to the type */
 export const MOTIVI_LICENZA = [
   "no_token", "no_verification_key", "malformed",
   "bad_signature", "other_installation", "expired", "valid",

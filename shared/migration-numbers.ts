@@ -68,7 +68,7 @@ function versionOf(file: string): number {
   return parseInt(file.match(MIGRATION_FILE)![1], 10);
 }
 
-/** Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
+/** @knipignore used by scripts/check-migration-numbers.ts, outside the production graph. Chi usa ancora il contatore fra i file che questo branch AGGIUNGE. */
 export function legacyNumbered(branchFiles: string[], baseFiles: string[]): string[] {
   const base = new Set(migrationFileNames(baseFiles));
   return migrationFileNames(branchFiles).filter(f => !base.has(f) && !STAMP_FILE.test(f));

@@ -26,7 +26,8 @@ import {
   saveGlobalCap,
   subscribeGlobalDispatchCap,
 } from './globalDispatchCap';
-import { CHECKS_MEM_FLOOR_DEFAULT_GB, clampGlobalCap, type DispatchCapacity } from '../lib/board';
+import { clampGlobalCap, type DispatchCapacity } from '../lib/board';
+import { CHECKS_MEM_FLOOR_DEFAULT_GB } from '../../../shared/checks-memory-floor';
 import { dispatchFrame } from '../lib/wsFrameBus';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({

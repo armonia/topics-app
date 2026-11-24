@@ -295,7 +295,7 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
       if (probe.shaExists(c.value)) {
         // It exists, but in ANOTHER repo and only on a branch: the card's land
         // merges the card's repo alone, so closing the card never brings it to
-        // main (card ccf715f6, branch `topics/r3-letture` of ~/.claude/jarvis).
+        // main (card ccf715f6, branch `topics/r3-letture` of <harness-home>).
         const off = probe.shaOffMain?.(c.value);
         if (off) {
           const where = off.branches.length > 0 ? `sul ramo ${off.branches.join(", ")}` : "fuori da ogni ramo";

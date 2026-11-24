@@ -293,28 +293,28 @@
   "tolerance_pct": 5,
   "max_lines": 800,
   "min_clone_lines": 20,
-  "duplicated_lines": 429,
-  "clone_groups": 16,
+  "duplicated_lines": 311,
+  "clone_groups": 11,
   "files": {
     "client/src/App.tsx": 1100,
 
-    "client/src/components/Board/Card.tsx": 2321,
+    "client/src/components/Board/Card.tsx": 2350,
 
     "client/src/components/Board/FloatingTaskComposer.tsx": {
-      "lines": 907,
+      "lines": 908,
       "why": [
         "2026-10-30, overflow dispatch (card 6d60b323): 790 on main -> 808, +18 the \"this Mac only\" mark settable when the card is created (the composer's menu), next to the machine choice it qualifies."
       ]
     },
 
-    "client/src/components/Board/KanbanBoardPane.tsx": 1521,
+    "client/src/components/Board/KanbanBoardPane.tsx": 1552,
 
-    "client/src/components/Board/TaskDetail.tsx": 1420,
+    "client/src/components/Board/TaskDetail.tsx": 1471,
 
-    "client/src/components/Browser/RemoteBrowserPanel.tsx": 1378,
+    "client/src/components/Browser/RemoteBrowserPanel.tsx": 1379,
 
     "client/src/components/Chat/ChatInput.tsx": {
-      "lines": 2092,
+      "lines": 2089,
       "why": [
         "2026-10-03, commands-ui: +125 on main (1930), the grouped «/» menu (Topics, engine, skills) and its rows, the «Comandi /» row of the «+», the /resume picker host and the control doors /permissions /fast open.",
         "2026-10-03, merged with main 5125e396b (tornata 3b): 2085 measured. Main 1930 -> 1944 bought +14 (the /model completion, the pinned model handed to the chip, the ⌘⇧M door); this branch +141 on top (the grouped menu, /resume host, control doors, and the /model completion rows typed as menu rows)."
@@ -333,9 +333,9 @@
 
     "client/src/components/Layout/GroupLayout.tsx": 1838,
 
-    "client/src/components/Layout/PaneTabBar.tsx": 1729,
+    "client/src/components/Layout/PaneTabBar.tsx": 1718,
 
-    "client/src/components/Layout/PanelGrid.tsx": 3261,
+    "client/src/components/Layout/PanelGrid.tsx": 3253,
 
     "client/src/components/Layout/StandaloneChatGroup.tsx": 1197,
 
@@ -344,7 +344,7 @@
     "client/src/components/Layout/hooks/useProjectLayout.ts": 1983,
 
     "client/src/components/MessageContent.tsx": {
-      "lines": 1251,
+      "lines": 1261,
       "why": [
         "2026-10-03, commands-ui: +5 on main (1537), the command mark drawn only for a name a menu knows."
       ]
@@ -354,17 +354,17 @@
 
     "client/src/components/Project/GitChanges.tsx": 1859,
 
-    "client/src/components/Project/ProjectSidebar.tsx": 1380,
+    "client/src/components/Project/ProjectSidebar.tsx": 1379,
 
-    "client/src/components/Shared/CommandPalette.tsx": 1085,
+    "client/src/components/Shared/CommandPalette.tsx": 1084,
 
     "client/src/components/Shared/ModelSelector/ModelList.tsx": 811,
 
     "client/src/components/Sidebar/PinnedTiles.tsx": 1215,
 
-    "client/src/components/Sidebar/TopicTree.tsx": 3117,
+    "client/src/components/Sidebar/TopicTree.tsx": 3130,
 
-    "client/src/components/Terminal/SingleTerminalPane.tsx": 1619,
+    "client/src/components/Terminal/SingleTerminalPane.tsx": 1620,
 
     "client/src/hooks/useChat.ts": 1189,
 
@@ -379,14 +379,14 @@
 
     "client/src/hooks/useTauriBrowser.ts": 2198,
 
-    "client/src/lib/board.ts": 1486,
+    "client/src/lib/board.ts": 1488,
 
     "client/src/lib/buildSidebarItems.test.ts": 1048,
 
-    "client/src/lib/buildSidebarItems.ts": 1020,
+    "client/src/lib/buildSidebarItems.ts": 1007,
 
     "client/src/lib/i18n-en.ts": {
-      "lines": 3516,
+      "lines": 3726,
       "why": [
         "2026-10-15, first-run (D6a): 3024 measured. Main 2863 -> 2992 since the last record (scheduled cards and the merges before them); this branch +32 on top, the strings of the first-run screen and its provider box.",
         "2026-10-03, commands-ui: +56 on main (2790), the English twin of the same keys.",
@@ -395,7 +395,7 @@
     },
 
     "client/src/lib/i18n-it.ts": {
-      "lines": 3876,
+      "lines": 4086,
       "why": [
         "2026-10-15, live-terminals-launchd: 3393 measured on main 703294a85. The last +12 (over the 3381 ceiling) are the liveTerminals.* strings of #331, the menu of the terminals live on the Mac; the other +161 came in under the ceiling through D5f, D6a and D6d. Recorded by hand, this row only.",
         "2026-10-03, commands-ui: +56 on main (3147), the strings of the three menu groups, /resume, the command card, /fast /rename /export, the week bar, the pinned line and the board hint.",
@@ -403,7 +403,7 @@
       ]
     },
 
-    "client/src/lib/selectionStyles.ts": 1231,
+    "client/src/lib/selectionStyles.ts": 1154,
 
     "client/src/lib/tabLink.test.ts": 1016,
 
@@ -413,10 +413,10 @@
 
     "client/src/state/pane/reducers/panes.ts": 891,
 
-    "client/src/state/signals.ts": 1070,
+    "client/src/state/signals.ts": 1085,
 
     "client/src/types/index.ts": {
-      "lines": 1667,
+      "lines": 1676,
       "why": [
         "2026-10-04, notifications-redesign (client half): 1647 on main, +23 measured. The two attention frames in the WS union (attention:init, attention:updated) and PhaseTier split from AttentionTier, which now has three lit tiers (needs-you, error, done)."
       ]
@@ -434,9 +434,9 @@
 
     "desktop-tauri/pty-bridge/src/bridge.rs": 1275,
 
-    "desktop-tauri/src-tauri/src/browser_panes.rs": 5564,
+    "desktop-tauri/src-tauri/src/browser_panes.rs": 5608,
 
-    "desktop-tauri/src-tauri/src/os_integration.rs": 1012,
+    "desktop-tauri/src-tauri/src/os_integration.rs": 1031,
 
     "desktop-tauri/src-tauri/src/perf_metrics.rs": 1059,
 
@@ -444,7 +444,7 @@
 
     "desktop-tauri/src-tauri/src/window_chrome.rs": 2150,
 
-    "playwright.config.ts": 870,
+    "playwright.config.ts": 881,
 
     "relay/ponte-ws.test.ts": 968,
 
@@ -460,11 +460,11 @@
 
     "scripts/board-doctor.test.ts": 1056,
 
-    "scripts/board-doctor.ts": 1623,
+    "scripts/board-doctor.ts": 1624,
 
     "scripts/board-vs-chat.ts": 1959,
 
-    "scripts/check-identifier-language.ts": 849,
+    "scripts/check-identifier-language.ts": 866,
 
     "scripts/check-route-latency.ts": 1069,
 
@@ -492,7 +492,7 @@
     },
 
     "server/attention/store.ts": {
-      "lines": 1292,
+      "lines": 1298,
       "why": [
         "2026-10-04, notifications-redesign: new, the ONE writer of subject_attention (design 2.2, checked by server/attention/boundary.test.ts). Its pure parts already live apart (compose.ts, background-tasks.ts, the words in push-triggers.ts); splitting the writer would open a second door on the table."
       ]
@@ -500,36 +500,37 @@
 
     "server/browser-service.ts": 2486,
 
-    "server/browser-tools-handler.ts": 810,
+    "server/browser-tools-handler.ts": 813,
 
     "server/context/assemble.test.ts": 1233,
 
     "server/context/assemble.ts": 1155,
 
-    "server/lib/claude-session-state.test.ts": 1015,
+    "server/lib/claude-session-state.test.ts": 963,
 
-    "server/lib/claude-session-state.ts": 1032,
+    "server/lib/claude-session-state.ts": 1025,
 
     "server/lib/claude-session-tracker.test.ts": 1266,
 
     "server/lib/claude-session-tracker.ts": 1199,
 
-    "server/lib/native-subagents.ts": 1051,
+    "server/lib/machine-security.ts": 813,
 
-    "server/lib/ripresa-boot.test.ts": 934,
+    "server/lib/native-subagents.ts": 1128,
 
-    "server/lib/ripresa-boot.ts": 1259,
+    "server/lib/ripresa-boot.test.ts": 935,
+
+    "server/lib/ripresa-boot.ts": 1254,
 
     "server/lib/tab-resolver.ts": 1018,
 
-    "server/mcp/topics-mcp-server.test.ts": 2520,
-
+    "server/mcp/topics-mcp-server.test.ts": 2562,
 
     "server/providers/acp.ts": 917,
 
-    "server/providers/claude-code.ts": 3858,
+    "server/providers/claude-code.ts": 3847,
 
-    "server/providers/codex.ts": 1378,
+    "server/providers/codex.ts": 1347,
 
     "server/providers/index.ts": {
       "lines": 841,
@@ -539,16 +540,16 @@
     },
 
     "server/providers/muse.ts": {
-      "lines": 1096,
+      "lines": 1048,
       "why": [
         "2026-10-06, muse-provider: new file, the Muse chat provider as a deliberate CodexProvider mirror (one-shot exec + sid resume, JSONL mapping, abort, usage). The mirror is also the +113 duplicated lines / +5 clone groups recorded above."
       ]
     },
 
-    "server/providers/native/agent-loop.ts": 1352,
+    "server/providers/native/agent-loop.ts": 1367,
 
     "server/providers/native/provider.ts": {
-      "lines": 1506,
+      "lines": 1523,
       "why": [
         "2026-11-07, lossless-restart: +180, the native turn runs in its own process under the AI broker (detached-turn.ts, turn-host.ts). What stays here is the provider contract that process needs: stop() detaching instead of aborting, reattach(), hasLiveSession(), the Stop that reaches a re-adopted turn, and the turn spec built from the same per-turn reads as the in-process path. The journal, the host and the broker client live in their own files."
       ]
@@ -562,16 +563,16 @@
     },
 
     "server/providers/types.ts": {
-      "lines": 883,
+      "lines": 885,
       "why": [
         "2026-10-03, commands-ui: 800 on main -> 818, CommandAnswerPayload and StreamHandler.onCommandAnswer, the contract every provider shares."
       ]
     },
 
-    "server/routes/auth.ts": 1717,
+    "server/routes/auth.ts": 1791,
 
     "server/routes/browser-bridge.test.ts": {
-      "lines": 1813,
+      "lines": 1854,
       "why": [
         "2026-10-12, op-opens-pane r1 (unrecorded, 1127 -> 1242): the six auto-open tests, the bridge opening before a pane-less page op. r2 1242 -> 1283 (+41): the task-topic no-announce case, the live-url-beats-persisted case, the 60 s retry-window case, and the getUrl/liveUrls harness seam. Recorded, not split: every case drives the same bridge harness through the helpers at the top of the file.",
         "2026-10-24, 1306 -> 1436 (+130) from two fixes: #420 open-pane from a terminal answers 400 on a refused URL (four URL cases), #421 every 5xx of the bridge logs its reason (eval, open-pane and list-tabs cases, plus the harness options evalRejects and listContextsThrows). Recorded, not split: both drive the same bridge harness.",
@@ -583,14 +584,14 @@
 
     "server/routes/chat.outage-direct-answer.test.ts": 1159,
 
-    "server/routes/chat.ts": 1102,
+    "server/routes/chat.ts": 1113,
 
-    "server/routes/e2e.ts": 1017,
+    "server/routes/e2e.ts": 1053,
 
     "server/routes/files.ts": 1637,
 
     "server/routes/nodes.ts": {
-      "lines": 825,
+      "lines": 831,
       "why": [
         "2026-11-19, node pairing scope (card d665f0ba): 800 on main -> 825, +25 only the device holding the node's channel creates runs, and each caller reads, bundles and cancels only the runs it created."
       ]
@@ -598,44 +599,46 @@
 
     "server/routes/outbound.test.ts": 1049,
 
-    "server/routes/tasks-board.ts": 1572,
+    "server/routes/tasks-board.ts": 1603,
 
-    "server/routes/tasks-land.ts": 802,
+    "server/routes/tasks-land.ts": 917,
 
-    "server/routes/tasks.test.ts": 2881,
+    "server/routes/tasks.test.ts": 2887,
 
-    "server/routes/tasks.ts": 1498,
+    "server/routes/tasks.ts": 1514,
 
-    "server/routes/terminal.ts": 1203,
+    "server/routes/terminal.ts": 1199,
 
     "server/routes/topics.control.test.ts": 869,
 
     "server/routes/topics.ts": 1380,
 
-    "server/services/ci-evidence.ts": 1042,
+    "server/services/ci-evidence.test.ts": 821,
 
-    "server/services/dispatch-capacity.ts": 1309,
+    "server/services/ci-evidence.ts": 1074,
+
+    "server/services/dispatch-capacity.ts": 1248,
 
     "server/services/external-proxy.ts": 926,
 
-    "server/services/preview-manager.ts": 813,
+    "server/services/preview-manager.ts": 925,
 
     "server/services/relay-client.ts": 1300,
 
     "server/services/review-checks-brakes.test.ts": 1001,
 
-    "server/services/review-checks.ts": 997,
+    "server/services/review-checks.ts": 1015,
 
-    "server/services/task-automerge.test.ts": 1068,
+    "server/services/task-automerge.test.ts": 1103,
 
-    "server/services/task-automerge.ts": 1867,
+    "server/services/task-automerge.ts": 1761,
 
     "server/services/task-dispatcher-admission.test.ts": 812,
 
-    "server/services/task-dispatcher-held-resume-quiet.test.ts": 860,
+    "server/services/task-dispatcher-held-resume-quiet.test.ts": 818,
 
     "server/services/task-dispatcher-overflow.test.ts": {
-      "lines": 1578,
+      "lines": 1586,
       "why": [
         "2026-11-22, card pinned at its machine's seats: 1556 on main -> 1578, +22 the two cases of a pinned card held in todo while its node is at its seats (no claim, no attempt spent) and started once a seat frees, on the file's own harness and fake machines."
       ]
@@ -659,19 +662,19 @@
       ]
     },
 
-    "server/services/task-dispatcher.test.ts": 5114,
+    "server/services/task-dispatcher.test.ts": 5156,
 
-    "server/services/tasks-service-types.ts": 894,
+    "server/services/tasks-service-types.ts": 880,
 
-    "server/services/tasks.delivery.test.ts": 1056,
+    "server/services/tasks.delivery.test.ts": 1088,
 
-    "server/services/tasks.test.ts": 2857,
+    "server/services/tasks.test.ts": 2865,
 
-    "server/services/tasks.ts": 930,
+    "server/services/tasks.ts": 910,
 
-    "server/services/tasks/shared.ts": 2640,
+    "server/services/tasks/shared.ts": 2617,
 
-    "server/services/tasks/status.ts": 1808,
+    "server/services/tasks/status.ts": 1821,
 
     "server/services/voice-call/call.test.ts": 816,
 
@@ -679,23 +682,23 @@
 
     "server/services/worktree-gc.ts": 871,
 
-    "server/utils.ts": 1476,
+    "server/utils.ts": 1459,
 
-    "shared/board.test.ts": 1260,
+    "shared/board.test.ts": 1309,
 
     "shared/board.ts": {
-      "lines": 2651,
+      "lines": 2744,
       "why": [
         "2026-10-30, overflow dispatch (card 6d60b323): 2624 on main -> 2637, +13 the board's overflow switch and its \"this Mac only\" mark (dispatchOverflow, dispatchStayLocal), documented where every other board setting is."
       ]
     },
 
-    "shared/relay-protocol.ts": 1101,
+    "shared/relay-protocol.ts": 1098,
 
-    "shared/types.ts": 1713,
+    "shared/types.ts": 1725,
 
     "shared/ws-outbound.ts": {
-      "lines": 1779,
+      "lines": 1801,
       "why": [
         "2026-10-03, commands-ui: +15 on main (1600), the stream:command-answer frame schema."
       ]
@@ -737,14 +740,14 @@
     },
 
     "tests/integration/primary-role-two-servers.test.ts": {
-      "lines": 832,
+      "lines": 878,
       "why": [
         "2026-11-19, node pairing scope (card d665f0ba): 616 on main -> 832, the two and three server proofs with real pairing, (a) node cookie refused, (a2) runs confined to the channel, (b) the primary still runs a card, (c) the owner phone unchanged. They share one fleet booted in beforeAll, so splitting the file would boot it twice."
       ]
     },
 
-    "tests/integration/process-run-command.test.ts": 812,
+    "tests/integration/process-run-command.test.ts": 836,
 
-    "tests/unit/ws-outbound-schema.test.ts": 936
+    "tests/unit/ws-outbound-schema.test.ts": 951
   }
 }

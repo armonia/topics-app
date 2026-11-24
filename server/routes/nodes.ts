@@ -776,6 +776,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           // still answers `in_progress`, so without this bit the caller cannot tell a run that
           // is still going from one nobody will ever move again.
           archived: task.archived,
+          usage: { tokens: task.agentTokens ?? 0, cacheReadTokens: task.agentCacheReadTokens ?? 0, costCents: task.agentCostCents ?? 0 },
         });
       }
       if (method === "DELETE") {
@@ -814,6 +815,7 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
           commitCount: facts.commitCount, stat: statOf(task), reason,
           // Same bit as the paired GET above: archived does not show up in the status.
           archived: task.archived,
+          usage: { tokens: task.agentTokens ?? 0, cacheReadTokens: task.agentCacheReadTokens ?? 0, costCents: task.agentCostCents ?? 0 },
         });
       }
       if (method === "DELETE") {

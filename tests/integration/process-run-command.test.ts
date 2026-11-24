@@ -29,7 +29,8 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, logPathOf, stopCommandWakesOf } = await import("../../server/routes/processes");
+const { commandWakeState, createProcessesRouter, stopCommandWakesOf } = await import("../../server/routes/processes");
+const { logPathOf } = await import("../../server/routes/processes-persist");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { runningTaskOwnsTopic } = await import("../../server/lib/wake-adoption");
 const { createChatRouter } = await import("../../server/routes/chat");

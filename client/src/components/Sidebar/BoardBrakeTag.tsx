@@ -1,7 +1,8 @@
 /**
  * THE «FRENATO» TAG ON THE SIDEBAR'S BOARD ROW (HUBBR-20): the board's chip
  * seen from outside the board, so a held queue shows without opening it.
- * Present only while a provider's wall holds at least one Todo card.
+ * Present only while a provider's wall, or the 24h spend cap, holds at least
+ * one Todo card.
  */
 import { CirclePause } from 'lucide-react';
 import { useT } from '../../hooks/useT';
@@ -14,12 +15,12 @@ export function BoardBrakeTag() {
   const tr = useT();
   const state = useDispatchBrakes();
   const holding = holdingBrakes(state);
-  if (holding.length === 0) return null;
+  if (holding.length === 0 && !state.spend) return null;
   const who = holding.map((b) => providerHoldLabel(b.provider)).join(' + ');
   return (
     <span
       data-testid="sidebar-board-brake"
-      title={tr('sidebar.board.brakeTitle', { n: state.held.size, who })}
+      title={state.spend ? tr('sidebar.board.brakeSpendTitle', { n: state.spend.held.size }) : tr('sidebar.board.brakeTitle', { n: state.held.size, who })}
       className={`inline-flex h-4 flex-shrink-0 items-center gap-0.5 rounded-sm bg-amber-500/[0.14] px-1 text-mini font-semibold leading-none dark:bg-amber-400/[0.12] ${WARNING_TEXT}`}
     >
       <CirclePause className="h-[11px] w-[11px]" aria-hidden="true" />

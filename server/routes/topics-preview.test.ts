@@ -2,7 +2,7 @@
  * @covers TOPIC-PREVIEW-01
  */
 import { describe, test, expect } from "bun:test";
-import { topicPreviewText } from "./topics";
+import { topicPreviewText } from "./topics-preview";
 
 /**
  * DUE GEMELLE, UNA SOLA TESTATA.

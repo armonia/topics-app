@@ -10,6 +10,7 @@
  * @covers CHAT-REL-06
  */
 import { describe, expect, test } from "bun:test";
+import { classifyTurnError } from "../stop-reason";
 import {
   ApiHttpError,
   ApiStreamError,
@@ -209,5 +210,36 @@ describe("an error that ends the attempts keeps its status", () => {
     expect(err).toBeInstanceOf(ApiHttpError);
     expect((err as ApiHttpError).status).toBe(413);
     expect((err as ApiHttpError).message).toContain("retried 1 time");
+  });
+});
+
+/**
+ * A spent plan and credit balance answers 400 `invalid_request_error`, yet the
+ * request is fine: it is a quota, retried like a saturated 429 and ended as
+ * `rate-limit` so the turn resumes by itself (card ac6d1cad, 2026-11-21).
+ *
+ * @covers RESUME-04
+ */
+describe("a 400 that says the credit balance is spent", () => {
+  const creditBody = '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}';
+  const policy: RetryPolicy = { maxAttempts: 3, baseMs: 1, capMs: 2, jitter: () => 1 };
+  const ctxBase = { auth: { token: "t" }, policy, renewToken: async () => null };
+
+  test("is a quota: retried, not given up", () => {
+    const v = classifyFailure(new ApiHttpError(`API 400: ${creditBody}`, 400, null, creditBody));
+    expect(v).toEqual({ kind: "retry", reason: "API 400 credit exhausted", retryAfterMs: null });
+  });
+
+  test("any other invalid_request_error stays a give-up", () => {
+    const body = '{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 200000 > 64000, which is the maximum allowed number of output tokens"}}';
+    expect(classifyFailure(new ApiHttpError(`API 400: ${body}`, 400, null, body)).kind).toBe("give-up");
+  });
+
+  test("attempts spent: the turn ends as rate-limit, which resumes by itself", async () => {
+    let calls = 0;
+    const run = async (): Promise<string> => { calls++; throw new ApiHttpError(`API 400: ${creditBody}`, 400, null, creditBody); };
+    const err = await retryRound(run, ctxBase).catch((e: unknown) => e);
+    expect(calls).toBe(3);
+    expect(classifyTurnError(err)).toMatchObject({ end: "error", cause: "rate-limit" });
   });
 });

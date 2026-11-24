@@ -24,7 +24,8 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
 process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
-const { commandWakeState, createProcessesRouter, logPathOf, sessionsAwaitingCommandWake } = await import("./processes");
+const { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake } = await import("./processes");
+const { logPathOf } = await import("./processes-persist");
 const { isGuestAllowedPath, isGuestSafeFrameType } = await import("../lib/grants");
 const { RUN_OUTPUT_MAX_BYTES, insertRun, noteRunAlive } = await import("../lib/command-runs");
 

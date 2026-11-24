@@ -757,6 +757,7 @@ function App() {
         boardInFront={boardInFront}
         handleMobileBoardToggle={handleMobileBoardToggle}
         waitingCount={waitingCount}
+        systemOpen={openPanels.includes('__system-page__')}
       >
           {/* THE GROUPS are cards inside the tree (TopicTree): each one holds
               its own tabs and opens and closes by itself. There is no

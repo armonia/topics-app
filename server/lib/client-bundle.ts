@@ -37,6 +37,7 @@ export function missingBundleAssets(dir: string): string[] {
 }
 
 /**
+ * @knipignore used by scripts/build-client.ts, outside the production graph
  * Precompressed siblings whose content does NOT decode back to the file they
  * sit next to. Empty answer = the compressed half of the bundle is the same
  * bundle.
@@ -111,6 +112,7 @@ export function precompressedOrigin(name: string): string | null {
   return m ? m[1] : null;
 }
 
+/** @knipignore used by scripts/build-client-publish.ts, outside the production graph */
 export function unreachableAssets(assetsDir: string, roots: Iterable<string>): string[] {
   if (!existsSync(assetsDir)) return [];
   const all = filesUnder(assetsDir);

@@ -226,6 +226,11 @@ describe("classifyTurnError — il limite dell'API", () => {
     expect(classifyTurnError("ai-bridge: ack timeout").cause).toBe("provider-error");
   });
 
+  it("a spent credit balance (a 400 from the API) is a `rate-limit` end, not an error", () => {
+    const msg = 'API 400: {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}} (retried 27 times over 600s without success)';
+    expect(classifyTurnError(msg).cause).toBe("rate-limit");
+  });
+
   it("costs no attempt on a card, and has a sentence of its own", () => {
     expect(consumesAttempt({ end: "error", cause: "rate-limit" })).toBe(false);
     expect(consumesAttempt({ end: "error", cause: "provider-error" })).toBe(true);

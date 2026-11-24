@@ -20,7 +20,7 @@
  * @covers LAYOUT-01
  */
 import { test, expect, describe } from 'bun:test';
-import { gridRowsToTree, groupRowsToTree, buildShallowGridTree } from './legacyAdapters';
+import { buildShallowGridTree } from './legacyAdapters';
 import { computeRects, type LayoutNode, type LeafRect, type Rect } from './layoutTree';
 import type { PanelGridRow, GroupLayoutRow } from '../../types';
 
@@ -211,27 +211,6 @@ const GRID_CASES: GridCase[] = [
   },
 ];
 
-describe('golden geometry — standalone PanelGrid (gridRowsToTree + computeRects)', () => {
-  for (const c of GRID_CASES) {
-    test(c.name, () => {
-      const gutter = c.gutter ?? 0;
-      const actual = computeRects(gridRowsToTree(c.rows, c.rowHeights), CONTAINER, gutter);
-      const expected = legacyGridGeometry(c.rows, c.rowHeights, CONTAINER, gutter);
-      expectSameGeometry(actual, expected);
-    });
-  }
-
-  test('rects tile the container with no overlap/gap (gutter 0)', () => {
-    const rows: PanelGridRow[] = [
-      { itemKeys: ['a', 'b'], widths: [0.55, 0.45] },
-      { itemKeys: ['c', 'd'], widths: [0.4, 0.6] },
-    ];
-    const rects = computeRects(gridRowsToTree(rows, [0.6, 0.4]), CONTAINER, 0);
-    const area = rects.reduce((s, r) => s + r.width * r.height, 0);
-    expect(Math.abs(area - CONTAINER.width * CONTAINER.height)).toBeLessThan(1e-3);
-  });
-});
-
 /* ── corpus: project (GroupLayout) layouts ────────────────────────────────────── */
 
 interface GroupCase {
@@ -265,17 +244,6 @@ const GROUP_CASES: GroupCase[] = [
     gutter: 6,
   },
 ];
-
-describe('golden geometry — project GroupLayout (groupRowsToTree + computeRects)', () => {
-  for (const c of GROUP_CASES) {
-    test(c.name, () => {
-      const gutter = c.gutter ?? 0;
-      const actual = computeRects(groupRowsToTree(c.rows, c.rowHeights), CONTAINER, gutter);
-      const expected = legacyGroupGeometry(c.rows, c.rowHeights, CONTAINER, gutter);
-      expectSameGeometry(actual, expected);
-    });
-  }
-});
 
 /* ── the SHIPPED renderer builder (buildShallowGridTree) ──────────────────────
  * The deep adapters above are the persistence/round-trip oracle, but the two

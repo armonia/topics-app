@@ -1,5 +1,5 @@
 import type { BrowserContext } from "playwright-core";
-import { existsSync, mkdirSync, unlinkSync, readFileSync, rmdirSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, unlinkSync, readFileSync } from "fs";
 import { join } from "path";
 import { writeFileAtomic } from "./lib/atomic-write";
 import { resolveDataDir, resolveStateDir } from "./lib/data-dir";
@@ -203,27 +203,6 @@ function isPrivateHostUrl(url: string): boolean {
 /** Forget the persisted last URL for a context (no-op when there is none). */
 export function clearLastUrl(topicId: string): void {
   try { unlinkSync(lastUrlFile(topicId)); } catch { /* file may already be gone */ }
-}
-
-export async function deleteStorageState(topicId: string): Promise<void> {
-  // The last-url rides the same lifecycle as storage.json: an explicitly
-  // deleted state must not resurrect the old page on a future same-id context.
-  try { unlinkSync(lastUrlFile(topicId)); } catch {}
-  const file = topicFile(topicId);
-  const dir = topicDir(topicId);
-  if (existsSync(file)) {
-    try { unlinkSync(file); } catch (e) {
-      console.warn(`[BrowserState] deleting ${file} failed, the saved cookies would come back:`, e);
-      throw e;
-    }
-  }
-  // Remove parent dir if empty (best effort).
-  if (existsSync(dir)) {
-    try {
-      const entries = readdirSync(dir);
-      if (entries.length === 0) rmdirSync(dir);
-    } catch { /* directory unreadable or not empty: leave it */ }
-  }
 }
 
 /**

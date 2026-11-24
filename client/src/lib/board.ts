@@ -28,7 +28,7 @@ export { personPathsFromText, personPathsToText } from '../../../shared/workflow
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
 export {
-  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB,
   checksMemFloorGB, checksMemFloorIsOff,
 } from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';

@@ -14,7 +14,7 @@ import { homedir } from "os";
  * Il ripiego «la cartella non esiste ancora» restituiva il primo candidato
  * SENZA nessun controllo. Un messaggio che diceva
  *
- *     il CLI `discord` NON è nel PATH, sta in ~/.claude/jarvis/router/scripts/discord
+ *     il CLI `discord` NON è nel PATH, sta in <harness-home>/router/scripts/discord
  *
  * ha legato la chat a un ESEGUIBILE da 16 KB, e nella barra laterale è comparso
  * un progetto fantasma chiamato «discord» — il basename del file. Il primo giro

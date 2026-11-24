@@ -2255,6 +2255,17 @@ describe("callSendToAgent", () => {
     expect(JSON.parse(String(seen.init?.body))).toEqual({ input: "hi" });
   });
 
+  test("a child of another session says whose result wakes and how to follow it", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ ok: true, sent: 2, wakes: "topic:parent-chat" }), { status: 200 }),
+    );
+    const result = await callSendToAgent({ baseUrl: "http://x", sessionKey: "s" }, { agent_id: "kid1", input: "hi" }, fetchImpl);
+    expect(result).toContain("topic:parent-chat");
+    expect(result).toContain("wakes that session, not this one");
+    expect(result).toContain('read_agent(agent_id="kid1")');
+    expect(result).not.toContain("a chat is woken");
+  });
+
   test("ownership 404 from the server surfaces as an error", async () => {
     const fetchImpl = stubFetch(async () =>
       new Response(JSON.stringify({ error: "sub-agent not found" }), { status: 404 }),

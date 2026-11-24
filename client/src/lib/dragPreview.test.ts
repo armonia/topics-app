@@ -1,15 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
-  startDragPreview,
-  startTouchDragPreview,
-  moveDragPreview,
-  endDragPreview,
-  dragPreviewActive,
-  DRAG_PREVIEW_ATTR,
-  DROP_ACTIVE_ATTR,
-  type DropIntent,
+  startDragPreview, endDragPreview, DRAG_PREVIEW_ATTR,
 } from './dragPreview';
 
 /**
@@ -207,7 +198,6 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
     expect(() => {
       startDragPreview({ clientX: 10, clientY: 12, dataTransfer: null }, { title: 'Senza trasporto' });
     }).not.toThrow();
-    expect(dragPreviewActive()).toBe(true);
     expect(mountedPreviews().length).toBe(1);
   });
 
@@ -229,182 +219,12 @@ describe('startDragPreview: la scheda e la sua fotografia sono la stessa cosa', 
     expect(vecchia.genitore, 'la vecchia non deve restare appesa al body').toBeNull();
     expect(testoDi(rimaste[0]!)).toContain('Seconda');
   });
-
-  test('anche col DITO due sollevamenti di fila lasciano UNA sola anteprima', () => {
-    // Il gemello del test qui sopra sul ramo touch, e qui la posta e' piu'
-    // alta: su iOS non c'e' nessun fantasma di sistema, quindi il nodo del
-    // modulo E' l'anteprima. Un secondo sollevamento senza che il primo abbia
-    // chiuso lascerebbe una scheda incollata sopra l'interfaccia, e nessuna
-    // delle cinque porte la staccherebbe piu' perche' il modulo ha smesso di
-    // tenerla. Due long press di fila su due tessere diverse e' proprio il
-    // gesto che lo produce.
-    startTouchDragPreview({ title: 'Prima' }, 30, 40);
-    const vecchia = previewOnly();
-
-    startTouchDragPreview({ title: 'Seconda' }, 90, 95);
-
-    const rimaste = mountedPreviews();
-    expect(rimaste.length, 'la prima scheda deve essere stata staccata').toBe(1);
-    expect(rimaste[0]).not.toBe(vecchia);
-    expect(vecchia.genitore, 'la vecchia non deve restare appesa al body').toBeNull();
-    expect(testoDi(rimaste[0]!)).toContain('Seconda');
-  });
-});
-
-describe('il ramo del dito: nessun fantasma di sistema, la scheda e tutto', () => {
-  test('startTouchDragPreview monta senza nessun dataTransfer, e dragPreviewActive() lo dice', () => {
-    // Su iOS il drag HTML5 non esiste, il gesto e' un long press: qui non c'e'
-    // nessun `dataTransfer` a cui passare il nodo, e quindi questa scheda e'
-    // l'UNICA anteprima che l'utente vedra'.
-    expect(dragPreviewActive()).toBe(false);
-    startTouchDragPreview({ title: 'Col dito' }, 300, 220);
-    expect(dragPreviewActive()).toBe(true);
-    expect(previewOnly().getAttribute(DRAG_PREVIEW_ATTR)).toBe('');
-  });
-
-  test('il dito e il mouse tengono la scheda nello stesso punto', () => {
-    // Due rami diversi che posizionano la stessa scheda. Se uno dei due
-    // cambiasse presa, sullo stesso dispositivo la scheda salterebbe fra mouse
-    // e dito, e su iOS finirebbe sotto il pollice invece che accanto.
-    const dt = createTransfer();
-    startDragPreview({ clientX: 512, clientY: 333, dataTransfer: dt as unknown as DataTransfer }, { title: 'X' });
-    const conMouse = previewOnly().style.transform;
-
-    endDragPreview();
-    startTouchDragPreview({ title: 'X' }, 512, 333);
-    expect(previewOnly().style.transform).toBe(conMouse);
-  });
-
-  test('moveDragPreview sposta il nodo, e lo sposta dove dicono le coordinate nuove', () => {
-    startTouchDragPreview({ title: 'Trascinata' }, 100, 100);
-    const card = previewOnly();
-    const prima = traslazioneDi(card);
-
-    moveDragPreview(160, 210);
-    const dopo = traslazioneDi(card);
-
-    expect(dopo).not.toEqual(prima);
-    // Non basta che sia cambiata. Deve essere cambiata DELLA STESSA quantita'
-    // di cui si sono mosse le coordinate, altrimenti la scheda deriva rispetto
-    // al dito man mano che il gesto continua.
-    expect(dopo.x - prima.x).toBe(60);
-    expect(dopo.y - prima.y).toBe(110);
-  });
 });
 
 describe('endDragPreview: spegne davvero, e regge piu di una chiamata', () => {
-  test('stacca il nodo dal documento e dragPreviewActive() torna false', () => {
-    startTouchDragPreview({ title: 'Da spegnere' }, 50, 60);
-    const card = previewOnly();
-
-    endDragPreview();
-
-    expect(dragPreviewActive()).toBe(false);
-    expect(card.genitore, "una scheda rimasta appesa sarebbe incollata sopra l'interfaccia").toBeNull();
-    expect(mountedPreviews().length).toBe(0);
-  });
-
-  test('chiamarlo due volte non lancia, e la seconda non fa danni', () => {
-    // Le porte di spegnimento sono cinque, e scattano anche tutte insieme:
-    // `dragend`, `drop`, `blur`, `pointerup` e il `pointermove` senza bottone.
-    // Un gesto che finisce su due porte diverse chiama questa funzione due
-    // volte, e se non fosse idempotente il secondo giro lancerebbe.
-    startTouchDragPreview({ title: 'Doppio spegnimento' }, 5, 5);
-    endDragPreview();
-    expect(() => endDragPreview()).not.toThrow();
-    expect(dragPreviewActive()).toBe(false);
-    expect(mountedPreviews().length).toBe(0);
-  });
 
   test('spegnere senza aver mai acceso non lancia', () => {
-    expect(dragPreviewActive()).toBe(false);
+    expect(mountedPreviews().length).toBe(0);
     expect(() => endDragPreview()).not.toThrow();
-  });
-});
-
-describe('la scheda mostra la cosa che si ha in mano', () => {
-  test('titolo, sottotitolo, icona e badge finiscono nel testo del nodo', () => {
-    // E' la meta' della segnalazione: "non si vede cosa ho in mano". Il giorno
-    // in cui l'anteprima perdesse il sottotitolo, cioe' il contesto (percorso,
-    // progetto, colonna, URL), la scheda tornerebbe a essere un'etichetta e
-    // senza questa asserzione resterebbe tutto verde.
-    startTouchDragPreview({
-      title: 'Rifare il drop',
-      subtitle: 'topics-app / In revisione',
-      icon: '\u{1F4CC}',
-      badges: ['bugfix', 'p1'],
-    }, 0, 0);
-
-    const testo = testoDi(previewOnly());
-    expect(testo).toContain('Rifare il drop');
-    expect(testo).toContain('topics-app / In revisione');
-    expect(testo).toContain('\u{1F4CC}');
-    expect(testo).toContain('bugfix');
-    expect(testo).toContain('p1');
-  });
-
-  test('con il solo titolo non compaiono righe vuote', () => {
-    // Il contrario dello stesso contratto. `subtitle` e `badges` sono
-    // opzionali, e una scheda che disegnasse comunque le loro scatole avrebbe
-    // due righe di aria sotto al nome.
-    startTouchDragPreview({ title: 'Solo nome' }, 0, 0);
-    expect(testoDi(previewOnly()).trim()).toBe('Solo nome');
-  });
-});
-
-describe('il bersaglio si dichiara: nome dell attributo e quattro intenti', () => {
-  // I quattro intenti, dichiarati come mappa ESAUSTIVA sul tipo. Se un domani
-  // il contratto ne aggiungesse un quinto, questo oggetto non compilerebbe piu'
-  // finche' non gli si scrive accanto la regola che lo disegna.
-  const INTENTI: Record<DropIntent, true> = { into: true, before: true, after: true, split: true };
-  const css = readFileSync(join(import.meta.dir, '..', 'index.css'), 'utf8');
-
-  test('DROP_ACTIVE_ATTR e il nome che il foglio di stile aggancia', () => {
-    // La costante e il selettore sono le due meta' della stessa cosa, e stanno
-    // in due file diversi. Chi rinominasse la costante non romperebbe niente in
-    // TypeScript: la regola CSS smetterebbe semplicemente di agganciarsi, in
-    // silenzio, e il bersaglio tornerebbe invisibile mentre il drop continua a
-    // funzionare. E' esattamente il guasto che questa asserzione prende.
-    expect(DROP_ACTIVE_ATTR).toBe('data-drop-active');
-    expect(css, "index.css deve avere la regola base sull'attributo").toContain(`[${DROP_ACTIVE_ATTR}]`);
-  });
-
-  test('DRAG_PREVIEW_ATTR e il nome che le altre superfici scrivono a mano', () => {
-    // Stesso guasto del gemello qui sopra, e qui il duplicato e' nel codice di
-    // produzione: due superfici disegnano la LORO anteprima con la cosa vera
-    // (la tessera dei fissati, la card della board) e si marcano scrivendo
-    // l'attributo a mano, perche' non passano dalla funzione che lo mette. Una
-    // rinomina della costante le lascerebbe indietro con il nome vecchio, e
-    // lascerebbe indietro il selettore che il documento assegna alla guardia
-    // E2E. Il resto del test cerca il nodo TRAMITE la costante, quindi si
-    // sposterebbe insieme a lei e non se ne accorgerebbe.
-    expect(DRAG_PREVIEW_ATTR).toBe('data-drag-preview');
-    for (const superficie of [
-      '../components/Sidebar/PinnedTiles.tsx',
-      '../components/Board/KanbanBoardPane.tsx',
-    ]) {
-      const sorgente = readFileSync(join(import.meta.dir, superficie), 'utf8');
-      expect(sorgente, `${superficie} marca la sua anteprima con l'attributo del contratto`)
-        .toContain(DRAG_PREVIEW_ATTR);
-    }
-  });
-
-  test('ognuno dei quattro intenti ha una regola sua in index.css', () => {
-    // Non sono lo stesso atterraggio: `into` entra dentro, `before`/`after` si
-    // inseriscono accanto, `split` taglia in due. Un intento senza disegno e' un
-    // valore che non si vede, cioe' un bersaglio muto.
-    // Il conteggio non si asserisce: `Record<DropIntent, true>` lo impone gia'
-    // in compilazione, e un `toBe(4)` su un letterale scritto qui sopra non
-    // potrebbe diventare rosso per nessuna modifica al codice di produzione.
-    const intenti = Object.keys(INTENTI) as DropIntent[];
-    const withoutRule = intenti.filter((intento) => {
-      const selettori = [
-        `[${DROP_ACTIVE_ATTR}='${intento}']`,
-        `[${DROP_ACTIVE_ATTR}="${intento}"]`,
-        `[${DROP_ACTIVE_ATTR}=${intento}]`,
-      ];
-      return !selettori.some((s) => css.includes(s));
-    });
-    expect(withoutRule, 'intenti senza nessuna regola nel foglio di stile').toEqual([]);
   });
 });

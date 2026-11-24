@@ -146,9 +146,6 @@ export const DEVICE_LABEL_KEY: Record<'desktop' | 'mobile' | 'tablet' | 'auto' |
   auto: 'tabSheet.device.auto', custom: 'tabSheet.device.custom',
 };
 
-/** The first level may not grow past this many rows (TABSHEET-02). */
-export const FIRST_LEVEL_MAX_ROWS = 11;
-
 const action = (a: Omit<SheetAction, 'kind'>): SheetAction => ({ kind: 'action', ...a });
 const control = (id: SheetControl['id']): SheetControl => ({ kind: 'control', id });
 const divider = (id: string): SheetDivider => ({ kind: 'divider', id });
@@ -185,11 +182,6 @@ function tidyDividers(entries: SheetEntry[]): SheetEntry[] {
   }
   while (out.length > 0 && out[out.length - 1].kind === 'divider') out.pop();
   return out;
-}
-
-/** The rows a person counts on a level: everything but the dividers. */
-export function rowCount(entries: readonly SheetEntry[]): number {
-  return entries.filter((e) => e.kind !== 'divider').length;
 }
 
 function pinLabel(t: TabSheetModel['t'], scope: 'single' | 'project' | 'tab', pinned: boolean): string {

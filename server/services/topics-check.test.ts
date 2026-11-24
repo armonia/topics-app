@@ -495,6 +495,15 @@ describe("the third review: hours of a parked chain, heavy holds, and what is no
     card(d, "kid", "todo", 20 * H, { blockedBy: "root" });
     expect(stuckOf(d)).toEqual([["kid", "chain-parked", 4]]);
   });
+  test("1: a card whose DIRECT blocker is already done is never \"chain-parked\": a cure that cleared it would have nothing to do", () => {
+    const d = db();
+    card(d, "root", "done", 30 * H);
+    card(d, "kid", "todo", 20 * H, { blockedBy: "root" });
+    // `deriveQueueReason` already reads the direct blocker as resolved (shared/board.ts), so `kid`
+    // is never reported "blocked", and `chainRoot` therefore never gets a chance to call it
+    // "chain-parked" either: whatever else leaves it stuck, it is not this cause.
+    expect(stuckOf(d).find((c) => c[0] === "kid")?.[1]).not.toBe("chain-parked");
+  });
   test("2: a heavy card held behind the memory floor is memory, like the same wait with no weight", () => {
     const d = db();
     card(d, "heavy", "todo", 11 * H, { dispatchState: "queued", dispatchError: "waiting-memory" });

@@ -54,12 +54,6 @@ export function readUserRulesSource(home = homedir()): UserRules | null {
   const content = readClaudeMd(file, home);
   return content === null ? null : { path: file, content };
 }
-
-/** The rules text alone: the shape the older callers use. */
-export function readUserRules(home = homedir()): string | null {
-  return readUserRulesSource(home)?.content ?? null;
-}
-
 function readSmall(file: string): string | null {
   try {
     if (!existsSync(file) || statSync(file).size > MAX_RULES_BYTES) return null;
@@ -71,7 +65,7 @@ function readSmall(file: string): string | null {
  * `~/.claude/CLAUDE.md`, with one pass of `@path` imports expanded.
  *
  * The expansion is not a luxury: the tool rules ALL arrive from one
- * `@~/.claude/jarvis/agents/_shared/TOOLS.md`, so without it the block would
+ * `@<harness-home>/agents/_shared/TOOLS.md`, so without it the block would
  * say half of it and nobody would know which half. One level only: arbitrary
  * depth is a way to pull a whole tree into context without meaning to.
  */
