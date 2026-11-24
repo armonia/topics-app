@@ -2,6 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.98 — 2026-11-25
+
+### Novità
+- **split** · a row of the column splits like a tab, one landing for every pane drop
+- **split** · the drop footprint names what lands, the centre is an outline, nothing animates
+- **split** · every side and 'even out' from every sheet, and a row opens beside
+- **split** · a split cell says what it holds and who has the focus, and the split answers the keyboard
+- **split** · a project row maps the splits inside its window
+
+### Correzioni
+- **split** · the column's toggle sits on the head of the first cell only
+- **split** · an empty chat in a short narrow cell keeps its greeting under the title
+- **split** · a narrow cell's empty field stays one line
+- **split** · a closed row dropped on the centre of the pool opens there
+- **split** · keep the lights inset line and count the project row's map
+
+### Sotto il cofano
+- **split** · the split redesign change, from what is measured broken today
+- **split** · American names the identifier gate knows, ceilings follow PanelGrid down
+- **split** · the seven split scenarios, done the way a person does them
+- **split** · the change is done, its seven requirements join the layout spec
+- **split** · the narrow-cell check waits on frames and the divider, not on the clock
+- **split** · the narrow-cell scenario is SPLIT-03b
+- **split** · hand the focus to a divider after the last chat took it
+
 ## 2.4.97 — 2026-11-24
 
 ### Novità

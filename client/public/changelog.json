@@ -1,5 +1,120 @@
 [
   {
+    "version": "2.4.98",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "it": "a row of the column splits like a tab, one landing for every pane drop",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "the drop footprint names what lands, the centre is an outline, nothing animates",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "every side and 'even out' from every sheet, and a row opens beside",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "a split cell says what it holds and who has the focus, and the split answers the keyboard",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "a project row maps the splits inside its window",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        }
+      ],
+      "fixes": [
+        {
+          "it": "the column's toggle sits on the head of the first cell only",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "an empty chat in a short narrow cell keeps its greeting under the title",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "a narrow cell's empty field stays one line",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "a closed row dropped on the centre of the pool opens there",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "keep the lights inset line and count the project row's map",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the split redesign change, from what is measured broken today",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "American names the identifier gate knows, ceilings follow PanelGrid down",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "the seven split scenarios, done the way a person does them",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "the change is done, its seven requirements join the layout spec",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "the narrow-cell check waits on frames and the divider, not on the clock",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "the narrow-cell scenario is SPLIT-03b",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        },
+        {
+          "it": "hand the focus to a divider after the last chat took it",
+          "en": "",
+          "scope": "split",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.97",
     "date": "2026-11-24",
     "sections": {

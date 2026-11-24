@@ -1,5 +1,56 @@
 [
   {
+    "version": "2.4.98",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "text": "a row of the column splits like a tab, one landing for every pane drop",
+          "scope": "split"
+        },
+        {
+          "text": "the drop footprint names what lands, the centre is an outline, nothing animates",
+          "scope": "split"
+        },
+        {
+          "text": "every side and 'even out' from every sheet, and a row opens beside",
+          "scope": "split"
+        },
+        {
+          "text": "a split cell says what it holds and who has the focus, and the split answers the keyboard",
+          "scope": "split"
+        },
+        {
+          "text": "a project row maps the splits inside its window",
+          "scope": "split"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "the column's toggle sits on the head of the first cell only",
+          "scope": "split"
+        },
+        {
+          "text": "an empty chat in a short narrow cell keeps its greeting under the title",
+          "scope": "split"
+        },
+        {
+          "text": "a narrow cell's empty field stays one line",
+          "scope": "split"
+        },
+        {
+          "text": "a closed row dropped on the centre of the pool opens there",
+          "scope": "split"
+        },
+        {
+          "text": "keep the lights inset line and count the project row's map",
+          "scope": "split"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.97",
     "date": "2026-11-24",
     "sections": {
