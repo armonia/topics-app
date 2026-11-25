@@ -651,8 +651,8 @@ export const CATALOG_STATS = { programs: 184, officialMcp: 23, api: 71, robotOrA
 
 /** What was archived lately, before the reader archives anything. */
 export const RECENTLY_ARCHIVED: Array<{ name: string; where: string }> = [
-  { name: 'WinWaste', where: 'SARIM · ieri' }, // allow-italian: fixture data, shown as written
-  { name: 'Enviro', where: 'SARIM · ieri' }, // allow-italian: fixture data, shown as written
+  { name: 'WinWaste', where: 'ORBIT · ieri' }, // allow-italian: fixture data, shown as written
+  { name: 'Enviro', where: 'ORBIT · ieri' }, // allow-italian: fixture data, shown as written
   { name: 'Traspare', where: 'Nocera · 3/11' }, // allow-italian: fixture data, shown as written
 ];
 

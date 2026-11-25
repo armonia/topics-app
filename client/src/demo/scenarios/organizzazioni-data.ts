@@ -12,7 +12,7 @@
  *
  * WHAT COMES FROM ARMONIA'S OWN DOCUMENTS, AND WHY THAT IS A DECISION. Part of
  * the work shown is true but not public: the course and the software study for
- * the Consorzio, the activity list behind SARIM's cards, the HR cases behind
+ * the Consorzio, the activity list behind ORBIT's cards, the HR cases behind
  * Euro Impianti's. This build is public, so shipping them is the owner's call
  * (see the outcome of this change); figures from the questionnaire, prices,
  * people and internal channels stay out regardless. So does any usage number
@@ -105,7 +105,7 @@ export const ORGANIZATIONS: Organization[] = [
     ],
   },
   {
-    name: "SARIM", color: "#f5a524",
+    name: "ORBIT", color: "#f5a524",
     cards: [
       { status: "todo", priority: 3,
         title: "Segnalazione del committente: mancato ritiro, doppione? · esempio", // allow-italian: scenario data, shown as written
@@ -177,7 +177,7 @@ export const ORGANIZATIONS: Organization[] = [
         description: "Per lo smistamento della PEC con bozza di protocollo confermata da una persona servono: un PC o server Windows, la PEC con password per programmi, un utente Halley dedicato all'assistente." }, // allow-italian: scenario data, shown as written
       { status: "in_progress", priority: 3,
         title: "Demo della landing a scenari tipizzati", // allow-italian: scenario data, shown as written
-        description: "La giuntura della demo diventa un caricatore più scenari tipizzati: «acme» resta la landing di oggi, «organizzazioni» mostra Consorzio di Nocera, SARIM, Armonia ed Euro Impianti. Barra: typecheck verde e landing acme identica." }, // allow-italian: scenario data, shown as written
+        description: "La giuntura della demo diventa un caricatore più scenari tipizzati: «acme» resta la landing di oggi, «organizzazioni» mostra Consorzio di Nocera, ORBIT, Armonia e l'organizzazione che sta partendo. Barra: typecheck verde e landing acme identica." }, // allow-italian: scenario data, shown as written
       { status: "backlog", priority: 2,
         title: "Organizzazioni nella barra laterale: proposta openspec", // allow-italian: scenario data, shown as written
         description: "Un gruppo per organizzazione come i progetti, una Board unica con filtro per organizzazione. Parte dalla spec accounts-orgs e dalla change sharing-orgs: prima la proposta, poi il codice." }, // allow-italian: scenario data, shown as written

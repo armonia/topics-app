@@ -1,8 +1,8 @@
 /**
  * Case S-0149: a supplier invoice for a refuse truck repair, waiting for the
- * order match. SARIM, flow `sarim-fatture`, office Amministrazione.
+ * order match. ORBIT, flow `orbit-fatture`, office Amministrazione.
  *
- * Real: SARIM's repetitive work includes supplier invoices and their
+ * Real: ORBIT's repetitive work includes supplier invoices and their
  * reconciliation, in SAP (training questionnaire, DATI-VERI.md). An example:
  * the workshop, the order, the codes, the amounts. Arithmetic: 1.690,00 +
  * 660,00 = 2.350,00; IVA 22% = 517,00; total 2.867,00. Between companies a
@@ -13,12 +13,12 @@ import { original } from './originals';
 
 export const CASE_S0149: CaseSeed = {
   id: 'S-0149',
-  org: 'sarim',
+  org: 'orbit',
   kind: 'fattura',
   title: 'Fattura 1107/26, riparazione autocompattatore', // allow-italian: fixture data, shown as written
   subject: 'Fattura n. 1107/26 del 22/10/2026, sostituzione pompa idraulica', // allow-italian: fixture data, shown as written
   office: 'amministrazione',
-  flow: 'sarim-fatture',
+  flow: 'orbit-fatture',
   channel: 'sdi',
   arrivedAt: '2026-10-22T15:41:00+02:00',
   counterpart: 'Officina (esempio) S.r.l.', // allow-italian: fixture data, shown as written

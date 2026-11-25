@@ -111,10 +111,14 @@ describe("server.ts wiring", () => {
   // timer stops with the server.
   const SERVER = readServerSource();
 
-  test("a timer runs the round with whatIsStillWorking() as the busy predicate", () => {
+  // READ AS WHAT WORKS, NOT AS WHAT HOLDS A RESTART (RGATE-13). `.busy` is the
+  // restart gate's sentence and names a turn parked on a question, so a question
+  // left open overnight skipped every round. `workingBusy` is null while nothing
+  // computes. Behaviour: `server/boot/quiescence.test.ts`.
+  test("a timer runs the round with whatIsStillWorking().workingBusy as the busy predicate", () => {
     const call = SERVER.match(/setInterval\(\(\) => \{\s*runIncrementalVacuum\(\{[\s\S]*?\}, INCREMENTAL_VACUUM_EVERY_MS\)/);
     expect(call, "no setInterval running runIncrementalVacuum every INCREMENTAL_VACUUM_EVERY_MS").not.toBeNull();
-    expect(call![0]).toContain("busy: async () => (await whatIsStillWorking()).busy");
+    expect(call![0]).toContain("busy: async () => (await whatIsStillWorking()).workingBusy");
   });
 
   test("graceful shutdown clears the timer", () => {

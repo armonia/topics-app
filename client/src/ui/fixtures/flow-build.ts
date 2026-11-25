@@ -27,8 +27,8 @@ export const FLOW_FACTS: Record<string, FlowFacts> = {
   segnalazioni: { owner: 'Resp. manutenzione', monogram: 'RM', color: '#0369a1', modified: '2026-10-30', errors: 1 }, // allow-italian: fixture data, shown as written
   concessioni: { owner: 'Tecnico', monogram: 'TEC', color: '#c2410c', modified: '2026-11-04', errors: 0 }, // allow-italian: fixture data, shown as written
   accesso: { owner: 'Resp. protocollo', monogram: 'RP', color: '#15803d', modified: '2026-11-06', errors: 0 }, // allow-italian: fixture data, shown as written
-  'sarim-segnalazioni': { owner: 'Call center', monogram: 'CC', color: '#b45309', modified: '2026-11-02', errors: 3 }, // allow-italian: fixture data, shown as written
-  'sarim-fatture': { owner: 'Amministrazione', monogram: 'AM', color: '#4d7c0f', modified: '2026-10-27', errors: 1 }, // allow-italian: fixture data, shown as written
+  'orbit-segnalazioni': { owner: 'Call center', monogram: 'CC', color: '#b45309', modified: '2026-11-02', errors: 3 }, // allow-italian: fixture data, shown as written
+  'orbit-fatture': { owner: 'Amministrazione', monogram: 'AM', color: '#4d7c0f', modified: '2026-10-27', errors: 1 }, // allow-italian: fixture data, shown as written
 };
 
 /** The owner a flow made in the preview gets: the role of its office. */
@@ -146,17 +146,17 @@ export const TEMPLATES: TemplateModel[] = [
     ]),
   },
   {
-    id: 'tpl-ambiente-seg', sector: 'ambiente', existing: 'sarim-segnalazioni', // allow-italian: fixture data, shown as written
+    id: 'tpl-ambiente-seg', sector: 'ambiente', existing: 'orbit-segnalazioni', // allow-italian: fixture data, shown as written
     description: 'Mail AMA, portale utenze e telefonate in un solo flusso, fino al turno e al rendiconto.', // allow-italian: fixture data, shown as written
     seed: seedOf('Segnalazioni AMA e utenze → intervento', 'arriva una segnalazione', 'call-center', []), // allow-italian: fixture data, shown as written
   },
   {
-    id: 'tpl-ambiente-fatture', sector: 'ambiente', existing: 'sarim-fatture', // allow-italian: fixture data, shown as written
+    id: 'tpl-ambiente-fatture', sector: 'ambiente', existing: 'orbit-fatture', // allow-italian: fixture data, shown as written
     description: 'Controllo con ordine, registrazione in SAP, riconciliazione.', // allow-italian: fixture data, shown as written
     seed: seedOf('Fattura passiva → riconciliazione', 'arriva una fattura dal fornitore', 'amministrazione', []), // allow-italian: fixture data, shown as written
   },
   {
-    id: 'tpl-ambiente-fir', sector: 'ambiente', existing: 'sarim-fir', // allow-italian: fixture data, shown as written
+    id: 'tpl-ambiente-fir', sector: 'ambiente', existing: 'orbit-fir', // allow-italian: fixture data, shown as written
     description: 'Dal ritiro al formulario FIR e alla registrazione RENTRI.', // allow-italian: fixture data, shown as written
     seed: seedOf('Formulario FIR e RENTRI', 'si chiude un ritiro', 'servizi', [ // allow-italian: fixture data, shown as written
       { id: 's1', label: 'Legge il ritiro e il tipo di rifiuto', kind: 'ai', office: 'servizi' }, // allow-italian: fixture data, shown as written
