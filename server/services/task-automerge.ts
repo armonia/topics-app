@@ -1541,26 +1541,43 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         // two files holding the door shut were a spreadsheet dropped in the repo
         // root and another session's openspec folder, neither of which the merge
         // would have touched.
-        if (cur === defaultBranch) {
-          const st = await runGit(repoPath, ["status", "--porcelain", "--untracked-files=no"]);
+        // Merge in a checkout that already has the default branch open and live.
+        const mergeInOpenCheckout = async (cwd: string, checkoutBranch: string, live: boolean): Promise<AutoMergeResult> => {
+          const st = await runGit(cwd, ["status", "--porcelain", "--untracked-files=no"]);
           if (st.stdout.trim() !== "") {
-            return { status: "skipped", code: "dirty-checkout", reason: `il checkout è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
+            return { status: "skipped", code: "dirty-checkout", reason: `il checkout ${cwd} è su '${defaultBranch}' con modifiche non committate a file tracciati. Mergia a mano o pulisci il checkout` };
           }
-          const diverged = await syncLandingBase(repoPath);
+          const diverged = await syncLandingBase(cwd);
           if (diverged) return diverged;
           // Mixed by ancestry is not mixed by content: see `foreignNotOnMain`.
           if (onlyOwn) {
-            const missing = await foreignNotOnMain(repoPath, onlyOwn);
-            if (missing === null || missing.length > 0) return partialLandRefused(repoPath, onlyOwn, missing);
+            const missing = await foreignNotOnMain(cwd, onlyOwn);
+            if (missing === null || missing.length > 0) return partialLandRefused(cwd, onlyOwn, missing);
           }
-          const stopped = await lookBeforeMerge(repoPath);
+          const stopped = await lookBeforeMerge(cwd);
           if (stopped) return stopped;
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
-          const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
-          if (merge.code === 0) return finishMerged(repoPath, /*live*/ true, cur);
-          await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
+          const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
+          if (merge.code === 0) return finishMerged(cwd, live, checkoutBranch);
+          await runGit(cwd, ["merge", "--abort"]).catch(() => undefined);
           return { status: "conflict", branch };
+        };
+        if (cur === defaultBranch) return mergeInOpenCheckout(repoPath, cur, true);
+
+        // The default branch may be open in a SIBLING worktree of this repo (this
+        // path is a worktree parked on another branch). `git worktree add` refuses
+        // a branch checked out elsewhere, and moving the ref under that worktree
+        // would leave its index behind: merge where the branch lives.
+        const listed = await runGit(repoPath, ["worktree", "list", "--porcelain"]);
+        let openAt: string | null = null;
+        if (listed.code === 0) {
+          for (const block of listed.stdout.split(/\n\s*\n/)) {
+            const lines = block.split("\n");
+            const path = lines.find((l) => l.startsWith("worktree "))?.slice("worktree ".length).trim();
+            if (path && lines.some((l) => l.trim() === `branch refs/heads/${defaultBranch}`)) { openAt = path; break; }
+          }
         }
+        if (openAt) return mergeInOpenCheckout(openAt, defaultBranch, true);
 
         // The shared checkout is parked on a dev branch (a live session). Land in a
         // throwaway worktree pinned to main: the shared `main` ref advances, the dev

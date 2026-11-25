@@ -690,6 +690,19 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "merge" && c.includes("--no-ff"))).toBe(false);
   });
 
+  test("main open in a sibling worktree → merges there, never `worktree add`", async () => {
+    const git = fakeGit({
+      "symbolic-ref --short": { stdout: "feature/x\n" },
+      "rev-list --count": { stdout: "3\n" },
+      "worktree list": { stdout: "worktree /repo/main\nHEAD abc\nbranch refs/heads/main\n\nworktree /repo/feat\nHEAD def\nbranch refs/heads/feature/x\n" },
+      "merge --no-ff": { code: 0 },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    expect(git.calls.some((c) => c[0] === "worktree" && c[1] === "add")).toBe(false);
+  });
+
   test("no commits ahead of main → 'nothing'", async () => {
     const git = fakeGit({
       "symbolic-ref --short": { stdout: "main\n" },
