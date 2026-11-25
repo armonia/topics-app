@@ -81,12 +81,18 @@ export const CHILD_AGENT_COMING = ACTIVE_DISPATCH_STATES.map((s) => `'${s}'`).jo
  * put back in backlog is still a container. Without this the question itself
  * stripped the parent of its container status, and the rake asked again 20 s
  * after the answer (cards 5904a1cf and ca2134e0, 25/11). Alias `p` is the parent.
+ *
+ * `delivered_reason` is COALESCEd on purpose: a parent delivered by an agent has
+ * `delivered_by` set and `delivered_reason` NULL, and `NULL = 'parked_children'`
+ * is NULL, which turns the whole NOT(...) in the candidates query into NULL and
+ * silently drops that parent from the sweep (the first version did exactly this).
+ * `shared/grouping-parent.ts` is the same predicate in code; its test runs both.
  */
 export const CONTAINER_PARENT_SQL = `p.status = 'backlog' AND p.dispatch_attempts = 0
                        AND p.in_progress_at IS NULL
-                       AND (p.delivered_by IS NULL OR p.delivered_reason = 'parked_children')
+                       AND (p.delivered_by IS NULL OR COALESCE(p.delivered_reason, '') = 'parked_children')
                        AND (p.dispatch_state IS NULL
-                            OR (p.dispatch_state = 'needs_input' AND p.delivered_reason = 'parked_children'))`;
+                            OR (p.dispatch_state = 'needs_input' AND COALESCE(p.delivered_reason, '') = 'parked_children'))`;
 
 /**
  * Parents that look stuck behind open children, read by `sweepParkedChildren`

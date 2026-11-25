@@ -75,9 +75,12 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // turno esaurito. Misurato il 10/08: quattro rimbalzi in un'ora.
     const p = s.create({ projectId: PID, text: "epic" });
     const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
-    // «Aperto» vuol dire che qualcuno lo sta lavorando o sta per farlo: in coda.
-    // Un figlio lasciato in backlog è parcheggiato e non blocca (test qui sotto).
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
+    // "Open" here means someone is working the child (in flight): back to the queue.
+    // A child left in backlog OR in todo is parked, since no dispatcher serves a
+    // sub-card (the tick lists roots only), and does not block: see the parked tests.
+    // This used to pass with the child in todo only because moving it there asked the
+    // parent through another door first, which left the parent in review.
+    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "in_progress" } });
     const d = s.deliverToReviewBySystem({ taskId: p.id, reason: "budget finito", cause: "retries_exhausted" });
     expect(d.status).toBe("todo");
     // La ragione resta scritta nel thread: sparire in silenzio sarebbe peggio.
@@ -95,7 +98,7 @@ describe("deliveredBy (chi ha portato il task in review)", () => {
     // trova: gli chiede di valutare una consegna che allora non esisteva.
     const p = s.create({ projectId: PID, text: "epic" });
     const kid = s.create({ projectId: PID, text: "passo aperto", parentTaskId: p.id });
-    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "todo" } });
+    s.update({ taskId: kid.id, actor: "human", by: "u", patch: { status: "in_progress" } });
     const d = s.deliverToReviewBySystem({
       taskId: p.id, reason: "budget finito", cause: "retries_exhausted",
       nextMove: "L'ho portato io in review: valuta cosa ha prodotto.",

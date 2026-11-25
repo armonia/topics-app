@@ -107,3 +107,48 @@ describe("persistLocal — lo scroll delle chat non sopravvive al ricaricamento"
     expect(usePaneStore.getState().panes["chat:a"].scrollOffset).toBe(420);
   });
 });
+
+// A new chat (a `draft:` pane) has no topic on the server yet: the snapshot this
+// device writes to its own storage is the only place it lives. Its typed text
+// and an unanswered first send (`state/pendingFirstSend.ts`) are read back by
+// the draft pane, so a reload that loses the pane loses them too.
+describe("persistLocal — a new chat on this device comes back after a reload", () => {
+  const draft = { id: "draft:n", type: "chat" as const, title: "New Chat" };
+  const group = (paneIds: string[]) => ({ id: "group:default", paneIds, splitRatio: 0.5, splitAxis: "horizontal" as const });
+
+  test("the boot hydrate keeps the draft this device saved, in its place", () => {
+    usePaneStore.setState({
+      panes: { "chat:a": mkPane("chat:a"), [draft.id]: draft },
+      groups: { "group:default": group(["chat:a", draft.id]) },
+      groupOrder: ["group:default"],
+    });
+    flushLocalPaneStoreNow();
+    resetStore();
+
+    hydrateFromLocalSnapshot();
+
+    const s = usePaneStore.getState();
+    expect(s.panes[draft.id]).toBeDefined();
+    expect(s.groups["group:default"].paneIds).toEqual(["chat:a", draft.id]);
+  });
+
+  test("a snapshot from another tab or device still does not bring its drafts", () => {
+    usePaneStore.getState().dispatch({
+      type: "HYDRATE_FROM_SNAPSHOT",
+      payload: {
+        snapshot: {
+          panes: { "chat:a": mkPane("chat:a"), [draft.id]: draft },
+          groups: { "group:default": group(["chat:a", draft.id]) },
+          groupOrder: ["group:default"],
+          seq: 1,
+          server_seq: 1,
+        },
+      },
+    });
+
+    const s = usePaneStore.getState();
+    expect(s.panes["chat:a"]).toBeDefined();
+    expect(s.panes[draft.id]).toBeUndefined();
+    expect(s.groups["group:default"].paneIds).toEqual(["chat:a"]);
+  });
+});

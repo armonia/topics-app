@@ -36,7 +36,7 @@ interface TaskRow {
   updated_at: string; created_at: string; parent_task_id?: string | null;
   description?: string | null; stage?: string | null; human_ask?: string | null;
   dispatch_state?: string | null; dispatch_error?: string | null; dispatch_attempts?: number | null;
-  in_progress_at?: string | null; delivered_by?: string | null; landing_state?: string | null;
+  in_progress_at?: string | null; delivered_by?: string | null; delivered_reason?: string | null; landing_state?: string | null;
 }
 
 interface CommentRow { task_id: string; content: string; kind: string | null; author: string | null; message_id: string | null; quiet: number | null }
@@ -139,7 +139,7 @@ export function buildPlan(
     `SELECT id, project_id, text, status, assigned_topic_id, origin_topic_id, delivery_branch,
             delivery_commit, checks_state, updated_at, created_at, parent_task_id,
             description, stage, human_ask, dispatch_state, dispatch_error, dispatch_attempts,
-            in_progress_at, delivered_by, landing_state
+            in_progress_at, delivered_by, delivered_reason, landing_state
        FROM tasks WHERE archived = 0 ${where}`,
   ).all(...params) as TaskRow[];
   // Threads of OPEN cards only: a closed card asks nothing, and the full
