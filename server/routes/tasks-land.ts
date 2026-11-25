@@ -479,6 +479,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // main" button — the fix stays reachable, the closed decision does not
     // get reverted to reach it.
     const closedByHuman = task.status === "done" && task.doneActor === "human";
+    // Every path stops here, the manual land included: the hook below only runs for the automatic one.
+    const unmeasured = unmeasuredStop(projectId, taskId);
+    if (unmeasured) {
+      try {
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Land rifiutato prima del merge: ${unmeasured}. La card resta in review.`,
+        });
+        const fresh = svc.get(taskId, { projectId })?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+      } catch (err) { console.warn(`[land] nota di rifiuto non scritta per ${taskId}:`, err); }
+      return { outcome: "skipped", reason: unmeasured };
+    }
     try {
       const recheck = landOpts?.recheck;
       const res = await autoMerge.tryMerge(taskId, task.text, {
@@ -487,8 +500,6 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
         // Only passed when there is something to check, so the old tryMerge contract holds.
         beforeMerge: async (sha: string) => {
-          const unmeasured = unmeasuredStop(projectId, taskId);
-          if (unmeasured) return unmeasured;
           // The repair card of a red main is the one land that must go through.
           const stop = await redMainStop(projectId, taskId).catch(() => null);
           if (stop) return stop;

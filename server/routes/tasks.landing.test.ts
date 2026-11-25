@@ -268,11 +268,11 @@ describe("approve decoupled from landing", () => {
     expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
   });
 
-  test("land: a delivery with null checks does not merge on a board that declares a bar, a measured one does", async () => {
-    const hooks: Array<(sha: string) => Promise<string | null>> = [];
+  test("land: a manual land of an unmeasured delivery never reaches the merge, a measured one (repair cards too) does", async () => {
+    const merges: Array<{ id: string; noRealign: unknown }> = [];
     const am = {
-      tryMerge: async (_id: string, _t: string, delivery: any) => {
-        hooks.push(delivery.beforeMerge);
+      tryMerge: async (id: string, _t: string, delivery: any) => {
+        merges.push({ id, noRealign: delivery.noRealign });
         return { status: "skipped", code: "auto-land-stopped", reason: "stopped" };
       },
       buildClient: async () => ({ code: 0, stderr: "" }),
@@ -282,20 +282,25 @@ describe("approve decoupled from landing", () => {
     db.run("INSERT INTO topics (id) VALUES ('top-4')");
     db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks) VALUES ('pX', ?)",
       [JSON.stringify([{ name: "gates", cmd: "true" }, { name: "unit", cmd: "github-ci:unit" }])]);
-    const ids: string[] = [];
     const rowOf = (cmd: string) => ({ name: cmd, cmd, ok: true, code: 0, ms: 1, timedOut: false });
-    const bars: Array<[string | null, unknown[] | null]> = [[null, null], ["pass", [rowOf("true")]], ["pass", [rowOf("true"), rowOf("github-ci:unit")]]];
-    for (const [state, rows] of bars) {
-      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: "card " + String(state) }))!.json();
-      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=?, checks_json=? WHERE id = ?").run(state, rows ? JSON.stringify(rows) : null, t.id);
+    const full = [rowOf("true"), rowOf("github-ci:unit")];
+    const cases: Array<[string | null, unknown[] | null, string | null]> = [
+      [null, null, null], ["pass", [rowOf("true")], null], ["pass", full, null], ["pass", full, "main-ci-red:abc"],
+    ];
+    const ids: string[] = [];
+    for (const [state, rows, key] of cases) {
+      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: `card ${ids.length}` }))!.json();
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=?, checks_json=?, claude_task_id=? WHERE id = ?")
+        .run(state, rows ? JSON.stringify(rows) : null, key, t.id);
       ids.push(t.id);
       await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
       await new Promise((r) => setTimeout(r, 50));
     }
-    expect(hooks).toHaveLength(3);
-    expect(await hooks[0]!("bdfcf0cb")).toContain("checks nullo");
-    expect(await hooks[1]!("bdfcf0cb")).toContain("mancano: unit");
-    expect(await hooks[2]!("bdfcf0cb")).toBeNull();
+    // Only the two fully measured cards reach the merge, and none of them through the automatic path.
+    expect(merges).toEqual([{ id: ids[2], noRealign: undefined }, { id: ids[3], noRealign: undefined }]);
+    const said = (id: string) => (db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(id) as Array<{ content: string }>).map((c) => c.content).join(" ");
+    expect(said(ids[0]!)).toContain("checks nullo");
+    expect(said(ids[1]!)).toContain("mancano: unit");
   });
 
   test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
