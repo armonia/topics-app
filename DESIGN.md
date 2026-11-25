@@ -153,6 +153,9 @@ barra dei menu.
 - La Board del 20/11 («va bene così»): barra «Il mio lavoro | Tutto» con i chip dei proprietari e il
   menu dei canali, chip proprietario e canale sulla card, slider del dettaglio, viste «Kanban, Lista,
   Chi la segue, Workflow» con icone; etichette e campo di ricerca seguono la larghezza della board.
+- La finestra di un progetto con le tab di lato (25/11 «Sì, va bene»): solo il titolo, che al
+  passaggio prende il fondo della tab e si trascina nello split; i comandi del progetto a destra
+  sulla stessa riga; nessun «+» lì, resta quello sulla riga del progetto nella colonna.
 - La vista Tabella della board del 25/11 («Sì, unisci» sulle foto a 375, 768, 1440 e 3440): stato,
   poi progetto con la sua icona (il nome accanto da pannello largo), titolo, chip di chi la segue;
   intestazione e righe in un solo riquadro con l'intestazione su `inset`, hover `app-hover` e anello
@@ -220,6 +223,15 @@ barra dei menu.
   progetto non ha barra sua: il titolo è la tab (fondo al passaggio, si trascina nello split) e
   i comandi del progetto stanno a destra del titolo. Il «+» lì no («ma il + serve ancora la?»):
   c'è già sulla riga del progetto nella colonna.
+- 25/11 «le icone tipo di attivazione sidebar file git etc, dovrebbero restare anche se aperte» →
+  i comandi del progetto restano sul titolo anche a colonna aperta, e la colonna non ripete nome e
+  chiusura in testa. «le notifiche delle icone sono tagliate» → il badge pende dentro la riga intera.
+  «se chiudo la sidebar vedo che spunta ancora la tabbar, ma è o una o l'altra» → con le tab di lato
+  la barra in alto non torna mai. «se premo archivia non si vede il progresso», «si perdono tutte le
+  funzionalità della tab browser» → il titolo è la tab vera (`PaneTabBar` in variante titolo), non
+  una scritta che ne copia una parte, e chiudendo la tab davanti il titolo resta su di lei col conto
+  alla rovescia finché non scade (prima saltava subito alla tab dopo e il progresso spariva). «gli accordion della sidebar progetto … singole isole come se
+  fosse una loro card» → File, Git e Processi sono card a sé, la colonna non ha più fondo né filo.
 - 25/11 «nella tabella il progetto dovrebbe andare prima del titolo e mostrare anche icona..
   così come il resto dovrebbe seguire il design system ovunque fatto bene.. e parecchie volte
   che nn segui i design system» → nella tabella della board il progetto (icona, poi nome dove

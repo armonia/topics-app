@@ -137,7 +137,7 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
     onClosePanel, onFocusPanel,
     onSplitPane, onUnsolo,
     onCreateTerminal, onMergeIntoCell, onPersistReorder, claudeSkipPermissions,
-    stopSession,
+    stopSession, frontOnlyOnTop = false,
   } = args;
   const { validatedOrderedIds } = ordering.derived;
   const { activePaneId } = active;
@@ -234,11 +234,11 @@ export function usePaneLifecycle(args: UsePaneLifecycleArgs): UsePaneLifecycleRe
       if (handler.localManaged) ordering.ops.removeLocalPane(paneId);
       handler.sideEffect?.(paneId);
     });
-    if (handler.localManaged && activePaneId === paneId) {
+    if (handler.localManaged && activePaneId === paneId && !frontOnlyOnTop) {
       const remaining = validatedOrderedIds.filter((id) => id !== paneId);
       if (remaining.length > 0) onFocusPanel(remaining[0]);
     }
-  }, [ordering.ops, activePaneId, validatedOrderedIds, onFocusPanel, onClosePanel]);
+  }, [ordering.ops, activePaneId, validatedOrderedIds, onFocusPanel, onClosePanel, frontOnlyOnTop]);
 
   // La pane si chiude solo se la chat è stata davvero buttata via, e a dirlo è
   // il server (`stopSession` risolve sul suo `cleared`). Quando decideva il

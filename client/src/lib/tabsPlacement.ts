@@ -22,14 +22,16 @@ export interface TabsPlacement {
 
 export function tabsPlacement(
   position: TabsPosition,
-  { phone, sidebarCollapsed }: { phone: boolean; sidebarCollapsed: boolean },
+  { phone }: { phone: boolean },
 ): TabsPlacement {
   // The phone keeps its own grammar whatever the desktop chose: the column is
   // the list of surfaces and the row on top says the name of the one in front.
   if (phone) return { strip: false, columnSkipsStrip: false };
   if (position === 'top') return { strip: true, columnSkipsStrip: true };
   if (position === 'both') return { strip: true, columnSkipsStrip: false };
-  // Tabs at the side, but the column is closed: they would be nowhere, so they
-  // come back on top until the column opens again.
-  return { strip: sidebarCollapsed, columnSkipsStrip: false };
+  // Tabs at the side stay at the side with the column closed too: the strip
+  // coming back on top made two places again (25/11: one or the other).
+  // The title row keeps the surface in front and the button that reopens the
+  // column, which is where the other tabs are.
+  return { strip: false, columnSkipsStrip: false };
 }

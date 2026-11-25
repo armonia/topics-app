@@ -536,7 +536,17 @@ pub(crate) fn open_page_popup(
     let title = url.host_str().unwrap_or("Topics").to_string();
     let closer = app.clone();
     let closing = label.clone();
-    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url))
+    // Built on `about:blank`, never on `url`: tauri skips its own navigation only
+    // for that exact URL (tauri-runtime-wry, `url != "about:blank"`), and it is the
+    // pattern the `on_new_window` docs show. With the real URL the shell loaded the
+    // popup itself (WKWebView `loadRequest`, WebView2 `Navigate`, GTK `load_uri`)
+    // while the engine was loading the opener's request into it: on WebView2 a
+    // navigated webview is refused as `NewWindow`, and the page that asked lost
+    // its opener. The Apple and Google login popups then stayed white and
+    // `opener.postMessage` reached nobody (card 34f4f757). The engine loads
+    // `url` itself once the window is handed back.
+    let blank: tauri::Url = "about:blank".parse().ok()?;
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(blank))
         .title(title)
         .window_features(features)
         .initialization_script(POPUP_CLOSE_JS)

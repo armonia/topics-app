@@ -410,6 +410,31 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
 
   const nothingToLand = createNothingToLand({ svc, broadcastToAll, opts, explain: explainNothingToLand });
 
+  /**
+   * A card whose delivery no bar ever measured does not land on a board that declares one.
+   * Deliveries planted from another machine arrived with `checks` and `checks_state` null
+   * and went straight onto main, turning its gates red.
+   */
+  function unmeasuredStop(projectId: string, taskId: string): string | null {
+    const t = svc.get(taskId, { projectId })?.task;
+    if (!t) return null;
+    let declared: Array<{ cmd: string; name: string }> = [];
+    try { declared = svc.getBoardSettings(projectId).reviewChecks; } catch { return null; }
+    if (!declared.length) return null;
+    const rows = t.checks ?? [];
+    if (t.checksState == null && rows.length === 0) {
+      return "la consegna non ha nessun check misurato (checks nullo) su una board che ne dichiara: non atterra finché la barra non gira sul suo commit";
+    }
+    // A partial bar (say gates measured, the unit job never) is the same hole: the card cannot land on it.
+    // With a CI phase the `github-ci:*` rows are not on the card at land time: in `after` mode they are written once
+    // the land is done, in `before` mode the queue measured the integration commit and lands on its green.
+    const expected = ciPhase.boardCiMode(projectId) !== "off" ? declared.filter((d) => !d.cmd.startsWith("github-ci:")) : declared;
+    const missing = rows.length ? expected.filter((d) => !rows.some((r) => r.cmd === d.cmd)) : [];
+    return missing.length
+      ? `la barra della board non è stata misurata per intero (mancano: ${missing.map((m) => m.name).join(", ")}): non atterra finché non gira`
+      : null;
+  }
+
   /** A land waits while the CI of main is red, unless the card is the one repairing it. */
   async function redMainStop(projectId: string, taskId: string): Promise<string | null> {
     if (!opts?.mainCiPort) return null;
@@ -457,6 +482,19 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
     // main" button — the fix stays reachable, the closed decision does not
     // get reverted to reach it.
     const closedByHuman = task.status === "done" && task.doneActor === "human";
+    // Every path stops here, the manual land included: the hook below only runs for the automatic one.
+    const unmeasured = unmeasuredStop(projectId, taskId);
+    if (unmeasured) {
+      try {
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Land rifiutato prima del merge: ${unmeasured}. La card resta in review.`,
+        });
+        const fresh = svc.get(taskId, { projectId })?.task;
+        if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+      } catch (err) { console.warn(`[land] nota di rifiuto non scritta per ${taskId}:`, err); }
+      return { outcome: "skipped", reason: unmeasured };
+    }
     try {
       const recheck = landOpts?.recheck;
       const res = await autoMerge.tryMerge(taskId, task.text, {
@@ -464,16 +502,12 @@ export function createTasksLand(core: TasksCore, late: TasksLate) {
         commit: toMerge,
         ...(landOpts?.noRealign ? { noRealign: true } : {}),
         // Only passed when there is something to check, so the old tryMerge contract holds.
-        ...(recheck || opts?.mainCiPort
-          ? {
-              beforeMerge: async (sha: string) => {
-                // The repair card of a red main is the one land that must go through.
-                const stop = await redMainStop(projectId, taskId).catch(() => null);
-                if (stop) return stop;
-                return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
-              },
-            }
-          : {}),
+        beforeMerge: async (sha: string) => {
+          // The repair card of a red main is the one land that must go through.
+          const stop = await redMainStop(projectId, taskId).catch(() => null);
+          if (stop) return stop;
+          return recheck ? recheck(sha).catch((err) => `the recheck failed: ${String(err)}`) : null;
+        },
       });
       // The automatic land stopped itself right before the merge (nobody pressed "Landa", so no "Land NON riuscito").
       if (res.status === "skipped" && res.code === "auto-land-stopped") {

@@ -124,6 +124,9 @@ export interface UsePaneLifecycleArgs {
   onPersistReorder?: (newPaneIds: string[]) => void;
   claudeSkipPermissions: boolean;
   stopSession: (sessionKey: string) => Promise<boolean>;
+  /** Only the tab in front is drawn on top: a close keeps it in front while
+   *  its countdown runs, the commit moves the front on. */
+  frontOnlyOnTop?: boolean;
 }
 
 export interface UsePaneLifecycleHandlers {
