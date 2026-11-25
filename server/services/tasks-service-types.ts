@@ -38,6 +38,11 @@ export interface ServiceOpts {
   listRepoRoots?: () => string[];
   /** Visible project directories, used as a fallback by older hosts. */
   listProjectDirs?: () => string[];
+  /**
+   * The branch checked out in a worktree root when it has commits ahead of main
+   * (`null` otherwise). Lets a card that declares a wait keep its work as `prior_branch`.
+   */
+  branchAheadOf?: (root: string) => string | null;
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
   /**
