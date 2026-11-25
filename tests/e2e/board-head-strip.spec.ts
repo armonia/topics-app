@@ -72,6 +72,9 @@ test.afterAll(async ({ request }) => {
   removeTmpDir(projectPath);
 });
 
+// Top level on purpose: Playwright refuses `use({ video })` inside a describe group.
+test.use({ video: 'on' });
+
 test.describe('the head of the task drawer', () => {
   test('a review shows its delivery band and the decisions with no click, and the thread stays', async ({ page, request }) => {
     test.info().annotations.push({ type: 'spec', description: 'KANBAN-05' });
@@ -168,8 +171,6 @@ test.describe('the head of the task drawer', () => {
 });
 
 test.describe('the head of the task drawer, on video', () => {
-  test.use({ video: 'on' });
-
   test('review with a delivery and a card at work, from a phone to an ultrawide screen', async ({ page, request }, testInfo) => {
     const review = await seed(request, 'Head strip video review', 'review');
     const working = await seed(request, 'Head strip video at work', 'in_progress');
