@@ -485,6 +485,18 @@ export interface GithubPort {
   openPullRequest(cwd: string, repo: string, branch: string): Promise<Got<PullRequestRef | null>>;
   draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<PullRequestRef>>;
   closePullRequest(cwd: string, repo: string, pr: number, comment: string): Promise<Got<"closed">>;
+  /** Takes a draft pull request out of draft, so GitHub will actually merge it. */
+  markReady(cwd: string, repo: string, pr: number): Promise<Got<"ready">>;
+  /**
+   * Turns on GitHub's own auto-merge (a merge commit, never squash or rebase:
+   * the tree must match the pull_request run that already tested it).
+   * `subject` becomes the merge commit's message, so it keeps following the
+   * `merge task <id>: <title>` convention several callers parse off main
+   * (task-diff-range.ts, landing-audit.ts) instead of GitHub's own default.
+   */
+  enableAutoMerge(cwd: string, repo: string, pr: number, subject: string): Promise<Got<"enabled">>;
+  /** What the pull request looks like right now: still a draft, merged, and the merge commit GitHub produced. */
+  pullRequestState(cwd: string, repo: string, pr: number): Promise<Got<PullRequestState>>;
   /** `deleted`, or `absent` when the remote branch was already gone: both are "nothing left on origin". */
   deleteRemoteBranch(cwd: string, branch: string): Promise<Got<"deleted" | "absent">>;
   runs(repo: string, sha: string): Promise<Got<GithubRun[]>>;
@@ -500,6 +512,7 @@ export interface GithubPort {
 }
 
 export type PullRequestRef = { number: number; url: string };
+export type PullRequestState = { isDraft: boolean; merged: boolean; mergeCommit: string | null };
 export type OpenPullRequest = PullRequestRef & { headRefName: string; title: string };
 
 type Spawned = { code: number; out: string; err: string };
@@ -630,6 +643,14 @@ export function githubPort(): GithubPort {
     },
     closePullRequest: (cwd, repo, pr, comment) => call(
       ["gh", "pr", "close", String(pr), "--repo", repo, "--comment", comment], cwd, () => "closed" as const),
+    markReady: (cwd, repo, pr) => call(["gh", "pr", "ready", String(pr), "--repo", repo], cwd, () => "ready" as const),
+    enableAutoMerge: (cwd, repo, pr, subject) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--merge", "--auto", "--subject", subject, "--body", ""], cwd, () => "enabled" as const),
+    pullRequestState: (cwd, repo, pr) => call(
+      ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit"], cwd, (o) => {
+        const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null };
+        return { isDraft: parsed.isDraft, merged: parsed.state === "MERGED", mergeCommit: parsed.mergeCommit?.oid ?? null };
+      }),
     deleteRemoteBranch: async (cwd, branch) => {
       const argv = ["git", "push", "origin", "--delete", branch];
       const r = await spawnCapped(argv, cwd);

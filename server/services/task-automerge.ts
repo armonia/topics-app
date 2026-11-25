@@ -41,6 +41,8 @@ import { landedMergeRange } from "./task-diff-range";
 import { resolveLandingBase } from "./worktree-base-ref";
 import { scratchDir, scratchId } from "./worktree-scratch";
 import { runGit } from "../lib/run-git";
+import { githubPort } from "./ci-evidence";
+import { landViaPullRequest } from "./land-via-pull-request";
 import { discardWorktree } from "../lib/worktree-discard";
 import { neutralizeRefusedMergeMessage } from "./land-prepush-message";
 import { missingPackageManager, runScriptArgv } from "../lib/project-scripts";
@@ -450,6 +452,13 @@ export interface AutoMergeDeps {
    */
   verifyBundle?: (publicDir: string) => string | null;
   log?: (msg: string, err?: unknown) => void;
+  /**
+   * Injected for tests. Default: `landViaPullRequest` against the real
+   * `githubPort()`. Tried before the local `git merge` whenever this land
+   * targets the branch itself (never a pinned sha): a `"no-pr"` answer falls
+   * back to the local merge unchanged.
+   */
+  landViaPullRequest?: typeof landViaPullRequest;
 }
 
 /** What `buildClient` answers: the exit code, plus what is ON DISK afterwards. */
@@ -526,6 +535,7 @@ function defaultRegenerateManifest(cwd: string): Promise<GitRunResult> {
 
 export function createTaskAutoMerge(deps: AutoMergeDeps) {
   const runGit = deps.runGit ?? defaultRunGit;
+  const landViaPr = deps.landViaPullRequest ?? landViaPullRequest;
   const runBuild = deps.runBuild ?? defaultRunBuild;
   const regenerateBaseline = deps.regenerateBaseline ?? defaultRegenerateBaseline;
   const regenerateManifest = deps.regenerateManifest ?? defaultRegenerateManifest;
@@ -1528,6 +1538,35 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
         /** What the merge is given: the measured sha when there is one, otherwise the branch. */
         const mergeRef = () => pinnedSha ?? branch;
 
+        /**
+         * Reuses the branch's open pull request so GITHUB merges it (its own
+         * auto-merge, a merge commit), instead of merging locally and pushing a
+         * tree a `pull_request` run never tested (`tree-verdict`,
+         * scripts/ci-changes.ts, would make main rerun the whole CI on that push).
+         * Only tried when the merge targets the branch tip itself: a pinned sha
+         * (`noRealign`) is not what the open pull request's head points at, so
+         * GitHub's merge would not be the measured commit and the local merge
+         * below is the only correct path.
+         *
+         * `cwd` ends up fast-forwarded onto GitHub's merge commit on success,
+         * same as a successful local `git merge` leaves it on the merge commit.
+         */
+        async function mergeBranchHere(cwd: string): Promise<{ ok: true } | { ok: false }> {
+          if (!pinnedSha) {
+            const viaPr = await landViaPr({ cwd, branch, mergeMessage: mergeMsg }, githubPort());
+            if (viaPr.status === "merged") return { ok: true };
+            if (viaPr.status === "failed") {
+              log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
+              return { ok: false };
+            }
+            // "no-pr": no open pull request to reuse, fall through to the local merge.
+          }
+          const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
+          if (merge.code === 0) return { ok: true };
+          await runGit(cwd, ["merge", "--abort"]).catch(() => undefined);
+          return { ok: false };
+        }
+
         // Fast path: the shared checkout is ALREADY on main → merge in place, so a
         // hot-reload/rebuild makes the landing live immediately. Requires a clean
         // tree: never fold a concurrent session's WIP into the merge.
@@ -1556,9 +1595,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           const stopped = await lookBeforeMerge(repoPath);
           if (stopped) return stopped;
           // --no-ff keeps a merge commit so the landing is auditable even for a FF.
-          const merge = await runGit(repoPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
-          if (merge.code === 0) return finishMerged(repoPath, /*live*/ true, cur);
-          await runGit(repoPath, ["merge", "--abort"]).catch(() => undefined);
+          const merged = await mergeBranchHere(repoPath);
+          if (merged.ok) return finishMerged(repoPath, /*live*/ true, cur);
           return { status: "conflict", branch };
         }
 
@@ -1582,9 +1620,8 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
           }
           const stopped = await lookBeforeMerge(wtPath);
           if (stopped) return stopped;
-          const merge = await runGit(wtPath, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
-          if (merge.code === 0) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
-          await runGit(wtPath, ["merge", "--abort"]).catch(() => undefined);
+          const merged = await mergeBranchHere(wtPath);
+          if (merged.ok) return await finishMerged(wtPath, /*live*/ false, cur || "detached HEAD");
           return { status: "conflict", branch };
         } finally {
           await discardWorktree(runGit, repoPath, wtPath);
