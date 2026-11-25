@@ -1667,7 +1667,7 @@ test.describe("TOPIC-BROWSER-04 le aperture che nessuno ha chiesto a mano", () =
       });
       // The pane in a cell of its own: the per-device layout is localStorage,
       // and the default space keeps the unsuffixed key alive too.
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
       await page.evaluate(({ k1, k2, grid }) => {
         localStorage.setItem(k1, JSON.stringify(grid));
         localStorage.setItem(k2, JSON.stringify(grid));
