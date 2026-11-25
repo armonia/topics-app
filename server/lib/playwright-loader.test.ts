@@ -1,3 +1,6 @@
+/**
+ * @covers BROWSER-NODE-DEPS-01
+ */
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
