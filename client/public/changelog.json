@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.5.1",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fix ci-governor selftest race on SIGSTOP/SIGCONT delivery under load",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "one row grammar in the sidebar, and no ground at rest",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "the reused browser view passes the island flag too",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the new comments quote the report in English",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "the browser tab in the title row is a portal in flow, not a floating surface",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.110",
     "date": "2026-11-25",
     "sections": {
@@ -7,6 +59,18 @@
       "fixes": [
         {
           "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        },
+        {
+          "it": "a project's browser in front is the title, and its page is an island",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "corner_plan is macOS-only outside tests, like its neighbours",
           "en": "",
           "scope": "tauri",
           "breaking": false
