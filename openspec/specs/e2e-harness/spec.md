@@ -640,6 +640,20 @@ MISURA: `tests/unit/e2e-server-lock.test.ts`.
 - **GIVEN** un lock con il PID di un processo che non esiste
 - **THEN** il lock viene ripreso
 
+### Requirement: E2E-VIDEO-01 — Il video di prova ha la risoluzione del viewport
+
+Ogni clip registrata dal banco E2E SHALL avere la stessa larghezza e altezza
+del viewport del progetto che l'ha girata, con la dimensione definita in un
+solo modulo (`tests/e2e/video-evidence.ts`). Senza una dimensione esplicita
+Playwright scala la registrazione a 800x800: il desktop 1280x800 usciva 800x500
+e il testo della UI non si leggeva.
+
+#### Scenario: la clip è larga come il viewport
+
+- **GIVEN** un progetto di Playwright con un proprio viewport
+- **WHEN** il config ne risolve il video
+- **THEN** `video.size` è uguale al viewport di quel progetto
+
 ### Requirement: BLOAT-RATCHET-01 — La baseline delle dimensioni può solo scendere
 
 Il cancello `check:bloat` SHALL rifiutare `--update-baseline` per un file nuovo

@@ -45,9 +45,10 @@ import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
 import { taskSubject, terminalSubject, topicSubject } from "../../shared/attention";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const TOOL_INPUT = { command: "npm publish" };

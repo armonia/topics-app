@@ -7,6 +7,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { attentionUpdated, stageAttention } from "./helpers/attention";
+import { VIDEO_ON } from "./video-evidence";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -22,7 +23,7 @@ const BASE = E2E_BASE;
  *
  * @covers CHAT-01
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe("Chat streaming indicator", () => {
   let topicId: string;

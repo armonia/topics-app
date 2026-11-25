@@ -33,10 +33,11 @@ import { canonicalTmpRoot, initGitRepo, removeTmpDir } from "./helpers/file-proj
 import { projectRow } from "./helpers/project-row";
 import { E2E_BASE } from "./helpers/test-server";
 import { projectIdForPath } from "../../shared/board";
+import { videoAt } from "./video-evidence";
 
 const test = base;
 hermetic(test);
-test.use({ video: "on", viewport: { width: 1360, height: 860 } });
+test.use({ video: videoAt("on", { width: 1360, height: 860 }), viewport: { width: 1360, height: 860 } });
 
 const BASE = E2E_BASE;
 const STAMP = Date.now();
