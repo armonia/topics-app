@@ -34,6 +34,7 @@ import {
   pendingQuestion,
   pendingQuestionComment,
   projectIdForPath,
+  queueReasonKeys,
   questionAsksHuman,
   showsLandingDebt,
   statusEventEnters,
@@ -696,6 +697,25 @@ describe("perché questa card è ferma", () => {
     });
     expect(capped.detail).not.toBe(floor.detail);
     expect(capped.title).not.toBe(floor.title);
+  });
+
+  test("project pause: its own kind, tone `waiting`, from the project flag and from a paused dispatch block", () => {
+    // The flag read off the project row (a card in the queue, or a held resume).
+    const fromFlag = deriveQueueReason({ ...base, dispatchState: "queued" }, { ...ctx, ahead: 2, projectPaused: true });
+    expect(fromFlag).toMatchObject({ kind: "project-paused", tone: "waiting" });
+    // The block a held resume carries in the In-progress column.
+    const fromBlock = deriveQueueReason(
+      { ...base, status: "in_progress", dispatchState: "queued" },
+      { ...ctx, dispatchBlock: { kind: "paused", reason: "In pausa: limite del progetto" } },
+    );
+    expect(fromBlock).toMatchObject({ kind: "project-paused", tone: "waiting" });
+    // Not a slot wait: the position in the queue is not what it waits for.
+    expect(fromFlag?.params).toBeUndefined();
+    // A card stopped on its own account keeps its own reason.
+    expect(deriveQueueReason({ ...base, dispatchAttempts: 2 }, { ...ctx, projectPaused: true })?.kind).toBe("attempts");
+    expect(deriveQueueReason({ ...base }, { ...ctx, autoDispatch: false, projectPaused: true })?.kind).toBe("dispatch_off");
+    // And the kind is a writable branch: listed, with its catalogue keys.
+    expect(queueReasonKeys("project-paused").length).toBeGreaterThan(0);
   });
 
   test("il blocco della macchina non copre le ragioni della card", () => {

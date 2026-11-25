@@ -22,7 +22,7 @@ import { machineBudgetMessage, memoryClause } from "./dispatch-budget-message";
 import type { DispatcherCtx, RunSlot } from "./task-dispatcher-context";
 
 export function createAdmission(ctx: DispatcherCtx) {
-  const { deps, inFlight, log, noCheckExemptions, spendHeldNoted, shared } = ctx.core;
+  const { deps, inFlight, log, noCheckExemptions, projectPauseHeldNoted, spendHeldNoted, shared } = ctx.core;
 
   /**
    * Il tetto di concorrenza EFFETTIVO, adesso. Era calcolato dentro `tick()`,
@@ -414,6 +414,10 @@ export function createAdmission(ctx: DispatcherCtx) {
   function noteSpendHold(task: Task, capCents: number): void {
     ctx.queue.noteHold(spendHeldNoted, task, taskSpendMessage(task.agentCostCents, capCents));
   }
+  /** limiti-consumo-progetto (USAGE-29, allow-italian: openspec change name): same discipline, for a project over its 24h quota limit. */
+  function notePauseHold(task: Task): void {
+    ctx.queue.noteHold(projectPauseHeldNoted, task, "In pausa: limite del progetto");
+  }
   function localMemorySeatTaken(): boolean {
     return shared.memorySeatTaskId !== null || localTurns() > 0;
   }
@@ -445,5 +449,5 @@ export function createAdmission(ctx: DispatcherCtx) {
     try { if (deps.svc.get(taskId)?.task.status !== "in_progress") shared.memorySeatTaskId = null; }
     catch { /* A failed read must not release a live seat. */ }
   }
-  return { admissionPreview, admissionVerdictNow, cardPrices, cardWeights, childAdmissionPreview, clearNoCheckReservation, currentCap, floorVerdict, inResourcesMode, lightMemoryPass, localMemorySeatTaken, localTurns, noCheckBudgetDecision, noCheckReservationFor, noteDerogationUsed, noteNoCheckExemptionStart, noteSpendHold, pressureBlock, rampHeld, releaseInactiveNoCheckReservations, releaseOrphanMemorySeat, restoreNoCheckReservation, spendBrake };
+  return { admissionPreview, admissionVerdictNow, cardPrices, cardWeights, childAdmissionPreview, clearNoCheckReservation, currentCap, floorVerdict, inResourcesMode, lightMemoryPass, localMemorySeatTaken, localTurns, noCheckBudgetDecision, noCheckReservationFor, noteDerogationUsed, noteNoCheckExemptionStart, notePauseHold, noteSpendHold, pressureBlock, rampHeld, releaseInactiveNoCheckReservations, releaseOrphanMemorySeat, restoreNoCheckReservation, spendBrake };
 }

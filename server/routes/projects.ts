@@ -37,9 +37,24 @@ import { installationOrgId, actingPersonId } from "../lib/orgs";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { isAbsoluteServerPath } from "../lib/absolute-path";
 import { stripCtrl } from "../lib/strip-ctrl";
+import { projectQuota } from "../usage/project-quota";
+import { projectPauseInfo, continueProject, pauseUntilTomorrow, reconcilePause } from "../services/project-pause";
+import { fireProjectResumed } from "../services/turn-gate";
+import type { Database } from "bun:sqlite";
 import { projectIdOfFolder } from "../usage/project-folders";
 import { readProjectLimit, setProjectLimit } from "../usage/project-limit";
 import { QUOTA_LIMIT_CHOICES } from "../../shared/usage-shapes";
+
+/** `project:quota` to everyone (no path or name in the payload, same shape rule as `project:deleted`). */
+export function broadcastQuotaState(ctx: AppContext, projectId: string, points24h: number | null): void {
+  const info = projectPauseInfo(ctx.db, projectId, points24h);
+  ctx.broadcastToAll({ type: "project:quota", projectId, paused: info.paused, reason: info.reason, limit: info.limit, points24h: info.points24h });
+}
+
+/** Live last-24h points of one project (a click, not a poll, so no cache). */
+function currentPoints24h(db: Database, projectId: string): number | null {
+  try { return projectQuota(db).projects.find((p) => p.projectId === projectId)?.points24h ?? null; } catch { return null; }
+}
 
 const NAME_MAX = 200;
 const SLUG_REGEX = /^[a-z][a-z0-9-]{0,63}$/;
@@ -362,7 +377,47 @@ export function createProjectsRouter(ctx: AppContext): RouteHandler {
       }
       const projectId = projectIdOfFolder(db, body.path);
       setProjectLimit(db, projectId, limit as number | null);
+      // A raised or removed limit closes an open pause now, not at the next sweep.
+      const points = currentPoints24h(db, projectId);
+      const t = reconcilePause(db, projectId, points ?? 0);
+      if (t !== null) broadcastQuotaState(ctx, projectId, points);
+      if (t === "closed") fireProjectResumed(projectId);
       return json({ limit: readProjectLimit(db, projectId) });
+    }
+
+    // GET /api/projects/:id/quota/pause: the pause state of one project, for a
+    // window that opens after the frame went by.
+    {
+      const params = matchRoute(pathname, "/api/projects/:id/quota/pause");
+      if (params && method === "GET") {
+        const info = projectPauseInfo(db, params.id, currentPoints24h(db, params.id));
+        return json({ projectId: params.id, paused: info.paused, reason: info.reason, limit: info.limit, points24h: info.points24h });
+      }
+    }
+
+    // POST /api/projects/:id/quota/continue: "Continua" unblocks the whole
+    // project, in every window, for CONTINUE_GRACE_PCT more points. `:id` is
+    // the quota project id (the one `tasks.project_id` carries).
+    {
+      const params = matchRoute(pathname, "/api/projects/:id/quota/continue");
+      if (params && method === "POST") {
+        const points = currentPoints24h(db, params.id);
+        continueProject(db, params.id, points);
+        broadcastQuotaState(ctx, params.id, points);
+        fireProjectResumed(params.id);
+        return json({ paused: false });
+      }
+    }
+
+    // POST /api/projects/:id/quota/hold: "Pausa fino a domani" holds the
+    // project until local midnight whatever its points.
+    {
+      const params = matchRoute(pathname, "/api/projects/:id/quota/hold");
+      if (params && method === "POST") {
+        pauseUntilTomorrow(db, params.id);
+        broadcastQuotaState(ctx, params.id, currentPoints24h(db, params.id));
+        return json({ paused: true });
+      }
     }
 
     // POST /api/projects

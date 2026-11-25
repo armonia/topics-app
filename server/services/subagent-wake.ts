@@ -30,6 +30,7 @@
 import { formatSubAgentExitBody } from "../routes/subagent-exit";
 import { resultKey, type SubAgentResult } from "../lib/subagent-result";
 import type { WakeLaunch } from "../lib/wake-adoption";
+import { holdUntilResumed } from "./turn-gate";
 import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -58,6 +59,12 @@ export interface SubagentWakeDeps {
    * two spawns is alive for the second one only.
    */
   canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
+  /**
+   * The project of the chat when its quota brake is on, null otherwise (the
+   * `turnGate` question for a subagent-wake, asked by the boot wiring). Absent:
+   * nothing is ever held.
+   */
+  pausedProject?(sessionKey: string): string | null;
   log?: (msg: string) => void;
   debounceMs?: number;
   pollMs?: number;
@@ -141,6 +148,28 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
   const delivered = new Set<string>();
   const DELIVERED_CAP = 500;
   const workers = new Map<string, Promise<void>>();
+  /** Results kept back by the project pause, per parent chat: handed back to `enqueue` on "Continua". */
+  const parked = new Map<string, SubagentWakeRequest[]>();
+
+  /**
+   * PROJECT PAUSE: the parent's turn does not start while its project is paused.
+   * Like a provider hold, only the TURN waits: the cards go in as rows now. The
+   * results are parked under the project, one slot per parent chat (a repeated
+   * park replaces the thunk, never the list), and queued again on "Continua".
+   * Not lost by a restart in between: the durable copy in the child's
+   * `pending_results` is asked for again at boot, and parks again if the pause
+   * is still on.
+   */
+  function parkForPause(sessionKey: string, projectId: string): void {
+    const batch = pending.get(sessionKey)?.splice(0) ?? [];
+    if (!batch.length) return;
+    writeAheadOfTurn(batch);
+    parked.set(sessionKey, [...(parked.get(sessionKey) ?? []), ...batch]);
+    holdUntilResumed(projectId, `subagent-wake:${sessionKey}`, () => {
+      for (const x of parked.get(sessionKey)?.splice(0) ?? []) enqueue(x);
+    });
+    deps.log?.(`${sessionKey}: the project is paused, ${batch.length} result(s) written as rows, the turn waits for Continua`);
+  }
 
   async function drain(sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
     let read = reader.read();
@@ -206,6 +235,8 @@ export function createSubagentWake(deps: SubagentWakeDeps) {
         asRows(refused);
       }
       if (!pending.get(sessionKey)?.length) return;
+      const pausedProject = deps.pausedProject?.(sessionKey);
+      if (pausedProject) { parkForPause(sessionKey, pausedProject); return; }
       if (verdicts.some((v) => v === "wait")) {
         // The hold is the provider's, not the chat's: the parent may well be
         // working on another one. The cards go in now; only the model's turn waits.

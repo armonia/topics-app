@@ -32,6 +32,7 @@ import { isLocalTransport } from "../lib/tunnel";
 import { createDelegatedRevocationRetry, type DelegatedRevocationRetry } from "../services/delegated-revocation-retry";
 import { SPAWN_TIMEOUT, spawnBounded } from "../lib/bounded-spawn";
 import { projectIdForPath } from "../../shared/board";
+import { automation, turnGate } from "../services/turn-gate";
 import { canonicalProjectIdentity, projectPathOfAnyId } from "../lib/project-identity";
 import { stripCtrlOrNull } from "../lib/strip-ctrl";
 import { isNodeDevice, mayDriveNodeRuns, ownsNodeRun, recordNodeRunCaller } from "../lib/node-scope";
@@ -646,6 +647,14 @@ export function createNodesRouter(ctx: AppContext, opts: NodesRouterOpts): Route
         if (!resp || !resp.ok) return resp ?? json({ error: "board delete unavailable", code: "internal" }, 500);
       }
       if (prior) db.run("UPDATE tasks SET claude_task_id = NULL WHERE id = ?", [prior.id]);
+
+      // PROJECT PAUSE. A node does not start the run of a paused project: the
+      // origin says its own pause in the body, and this node's project for the
+      // same repository is asked through the one turn gate. Nothing is created,
+      // so the origin card simply waits for "Continua" on its side.
+      if (body.originPaused === true || !turnGate(db, automation("node-run"), projectIdForPath(project.path)).allowed) {
+        return json({ error: "project paused", code: "project_paused" }, 409);
+      }
 
       // The branch the run starts from, when the origin card already has one: a
       // ref name and nothing else, since it ends up as `origin/<name>` in git.

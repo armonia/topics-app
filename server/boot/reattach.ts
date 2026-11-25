@@ -20,6 +20,7 @@ import { commandBackgroundWork, commandWakeState, sessionsAwaitingCommandWake } 
 import { subagentWakeState } from "../lib/subagent-runtime";
 import { startProcessExitWakes } from "../lib/process-exit-wake";
 import { startSubagentWakes } from "../services/subagent-wake";
+import { automation, projectIdOfTopic, turnGate, type AutomationSource } from "../services/turn-gate";
 import { abandonCutTurn, adoptNativeChildrenAtBoot } from "../lib/native-subagents";
 import { recomposeAttentionOnBoot } from "../attention/store";
 import { attentionBootReader } from "../attention/boot-reader";
@@ -576,6 +577,13 @@ export function bootReattach(scope: AfterGovernor) {
     defaultProvider: () => getDefaultProviderName() ?? undefined,
   });
 
+  // The project of a chat whose quota brake is on (the turn gate's answer for
+  // a wake), for the wakes below to park instead of sending.
+  const pausedProjectOf = (source: AutomationSource) => (sessionKey: string): string | null => {
+    const projectId = projectIdOfTopic(ctx.db, ctx.getTopicBySessionKey(sessionKey)?.id);
+    return projectId && !turnGate(ctx.db, automation(source), projectId).allowed ? projectId : null;
+  };
+
   // The results of `spawn_agent` children wake their parent chats on the same
   // condition, and for the same reason (SUBAGENT-12).
   void survivingTurnsAdopted
@@ -584,6 +592,7 @@ export function bootReattach(scope: AfterGovernor) {
       route: topicsRouter,
       isBusy: (sk) => activeStreams.has(sk),
       canWake: canWakeLaunchingChat,
+      pausedProject: pausedProjectOf("subagent-wake"),
       log: (m) => console.log(`[subagent-wake] ${m}`),
     }));
 
@@ -596,6 +605,7 @@ export function bootReattach(scope: AfterGovernor) {
       isBusy: (sk) => activeStreams.has(sk),
       sessionKeyOfTopic: (id) => ctx.getTopicById(id)?.sessionKey ?? null,
       canWake: canWakeLaunchingChat,
+      pausedProject: pausedProjectOf("card-outcome-wake"),
       log: (m) => console.log(`[card-outcome] ${m}`),
     }));
 

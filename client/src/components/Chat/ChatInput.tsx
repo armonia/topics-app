@@ -43,6 +43,7 @@ import { chatFocus } from '../../state/chatFocus';
 import { Menu } from '../Shared/Menu';
 import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { CHAT_STRIP } from '../../lib/chatStripStyles';
+import { ProjectPauseStrip } from '../Shared/ProjectPauseStrip';
 import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
@@ -1270,6 +1271,7 @@ export function ChatInput({
   return (
     <>
       {/* Status banners (outside floating card) */}
+      <ProjectPauseStrip projectPath={topic.projectPath} surface="chat" />
       {isCallActive && (
         <div className={`${CHAT_STRIP} bg-gradient-to-r from-green-500/20 to-blue-500/20 border border-green-500/30 px-3 py-2 flex items-center gap-3 flex-shrink-0`}>
           <div className={`w-3 h-3 rounded-full ${

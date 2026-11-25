@@ -9,6 +9,7 @@
 import type { Database } from "bun:sqlite";
 import type { ServiceOpts, TaskService } from "../tasks";
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { projectIsPaused } from "../project-pause";
 import { PREVIEW_CARD_MAX_RATIO, type SubtaskWork, deriveSubtaskWork, isUnattributedSubtask, type CardComment, DISPATCH_CHIP_QUEUED, isAgentWorking, QUEUE_REASON_UNKNOWN, type QueueReason, WAITING_MEMORY_REASON, deriveQueueReason, readTaskWeight, REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, type TaskComment, type TaskActionOrigin, formatStatusEvent, statusEventEnters, type TaskStatus, TASK_STATUSES, parseQuestionBlock, questionAsksHuman, type BlockerRef, type QueueContext } from "../../../shared/board";
 import { imageShape } from "../image-shape";
 import { isDeliverySheetPath, isAutoCapturedPreview } from "../../../shared/media-kind";
@@ -1498,6 +1499,8 @@ function queueReasonOf(r: any, b: TaskBatch): QueueReason | null {
           dispatchBlock: inCoda
             ? (r.dispatch_error === WAITING_MEMORY_REASON ? { kind: "resources", reason: WAITING_MEMORY_REASON } : currentDispatchBlock())
             : heldResume ? heldResumeBlock(r.id, r.dispatch_error) : null,
+          // Only a card that waits (the queued chip) pays the one indexed row read.
+          projectPaused: (inCoda || heldResume) && r.dispatch_state === DISPATCH_CHIP_QUEUED && projectIsPaused(db, r.project_id),
           memoryWait: r.dispatch_error === WAITING_MEMORY_REASON ? currentMemoryWait() : null,
           elsewhere: b.elsewhere.get(r.id) ?? null,
           parentStatus: r.parent_task_id ? (b.parentStatus.get(r.parent_task_id) ?? null) : null,

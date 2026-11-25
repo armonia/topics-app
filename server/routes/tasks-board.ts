@@ -15,6 +15,7 @@ import { findDuplicateGroups } from "../../shared/task-similarity";
 import { landedOnMain } from "./tasks-ci-phase";
 import { parseTaskPatch, unapplicableFieldsBody, type FieldRead } from "./task-patch";
 import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE, type AskRoutingDeps } from "../services/board-ask-routing";
+import { PERSON } from "../services/turn-gate";
 import { isLandActionLabel, isPublishActionLabel, projectIdForPath, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
@@ -638,7 +639,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               if (root && root.status === "review" && root.assignedTopicId) {
                 const rejected = svc.reviewDecision({ taskId: root.id, by: "user", decision: "reject", projectId, origin: actionOrigin });
                 broadcastToAll({ type: "task:updated", projectId, task: rejected });
-                dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`)
+                dispatcher.resume(root.id, `L'umano ha aggiunto un nuovo step al tuo task: "${task.text.slice(0, 80)}" (id=${task.id}). Lavoralo e marcalo done prima della consegna.`, { origin: PERSON })
                   .catch((err) => console.warn(`[Tasks] resume after add-step failed for ${root.id}:`, err));
               }
             }
@@ -969,7 +970,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // resumes instead of a fresh agent spawning. reviewDecision already
         // moved it back to in_progress.
         if (dispatcher && decision === "reject" && task.assignedTopicId) {
-          dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId] } : undefined)
+          dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId], origin: PERSON } : { origin: PERSON })
             .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
         } else if (dispatcher && decision === "reject") {
           // No session to resume: the binding was released (a restart with
@@ -1423,7 +1424,7 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
               // The envelope carries the id of the comment it delivers: those
               // words are already a row in the thread, and the anchor is what
               // lets a reader draw them once instead of twice.
-              dispatcher.resume(root.id, msg, { commentIds: [comment.id] })
+              dispatcher.resume(root.id, msg, { commentIds: [comment.id], origin: PERSON })
                 .catch((err) => console.warn(`[Tasks] resume after comment failed for ${root.id}:`, err));
               delivery = 'queued';
             }

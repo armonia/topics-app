@@ -54,6 +54,7 @@ import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/b
 import { rowsBack, type BackRow } from "../lib/background-notice";
 import { hasMachineMark } from "../../shared/prompt-number";
 import { stoppedSubagentChat } from "../lib/wake-adoption";
+import { automation, turnGateForTopic } from "./turn-gate";
 
 /** How a continuation sent through the chat route marks its `user` row. */
 export type ContinuationMark = "goal-nudge" | "ripresa" | "hook-nudge";
@@ -284,6 +285,9 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (deps.isBusy?.(sessionKey)) { w.timer = null; return; }
     // A task just reported and its wake is about to start: look again then.
     if (deps.wakeQueued?.(sessionKey)) { w.timer = setTimer(() => { void checkIn(sessionKey); }, GOAL_WAKE_RECHECK_MS); return; }
+    // A paused project spends no check-in: re-arm and look again later, or the
+    // three-check-in budget would burn away during the pause.
+    if (!turnGateForTopic(deps.db, automation("goal-nudge"), w.info.topicId).allowed) { w.timer = setTimer(() => { void checkIn(sessionKey); }, GOAL_WAKE_RECHECK_MS); return; }
     deferred.delete(sessionKey);
     // A wake that did not come is not a check-in: nothing to count.
     if (!w.wakeOnly) { checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1); idleCheckInCount.set(sessionKey, (idleCheckInCount.get(sessionKey) ?? 0) + 1); }
@@ -397,6 +401,14 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   async function judge(info: TurnEndInfo, backgroundStillRunning: boolean, stillFree?: () => boolean): Promise<string> {
     // A sub-agent its parent stopped is not pushed on: no nudge, no resume (SUBAGENT-19).
     if (stoppedSubagentChat(deps.db, info.topicId)) return "skipped";
+    // PROJECT PAUSE: neither the judge (a paid call) nor the nudge or the
+    // tool-budget resume (both turns nobody typed) run while the project is
+    // paused. Nothing is parked: the round is skipped and the next turn end or
+    // check-in re-evaluates, so a goal picks up by itself after "Continua".
+    if (!turnGateForTopic(deps.db, automation("goal-nudge"), info.topicId).allowed) {
+      log(`goal-loop: ${info.sessionKey}: project paused, no judge and no nudge this round`);
+      return "skipped";
+    }
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);

@@ -14,9 +14,15 @@
  *    first frames after a restart re-emit old rows and must not wake anybody.
  *  - A busy chat is not interrupted: the wake waits for its turn to end.
  *  - A chat that only READ the card is not its opener, so it gets nothing.
+ *  - While the opener's project is paused (quota brake) nothing is sent: the
+ *    outcomes are parked under the project and go on "Continua". The parking is
+ *    memory only: a card outcome has no durable copy, and after a restart the
+ *    board re-emits old rows that count as seen, so an outcome parked across a
+ *    restart is not woken (the chat can still read the card with get_task).
  */
 import type { TaskStatus } from "../../shared/board";
 import type { WakeLaunch } from "../lib/wake-adoption";
+import { holdUntilResumed } from "./turn-gate";
 import { sleep } from "../lib/unref-sleep";
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -84,6 +90,8 @@ export interface CardOutcomeWakeDeps {
   sessionKeyOfTopic(topicId: string): string | null;
   /** `wake`: send now. `wait`: not now. `row`: this chat cannot take a turn. */
   canWake(sessionKey: string, launch?: WakeLaunch): "wake" | "wait" | "row";
+  /** The project of the chat when its quota brake is on, null otherwise (set by the boot wiring). Absent: never held. */
+  pausedProject?(sessionKey: string): string | null;
   log?: (msg: string) => void;
   now?: () => number;
   pollMs?: number;
@@ -101,6 +109,8 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
   const seen = new Map<string, CardOutcome | null>();
   const pending = new Map<string, Array<{ frame: CardFrame; outcome: CardOutcome }>>();
   const workers = new Map<string, Promise<void>>();
+  /** Outcomes kept back by the project pause, per chat: queued again on "Continua". */
+  const parked = new Map<string, Array<{ frame: CardFrame; outcome: CardOutcome }>>();
 
   async function work(sessionKey: string): Promise<void> {
     await sleep(debounceMs);
@@ -109,6 +119,17 @@ export function createCardOutcomeWake(deps: CardOutcomeWakeDeps) {
       const live = pending.get(sessionKey) ?? [];
       const verdicts = live.map((b) => deps.canWake(sessionKey, { taskId: b.frame.id }));
       if (verdicts.some((v) => v === "wait")) { await sleep(pollMs); continue; }
+      // The pause comes before the batch is cut: held outcomes are not dropped.
+      const pausedProject = live.length ? deps.pausedProject?.(sessionKey) : null;
+      if (pausedProject) {
+        parked.set(sessionKey, [...(parked.get(sessionKey) ?? []), ...live]);
+        pending.delete(sessionKey);
+        holdUntilResumed(pausedProject, `card-outcome-wake:${sessionKey}`, () => {
+          for (const x of parked.get(sessionKey)?.splice(0) ?? []) enqueue(sessionKey, x.frame, x.outcome);
+        });
+        deps.log?.(`${sessionKey}: the project is paused, ${live.length} card outcome(s) wait for Continua`);
+        return;
+      }
       // A card whose chat cannot take a turn is dropped; the others go together.
       const batch = live.filter((_, i) => verdicts[i] === "wake");
       pending.delete(sessionKey);

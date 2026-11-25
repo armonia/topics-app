@@ -9,6 +9,7 @@ import type { HeldMemory } from "./mem-signal";
 import type { DispatchMemoryHistoryPoint } from "./dispatch-memory-history";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { type TurnEndInfo } from "../providers/stop-reason";
+import type { TurnOrigin } from "./turn-gate";
 import { type NodeDeps } from "./task-dispatcher-remote-node";
 import { type OverflowMachine } from "./dispatch-overflow";
 import { type DispatchWork } from "../../shared/provider-hold";
@@ -565,8 +566,11 @@ export interface TaskDispatcher {
    * or a review rejection). The caller has already moved the task back to
    * `in_progress` (via reviewDecision); this resumes the same agent tab so the
    * conversation continues instead of spawning a fresh one.
+   *
+   * `origin: PERSON` marks a message a person wrote: a paused project never
+   * holds it. Every other caller is automated and waits for "Continua".
    */
-  resume(taskId: string, humanMessage: string, opts?: { commentIds?: string[] }): Promise<void>;
+  resume(taskId: string, humanMessage: string, opts?: { commentIds?: string[]; origin?: TurnOrigin }): Promise<void>;
   /**
    * Boot + periodic sweep. Three passes:
    *  0. LIVENESS: a turn we still believe is running but whose agent process is

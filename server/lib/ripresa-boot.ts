@@ -54,6 +54,7 @@
  *     in mente.
  */
 import { NOT_STEERED_ROW } from "./steered-row";
+import { automation, holdUntilResumed, projectIdOfTopic, turnGate } from "../services/turn-gate";
 import type { ContentBlock } from "../types";
 import { cancelled } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
@@ -961,6 +962,22 @@ export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id,
                     AND ${NOT_STEERED_ROW})`;
 
 /**
+ * The pause gate for one chat's resume. True when the chat's project is paused:
+ * the resume is parked under the project (one slot per chat, a repeated sweep
+ * replaces it) and runs again, for that chat alone, once the pause closes.
+ * Fails open: a topic whose project cannot be read is never held.
+ */
+function holdForPause(ctx: CtxRipresa, router: RouterChat, ceilings: ResumeCeilings, sessionKey: string, topicId: string | undefined): boolean {
+  try {
+    const projectId = projectIdOfTopic(ctx.db, topicId);
+    if (!projectId || turnGate(ctx.db, automation("boot-resume"), projectId).allowed) return false;
+    holdUntilResumed(projectId, `boot-resume:${sessionKey}`, () => riprendiTurniInterrotti(ctx, router, ceilings, sessionKey));
+    console.log(`[ripresa] ${sessionKey}: il progetto è in pausa, la ripresa aspetta Continua`);
+    return true;
+  } catch { return false; }
+}
+
+/**
  * I TURNI CHE ABBIAMO UCCISO NOI, RIPRESI DA NOI.
  *
  * Un turno di `claude-code` sopravvive al riavvio (gira in un figlio, il broker
@@ -982,7 +999,7 @@ export const LAST_RECENT_MESSAGES_SQL = `SELECT m.session_key AS sk, m.id AS id,
  * si rimanda il messaggio che era rimasto senza risposta.
  */
 export async function riprendiTurniInterrotti(
-  ctx: CtxRipresa, router: RouterChat, ceilings: ResumeCeilings = {},
+  ctx: CtxRipresa, router: RouterChat, ceilings: ResumeCeilings = {}, only?: string,
 ): Promise<void> {
   const responseCeilingMs = ceilings.responseMs ?? RESPONSE_CEILING_MS;
   const streamCeilingMs = ceilings.streamMs ?? STREAM_CEILING_MS;
@@ -993,7 +1010,7 @@ export async function riprendiTurniInterrotti(
   try {
     // L'ULTIMO messaggio di ogni chat, che è l'unico che possa essere
     // «interrotto»: più indietro è storia, e l'utente ci ha già parlato sopra.
-    const righe = ctx.db.query(LAST_RECENT_MESSAGES_SQL).all() as LastRow[];
+    const righe = (ctx.db.query(LAST_RECENT_MESSAGES_SQL).all() as LastRow[]).filter((f) => !only || f.sk === only);
     const ora = Date.now();
     const bootedAtMs = ctx.bootedAtMs ?? ora - process.uptime() * 1000;
     for (const found of righe) {
@@ -1027,6 +1044,17 @@ export async function riprendiTurniInterrotti(
       const hold = holdKey ? providerHold(ora, holdKey) : null;
       if (hold && heldLogged.get(r.sk) !== `${r.id}:${hold.window}`) console.log(`[ripresa] ${r.sk}: rinviato, ${hold.reason}`);
       if (hold) { heldLogged.set(r.sk, `${r.id}:${hold.window}`); continue; }
+      // PROJECT PAUSE (quota brake): a resume is an automatic turn, so it does
+      // not start while the project of the chat is paused. Not lost: it is
+      // parked under the project and re-judged for THIS chat when "Continua"
+      // closes the pause (`fireProjectResumed`). The parking lives in memory;
+      // after a real restart it is rebuilt by the next sweep (the boot one or
+      // the periodic one, lib/resume-sweep-clock.ts), which finds the pause
+      // still on and parks again. A pause that closed while the server was
+      // down needs nothing: the boot sweep sees an open project and resumes.
+      // Placed before the notice and the trace below: a held chat is left
+      // exactly as the cut left it. The cap notice (no turn) is not held.
+      if (verdict !== "capped" && holdForPause(ctx, router, ceilings, r.sk, topic.id)) continue;
       // A person's message that predates this process lived through a restart:
       // the fallback evidence for their notices when no cause is known. Unless
       // a turn ended for it after the boot: then its answer started after the

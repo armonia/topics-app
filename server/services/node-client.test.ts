@@ -237,6 +237,10 @@ describe("node-client · i guasti hanno un nome", () => {
     expect(await reasonOf(new Response("boom", { status: 500 }))).toBe("server_error");
   });
 
+  test("409 project_paused is the named reason `paused`, not a generic server error", async () => {
+    expect(await reasonOf(jsonResponse({ error: "project paused", code: "project_paused" }, 409))).toBe("paused");
+  });
+
   test("413 e' payload_too_large, non server_error, e createRun dice quanti byte ha mandato", async () => {
     expect(await reasonOf(new Response("too big", { status: 413 }))).toBe("payload_too_large");
     const c = createNodeClient({
