@@ -4,10 +4,13 @@
  * …) write for every topic's engine session (`server/lib/subagent-watch.ts`
  * polls the same files to deliver sub-agent results).
  *
- * THIS IS THE DOMINANT GROWER of the ratio `disk-budget.ts` watches: on
- * 2026-11-22 the live `agents/` folder measured 26.89 GB against a 0.76 GB
- * database. These files are not the canonical record of a conversation — the
- * message is already stored in `topics.db` by the server itself — they are
+ * Only those folders: the rest of `agents/` is each agent's own workspace
+ * (media, state, fixtures, browser profiles), user data this module never
+ * touches. On 2026-11-22 the live `agents/` folder measured 26.89 GB, and on
+ * 2026-11-25 28.95 GB with no `sessions` folder in it: that weight is the
+ * workspaces, not transcripts. These files are not the canonical record of a
+ * conversation — the message is already stored in `topics.db` by the server
+ * itself — they are
  * the CLI's OWN resumption log, replayed only to detect a sub-agent's
  * completion event. Deleting them loses nothing a user can see in the app, so
  * pruning this folder is a different case from `media/` (this card is
@@ -17,8 +20,7 @@
  * Even so, this module never deletes: a `.jsonl` older than the configured
  * cutoff is GZIPPED IN PLACE instead. Nothing is lost — the compressed file
  * holds the same bytes, byte-for-byte recoverable — and JSONL (repeated keys,
- * long repeated whitespace) commonly compresses 5-10x, which is normally
- * enough on its own to bring the ratio back under budget. The impure half
+ * long repeated whitespace) commonly compresses 5-10x. The impure half
  * that walks the real folders and does the gzip+unlink is
  * `scripts/disk-budget-check.ts`; this module stays pure so a test drives it
  * with a plain list instead of real files.

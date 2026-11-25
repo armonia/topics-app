@@ -33,7 +33,13 @@ import * as fs from "node:fs";
 import path from "node:path";
 import { PROJECT_ROOT } from "./helpers";
 
-const TASKS_TS = fs.readFileSync(path.join(PROJECT_ROOT, "server/services/tasks/shared.ts"), "utf-8");
+// The task service is a barrel (`shared.ts`) over its `shared-*.ts` modules: the
+// window's constants live in whichever module the split put them in.
+const TASKS_DIR = path.join(PROJECT_ROOT, "server/services/tasks");
+const TASKS_TS = fs.readdirSync(TASKS_DIR)
+  .filter((f) => /^shared(-[a-z-]+)?\.ts$/.test(f))
+  .map((f) => fs.readFileSync(path.join(TASKS_DIR, f), "utf-8"))
+  .join("\n");
 
 /**
  * I tre pezzi della finestra, estratti dal sorgente invece che ricopiati.
@@ -43,7 +49,7 @@ const TASKS_TS = fs.readFileSync(path.join(PROJECT_ROOT, "server/services/tasks/
  */
 function estrai(nome: string): string {
   const m = TASKS_TS.match(new RegExp(`const ${nome} =\\s*([\\s\\S]*?);\\n`));
-  if (!m) throw new Error(`${nome} non trovato in tasks.ts`);
+  if (!m) throw new Error(`${nome} non trovato nei moduli di server/services/tasks/shared`);
   // Le righe sono `"…" +` concatenate: si tolgono virgolette e più.
   return m[1]!.split("\n").map((r) => r.trim().replace(/^"|"\s*\+?$|";?$/g, "").replace(/"\s*\+$/, "")).join(" ");
 }
@@ -172,15 +178,16 @@ describe('la finestra dei commenti della card', () => {
  * client con margine.
  */
 describe("il testo del contesto: server e client d'accordo", () => {
-  const leggi = (file: string, re: RegExp): number => {
-    const src = fs.readFileSync(path.join(PROJECT_ROOT, file), 'utf-8');
+  const numberIn = (src: string, re: RegExp): number => {
     const n = Number(src.match(re)?.[1] ?? '0');
     expect(n).toBeGreaterThan(0);
     return n;
   };
+  const leggi = (file: string, re: RegExp): number =>
+    numberIn(fs.readFileSync(path.join(PROJECT_ROOT, file), 'utf-8'), re);
 
   test('il server ne manda almeno quanti il client ne rende prima di piegare', () => {
-    const server = leggi('server/services/tasks/shared.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    const server = numberIn(TASKS_TS, /const CARD_CONTEXT_CHARS = (\d+);/);
     // LA SOGLIA DELLA RIGA DI CONTESTO, che e' quella che governa il mio
     // messaggio quando compare sotto la risposta dell'agente.
     const contesto = leggi('client/src/components/Board/constants.ts', /RICHIESTA_PIEGA_CHARS = (\d+);/);
@@ -188,7 +195,7 @@ describe("il testo del contesto: server e client d'accordo", () => {
   });
 
   test('e copre anche la soglia della parola principale', () => {
-    const server = leggi('server/services/tasks/shared.ts', /const CARD_CONTEXT_CHARS = (\d+);/);
+    const server = numberIn(TASKS_TS, /const CARD_CONTEXT_CHARS = (\d+);/);
     // Un commento che oggi e' contesto domani puo' essere la parola in cima
     // (basta che l'agente non risponda piu'): se il taglio del server stesse
     // sotto anche a questa, il pieghevole aprirebbe sul vuoto in quel caso.
