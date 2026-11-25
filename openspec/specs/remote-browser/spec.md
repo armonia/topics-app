@@ -3926,3 +3926,17 @@ un altro cancello e' ancora chiuso.
 #### Scenario: download in corso
 - **GIVEN** un download partito da una pane che poi esce di scena
 - **THEN** il drain e l'avanzamento SHALL continuare finche' il download e' in corso
+
+### Requirement: BROWSER-LOGIN-01 - Un muro di login si apre alla persona, non si descrive
+
+Quando un agente trova un muro di login (password, passkey, secondo fattore) SHALL chiamare
+`request_login`, che apre l'URL in una scheda nuova portata in primo piano, in una finestra
+staccata se richiesto, e scrive nello storico una notifica col link al topic. L'agente non
+SHALL scrivere credenziali. Poi SHALL aspettare che la pagina lasci il login, con un tetto
+di 30 minuti, scaduto il quale la card passa a needs_input con la scheda ancora aperta.
+
+#### Scenario: login richiesto con finestra staccata
+- **GIVEN** un agente davanti a una pagina di login
+- **WHEN** chiama `request_login` con `detached`
+- **THEN** SHALL comparire una scheda nuova in primo piano in una finestra staccata
+- **AND** lo storico SHALL avere una notifica che porta al topic
