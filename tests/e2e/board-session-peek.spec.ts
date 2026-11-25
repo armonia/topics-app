@@ -9,9 +9,10 @@ import { projectRow } from "./helpers/project-row";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { beat, didascalia } from "./helpers/evidence";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 150_000 });
 
 const PROJECT_PATH = join(realpathSync(canonicalTmpRoot()), `e2e-board-peek-${Date.now()}`);

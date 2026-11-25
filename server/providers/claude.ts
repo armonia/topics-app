@@ -10,6 +10,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { applyPromptCache } from "./prompt-cache";
 import { normalizeAlternating } from "./normalize-history";
+import { RunRegistry } from "./run-registry";
 import { thinkingGenerationOf } from "../lib/thinking-generation";
 import type {
   AIProvider,
@@ -65,11 +66,7 @@ export class ClaudeProvider implements AIProvider {
   private started = false;
   private client: Promise<Anthropic> | null = null;
   private config: ClaudeProviderConfig;
-  private activeAbortControllers = new Map<string, AbortController>();
-  // runId -> sessionKey, so abort(sessionKey) without a runId can stop ONLY that
-  // session's in-flight runs instead of every session's (the latter meant
-  // "stop" on one chat aborted all active chats).
-  private runIdToSessionKey = new Map<string, string>();
+  private runs = new RunRegistry();
 
   constructor(config: ClaudeProviderConfig) {
     this.config = config;
@@ -108,12 +105,7 @@ export class ClaudeProvider implements AIProvider {
   }
 
   stop(): void {
-    // Abort all in-flight requests
-    for (const controller of this.activeAbortControllers.values()) {
-      controller.abort();
-    }
-    this.activeAbortControllers.clear();
-    this.runIdToSessionKey.clear();
+    this.runs.abortAll();
     this.started = false;
     this.client = null;
   }
@@ -127,10 +119,7 @@ export class ClaudeProvider implements AIProvider {
     options?: { model?: string; history?: ChatMessage[]; tools?: Tool[] },
   ): Promise<{ runId?: string }> {
     const client = await this.requireClient();
-    const runId = crypto.randomUUID();
-    const abortController = new AbortController();
-    this.activeAbortControllers.set(runId, abortController);
-    this.runIdToSessionKey.set(runId, sessionKey);
+    const { runId, controller: abortController } = this.runs.start(sessionKey);
 
     const model = options?.model ?? this.defaultModel();
     const maxTokens = resolveClaudeMaxTokens() ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -238,8 +227,7 @@ export class ClaudeProvider implements AIProvider {
         handler.onError(err?.message ?? String(err));
       }
     } finally {
-      this.activeAbortControllers.delete(runId);
-      this.runIdToSessionKey.delete(runId);
+      this.runs.finish(runId);
     }
 
     return { runId };
@@ -379,23 +367,7 @@ export class ClaudeProvider implements AIProvider {
   // --- Abort ---
 
   async abort(sessionKey: string, runId?: string): Promise<void> {
-    if (runId) {
-      const controller = this.activeAbortControllers.get(runId);
-      if (controller) {
-        controller.abort();
-        this.activeAbortControllers.delete(runId);
-        this.runIdToSessionKey.delete(runId);
-      }
-    } else {
-      // No runId: abort ONLY the in-flight runs for this session (was aborting
-      // every session's stream — "stop" on one chat killed all of them).
-      for (const [rid, sk] of this.runIdToSessionKey) {
-        if (sk !== sessionKey) continue;
-        this.activeAbortControllers.get(rid)?.abort();
-        this.activeAbortControllers.delete(rid);
-        this.runIdToSessionKey.delete(rid);
-      }
-    }
+    this.runs.abort(sessionKey, runId);
   }
 
   // --- Diagnostics ---

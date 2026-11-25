@@ -4,6 +4,7 @@ import { createTopic, deleteTopic, waitForTopicVisible } from "./helpers/api-fix
 import { readFileSync } from "fs";
 import { resolve as resolvePath } from "path";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -19,7 +20,7 @@ hermetic(test);
  *
  * @covers BROWSER-FIND-04
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const RRWEB_EVENTS = JSON.parse(
   readFileSync(resolvePath(__dirname, "fixtures/rrweb-sample.json"), "utf-8"),

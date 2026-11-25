@@ -40,10 +40,11 @@ import { canonicalTmpDir, initGitRepo, removeTmpDir } from "./helpers/file-proje
 import { openHomePanel } from "./helpers/user-menu";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { writeRootSentinel } from "../../server/services/worktree-root-ledger";
+import { videoAt } from "./video-evidence";
 
 const test = base;
 hermetic(test);
-test.use({ video: "on", viewport: { width: 1360, height: 860 } });
+test.use({ video: videoAt("on", { width: 1360, height: 860 }), viewport: { width: 1360, height: 860 } });
 
 const STAMP = Date.now();
 const ROOT = join(homedir(), `.topics-e2e-worktree-root-${STAMP}`);

@@ -7,9 +7,10 @@ import { createTopic, deleteTopic, patchTopic, resetPaneStore } from "./helpers/
 import { E2E_HOME } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installReplayCli } from "./helpers/fake-claude-cli";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 150_000 });
 
 /**

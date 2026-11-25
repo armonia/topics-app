@@ -26,10 +26,11 @@ import { hermetic } from "./fixtures/hermetic";
 import { projectIdForPath } from "../../shared/board";
 import { canonicalTmpRoot, removeTmpDir } from "./helpers/file-project";
 import { startFakeClaudeCloud, type FakeClaudeCloud } from "./helpers/fake-claude-cloud";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 // The video IS the proof of the bar: it is kept even when the test passes.
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 150_000 });
 
 const BASE = E2E_BASE;

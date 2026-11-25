@@ -13,12 +13,12 @@ import type { ProgramsCopy } from './programs';
 import type { OrgsCopy } from './orgs';
 import type { KanbanCopy } from './kanban';
 import type { ContractsCopy } from './contracts';
-import type { SarimWorkCopy } from './sarim-work';
-import type { SarimDataCopy } from './sarim-data';
-import type { SarimAdminCopy } from './sarim-admin';
+import type { OrbitWorkCopy } from './orbit-work';
+import type { OrbitDataCopy } from './orbit-data';
+import type { OrbitAdminCopy } from './orbit-admin';
 import type { FiltersCopy } from './filters';
-import type { SarimShellCopy } from './sarim-shell';
-import type { SarimTeamCopy } from './sarim-team';
+import type { OrbitShellCopy } from './orbit-shell';
+import type { OrbitTeamCopy } from './orbit-team';
 import type { ChatCopy } from './chat';
 
 /**
@@ -233,11 +233,11 @@ export interface UiCopy {
   orgs: OrgsCopy;
   kanban: KanbanCopy;
   contracts: ContractsCopy;
-  sarimWork: SarimWorkCopy;
-  sarimData: SarimDataCopy;
-  sarimAdmin: SarimAdminCopy;
+  orbitWork: OrbitWorkCopy;
+  orbitData: OrbitDataCopy;
+  orbitAdmin: OrbitAdminCopy;
   filters: FiltersCopy;
-  sarimShell: SarimShellCopy;
-  sarimTeam: SarimTeamCopy;
+  orbitShell: OrbitShellCopy;
+  orbitTeam: OrbitTeamCopy;
   chat: ChatCopy;
 }

@@ -2,21 +2,101 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
-## 2.4.101 — 2026-11-25
+## 2.4.106 — 2026-11-25
+
+### Correzioni
+- **ci-governor** · a starving runner keeps its turn, a real message wakes it
+
+## 2.4.105 — 2026-11-25
+
+### Correzioni
+- **layout** · a project's window shows only its title, which is its tab
+- **layout** · no "+" on a project's title, its row in the column has it
 
 ### Sotto il cofano
+- Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm
+
+## 2.4.104 — 2026-11-25
+
+### Sotto il cofano
+- Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio
+- La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti
+- E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test
+- Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri
+
+## 2.4.103 — 2026-11-25
+
+### Sotto il cofano
+- lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)
+- Split server/services/tasks/shared.ts into six factory modules behind the same barrel
+- Split tasks/shared.ts: baselines and unused type exports
+- Land guard: a card's own branches include its spawned children and worktree branch
+- Main verde: covers del test usage-limit e baseline dopo i land della notte
+- E2E clips sized to the viewport, not Playwright's 800x500
+- Test di contratto: leggono i moduli di shared/board.ts dopo lo split
+- Node deliveries emit task-deliver so the retrospective hook sees them
+- Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit
+- Re-measure the pre-review gate after bun install restored jscpd
+- Sub-agent no-news replies on a later turn no longer wake the parent
+- seed-before-navigation uses /manifest.json, not /favicon.ico
+- Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290
+- e2e-video-size test: spawn the running bun binary so it also works on Windows
+- La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia
+- Una corsa vecchia che il nodo non ha più non si scrive come errore
+- Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro
+- Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio
+
+## 2.4.102 — 2026-11-25
+
+### Sotto il cofano
+- Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)
+- Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle
+- Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself
+
+## 2.4.101 — 2026-11-25
+
+### Novità
+- **main-ci** · red-main cards carry a fixed recipe and run on Sonnet
+- **native** · skip a spent account until its reset and retry the turn on the next one
+
+### Correzioni
+- **tests** · run gate-coverage and native-shutdown-notice tests serially
+- **worktrees** · no reap, prune or remove loses work the review found exposed
+- **restart-gate** · the vacuum and the auto-land read what WORKS, a parked card is not working
+
+### Sotto il cofano
+- serialize process-groups and tauri macOS legs
 - Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware
+- tauri runs whatever process-groups ends with
+- **restart-gate** · the wiring test reads the split stream count
+- **restart-gate** · English name for the vacuum test db
+- Replace real names in the client with fictitious ones (ORBIT, Alfa Impianti)
 
 ## 2.4.100 — 2026-11-25
 
 ### Correzioni
 - **sidebar** · a project's tabs show open or closed, and a row opens its own sub-agents
+- **worktree-gc** · judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions
+- **worktree-hook** · one folder per session, atomic name claim, nothing lost on failure
+
+### Sotto il cofano
+- **e2e** · the hand-made land removes a locked worktree the way the reap does
+- drop the spec-flow 0.7.0 intersections step until 0.7.0 is published
 
 ## 2.4.99 — 2026-11-25
 
 ### Correzioni
+- **worktrees** · judge what a folder holds now, and never reap what Topics cannot prove it made
+- **worktrees** · every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it
 - **split** · count the cells on screen, not the ones the layout remembers
 - **sidebar** · a closed row takes no fill under the pointer
+- **worktrees** · a Topics worktree whose HEAD left its branch is judged by HEAD
+
+### Sotto il cofano
+- dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI
+- **providers** · share the in-flight run registry across the HTTP providers
+- **providers** · one stopAllChildren for the codex and muse exec providers
+- **browser** · one fitSurface for the select-element overlay geometry
 
 ## 2.4.98 — 2026-11-24
 
@@ -33,12 +113,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **split** · a narrow cell's empty field stays one line
 - **split** · a closed row dropped on the centre of the pool opens there
 - **split** · keep the lights inset line and count the project row's map
+- **worktrees** · the GC moves only what Topics proves it made, into a quarantine
 
 ### Sotto il cofano
 - **split** · the split redesign change, from what is measured broken today
 - **split** · American names the identifier gate knows, ceilings follow PanelGrid down
 - **split** · the seven split scenarios, done the way a person does them
 - **split** · the change is done, its seven requirements join the layout spec
+- Cancelli rossi della PR cross-nodo: lint del server, codice morto e l'intreccio senza prova
+- Hook di Claude Code: il token non sta più negli argomenti di curl
+- the project-family backfill script is a manual entry point
 - **split** · the narrow-cell check waits on frames and the divider, not on the clock
 - **split** · the narrow-cell scenario is SPLIT-03b
 - **split** · hand the focus to a divider after the last chat took it
@@ -52,8 +136,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **sidebar** · three states inside project windows, gates green, suite on the old layout
 
 ### Sotto il cofano
+- Hook dei worktree: la rimozione archivia anche il lavoro non committato
+- Porta di registrazione: il GC non cancella più rami e checkout altrui
+- Cancelli rossi del ramo: nomi non inglesi e git senza ambiente isolato
+- Prova del ramo cross-nodo: e2e delle impostazioni, sonda con il vero Claude Code, tipi dei finti
 - an open row's circle closes its tab, the stop test and the target-size audit read it
 - Le anteprime accanto al bordo sfumato si caricano da sole: Chromium perde la distanza di caricamento pigro sotto la maschera della riga, e la card saltava di altezza al primo swipe (board-preview-cap rosso 4 su 4)
+- Rimette verdi i rossi della PR dei worktree standard
 
 ## 2.4.96 — 2026-11-24
 
@@ -66,7 +155,13 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Rossi della CI: celle contate dopo il resize, due any arrivati da main
 - name the requirement the keyed listener registry test covers
 - Rossi ereditati da main: requisito del registro di ascolto, parole fuori dizionario
+- Standard dei worktree e progetti accorpati
 - keep the live AI bridge out of the suite
+- Porta di registrazione dei worktree e regole di percorso per Windows
+- Hook dei worktree di Claude Code e porta per gli altri strumenti
+- Worktree di ogni macchina: il nodo riferisce, il primario manda la policy
+- Hook dei worktree di Claude Code: i file della traccia, separati da T12
+- Intrecci fra funzionalita': ogni incontro dichiarato ha una prova che li nomina tutti e due
 
 ## 2.4.95 — 2026-11-24
 
@@ -194,6 +289,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Baseline del bloat: ci-evidence.test.ts a 821 righe con i due test della testa ereditata
 - Disk budget: test tracciati su SYSTEM-DISK-01, niente verde senza database
 - I server SSH non mostrano più lo storico CPU e RAM del PC
+- Carry recent board.ts additions into the split modules
 - Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese
 - Server fisso: tetto sui job CI in parallelo di tutti i repo (ci-governor)
 - Nodo cloud: guardia per le sessioni logind bloccate in closing, ssh condiviso dal Mac
@@ -446,6 +542,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · wait for sidebar rows before measuring touch heights
 - Un nodo rotto resta fuori anche dopo un riavvio, e la card spostata dal sistema lo lascia subito
 - Il Cloud col freno aperto non riprende la card che ha appena lasciato
+- Split shared/board.ts into five modules under 800 lines behind the same barrel
 
 ## 2.4.65 — 2026-11-21
 

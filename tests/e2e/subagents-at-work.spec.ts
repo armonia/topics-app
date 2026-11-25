@@ -28,9 +28,10 @@ import { deleteTopic } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME, daemonAuthHeaders } from "./helpers/test-server";
 import { nativeRuntime, nativeTopic, openChat } from "./helpers/turn-end-sampler";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic } from "./helpers/fake-anthropic-api";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
-test.use({ viewport: { width: 1440, height: 900 }, video: "on" });
+test.use({ viewport: { width: 1440, height: 900 }, video: videoAt("on", { width: 1440, height: 900 }) });
 test.describe.configure({ timeout: 150_000 });
 
 const STAMP = Date.now();
