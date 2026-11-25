@@ -2,8 +2,8 @@
  * An explicit reject (`board_review reject`, the Rimanda button) of a card in
  * review that a NODE delivered. The comments route already sent such a card back
  * to todo; the review route resumed the topic still bound to it, which starts an
- * agent on THIS Mac, where the work is not: card f3c5a186 answered «il lavoro è
- * sul nodo, non qui» and nothing reached the node that holds the branch.
+ * agent on THIS Mac, where the work is not: card f3c5a186 answered with a quoted
+ * line saying the work is on the node, and nothing reached the node that holds the branch.
  *
  * @covers KANBAN-76
  */
