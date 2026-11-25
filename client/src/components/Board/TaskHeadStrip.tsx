@@ -80,7 +80,8 @@ export function TaskHeadStrip({ busy, commentRef, decide, deliveryOpen, detailsO
     scrollRequestedRef.current = false;
     setWorkspaceOpen(false);
     stickRef.current = false;
-    if (which === 'details') setDetailsOpen((o) => !o); else setDeliveryOpen((o) => !o);
+    // One region open at a time: two capped panels together would leave the thread no room.
+    if (which === 'details') { setDeliveryOpen(false); setDetailsOpen((o) => !o); } else { setDetailsOpen(false); setDeliveryOpen((o) => !o); }
   };
   const files = task.deliveryFilesChanged;
   const decisions = canDecideReview(task);

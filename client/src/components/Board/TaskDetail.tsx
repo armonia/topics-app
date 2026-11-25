@@ -1369,7 +1369,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
               outcome={headOutcome} scrollRequestedRef={detailsScrollRequested} sendBack={sendBack} sending={sending}
               setDeliveryOpen={setDeliveryOpen} setDetailsOpen={setDetailsOpen} setError={setError} setWorkspaceOpen={setWorkspaceOpen}
               stickRef={stickRef} task={task} tr={tr}
-              expandedDetails={detailsOpen ? <div className="max-h-[45vh] overflow-y-auto border-t border-app-border-subtle">
+              expandedDetails={detailsOpen ? <div className="max-h-[30vh] overflow-y-auto border-t border-app-border-subtle">
                   <TaskDetailsPanel addSubtask={addSubtask} addingSub={addingSub} boardDispatchModel={boardDispatchModel} busy={busy}
                     cancelKey={cancelKey} changeModel={changeModel} changeNode={changeNode} changePriority={changePriority}
                     changeTopicsRouting={changeTopicsRouting} children={children} descDraft={descDraft} descOpen={descOpen} detailsOpen={detailsOpen}
@@ -1383,7 +1383,7 @@ export function TaskDetail({ projectId, taskId, initialStatus, initialTitle, bum
                     toggleDescOpen={toggleDescOpen} toggleLabel={toggleLabel} toggleStayLocal={toggleStayLocal} toggleSubtasksOpen={toggleSubtasksOpen}
                     tr={tr} workAncestorId={workAncestorId} workChip={workChip} />
 </div> : null}
-              expandedDelivery={deliveryOpen ? <div className="max-h-[45vh] overflow-y-auto border-t border-app-border-subtle">
+              expandedDelivery={deliveryOpen ? <div className="max-h-[30vh] overflow-y-auto border-t border-app-border-subtle">
                   <DeliveryPanel browser={browser} bump={bump} busy={busy} commentRef={commentRef} deliveryOpen={deliveryOpen}
                     downloadsOpen={downloadsOpen} focusDiff={focusDiff} isAgentReview={isAgentReview} load={load}
                     mediaPaths={mediaPaths} onChanged={onChanged} onOpenTopic={onOpenTopic} openTaskPane={openTaskPane} projectId={projectId}

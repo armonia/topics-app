@@ -133,7 +133,7 @@ export function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: 
               data-testid={b.testId}
               disabled={busy} onClick={b.onClick}
               title={b.word.title}
-              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact leading-4 disabled:opacity-50 ${
+              className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact leading-4 disabled:opacity-50 coarse:min-h-11 ${
                 isPrimary ? `font-medium ${primaryCls}` : neutralCls
               }`}
             >{busy && isPrimary ? <Spinner size="sm" tone="current" /> : b.icon} {b.word.label}</button>
@@ -150,7 +150,7 @@ export function ReviewDecisionRow({ task, busy, onAccept, onSendBack, onLand }: 
           disabled={busy} onClick={onLand}
           data-testid="task-land"
           title={d.land.title}
-          className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact leading-4 disabled:opacity-50 ${
+          className={`flex items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-compact leading-4 disabled:opacity-50 coarse:min-h-11 ${
             d.primary === 'accept' ? 'bg-sky-700 font-medium text-white hover:bg-sky-800' : neutralCls
           }`}
         ><GitMerge className="h-3.5 w-3.5" /> {d.land.label}</button>
