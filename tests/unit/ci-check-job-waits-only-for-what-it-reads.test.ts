@@ -80,6 +80,9 @@ describe("ci.yml: a job waits only for the jobs whose result it reads", () => {
         // The one wait for an END, not a result: the Hetzner server is deleted after
         // the shards it carries, whatever they concluded (`if: always()`).
         if (job === "hcloud-delete" && need === "e2e") continue;
+        // A wait for the macOS runner pool, not a result: both legs queued for it together
+        // and the loser timed out at 0 steps (9d4ac01e); tauri runs whatever process-groups did.
+        if (job === "tauri" && need === "process-groups") continue;
         if (!jobBody(job).includes(`needs.${need}.`)) idle.push(`${job} needs ${need} and never reads it`);
       }
     }

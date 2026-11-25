@@ -133,7 +133,7 @@ const PASSAGES = new Set([
   "server/routes/topics.ts", "server/routes/topics-update.ts", "server/routes/tasks-board.ts",
   "server/services/task-dispatcher-types.ts", // dispatcher contract types, moved out of task-dispatcher.ts
   "server/routes/task-patch.ts", "server/routes/chat.ts", "server/routes/chat-provider.ts", "server/services/task-shapes.ts", "server/boot/dispatcher.ts",
-  "shared/board.ts", "shared/types.ts", "client/src/types/index.ts", "client/src/lib/board.ts",
+  "shared/board.ts", "shared/board-contract.ts", "shared/types.ts", "client/src/types/index.ts", "client/src/lib/board.ts",
   "client/src/hooks/useCardBoardSettings.ts", "client/src/components/Board/BoardSettingsPanel.tsx",
   "client/src/components/Board/FloatingTaskComposer.tsx", "client/src/components/Board/KanbanBoardPane.tsx",
   "client/src/components/Board/TaskDetail.tsx", "client/src/components/Board/TaskMetadata.tsx", "client/src/components/Chat/ChatInput.tsx", "client/src/components/Chat/ChatPane.tsx",
