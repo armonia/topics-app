@@ -9,7 +9,7 @@ import type { OrgKey } from '../../ui/fixtures/org/types';
 import type { Permission, Persona } from '../../ui/fixtures/org/people';
 import { ORGS, ROLES } from '../../ui/fixtures/org/people';
 import { FLOWS } from '../../ui/fixtures/org/flows';
-import { SARIM_FLOWS } from '../../ui/fixtures/sarim';
+import { ORBIT_FLOWS } from '../../ui/fixtures/orbit';
 import type { DemoState } from './store/state';
 import { queueFor } from './store/cases';
 import { TESTS_INITIAL, trialsRunning, type TestsSlice } from './screens/team/testing';
@@ -24,7 +24,7 @@ export const NAV_PATHS: Partial<Record<OrgKey, Array<[NavId & NavItemModel['kind
     ['today', P.today()], ['inbox', P.inbox()], ['flows', P.flows()], ['data', P.data()], ['knowledge', P.knowledge()],
     ['views', P.views()], ['channels', P.channels()], ['programs', P.programs()], ['overview', P.overview()], ['settings', P.settings()],
   ],
-  sarim: [['callcenter', P.sarimCallCenter()], ['flows', P.sarimFlows()], ['overview', P.sarimOverview()]],
+  orbit: [['callcenter', P.orbitCallCenter()], ['flows', P.orbitFlows()], ['overview', P.orbitOverview()]],
 };
 
 /** The chats of an organization in the sidebar, with what you need to see them. */
@@ -55,12 +55,12 @@ export function pathOfSidebarRow(id: string): string | undefined {
 }
 
 /**
- * The live flows of an organization. SARIM keeps its full list (six, all live) in its own fixtures and only three of
+ * The live flows of an organization. ORBIT keeps its full list (six, all live) in its own fixtures and only three of
  * them as step-by-step flows, so it is counted from that list: the sidebar, the Board and the Armonia page then agree
- * with the SARIM screens.
+ * with the ORBIT screens.
  */
 export function liveFlowCount(org: OrgKey): number {
-  if (org === 'sarim') return SARIM_FLOWS.length;
+  if (org === 'orbit') return ORBIT_FLOWS.length;
   return FLOWS.filter((f) => f.org === org && f.status === 'attivo').length; // allow-italian: identifier compared by value, not shown
 }
 

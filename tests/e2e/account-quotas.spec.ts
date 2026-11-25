@@ -47,9 +47,10 @@ import { goToApp } from "./helpers";
 import { openProfileMenu } from "./helpers/open-perf-panel";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE, canonicalTmpRoot } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ mode: "serial", timeout: 150_000 });
 
 const PANE = "accounts-pane";

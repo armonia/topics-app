@@ -4,6 +4,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { unmockChatStream } from "./helpers/sse-helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 // Confine ermetico: riparte dalla baseline del globalSetup, non dallo stato
 // lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -20,7 +21,7 @@ hermetic(test);
  * continua a vivere — il suo timer avanza. Con `window.confirm` il timer
  * resterebbe inchiodato (il thread è bloccato). Video come prova durevole.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 test.describe("ConfirmDialog non blocca il thread", () => {
   let topicId: string;

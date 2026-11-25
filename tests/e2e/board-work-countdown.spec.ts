@@ -25,6 +25,7 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectIdForPath } from "../../shared/board";
+import { VIDEO_ON } from "./video-evidence";
 
 /** A real folder: the board of a project exists only once a chat is bound to its path. */
 const PROJECT_DIR = mkdtempSync(join(tmpdir(), "work-countdown-"));
@@ -33,7 +34,7 @@ const BOARD_ID = projectIdForPath(PROJECT_DIR);
 
 hermetic(test);
 
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const MIN = 60_000;
 /** Where the evidence lands: the CI uploads this folder as an artifact. */

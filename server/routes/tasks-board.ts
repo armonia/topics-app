@@ -175,6 +175,23 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
     return ids;
   };
 
+  // A card another machine's row owns AND that row answers at an address —
+  // the same two conditions `isRemoteTask` applies (task-dispatcher.ts).
+  // A row with no `base_url` is a STALE LOCAL row of THIS Mac (one per
+  // hostname, agent-census.ts), not a node: treating it as one sent the
+  // card to `todo` with FRESH_SESSION_NOTE while `launchOnNode` later
+  // bounced it back with "no known address" — the route had already
+  // answered `queued`. That case is already covered by `!assignedTopicId`
+  // below, so it does not need `isNodeCard` to lie about it.
+  const isNodeCard = (card: { machineId?: string | null }): boolean => {
+    if (!card.machineId) return false;
+    try {
+      const localId = ctx.machineStore?.upsertLocal().id ?? null;
+      if (localId === null || card.machineId === localId) return false;
+      return !!ctx.machineStore?.get(card.machineId)?.baseUrl;
+    } catch { return false; }
+  };
+
   return async function boardRoutes(req: Request, pathname: string, method: string): Promise<Response | null> {
     // A recurrence body as sent: wrong types become empty values and the service refuses them.
     const scheduledBody = async () => {
@@ -522,6 +539,8 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
             tasks: svc.list({
               scope: "project", projectId, status: asTaskStatus(status), rootsOnly: true,
               includeOrphanSubtasks: true,
+              // The parent's board also shows the projects merged into it (accorpa).
+              includeChildBoards: true,
               labels: parseLabelsParam(params.get("labels")),
               archived,
             }),
@@ -799,7 +818,9 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       try {
         const tasks = svc.list({ scope: "project", projectId: bDupes.projectId });
         const scope = includeDone ? tasks : tasks.filter((t) => t.status !== "done");
-        const groups = findDuplicateGroups(scope.map((t) => ({ id: t.id, text: t.text, createdAt: t.createdAt })));
+        const groups = findDuplicateGroups(
+          scope.map((t) => ({ id: t.id, text: t.text, description: t.descriptionPreview, createdAt: t.createdAt })),
+        );
         return json({
           groups: groups.map((g) => ({
             survivor: { id: g.survivor.id, text: g.survivor.text },
@@ -966,7 +987,11 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
         // "Serve te" answer routes through here too), so the conversation
         // resumes instead of a fresh agent spawning. reviewDecision already
         // moved it back to in_progress.
-        if (dispatcher && decision === "reject" && task.assignedTopicId) {
+        // A card a NODE delivered is the exception: its run is closed and its work (the branch) lives on
+        // that node, so resuming the topic bound to it starts an agent HERE, on this Mac, where the branch
+        // is not ("the work is on the node, not here"). It goes back to todo, where the dispatcher launches
+        // it again on its node with the thread (the comments route already does this for the same card).
+        if (dispatcher && decision === "reject" && task.assignedTopicId && !isNodeCard(task)) {
           dispatcher.resume(bReview.taskId, comment ?? "", rejectCommentId ? { commentIds: [rejectCommentId] } : undefined)
             .catch((err) => console.warn(`[Tasks] resume after reject failed for ${bReview.taskId}:`, err));
         } else if (dispatcher && decision === "reject") {
@@ -1181,23 +1206,6 @@ export function createBoardRoutes(deps: BoardRouteDeps) {
       if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bTitle.projectId, task: aggiornata });
       return json({ ok: true, text: migliore, before: t.text });
     }
-
-    // A card another machine's row owns AND that row answers at an address —
-    // the same two conditions `isRemoteTask` applies (task-dispatcher.ts).
-    // A row with no `base_url` is a STALE LOCAL row of THIS Mac (one per
-    // hostname, agent-census.ts), not a node: treating it as one sent the
-    // card to `todo` with FRESH_SESSION_NOTE while `launchOnNode` later
-    // bounced it back with "no known address" — the route had already
-    // answered `queued`. That case is already covered by `!assignedTopicId`
-    // below, so it does not need `isNodeCard` to lie about it.
-    const isNodeCard = (card: { machineId?: string | null }): boolean => {
-      if (!card.machineId) return false;
-      try {
-        const localId = ctx.machineStore?.upsertLocal().id ?? null;
-        if (localId === null || card.machineId === localId) return false;
-        return !!ctx.machineStore?.get(card.machineId)?.baseUrl;
-      } catch { return false; }
-    };
 
     // A card an AGENT delivered to review has a pending review approval; one a
     // person moved to review by hand never had a run, so there is nothing to

@@ -46,6 +46,9 @@ export type ComposerResizeHandler = (grew: boolean) => void;
 /** How long the greeting's fade outlives the centred state (`ChatEmptyState` fades in 200 ms). */
 const GREETING_LINGER_MS = 220;
 
+/** The air the centred greeting keeps above its title in a pane too short to centre the bar. */
+const GREETING_TOP_GAP = 16;
+
 /** The document timeline's clock, which `Animation.startTime` is expressed in. */
 function timelineNow(): number {
   const t = typeof document !== 'undefined' ? document.timeline?.currentTime : null;
@@ -159,9 +162,13 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
   // It is THE BAR that is centred, not the block: centring greeting plus
   // composer put the bar below the middle by half the greeting's height. The
   // greeting stays above as an overhang and does not count.
+  // The overhang still has to fit, though: in a short narrow split cell the
+  // starters and hints wrap, the greeting grows past the half above the bar
+  // and its title slid under the cell's header. There the bar goes only as
+  // high as keeps the whole greeting inside the pane.
   const barHeight = Math.max(0, inputAreaHeight - greetingHeight);
   const composerOffset = composerCentered && paneHeight > 0 && barHeight > 0
-    ? Math.max(0, Math.round((paneHeight - barHeight) / 2))
+    ? Math.max(0, Math.min(Math.round((paneHeight - barHeight) / 2), Math.round(paneHeight - inputAreaHeight - GREETING_TOP_GAP)))
     : 0;
   const offsetRef = useRef(composerOffset);
   const topicIdRef = useRef(topicId);

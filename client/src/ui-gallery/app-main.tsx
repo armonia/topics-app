@@ -7,7 +7,7 @@
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import './use-sarim-world';
+import './use-orbit-world';
 import '../index.css';
 import './app/app.css';
 import { UI_COPY_IT } from '../ui/copy/i18n-ui-it';

@@ -5,10 +5,18 @@
  * automatic half of G5 (`server/lib/disk-budget.ts` is the pure half it
  * calls into, the one the tests drive with numbers instead of a disk).
  *
- * Before measuring, it also applies the log retention: any file older than
- * `TOPICS_LOG_RETENTION_DAYS` (default 14) under `~/.topics/logs` is deleted,
- * so a report run daily actually fights the growth instead of only naming it.
- * `server/lib/log-retention.ts` is the pure half of that too.
+ * Before measuring, it also fights the two known growers:
+ *   - LOGS: any file older than `TOPICS_LOG_RETENTION_DAYS` (default 14)
+ *     under `~/.topics/logs` is deleted (`server/lib/log-retention.ts`).
+ *   - AGENT TRANSCRIPTS: the dominant grower on 2026-11-22 (26.89 GB) — every
+ *     `.jsonl` under `<app data>/agents/*\/sessions` older than
+ *     `TOPICS_TRANSCRIPT_COMPRESS_DAYS` (default 7) is gzipped IN PLACE, never
+ *     deleted (`server/lib/transcript-retention.ts`).
+ *   - MEDIA stays opt-in (`server/lib/media-retention.ts`): a file here can be
+ *     referenced by a live message or task preview, and this script never
+ *     opens the live database to check, so nothing is deleted unless an
+ *     operator sets `TOPICS_MEDIA_RETENTION_DAYS` themselves.
+ * So a report run daily actually fights the growth instead of only naming it.
  *
  * Usage:  bun run scripts/disk-budget-check.ts
  *         bun run scripts/disk-budget-check.ts --json
@@ -16,13 +24,16 @@
  * Exit code: 0 within budget, 1 over budget.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveAppDataDir, resolveDataDir, resolveStateDir, LIVE_REPO_ROOT } from "../server/lib/data-dir";
 import { topicsHome } from "../server/services/daemon-state";
 import { diskBudgetConfig, evaluateDiskBudget, type DiskBudgetFolder } from "../server/lib/disk-budget";
 import { expiredLogFiles, logRetentionDays } from "../server/lib/log-retention";
+import { filesToCompress, transcriptCompressDays, type TranscriptFileStat } from "../server/lib/transcript-retention";
+import { expiredMediaFiles, mediaRetentionDays, type MediaFileStat } from "../server/lib/media-retention";
 
 function du(path: string): number {
   try {
@@ -65,6 +76,67 @@ function pruneExpiredLogs(dir: string, env: NodeJS.ProcessEnv): string[] {
   return expired;
 }
 
+/** Every regular file under `dir`, at any depth. Not following symlinks: `du` already counts their target where it lives. */
+function walkFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries.flatMap((name) => {
+    const path = join(dir, name);
+    try {
+      const stat = statSync(path);
+      if (stat.isDirectory()) return walkFiles(path);
+      return stat.isFile() ? [path] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/**
+ * Gzips every `.jsonl` under `agentsRoot/<agent>/sessions` older than the configured
+ * cutoff, in place: the original is removed only after its `.gz` is written.
+ * Only the `sessions` folders: the rest of `agentsRoot` is each agent's own
+ * workspace (state, fixtures, outreach lists) that scripts read back as plain
+ * JSONL. On 2026-11-25 the live folder had no `sessions` folder at all and 29
+ * workspace `.jsonl` files past the cutoff: walking the whole folder would have
+ * compressed exactly those, and walked 29 GB of media and browser profiles to do it.
+ */
+function compressExpiredTranscripts(agentsRoot: string, env: NodeJS.ProcessEnv): string[] {
+  let agents: string[] = [];
+  try { agents = readdirSync(agentsRoot); } catch { /* no agents folder, nothing to compress */ }
+  const files: TranscriptFileStat[] = agents
+    .flatMap((agent) => walkFiles(join(agentsRoot, agent, "sessions")))
+    .filter((path) => path.endsWith(".jsonl") || path.endsWith(".jsonl.gz"))
+    .map((path) => ({ id: path, mtimeMs: statSync(path).mtimeMs, compressed: path.endsWith(".gz") }));
+  const compressDays = transcriptCompressDays(env);
+  const toCompress = filesToCompress(files, Date.now(), compressDays);
+  for (const path of toCompress) {
+    try {
+      const gz = gzipSync(readFileSync(path));
+      writeFileSync(`${path}.gz`, gz);
+      unlinkSync(path);
+    } catch { /* best effort: a concurrent writer wins, nothing is removed without its .gz landing first */ }
+  }
+  return toCompress;
+}
+
+/** Opt-in only: see `server/lib/media-retention.ts`. Disabled (returns `[]`) unless `TOPICS_MEDIA_RETENTION_DAYS` is set. */
+function pruneExpiredMedia(mediaDir: string, env: NodeJS.ProcessEnv): string[] {
+  const retentionDays = mediaRetentionDays(env);
+  if (retentionDays <= 0) return [];
+  const files: MediaFileStat[] = walkFiles(mediaDir).map((path) => ({ id: path, mtimeMs: statSync(path).mtimeMs }));
+  const expired = expiredMediaFiles(files, Date.now(), retentionDays);
+  for (const path of expired) {
+    try { unlinkSync(path); } catch { /* best effort: a concurrent writer wins */ }
+  }
+  return expired;
+}
+
 const stateDir = resolveStateDir(LIVE_REPO_ROOT);
 const dataDir = resolveDataDir(stateDir);
 const appDataDir = resolveAppDataDir();
@@ -84,6 +156,8 @@ if (dbBytes === 0) {
 }
 
 const prunedLogs = pruneExpiredLogs(join(home, "logs"), process.env);
+const compressedTranscripts = compressExpiredTranscripts(join(appDataDir, "agents"), process.env);
+const prunedMedia = pruneExpiredMedia(join(homedir(), ".topics", "media"), process.env);
 
 /** Folders outside the database that the data folder actually grows with. */
 const CANDIDATE_FOLDERS: [string, string][] = [
@@ -105,7 +179,7 @@ const config = diskBudgetConfig(process.env, folders.map((f) => f.name));
 const result = evaluateDiskBudget(dbBytes, folders, config);
 
 if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({ ...result, prunedLogs }));
+  console.log(JSON.stringify({ ...result, prunedLogs, compressedTranscripts, prunedMedia }));
 } else {
   console.log(`database           ${human(result.dbBytes)}`);
   console.log(`outside database   ${human(result.outsideBytes)}  (ratio ${result.ratio.toFixed(2)}x, cap ${result.ratioCap}x)${result.ratioOverCap ? "  OVER BUDGET" : ""}`);
@@ -115,6 +189,12 @@ if (process.argv.includes("--json")) {
   }
   if (prunedLogs.length > 0) {
     console.log(`\npruned ${prunedLogs.length} log file(s) older than ${logRetentionDays(process.env)} days`);
+  }
+  if (compressedTranscripts.length > 0) {
+    console.log(`compressed ${compressedTranscripts.length} agent transcript(s) older than ${transcriptCompressDays(process.env)} days`);
+  }
+  if (prunedMedia.length > 0) {
+    console.log(`pruned ${prunedMedia.length} media file(s) older than ${mediaRetentionDays(process.env)} days (opt-in, TOPICS_MEDIA_RETENTION_DAYS set)`);
   }
   console.log(result.ok ? "\nwithin budget" : "\nOVER BUDGET");
 }

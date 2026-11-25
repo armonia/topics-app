@@ -60,6 +60,8 @@ const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { resolveCreatedSource } from "../lib/created-by";
 import { createTaskService, projectIdForPath, type TaskService } from "../services/tasks";
+import { familyLinks } from "../../shared/project-family";
+import { loadFamilyRows } from "../services/project-family-rows";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { activeFrozenCount } from "../services/budget-governor";
 import { swapFrozenCount } from "../lib/swap-freeze-hold";
@@ -74,6 +76,7 @@ import { createTaskAttemptStore, setAttemptFinishedListener } from "../services/
 import { conditionalJson } from "../lib/conditional-json";
 import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { makeSheetWriter } from "../services/delivery-sheet";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
 import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import { gitDiffBundle } from "../lib/git-diff-stat";
@@ -158,6 +161,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const svc = createTaskService(db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: opts?.repoRootFor,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: opts?.listRepoRoots,
     listProjectDirs: opts?.listProjectDirs,
     probeFor: opts?.probeFor,
@@ -932,7 +936,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         : null);
       if (method === "GET") {
         const { projects, labelOnly } = listPickerProjects(loadRegisteredProjects(db), knownDirs());
-        return json({ projects, labelOnly, newProjectDir: newDir() });
+        // `families`: the projects that sit under another one (accorpa / separa), in board ids.
+        return json({ projects, labelOnly, newProjectDir: newDir(), families: familyLinks(loadFamilyRows(db)) });
       }
       if (method === "POST") {
         if (!opts?.workspaceDir) return json({ error: "workspace not configured", code: "invalid_input" }, 500);

@@ -28,9 +28,10 @@ import { deleteTopic } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_HOME, daemonAuthHeaders } from "./helpers/test-server";
 import { nativeRuntime, nativeTopic, openChat } from "./helpers/turn-end-sampler";
 import { installFakeAnthropic, startFakeAnthropic, type FakeAnthropic } from "./helpers/fake-anthropic-api";
+import { videoAt } from "./video-evidence";
 
 hermetic(test);
-test.use({ viewport: { width: 1440, height: 900 }, video: "on" });
+test.use({ viewport: { width: 1440, height: 900 }, video: videoAt("on", { width: 1440, height: 900 }) });
 test.describe.configure({ timeout: 150_000 });
 
 const STAMP = Date.now();
@@ -119,7 +120,14 @@ test("a child waiting on a grandchild at work is drawn at work, and the parent's
     // The sidebar row of the parent: the loader, not the wait movement, and the number in words.
     await expect(row.getByTestId("topic-waiting-on")).toHaveAttribute("data-agents", "1", { timeout: 15_000 });
     await expect(row.getByTestId("topic-waiting-on")).toHaveText(/1 (sottoagente al lavoro|sub-agent at work)/);
-    await expect(page.getByTestId("subagents-accordion").first()).toHaveAttribute("data-agents", "1");
+    // The parent's row IS the accordion (25/11): its chevron, no header row under it.
+    const toggle = row.getByTestId("subagents-accordion");
+    await expect(toggle).toHaveAttribute("data-agents", "1");
+    await expect(page.getByTestId("subagents-accordion")).toHaveCount(1);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("treeitem", { name: new RegExp(CHILD_NAME) }).first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: test.info().outputPath("at-work-1440.png") });
 
     // 3. The grandchild stops: nothing runs under the child any more, the clock is back, the number leaves.

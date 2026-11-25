@@ -25,9 +25,20 @@ import type { GitRunner } from "./own-commits";
  * The branch a card's next run starts from: its live delivery branch, or the
  * one it had when it went back to the queue. `null` = none, the default branch.
  */
-export function carriedBranch(task: { deliveryBranch?: string | null; priorBranch?: string | null }): string | null {
-  return task.deliveryBranch?.trim() || task.priorBranch?.trim() || null;
+export function carriedBranch(
+  task: { deliveryBranch?: string | null; priorBranch?: string | null },
+  // Branches known to exist nowhere (see `BRANCH_NOWHERE_REASON`): skipped, the next candidate carries.
+  skip?: ReadonlySet<string>,
+): string | null {
+  for (const candidate of [task.deliveryBranch, task.priorBranch]) {
+    const name = candidate?.trim();
+    if (name && !skip?.has(name)) return name;
+  }
+  return null;
 }
+
+/** `ensureBranchOnOrigin`'s answer for a branch that is neither in the checkout nor on origin. */
+export const BRANCH_NOWHERE_REASON = "il ramo non c'è né qui né su origin";
 
 /**
  * The delivery commit of a node round that came back with nothing planted and
@@ -60,7 +71,7 @@ export async function ensureBranchOnOrigin(
   if (local.code !== 0) {
     // Not in this checkout (pruned after a land, or born elsewhere): only origin can have it.
     const remote = await run(repoPath, ["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
-    return remote.code === 0 ? { ok: true } : { ok: false, reason: "il ramo non c'è né qui né su origin" };
+    return remote.code === 0 ? { ok: true } : { ok: false, reason: BRANCH_NOWHERE_REASON };
   }
   const push = await run(repoPath, ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
   if (push.code === 0) return { ok: true };
@@ -135,6 +146,35 @@ export async function bundleBranch(
     return null;
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The card's branch as a bundle for a node, even when only origin has it.
+ *
+ * `ensureBranchOnOrigin` accepts a branch that is no longer in this checkout
+ * (pruned after a land, or born on another machine) because origin has it. A
+ * node without GitHub access then answers `branch_unreachable`, and
+ * `bundleBranch` had no local ref to pack: on 25/11 ed621d32 was retried every
+ * 5 minutes for hours as "node not answering". The branch is borrowed from
+ * origin for the bundle and the borrowed ref is removed afterwards, only if it
+ * still points where the fetch put it.
+ */
+export async function bundleBranchForNode(
+  repoPath: string | null | undefined,
+  branch: string,
+  run: GitRunner = branchGit,
+): Promise<Uint8Array | null> {
+  if (!repoPath || !isPlainBranchName(branch)) return null;
+  const ref = `refs/heads/${branch}`;
+  if ((await run(repoPath, ["rev-parse", "--verify", "-q", ref])).code === 0) return bundleBranch(repoPath, branch, run);
+  const fetched = await run(repoPath, ["fetch", "--no-tags", "-q", "origin", `${ref}:${ref}`]);
+  if (fetched.code !== 0) return null;
+  const borrowed = (await run(repoPath, ["rev-parse", "--verify", "-q", ref])).stdout.trim();
+  try {
+    return await bundleBranch(repoPath, branch, run);
+  } finally {
+    if (borrowed) await run(repoPath, ["update-ref", "-d", ref, borrowed]);
   }
 }
 

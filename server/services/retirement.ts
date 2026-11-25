@@ -17,6 +17,10 @@
  * «chiusa ma non archiviata». Quindi il ritiro di una PANE cascata sul suo
  * contenuto — ed e' `paneCascade` a dire su cosa, non chi chiama.
  *
+ * Since 24/11 the third state is back as the default: a closed chat stays a
+ * closed row, and the old rule above runs only with the `closeArchives` option
+ * on (`ReconcileDeps.tabCloseArchives`). Terminals still retire on close.
+ *
  * PRIMA SCRITTURA VINCE. Ri-ritirare qualcosa di gia' ritirato non sposta la
  * data: `retired_at` risponde a «quando e' stato chiuso», e una seconda
  * chiusura (l'eco di un altro dispositivo, un riconcilio al boot) non e' un
@@ -224,6 +228,11 @@ export function applyPaneCascade(db: Database, deps: ReconcileDeps, result: Casc
       // those two actions would let boot reconciliation archive it forever.
       if (deps.shouldRetireTopic?.(r.topicId) === false) {
         clearRetirement(db, "topic", r.topicId);
+      } else if (deps.tabCloseArchives?.() === false) {
+        // Three states (the default since 24/11): the chat stays, a closed row
+        // archived when the person chooses. The pane's fact above is what a
+        // stale peer needs; the topic gets no fact, so boot reconciliation
+        // has nothing to finish.
       } else {
         recordRetirement(db, "topic", r.topicId, at, "tab-close");
         try { deps.archiveTopic(r.topicId, "tab-close"); out.topics++; }
@@ -261,6 +270,11 @@ export interface ReconcileDeps {
    * predicate must be identity-based (never a mutable title/UI field).
    */
   shouldRetireTopic?: (topicId: string) => boolean;
+  /**
+   * Whether a closed tab archives its chat (the `closeArchives` option). False
+   * keeps the chat as a closed row; absent keeps the rule of before, archive.
+   */
+  tabCloseArchives?: () => boolean;
   /** Repair a protected Topic that an older path archived before the exemption. */
   restoreTopic?: (topicId: string) => void;
   /** Ritira la sessione di terminale: uccide il PTY se c'e' e butta la riga. */

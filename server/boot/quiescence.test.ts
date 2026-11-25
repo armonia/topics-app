@@ -15,17 +15,20 @@
  * the real ask registry) instead of a copy of its composition, because the
  * defect lived in what the function did with right rules.
  *
- * @covers RGATE-12
+ * @covers RGATE-12, RGATE-13
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { bootQuiescence } from "./quiescence";
+import { runIncrementalVacuum } from "../lib/db-incremental-vacuum";
 import { _dropAskStateLikeARestart, ASK_POLL_LIVE_MS, beginAsk, endAsk } from "../lib/ask-user-bridge";
 import { beginPermission, cancelPermissionsForSession } from "../lib/permission-bridge";
 import type { AfterDispatcher } from "./scope";
 
 const ASKING = "topic:aaaaaaaa";
 const WORKING = "topic:bbbbbbbb";
+const CARD = "topic:cccccccc";
+const CARD_TURN = { taskId: "task-1", sessionKey: CARD };
 
 let db: Database;
 let activeStreams: Map<string, Record<string, unknown>>;
@@ -41,13 +44,17 @@ function addQuestionOnRow(sessionKey: string, messageId: string): void {
   db.run("INSERT INTO messages (id, session_key, partial, tool_calls, timestamp, sort_order) VALUES (?, ?, 1, ?, ?, 0)", [messageId, sessionKey, toolCalls, new Date().toISOString()]);
 }
 
-function gate(brokerOpenTurns?: () => Promise<string[]>, bridgeOn?: boolean) {
+/** Card turns the dispatcher holds in flight, and lands in the queue, for the tests that need a board. */
+interface Board { cards?: Array<{ taskId: string; sessionKey: string }>; lands?: number }
+
+function gate(brokerOpenTurns?: () => Promise<string[]>, bridgeOn?: boolean, board: Board = {}) {
+  const cards = board.cards ?? [];
   const scope = {
     activeStreams,
     ctx: { db },
     deliveryOnlyWaitsOnChecks: () => false,
-    landingQueue: { inFlight: () => 0 },
-    taskDispatcher: { busyTurns: () => [], busySessionKeys: () => [] },
+    landingQueue: { inFlight: () => board.lands ?? 0 },
+    taskDispatcher: { busyTurns: () => cards, busySessionKeys: () => cards.map((c) => c.sessionKey) },
   } as unknown as AfterDispatcher;
   return bootQuiescence(scope, { ...(brokerOpenTurns ? { brokerOpenTurns } : {}), ...(bridgeOn === undefined ? {} : { bridgeOn: () => bridgeOn }) });
 }
@@ -240,3 +247,198 @@ describe("whatIsStillWorking: a parked turn that does not come back still gets t
   });
 });
 
+
+describe("whatIsStillWorking: a card turn waiting for a person is parked, and still held", () => {
+  // The turn of a card that runs INSIDE this process (Codex, ACP, a native turn
+  // fallen back from the broker) does not come back after a restart, and the
+  // card's recovery resumes it at once without asking whether its question is
+  // still open: so the restart keeps deferring for it (RGATE-13). What changes
+  // is the label: it is not WORKING, and `idle` answers "is anything computing".
+  test("a card parked on a question is not working, and still holds the restart", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.working).toBe(false);
+    expect(now.workingBusy).toBeNull();
+    expect(now.cardsOnPerson).toBe(1);
+    // The restart verdict is the one it always was.
+    expect(now.cards).toBe(1);
+    expect(now.busy).toBe("1 turno/i di card della board");
+  });
+
+  test("the same card with no question open is working, as ever", async () => {
+    addStream(CARD, "m-card");
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.working).toBe(true);
+    expect(now.workingBusy).toBe("1 turno/i di card della board");
+    expect(now.cardsOnPerson).toBe(0);
+  });
+
+  test("answering gives the card back to the working", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+    const { whatIsStillWorking } = gate(undefined, true, { cards: [CARD_TURN] });
+    expect((await whatIsStillWorking()).working).toBe(false);
+
+    endAsk(CARD);
+
+    expect((await whatIsStillWorking()).working).toBe(true);
+  });
+
+  test("a land in flight is work whatever the card beside it does", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN], lands: 1 }).whatIsStillWorking();
+
+    expect(now.cards).toBe(2);
+    expect(now.cardsOnPerson).toBe(1);
+    expect(now.working).toBe(true);
+    expect(now.workingBusy).toBe("1 turno/i di card della board");
+  });
+
+  test("beside a working chat, the chat is what works", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+    addStream(WORKING, "m-working");
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.working).toBe(true);
+    expect(now.workingBusy).toBe(`1 chat in streaming (${WORKING})`);
+  });
+
+  test("an ask nobody polls any more does not park a card", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+    setSystemTime(new Date(Date.now() + ASK_POLL_LIVE_MS + 5_000));
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.working).toBe(true);
+    expect(now.cardsOnPerson).toBe(0);
+  });
+
+  test("a permission prompt does not park a card: its decision dies with the turn", async () => {
+    addStream(CARD, "m-card");
+    beginPermission(CARD, "toolu_perm");
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.working).toBe(true);
+    expect(now.cardsOnPerson).toBe(0);
+    cancelPermissionsForSession(CARD, "test over");
+  });
+
+  test("a card with no session yet has nobody to ask: it is working", async () => {
+    const now = await gate(undefined, true, { cards: [{ taskId: "task-2", sessionKey: "" }] }).whatIsStillWorking();
+
+    expect(now.working).toBe(true);
+    expect(now.cardsOnPerson).toBe(0);
+  });
+
+  test("a card whose turn the broker keeps is parked like a chat, and holds nothing", async () => {
+    // The usual card (claude-code, or a native turn running detached): it comes
+    // back after a restart, so it is not even in `cards`.
+    addStream(CARD, "m-card", 1, true);
+    beginAsk(CARD);
+
+    const now = await gate(undefined, true, { cards: [CARD_TURN] }).whatIsStillWorking();
+
+    expect(now.cards).toBe(0);
+    expect(now.working).toBe(false);
+    expect(now.busy).toBe(`1 chat ferma/e su una domanda (${CARD})`);
+  });
+});
+
+describe("autoLandTurnCount: what a land's reload would meet", () => {
+  // The automatic land waits for the count to be zero before it merges a diff
+  // of the server. A question left open for ten hours is not a turn that the
+  // reload meets: it survives on its row (RGATE-12).
+  test("a chat parked on a question does not hold the land", async () => {
+    addStream(ASKING, "m-asking");
+    beginAsk(ASKING);
+
+    expect(await gate().autoLandTurnCount()).toBe(0);
+  });
+
+  test("a broker turn parked on a question does not hold the land", async () => {
+    beginAsk(ASKING);
+
+    expect(await gate(async () => [ASKING]).autoLandTurnCount()).toBe(0);
+  });
+
+  test("a chat that is working holds it, with or without a parked one beside it", async () => {
+    addStream(WORKING, "m-working");
+    expect(await gate().autoLandTurnCount()).toBeGreaterThan(0);
+
+    addStream(ASKING, "m-asking");
+    beginAsk(ASKING);
+    expect(await gate().autoLandTurnCount()).toBeGreaterThan(0);
+  });
+
+  test("a card that does not come back holds it, parked or not: the gate holds it too", async () => {
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+
+    expect(await gate(undefined, true, { cards: [CARD_TURN] }).autoLandTurnCount()).toBeGreaterThan(0);
+  });
+
+  test("a card the broker keeps, parked on a question, does not hold it", async () => {
+    addStream(CARD, "m-card", 1, true);
+    beginAsk(CARD);
+
+    expect(await gate(undefined, true, { cards: [CARD_TURN] }).autoLandTurnCount()).toBe(0);
+  });
+
+  test("a land asking from within its own slot does not wait for itself", async () => {
+    expect(await gate(undefined, true, { lands: 1 }).autoLandTurnCount({ insideLand: true })).toBe(0);
+    expect(await gate(undefined, true, { lands: 1 }).autoLandTurnCount()).toBeGreaterThan(0);
+  });
+});
+
+describe("the incremental vacuum: an open question does not skip the round", () => {
+  /** A database whose pages freed by a DELETE are waiting on the freelist. */
+  function dbWithFreePages(): Database {
+    const vacuumDb = new Database(":memory:");
+    vacuumDb.run("PRAGMA auto_vacuum = INCREMENTAL");
+    vacuumDb.run("CREATE TABLE blobs (id INTEGER PRIMARY KEY, body BLOB)");
+    for (let i = 0; i < 64; i++) vacuumDb.run("INSERT INTO blobs (body) VALUES (zeroblob(8192))");
+    vacuumDb.run("DELETE FROM blobs");
+    return vacuumDb;
+  }
+
+  test("parked chat and parked card: the vacuum runs", async () => {
+    addStream(ASKING, "m-asking");
+    beginAsk(ASKING);
+    addStream(CARD, "m-card");
+    beginAsk(CARD);
+    const { whatIsStillWorking } = gate(undefined, true, { cards: [CARD_TURN] });
+    const vacuumDb = dbWithFreePages();
+    // What used to be asked: the restart gate's sentence, which names the parked ones.
+    const now = await whatIsStillWorking();
+    expect(now.busy).not.toBeNull();
+    expect(now.workingBusy).toBeNull();
+
+    const outcome = await runIncrementalVacuum({ db: vacuumDb, busy: async () => (await whatIsStillWorking()).workingBusy });
+
+    expect(outcome.action).toBe("vacuumed");
+    expect(outcome.action === "vacuumed" && outcome.pages).toBeGreaterThan(0);
+    vacuumDb.close();
+  });
+
+  test("a chat that is working still stops it", async () => {
+    addStream(WORKING, "m-working");
+    const { whatIsStillWorking } = gate();
+    const vacuumDb = dbWithFreePages();
+
+    const outcome = await runIncrementalVacuum({ db: vacuumDb, busy: async () => (await whatIsStillWorking()).workingBusy });
+
+    expect(outcome.action).toBe("skipped");
+    vacuumDb.close();
+  });
+});

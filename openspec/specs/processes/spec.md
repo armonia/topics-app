@@ -988,3 +988,14 @@ output sink SHALL NOT stop the drain of a process.
 #### Scenario: a sink fails on the first chunk
 - **GIVEN** a drain with three chunks and a sink that throws on the first
 - **THEN** the second and third chunks SHALL still reach the sink
+
+### Requirement: PROCESS-13 — A service a child relaunches in place of its parent's stays the parent's
+
+A sub-agent that stops its parent's service and relaunches it without a wake is replacing it, not starting a service of its own. Archiving the child at the end of its turn stops the processes it owns, so a relaunch owned by the child would die with it, silently.
+
+A command relaunched with `wake:false` by a child, with the same name as a stopped command of its parent, SHALL be owned by the parent (session and topic), and archiving the child SHALL NOT stop it.
+
+#### Scenario: a child relaunches its parent's stopped service
+- **GIVEN** a parent whose service was stopped by its child
+- **WHEN** the child relaunches the same command with `wake:false`
+- **THEN** the process belongs to the parent and archiving the child leaves it running

@@ -23,9 +23,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { resetPaneStore } from "./helpers/api-fixtures";
 import { startFakeHub, type FakeHub } from "./helpers/fake-hub";
 import { E2E_BASE } from "./helpers/test-server";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 // Not serial: the cases are independent (each starts from no tab), so one red does not hide the others.
 test.describe.configure({ timeout: 120_000 });
 

@@ -83,7 +83,11 @@ import { GIT_ISOLATION_MARKER, gitIsolationEnv } from "./git-isolation";
  */
 let ownTmpDir: string | null = null;
 if (!process.env[PRIVATE_SCRATCH_ENV]) {
-  ownTmpDir = mkdtempSync(join(tmpdir(), "topics-tt-"));
+  // On macOS the folder goes under /tmp, not `$TMPDIR` (/var/folders/xx/…/T/,
+  // 49 characters): nested there, a socket a test makes in its own mkdtemp
+  // passes 104. late-scan-route-grace measured 109, red on every Mac run of a
+  // single file or of `test:touched`, green on Linux CI where tmpdir is /tmp.
+  ownTmpDir = mkdtempSync(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "topics-tt-"));
   process.env.TMPDIR = ownTmpDir;
 }
 
@@ -94,6 +98,17 @@ if (!process.env[PRIVATE_SCRATCH_ENV]) {
  * chose none; a test that needs a home of its own still sets one.
  */
 process.env.TOPICS_HOME ||= join(tmpdir(), `topics-test-no-home-${process.pid}`);
+
+/**
+ * THE LIVE AI BRIDGE STAYS OUT OF THE SUITE. A run started from inside a
+ * running app (the board's pre-review checks) inherits `TOPICS_AI_BRIDGE=1`,
+ * and then a native turn leaves the process for the real daemon: the test's
+ * stubbed `fetch` is never called, the turn hits the real API with a fake
+ * token (401), and `native-shutdown-notice` went red only there. A test that
+ * wants the bridge sets both keys itself, with a socket of its own.
+ */
+delete process.env.TOPICS_AI_BRIDGE;
+delete process.env.TOPICS_AI_BRIDGE_SOCKET;
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col

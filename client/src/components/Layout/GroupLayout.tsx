@@ -1,4 +1,5 @@
 import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
@@ -18,6 +19,7 @@ import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane, canDropSplit, centerDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
+import { EQUALIZE_SPLITS_EVENT, SPLIT_PANE_EVENT, sideZone, type EqualizeSplitsDetail, type SplitPaneDetail } from '../../lib/splitCommands';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
@@ -37,6 +39,10 @@ import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { useTopics, useTerminalSessions, useTopicsPending } from '../../contexts/TopicsContext';
 import { notifyPaneReflow } from './paneReflow';
+import { takesTheTitle } from './titleTab';
+
+/** A title adds nothing: the project's row in the column has the «+». */
+const NO_PANE_TYPES: never[] = [];
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
 import { usePaneZoomChord } from './usePaneZoomChord';
@@ -170,6 +176,23 @@ interface GroupLayoutProps {
    */
   subordinate?: boolean;
   /**
+   * The tabs are at the side of the window (TABPOS-01): the project's tabs are
+   * rows of the column and the window's title names the project, so a project
+   * with ONE group draws no bar of its own (asked on 25/11: only the title).
+   * With a split inside the project each group keeps its bar, the only handle
+   * its cell has.
+   */
+  chromeless?: boolean;
+  /**
+   * The node on the window's title row where the tab of the surface in front
+   * goes when it takes the title (`takesTheTitle`: a browser, 25/11), and the
+   * call that tells the row its own tab gives way. Only with `chromeless` and
+   * one group: with a split every group has its bar. Absent while this window
+   * is not the pane in front.
+   */
+  titleTabSlot?: HTMLElement | null;
+  onTitleTab?: (taken: boolean) => void;
+  /**
    * DOES THIS SURFACE OFFER "ENLARGE"? Default **false**, and the default IS the
    * decision: this same `GroupLayout` is also what a task's drawer mounts
    * (`Board/TaskDetail.tsx`), which is already an overlaid surface — two nested
@@ -228,7 +251,8 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, enableZoom = false,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, chromeless = false, enableZoom = false,
+  titleTabSlot = null, onTitleTab,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -256,6 +280,28 @@ export function GroupLayout({
     for (const g of groups) m.set(g.id, g);
     return m;
   }, [groups]);
+
+  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
+  // primo della prima riga. Con uno split le righe di chrome sono N, il
+  // progetto uno solo.
+  const leadingGid = rows[0]?.groupIds[0];
+  // One group on screen: nothing beside it, nothing stacked under it.
+  const soloGroup = rows.length === 1 && rows[0].groupIds.length === 1
+    && !Object.values(rows[0].cellStacks ?? {}).some((s) => s.groupIds.length > 0);
+  // The surface in front that puts its own tab on the window's title (see
+  // `titleTabSlot`), and whether it is there: the row hides the project's tab
+  // only while this one stands in its place.
+  const leadGroup = leadingGid ? groupMap.get(leadingGid) : undefined;
+  const leadActive = leadGroup?.activePaneId ? paneMap.get(leadGroup.activePaneId) : undefined;
+  const titleTabPaneId = chromeless && soloGroup && !isMobile && leadActive && takesTheTitle(leadActive) ? leadActive.id : null;
+  const titleTaken = !!titleTabSlot && !!titleTabPaneId;
+  // Layout, not passive: the row swaps its tab before the frame is painted, so
+  // the project's tab and the browser's never show together.
+  useLayoutEffect(() => {
+    if (!onTitleTab) return;
+    onTitleTab(titleTaken);
+    return () => onTitleTab(false);
+  }, [onTitleTab, titleTaken]);
 
   // NOTE: the sidebar split mini-map (per-topic cell schematic) is published
   // separately via SplitPositionContext — GroupLayout no longer threads a
@@ -420,14 +466,44 @@ export function GroupLayout({
     });
   }, [rows, hasMultipleColumns]);
 
+  const heldPaneIds = useMemo(() => groups.flatMap(g => g.paneIds).join(' '), [groups]);
+
+  /** A pane this window holds, by the id a row of the column carries (a chat
+   *  row carries the bare topic id, its pane here is `chat:<id>`). */
+  const memberOf = useCallback((id: string | null): { paneId: string; groupId: string } | null => {
+    if (!id) return null;
+    for (const paneId of [id, `chat:${id}`]) {
+      const group = groups.find(g => g.paneIds.includes(paneId));
+      if (group) return { paneId, groupId: group.id };
+    }
+    return null;
+  }, [groups]);
+
+  /** A pane drag this window owns: one of its own tabs (scope-tagged), or a
+   *  row of the column for a pane it holds, which reads exactly like that
+   *  pane's tab (SPLIT-01). A dragover cannot read payload values, so the
+   *  row is recognised off the drag shelf. */
+  const isPaneTabDrag = useCallback((e: React.DragEvent) => {
+    const t = e.dataTransfer.types;
+    if (t.includes(DND_TYPES.PANE_TAB)) return t.includes(DND_TYPES.PANE_TAB_GROUP) && dragMatchesScope(t, dndScope);
+    return t.includes(DND_TYPES.PANEL_ID) && !t.includes(DND_TYPES.GRID_ITEM) && !!memberOf(draggedPaneId());
+  }, [dndScope, memberOf]);
+
+  /** The pane and group a drop carries, from a tab or from a row; null for a
+   *  foreign tab or a row whose pane lives elsewhere. */
+  const readPaneDrop = useCallback((e: React.DragEvent): { paneId: string; groupId: string } | null => {
+    const tab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    if (!tab) return memberOf(e.dataTransfer.getData(DND_TYPES.PANEL_ID));
+    const groupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const scope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (!groupId || (dndScope && scope && scope !== dndScope)) return null;
+    return { paneId: tab, groupId };
+  }, [dndScope, memberOf]);
+
   const handleGroupContentDragOver = useCallback((groupId: string) => (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
-    // Scope guard: only this project's tabs may split its groups — a foreign
-    // tab gets no edge overlay (and no preventDefault, so it can't drop here).
-    if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
-    // Group-tagged tab drags only (dragover can't read VALUES, so we can't
-    // tell WHICH group — every project tab drag qualifies here).
-    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) return;
+    // Only this project's own panes split its groups: a foreign tab gets no
+    // edge overlay (and no preventDefault, so it can't drop here).
+    if (!isPaneTabDrag(e)) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -489,7 +565,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap, contentGutters, rows]);
+  }, [onSplitGroup, edgeDropTargetRef, isPaneTabDrag, groupMap, contentGutters, rows]);
 
   // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
   // the content area), the user is aiming to drop the tab INTO the bar — not to
@@ -533,13 +609,11 @@ export function GroupLayout({
   const [dragActive, setDragActive] = useState(false);
 
   const handleGroupContentDrop = useCallback((groupId: string) => (e: React.DragEvent) => {
-    // Validate this is a tab drop before consuming the event.
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
-    if (!sourcePaneId || !sourceGroupId) return;
-    // Scope guard: reject a tab from another window/project on drop too.
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    // A tab of this window or a row for one of its panes; a tab from another
+    // window/project is refused on drop too.
+    const source = readPaneDrop(e);
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
 
     // Splittable at all? ONE predicate, the same the context menu is gated on
     // (splitRules.canDropSplit → canSplitPane). This used to be an inline
@@ -596,7 +670,7 @@ export function GroupLayout({
     // full-width strips (gated on dragActive) would stay painted after an
     // edge-split drop too. Clear it here.
     setDragActive(false);
-  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, dndScope, groupMap, contentGutters]);
+  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, readPaneDrop, groupMap, contentGutters]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -613,11 +687,6 @@ export function GroupLayout({
    * first / below the last row). */
   const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | null>(null);
   const fullRowDropRef = useRefMirror(fullRowDrop);
-
-  const isPaneTabDrag = useCallback((e: React.DragEvent) =>
-    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) &&
-    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) &&
-    dragMatchesScope(e.dataTransfer.types, dndScope), [dndScope]);
 
   /**
    * Would a full-width-row release reshape anything, given the group `size` the
@@ -639,10 +708,9 @@ export function GroupLayout({
   /** The group the pane in flight left, or undefined when the drag came from
    *  another window (the shelf is empty there — only the drop can tell). */
   const draggedGroup = useCallback(() => {
-    const paneId = draggedPaneId();
-    if (!paneId) return undefined;
-    return groups.find(g => g.paneIds.includes(paneId));
-  }, [groups]);
+    const member = memberOf(draggedPaneId());
+    return member ? groupMap.get(member.groupId) : undefined;
+  }, [memberOf, groupMap]);
 
   const draggedGroupSize = useCallback((): number | undefined =>
     draggedGroup()?.paneIds.length, [draggedGroup]);
@@ -669,24 +737,22 @@ export function GroupLayout({
   }, [fullRowDropRef]);
 
   const handleFullRowDrop = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const source = readPaneDrop(e);
     fullRowDropRef.current = null;
     setFullRowDrop(null);
     // This handler stopPropagation()s the drop (below) AND onSplitGroup reparents
     // the dragged tab — so neither the window 'drop' reset nor 'dragend' fires.
     // Clear dragActive here or the "Full-width row" strips stay painted forever.
     setDragActive(false);
-    if (!sourcePaneId || !sourceGroupId) return;
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
     // Same predicate the strip's dragover used to decide whether to light up.
     if (!fullRowWouldReshape(groupMap.get(sourceGroupId)?.paneIds.length)) return;
     e.preventDefault();
     e.stopPropagation();
     // targetGroupId '' → handler falls back to first/last row for the new row.
     onSplitGroup?.(sourceGroupId, sourcePaneId, '', side, { fullRow: true });
-  }, [onSplitGroup, dndScope, fullRowDropRef, fullRowWouldReshape, groupMap]);
+  }, [onSplitGroup, readPaneDrop, fullRowDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Interior row-gap strips: the ONLY gesture that inserts a full-width
    * row BETWEEN two existing rows. The extreme strips above cover "above the
@@ -724,14 +790,12 @@ export function GroupLayout({
   }, [rowGapDropRef]);
 
   const handleRowGapDrop = useCallback((gapIdx: number) => (e: React.DragEvent) => {
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const source = readPaneDrop(e);
     rowGapDropRef.current = null;
     setRowGapDrop(null);
     setDragActive(false); // see handleFullRowDrop — dragend/drop resets are defeated here
-    if (!sourcePaneId || !sourceGroupId) return;
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
     const anchor = rows[gapIdx]?.groupIds[0];
     if (!anchor) return;
     // Same pair of predicates the band's dragover used to decide whether to
@@ -744,7 +808,7 @@ export function GroupLayout({
     // 'bottom' + fullRow anchored on the row above the gap → the new row
     // lands exactly in this gap.
     onSplitGroup?.(sourceGroupId, sourcePaneId, anchor, 'bottom', { fullRow: true });
-  }, [onSplitGroup, dndScope, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
+  }, [onSplitGroup, readPaneDrop, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);
@@ -1129,6 +1193,36 @@ export function GroupLayout({
     }
   }, [rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
 
+  // Layout commands from any sheet (lib/splitCommands): this window acts only
+  // for a pane it holds. A split is a drop of the pane on that edge of its own
+  // group; «Pareggia» evens every divider at once.
+  useEffect(() => {
+    const onSplit = (ev: Event) => {
+      const { paneId, side } = (ev as CustomEvent<SplitPaneDetail>).detail ?? {};
+      const member = paneId && side ? memberOf(paneId) : null;
+      if (!member || !side || !onSplitGroup) return;
+      onSplitGroup(member.groupId, member.paneId, member.groupId, sideZone(side));
+    };
+    const onEqualize = (ev: Event) => {
+      const { paneId } = (ev as CustomEvent<EqualizeSplitsDetail>).detail ?? {};
+      if (!paneId || !memberOf(paneId)) return;
+      onUpdateRows(rows.map(r => ({
+        ...r,
+        widths: equalizeWidths(r.groupIds.length),
+        ...(r.cellStacks ? {
+          cellStacks: Object.fromEntries(Object.entries(r.cellStacks).map(([k, s]) => [k, { ...s, heights: equalizeWidths(s.groupIds.length + 1) }])),
+        } : {}),
+      })));
+      onUpdateRowHeights(weightedWidths(rows.map(rowVerticalDepth)));
+    };
+    window.addEventListener(SPLIT_PANE_EVENT, onSplit);
+    window.addEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    return () => {
+      window.removeEventListener(SPLIT_PANE_EVENT, onSplit);
+      window.removeEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    };
+  }, [memberOf, onSplitGroup, rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
+
   // "Reimposta pannelli" — flatten every split back to a single row of equal
   // columns (cellStacks dissolve; nothing closes). Null = already flat, so
   // the ctx-menu entry hides. The handler passes the LIVE group ids so the
@@ -1252,11 +1346,6 @@ export function GroupLayout({
   // a column's primary group AND for each group vertically stacked under it via
   // cellStacks. `rowIdx` drives the last-row gutter inset; `seenPaneIds` is
   // threaded so a duplicated pane id never paints twice.
-  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
-  // primo della prima riga. Con uno split le righe di chrome sono N, il
-  // progetto uno solo.
-  const leadingGid = rows[0]?.groupIds[0];
-
   // `hasBox` = the cell hosting this block occupies a rectangle in the layout.
   // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
   // (observers, polls, measurements against a zero viewport), it does not
@@ -1296,6 +1385,8 @@ export function GroupLayout({
     //    the project itself sits next to a focused sibling at App level
     //  - inactive: not the focused group of this project
     const isFullyFocused = isFocusedGroup && isAppFocused;
+    // No bar at all (see `chromeless`): the body starts at the top of the cell.
+    const bareLead = chromeless && soloGroup && gid === leadingGid;
     const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
     // Shared split gating (splitRules.ts, one predicate with the standalone
     // surface): splitting the only pane of a group into itself is a visual
@@ -1309,17 +1400,18 @@ export function GroupLayout({
       onDragLeave: handleGroupContentDragLeave(gid),
       onDrop: handleGroupContentDrop(gid),
     };
-    return (
-      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
-        {/* Per-group tab bar — h-10 to match the project sidebar header
-            and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
-          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
-          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+    // The group's tab bar, and the same bar with its tab in front alone when
+    // that tab is the window's title (`titleTabSlot`): same handlers, so the
+    // title cannot lose what the tab does (its menu, its countdown, its badges).
+    const frontPane = groupPanes.find((p) => p.id === group.activePaneId);
+    const frontIdx = frontPane ? groupPanes.indexOf(frontPane) : -1;
+    const tabBar = (title: boolean) => (
           <PaneTabBar
-              hasLeadingBlock={!!leadingSlot}
-            subordinate={subordinate && rowIdx === 0}
-            panes={groupPanes}
+            asTitle={title}
+            className={title ? 'flex-initial min-w-0 app-drag-region' : undefined}
+            hasLeadingBlock={!title && !!leadingSlot}
+            subordinate={!title && subordinate && rowIdx === 0}
+            panes={title && frontPane ? [frontPane] : groupPanes}
             activePaneId={group.activePaneId}
             groupIsFocused={isFocusedGroup}
             groupIsAppFocused={isFullyFocused}
@@ -1327,7 +1419,7 @@ export function GroupLayout({
             onClose={(paneId) => onClosePane(gid, paneId)}
             onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(gid, paneId) : undefined}
             onAddPane={(type, subType) => onAddPaneToGroup(gid, type, subType)}
-            availableTypes={availableTypesForGroup(group.type, gid)}
+            availableTypes={title ? NO_PANE_TYPES : availableTypesForGroup(group.type, gid)}
             groupType={group.type}
             groupId={gid}
             dndScope={dndScope}
@@ -1339,16 +1431,19 @@ export function GroupLayout({
             // handler routes the new chat into the project's
             // existing chat group (or creates one) — it does
             // NOT add a chat into a non-chat group.
-            onNewChat={onNewChatInGroup
+            onNewChat={onNewChatInGroup && !title
               ? () => onNewChatInGroup(gid)
               : undefined
             }
-            onReorderPanes={onReorderGroupPanes
+            onReorderPanes={onReorderGroupPanes && !title
               ? (newPaneIds) => onReorderGroupPanes(gid, newPaneIds)
               : undefined
             }
+            // Dropped on the title, a tab lands beside the surface in front.
             onCrossGroupDrop={onMovePaneBetweenGroups
-              ? handleCrossGroupDrop(gid)
+              ? (title
+                ? (paneId, fromGroup, at) => handleCrossGroupDrop(gid)(paneId, fromGroup, frontIdx + at)
+                : handleCrossGroupDrop(gid))
               : undefined
             }
             onEdgeSplitDrop={onSplitGroup
@@ -1392,8 +1487,18 @@ export function GroupLayout({
             linkContext={linkContext}
             onOpenPaneInProject={onOpenPaneInProject}
           />
+    );
+    return (
+      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
+        {/* Per-group tab bar — h-10 to match the project sidebar header
+            and the StandaloneChatGroup header (consistent chrome row). */}
+        {!bareLead && <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
+          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+          {tabBar(false)}
           </div>
-        </div>
+        </div>}
+        {bareLead && titleTaken && frontPane?.id === titleTabPaneId && titleTabSlot && createPortal(tabBar(true), titleTabSlot)}
         {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
         {/* La riga dei comandi ha già scavalcato la barra: da qui in giù non va
@@ -1401,7 +1506,7 @@ export function GroupLayout({
             di fascia vuota, misurati. La condizione è la STESSA della riga qui
             sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
-          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
+          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${(belowSlot && gid === leadingGid) || bareLead ? CHROME_BAR_CONSUMED : ''}`}
           data-pane-content=""
           onMouseDownCapture={contentHandlers.onMouseDownCapture}
           onDragOver={contentHandlers.onDragOver}
@@ -1735,6 +1840,9 @@ export function GroupLayout({
       // See PanelGrid: mid-drag, neutralise the divider grab band (CSS below)
       // so an edge drop that lands on the divider band still splits the group.
       data-drag-active={dragActive || undefined}
+      // The panes this window holds: the top-level grid leaves a row of the
+      // column for one of them to this window (SPLIT-01).
+      data-project-panes={heldPaneIds}
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragEnd={resetDndOverlays}
       onDragEnterCapture={(e) => { if (isPaneTabDrag(e)) setDragActive(true); }}

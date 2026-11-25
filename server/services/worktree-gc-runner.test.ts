@@ -434,7 +434,17 @@ describe("la potatura ANNUNCIA cio' che scrive sulle card", () => {
  * per «Unable to create index.lock: File exists».
  */
 describe("rientro della potatura", () => {
+  // A pass reads the store a fixed number of times (the sweep, then the cap check),
+  // so «the pass ran once» is read as «the reads of one pass», measured on a lone pass.
+  async function readsOfOnePass(): Promise<number> {
+    let reads = 0;
+    const { deps } = fakeDeps({ worktreeStore: { list: () => { reads += 1; return []; } } });
+    await createWorktreeGcRunner(deps).runWorktreeGc();
+    return reads;
+  }
+
   it("due chiamate sovrapposte condividono LA STESSA passata", async () => {
+    const perPass = await readsOfOnePass();
     let giri = 0;
     const { deps } = fakeDeps({ worktreeStore: { list: () => { giri += 1; return []; } } });
     const gc = createWorktreeGcRunner(deps);
@@ -446,7 +456,7 @@ describe("rientro della potatura", () => {
     // chi arriva secondo legge l'esito vero invece di un `null` da interpretare.
     expect(a).toBe(b);
     await Promise.all([a, b]);
-    expect(giri).toBe(1);
+    expect(giri).toBe(perPass);
   });
 
   it("finita la passata, la successiva riparte davvero (non è un interruttore a senso unico)", async () => {
@@ -457,7 +467,7 @@ describe("rientro della potatura", () => {
     await gc.runWorktreeGc();
     await gc.runWorktreeGc();
 
-    expect(giri).toBe(2);
+    expect(giri).toBe(2 * (await readsOfOnePass()));
   });
 });
 

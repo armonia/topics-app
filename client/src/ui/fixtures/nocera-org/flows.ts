@@ -15,7 +15,7 @@
  *
  * Agents prepare and check; a person verifies, approves and signs.
  */
-import type { OpsFlow, OpsFlowStep, StageId } from '../sarim-org/types';
+import type { OpsFlow, OpsFlowStep, StageId } from '../orbit-org/types';
 import { CERTIFIED_MAIL_FLOW } from '../flows';
 import type { FlowSplitDef, FlowSplitLane } from '../world-types';
 

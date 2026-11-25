@@ -3,6 +3,7 @@
  */
 import { createLandingQueue } from "../services/landing-queue";
 import { join } from "path";
+import { branchAheadOfMain } from "../services/own-branch";
 import { resolveStateDir } from "../lib/data-dir";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "../services/swap-freeze-ledger";
 import { createMemoryPressureSignal } from "../services/memory-pressure";
@@ -40,6 +41,8 @@ import { buildProjectCandidates, resolveProjectPath } from "../services/project-
 import { SERVER_VERSION } from "../ws-capabilities";
 import { resolveAgentRuntime } from "../services/app-settings";
 import { createWorktreeGcRunner } from "../services/worktree-gc-runner";
+import { createWorktreeOfTask } from "../services/task-worktree";
+import { ownedWorktreeRoots } from "../services/worktree-root";
 import { hostname as osHostname } from "node:os";
 import { createNodeClient, readNodeToken } from "../services/node-client";
 import { createNodeBranchPlanter } from "../services/node-branch-plant";
@@ -105,6 +108,7 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   const dispatcherSvc = createTaskService(ctx.db, {
     writeDeliverySheet: makeSheetWriter(ctx.APP_DATA_DIR),
     repoRootFor: repoRootForCard,
+    branchAheadOf: branchAheadOfMain,
     listRepoRoots: listKnownDeliveryRepoRoots,
     onLateDeliveryNote: (taskId, projectId) => {
       const noted = dispatcherSvc.get(taskId, { projectId })?.task;
@@ -494,33 +498,21 @@ export function bootDispatchPrep(scope: AfterRouters1) {
   // task → its dispatch topic → worktree → project's main checkout, then merges the
   // branch there. Only `branch`-mode worktrees on a ready project have something to
   // land; everything else resolves to null (skip). Default branch is `main`.
-  const worktreeOfTask = (taskId: string) => {
-    // Percorso primario: task → assigned_topic_id → topic.worktree_id → worktree.
-    // Funziona finché il dispatcher tiene il legame vivo.
-    const topicId = dispatcherSvc.get(taskId)?.task.assignedTopicId;
-    if (topicId) {
-      const worktreeId = ctx.getTopicById(topicId)?.worktreeId;
-      if (worktreeId) return ctx.worktreeStore.get(worktreeId) ?? null;
-    }
-    // Percorso di ripiego: dopo un `release()` il dispatcher azzera
-    // `assigned_topic_id`, ma il record del tentativo corrente conserva
-    // `worktree_id`. Cerchiamo l'ultimo tentativo in stato `running` (o
-    // comunque con un worktree collegato) per questo task.
-    //
-    // Incidente 18/08: card `171b787d` in review con 279 righe non committate
-    // e `deliveryFilesChanged: 0` perche' `worktreeOfTask` tornava null dopo
-    // che il dispatcher aveva rilasciato la card — e la sonda `taskWorktreeDirt`
-    // leggeva null come «pulito» invece che come «non so».
-    try {
-      const row = ctx.db.prepare(
-        `SELECT worktree_id FROM task_attempts
-        WHERE task_id = ? AND worktree_id IS NOT NULL
-        ORDER BY idx DESC LIMIT 1`,
-      ).get(taskId) as { worktree_id: string } | undefined;
-      if (row?.worktree_id) return ctx.worktreeStore.get(row.worktree_id) ?? null;
-    } catch { /* fallback is best-effort */ }
-    return null;
-  };
+  // The card's worktree here, or none: the rule (and why a node card's old local
+  // attempt is not its round) is in `services/task-worktree.ts`. The local id is
+  // read once: `upsertLocal` also writes the heartbeat, and this runs per card.
+  let localMachineId: string | null = null;
+  const worktreeOfTask = createWorktreeOfTask({
+    task: (taskId) => dispatcherSvc.get(taskId)?.task,
+    topicWorktreeId: (topicId) => ctx.getTopicById(topicId)?.worktreeId,
+    worktree: (worktreeId) => ctx.worktreeStore.get(worktreeId),
+    lastAttemptWorktreeId: (taskId) => (ctx.db.prepare(
+      `SELECT worktree_id FROM task_attempts
+      WHERE task_id = ? AND worktree_id IS NOT NULL
+      ORDER BY idx DESC LIMIT 1`,
+    ).get(taskId) as { worktree_id: string } | undefined)?.worktree_id,
+    localMachineId: () => (localMachineId ??= ctx.machineStore.upsertLocal().id),
+  });
 
 
   // ── La potatura dei worktree: il cablaggio ─────────────────────────────────
@@ -534,6 +526,11 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     worktreeStore: ctx.worktreeStore,
     worktreeManager: ctx.worktreeManager,
     projectStore: ctx.projectStore,
+    // The roots are named HERE, by the server: current, default, and the past ones its rows prove.
+    roots: () => ownedWorktreeRoots(ctx.worktreeStore.list(), new Set(ctx.projectStore.list().map((p) => p.slug))),
+    // Claude Code, Codex or jcode started from a terminal in a folder hold it like a session of ours,
+    // inside the worktree root too: `activeAt` would call those Topics' own and skip them.
+    externalActiveAt: (absPath) => externalSessions.activeInside(absPath).length > 0,
     getTopicBySessionKey: (sessionKey) => ctx.getTopicBySessionKey(sessionKey),
     resolveTopicCwd: (topic) => ctx.resolveTopicCwd(topic),
     svc: dispatcherSvc,
@@ -560,6 +557,10 @@ export function bootDispatchPrep(scope: AfterRouters1) {
     },
   });
 
+
+  // A worktree created over its project's cap triggers a cap pass at once (slim, then
+  // reap the oldest the contract admits) instead of waiting for the 30-minute timer.
+  ctx.worktreeGcDeps.afterCreate = (projectId) => { void worktreeGc.enforceCap(projectId); };
 
   // Owned here so the quiescence wait can see lands still queued or running.
   const landingQueue = createLandingQueue({ log: (m) => console.warn(m) });

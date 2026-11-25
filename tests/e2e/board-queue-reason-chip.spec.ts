@@ -312,7 +312,10 @@ test.describe("Il chip della coda porta la sua ragione", () => {
     await setAutoDispatch(request, false);
     const chiede = await createTask(request, { text: "Ripulire i redirect vecchi", status: "todo" });
     await dispatchGate(request, chiede.id, { attempts: 1 });
-    const figlio = await createTask(request, { text: "Passo uno: censire i 301", status: "todo", parentTaskId: chiede.id });
+    // The step was being worked: since 25/11 a child already parked (todo or
+    // backlog, no dispatch chip) that only changes parked column raises nothing,
+    // the stall existed before. A step that stops is one that leaves work.
+    const figlio = await createTask(request, { text: "Passo uno: censire i 301", status: "in_progress", parentTaskId: chiede.id });
     const giu = await request.patch(`${BASE}/api/boards/${PROJECT_ID}/tasks/${figlio.id}`, {
       data: { status: "backlog" },
     });
