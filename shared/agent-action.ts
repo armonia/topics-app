@@ -78,7 +78,7 @@ const WEB = new Set([
 ]);
 
 const BROWSE = new Set([
-  'openbrowserpane', 'closebrowserpane', 'importchrome', 'computer', 'computeruse',
+  'openbrowserpane', 'requestlogin', 'closebrowserpane', 'importchrome', 'computer', 'computeruse',
 ]);
 
 const DELEGATE = new Set([

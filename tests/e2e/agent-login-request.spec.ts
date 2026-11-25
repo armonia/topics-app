@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { E2E_BASE } from "./helpers/test-server";
+import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { createTopic, deleteTopic, waitForTopicVisible, closeAllBrowserContexts } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -26,11 +26,13 @@ test("request_login raises a detached window and records a linked notice", async
     expect(opened.ok()).toBeTruthy();
     const { contextId } = (await opened.json()) as { contextId: string };
 
+    // focus-pane is one of the agent's routes: it answers 401 without the daemon token the MCP bridge sends.
     const focused = await request.post(`${E2E_BASE}/api/topics/${topic.id}/browser/focus-pane`, {
       data: { contextId, loginRequest: true, detached: true },
+      headers: daemonAuthHeaders(),
       ignoreHTTPSErrors: true,
     });
-    expect(focused.ok()).toBeTruthy();
+    expect(focused.ok(), `focus-pane answered ${focused.status()}: ${await focused.text()}`).toBeTruthy();
 
     // Detached window: a second page that carries this topic.
     expect((await loginWindow).url()).toContain(`topics=${topic.id}`);
