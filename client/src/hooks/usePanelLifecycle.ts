@@ -32,7 +32,7 @@
 
 import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
 import { clearPendingFirstSend, savePendingFirstSend } from '../state/pendingFirstSend';
-import { carryFirstBubble,draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
+import { carryFirstBubble, draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
 import { notePromotion } from '../state/composerHandoff';
 import {
   useCallback,
