@@ -1,0 +1,12 @@
+[Unit]
+Description=Tetto sui job CI in parallelo di tutto il server (ci-governor)
+After=network-online.target
+[Service]
+ExecStart=/usr/local/sbin/ci-governor
+ExecStopPost=/usr/local/sbin/ci-governor --resume
+Restart=always
+RestartSec=5
+# fuori da ci.slice: il tetto deve girare anche quando la CI soffoca la macchina
+Nice=-5
+[Install]
+WantedBy=multi-user.target

@@ -18,7 +18,6 @@ import {
   inlineScope,
   markInlineSent,
   rekeyInlineSent,
-  resetInlineSent,
 } from "./inline-sent-state";
 
 const KEY = "topic:abc";
@@ -146,13 +145,6 @@ describe("rekey — il primo turno compone lo scope prima che l'id esista", () =
 });
 
 describe("capienza e reset", () => {
-  test("resetInlineSent dimentica una sessione", () => {
-    const scope = inlineScope("s1", 0);
-    markInlineSent(KEY, scope, [{ slot: "template", hash: "aaa" }]);
-    resetInlineSent(KEY);
-    expect(getInlineSentState(KEY, scope).size).toBe(0);
-  });
-
   test("oltre il cap sfratta le vecchie ma tiene quella appena scritta", () => {
     const scope = inlineScope("s1", 0);
     for (let i = 0; i < 300; i++) {

@@ -822,8 +822,11 @@ essere chiusa di default e diciamo non essere "attiva" fino a che non
 interagisci?».
 
 Under the parent's sidebar row the sub-agents (native `subagentOf` and CLI
-`parentSessionKey`) SHALL sit in an accordion CLOSED by default: a header with
-the count and a dot while one of them works. It SHALL open on a click and stay
+`parentSessionKey`) SHALL sit in an accordion CLOSED by default, and the
+parent's row SHALL BE that accordion (owner, 25/11: «non una riga sotto la tab
+ma direttamente la tab stessa»): its chevron opens it, says the count and how
+many work in its label, and takes the working ink while one of them works and
+the wait ink while one waits on the person; no header row sits under the parent. It SHALL open on a click and stay
 as the person left it (remembered per parent on this device), and SHALL open by
 itself only while one of its children is the row in front.
 

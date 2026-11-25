@@ -174,7 +174,7 @@ async function reattachLeg(sk: string, emit: (h: StreamHandler) => void): Promis
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: join(ROOT, "ws"),
   } as never);
   const url = new URL("http://topics.test/api/chat");
-  const body = JSON.stringify({ sessionKey: sk, messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
+  const body = JSON.stringify({ sessionKey: sk, messages: [], mode: "reattach", provider: "claude-code" });
   const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body }), url, url.pathname, "POST"))!;
   expect(resp.status).toBe(200);
   const reader = resp.body!.getReader();

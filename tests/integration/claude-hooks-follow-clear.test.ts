@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { createClaudeSessionTracker } from "../../server/lib/claude-session-tracker";
 import { _setClaudeSessionsDirForTests } from "../../server/lib/claude-live-session";
-import { _terminalSessionsForTests, parkIdleClaudeSessions } from "../../server/routes/terminal";
+import { parkIdleClaudeSessions } from "../../server/routes/terminal";
+import { _terminalSessionsForTests } from "../../server/routes/terminal-shared";
 import { type TerminalSession } from "../../server/routes/terminal-state";
 import { getDatabase } from "../../server/db";
 

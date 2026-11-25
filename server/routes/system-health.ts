@@ -10,10 +10,11 @@ import { homedir } from "os";
 import { join } from "path";
 import { readAgents, registryHome } from "../agents/registry";
 import { planSoulSplit } from "../agents/soul-sections";
-import { claudeProjectsHome, discoverStores, readMemoryStoresConfig, topicsAgentsHome } from "../memory/stores";
+import { claudeProjectsHome, discoverStores, readMemoryStoresConfig } from "../memory/stores";
 import { mcpFleetStatus } from "../providers/native/mcp-fleet";
-import { channelsDbPath, readChannelTitles } from "./agent-channels";
+import { channelsDbPath, readChannelTitles, readTurnChannels } from "./agent-channels";
 import { registryHealthInput } from "../system/registry-health";
+import { LOG_LEVELS, readEngineLog, type LogLevel } from "../system/engine-log";
 import { collectHealth, HEALTH_PROBLEM_TYPES, type HealthAgentInput, type HealthInput } from "../system/health";
 import type { AppContext, RouteHandler } from "../types";
 
@@ -53,8 +54,20 @@ function jobsInput(db: AppContext["db"]): HealthInput["jobs"] {
 }
 
 export function createSystemHealthRouter(ctx: Pick<AppContext, "json" | "db">): RouteHandler {
-  return async function systemHealthRouter(_req, _url, pathname, method) {
-    if (method !== "GET" || pathname !== "/api/system/agents-health") return null;
+  return async function systemHealthRouter(_req, url, pathname, method) {
+    if (method !== "GET") return null;
+    // The channel engine's log tail, for System > Log.
+    if (pathname === "/api/system/engine-log") {
+      const level = url.searchParams.get("level");
+      const dbPath = channelsDbPath();
+      return ctx.json(readEngineLog(registryHome(), {
+        titles: readChannelTitles(dbPath),
+        turnChannels: readTurnChannels(dbPath),
+        agent: url.searchParams.get("agent") || undefined,
+        level: LOG_LEVELS.includes(level as LogLevel) ? (level as LogLevel) : undefined,
+      }));
+    }
+    if (pathname !== "/api/system/agents-health") return null;
     const home = registryHome();
     const records = readAgents(home, expandTilde);
     const agents: HealthAgentInput[] = records.map((a) => ({
@@ -63,7 +76,7 @@ export function createSystemHealthRouter(ctx: Pick<AppContext, "json" | "db">): 
       missingPersonaFiles: personaGaps(a.workspace),
       hasOwnRules: soulHoldsRules(a.workspace),
     }));
-    const stores = discoverStores(records, { topicsAgentsHome: topicsAgentsHome(), claudeProjectsHome: claudeProjectsHome(), config: readMemoryStoresConfig(home) });
+    const stores = discoverStores(records, { claudeProjectsHome: claudeProjectsHome(), config: readMemoryStoresConfig(home) });
     const registry = registryHealthInput(home, readChannelTitles(channelsDbPath()));
     const tools = mcpFleetStatus().servers.map((s) => ({ name: s.name, ok: s.state === "ready" || s.state === "excluded", reason: s.reason }));
     const problems = collectHealth({

@@ -1,7 +1,7 @@
 /**
  * The tasks router and the process detection and presence that start with it.
  */
-import { join } from "path";
+import { basename } from "path";
 import { teardownArchivedTaskBrowserState } from "../services/task-tab-teardown";
 import { getClaudeSessionsForDetection, countBusyAgentTerminals } from "../routes/terminal";
 import { pushMainToOrigin } from "../services/main-on-origin";
@@ -22,12 +22,19 @@ import { defaultLifecycleHooks } from "../services/lifecycle-hooks";
 import { getAppSettings, resolveOutputLanguage, resolveDiscordPresenceEnabled, resolveDiscordDetailLevel } from "../services/app-settings";
 import { startDiscordPresence } from "../services/discord-presence";
 import { computePresenceCounts } from "../services/profile-stats";
-import { tmpdir as osTmpdir } from "node:os";
+import { createNodeCheckWorktrees, nodeCheckRoot } from "../services/node-check-worktree";
 import type { AfterPreviewDelivery } from "./scope";
 import { late } from "./late";
 
 export function bootTasksRouter(scope: AfterPreviewDelivery) {
   const { DISPATCH_WORKSPACE_DIR, abortHeadlessTurn, activeStreams, auditOneLanding, autoLandTurnCount, browserService, ctx, db, deliveryBranchDeps, dispatchExtraPaths, dispatcherSvc, landingQueue, listKnownDeliveryRepoRoots, listSelectableProjectDirs, memSignal, repoRootForCard, scheduledCards, taskAutoMerge, taskCheckoutRef, taskDeliveryRef, taskDispatcher, worktreeOfTask } = scope;
+  // The throwaway checkouts node deliveries are measured on. No measure is in
+  // flight at boot, so whatever the previous process left (cut mid-measure by a
+  // restart, or killed) goes now: nothing else would ever remove it.
+  const nodeChecks = createNodeCheckWorktrees({ git: runGitCap, root: nodeCheckRoot(), resolveHead: (cwd) => resolveCommit(cwd, "HEAD") });
+  void nodeChecks.sweep()
+    .then((gone) => { if (gone.length) console.warn(`[node-checks] ${gone.length} checkout lasciati dal processo prima, tolti: ${gone.map((p) => basename(p)).join(", ")}`); })
+    .catch((err) => console.warn("[node-checks] spazzata d'avvio fallita", err));
   const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
     scheduledCards,
     taskModelSnapshot: () => {
@@ -150,16 +157,7 @@ export function bootTasksRouter(scope: AfterPreviewDelivery) {
     nodeDeliveryCheckout: async (taskId) => {
       const ref = await resolveDeliveryBranch(deliveryBranchDeps(), taskId).catch(() => null);
       if (!ref) return null;
-      const path = join(osTmpdir(), "topics-node-checks", taskId.slice(0, 8));
-      await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]);
-      await runGitCap(ref.repoPath, ["worktree", "prune"]);
-      const added = await runGitCap(ref.repoPath, ["worktree", "add", path, ref.branch]);
-      if (added.code !== 0) return null;
-      return {
-        cwd: path,
-        head: () => resolveCommit(path, "HEAD"),
-        release: async () => { await runGitCap(ref.repoPath, ["worktree", "remove", "--force", path]); },
-      };
+      return nodeChecks.open({ repoPath: ref.repoPath, branch: ref.branch, taskId });
     },
     onAutoLand: (api) => {
       late.misuraConsegnaNodo = api.measureNodeDelivery;

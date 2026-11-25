@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import { apiFetch } from '../lib/shell/net';
+import { createKeyedListeners } from '../lib/keyedListeners';
 
 /**
  * L'anteprima dell'ultimo messaggio di ogni chat, per la riga di sidebar.
@@ -188,7 +189,7 @@ function scheduleCacheWrite(): void {
 
 let state: Record<string, TopicPreview> = typeof localStorage === 'undefined' ? {} : readCache();
 /** Iscritti per topic. È l'unica ragione per cui questo store esiste. */
-const perTopic = new Map<string, Set<() => void>>();
+const perTopic = createKeyedListeners<string>();
 
 /** L'anteprima di un topic, con identità stabile finché non cambia. */
 export function getTopicPreview(topicId: string): TopicPreview | undefined {
@@ -210,20 +211,7 @@ export function previewsCount(): { entries: number; max: number } {
 
 /** Si iscrive a UN topic: un messaggio su un'altra chat non lo sveglia. */
 export function subscribeTopicPreview(topicId: string, fn: () => void): () => void {
-  let subs = perTopic.get(topicId);
-  if (!subs) {
-    subs = new Set();
-    perTopic.set(topicId, subs);
-  }
-  subs.add(fn);
-  return () => {
-    const s = perTopic.get(topicId);
-    if (!s) return;
-    s.delete(fn);
-    // Potatura: senza, questa mappa resterebbe piena di Set vuoti per ogni
-    // riga mai montata.
-    if (s.size === 0) perTopic.delete(topicId);
-  };
+  return perTopic.subscribe(topicId, fn);
 }
 
 /**
@@ -257,8 +245,7 @@ export function applyMessagePreview(
   if (prev && prev.text === text && prev.role === role) return;
   state[topicId] = { text, role, at };
   scheduleCacheWrite();
-  const subs = perTopic.get(topicId);
-  if (subs) for (const fn of subs) fn();
+  perTopic.emit(topicId);
 }
 
 /**
@@ -277,8 +264,7 @@ export function clearTopicPreview(topicId: string): void {
   if (!topicId || !(topicId in state)) return;
   delete state[topicId];
   scheduleCacheWrite();
-  const subs = perTopic.get(topicId);
-  if (subs) for (const fn of subs) fn();
+  perTopic.emit(topicId);
 }
 
 /**

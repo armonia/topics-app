@@ -4,7 +4,7 @@
  * @covers HUBBR-20
  */
 import { describe, expect, test } from 'bun:test';
-import { brakeChipView, brakeDetail, columnNoteView, heldCount, holdingBrakes, waitingClause, whenLabel, workingClause } from './brakeText';
+import { brakeChipView, brakeDetail, columnNoteView, heldCount, holdingBrakes, queueChipView, spendWhy, waitingClause, whenLabel, workingClause } from './brakeText';
 import { liveBrakes, readBrakeAnswer } from '../../state/dispatchBrakes';
 import BRAKES_IT from '../../lib/i18n-brakes-it';
 import BRAKES_EN from '../../lib/i18n-brakes-en';
@@ -102,6 +102,42 @@ describe('the cards behind the walls', () => {
     expect(waitingClause(2, tr)).toBe('2 card aspettano');
     expect(workingClause(0, tr)).toBe('nessuna card al lavoro');
     expect(workingClause(1, tr)).toBe('1 card al lavoro');
+  });
+});
+
+describe('the 24h spend cap, which stops every card whatever its provider', () => {
+  const TOMORROW_0156 = new Date(2026, 10, 6, 1, 56).getTime();
+  const answer = {
+    brakes: [claude],
+    held: [{ taskId: 'a', projectId: 'p', provider: 'claude' }],
+    working: {},
+    claudeFiveHour: 94,
+    spend: { spentCents: 3_559, capCents: 3_000, untilMs: TOMORROW_0156, taskIds: ['a', 'b'] },
+  };
+
+  test('the chip names the cap before the walls: spend, cap and restart', () => {
+    const state = readBrakeAnswer(answer, NOW);
+    expect(queueChipView(state, NOW, tr, 'it')).toEqual({ who: 'Spesa 24 h', why: '35,59 su 30 USD, riparte domani alle 01:56' });
+    expect(queueChipView(readBrakeAnswer({ ...answer, spend: null }, NOW), NOW, tr, 'it')?.who).toBe('Claude');
+  });
+
+  test('the Todo strip counts the cards it stops, and says when they restart', () => {
+    const state = readBrakeAnswer(answer, NOW);
+    expect(columnNoteView(state, new Set(['a', 'b']), NOW, tr, 'it')).toEqual({ head: '2 aspettano il tetto di spesa', tail: 'Partono da sole domani alle 01:56.' });
+    const open = readBrakeAnswer({ ...answer, spend: { ...answer.spend, untilMs: null } }, NOW);
+    expect(columnNoteView(open, new Set(['b']), NOW, tr, 'it')).toEqual({ head: '1 aspetta il tetto di spesa', tail: 'Parte quando la spesa delle 24 ore rientra sotto il tetto.' });
+  });
+
+  test('past its restart, or holding no card, the stop is dropped', () => {
+    expect(readBrakeAnswer(answer, TOMORROW_0156 + 1).spend).toBeNull();
+    expect(readBrakeAnswer({ ...answer, spend: { ...answer.spend, taskIds: [] } }, NOW).spend).toBeNull();
+    expect(readBrakeAnswer({ ...answer, spend: { spentCents: 'x' } }, NOW).spend).toBeNull();
+  });
+
+  test('the reason reads in English too', () => {
+    const en = (key: string, vars: Record<string, string | number> = {}) =>
+      (BRAKES_EN[key] ?? key).replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? `{${k}}`));
+    expect(spendWhy(readBrakeAnswer(answer, NOW).spend!, NOW, en, 'en')).toBe('35.59 of 30 USD, resumes tomorrow at 01:56');
   });
 });
 

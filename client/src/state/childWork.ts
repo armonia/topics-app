@@ -12,7 +12,8 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { liveWorkApi } from '../lib/api';
 import { subscribeFrames, subscribeLifecycle } from '../lib/wsFrameBus';
-import type { ChildAgentRow } from '../../../shared/live-work';
+import { agentsAtWorkUnder, type ChildAgentRow, type LiveAgentState } from '../../../shared/live-work';
+import { useTopicInProgress } from './signals';
 
 /** Context frames arrive on every model call: reading each one would be a read per call. */
 const REFETCH_MS = 2000;
@@ -95,4 +96,43 @@ export function useChildRow(id: string | null | undefined): ChildAgentRow | null
 export function useChildrenOf(topicId: string | null | undefined): readonly ChildAgentRow[] {
   const children = useChildren();
   return useMemo(() => (topicId ? [...children.values()].filter((c) => c.parentTopicId === topicId) : []), [children, topicId]);
+}
+
+/** How many agents work for this chat now, at any depth (`agentsAtWorkUnder`): the number beside its loader. */
+export function useAgentsAtWork(topicId: string | null | undefined): number {
+  const children = useChildren();
+  return useMemo(() => (topicId ? agentsAtWorkUnder([...children.values()], topicId) : 0), [children, topicId]);
+}
+
+/**
+ * IS THIS CHAT AT WORK, and how many agents work under it: the one answer the
+ * tab, the sidebar row and the loaders read. At work = a turn open, work its
+ * closed turn left running (attention `working`, ATTN-02), or agents at work
+ * under it. The last clause is the board agent's chat: its attention is the
+ * card's (rule 2 of `compose.ts`), so with its turn closed and its sub-agents
+ * working nothing else said it worked, and its tab went quiet (23/11).
+ */
+export function useTopicAtWork(topicId: string | null | undefined): { atWork: boolean; agents: number } {
+  const inProgress = useTopicInProgress(topicId ?? undefined);
+  const agents = useAgentsAtWork(topicId);
+  const atWork = inProgress || agents > 0;
+  return useMemo(() => ({ atWork, agents }), [atWork, agents]);
+}
+
+/**
+ * A live child's row as every surface draws it. `awaiting` (its turn closed,
+ * it waits on its own work) is drawn at work while that work visibly runs:
+ * agents of its own at work, or a command or job of its own among its tasks.
+ * Its sub-agents are judged by the tree, not by its `subagent` task, which
+ * stays in the map while a child only owes a result. With nothing running it
+ * stays `awaiting`, a clock (18/11).
+ */
+export function shownChildState(
+  state: LiveAgentState,
+  agentsBeneath: number,
+  ownTasks: readonly { kind: string; recurring?: boolean }[],
+): LiveAgentState {
+  if (state !== 'awaiting') return state;
+  if (agentsBeneath > 0) return 'working';
+  return ownTasks.some((t) => !t.recurring && t.kind !== 'subagent' && t.kind !== 'wake') ? 'working' : 'awaiting';
 }

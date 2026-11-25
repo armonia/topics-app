@@ -28,8 +28,6 @@ import { MAX_RECENT, type ScriptProcess, isJobRun, isPersonRun, recentScripts, r
 
 export { commandBackgroundWork, commandServices, topicCommandProcesses, liveCommandsOf, isChatServerTask, commandWakeState, stopCommandWakesOf, sessionsAwaitingCommandWake } from "./processes-commands";
 export { startProcessDetection } from "./processes-detection";
-/** @internal */
-export { stopProcessDetectionForTests } from "./processes-detection";
 export { loadProcessRegistry } from "./processes-persist";
 export { registerPreviewProcess, trackedScriptPidTrees, unregisterPreviewProcess, registerBackgroundShell, settleEndedShells, noteBackgroundShellOutput, closeBackgroundShell } from "./processes-shells";
 export { listOwnedScripts, listSessionOwnedProcesses, listUnownedScriptPids } from "./processes-snapshot";

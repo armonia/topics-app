@@ -877,4 +877,6 @@ export interface TaskService {
    * decorative, so whoever draws the figure can say how much of it is missing.
    */
   agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number };
+  /** When the rolling 24h spend falls back under `capCents` if nothing new is spent (epoch ms); `null` = already under, or unreadable. */
+  agentSpendClearsAt(capCents: number): number | null;
 }

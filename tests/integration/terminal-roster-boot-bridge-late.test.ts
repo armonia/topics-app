@@ -82,8 +82,9 @@ beforeAll(async () => {
   errorSpy = spyOn(console, "error");
 
   ctx = await createTestAppContext();
-  const { createTerminalRouter, _setPtyBridgeSocketPath, _resetRosterReconciled, disconnectBridge } =
-    await import("../../server/routes/terminal");
+  const { createTerminalRouter, disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
+  const { _resetRosterReconciled } = await import("../../server/routes/terminal-bridge-roster");
   disconnectBridge();
   _setPtyBridgeSocketPath(SOCKET_PATH);
   // Every file under `bun test` shares this module: another one may already
@@ -93,7 +94,8 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  const { disconnectBridge, _setPtyBridgeSocketPath } = await import("../../server/routes/terminal");
+  const { disconnectBridge } = await import("../../server/routes/terminal");
+  const { _setPtyBridgeSocketPath } = await import("../../server/routes/terminal-bridge-socket");
   disconnectBridge();
   _setPtyBridgeSocketPath(null);
   if (previousBridgeBin === undefined) delete process.env.TOPICS_PTY_BRIDGE_BIN;

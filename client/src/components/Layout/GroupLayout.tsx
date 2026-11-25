@@ -18,6 +18,7 @@ import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
 import { canSplitPane, canDropSplit, centerDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
+import { EQUALIZE_SPLITS_EVENT, SPLIT_PANE_EVENT, sideZone, type EqualizeSplitsDetail, type SplitPaneDetail } from '../../lib/splitCommands';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
@@ -420,14 +421,44 @@ export function GroupLayout({
     });
   }, [rows, hasMultipleColumns]);
 
+  const heldPaneIds = useMemo(() => groups.flatMap(g => g.paneIds).join(' '), [groups]);
+
+  /** A pane this window holds, by the id a row of the column carries (a chat
+   *  row carries the bare topic id, its pane here is `chat:<id>`). */
+  const memberOf = useCallback((id: string | null): { paneId: string; groupId: string } | null => {
+    if (!id) return null;
+    for (const paneId of [id, `chat:${id}`]) {
+      const group = groups.find(g => g.paneIds.includes(paneId));
+      if (group) return { paneId, groupId: group.id };
+    }
+    return null;
+  }, [groups]);
+
+  /** A pane drag this window owns: one of its own tabs (scope-tagged), or a
+   *  row of the column for a pane it holds, which reads exactly like that
+   *  pane's tab (SPLIT-01). A dragover cannot read payload values, so the
+   *  row is recognised off the drag shelf. */
+  const isPaneTabDrag = useCallback((e: React.DragEvent) => {
+    const t = e.dataTransfer.types;
+    if (t.includes(DND_TYPES.PANE_TAB)) return t.includes(DND_TYPES.PANE_TAB_GROUP) && dragMatchesScope(t, dndScope);
+    return t.includes(DND_TYPES.PANEL_ID) && !t.includes(DND_TYPES.GRID_ITEM) && !!memberOf(draggedPaneId());
+  }, [dndScope, memberOf]);
+
+  /** The pane and group a drop carries, from a tab or from a row; null for a
+   *  foreign tab or a row whose pane lives elsewhere. */
+  const readPaneDrop = useCallback((e: React.DragEvent): { paneId: string; groupId: string } | null => {
+    const tab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
+    if (!tab) return memberOf(e.dataTransfer.getData(DND_TYPES.PANEL_ID));
+    const groupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const scope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
+    if (!groupId || (dndScope && scope && scope !== dndScope)) return null;
+    return { paneId: tab, groupId };
+  }, [dndScope, memberOf]);
+
   const handleGroupContentDragOver = useCallback((groupId: string) => (e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
-    // Scope guard: only this project's tabs may split its groups — a foreign
-    // tab gets no edge overlay (and no preventDefault, so it can't drop here).
-    if (!dragMatchesScope(e.dataTransfer.types, dndScope)) return;
-    // Group-tagged tab drags only (dragover can't read VALUES, so we can't
-    // tell WHICH group — every project tab drag qualifies here).
-    if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP)) return;
+    // Only this project's own panes split its groups: a foreign tab gets no
+    // edge overlay (and no preventDefault, so it can't drop here).
+    if (!isPaneTabDrag(e)) return;
 
     e.preventDefault();
     e.stopPropagation();
@@ -489,7 +520,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap, contentGutters, rows]);
+  }, [onSplitGroup, edgeDropTargetRef, isPaneTabDrag, groupMap, contentGutters, rows]);
 
   // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
   // the content area), the user is aiming to drop the tab INTO the bar — not to
@@ -533,13 +564,11 @@ export function GroupLayout({
   const [dragActive, setDragActive] = useState(false);
 
   const handleGroupContentDrop = useCallback((groupId: string) => (e: React.DragEvent) => {
-    // Validate this is a tab drop before consuming the event.
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
-    if (!sourcePaneId || !sourceGroupId) return;
-    // Scope guard: reject a tab from another window/project on drop too.
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    // A tab of this window or a row for one of its panes; a tab from another
+    // window/project is refused on drop too.
+    const source = readPaneDrop(e);
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
 
     // Splittable at all? ONE predicate, the same the context menu is gated on
     // (splitRules.canDropSplit → canSplitPane). This used to be an inline
@@ -596,7 +625,7 @@ export function GroupLayout({
     // full-width strips (gated on dragActive) would stay painted after an
     // edge-split drop too. Clear it here.
     setDragActive(false);
-  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, dndScope, groupMap, contentGutters]);
+  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, readPaneDrop, groupMap, contentGutters]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -613,11 +642,6 @@ export function GroupLayout({
    * first / below the last row). */
   const [fullRowDrop, setFullRowDrop] = useState<'top' | 'bottom' | null>(null);
   const fullRowDropRef = useRefMirror(fullRowDrop);
-
-  const isPaneTabDrag = useCallback((e: React.DragEvent) =>
-    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB) &&
-    e.dataTransfer.types.includes(DND_TYPES.PANE_TAB_GROUP) &&
-    dragMatchesScope(e.dataTransfer.types, dndScope), [dndScope]);
 
   /**
    * Would a full-width-row release reshape anything, given the group `size` the
@@ -639,10 +663,9 @@ export function GroupLayout({
   /** The group the pane in flight left, or undefined when the drag came from
    *  another window (the shelf is empty there — only the drop can tell). */
   const draggedGroup = useCallback(() => {
-    const paneId = draggedPaneId();
-    if (!paneId) return undefined;
-    return groups.find(g => g.paneIds.includes(paneId));
-  }, [groups]);
+    const member = memberOf(draggedPaneId());
+    return member ? groupMap.get(member.groupId) : undefined;
+  }, [memberOf, groupMap]);
 
   const draggedGroupSize = useCallback((): number | undefined =>
     draggedGroup()?.paneIds.length, [draggedGroup]);
@@ -669,24 +692,22 @@ export function GroupLayout({
   }, [fullRowDropRef]);
 
   const handleFullRowDrop = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const source = readPaneDrop(e);
     fullRowDropRef.current = null;
     setFullRowDrop(null);
     // This handler stopPropagation()s the drop (below) AND onSplitGroup reparents
     // the dragged tab — so neither the window 'drop' reset nor 'dragend' fires.
     // Clear dragActive here or the "Full-width row" strips stay painted forever.
     setDragActive(false);
-    if (!sourcePaneId || !sourceGroupId) return;
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
     // Same predicate the strip's dragover used to decide whether to light up.
     if (!fullRowWouldReshape(groupMap.get(sourceGroupId)?.paneIds.length)) return;
     e.preventDefault();
     e.stopPropagation();
     // targetGroupId '' → handler falls back to first/last row for the new row.
     onSplitGroup?.(sourceGroupId, sourcePaneId, '', side, { fullRow: true });
-  }, [onSplitGroup, dndScope, fullRowDropRef, fullRowWouldReshape, groupMap]);
+  }, [onSplitGroup, readPaneDrop, fullRowDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Interior row-gap strips: the ONLY gesture that inserts a full-width
    * row BETWEEN two existing rows. The extreme strips above cover "above the
@@ -724,14 +745,12 @@ export function GroupLayout({
   }, [rowGapDropRef]);
 
   const handleRowGapDrop = useCallback((gapIdx: number) => (e: React.DragEvent) => {
-    const sourcePaneId = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
-    const sourceGroupId = e.dataTransfer.getData(DND_TYPES.PANE_TAB_GROUP);
+    const source = readPaneDrop(e);
     rowGapDropRef.current = null;
     setRowGapDrop(null);
     setDragActive(false); // see handleFullRowDrop — dragend/drop resets are defeated here
-    if (!sourcePaneId || !sourceGroupId) return;
-    const sourceScope = e.dataTransfer.getData(DND_TYPES.PANE_TAB_SCOPE);
-    if (dndScope && sourceScope && sourceScope !== dndScope) return;
+    if (!source) return;
+    const { paneId: sourcePaneId, groupId: sourceGroupId } = source;
     const anchor = rows[gapIdx]?.groupIds[0];
     if (!anchor) return;
     // Same pair of predicates the band's dragover used to decide whether to
@@ -744,7 +763,7 @@ export function GroupLayout({
     // 'bottom' + fullRow anchored on the row above the gap → the new row
     // lands exactly in this gap.
     onSplitGroup?.(sourceGroupId, sourcePaneId, anchor, 'bottom', { fullRow: true });
-  }, [onSplitGroup, dndScope, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
+  }, [onSplitGroup, readPaneDrop, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);
@@ -1128,6 +1147,36 @@ export function GroupLayout({
       onUpdateRows(rows.map((r, i) => (i === rowIdx ? { ...r, widths: equalizeWidths(r.groupIds.length) } : r)));
     }
   }, [rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
+
+  // Layout commands from any sheet (lib/splitCommands): this window acts only
+  // for a pane it holds. A split is a drop of the pane on that edge of its own
+  // group; «Pareggia» evens every divider at once.
+  useEffect(() => {
+    const onSplit = (ev: Event) => {
+      const { paneId, side } = (ev as CustomEvent<SplitPaneDetail>).detail ?? {};
+      const member = paneId && side ? memberOf(paneId) : null;
+      if (!member || !side || !onSplitGroup) return;
+      onSplitGroup(member.groupId, member.paneId, member.groupId, sideZone(side));
+    };
+    const onEqualize = (ev: Event) => {
+      const { paneId } = (ev as CustomEvent<EqualizeSplitsDetail>).detail ?? {};
+      if (!paneId || !memberOf(paneId)) return;
+      onUpdateRows(rows.map(r => ({
+        ...r,
+        widths: equalizeWidths(r.groupIds.length),
+        ...(r.cellStacks ? {
+          cellStacks: Object.fromEntries(Object.entries(r.cellStacks).map(([k, s]) => [k, { ...s, heights: equalizeWidths(s.groupIds.length + 1) }])),
+        } : {}),
+      })));
+      onUpdateRowHeights(weightedWidths(rows.map(rowVerticalDepth)));
+    };
+    window.addEventListener(SPLIT_PANE_EVENT, onSplit);
+    window.addEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    return () => {
+      window.removeEventListener(SPLIT_PANE_EVENT, onSplit);
+      window.removeEventListener(EQUALIZE_SPLITS_EVENT, onEqualize);
+    };
+  }, [memberOf, onSplitGroup, rows, rowVerticalDepth, onUpdateRows, onUpdateRowHeights]);
 
   // "Reimposta pannelli" — flatten every split back to a single row of equal
   // columns (cellStacks dissolve; nothing closes). Null = already flat, so
@@ -1735,6 +1784,9 @@ export function GroupLayout({
       // See PanelGrid: mid-drag, neutralise the divider grab band (CSS below)
       // so an edge drop that lands on the divider band still splits the group.
       data-drag-active={dragActive || undefined}
+      // The panes this window holds: the top-level grid leaves a row of the
+      // column for one of them to this window (SPLIT-01).
+      data-project-panes={heldPaneIds}
       className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative"
       onDragEnd={resetDndOverlays}
       onDragEnterCapture={(e) => { if (isPaneTabDrag(e)) setDragActive(true); }}

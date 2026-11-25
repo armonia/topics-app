@@ -1062,8 +1062,19 @@ export const TREE_ROW_CARD = `mx-1.5 rounded-md transition-colors ${SIDEBAR_HOVE
  * caller keeps its own height / padding-left (depth indent) / content.
  */
 export function sidebarRowCard(
-  { focused, open, attention, nested }:
+  { focused, open, attention, nested, tab }:
   { focused?: boolean; open?: boolean; attention?: AttentionTier | null;
+    /**
+     * A top-level row that stands for a TAB, and whether that tab is open.
+     *
+     * Open: the resting fill of a pinned tile (`RESTING_SURFACE`) at every
+     * width, so an open tab reads the same in the column, pinned or not.
+     * Closed: no fill at any width, the phone included, so a glance tells the
+     * open tabs from the closed rows waiting to be archived (asked on 24/11:
+     * open tabs wear the background of the pinned ones). Absent on rows that
+     * are not tabs (sections, nested rows): they keep the rules below.
+     */
+    tab?: 'open' | 'closed';
     /**
      * Riga ANNIDATA — una sotto-tab dentro un progetto aperto.
      *
@@ -1149,6 +1160,12 @@ export function sidebarRowCard(
   // Con un fill sotto, invece, è la stessa card della tab selezionata.
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
+  if (tab === 'open') return `${base} edge-lit ${RESTING_SURFACE} text-app-text`;
+  // A closed row never takes a fill, the pointer included: the hover fill is a
+  // shade above the open tabs' resting one, so a closed row under the pointer
+  // read as open, and WKWebView keeps a hover on after the pointer leaves the
+  // window (25/11, a closed project that looked open). The text lights instead.
+  if (tab === 'closed') return `${base} text-app-text-secondary hover:text-app-text`;
   if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
   return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

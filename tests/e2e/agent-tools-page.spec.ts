@@ -16,15 +16,22 @@ import { mkdirSync } from "node:fs";
 
 hermetic(test);
 
+// The server always sends the agents with their tool filter, and each server
+// lists the agents allowed to use it (shared/agent-tools.ts): System › Tools
+// renders both, so an inventory without them is not one the server can send.
+const ROSTER = [{ id: "main", name: "Assistant", filter: { mode: "all" as const, servers: [] as string[] } }];
+
 const inventory = () => ({
   mcp: [
-    { name: "docs-server", state: "active", transport: "http", toolCount: 4, source: "~/.claude.json", parkedByUser: false },
-    { name: "old-server", state: "parked", transport: "stdio", toolCount: 0, reason: "Parked from the Tools page.", source: "~/.claude.json", parkedByUser: true },
-    { name: "mail-server", state: "needs-auth", transport: "http", toolCount: 0, reason: "Sign-in required.", source: "~/.claude.json", parkedByUser: false },
+    { name: "docs-server", state: "active", transport: "http", toolCount: 4, source: "~/.claude.json", parkedByUser: false, agents: [ROSTER[0].id] },
+    { name: "old-server", state: "parked", transport: "stdio", toolCount: 0, reason: "Parked from the Tools page.", source: "~/.claude.json", parkedByUser: true, agents: [] as string[] },
+    { name: "mail-server", state: "needs-auth", transport: "http", toolCount: 0, reason: "Sign-in required.", source: "~/.claude.json", parkedByUser: false, agents: [ROSTER[0].id] },
   ],
   skills: [{ name: "fake-skill", description: "Does a fake thing", source: "~/.agents/skills" }],
   clis: [{ id: "fake-cli", name: "Fake CLI", installed: true, path: "/usr/bin/fake", install: "npm i -g fake" }],
   sources: [{ kind: "mcp", label: "~/.claude.json", found: true, extra: false }],
+  agents: ROSTER,
+  tokenWeight: { alwaysOn: 0, onDemand: 0 },
 });
 
 test("dal menu utente si apre Strumenti: autorizza, parcheggia, rimonta, aggiorna e i collegamenti", async ({ page }) => {
@@ -101,10 +108,10 @@ const SHOT_DIR = join(homedir(), ".topics", "media", "strumenti-572f8a09");
 test("screenshots: Strumenti accanto a Dispositivi a 375, 768, 1440 e 3440", async ({ page }) => {
   mkdirSync(SHOT_DIR, { recursive: true });
   const mcp = [
-    ...["docs", "github", "linear", "browser", "database"].map((name, i) => ({ name: `${name}-server`, state: "active", transport: "http", toolCount: 4 + i * 3, source: "~/.claude.json", parkedByUser: false })),
-    { name: "mail-server", state: "needs-auth", transport: "http", toolCount: 0, reason: "Sign-in required.", source: "~/.claude.json", parkedByUser: false },
-    { name: "broken-server", state: "failed", transport: "stdio", toolCount: 0, reason: "Process exited with code 1.", source: "~/.claude.json", parkedByUser: false },
-    { name: "old-server", state: "parked", transport: "stdio", toolCount: 0, reason: "Parked from the Tools page.", source: "~/.claude.json", parkedByUser: true },
+    ...["docs", "github", "linear", "browser", "database"].map((name, i) => ({ name: `${name}-server`, state: "active", transport: "http", toolCount: 4 + i * 3, source: "~/.claude.json", parkedByUser: false, agents: [ROSTER[0].id] })),
+    { name: "mail-server", state: "needs-auth", transport: "http", toolCount: 0, reason: "Sign-in required.", source: "~/.claude.json", parkedByUser: false, agents: [ROSTER[0].id] },
+    { name: "broken-server", state: "failed", transport: "stdio", toolCount: 0, reason: "Process exited with code 1.", source: "~/.claude.json", parkedByUser: false, agents: [] as string[] },
+    { name: "old-server", state: "parked", transport: "stdio", toolCount: 0, reason: "Parked from the Tools page.", source: "~/.claude.json", parkedByUser: true, agents: [] as string[] },
   ];
   const skills = ["commit", "review", "deploy-checklist", "design-system-audit", "release-notes", "database-migration", "security-sweep"].map((name) => ({
     name, description: `A fairly long description of what the ${name} skill does for the agent`, source: "~/.agents/skills",
@@ -119,10 +126,15 @@ test("screenshots: Strumenti accanto a Dispositivi a 375, 768, 1440 e 3440", asy
     { kind: "skills", label: "~/.agents/skills", found: true, extra: false },
     { kind: "skills", label: "~/work/team-skills", found: true, extra: true },
   ];
-  await page.route("**/api/agent-tools", (route) => route.fulfill({ json: { mcp, skills, clis, sources } }));
+  await page.route("**/api/agent-tools", (route) => route.fulfill({ json: { mcp, skills, clis, sources, agents: ROSTER, tokenWeight: { alwaysOn: 0, onDemand: 0 } } }));
 
+  // Devices first: Tools opens the System pane, and on a phone a reload brings
+  // that pane back with the sidebar drawer closed, so the menu would not be there.
   for (const width of [375, 768, 1440, 3440]) {
     await page.setViewportSize({ width, height: 900 });
+    await goToApp(page);
+    await expect(await openUserMenuLevel(page, "devices")).toBeVisible();
+    await page.screenshot({ path: join(SHOT_DIR, `dispositivi-${width}.png`) });
     await goToApp(page);
     await openProfileMenu(page);
     await page.getByTestId("topics-menu-agent-tools").click();
@@ -132,8 +144,5 @@ test("screenshots: Strumenti accanto a Dispositivi a 375, 768, 1440 e 3440", asy
     await page.screenshot({ path: join(SHOT_DIR, `strumenti-${width}.png`) });
     // No horizontal overflow of the page at any width.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await goToApp(page);
-    await expect(await openUserMenuLevel(page, "devices")).toBeVisible();
-    await page.screenshot({ path: join(SHOT_DIR, `dispositivi-${width}.png`) });
   }
 });

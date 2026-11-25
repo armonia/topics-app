@@ -122,8 +122,9 @@ beforeAll(async () => {
     color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false, projectPath: PROJECT,
   } as Topic);
   const terminal = await import("../../server/routes/terminal");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(SOCKET_PATH);
+  bridgeSocketMod._setPtyBridgeSocketPath(SOCKET_PATH);
   terminal.setSubAgentExitHandler((info) => { reports.push(info); });
   router = terminal.createTerminalRouter(ctx) as typeof router;
   await until("the reconcile list", () => bridge.received.some((m) => m.type === "list"), 5_000);
@@ -131,10 +132,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const terminal = await import("../../server/routes/terminal");
+  const bridgeSocketMod = await import("../../server/routes/terminal-bridge-socket");
   terminal.setSubAgentExitHandler(null);
   process.env.TOPICS_DISABLE_PTY_BRIDGE = "1";
   terminal.disconnectBridge();
-  terminal._setPtyBridgeSocketPath(null);
+  bridgeSocketMod._setPtyBridgeSocketPath(null);
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
   { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }

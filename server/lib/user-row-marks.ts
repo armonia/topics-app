@@ -1,9 +1,10 @@
 /**
  * WHAT MARKS A `user` ROW AS SOMETHING NOBODY TYPED.
  *
- * Two turns reach `POST /api/chat` wearing the person's role without being the
+ * Turns reach `POST /api/chat` wearing the person's role without being the
  * person: the goal continuation (a goal still open at the end of a turn buys
- * the next one, `services/goal-loop.ts`) and the dispatcher's envelope (the
+ * the next one, `services/goal-loop.ts`), the turn a user's `turn-end` hook
+ * asks for (`services/hook-continuation.ts`) and the dispatcher's envelope (the
  * kickoff, the resume, the nudge a board task starts with). Both HAVE to be
  * `user` rows, because that is the only role a provider answers.
  *
@@ -31,6 +32,8 @@ import { MACHINE_ROW_KINDS } from "../../shared/prompt-number";
 export interface UserRowOrigin {
   /** The consecutive continuation number, when the goal loop bought this turn. */
   goalNudge?: unknown;
+  /** The consecutive continuation number, when a `turn-end` hook asked for this turn (`services/hook-continuation.ts`). */
+  hookNudge?: unknown;
   /** True when the board drives this turn (`runHeadlessTurn`). */
   dispatched?: boolean;
   /** The card comments this envelope delivers, when it is a resume. */
@@ -47,6 +50,8 @@ export interface UserRowOrigin {
   repeats?: readonly ContentBlock[];
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
+  /** The outcome of a card this chat sent to work (`services/card-outcome-wake.ts`): the board's words, drawn as its envelope. */
+  cardOutcome?: unknown;
   /** The sub-agent results this row wakes the chat with (`services/subagent-wake.ts`). */
   subagentResults?: unknown;
   /** Those cards are rows of the chat already (written during a provider hold): this row only wakes it. */
@@ -79,6 +84,11 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   if (typeof origin.goalNudge === "number" && origin.goalNudge > 0) {
     blocks.push({ kind: "goal-nudge", attempt: Math.floor(origin.goalNudge) });
   }
+  // Same rule for the turn a user's `turn-end` hook asked for: its words are
+  // the hook's, and the transcript must not put them in the person's mouth.
+  if (typeof origin.hookNudge === "number" && origin.hookNudge > 0) {
+    blocks.push({ kind: "hook-nudge", attempt: Math.floor(origin.hookNudge) });
+  }
   if (origin.dispatched === true) {
     // Ids only on a row that IS an envelope, and only when there are any: a
     // list of comments on a row nobody dispatched would be an anchor pointing
@@ -88,6 +98,8 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       ? origin.commentIds.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [];
     blocks.push(ids.length ? { kind: "dispatched-envelope", commentIds: ids } : { kind: "dispatched-envelope" });
+  } else if (origin.cardOutcome === true) {
+    blocks.push({ kind: "dispatched-envelope" });
   }
   const exit = origin.processExit as { processId?: unknown; exitCode?: unknown; label?: unknown } | null | undefined;
   if (exit && typeof exit === "object" && typeof exit.processId === "string" && exit.processId) {
@@ -119,20 +131,56 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
  * words is the migration's alone.
  */
 export function repeatedRowMarks(
-  db: { query(sql: string): { get(...args: string[]): unknown } },
+  db: { query(sql: string): { get(...args: string[]): unknown; all?(...args: string[]): unknown[] } },
   sessionKey: string,
   content: string,
 ): ContentBlock[] | undefined {
   try {
     const row = db.query(
-      `SELECT content = ?2 AS same, blocks FROM messages WHERE session_key = ?1 AND role = 'user' AND ${NOT_STEERED_ROW}
+      `SELECT content = ?2 AS same, blocks, sort_order AS ord FROM messages WHERE session_key = ?1 AND role = 'user' AND ${NOT_STEERED_ROW}
         ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
-    ).get(sessionKey, content) as { same: number | null; blocks: unknown } | null;
+    ).get(sessionKey, content) as { same: number | null; blocks: unknown; ord: number } | null;
     if (row?.same !== 1) return undefined;
     const blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null;
-    const marks = Array.isArray(blocks) ? blocks.filter((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)) : [];
+    let marks = Array.isArray(blocks) ? blocks.filter((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)) : [];
+    // A HOOK'S WORDS TRAVEL ONLY TO A RESEND OF A ROW NOBODY ANSWERED: the
+    // Retry of a hook turn that failed, the boot resuming one that was cut.
+    // After an answer, the same words («continua») are the person typing
+    // them (review of PR 1623, defects 3 and A).
+    if (marks.some((b) => b.kind === "hook-nudge") && answeredAfter(db, sessionKey, row.ord)) {
+      marks = marks.filter((b) => b.kind !== "hook-nudge");
+    }
     return marks.length ? marks : undefined;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Has the model answered after the row at `ord`? Words count as an answer,
+ * also when the output cap cut them: that notice is an `error` block WITHOUT a
+ * `cause` (a length limit, not a fault). A row whose only words are a notice,
+ * or that carries an attributed error (a fault, a refusal), is no answer: its
+ * Retry still resends the hook's row.
+ */
+function answeredAfter(
+  db: { query(sql: string): { all?(...args: string[]): unknown[] } },
+  sessionKey: string,
+  ord: number,
+): boolean {
+  const rows = (db.query(
+    `SELECT content, blocks FROM messages WHERE session_key = ?1 AND role = 'assistant' AND sort_order > ?2`,
+  ).all?.(sessionKey, String(ord)) ?? []) as Array<{ content: string | null; blocks: unknown }>;
+  const bare = (t: string) => t.replace(/^⚠️\s*/, "").trim();
+  return rows.some((r) => {
+    const words = bare(r.content ?? "");
+    if (!words) return false;
+    let blocks: Array<{ kind?: unknown; cause?: unknown; text?: unknown }> = [];
+    try { const v = JSON.parse(decodeCol(r.blocks) ?? "null"); if (Array.isArray(v)) blocks = v; } catch { /* no blocks */ }
+    if (blocks.some((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind))) return false;
+    const errors = blocks.filter((b) => b?.kind === "error");
+    if (errors.some((b) => b.cause !== undefined)) return false;
+    // The notice alone, written as the row's text because nothing else was.
+    return !errors.some((b) => typeof b.text === "string" && bare(b.text) === words);
+  });
 }

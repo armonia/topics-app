@@ -176,3 +176,34 @@ barra dei menu.
   nome del canale scritto come testo.
 - 22/11 «nel sistema non ci dovrebbe essere nulla di nascosto in termini di UI» → ogni guasto di
   sistema ha una riga in una vista Salute unica, col link a dove si sistema.
+- 24/11 «non ha senso che ci sia sia tab sopra che tab sul lato.. si dovrebbe poter scegliere» →
+  ogni tab sta in un posto solo, e quale lo sceglie chi usa la app (Vista → Tab: di lato | in
+  alto); con la sidebar chiusa tornano in alto, mai in nessun posto.
+- 24/11 «tutte le tab sono in realtà fissate di default (toglilo come concetto, semplicemente
+  possono riordinarselo, ma quelle aperte invece hanno lo sfondo come quelle pinnate» → le righe
+  della colonna stanno nell'ordine dato trascinandole, e una tab aperta ha lo sfondo della
+  tessera fissata; una riga chiusa non ce l'ha.
+- 24/11 «una volta chiusa poi si spunta "fatto" quindi va chiusa due volte» → un gesto, un
+  effetto: il cerchio di una tab aperta la chiude, quello di una chiusa la archivia.
+- 24/11 «le fissate non si possono chiudere [...] hanno tutte 3 stati aperto-chiuso-archiviato
+  (è disabilitabile anche questo dalle opzioni)» e «tutti i tipologie di tab dovrebbero avere il
+  triplo stato» → chat, progetti, terminali, browser e pagine di utilità hanno aperta, chiusa,
+  archiviata; le fissate si aprono da sole e non si chiudono. Due interruttori in Vista
+  rimettono il comportamento di prima.
+- 24/11 «assicurati anche di non perdere comportamenti utili delle tabbar» → senza la barra in
+  alto, la riga del titolo porta il foglio della tab con Disposizione e il «+»; righe di
+  terminale e browser si trascinano nella griglia come le chat.
+- 24/11 «rivediamo anche completamente da 0 tutto il sistema di split, conservando tutte le
+  possibilità di split ma rivedendo completamente la UI UX che era rotta» → un vocabolario su
+  ogni superficie e da ogni sorgente (bordo = dividi, centro = apri qui, bordo della superficie
+  = riga intera), l'anteprima è l'impronta col nome, una cella divisa dice cosa contiene e chi
+  ha il fuoco, tutto si fa anche da menu e da tastiera.
+- 25/11 «se premo la chiusura di una tab non sembra succedere nulla e non riesco a distinguere
+  i due stati» e «dovrei vedere con sfondo solo le tab effettivamente aperte» → anche dentro un
+  progetto (albero o fascia di una fissata) la riga aperta ha lo sfondo e la chiusa no; la fascia
+  di una fissata non dipinge un riquadro sotto le sue righe.
+- 25/11 «l'accordion sotto agenti non dovrebbe essere una riga sotto la tab ma direttamente la
+  tab stessa» → i sotto-agenti si aprono dal chevron della riga che li ha lanciati, senza una
+  riga d'intestazione in più.
+- 25/11 «stai attento a tab di un progetto, non sembrano avere spaziature corretta» → le righe
+  dentro un progetto hanno lo stesso passo e lo stesso rientro, nell'albero e nella fascia.

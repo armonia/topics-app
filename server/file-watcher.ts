@@ -50,7 +50,7 @@ export function fileWatcherLastError(): ({ projectPath: string; message: string;
   return latest ? { projectPath: latest[0], ...latest[1] } : null;
 }
 
-/** @internal */
+/** @internal Test seam: plants a watcher error without a failing filesystem; module state, no live caller. */
 export function _setWatcherErrorForTests(projectPath: string, message: string, at = new Date().toISOString()): void {
   watcherErrors.set(projectPath, { message, at });
 }

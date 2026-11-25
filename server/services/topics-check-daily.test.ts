@@ -16,9 +16,15 @@ import { logActivity, logStreamError, logStreamHardTimeout } from "../db/activit
 import { createTopicsCheck, parseSettings, type Runner, type Sample } from "./topics-check";
 import type { AIProvider, CompletionOptions } from "../providers/types";
 import {
-  dayKey, errorSignature, makeAsk, modelFor, parseDailySettings, parseVerdict, readLatestVerdict, readVerdict, runDaily,
+  dayKey, errorSignature, makeAsk, modelFor, parseDailySettings, parseVerdict, readLatestVerdict, runDaily,
   type DailyDeps, type DailyVerdict,
 } from "./topics-check-daily";
+
+/** The verdict stored for `day`, read straight from the table (the service itself reads only the newest). */
+const readVerdict = (db: Database, day: string): DailyVerdict | null => {
+  const r = db.query("SELECT verdict_json FROM topics_check_daily WHERE day = ?").get(day) as { verdict_json: string } | null;
+  return r ? (JSON.parse(r.verdict_json) as DailyVerdict) : null;
+};
 
 const H = 3_600_000;
 const DAY = 24 * H;

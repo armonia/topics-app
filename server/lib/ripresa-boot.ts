@@ -126,9 +126,7 @@ export const MAX_FREE_PROBES = 8;
 export const USER_TAIL_GRACE_MS = 2 * 60_000;
 // The words the sweep writes in a chat: lib/resume-notices.ts.
 export { unansweredNotice };
-/** @internal the late-events regression test asserts on the marker text */
-export const RESUME_CAP_MARKER = capNotice(MAX_RESUME_ATTEMPTS, capLastCut({ restarted: true }));
-export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
+function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
   return capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
 }
 

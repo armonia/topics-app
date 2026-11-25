@@ -1036,9 +1036,13 @@ export function activeAgentRowsFrom(
     if (loading) working.push(row);
     place(`terminal:${t.id}`, row, loading);
   }
-  // Chat sessions (distinct id space from terminals: no overlap).
+  // Chat sessions (distinct id space from terminals: no overlap). A turn open
+  // and parked on the person is waiting, not working: it is counted once, in
+  // `awaitingInput` (before, a question on screen was «1 at work» and «1
+  // waiting for you» at once).
   const streamingTopics = new Set<string>([...sig.liveStream, ...sig.hydratedStream]);
   for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
+    if (attentionOf(sig.attention, `topic:${id}`).tier === 'needs-you') continue;
     working.push({ id, kind: 'topic', label: topics[id].name });
   }
   const chatSubjects: string[] = [];

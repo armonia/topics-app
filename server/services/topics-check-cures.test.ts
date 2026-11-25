@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { EMBEDDED_MIGRATIONS } from "../db/migrations-embedded";
 import { createTaskService } from "./tasks";
-import { createCures, cureDepsOf, problemsOf } from "./topics-check-cures";
+import { createCures, cureDepsOf, problemsOf, UNKNOWN_RETRY_CAP } from "./topics-check-cures";
 import { createWakeBreaker, WAKE_FAIL_THRESHOLD } from "./wake-breaker";
 import { createTopicsCheck, DEFAULT_THRESHOLDS, parseSettings, summarizeCures, type Sample, type StuckCard } from "./topics-check";
 
@@ -204,6 +204,132 @@ describe("what the cures cannot clear opens one card", () => {
     expect(out.map((o) => o.outcome)).toEqual(["investigated", "investigated", "investigated", "capped"]);
     expect(h.opened()).toHaveLength(3);
     expect(h.lines("4").join(" ")).toContain("Tetto di 3");
+  });
+});
+
+describe("chain-parked: no cure of its own, it is investigated", () => {
+  test("the upstream card is still parked in backlog: it is investigated, no blocker is touched", () => {
+    const h = setup(); h.card("root", null, "backlog"); h.card("a");
+    h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'a'");
+    expect(h.cures.run(sample([stuck("a", "chain-parked")]), T, ON_BOARD)).toEqual([{ key: "chain-parked:a", outcome: "investigated" }]);
+    expect(h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'a'").get()).toEqual({ b: "root" });
+  });
+  test("the card's direct blocker is already done: nothing to cure here, `isDispatchBlocked` already clears it", () => {
+    const h = setup(); h.card("root", null, "done"); h.card("a");
+    h.db.run("UPDATE tasks SET blocked_by_task_id = 'root' WHERE id = 'a'");
+    expect(h.cures.run(sample([stuck("a", "chain-parked")]), T, OFF)).toEqual([{ key: "chain-parked:a", outcome: "off" }]);
+    expect(h.db.query("SELECT blocked_by_task_id AS b FROM tasks WHERE id = 'a'").get()).toEqual({ b: "root" });
+  });
+});
+
+describe("unknown: a readable rule of two requeues then a park", () => {
+  test("the first time, the card is requeued and says so", () => {
+    const h = setup(); h.card("a", null, "in_progress");
+    expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "todo" });
+    expect(h.lines("a").join(" ")).toContain("giro 1 di 2");
+  });
+  test("after the cap of retries, it is parked to backlog with the reason instead of requeued again", () => {
+    const h = setup(); h.card("a", null, "in_progress");
+    for (let i = 0; i < UNKNOWN_RETRY_CAP; i++) {
+      h.svc.addComment({ taskId: "a", author: "topics-check", content: `Rimessa in coda (giro ${i + 1} di ${UNKNOWN_RETRY_CAP}): x` });
+    }
+    expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "backlog" });
+    expect(h.lines("a").join(" ")).toContain("serve un occhio umano");
+  });
+  test("a run still open is left alone", () => {
+    const h = setup(); h.card("r", "m1", "in_progress", 1);
+    expect(h.cures.run(sample([stuck("r", "unknown")]), T, ON_BOARD)[0]!.outcome).toBe("investigated");
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'r'").get()).toEqual({ status: "in_progress" });
+  });
+  test("a card bound to its node, with no run open, is left alone", () => {
+    const h = setup(); h.card("r", "m1", "in_progress", 0);
+    h.db.run("UPDATE tasks SET claude_task_id = 'node-run:1' WHERE id = 'r'");
+    expect(h.cures.run(sample([stuck("r", "unknown")]), T, ON_BOARD)[0]!.outcome).toBe("investigated");
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'r'").get()).toEqual({ status: "in_progress" });
+  });
+  test("a card still in todo was never 'unknown': the sample's status does not decide, the fresh read does", () => {
+    const h = setup(); h.card("t", null, "todo");
+    h.cures.run(sample([stuck("t", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status, dispatch_error AS e FROM tasks WHERE id = 't'").get()).toEqual({ status: "todo", e: null });
+  });
+  test("a card already back in review is left alone: review is not in_progress", () => {
+    const h = setup(); h.card("v", null, "review");
+    h.cures.run(sample([stuck("v", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'v'").get()).toEqual({ status: "review" });
+  });
+  test("a card already done is left alone, no note", () => {
+    const h = setup(); h.card("d", null, "done");
+    h.cures.run(sample([stuck("d", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'd'").get()).toEqual({ status: "done" });
+    expect(h.lines("d")).toEqual([]);
+  });
+  test("a live agent turn (dispatch_state) is left alone, even with no node run", () => {
+    const h = setup(); h.card("w", null, "in_progress");
+    h.db.run("UPDATE tasks SET dispatch_state = 'working' WHERE id = 'w'");
+    h.cures.run(sample([stuck("w", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'w'").get()).toEqual({ status: "in_progress" });
+  });
+  test("an open question to a person is left alone", () => {
+    const h = setup(); h.card("q", null, "in_progress");
+    h.db.run("UPDATE tasks SET human_ask = 'conferma?' WHERE id = 'q'");
+    h.cures.run(sample([stuck("q", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'q'").get()).toEqual({ status: "in_progress" });
+  });
+  test("the human_review stage is left alone", () => {
+    const h = setup(); h.card("hr", null, "in_progress");
+    h.db.run("UPDATE tasks SET stage = 'human_review' WHERE id = 'hr'");
+    h.cures.run(sample([stuck("hr", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'hr'").get()).toEqual({ status: "in_progress" });
+  });
+  test("a card held by a person's name is left alone", () => {
+    const h = setup(); h.card("p", null, "in_progress");
+    h.db.run("UPDATE tasks SET assigned_to = 'someone' WHERE id = 'p'");
+    h.cures.run(sample([stuck("p", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'p'").get()).toEqual({ status: "in_progress" });
+  });
+  test("a card pinned to a machine by a person is left alone", () => {
+    const h = setup(); h.card("m1card", "m1", "in_progress", 0, false);
+    expect(h.cures.run(sample([stuck("m1card", "unknown")]), T, OFF)).toEqual([{ key: "unknown:m1card", outcome: "off" }]);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'm1card'").get()).toEqual({ status: "in_progress" });
+  });
+  test("a card pinned 'stay local' by a person is left alone", () => {
+    const h = setup(); h.card("sl", null, "in_progress");
+    h.db.run("UPDATE tasks SET stay_local = 1 WHERE id = 'sl'");
+    h.cures.run(sample([stuck("sl", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'sl'").get()).toEqual({ status: "in_progress" });
+  });
+  test("the park writes a dispatch_state, not a chip the board reads as a silent nothing", () => {
+    const h = setup(); h.card("a", null, "in_progress");
+    for (let i = 0; i < UNKNOWN_RETRY_CAP; i++) {
+      h.svc.addComment({ taskId: "a", author: "topics-check", content: `Rimessa in coda (giro ${i + 1} di ${UNKNOWN_RETRY_CAP}): x` });
+    }
+    h.cures.run(sample([stuck("a", "unknown")]), T, OFF);
+    expect(h.db.query("SELECT status, dispatch_state AS s FROM tasks WHERE id = 'a'").get()).toEqual({ status: "backlog", s: "stopped" });
+  });
+  test("a person putting the parked card back in todo resets the count: it gets fresh requeues again", () => {
+    const h = setup(); h.card("a", null, "in_progress");
+    for (let i = 0; i < UNKNOWN_RETRY_CAP; i++) {
+      h.svc.addComment({ taskId: "a", author: "topics-check", content: `Rimessa in coda (giro ${i + 1} di ${UNKNOWN_RETRY_CAP}): x` });
+    }
+    h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'a'");
+    h.db.run("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('ev1', 'a', 'someone', 'backlog→todo', 'status', 'y')");
+    expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
+    expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "todo" });
+    expect(h.lines("a").join(" ")).toContain("giro 1 di 2");
+  });
+  test("a →todo written by system, dispatcher or this cure itself does not reset the count: only a PERSON's hand does", () => {
+    for (const author of ["system", "dispatcher", "topics-check"]) {
+      const h = setup(); h.card("a", null, "in_progress");
+      for (let i = 0; i < UNKNOWN_RETRY_CAP; i++) {
+        h.svc.addComment({ taskId: "a", author: "topics-check", content: `Rimessa in coda (giro ${i + 1} di ${UNKNOWN_RETRY_CAP}): x` });
+      }
+      h.db.run("UPDATE tasks SET status = 'in_progress' WHERE id = 'a'");
+      h.db.run("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES ('ev1', 'a', ?, 'backlog→todo', 'status', 'y')", [author]);
+      expect(h.cures.run(sample([stuck("a", "unknown")]), T, OFF)).toEqual([{ key: "unknown:a", outcome: "cured" }]);
+      expect(h.db.query("SELECT status FROM tasks WHERE id = 'a'").get()).toEqual({ status: "backlog" });
+    }
   });
 });
 

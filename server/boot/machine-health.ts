@@ -18,7 +18,7 @@ import type { MachineSecurityReport } from "../../shared/machine-health";
 import { cardRunsToday, createMachineHealth, samplesFromMinuteLog, STEP_S, type HealthTarget } from "../lib/machine-health";
 import { applyExposure, poolIpOf } from "../lib/machine-exposure";
 import { memPctFromReadout, readLocalMetrics } from "../lib/machine-metrics";
-import { probeSshServer, readSshServers, sshServerId, type SshServer } from "../lib/machine-security-ssh";
+import { probeSshServer, readSshServers, resolveSshControlDir, sshServerId, type SshServer } from "../lib/machine-security-ssh";
 import { probeUnavailableReport } from "../lib/machine-security";
 import { runBounded } from "../lib/machine-security-env";
 import { localSecurityProbe } from "../routes/machine-security";
@@ -152,7 +152,8 @@ export function startMachineHealth(ctx: AppContext): void {
       if (t.kind === "local") return probeLocal();
       const ssh = sshServers.get(t.id);
       if (ssh) {
-        const report = await probeSshServer(ssh, runBounded, lastSsh.get(t.id) ?? null);
+        const controlDir = resolveSshControlDir(ctx.APP_DATA_DIR);
+        const report = await probeSshServer(ssh, runBounded, controlDir, lastSsh.get(t.id) ?? null, Date.now);
         lastSsh.set(t.id, report);
         return report;
       }
