@@ -478,6 +478,20 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
         // Out of the queue: a 'queued' chip on it would promise an agent that never comes.
         if (by && row.dispatch_state === "queued") put("dispatch_state", null);
       }
+      // «Rimanda a»: writing `wakeAt` is the explicit act; any OTHER status
+      // write clears it, so dragging a snoozed card out of backlog by hand
+      // does not leave a stale wake behind it (card 975aba21).
+      if (patch.wakeAt !== undefined) {
+        const wakeAt = patch.wakeAt?.trim() || null;
+        if (wakeAt) {
+          const parsed = Date.parse(wakeAt);
+          if (Number.isNaN(parsed)) throw new TaskServiceError("invalid_input", "wakeAt must be an ISO date");
+          if (parsed <= new Date(now()).getTime()) throw new TaskServiceError("invalid_input", "wakeAt must be in the future");
+        }
+        put("wake_at", wakeAt);
+      } else if (patch.status !== undefined) {
+        put("wake_at", null);
+      }
       if (patch.kanbanOrder !== undefined) put("kanban_order", patch.kanbanOrder);
       if (patch.outputUrl !== undefined) {
         const url = (patch.outputUrl ?? "").trim();

@@ -2352,7 +2352,9 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          -- 20261116120000: the landed card whose CI is still to be read (and how it ended).
          ci_after = '{"commit":"abc1234","who":"human","repo":null,"at":"2020-01-01T00:00:00.000Z"}',
          -- 20261111140000: the plain-words summary and the key it came from.
-         for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k'
+         for_you = '{"asked":"a","happened":"b","done":"c","remains":"d","options":[]}', for_you_key = 'k',
+         -- 20261125224424: «Rimanda a». Same reason as the columns above.
+         wake_at = '2020-01-01T00:00:00.000Z'
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

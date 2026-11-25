@@ -152,6 +152,10 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   kanbanOrder: { to: "kanbanOrder", read: asNumber },
   dueDate: { to: "dueDate", read: asStringOrNull },
   scheduled: { to: "scheduled", read: asScheduled },
+  // «Rimanda a»: the card's wake instant. The future/ISO check lives in the
+  // service (it needs `now()` too, for the test clock) — here it is just text.
+  wakeAt: { to: "wakeAt", read: asStringOrNull },
+  wake_at: { to: "wakeAt", read: asStringOrNull },
   outputUrl: { to: "outputUrl", read: asStringOrNull },
   output_url: { to: "outputUrl", read: asStringOrNull },
   summary: { to: "summary", read: asString },
@@ -207,6 +211,8 @@ const AGENT_FIELDS: Record<string, FieldSpec> = {
   output_url: { to: "outputUrl", read: asStringOrNull },
   // Scripts that sync timed runs (task-sync) write with the agent token.
   scheduled: { to: "scheduled", read: asScheduled },
+  wakeAt: { to: "wakeAt", read: asStringOrNull },
+  wake_at: { to: "wakeAt", read: asStringOrNull },
   // THE DELIVERY IN WORDS, which the agent sends together with
   // `status: 'review'`. Not a task field: the service writes it into the thread
   // as a `kind: 'delivery'` comment, and without it review is refused.
