@@ -21,6 +21,10 @@
         {
           "text": "no reap, prune or remove loses work the review found exposed",
           "scope": "worktrees"
+        },
+        {
+          "text": "the vacuum and the auto-land read what WORKS, a parked card is not working",
+          "scope": "restart-gate"
         }
       ],
       "perf": []
