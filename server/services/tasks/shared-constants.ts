@@ -82,8 +82,6 @@ export function commentAsksHuman(content: string | null | undefined): boolean {
   return questionAsksHuman(parsed);
 }
 
-import { parseChecksJson, parseChecksProgress, parseChecksCi } from "../tasks-checks";
-export { parseChecksJson, parseChecksProgress, parseChecksCi };
 
 /**
  * L'effort di board accetta anche `auto`, come il modello.
