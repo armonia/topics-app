@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.4.105 — 2026-11-25
+
+### Sotto il cofano
+- Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm
+
 ## 2.4.104 — 2026-11-25
 
 ### Sotto il cofano

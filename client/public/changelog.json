@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.4.105",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.104",
     "date": "2026-11-25",
     "sections": {
