@@ -1,16 +1,16 @@
 /**
  * @covers BROWSER-LOGIN-01
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import { handleLoginRequest, type LoginRequestEffects } from './loginRequest';
 
 function effects(popped = true): LoginRequestEffects & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    focusTab: vi.fn(() => { calls.push('focus'); }),
-    raiseWindow: vi.fn(() => { calls.push('raise'); }),
-    popOut: vi.fn(async () => { calls.push('popout'); return popped; }),
+    focusTab: mock(() => { calls.push('focus'); }),
+    raiseWindow: mock(() => { calls.push('raise'); }),
+    popOut: mock(async () => { calls.push('popout'); return popped; }),
   };
 }
 

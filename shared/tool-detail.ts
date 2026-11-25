@@ -38,7 +38,7 @@ import { normalizeViewSpec, viewIdFromResult } from "./views";
  * table.
  */
 export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
-  "open_browser_pane", "close_browser_pane", "browser_list_tabs", "browser_focus_tab", "import_chrome",
+  "open_browser_pane", "request_login", "close_browser_pane", "browser_list_tabs", "browser_focus_tab", "import_chrome",
   "run_script", "run_command", "list_processes", "read_process_output", "stop_process",
   "list_tasks", "create_task", "get_task", "get_goal", "close_goal", "set_goal", "update_goal_steps",
   "update_task", "wait_for_condition", "label_task", "comment_task",

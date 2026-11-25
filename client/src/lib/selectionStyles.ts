@@ -110,6 +110,12 @@ export const TAB_SELECTED_SURFACE =
 export const TAB_SELECTED_SURFACE_SOFT =
   'bg-[var(--tab-bg-soft)] text-app-text-secondary';
 
+/** The tab in front drawn as a window's title (tabs at the side): no fill and
+ *  no edge at rest (`.tab-as-title` in index.css), the selected tab's fill
+ *  under the pointer. */
+export const TAB_AS_TITLE_SURFACE =
+  'tab-as-title bg-transparent hover:bg-[var(--tab-bg-sel)]';
+
 export const RESTING_FILL_MOBILE = 'max-md:bg-black/[0.08] max-md:dark:bg-white/[0.10]';
 export const RESTING_SURFACE =
   'bg-black/[0.05] dark:bg-white/[0.06] hover:bg-black/[0.08] dark:hover:bg-white/[0.10] ' +
@@ -630,8 +636,19 @@ export const SECTION_H = 'h-11 md:h-7';
  * grammatica divergono al primo che viene ritoccato da solo.
  */
 export const SECTION_CARD =
-  `group edge-lit flex items-center ${ROW_GAP} ${ROW_PX} ${SECTION_H} ${TAB_LABEL} ${RESTING_SURFACE} ` +
-  'rounded-lg mx-1.5 my-[3px] transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
+  `group flex items-center ${ROW_GAP} ${ROW_PX} ${SECTION_H} ${TAB_LABEL} hover:bg-black/[0.05] dark:hover:bg-white/[0.06] ` +
+  'rounded-lg m-1 transition-colors cursor-pointer select-none flex-shrink-0 overflow-hidden';
+
+/**
+ * A section of a project's column as an ISLAND (25/11: single islands, each
+ * like a card of its own, not all in one sidebar): the card holds its
+ * header (SECTION_CARD, now a row inside it, the fill only under the pointer)
+ * and its content, and the column has no ground of its own. The card keeps the
+ * column cards' resting fill and edge; `rounded-xl` is the header's radius
+ * plus the 4px it sits in.
+ */
+export const SECTION_ISLAND =
+  'edge-lit rounded-xl overflow-hidden mx-1.5 my-[3px] bg-black/[0.05] dark:bg-white/[0.06]';
 /** Indent added per nesting level for sidebar child rows (px). */
 export const SIDEBAR_INDENT_STEP = 16;
 

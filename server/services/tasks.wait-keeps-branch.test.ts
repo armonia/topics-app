@@ -1,4 +1,6 @@
 /**
+ * @covers LAND-18
+ *
  * A CARD THAT DECLARES A WAIT KEEPS THE BRANCH IT WORKED ON.
  *
  * Card f3c5a186: the work was committed on the worktree's branch, the pre-review
