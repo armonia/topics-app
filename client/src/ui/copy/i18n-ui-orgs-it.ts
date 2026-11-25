@@ -78,7 +78,7 @@ export const ORGS_COPY_IT: OrgsCopy = {
     saved: 'Panoramica salvata',
     logCustomize: 'Blocchi della panoramica personalizzati',
   },
-  sarim: {
+  orbit: {
     always: 'Sempre',
     flowsCount: (n) => (n === 1 ? '1 flusso' : `${n} flussi`),
     newFlow: 'Nuovo flusso',
@@ -90,9 +90,9 @@ export const ORGS_COPY_IT: OrgsCopy = {
     clearFilters: 'Azzera i filtri',
     columns: { flow: 'Flusso', area: 'Area', trigger: 'Cosa lo avvia', status: 'Stato', perMonth: 'Al mese, stima', waiting: 'Fermo da' },
     overviewDetail: 'stima mensile a regime',
-    orgName: 'SARIM',
-    overviewTitle: 'Panoramica SARIM',
-    exportFile: 'panoramica-sarim',
+    orgName: 'ORBIT',
+    overviewTitle: 'Panoramica ORBIT',
+    exportFile: 'panoramica-orbit',
     statusLabel: (status, version) => `${{ attivo: 'Attivo', collaudo: 'In collaudo', bozza: 'Bozza', spento: 'Spento' }[status]} · v${version}`,
     perMonthNote: (n) => `${n} al mese, stima`,
     plainPanel: { tag: 'Dati del flusso', title: 'Chi lavora a ogni passo', description: 'Ogni passo con il programma o l’ufficio che lo esegue.', section: 'Passi', access: 'Ufficio responsabile' },

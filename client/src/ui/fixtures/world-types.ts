@@ -1,25 +1,25 @@
 /**
  * The shape of an organization's example world, as the screens of
- * `client/src/ui-gallery/sarim/` read it: the work on «Da fare» (stages, cards, allow-italian: quotes the words on screen
+ * `client/src/ui-gallery/orbit/` read it: the work on «Da fare» (stages, cards, allow-italian: quotes the words on screen
  * flows), contracts, towns, knowledge, programs and people, and the words and
- * ids that belong to that organization and not to the screens. SARIM fills it
- * (`sarim-org/world.ts`), another organization does the same
+ * ids that belong to that organization and not to the screens. ORBIT fills it
+ * (`orbit-org/world.ts`), another organization does the same
  * (`nocera-org/`), and the gallery picks one with `setWorld()`.
  *
- * Types only. The entity types still live next to the SARIM data they were
- * written for (`sarim-org/*`); they carry no SARIM fact.
+ * Types only. The entity types still live next to the ORBIT data they were
+ * written for (`orbit-org/*`); they carry no ORBIT fact.
  */
 import type { FlowPathModel } from '../flows/model';
 import type { OrgWords } from '../copy/org-words';
 import type { OrgKey } from './org/types';
 import type { Permission, RoleDef } from './org/people';
-import type { Contract, OpsFlow, SarimCard, Stage, StageId } from './sarim-org/types';
-import type { SarimTown } from './sarim-org/data';
-import type { KnowledgeCollectionDef, KnowledgeDoc, KnowledgeQuestion } from './sarim-org/knowledge';
-import type { SarimCertification, SarimFact, SourceLink } from './sarim-org/organization';
-import type { SarimAgent, SarimPersona, SarimTeam } from './sarim-org/people';
-import type { SarimProgram } from './sarim-org/programs';
-import type { StepData } from './sarim-org/step-data';
+import type { Contract, OpsFlow, OrbitCard, Stage, StageId } from './orbit-org/types';
+import type { OrbitTown } from './orbit-org/data';
+import type { KnowledgeCollectionDef, KnowledgeDoc, KnowledgeQuestion } from './orbit-org/knowledge';
+import type { OrbitCertification, OrbitFact, SourceLink } from './orbit-org/organization';
+import type { OrbitAgent, OrbitPersona, OrbitTeam } from './orbit-org/people';
+import type { OrbitProgram } from './orbit-org/programs';
+import type { StepData } from './orbit-org/step-data';
 
 /** The icons a flow can wear; the gallery maps each name to a drawing. */
 export type FlowIconName =
@@ -125,12 +125,12 @@ export interface OrgPeopleWorld {
   areaLabel: Record<string, string>;
   permissions: Permission[];
   roles: RoleDef[];
-  personas: SarimPersona[];
-  teams: SarimTeam[];
+  personas: OrbitPersona[];
+  teams: OrbitTeam[];
   /** The team the agents form: no leader, no permissions to give. */
   agentsTeam: { id: string; label: string };
   defaultPersona: string;
-  agents: SarimAgent[];
+  agents: OrbitAgent[];
   /** The role that sees and manages everything, and the one that sees everything and changes nothing. */
   managerRole: string;
   viewerRole: string;
@@ -153,8 +153,8 @@ export interface OrgKnowledgeWorld {
 }
 
 export interface OrgFactsWorld {
-  identity: SarimFact[];
-  certifications: SarimCertification[];
+  identity: OrbitFact[];
+  certifications: OrbitCertification[];
   certificationsSource: SourceLink;
   numbers: Array<{ id: string; label: string; value: string }>;
   numbersSource: SourceLink;
@@ -174,11 +174,11 @@ export interface OrgWorld {
   words: OrgWords;
 
   stages: Stage[];
-  cards: SarimCard[];
+  cards: OrbitCard[];
   opsFlows: OpsFlow[];
   contracts: Contract[];
-  towns: SarimTown[];
-  programs: SarimProgram[];
+  towns: OrbitTown[];
+  programs: OrbitProgram[];
   /** What each step reads and produces, by flow id and step id. */
   stepData: Record<string, Record<string, StepData>>;
   knowledge: OrgKnowledgeWorld;

@@ -4,10 +4,10 @@
  * data chips the other editions use; the names are the words the teams of the
  * Consorzio use for the paper and the values they handle. Examples, coherent
  * with the flows: a value a card shows is the value the step that reads it
- * names. Same shape as `../sarim-org/step-data.ts`.
+ * names. Same shape as `../orbit-org/step-data.ts`.
  */
 import type { FieldRef } from '../../types';
-import type { StepData } from '../sarim-org/step-data';
+import type { StepData } from '../orbit-org/step-data';
 
 const mail = (name: string): FieldRef => ({ kind: 'mail', name });
 const file = (name: string): FieldRef => ({ kind: 'file', name });
