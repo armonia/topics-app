@@ -1,5 +1,124 @@
 [
   {
+    "version": "2.4.104",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.103",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Split server/services/tasks/shared.ts into six factory modules behind the same barrel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Split tasks/shared.ts: baselines and unused type exports",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land guard: a card's own branches include its spawned children and worktree branch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main verde: covers del test usage-limit e baseline dopo i land della notte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test di contratto: leggono i moduli di shared/board.ts dopo lo split",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node deliveries emit task-deliver so the retrospective hook sees them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate after bun install restored jscpd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sub-agent no-news replies on a later turn no longer wake the parent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "seed-before-navigation uses /manifest.json, not /favicon.ico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una corsa vecchia che il nodo non ha più non si scrive come errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.102",
     "date": "2026-11-25",
     "sections": {
@@ -8,7 +127,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself",
           "en": "",
           "scope": null
         }
@@ -45,12 +174,47 @@
           "en": "",
           "scope": "worktrees",
           "breaking": false
+        },
+        {
+          "it": "the vacuum and the auto-land read what WORKS, a parked card is not working",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
         }
       ],
       "perf": [],
       "internal": [
         {
+          "it": "serialize process-groups and tauri macOS legs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tauri runs whatever process-groups ends with",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the wiring test reads the split stream count",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        },
+        {
+          "it": "English name for the vacuum test db",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        },
+        {
+          "it": "Replace real names in the client with fictitious ones (ORBIT, Alfa Impianti)",
           "en": "",
           "scope": null
         }
@@ -142,6 +306,24 @@
           "it": "dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "share the in-flight run registry across the HTTP providers",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "one stopAllChildren for the codex and muse exec providers",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "one fitSurface for the select-element overlay geometry",
+          "en": "",
+          "scope": "browser",
           "breaking": false
         }
       ]
@@ -924,6 +1106,11 @@
         },
         {
           "it": "I server SSH non mostrano più lo storico CPU e RAM del PC",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Carry recent board.ts additions into the split modules",
           "en": "",
           "scope": null
         },
@@ -2066,6 +2253,11 @@
         },
         {
           "it": "Il Cloud col freno aperto non riprende la card che ha appena lasciato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Split shared/board.ts into five modules under 800 lines behind the same barrel",
           "en": "",
           "scope": null
         }
