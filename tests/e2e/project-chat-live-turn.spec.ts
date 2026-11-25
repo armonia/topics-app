@@ -29,9 +29,10 @@ import { E2E_BASE, daemonAuthHeaders } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { projectPanesKey } from "../../shared/project-keys";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 test.describe.configure({ timeout: 90_000 });
 
 const APP_WS = /\/ws(\?|$)/;

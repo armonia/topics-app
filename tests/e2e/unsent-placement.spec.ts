@@ -6,6 +6,7 @@ import { E2E_BASE } from "./helpers/test-server";
 import { collapseSidebarSections, countTabBars, splitViaContextMenu } from "./helpers/layout";
 import { hermetic } from "./fixtures/hermetic";
 import { seedMessage } from "./helpers/seed-messages";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -27,7 +28,7 @@ hermetic(test);
  * Geometry comes from bounding boxes and the clip of every overflow ancestor,
  * never from a screenshot read by eye.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const BASE = E2E_BASE;
 const OUTBOUND_KEY = "messages-outbound-queue";

@@ -1,5 +1,34 @@
 [
   {
+    "version": "2.4.105",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a project's window shows only its title, which is its tab",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "no \"+\" on a project's title, its row in the column has it",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.104",
     "date": "2026-11-25",
     "sections": {
@@ -14,6 +43,11 @@
         },
         {
           "it": "La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test",
           "en": "",
           "scope": null
         },
@@ -60,6 +94,11 @@
           "scope": null
         },
         {
+          "it": "E2E clips sized to the viewport, not Playwright's 800x500",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Test di contratto: leggono i moduli di shared/board.ts dopo lo split",
           "en": "",
           "scope": null
@@ -92,6 +131,11 @@
         },
         {
           "it": "Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e-video-size test: spawn the running bun binary so it also works on Windows",
           "en": "",
           "scope": null
         },
