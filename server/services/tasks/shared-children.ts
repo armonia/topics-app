@@ -8,7 +8,6 @@ import { REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL } from
 import { CHILD_AGENT_COMING } from "../../lib/task-timer-reads";
 import type { SharedCore } from "./shared-core";
 
-export type SharedChildren = ReturnType<typeof createSharedChildren>;
 
 export function createSharedChildren(db: Database, { getTaskRow, now }: SharedCore) {
 

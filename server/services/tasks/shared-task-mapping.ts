@@ -19,7 +19,6 @@ import type { SharedCore } from "./shared-core";
 import type { SharedPreviews } from "./shared-previews";
 import type { SharedCardRead } from "./shared-card-read";
 
-export type SharedTaskMapping = ReturnType<typeof createSharedTaskMapping>;
 
 export function createSharedTaskMapping(db: Database, opts: ServiceOpts, { heavyInFlight, idParam, liveCardGaps, now, readGlobalDispatch, tasksHaveStage }: SharedCore, { previewImagesFor, previewOf, rejectedPaths }: SharedPreviews, { awaitingAnswerFor, cardCommentsFor, drawsCardComments, labelsFor, rankQueue, resolveSubtaskWork, topicsHasEffort, topicsHasModel }: SharedCardRead) {
 

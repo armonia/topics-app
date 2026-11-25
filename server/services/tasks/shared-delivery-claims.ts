@@ -11,7 +11,6 @@ import { probeForRoot, repoProbe } from "../deliveryReportProbe";
 import { trackDeliveryNote } from "./shared-constants";
 import type { SharedCore } from "./shared-core";
 
-export type SharedDeliveryClaims = ReturnType<typeof createSharedDeliveryClaims>;
 
 export function createSharedDeliveryClaims(db: Database, opts: ServiceOpts, { getTaskRow, now }: SharedCore) {
 
