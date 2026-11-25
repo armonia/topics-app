@@ -228,7 +228,7 @@ async function seedChat(
 /** Opens `topicId` alone and waits until its bottom has been still for 20 frames. */
 async function openAtRest(page: Page, request: APIRequestContext, topicId: string, needle: string) {
   await resetPaneStore(request, [topicId]);
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
   await goToApp(page);
   await page.keyboard.press("Escape");
@@ -444,7 +444,7 @@ test.describe("phone chat switch", () => {
       closedStack: [],
     }));
     await installProbe(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), a.topicId);
     await page.goto("/");
     const aEnd = page.locator('[data-testid="chat-message"]:visible').filter({ hasText: "PHONE-A-END" });
