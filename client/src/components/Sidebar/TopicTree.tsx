@@ -1594,7 +1594,7 @@ export function TopicTree({
                 and without it the name of an icon-less project started 22px
                 left of the name of a project with an icon. On 27/08
                 (d919c1823) the favicon moved into the shared slot below -
-                `w-[18px]`, ALWAYS drawn, full or empty - and from that moment
+                `w-4.5`, ALWAYS drawn, full or empty - and from that moment
                 it is THE BOX that holds the column. The dot was carried over
                 unchanged and buys nothing any more: removing it moves no name
                 by a pixel, it just leaves the slot empty. Reported on 02/09:
@@ -2212,14 +2212,14 @@ export function TopicTree({
 
           IN FONDO il mezzo passo resta: là sotto c'è davvero il bordo della
           colonna, e vale la regola normale — metà qui, metà dal margine
-          dell'ultima card (`my-[3px]` in `sidebarRowCard`), che fa COLUMN_GAP.
+          dell'ultima card (`my-0.75` in `sidebarRowCard`), che fa COLUMN_GAP.
 
           Era `ROW_INSET − 1`, cioè 5, e il commento diceva «+ il my-px della
           card = 6». Quel conto è scaduto quando il margine delle card è passato
           da 1 a 3 (COLUMN_GAP/2, per dare a righe e tessere lo STESSO passo).
 
           Derivato, non scritto: se COLUMN_GAP cambia, questo lo segue, e a
-          tenere in riga la metà scritta in classe Tailwind (`my-[3px]`, che
+          tenere in riga la metà scritta in classe Tailwind (`my-0.75`, che
           deve restare un letterale perché il JIT la trova nel sorgente) c'è
           `selectionStyles.test.ts`. */}
       {/* `flex flex-col` sul contenitore che scorre, per la stessa ragione dei
@@ -2337,12 +2337,12 @@ export function TopicTree({
                     tessere sopra. A 12px era l'unico elemento su una colonna
                     sua, e il blocco dei fissati sembrava debordare.
                     Anche il respiro è quel numero, sopra e sotto — ma diviso
-                    diversamente sui due lati (`mt-1.5 mb-[3px]`), perché sotto la
+                    diversamente sui due lati (`mt-1.5 mb-0.75`), perché sotto la
                     prima card porta gia' la sua meta': è
                     lo stesso passo che separa la riga della board dalle tessere
                     e le righe di tessere fra loro, così i quattro spazi che
                     l'occhio legge in fila sono davvero uno. */}
-                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />
+                <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-0.75" />
               </>
             )}
             {/* NIENTE separatori fra le card dei gruppi: quelle un bordo ce
@@ -2385,7 +2385,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Hairline divider between the pinned block and the timeline
                     (same grammar as POPOVER_DIVIDER). */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-0.75" />}
               </>
             )}
             <SidebarRowList data-testid="sidebar-timeline" className="relative" {...orderListProps('timeline', unpinnedItems)}>
@@ -2405,7 +2405,7 @@ export function TopicTree({
                 {renderPinnedTiles()}
                 {/* Stesso filo della vista a lista: i fissati si staccano da ciò
                     che c'è sotto allo stesso modo in ogni vista. */}
-                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-[3px]" />}
+                {unpinnedItems.length > 0 && <div data-testid="pinned-divider" className="h-px bg-app-border mx-1.5 mt-1.5 mb-0.75" />}
               </>
             )}
             {/* «Il resto» ha senso solo come CONTRASTO: dice «tutto ciò che non
@@ -2633,7 +2633,7 @@ export function TopicTree({
             role="dialog"
             aria-modal="true"
             aria-label={progettoDaCondividere.nome}
-            className={`${MODAL_PANEL} w-[360px] p-3`}
+            className={`${MODAL_PANEL} w-90 p-3`}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="mb-2 truncate text-compact font-medium text-app-text-heading">
@@ -2760,15 +2760,15 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
               : <TerminalSquare size={ROW_GLYPH} className="text-app-text-tertiary" />}
         </span>
         {/* Name + live "what it's doing" subline (self-hides when idle). */}
-        {/* `gap-[3px]` invece di `mt-[3px]` sulla subline: vedi TopicItem —
+        {/* `gap-0.75` invece di `mt-0.75` sulla subline: vedi TopicItem —
             `truncate-tight` usa il margine verticale, e un `mt` sul figlio glielo
             porterebbe via. */}
-        <span className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+        <span className="flex-1 min-w-0 flex flex-col justify-center gap-0.75">
           <span data-row-name="terminal" className={`truncate-tight ${onFill ? 'font-semibold' : ''}`}>{s.name}</span>
           <SessionActivity subjectId={s.id} onFill={onFill} />
         </span>
         {projectName && (
-          <span className={`text-mini truncate max-w-[80px] ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
+          <span className={`text-mini truncate max-w-20 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary'}`} title={s.cwd}>
             {projectName}
           </span>
         )}

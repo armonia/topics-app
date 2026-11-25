@@ -109,7 +109,7 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
         <a
           key={p} href={getMediaUrl(p)} target="_blank" rel="noreferrer" onClick={(e) => open(e, p)}
           title={onPreview ? tr('task.media.preview') : p.split('/').pop()}
-          className="flex max-w-[14rem] items-center gap-1.5 rounded-md bg-black/5 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
+          className="flex max-w-56 items-center gap-1.5 rounded-md bg-black/5 dark:bg-white/10 px-2 py-1.5 text-compact leading-4 text-app-text hover:bg-black/10 dark:hover:bg-white/20"
         ><Paperclip className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{p.split('/').pop()}</span></a>
       ))}
     </div>

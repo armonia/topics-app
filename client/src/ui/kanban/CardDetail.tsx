@@ -207,7 +207,7 @@ export function CardDetail({
         />
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={clsx('mr-auto flex max-w-[880px] flex-col', phone ? 'px-4 pb-6 pt-4' : 'px-4 pb-8 pt-5')}>
+        <div className={clsx('mr-auto flex max-w-220 flex-col', phone ? 'px-4 pb-6 pt-4' : 'px-4 pb-8 pt-5')}>
           <header data-card-section="header" className="min-w-0 pb-5">
             <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 text-compact text-app-text-secondary">
@@ -335,7 +335,7 @@ export function CardDetail({
                       </span>
                       <Button size="sm" variant="ghost" icon={Maximize2} onClick={() => onOpenOriginal(shown.original.id)} className="ml-auto shrink-0">{d.openOriginal}</Button>
                     </div>
-                    <div className="max-h-[560px] overflow-y-auto rounded-lg bg-app-inset p-3 sm:p-4">
+                    <div className="max-h-140 overflow-y-auto rounded-lg bg-app-inset p-3 sm:p-4">
                       <OriginalSheet original={shown.original} marks={shown.marks} active={activeValue} onMark={pickValue} photoLabel={k.original.photo} />
                     </div>
                     {shown.marks.length === 0 && <p className="mt-2 text-compact text-app-text-tertiary">{d.noValues}</p>}

@@ -197,7 +197,7 @@ function LanguageRow({ value, onChange }: {
         onChange={handle}
         ariaLabel="Lingua · Language"
         testId="settings-language"
-        className="w-[124px]"
+        className="w-31"
         options={LANGUAGE_OPTIONS}
       />
     </PreferenceRow>

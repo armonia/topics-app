@@ -129,7 +129,7 @@ function FriendChipsRow({ chips }: { chips: ReturnType<typeof friendChips> }) {
           type="button"
           data-testid="friend-chip"
           onClick={() => openPersonProfile(c.id)}
-          className={`${chipClass(true)} flex-none max-w-[120px]`}
+          className={`${chipClass(true)} flex-none max-w-30`}
           title={c.fullName}
           aria-label={c.fullName}
         >
@@ -294,7 +294,7 @@ function UserCard({ identity, commands, alarm }: {
           className="ml-auto flex flex-shrink-0 items-center gap-1 text-app-text-secondary tabular-nums"
         >
           {hot && (
-            <span data-testid="identity-hot-quota" className={`flex h-5 items-center gap-[3px] rounded-xs bg-amber-500/15 px-1.5 font-semibold ${SEGNALE_ATTESA}`}>
+            <span data-testid="identity-hot-quota" className={`flex h-5 items-center gap-0.75 rounded-xs bg-amber-500/15 px-1.5 font-semibold ${SEGNALE_ATTESA}`}>
               <Gauge size={11} aria-hidden="true" />{hot.text}
             </span>
           )}

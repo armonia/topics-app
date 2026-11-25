@@ -1540,7 +1540,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 Usage and elapsed time ride in its tooltip (see TabLabel): the
                 container uses `aria-label` and not `title` on purpose. */}
             <TabLabel
-              className={`${isSquareInactive ? 'hidden' : `truncate flex-1 ${compactInnerLayout ? 'min-w-[24px]' : 'min-w-[56px]'}`} ${pane.preview ? 'italic' : ''} ${
+              className={`${isSquareInactive ? 'hidden' : `truncate flex-1 ${compactInnerLayout ? 'min-w-6' : 'min-w-14'}`} ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
               sheetDoor={pane.type === 'browser'}

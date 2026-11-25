@@ -23,7 +23,7 @@ export function BoardBrakeTag() {
       title={state.spend ? tr('sidebar.board.brakeSpendTitle', { n: state.spend.held.size }) : tr('sidebar.board.brakeTitle', { n: state.held.size, who })}
       className={`inline-flex h-4 flex-shrink-0 items-center gap-0.5 rounded-sm bg-amber-500/[0.14] px-1 text-mini font-semibold leading-none dark:bg-amber-400/[0.12] ${WARNING_TEXT}`}
     >
-      <CirclePause className="h-[11px] w-[11px]" aria-hidden="true" />
+      <CirclePause className="h-2.75 w-2.75" aria-hidden="true" />
       {tr('sidebar.board.brake')}
     </span>
   );

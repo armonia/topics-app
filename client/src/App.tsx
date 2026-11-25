@@ -912,7 +912,7 @@ function App() {
               content (a visible edge line was rejected as "not right"). The handle
               paints only on hover. */}
           <div className="absolute inset-0 group-hover:bg-primary/25" />
-          <div className="absolute inset-y-0 right-[1px] w-[3px] group-hover:bg-primary" />
+          <div className="absolute inset-y-0 right-0.25 w-0.75 group-hover:bg-primary" />
         </div>
       )}
 

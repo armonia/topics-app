@@ -1334,14 +1334,14 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           here would hang over the terminal rows underneath and eat taps meant
           for the output. */}
       {isTouchDevice && !stale && !resting && (
-        <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-[5px] bg-[#111] border-b border-white/10 overflow-x-auto select-none">
+        <div className="flex-shrink-0 flex items-center gap-1 coarse:gap-2 px-2 py-1.25 bg-[#111] border-b border-white/10 overflow-x-auto select-none">
           {touchKeysForSessionInfo(sessionInfo).map(({ label, data, wide }) => (
             <button
               key={label}
               aria-label={label}
               data-testid="terminal-key"
               onPointerDown={(e) => { e.preventDefault(); sendToTerminal(data); }}
-              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-[3px] rounded bg-white/10 text-white text-mini font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-prose ${wide ? 'px-3 coarse:px-4' : ''}`}
+              className={`flex-shrink-0 inline-flex items-center justify-center px-2 py-0.75 rounded bg-white/10 text-white text-mini font-mono active:bg-white/30 transition-colors coarse:min-h-11 coarse:min-w-11 coarse:text-prose ${wide ? 'px-3 coarse:px-4' : ''}`}
             >
               {label}
             </button>
@@ -1349,7 +1349,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           <div className="flex-1" />
           <button
             onClick={handleCopyOutput}
-            className="flex-shrink-0 flex items-center gap-1 px-2 py-[3px] rounded bg-white/10 text-white text-mini active:bg-white/30 transition-colors coarse:min-h-11 coarse:px-3"
+            className="flex-shrink-0 flex items-center gap-1 px-2 py-0.75 rounded bg-white/10 text-white text-mini active:bg-white/30 transition-colors coarse:min-h-11 coarse:px-3"
             title={t('terminal.copyOutput')}
             aria-label={t('terminal.copyOutput')}
           >

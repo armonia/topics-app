@@ -65,9 +65,9 @@ export function LogPage({ model, copy, onFilter, onQuery, onPerson, onDay, onCle
         ] as Array<[LogFilter, string]>).map(([value, label]) => ({ value, label, count: value === 'all' ? model.counts.all : undefined }))}
       />
       <div className="flex flex-wrap items-end gap-3">
-        <TextField className="min-w-[220px] flex-1" type="search" icon={Search} value={model.query} onChange={onQuery} placeholder={l.search} />
-        <Select className="w-[200px]" value={model.person} onChange={onPerson} title={l.person} options={model.people} />
-        <Select className="w-[170px]" value={model.day} onChange={onDay} title={l.day} options={model.days} />
+        <TextField className="min-w-55 flex-1" type="search" icon={Search} value={model.query} onChange={onQuery} placeholder={l.search} />
+        <Select className="w-50" value={model.person} onChange={onPerson} title={l.person} options={model.people} />
+        <Select className="w-42.5" value={model.day} onChange={onDay} title={l.day} options={model.days} />
       </div>
       <Table
         ariaLabel={copy.app.settingsSections.registro}

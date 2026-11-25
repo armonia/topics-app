@@ -298,12 +298,12 @@ function RailButton({
           un cerchio chiaro attorno a un numero colorato è una terza cosa che non
           dice niente. */}
       {badge !== null && badge > 0 && (
-        <span className={`absolute -bottom-1 -right-1 min-w-[15px] h-[15px] px-[3px] flex items-center justify-center rounded-full text-mini font-bold leading-none tabular-nums ${toneClass}`}>
+        <span className={`absolute -bottom-1 -right-1 min-w-3.75 h-3.75 px-0.75 flex items-center justify-center rounded-full text-mini font-bold leading-none tabular-nums ${toneClass}`}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
       {badge === null && dot && (
-        <span className={`absolute -bottom-0.5 -right-0.5 w-[7px] h-[7px] rounded-full ${toneClass}`} />
+        <span className={`absolute -bottom-0.5 -right-0.5 w-1.75 h-1.75 rounded-full ${toneClass}`} />
       )}
     </button>
   );
@@ -393,20 +393,20 @@ function GitSectionRow({
         </div>
         <div className="flex items-center gap-1 min-w-0 ml-auto">
           {git && (
-            <span className="truncate max-w-[110px] text-app-text-muted" title={git.branch}>{git.branch}</span>
+            <span className="truncate max-w-27.5 text-app-text-muted" title={git.branch}>{git.branch}</span>
           )}
           {git && git.fileCount > 0 && (
-            <span className="text-mini font-medium text-primary bg-primary/10 px-1.5 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-primary bg-primary/10 px-1.5 py-0.25 rounded-full">
               {git.fileCount}
             </span>
           )}
           {git && git.behind > 0 && (
-            <span className="text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-red-600 dark:text-red-400 bg-red-500/10 px-1 py-0.25 rounded-full">
               ↓{git.behind}
             </span>
           )}
           {git && git.ahead > 0 && (
-            <span className="text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-[1px] rounded-full">
+            <span className="text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1 py-0.25 rounded-full">
               ↑{git.ahead}
             </span>
           )}
@@ -1033,7 +1033,7 @@ export function ProjectSidebar({
               name={projectName}
               collapsed
               onToggle={onToggleCollapse}
-              className="max-w-[280px] flex-shrink"
+              className="max-w-70 flex-shrink"
               trailing={comandi()}
             />
           )}
@@ -1064,7 +1064,7 @@ export function ProjectSidebar({
           // dei token del chrome in index.css — agganciata a QUESTO selettore —
           // valga anche sul telefono, dove il fondo è identico.
           data-testid="project-sidebar"
-          className="chrome-glass drawer-enter fixed inset-y-0 left-0 z-50 w-[280px] bg-app-chrome flex flex-col overflow-hidden shadow-lg"
+          className="chrome-glass drawer-enter fixed inset-y-0 left-0 z-50 w-70 bg-app-chrome flex flex-col overflow-hidden shadow-lg"
           // IL FONDO SI FERMA SOPRA L'HOME INDICATOR. Il pannello è
           // `inset-y-0`, quindi la sua ultima riga finiva sotto il trattino:
           // uno spazio da cui non si può toccare niente, occupato da qualcosa
@@ -1087,13 +1087,13 @@ export function ProjectSidebar({
           {/* Sections — Files fills top, Git/Processes anchored at bottom (vedi il
               gemello desktop per il mezzo passo in fondo). */}
           {/* `sidebar-column`: la PRIMA card non porta il suo mezzo passo in cima.
-          L'intestazione chiude già con `md:pb-[6px]` — il passo pieno — e la
+          L'intestazione chiude già con `md:pb-1.5` — il passo pieno — e la
           card sotto ci aggiungeva i suoi 3, facendo 9 dove ne servono 6.
           «Doppia spaziatura fra trigger, Files e tabbar» (Attilio, 09/08). La
           regola è la stessa della colonna principale (index.css), non una
           seconda: due posti che dicono la stessa cosa divergono al primo che
           viene corretto da solo. */}
-      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
+      <div className="flex-1 flex flex-col min-h-0 pb-0.75 sidebar-column">
             <div className={`${SECTION_ISLAND} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <FilesSectionHeader
                 open={expandedSections.files}
@@ -1169,7 +1169,7 @@ export function ProjectSidebar({
                 <span>{tr('project.sidebar.processes')}</span>
                 <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
                 {runningCount > 0 && (
-                  <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+                  <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-0.25 rounded-full">
                     {runningCount}
                   </span>
                 )}
@@ -1232,7 +1232,7 @@ export function ProjectSidebar({
         onMouseDown={startWidthResize}
         onDoubleClick={resetWidth}
         title={tr('project.sidebar.resize')}
-        className="absolute top-10 md:top-[34px] bottom-0 right-0 w-2 z-20 cursor-col-resize"
+        className="absolute top-10 md:top-8.5 bottom-0 right-0 w-2 z-20 cursor-col-resize"
       />
       {/* Header — height matches the pane tab bar (h-10) */}
       {/* LA STESSA CARD DELLA BARRA CHIUSA — vedi ProjectCard. E la STESSA RIGA
@@ -1243,7 +1243,7 @@ export function ProjectSidebar({
           sotto-tab si scollerebbero di sei pixel — e sarebbero due meta della
           stessa riga. */}
       {/* With its commands on the title row the name and the toggle are there too. */}
-      {!inlineBare && <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
+      {!inlineBare && <div className="flex items-center h-10 md:h-8.5 md:pb-1.5 px-1.5 flex-shrink-0">
         <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
       </div>}
 
@@ -1251,12 +1251,12 @@ export function ProjectSidebar({
           IL MEZZO PASSO IN FONDO: le sezioni sono card, e l'ultima si fermava a
           3px dal bordo della colonna invece dei 6 che ogni altra card ha su ogni
           lato — «sono attaccate in fondo» (Attilio, 09/08). Metà la porta il
-          margine della card (`my-[3px]` in SECTION_CARD), metà questo padding:
+          margine della card (`my-0.75` in SECTION_CARD), metà questo padding:
           è la stessa regola della colonna principale. */}
       {/* `sidebar-column` MANCAVA QUI, e c'era invece nel gemello mobile: la
           correzione era stata applicata a metà.
-          Il conto, da aperta: l'intestazione chiude con `md:pb-[6px]` — il passo
-          PIENO — e la card «File» sotto ci aggiunge il suo mezzo (`my-[3px]` di
+          Il conto, da aperta: l'intestazione chiude con `md:pb-1.5` — il passo
+          PIENO — e la card «File» sotto ci aggiunge il suo mezzo (`my-0.75` di
           SECTION_CARD), quindi fra il trigger e File passavano NOVE pixel dove
           ogni altra coppia di card ne ha sei. «Trigger aperto e File hanno
           distanza non conforme» (Attilio, 10/08) — e l'ipotesi che ci fosse
@@ -1266,10 +1266,10 @@ export function ProjectSidebar({
           regola già scritta per la colonna principale e per il drawer: «ognuno
           porta metà passo, e il primo non porta la sua perché sopra c'è chi
           l'ha già messa». */}
-      <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
+      <div className="flex-1 flex flex-col min-h-0 pb-0.75 sidebar-column">
 
         {/* Files Section — always flex-1 to push Git/Processes to bottom */}
-        {/* `pb-[3px]` da APERTA: mezzo passo, come ogni card della colonna.
+        {/* `pb-0.75` da APERTA: mezzo passo, come ogni card della colonna.
             Misurato prima di toccarlo — fra due intestazioni CHIUSE passavano 7px
             (i due mezzi passi delle card più il pixel del divisore di
             ridimensionamento, che è nel flusso) e fra il contenuto di una sezione
@@ -1304,13 +1304,13 @@ export function ProjectSidebar({
             <div
               data-testid="project-sidebar-split-files"
               data-resize-active={active ? 'true' : 'false'}
-              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
+              className={`h-0.25 flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               onMouseDown={active ? startBottomResize(firstBottom!) : undefined}
               // Doppio clic: la sezione torna ad adattarsi al contenuto.
               onDoubleClick={active ? resetBottomAuto(firstBottom!) : undefined}
               title={active ? tr('project.sidebar.resizeFit') : undefined}
             >
-              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+              {active && <div className="absolute inset-x-0 -top-0.75 -bottom-0.75" />}
             </div>
           );
         })()}
@@ -1359,14 +1359,14 @@ export function ProjectSidebar({
             <div
               data-testid="project-sidebar-split-git-processes"
               data-resize-active={active ? 'true' : 'false'}
-              className={`h-[1px] flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
+              className={`h-0.25 flex-shrink-0 relative z-10 ${active ? 'cursor-row-resize' : ''}`}
               // SOTTO il divisore ci sono i Processi: sono loro a crescere
               // quando lo si alza. Qui c'era `('git','processes')`.
               onMouseDown={active ? startBottomResize('processes', 'git') : undefined}
               onDoubleClick={active ? resetBottomAuto('processes', 'git') : undefined}
               title={active ? tr('project.sidebar.resizeFit') : undefined}
             >
-              {active && <div className="absolute inset-x-0 -top-[3px] -bottom-[3px]" />}
+              {active && <div className="absolute inset-x-0 -top-0.75 -bottom-0.75" />}
             </div>
           );
         })()}
@@ -1403,7 +1403,7 @@ export function ProjectSidebar({
             <span>{tr('project.sidebar.processes')}</span>
             <ChevronRight size={12} className={`transition-transform duration-fast text-app-text-tertiary flex-shrink-0 ${expandedSections.processes ? 'rotate-90' : ''}`} />
             {runningCount > 0 && (
-              <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-[1px] rounded-full">
+              <span className="ml-auto text-mini font-medium text-green-600 dark:text-green-400 bg-green-500/10 px-1.5 py-0.25 rounded-full">
                 {runningCount}
               </span>
             )}

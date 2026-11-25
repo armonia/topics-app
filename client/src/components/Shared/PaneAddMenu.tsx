@@ -522,7 +522,7 @@ export function PaneAddMenu({
                browser. Ci e' gia' cascato l'header (ESC a 16px accanto a
                lettere da 12px, misurato). Una base esplicita chiude la CLASSE
                di bug, non solo l'istanza. */
-            className={`relative w-full max-w-[300px] mx-4 ${MODAL_PANEL} py-1 text-compact outline-none`}
+            className={`relative w-full max-w-75 mx-4 ${MODAL_PANEL} py-1 text-compact outline-none`}
             onClick={(e) => e.stopPropagation()}
             data-testid="pane-add-menu"
           >

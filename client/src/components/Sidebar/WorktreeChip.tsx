@@ -24,7 +24,7 @@ export function WorktreeChip({ worktree, onFill }: { worktree: WorktreeLabel; on
     <span
       data-worktree-chip={worktree.id}
       className={cn(
-        'flex-shrink-0 flex items-center gap-1 max-w-[96px] h-[18px] px-1.5 rounded-md',
+        'flex-shrink-0 flex items-center gap-1 max-w-24 h-4.5 px-1.5 rounded-md',
         'text-mini leading-none',
         onFill ? cn(ON_FILL_TEXT_SOFT, 'bg-white/15') : 'text-app-text-secondary bg-app-hover',
       )}

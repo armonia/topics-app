@@ -68,7 +68,7 @@ function ContextPill({ file, excluded, onToggle, onRemove }: {
       title={`${file.path}${file.tokens ? ` (~${file.tokens} tokens)` : ''}${excluded ? ' (excluded)' : ''}`}
     >
       {icon}
-      <span className="truncate max-w-[100px]">{file.name}</span>
+      <span className="truncate max-w-25">{file.name}</span>
       {file.tokens != null && file.tokens > 0 && (
         <span className="text-mini opacity-60 flex-shrink-0">
           {file.tokens >= 1000 ? `${(file.tokens / 1000).toFixed(1)}k` : `${file.tokens}`}

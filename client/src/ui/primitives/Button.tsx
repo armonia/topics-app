@@ -74,7 +74,7 @@ export function Button({ variant = 'secondary', size = 'md', icon: Icon, trailin
   return (
     <span className="inline-flex shrink-0 flex-col items-start gap-0.5">
       {button}
-      <span className="hidden max-w-[16rem] whitespace-normal text-mini leading-4 text-app-text-tertiary coarse:block">{title}</span>
+      <span className="hidden max-w-64 whitespace-normal text-mini leading-4 text-app-text-tertiary coarse:block">{title}</span>
     </span>
   );
 }
