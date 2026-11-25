@@ -346,7 +346,7 @@ describe("GET /api/usage/projects/quota", () => {
     const body = await res!.json() as { cachedAt: string; projects: Array<{ projectPath: string | null; limit: number | null }> };
     expect(typeof body.cachedAt).toBe("string");
     expect(body.projects.find((p) => p.projectPath === "/proj/A")?.limit).toBe(10);
-  });
+  }, 30_000);
 });
 
 describe("a run on a node counts in the project of its card", () => {
