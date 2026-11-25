@@ -495,6 +495,8 @@ export interface GithubPort {
    * (task-diff-range.ts, landing-audit.ts) instead of GitHub's own default.
    */
   enableAutoMerge(cwd: string, repo: string, pr: number, subject: string): Promise<Got<"enabled">>;
+  /** Turns GitHub's auto-merge back off, so a land that gave up is not merged later behind its back. */
+  disableAutoMerge(cwd: string, repo: string, pr: number): Promise<Got<"disabled">>;
   /** What the pull request looks like right now: still a draft, merged, and the merge commit GitHub produced. */
   pullRequestState(cwd: string, repo: string, pr: number): Promise<Got<PullRequestState>>;
   /** `deleted`, or `absent` when the remote branch was already gone: both are "nothing left on origin". */
@@ -646,6 +648,8 @@ export function githubPort(): GithubPort {
     markReady: (cwd, repo, pr) => call(["gh", "pr", "ready", String(pr), "--repo", repo], cwd, () => "ready" as const),
     enableAutoMerge: (cwd, repo, pr, subject) => call(
       ["gh", "pr", "merge", String(pr), "--repo", repo, "--merge", "--auto", "--subject", subject, "--body", ""], cwd, () => "enabled" as const),
+    disableAutoMerge: (cwd, repo, pr) => call(
+      ["gh", "pr", "merge", String(pr), "--repo", repo, "--disable-auto"], cwd, () => "disabled" as const),
     pullRequestState: (cwd, repo, pr) => call(
       ["gh", "pr", "view", String(pr), "--repo", repo, "--json", "isDraft,state,mergeCommit"], cwd, (o) => {
         const parsed = JSON.parse(o) as { isDraft: boolean; state: string; mergeCommit: { oid: string } | null };

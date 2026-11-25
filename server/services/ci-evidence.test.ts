@@ -187,6 +187,7 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     openPullRequests: async () => ({ ok: true, value: [] }), branchRuns: async () => ({ ok: true, value: [] }), cancelRun: async () => ({ ok: true, value: undefined }),
     markReady: async () => ({ ok: true, value: "ready" }),
     enableAutoMerge: async () => ({ ok: true, value: "enabled" }),
+    disableAutoMerge: async () => ({ ok: true, value: "disabled" }),
     pullRequestState: async () => ({ ok: true, value: { isDraft: false, merged: false, mergeCommit: null } }),
     ...over,
   };

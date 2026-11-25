@@ -26,10 +26,14 @@ function fakePort(over: Partial<GithubPort> = {}): GithubPort {
     cancelRun: async () => ({ ok: true, value: undefined }),
     markReady: async () => ({ ok: true, value: "ready" }),
     enableAutoMerge: async () => ({ ok: true, value: "enabled" }),
+    disableAutoMerge: async () => ({ ok: true, value: "disabled" }),
     pullRequestState: async () => ({ ok: true, value: { isDraft: false, merged: false, mergeCommit: null } }),
     ...over,
   };
 }
+
+/** Local main already contained in origin/main: the precondition the real git check reports on a pushed main. */
+const synced = { mainIsBehindOrigin: async () => ({ ok: true as const, behind: true }) };
 
 function fakeClock() {
   let t = 1_000_000;
@@ -75,7 +79,7 @@ describe("landViaPullRequest", () => {
       enableAutoMerge: async () => { calls.push("auto"); return { ok: true, value: "enabled" }; },
     });
     const ff = async () => ({ ok: true as const });
-    await landViaPullRequest(input, port, { ...fakeClock(), deadlineMs: 0, fastForwardMain: ff });
+    await landViaPullRequest(input, port, { ...synced, ...fakeClock(), deadlineMs: 0, fastForwardMain: ff });
     expect(calls).toEqual(["ready", "auto"]);
   });
 
@@ -90,6 +94,7 @@ describe("landViaPullRequest", () => {
     });
     const fastForwarded: string[] = [];
     const got = await landViaPullRequest(input, port, {
+      ...synced,
       ...fakeClock(),
       pollMs: 1,
       fastForwardMain: async (_cwd, commit) => { fastForwarded.push(commit); return { ok: true }; },
@@ -121,10 +126,24 @@ describe("landViaPullRequest", () => {
     expect(got.status).toBe("failed");
   });
 
-  test("a deadline with no merge is a failure that names the pull request", async () => {
-    const port = fakePort();
-    const got = await landViaPullRequest(input, port, { ...fakeClock(), pollMs: 1, deadlineMs: 1 });
+  test("a deadline with no merge is a failure that names the pull request and turns auto-merge back off", async () => {
+    const calls: string[] = [];
+    const port = fakePort({ disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; } });
+    const got = await landViaPullRequest(input, port, { ...synced, ...fakeClock(), pollMs: 1, deadlineMs: 1 });
     expect(got).toEqual({ status: "failed", reason: expect.stringContaining("#7") });
+    expect(calls).toEqual(["off"]);
+  });
+
+  test("local main with commits origin lacks falls back before GitHub is asked to merge anything", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      pullRequestState: async () => ({ ok: true, value: { isDraft: true, merged: false, mergeCommit: null } }),
+      markReady: async () => { calls.push("ready"); return { ok: true, value: "ready" }; },
+      enableAutoMerge: async () => { calls.push("auto"); return { ok: true, value: "enabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, { mainIsBehindOrigin: async () => ({ ok: true, behind: false }) });
+    expect(got).toEqual({ status: "main-ahead" });
+    expect(calls).toEqual([]);
   });
 
   test("a fast-forward that fails (main moved under it) is a failure, not a silent partial land", async () => {

@@ -457,8 +457,8 @@ export interface AutoMergeDeps {
   /**
    * Injected for tests. Default: `landViaPullRequest` against the real
    * `githubPort()`. Tried before the local `git merge` whenever this land
-   * targets the branch itself (never a pinned sha): a `"no-pr"` answer falls
-   * back to the local merge unchanged.
+   * finds the commit to land (the pinned sha, or the branch tip): `"no-pr"`,
+   * `"head-differs"` and `"main-ahead"` fall back to the local merge unchanged.
    */
   landViaPullRequest?: typeof landViaPullRequest;
 }
@@ -1562,7 +1562,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
               return { ok: false, reason: viaPr.reason };
             }
-            // "no-pr" or "head-differs": nothing GitHub can merge as is, fall through to the local merge.
+            // "no-pr", "head-differs" or "main-ahead": nothing GitHub can merge as is, fall through to the local merge.
           }
           const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return { ok: true };

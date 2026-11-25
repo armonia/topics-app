@@ -23,6 +23,14 @@
  * branch has, or a measured sha that moved), so GitHub would merge the wrong
  * tree or never merge it. The caller falls back to the local merge.
  *
+ * `{ status: "main-ahead" }` is not a failure either: local main holds commits
+ * origin does not have yet (a land not pushed), so GitHub's merge commit could
+ * not be fast forwarded here and the two mains would diverge. The caller falls
+ * back to the local merge, which publishes both together.
+ *
+ * On a timeout the module turns GitHub's auto-merge back off, so the pull
+ * request cannot merge later behind a land that already reported failure.
+ *
  * `{ status: "no-pr" }` is not a failure: a branch with no open pull request
  * (ci-evidence never ran for it, or it was closed already) falls back to the
  * caller's own local-merge-and-push path, which this module never replaces.
@@ -35,11 +43,17 @@ export type LandViaPrResult =
   | { status: "no-pr" }
   /** The pull request exists but its head is not the commit the caller means to land: GitHub would merge something else. */
   | { status: "head-differs"; prHead: string | null; expected: string }
+  /** Local main has commits origin lacks: GitHub's merge commit would not fast forward onto it. */
+  | { status: "main-ahead" }
   | { status: "failed"; reason: string };
 
 export type FastForwardMain = (cwd: string, commit: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 
+/** True when local HEAD is already contained in origin/main (after a fetch), so a merge GitHub makes there fast forwards here. */
+export type MainIsBehindOrigin = (cwd: string) => Promise<{ ok: true; behind: boolean } | { ok: false; reason: string }>;
+
 export type LandViaPrDeps = {
+  mainIsBehindOrigin?: MainIsBehindOrigin;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   pollMs?: number;
@@ -50,6 +64,15 @@ export type LandViaPrDeps = {
 const DEFAULT_POLL_MS = 15_000;
 const DEFAULT_DEADLINE_MS = 20 * 60_000;
 const GIT_TIMEOUT_MS = 30_000;
+
+const realMainIsBehindOrigin: MainIsBehindOrigin = async (cwd) => {
+  const fetch = await runGit(cwd, ["fetch", "origin", "main"], { timeoutMs: GIT_TIMEOUT_MS });
+  if (fetch.code !== 0) return { ok: false, reason: `git fetch origin main exited ${fetch.code}: ${fetch.stderr.trim().slice(0, 300)}` };
+  const ancestor = await runGit(cwd, ["merge-base", "--is-ancestor", "HEAD", "origin/main"], { timeoutMs: GIT_TIMEOUT_MS });
+  // 0 = ancestor, 1 = not; anything else is git failing to answer.
+  if (ancestor.code === 0 || ancestor.code === 1) return { ok: true, behind: ancestor.code === 0 };
+  return { ok: false, reason: `git merge-base --is-ancestor exited ${ancestor.code}: ${ancestor.stderr.trim().slice(0, 300)}` };
+};
 
 /** Real git fetch + fast-forward of local main onto the commit GitHub produced. */
 const realFastForwardMain: FastForwardMain = async (cwd, commit) => {
@@ -79,6 +102,7 @@ export async function landViaPullRequest(
   const pollMs = deps.pollMs ?? DEFAULT_POLL_MS;
   const deadlineMs = deps.deadlineMs ?? DEFAULT_DEADLINE_MS;
   const fastForwardMain = deps.fastForwardMain ?? realFastForwardMain;
+  const mainIsBehindOrigin = deps.mainIsBehindOrigin ?? realMainIsBehindOrigin;
 
   // A checkout whose origin is not a GitHub repo (or has none at all, e.g. a
   // test fixture) has nothing to reuse: the caller's local merge is the only path.
@@ -107,6 +131,12 @@ export async function landViaPullRequest(
     return fastForwardAndReport(input.cwd, state.value.mergeCommit, fastForwardMain);
   }
 
+  // Past this point GitHub merges on origin, which cannot be taken back: make
+  // sure local main can follow it with a fast forward before asking.
+  const behind = await mainIsBehindOrigin(input.cwd);
+  if (!behind.ok) return { status: "failed", reason: behind.reason };
+  if (!behind.behind) return { status: "main-ahead" };
+
   if (state.value.isDraft) {
     const ready = await port.markReady(input.cwd, repo, pr);
     if (!ready.ok) return { status: "failed", reason: `cannot take pull request #${pr} out of draft: ${ready.error}` };
@@ -123,7 +153,12 @@ export async function landViaPullRequest(
       if (!poll.value.mergeCommit) return { status: "failed", reason: `pull request #${pr} is merged but GitHub reports no merge commit` };
       return fastForwardAndReport(input.cwd, poll.value.mergeCommit, fastForwardMain);
     }
-    if (now() >= deadline) return { status: "failed", reason: `pull request #${pr} did not merge within ${Math.round(deadlineMs / 60_000)} min of auto-merge` };
+    if (now() >= deadline) {
+      const minutes = Math.round(deadlineMs / 60_000);
+      const off = await port.disableAutoMerge(input.cwd, repo, pr);
+      const tail = off.ok ? "auto-merge turned off" : `and auto-merge could not be turned off: ${off.error}`;
+      return { status: "failed", reason: `pull request #${pr} did not merge within ${minutes} min of auto-merge, ${tail}` };
+    }
     await sleep(pollMs);
   }
 }
