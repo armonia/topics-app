@@ -639,3 +639,17 @@ MISURA: `tests/unit/e2e-server-lock.test.ts`.
 #### Scenario: un worker morto col lock in mano
 - **GIVEN** un lock con il PID di un processo che non esiste
 - **THEN** il lock viene ripreso
+
+### Requirement: BLOAT-RATCHET-01 — La baseline delle dimensioni può solo scendere
+
+Il cancello `check:bloat` SHALL rifiutare `--update-baseline` per un file nuovo
+sopra soglia o per uno già registrato che cresce, salvo un'eccezione scritta per
+quel file con motivo e scadenza. Il numero totale di file sopra soglia SHALL non
+poter salire oltre quello registrato più le eccezioni vive, e un'eccezione
+scaduta SHALL far fallire il cancello.
+
+MISURA: `tests/unit/check-bloat-ratchet.test.ts`.
+
+#### Scenario: file nuovo di 801 righe senza eccezione
+- **WHEN** si lancia `--update-baseline`
+- **THEN** il cancello esce non zero e la baseline non cambia

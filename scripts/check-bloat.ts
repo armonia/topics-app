@@ -59,6 +59,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { exceptionIsLive, newlyExcepted, refusedEntries, type BloatException } from "./bloat-exceptions";
 
 const DEFAULT_ROOT = resolve(import.meta.dir, "..");
 
@@ -124,6 +125,10 @@ interface Baseline {
    * map insert at the same spot, which is a conflict.
    */
   notes: Record<string, string[]>;
+  /** Ceiling on offenders; only falls, except through a live exception. */
+  max_over_files?: number;
+  /** path -> written reason and expiry, see ./bloat-exceptions. */
+  exceptions: Record<string, BloatException>;
 }
 
 /** A `files` entry on disk: the bare count, or the count with its reason. */
@@ -171,6 +176,7 @@ function serializeBaseline(b: Baseline): string {
     min_clone_lines: b.min_clone_lines,
     duplicated_lines: b.duplicated_lines,
     clone_groups: b.clone_groups,
+    ...(b.max_over_files === undefined ? {} : { max_over_files: b.max_over_files }),
   };
   const headText = JSON.stringify(head, null, 2).replace(/\n}$/, "");
   const files: Record<string, BaselineEntry> = {};
@@ -178,7 +184,8 @@ function serializeBaseline(b: Baseline): string {
     const why = b.notes[path];
     files[path] = why && why.length > 0 ? { lines, why } : lines;
   }
-  return `${headText},\n${paragraphs("files", files)}\n}\n`;
+  const exceptions = Object.keys(b.exceptions).length > 0 ? `,\n${paragraphs("exceptions", b.exceptions)}` : "";
+  return `${headText},\n${paragraphs("files", files)}${exceptions}\n}\n`;
 }
 
 /** One key per paragraph, keys in code-unit order (not locale: same on every machine). */
@@ -556,7 +563,8 @@ function parseOptions(argv: string[]): { opts: Options; baseline: Baseline | nul
 function loadBaseline(path: string): Baseline | null {
   if (!existsSync(path)) return null;
   try {
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Omit<Baseline, "files" | "notes"> & {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Omit<Baseline, "files" | "notes" | "exceptions"> & {
+      exceptions?: Record<string, BloatException>;
       files: Record<string, BaselineEntry>;
     };
     const files: Record<string, number> = {};
@@ -569,7 +577,7 @@ function loadBaseline(path: string): Baseline | null {
         notes[file] = entry.why;
       }
     }
-    return { ...raw, files, notes };
+    return { ...raw, files, notes, exceptions: raw.exceptions ?? {} };
   } catch (err) {
     console.error(`[check-bloat] baseline unreadable at ${path} (${String(err)})`);
     process.exit(2);
@@ -663,6 +671,13 @@ function main(): void {
   }
 
   if (opts.updateBaseline) {
+    // The baseline only goes down: new or bigger entries need a live exception.
+    const refused = baseline ? refusedEntries(baseline, over, opts.baselinePath) : [];
+    if (refused.length > 0) {
+      console.error(`[check-bloat] REFUSED - ${refused.length} entries without a live exception:`);
+      for (const r of refused) console.error(`  ${r}`);
+      process.exit(1);
+    }
     const next: Baseline = {
       $schema: "bloat-baseline-v2",
       _comment: baseline?._comment ?? [],
@@ -673,9 +688,9 @@ function main(): void {
       clone_groups: clones.length,
       files: Object.fromEntries(over.map((f) => [f.file, f.lines])),
       // A note outlives a size change of its file, not the file leaving the list.
-      notes: Object.fromEntries(
-        Object.entries(baseline?.notes ?? {}).filter(([path]) => over.some((f) => f.file === path)),
-      ),
+      notes: Object.fromEntries(Object.entries(baseline?.notes ?? {}).filter(([path]) => over.some((f) => f.file === path))),
+      max_over_files: Math.min(over.length, baseline?.max_over_files === undefined ? over.length : baseline.max_over_files + newlyExcepted(baseline, over)),
+      exceptions: Object.fromEntries(Object.entries(baseline?.exceptions ?? {}).filter(([path]) => over.some((f) => f.file === path))),
     };
     writeFileSync(opts.baselinePath, serializeBaseline(next));
     console.log(`[check-bloat] baseline rewritten: ${opts.baselinePath}`);
@@ -719,6 +734,19 @@ function main(): void {
           `    same commit, so the diff shows what those lines bought.`,
       );
     }
+  }
+
+  const maxOver = baseline.max_over_files ?? Object.keys(baseline.files).length;
+  const allowedOver = maxOver + newlyExcepted(baseline, over);
+  if (over.length > allowedOver) {
+    problems.push(
+      `TOTAL rose: ${over.length} files over ${opts.maxLines} lines, the baseline allows ${allowedOver}. ` +
+        `Split a file, or write an exception (why + expiry) for the new one.`,
+    );
+  }
+  for (const f of over) {
+    const e = baseline.exceptions[f.file];
+    if (e && !exceptionIsLive(e)) problems.push(`EXPIRED exception  ${f.file} (until ${e.expires}). Split the file or renew it on purpose.`);
   }
 
   const dupCeiling = Math.floor(baseline.duplicated_lines * tol);
