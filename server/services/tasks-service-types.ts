@@ -450,6 +450,13 @@ export interface TaskService {
     rootsOnly?: boolean;
   }): Neighbour[];
 
+  /**
+   * The OPEN card (not done, not archived) of a board that already says this
+   * very thing: same normalized title, or same idempotency key. Exact only; the
+   * fuzzy neighbours stay with `findDuplicates`.
+   */
+  findOpenTwin(args: { projectId: string; text?: string; idempotencyKey?: string | null; rootsOnly?: boolean }): Task | null;
+
   archive(args: { taskId: string; projectId?: string }): Task;
   /**
    * Unhooks the open children (not archived, not done) of `taskId` so they
