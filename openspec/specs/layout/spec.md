@@ -4418,13 +4418,17 @@ con le voci del suo tipo tranne Disposizione, e bersagli di almeno 44 px.
 
 Le tab di primo livello SHALL comparire in UN posto solo: nella colonna (default)
 o nella barra in alto, a scelta dal menu Vista. Con le tab di lato la barra in
-alto NON SHALL esserci, e ciò che serviva della barra SHALL restare raggiungibile
-dalla riga del titolo: il foglio della tab con Disposizione, il «+» che aggiunge
-nella cella, la chiusura.
+alto NON SHALL esserci, nemmeno a colonna chiusa (25/11: «è o una o l'altra»), e
+ciò che serviva della barra SHALL restare raggiungibile dalla riga del titolo: il
+foglio della tab con Disposizione, il «+» che aggiunge nella cella, la chiusura.
+A colonna chiusa la riga del titolo SHALL tenere la superficie davanti e il
+bottone che riapre la colonna.
 
 #### Scenario: il default
 - **GIVEN** un client che non ha mai toccato il menu Vista e due chat aperte
 - **THEN** nessun `panel-tab-bar` è visibile e le due chat sono righe della colonna con lo sfondo delle tab aperte
+- **WHEN** la colonna si chiude
+- **THEN** nessun `panel-tab-bar` compare e la riga del titolo tiene la tab davanti
 
 ### Requirement: TABPOS-02 — Ogni tab ha tre stati: aperta, chiusa, archiviata
 
@@ -4521,7 +4525,7 @@ During a drag exactly one indicator SHALL be painted: on an edge, the area the p
 
 When a surface holds more than one cell and the tabs are on the side, every cell SHALL carry a header with the pane's icon and name, the header of the focused cell SHALL be lit, a click on a header SHALL focus its cell, and the header SHALL drag like a tab. With one cell the header SHALL be lit for no cell and carry no cell commands. Cells SHALL be counted on screen: a cell the saved layout keeps for a closed pane SHALL NOT make a lone pane a split cell.
 
-With the tabs on the side the title of the pane in front SHALL be its tab, in a split or alone: under the pointer it SHALL take the tab's fill and it SHALL drag into a split. A project's window SHALL then draw no bar of its own while it holds one group: its tabs are rows of the column, the closed project bar's commands SHALL sit on the title row with no "+" (the project's row in the column has it), and its body SHALL start under the title with no empty band.
+With the tabs on the side the title of the pane in front SHALL be its tab, in a split or alone: the same tab the strip draws, alone, so everything a tab shows comes with it (a browser's icon and commands, the countdown of a close, the loaders and badges); at rest it SHALL read as a title with no fill, under the pointer it SHALL take the tab's fill, and it SHALL drag into a split. A project's window SHALL then draw no bar of its own while it holds one group: its tabs are rows of the column, the project's commands SHALL sit on the title row with the column open or closed, with no "+" (the project's row in the column has it) and with their badges whole, and its body SHALL start under the title with no empty band. The column's sections SHALL be islands: each a card of its own, the column with no ground or edge of its own.
 
 #### Scenario: due celle, due testate
 - **GIVEN** a grid split in two with tabs on the side
@@ -4538,6 +4542,20 @@ With the tabs on the side the title of the pane in front SHALL be its tab, in a 
 - **THEN** the title takes the tab's fill
 - **WHEN** the title is dragged to the right edge of a chat beside it
 - **THEN** the project lands on the right of that chat
+
+#### Scenario: the column open keeps the commands on the title
+- **GIVEN** the tabs on the side and a project in front with its column open
+- **THEN** the project's commands sit on the title row, the toggle says the column is open, and each section of the column is a rounded card
+- **WHEN** a section's command is pressed
+- **THEN** that section opens or closes
+
+#### Scenario: the title is the real tab
+- **GIVEN** the tabs on the side and a browser in front
+- **THEN** its title carries the browser tab's menu and commands
+- **WHEN** a chat is in front and its close is pressed on the title
+- **THEN** the title keeps that chat and shows the countdown, and a second press cancels it
+- **WHEN** the countdown runs out
+- **THEN** the title moves to the tab left
 
 ### Requirement: SPLIT-04 — I divisori si usano da tastiera
 
