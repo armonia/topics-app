@@ -6,6 +6,7 @@ import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { seedMessage, type SeedToolCall } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -36,7 +37,7 @@ hermetic(test);
  *
  * @covers CHAT-01
  */
-test.use({ video: "on", contextOptions: { reducedMotion: "no-preference" } });
+test.use({ video: VIDEO_ON, contextOptions: { reducedMotion: "no-preference" } });
 
 type Box = { y: number; h: number; o: number; id: number } | null;
 type Frame = {
@@ -228,7 +229,7 @@ async function seedChat(
 /** Opens `topicId` alone and waits until its bottom has been still for 20 frames. */
 async function openAtRest(page: Page, request: APIRequestContext, topicId: string, needle: string) {
   await resetPaneStore(request, [topicId]);
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
   await goToApp(page);
   await page.keyboard.press("Escape");
@@ -444,7 +445,7 @@ test.describe("phone chat switch", () => {
       closedStack: [],
     }));
     await installProbe(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), a.topicId);
     await page.goto("/");
     const aEnd = page.locator('[data-testid="chat-message"]:visible').filter({ hasText: "PHONE-A-END" });

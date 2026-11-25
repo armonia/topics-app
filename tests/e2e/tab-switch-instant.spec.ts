@@ -360,7 +360,7 @@ async function switchBackAfterHiddenTurn(page: Page, request: APIRequestContext,
   const ws = await interceptWebSocket(page);
   await installProbe(page);
   await installMeter(page);
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
   await goToApp(page);
   const longShell = page.locator(`[data-pane-shell="${long.topicId}"]`);
@@ -423,7 +423,7 @@ test.describe("a tab switch is instant", () => {
     }));
     await installProbe(page);
     await installMeter(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
     await goToApp(page);
     const shortRow = page.locator(`[data-pane-shell="${short.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "SHORT-END" });
@@ -500,7 +500,7 @@ test.describe("a tab switch is instant", () => {
     }));
     await installProbe(page);
     await installMeter(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
     const release = await holdOlderPages(page, long.sessionKey);
     await goToApp(page);
@@ -561,7 +561,7 @@ test.describe("a tab switch is instant", () => {
     }));
     await installProbe(page);
     await installMeter(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), short.topicId);
     const release = await holdOlderPages(page, long.sessionKey);
     await goToApp(page);
@@ -636,7 +636,7 @@ test.describe("a tab switch is instant", () => {
     }));
     await installProbe(page);
     await installMeter(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), main.topicId);
     await goToApp(page);
     await expect(page.locator(`[data-pane-shell="${main.topicId}"] [data-testid="chat-message"]`).filter({ hasText: "MAIN-END" })).toBeVisible({ timeout: 20_000 });
@@ -683,7 +683,7 @@ test.describe("a tab switch is instant", () => {
     }));
     await installProbe(page);
     await installMeter(page);
-    await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+    await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
     await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), termPane);
     await goToApp(page);
     const termShell = page.locator(`[data-pane-shell="${termPane}"]`);

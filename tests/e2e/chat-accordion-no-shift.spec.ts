@@ -389,7 +389,7 @@ async function seedChat(request: APIRequestContext, kind: Kind) {
 
 async function openChat(page: Page, request: APIRequestContext, topicId: string) {
   await resetPaneStore(request, [topicId]);
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate((id) => localStorage.setItem("pane-store-focused-id", id), topicId);
   await goToApp(page);
   await page.keyboard.press("Escape");

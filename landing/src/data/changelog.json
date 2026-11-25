@@ -1,5 +1,133 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "one row grammar in the sidebar, and no ground at rest",
+          "scope": "ui"
+        },
+        {
+          "text": "the reused browser view passes the island flag too",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "scope": "tauri"
+        },
+        {
+          "text": "a project's browser in front is the title, and its page is an island",
+          "scope": "ui"
+        },
+        {
+          "text": "corner_plan is macOS-only outside tests, like its neighbours",
+          "scope": "tauri"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.108",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "table shows the project first, with its icon, on the design system tokens",
+          "scope": "board"
+        },
+        {
+          "text": "main gates green again after two lands",
+          "scope": "ci"
+        },
+        {
+          "text": "the request_login land and the wait-branch land, made green",
+          "scope": "ci"
+        },
+        {
+          "text": "check-e2e-touched reads the fetch of its own step",
+          "scope": "test"
+        },
+        {
+          "text": "with tabs at the side the title is the real tab, and the project column is islands",
+          "scope": "layout"
+        },
+        {
+          "text": "keep the front on close only on the desktop title",
+          "scope": "layout"
+        },
+        {
+          "text": "a new chat comes back after a reload; the queue chip scene leaves flight",
+          "scope": null
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.107",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a declared wait keeps the worktree branch; a phantom delivery branch no longer pins the overflow",
+          "scope": "tasks"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.106",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a starving runner keeps its turn, a real message wakes it",
+          "scope": "ci-governor"
+        },
+        {
+          "text": "a card cut on an open question is not resumed with the interrupted-turn nudge",
+          "scope": "dispatcher"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.105",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's window shows only its title, which is its tab",
+          "scope": "layout"
+        },
+        {
+          "text": "no \"+\" on a project's title, its row in the column has it",
+          "scope": "layout"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.101",
     "date": "2026-11-25",
     "sections": {
@@ -21,6 +149,10 @@
         {
           "text": "no reap, prune or remove loses work the review found exposed",
           "scope": "worktrees"
+        },
+        {
+          "text": "the vacuum and the auto-land read what WORKS, a parked card is not working",
+          "scope": "restart-gate"
         }
       ],
       "perf": []
@@ -156,7 +288,12 @@
     "version": "2.4.96",
     "date": "2026-11-24",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "text": "request_login records a notice linking to the topic, plus a 1440 px e2e",
+          "scope": "agent"
+        }
+      ],
       "fixes": [
         {
           "text": "bring main's any budget and identifier gate back to green",
@@ -251,6 +388,20 @@
           "scope": null
         }
       ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.76",
+    "date": "2026-11-22",
+    "sections": {
+      "new": [
+        {
+          "text": "request_login opens a login tab, raises it and waits for the sign-in",
+          "scope": "agent"
+        }
+      ],
+      "fixes": [],
       "perf": []
     }
   },

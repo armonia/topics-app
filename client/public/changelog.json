@@ -1,5 +1,480 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "one row grammar in the sidebar, and no ground at rest",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "the reused browser view passes the island flag too",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "the new comments quote the report in English",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "the browser tab in the title row is a portal in flow, not a floating surface",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.110",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a pop-out window is dressed on the main thread, not on a tokio worker",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        },
+        {
+          "it": "a project's browser in front is the title, and its page is an island",
+          "en": "",
+          "scope": "ui",
+          "breaking": false
+        },
+        {
+          "it": "corner_plan is macOS-only outside tests, like its neighbours",
+          "en": "",
+          "scope": "tauri",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": []
+    }
+  },
+  {
+    "version": "2.4.108",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "table shows the project first, with its icon, on the design system tokens",
+          "en": "",
+          "scope": "board",
+          "breaking": false
+        },
+        {
+          "it": "main gates green again after two lands",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        },
+        {
+          "it": "the request_login land and the wait-branch land, made green",
+          "en": "",
+          "scope": "ci",
+          "breaking": false
+        },
+        {
+          "it": "check-e2e-touched reads the fetch of its own step",
+          "en": "",
+          "scope": "test",
+          "breaking": false
+        },
+        {
+          "it": "with tabs at the side the title is the real tab, and the project column is islands",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "keep the front on close only on the desktop title",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "a new chat comes back after a reload; the queue chip scene leaves flight",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "a project's window with only its title is approved",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        },
+        {
+          "it": "spec-flow D20 design system gate with the recorded debt as baseline",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un contenitore non viene richiesto due volte, e il rimando di una card del nodo torna al nodo",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-11-25 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "la cura dei contenitori torna d'accordo con i suoi test e con il piano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "clear four unit reds main carries since today's lands",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the board's table view of 25/11 is approved",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        },
+        {
+          "it": "the File section's card is its island, the header a row in it",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the table view's seed reads like a real board",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "focus-pane carries the daemon token; the rail step is measured to the File island",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the parked-children question starts from a step that was being worked",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "the title as the real tab and the project islands are approved",
+          "en": "",
+          "scope": "design",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.107",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a declared wait keeps the worktree branch; a phantom delivery branch no longer pins the overflow",
+          "en": "",
+          "scope": "tasks",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Build OAuth popups on about:blank so the engine keeps their opener",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.106",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a starving runner keeps its turn, a real message wakes it",
+          "en": "",
+          "scope": "ci-governor",
+          "breaking": false
+        },
+        {
+          "it": "a card cut on an open question is not resumed with the interrupted-turn nudge",
+          "en": "",
+          "scope": "dispatcher",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "test expects per-host tab name, tool-surface golden regenerated (card 27cb396b)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Il rifiuto del land non pretende le righe github-ci nemmeno in modo before: la coda CI le misura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test dell'adozione passa dal percorso vero: la figlia rilancia, viene archiviata, il servizio del genitore resta vivo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "register browser:login-request in outbound schema tests, undo unrelated json reformat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.105",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "a project's window shows only its title, which is its tab",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        },
+        {
+          "it": "no \"+\" on a project's title, its row in the column has it",
+          "en": "",
+          "scope": "layout",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il cancello degli intrecci torna nella CI ora che spec-flow 0.7.0 è su npm",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.104",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una card che gira su un nodo non ha più come worktree il tentativo locale vecchio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La compressione notturna tocca solo i transcript delle sessioni, non il lavoro degli agenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E-VIDEO-01: dichiara il requisito dei video e2e e il @covers del test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il controllo sui check non misurati non aspetta in modo after le righe github-ci che la CI scrive dopo il land",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "one tab per host, MCP tool-list tests know the new tool (card d20d270b)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Sul Mac la cartella temporanea dei test sta in /tmp: i socket non passano più 104 caratteri",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.4.103",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "lower ci.slice memory ceiling and reserve memory for system.slice and topics (card 0ecda178)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Un figlio che rilancia senza wake il servizio fermato del genitore lo lascia al genitore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Split server/services/tasks/shared.ts into six factory modules behind the same barrel",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Split tasks/shared.ts: baselines and unused type exports",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land guard: a card's own branches include its spawned children and worktree branch",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Main verde: covers del test usage-limit e baseline dopo i land della notte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land refuses a delivery with null checks on a board that declares a bar",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "E2E clips sized to the viewport, not Playwright's 800x500",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chat nuova: il primo messaggio in volo si salva su disco e torna nel campo dopo un riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test di contratto: leggono i moduli di shared/board.ts dopo lo split",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spazio mancante nell'import di firstSend",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Node deliveries emit task-deliver so the retrospective hook sees them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate: failures are the 401 auth env, same on the parent commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Re-measure the pre-review gate after bun install restored jscpd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land also refuses a delivery whose bar was measured only in part",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sub-agent no-news replies on a later turn no longer wake the parent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "seed-before-navigation uses /manifest.json, not /favicon.ico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Toglie il re-export morto dei parse dei check e fissa la duplicazione a 290",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "e2e-video-size test: spawn the running bun binary so it also works on Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spazzata del land-push spinge main una volta per repo, e ripete un rifiuto solo se cambia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una corsa vecchia che il nodo non ha più non si scrive come errore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un transcript troppo grande per cercarci un fork si dice una volta, non a ogni giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Land refuses an unmeasured delivery on every path, not only the automatic one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Traccia il test dell'adozione da parte del genitore con il requisito PROCESS-13",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "declare BROWSER-LOGIN-01, move the login branch out of browser-bridge (card 2d18548c)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Main verde dopo lo split di tasks/shared.ts: import rimasti e test che leggevano il file vecchio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.4.102",
     "date": "2026-11-25",
     "sections": {
@@ -8,7 +483,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "Replace real names in the client with fictitious ones, content (ORBIT, Alfa Impianti)",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Nodo senza GitHub: il ramo della card che c'è solo su origin parte come bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Claude CLI usage-limit sentence: read as a rate-limit and hold until the declared reset, so the resume sweep resends the turn by itself",
           "en": "",
           "scope": null
         }
@@ -45,12 +530,47 @@
           "en": "",
           "scope": "worktrees",
           "breaking": false
+        },
+        {
+          "it": "the vacuum and the auto-land read what WORKS, a parked card is not working",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
         }
       ],
       "perf": [],
       "internal": [
         {
+          "it": "serialize process-groups and tauri macOS legs",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Disk budget: fix deadcode-prod/untraced-tests gates, make legacy transcript readers gz-aware",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "tauri runs whatever process-groups ends with",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the wiring test reads the split stream count",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        },
+        {
+          "it": "English name for the vacuum test db",
+          "en": "",
+          "scope": "restart-gate",
+          "breaking": false
+        },
+        {
+          "it": "Replace real names in the client with fictitious ones (ORBIT, Alfa Impianti)",
           "en": "",
           "scope": null
         }
@@ -142,6 +662,24 @@
           "it": "dup: keep main's baseline; the lowered one was measured on this Mac, where jscpd counts 360 lines fewer than CI",
           "en": "",
           "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "share the in-flight run registry across the HTTP providers",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "one stopAllChildren for the codex and muse exec providers",
+          "en": "",
+          "scope": "providers",
+          "breaking": false
+        },
+        {
+          "it": "one fitSurface for the select-element overlay geometry",
+          "en": "",
+          "scope": "browser",
           "breaking": false
         }
       ]
@@ -349,7 +887,14 @@
     "version": "2.4.96",
     "date": "2026-11-24",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "request_login records a notice linking to the topic, plus a 1440 px e2e",
+          "en": "",
+          "scope": "agent",
+          "breaking": false
+        }
+      ],
       "fixes": [
         {
           "it": "bring main's any budget and identifier gate back to green",
@@ -928,6 +1473,11 @@
           "scope": null
         },
         {
+          "it": "Carry recent board.ts additions into the split modules",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Main di nuovo verde su unit e gates: check:instance-strings motivato, nomi in inglese",
           "en": "",
           "scope": null
@@ -1303,7 +1853,14 @@
     "version": "2.4.76",
     "date": "2026-11-22",
     "sections": {
-      "new": [],
+      "new": [
+        {
+          "it": "request_login opens a login tab, raises it and waits for the sign-in",
+          "en": "",
+          "scope": "agent",
+          "breaking": false
+        }
+      ],
       "fixes": [],
       "perf": [],
       "internal": [
@@ -2066,6 +2623,11 @@
         },
         {
           "it": "Il Cloud col freno aperto non riprende la card che ha appena lasciato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Split shared/board.ts into five modules under 800 lines behind the same barrel",
           "en": "",
           "scope": null
         }

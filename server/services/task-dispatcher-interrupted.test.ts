@@ -293,3 +293,24 @@ describe("il recupero di una card che un umano ha bocciato", () => {
     expect(h.turns[0]!.content).toContain("was interrupted");
   });
 });
+
+describe("a card cut on an open question waits for its person", () => {
+  it("the boot recovery does not nudge it while the question is open, and resumes it once answered", async () => {
+    let open = true;
+    const asked: string[] = [];
+    const h = harness({ hasOpenQuestion: (sk) => { asked.push(sk); return open; } });
+    seedOrfana(h.db, "t1", { chip: "working", interruptedAt: "2026-08-18T23:00:00.000Z" });
+
+    await h.dispatcher.reconcile({ reason: "boot" });
+    await flush();
+
+    expect(asked).toEqual(["topic:topic-t1".slice(0, "topic:".length + 8)]);
+    expect(h.turns.length).toBe(0);
+    expect(h.svc.get("t1")!.task.dispatchAttempts).toBe(1);
+
+    open = false;
+    await h.dispatcher.reconcile({ reason: "poll" });
+    await flush();
+    expect(h.turns.length).toBe(1);
+  });
+});

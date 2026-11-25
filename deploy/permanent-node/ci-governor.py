@@ -61,6 +61,9 @@ TICK = float(os.environ.get("CI_TICK", "2"))
 # il socket (byte arrivati e non letti) e il log del Listener (scrive appena prende un messaggio).
 PROBE_WINDOW = int(os.environ.get("CI_PROBE_WINDOW", "90"))   # dopo una pausa, per quanto si cerca un dato arrivato nel socket
 PROBE_MAX = int(os.environ.get("CI_PROBE_MAX", "1"))          # riprese per dato arrivato, per ogni pausa (poi resta fermo: dopo la prima e' quasi sempre una risposta vuota)
+# The broker's empty long-poll answer is 236-244 bytes; a real message (a job, a label change) is 326 or more (measured
+# on 1240 and 120 wakes, 22-25/11). A real one is never held to the probe budget: see wake_on_data().
+REAL_MSG_MIN = int(os.environ.get("CI_REAL_MSG_MIN", "300"))
 HOLD_S = int(os.environ.get("CI_HOLD_S", "12"))               # dopo una ripresa per dato in arrivo non si ferma per 12 s (il Worker parte in 1-3 s)
 QUIET_S = int(os.environ.get("CI_QUIET_S", "8"))              # un Listener che ha scritto nel log meno di cosi' fa non si ferma
 # esenti, nel formato <prefisso>:<n> (es. ci-runner:0 = il servizio del runner di preparazione, leggero)
@@ -101,7 +104,8 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     awake = [u for u in idle if not runners[u]["stopped"] and u not in pinned]
     stopped = [u for u in idle if runners[u]["stopped"] and u not in stuck]
     free = max(free - len(pinned) - len([u for u in stuck if u in idle]), 0)   # occupano un posto: stanno per prendere un job
-    granted &= set(awake)                           # chi ha preso un job o e' stato fermato non e' piu' un'ammissione
+    # who took a job or was paused is no longer an admission; one pinned (writing its log right after the wake) still is
+    granted &= set(awake) | set(pinned)
     free = max(free - len([u for u in awake if u in granted]), 0)
     # chi è sveglio da troppo e ha altri in attesa cede il posto
     stale = [u for u in awake if now - last_awake.get(u, now) >= rotate_s and stopped]
@@ -129,6 +133,14 @@ def decide(runners, load1, now, last_awake, max_jobs=MAX_JOBS, load_cap=LOAD_CAP
     if starving and not cont and len(active) + awake_now < max_jobs:
         cont.append(starving[0]); granted.add(starving[0])
     return stop, stuck + cont
+
+
+def wake_on_data(nbytes, since_pause, probes, probe_window=PROBE_WINDOW, probe_max=PROBE_MAX, real_min=REAL_MSG_MIN):
+    """Does data waiting in a paused Listener's socket wake it? A real message always does; the empty long-poll answer
+    only once per pause and inside the probe window, or every paused Listener would wake each minute for nothing."""
+    if not nbytes:
+        return False
+    return nbytes >= real_min or (since_pause <= probe_window and probes < probe_max)
 
 
 def selftest():
@@ -232,6 +244,24 @@ def selftest():
     # g) dopo il job il Listener torna normale (niente pending/hold): la pausa di rotazione riparte
     st, co = decide({"a": P(1, 0), "z": P(0, 0), "y": P(0, 1)}, 5, 1000, {"z": 0}, served={"y": 900, "z": 990}, max_jobs=2, load_cap=24, rotate_s=600)
     assert st == ["z"], (st, co)
+    # STARVATION SURVIVES THE PIN (25/11 11:54:58, run 45605471183): a runner woken "per fame" writes its log at once, so for
+    # a few seconds it is pinned (pending), hence not in `awake`. Its grant must not be dropped there: it was, and once the
+    # log went quiet it counted as a plain awake runner, the newest, and was paused 10 s after the wake with 0 jobs running.
+    # 722 of 1274 starvation wakes on 22-25/11 ended in under 30 s; the e2e shard booked on it waited 21 minutes.
+    g = {"z"}
+    decide({"a": P(1, 0), "z": P(0, 0, p=True), "y": P(0, 0), "x": P(0, 1)}, 5, 1000, {"z": 994, "y": 900},
+           served={"z": 994, "y": 900, "x": 100}, granted=g, max_jobs=2, load_cap=24, rotate_s=600)
+    assert "z" in g, g
+    st, co = decide({"a": P(1, 0), "z": P(0, 0), "y": P(0, 0), "x": P(0, 1)}, 5, 1002, {"z": 994, "y": 900},
+                    served={"z": 994, "y": 900, "x": 100}, granted=g, max_jobs=2, load_cap=24, rotate_s=600)
+    assert "z" not in st, (st, co)
+    # A REAL MESSAGE ALWAYS WAKES (25/11 11:36:27): the broker's empty long-poll answer is 236-244 bytes (1240 of the
+    # wakes logged on 22-25/11); a job or label message is 326 bytes or more. Only the empty answer is held to one probe
+    # per pause inside the window; a real one wakes the Listener whenever it arrives, or a job waits in the socket.
+    assert wake_on_data(242, 10, 0) and not wake_on_data(242, 10, 1) and not wake_on_data(242, 120, 0)
+    assert wake_on_data(568, 10, 1), "a job message after the one probe must wake the Listener"
+    assert wake_on_data(328, 600, 3), "a real message outside the probe window must wake the Listener"
+    assert not wake_on_data(0, 10, 0)
     # lettura dei segnali su Linux: socket con byte non letti e log del Listener appena scritto
     if os.path.exists("/proc/net/tcp"):
         import socket, tempfile
@@ -458,8 +488,7 @@ def main():
             if r["worker"]:
                 probes.pop(u, None)
             elif r["stopped"]:                      # congelato: un dato arrivato dopo la pausa e' la risposta del broker
-                r["pending"] = (now - paused_at.get(u, 0) <= PROBE_WINDOW and probes.get(u, 0) < PROBE_MAX
-                                and pending_data(r["listener"]))
+                r["pending"] = wake_on_data(pending_data(r["listener"]), now - paused_at.get(u, 0), probes.get(u, 0))
             else:
                 r["pending"] = pending_data(r["listener"]) or recent_log(r["listener"])
         extra = manual_suites()
@@ -482,9 +511,11 @@ def main():
             if r["stopped"] and r["worker"]:
                 motivo = " con un job in corso: il Listener non va lasciato fermo"
             elif r["stopped"] and r["pending"]:
-                motivo = f" per {pending_data(r['listener'])} byte arrivati dopo la pausa (puo' essere un job)"
+                n = pending_data(r['listener'])
+                motivo = f" per {n} byte arrivati dopo la pausa (puo' essere un job)"
                 hold_until[u] = now + HOLD_S
-                probes[u] = probes.get(u, 0) + 1
+                if n < REAL_MSG_MIN:                # only the empty answer spends the probe budget
+                    probes[u] = probes.get(u, 0) + 1
             elif u in granted:
                 motivo = ' per fame (fermo da ' + str(int((now - served.get(u, now)) / 60)) + ' min)'
                 probes[u] = 0

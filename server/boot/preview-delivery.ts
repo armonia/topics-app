@@ -13,6 +13,9 @@ import { killProcessTree } from "../lib/process-tree";
 import { resolvePreviewCommand } from "../services/preview-command";
 import { branchExistsInRepo, resolveCommit, worktreeDiffStat } from "../services/branch-status";
 import { deliveryPointer } from "../services/own-commits";
+import { collectCardOwnBranches } from "../services/card-own-branches";
+import { subagentBranchesOf } from "../lib/subagent-store";
+import { getDatabase } from "../db";
 import { resolveDeliveryBranch, type DeliveryBranchDeps } from "../services/delivery-branch-ref";
 import { buildProjectCandidates, resolveProjectPath } from "../services/project-path-resolver";
 import { ownBranchFiles, ownCommitFiles } from "../routes/tasks";
@@ -356,8 +359,14 @@ export function bootPreviewDelivery(scope: AfterQuiescence) {
    */
   function cardOwnBranches(taskId: string): string[] {
     const task = dispatcherSvc.get(taskId)?.task;
-    const named = [...taskAttemptStore.list(taskId).map((a) => a.branch), task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? [])];
-    return [...new Set(named.filter((b): b is string => typeof b === "string" && b.length > 0))];
+    const db = getDatabase();
+    return collectCardOwnBranches({
+      attemptBranches: taskAttemptStore.list(taskId).map((a) => a.branch),
+      deliveryBranches: [task?.deliveryBranch, task?.priorBranch, ...(task?.pastDeliveryBranches ?? []), worktreeOfTask(taskId)?.branchName],
+      // The chat the dispatcher holds is cleared on release, `chatId` keeps the last one.
+      agentSessionKeys: [task?.assignedTopicId, task?.chatId].map((id) => (id ? ctx.getTopicById(id)?.sessionKey : null)),
+      childBranchesOf: (key) => subagentBranchesOf(db, key),
+    });
   }
 
 

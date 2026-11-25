@@ -642,6 +642,24 @@ that was read.
 - **GIVEN** a branch on origin whose only card is done and whose tip is not in main
 - **THEN** a local archive tag SHALL be created, then the branch deleted with a lease on that tip
 
+### Requirement: WORKTREE-18 — A card that declares a wait keeps the branch it worked on
+
+When an agent declares a wait, the card SHALL write the branch of its worktree
+into `prior_branch` before the link to the topic is cleared, when that branch
+has commits ahead of main. Without commits ahead, the `prior_branch` the card
+already had SHALL stay as it was. A rerun then starts from that branch, not
+from main.
+
+#### Scenario: wait with commits on the branch
+- **GIVEN** a card with an assigned topic whose worktree branch is ahead of main
+- **WHEN** the agent declares a wait
+- **THEN** `prior_branch` SHALL be that branch, and the topic link SHALL be cleared
+
+#### Scenario: wait with nothing ahead of main
+- **GIVEN** a card with `prior_branch` set and a worktree branch with no commits ahead of main
+- **WHEN** the agent declares a wait
+- **THEN** `prior_branch` SHALL keep its value
+
 ### Requirement: WORKTREE-STD-01 — La radice delle worktree e i suoi tetti sono impostazioni della macchina
 **Intersects:** KANBAN-76
 

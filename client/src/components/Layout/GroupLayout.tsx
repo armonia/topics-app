@@ -1,4 +1,5 @@
 import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
@@ -38,6 +39,10 @@ import { paneZoomActions, usePaneZoomStore } from '../../state/paneZoom';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
 import { useTopics, useTerminalSessions, useTopicsPending } from '../../contexts/TopicsContext';
 import { notifyPaneReflow } from './paneReflow';
+import { takesTheTitle } from './titleTab';
+
+/** A title adds nothing: the project's row in the column has the «+». */
+const NO_PANE_TYPES: never[] = [];
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { getProjectPathFromPaneId } from '../../state/pane/adapters';
 import { usePaneZoomChord } from './usePaneZoomChord';
@@ -171,6 +176,23 @@ interface GroupLayoutProps {
    */
   subordinate?: boolean;
   /**
+   * The tabs are at the side of the window (TABPOS-01): the project's tabs are
+   * rows of the column and the window's title names the project, so a project
+   * with ONE group draws no bar of its own (asked on 25/11: only the title).
+   * With a split inside the project each group keeps its bar, the only handle
+   * its cell has.
+   */
+  chromeless?: boolean;
+  /**
+   * The node on the window's title row where the tab of the surface in front
+   * goes when it takes the title (`takesTheTitle`: a browser, 25/11), and the
+   * call that tells the row its own tab gives way. Only with `chromeless` and
+   * one group: with a split every group has its bar. Absent while this window
+   * is not the pane in front.
+   */
+  titleTabSlot?: HTMLElement | null;
+  onTitleTab?: (taken: boolean) => void;
+  /**
    * DOES THIS SURFACE OFFER "ENLARGE"? Default **false**, and the default IS the
    * decision: this same `GroupLayout` is also what a task's drawer mounts
    * (`Board/TaskDetail.tsx`), which is already an overlaid surface — two nested
@@ -229,7 +251,8 @@ function LeadingSlot({ node }: { node: HTMLElement }) {
 
 
 export function GroupLayout({
-  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, enableZoom = false,
+  panes, groups, rows, rowHeights, focusedGroupId, dndScope, isAppFocused = true, leadingSlot, belowSlot, subordinate = false, chromeless = false, enableZoom = false,
+  titleTabSlot = null, onTitleTab,
   onActivatePane, onClosePane, onClosePaneImmediate, onAddPaneToGroup, onNewChatInGroup, onAddPaneWhenEmpty, onReorderGroupPanes,
   onMovePaneBetweenGroups, onSplitGroup, onReorderRows,
   onUpdateRows, onUpdateRowHeights,
@@ -257,6 +280,28 @@ export function GroupLayout({
     for (const g of groups) m.set(g.id, g);
     return m;
   }, [groups]);
+
+  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
+  // primo della prima riga. Con uno split le righe di chrome sono N, il
+  // progetto uno solo.
+  const leadingGid = rows[0]?.groupIds[0];
+  // One group on screen: nothing beside it, nothing stacked under it.
+  const soloGroup = rows.length === 1 && rows[0].groupIds.length === 1
+    && !Object.values(rows[0].cellStacks ?? {}).some((s) => s.groupIds.length > 0);
+  // The surface in front that puts its own tab on the window's title (see
+  // `titleTabSlot`), and whether it is there: the row hides the project's tab
+  // only while this one stands in its place.
+  const leadGroup = leadingGid ? groupMap.get(leadingGid) : undefined;
+  const leadActive = leadGroup?.activePaneId ? paneMap.get(leadGroup.activePaneId) : undefined;
+  const titleTabPaneId = chromeless && soloGroup && !isMobile && leadActive && takesTheTitle(leadActive) ? leadActive.id : null;
+  const titleTaken = !!titleTabSlot && !!titleTabPaneId;
+  // Layout, not passive: the row swaps its tab before the frame is painted, so
+  // the project's tab and the browser's never show together.
+  useLayoutEffect(() => {
+    if (!onTitleTab) return;
+    onTitleTab(titleTaken);
+    return () => onTitleTab(false);
+  }, [onTitleTab, titleTaken]);
 
   // NOTE: the sidebar split mini-map (per-topic cell schematic) is published
   // separately via SplitPositionContext — GroupLayout no longer threads a
@@ -1301,11 +1346,6 @@ export function GroupLayout({
   // a column's primary group AND for each group vertically stacked under it via
   // cellStacks. `rowIdx` drives the last-row gutter inset; `seenPaneIds` is
   // threaded so a duplicated pane id never paints twice.
-  // Il gruppo la cui barra ospita il blocco di testa (vedi `leadingSlot`): il
-  // primo della prima riga. Con uno split le righe di chrome sono N, il
-  // progetto uno solo.
-  const leadingGid = rows[0]?.groupIds[0];
-
   // `hasBox` = the cell hosting this block occupies a rectangle in the layout.
   // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
   // (observers, polls, measurements against a zero viewport), it does not
@@ -1345,6 +1385,8 @@ export function GroupLayout({
     //    the project itself sits next to a focused sibling at App level
     //  - inactive: not the focused group of this project
     const isFullyFocused = isFocusedGroup && isAppFocused;
+    // No bar at all (see `chromeless`): the body starts at the top of the cell.
+    const bareLead = chromeless && soloGroup && gid === leadingGid;
     const edgeDrop = edgeDropTarget?.groupId === gid ? edgeDropTarget.edge : null;
     // Shared split gating (splitRules.ts, one predicate with the standalone
     // surface): splitting the only pane of a group into itself is a visual
@@ -1358,17 +1400,18 @@ export function GroupLayout({
       onDragLeave: handleGroupContentDragLeave(gid),
       onDrop: handleGroupContentDrop(gid),
     };
-    return (
-      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
-        {/* Per-group tab bar — h-10 to match the project sidebar header
-            and the StandaloneChatGroup header (consistent chrome row). */}
-        <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
-          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
-          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+    // The group's tab bar, and the same bar with its tab in front alone when
+    // that tab is the window's title (`titleTabSlot`): same handlers, so the
+    // title cannot lose what the tab does (its menu, its countdown, its badges).
+    const frontPane = groupPanes.find((p) => p.id === group.activePaneId);
+    const frontIdx = frontPane ? groupPanes.indexOf(frontPane) : -1;
+    const tabBar = (title: boolean) => (
           <PaneTabBar
-              hasLeadingBlock={!!leadingSlot}
-            subordinate={subordinate && rowIdx === 0}
-            panes={groupPanes}
+            asTitle={title}
+            className={title ? 'flex-initial min-w-0 app-drag-region' : undefined}
+            hasLeadingBlock={!title && !!leadingSlot}
+            subordinate={!title && subordinate && rowIdx === 0}
+            panes={title && frontPane ? [frontPane] : groupPanes}
             activePaneId={group.activePaneId}
             groupIsFocused={isFocusedGroup}
             groupIsAppFocused={isFullyFocused}
@@ -1376,7 +1419,7 @@ export function GroupLayout({
             onClose={(paneId) => onClosePane(gid, paneId)}
             onCloseImmediate={onClosePaneImmediate ? (paneId) => onClosePaneImmediate(gid, paneId) : undefined}
             onAddPane={(type, subType) => onAddPaneToGroup(gid, type, subType)}
-            availableTypes={availableTypesForGroup(group.type, gid)}
+            availableTypes={title ? NO_PANE_TYPES : availableTypesForGroup(group.type, gid)}
             groupType={group.type}
             groupId={gid}
             dndScope={dndScope}
@@ -1388,16 +1431,19 @@ export function GroupLayout({
             // handler routes the new chat into the project's
             // existing chat group (or creates one) — it does
             // NOT add a chat into a non-chat group.
-            onNewChat={onNewChatInGroup
+            onNewChat={onNewChatInGroup && !title
               ? () => onNewChatInGroup(gid)
               : undefined
             }
-            onReorderPanes={onReorderGroupPanes
+            onReorderPanes={onReorderGroupPanes && !title
               ? (newPaneIds) => onReorderGroupPanes(gid, newPaneIds)
               : undefined
             }
+            // Dropped on the title, a tab lands beside the surface in front.
             onCrossGroupDrop={onMovePaneBetweenGroups
-              ? handleCrossGroupDrop(gid)
+              ? (title
+                ? (paneId, fromGroup, at) => handleCrossGroupDrop(gid)(paneId, fromGroup, frontIdx + at)
+                : handleCrossGroupDrop(gid))
               : undefined
             }
             onEdgeSplitDrop={onSplitGroup
@@ -1441,8 +1487,18 @@ export function GroupLayout({
             linkContext={linkContext}
             onOpenPaneInProject={onOpenPaneInProject}
           />
+    );
+    return (
+      <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
+        {/* Per-group tab bar — h-10 to match the project sidebar header
+            and the StandaloneChatGroup header (consistent chrome row). */}
+        {!bareLead && <div className={barraSub(rowIdx === 0)} onDragOverCapture={handleTabBarDragOver(gid)}>
+          {leadingSlot && gid === leadingGid && <LeadingSlot node={leadingSlot} />}
+          <div className="flex-1 flex items-center min-w-0 overflow-hidden">
+          {tabBar(false)}
           </div>
-        </div>
+        </div>}
+        {bareLead && titleTaken && frontPane?.id === titleTabPaneId && titleTabSlot && createPortal(tabBar(true), titleTabSlot)}
         {belowSlot && gid === leadingGid && <LeadingSlot node={belowSlot} />}
         {/* Active pane content */}
         {/* La riga dei comandi ha già scavalcato la barra: da qui in giù non va
@@ -1450,7 +1506,7 @@ export function GroupLayout({
             di fascia vuota, misurati. La condizione è la STESSA della riga qui
             sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
-          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
+          className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${(belowSlot && gid === leadingGid) || bareLead ? CHROME_BAR_CONSUMED : ''}`}
           data-pane-content=""
           onMouseDownCapture={contentHandlers.onMouseDownCapture}
           onDragOver={contentHandlers.onDragOver}

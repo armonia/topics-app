@@ -38,6 +38,7 @@ const TABLE: Array<[string, AgentAction]> = [
   ['mcp__topics__spawn_agent', 'delegate'],
   ['mcp__topics__browser_eval', 'browse'],
   ['mcp__topics__open_browser_pane', 'browse'],
+  ['request_login', 'browse'], ['mcp__topics__request_login', 'browse'],
   ['mcp__topics__create_task', 'tool'],
   ['mcp__exa__web_search_exa', 'web'],
   ['mcp__exa__web_search_advanced_exa', 'web'],

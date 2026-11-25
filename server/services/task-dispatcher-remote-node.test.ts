@@ -39,7 +39,7 @@ import { NODE_BRANCH_GRACE_POLLS, NODE_DEAD_POLLS, NODE_RETIRE_TRIES } from "./t
 import { createNodeBranchPlanter } from "./node-branch-plant";
 import { createDeliveryCapture, type DeliveryCapture, type DeliveryRef } from "./task-delivery-capture";
 import type { TaskFile } from "../../shared/task-labels";
-import type { NodeRunReport } from "./node-client";
+import { NodeError, type NodeRunReport } from "./node-client";
 
 import { wakeBreaker } from "./wake-breaker";
 import { hangBreaker } from "./task-dispatcher-remote-node";
@@ -505,6 +505,38 @@ describe("l'hook node-run gira prima che la card parta sul nodo", () => {
     buried = true;
 
     expect(trace).toEqual(["hook", "create", "hook", "cancel:run-1", "create"]);
+  });
+
+  it("la corsa vecchia che il nodo non ha più (404) non è un errore da scrivere; un rifiuto vero sì", async () => {
+    // 25/11: every re-dispatch of a buried run logged a NodeError stack for a run the node had already dropped.
+    for (const [failure, logged] of [
+      [new NodeError("not_found", "cancel run answered 404: run not found", 404), false],
+      [new Error("offline"), true],
+    ] as const) {
+      // The dead polls of the previous round open the node's breakers, as in beforeEach.
+      wakeBreaker.success(MACHINE);
+      hangBreaker.success(MACHINE);
+      const logs: string[] = [];
+      const cancelled: string[] = [];
+      let runs = 0;
+      let buried = false;
+      const h = harness({
+        createRun: async () => { runs += 1; return { runId: `run-${runs}` }; },
+        cancelRun: async (runId) => { cancelled.push(runId); throw failure; },
+        readRun: (runId) =>
+          runId === "run-1" && !buried
+            ? Promise.reject(Object.assign(new Error("giu"), { reason: "unreachable" }))
+            : Promise.resolve(report()),
+      }, { log: (msg) => { logs.push(msg); } });
+      h.seed();
+      await dispatch(h);
+      await poll(h, NODE_DEAD_POLLS);
+      buried = true;
+
+      expect(cancelled).toEqual(["run-1"]);
+      expect(runs).toBe(2);
+      expect(logs.some((m) => m.includes("non si è cancellata"))).toBe(logged);
+    }
   });
 
   it("hooks.json con uno script che esce non zero: il motivo sullo stderr arriva sulla card", async () => {
@@ -1035,6 +1067,41 @@ describe("lo specchio: stato, commenti e il ramo che torna", () => {
     expect(t.humanAsk).toBeUndefined();
     // The slot is released: the run is over.
     expect(h.dispatcher.busyIds()).not.toContain(TASK);
+  });
+
+  it("a node delivery emits task-deliver once, and a hook that throws does not block the review", async () => {
+    for (const throws of [false, true]) {
+      const seen: { event: string; payload: LifecycleHookPayload }[] = [];
+      const hooks: LifecycleHookRunner = {
+        run: async (event, payload) => {
+          seen.push({ event, payload });
+          if (event === "task-deliver" && throws) throw new Error("hook broke");
+          return { ok: true };
+        },
+      };
+      const h = harness({
+        hooks,
+        bundle: new Uint8Array([1, 2, 3, 4]),
+        readRun: () =>
+          Promise.resolve(report({
+            status: "review",
+            dispatchState: "delivered",
+            deliveryBranch: "topics/corsa-remota",
+            deliveryCommit: "deadbeefdeadbeef",
+            baseSha: "abcdef0123456789",
+          })),
+      });
+      h.seed();
+      await dispatch(h);
+      await poll(h);
+      await flush(10);
+
+      expect(h.task().status).toBe("review");
+      const delivers = seen.filter((c) => c.event === "task-deliver");
+      expect(delivers).toHaveLength(1);
+      expect(delivers[0].payload.task_id).toBe(TASK);
+      expect(delivers[0].payload.node_run).toBe(true);
+    }
   });
 
   it("il ramo che non si pianta arriva comunque in review, col motivo scritto", async () => {

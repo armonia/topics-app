@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback, lazy, Suspense, type Ref, type RefObject } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense, type ReactNode, type Ref, type RefObject } from 'react';
 import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { createPortal } from 'react-dom';
 import { ChevronRight, FolderTree, GitBranch, CirclePlay, RefreshCw, PanelLeftOpen, PanelLeftClose, FilePlus, FolderPlus, ChevronsDownUp } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
-import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, SECTION_CARD, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE } from '../../lib/selectionStyles';
+import { RAISED_CONTROL, RESTING_SURFACE, ROW_ACTION_BOX, ROW_PX, TAB_GAP_CLASS, TAB_LABEL, TAB_RESTING_SURFACE, sectionCard, sectionIsland } from '../../lib/selectionStyles';
 import { capSezione, clampSidebarWidth, projectSidebarWidthKey, readProjectSidebarWidth, DEFAULT_SIDEBAR_W } from './projectSidebarHeights';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { FileExplorer, type FileExplorerHandle } from './FileExplorer';
@@ -77,6 +77,11 @@ interface ProjectSidebarProps {
    * colonna deve dire dove va la sua forma chiusa.
    */
   inlineSlot: HTMLElement;
+  /**
+   * The closed bar sits on the window's title row, which already names the
+   * project: the commands only, the toggle a glyph, no card around them.
+   */
+  inlineBare?: boolean;
 }
 
 type SectionId = 'files' | 'git' | 'processes';
@@ -230,6 +235,13 @@ function ProjectCard({
  * colonna verticale da 40px — finché la barra chiusa era una rail; non c'è più,
  * e con la rail se n'è andato anche il ramo che la disegnava.
  */
+/** The box of a closed bar's command, and of its toggle on the title row. */
+function railBoxClass(compact: boolean, active: boolean): string {
+  return `relative ${compact ? 'w-6 h-6 md:w-5 md:h-5' : ROW_ACTION_BOX} flex items-center justify-center rounded-md edge-lit transition-colors flex-shrink-0 ${
+    active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
+  }`;
+}
+
 function RailButton({
   compact = false,
   icon: Icon,
@@ -269,9 +281,7 @@ function RailButton({
       // 28px-tall card edge to edge - «devono essere piu' piccoli, seno' esce
       // brutto nel trigger» (30/08). One step down, and the card keeps its own
       // padding around them.
-      className={`relative ${compact ? 'w-6 h-6 md:w-5 md:h-5' : ROW_ACTION_BOX} flex items-center justify-center rounded-md edge-lit transition-colors flex-shrink-0 ${
-        active ? 'text-primary bg-primary/10' : `${RAISED_CONTROL} text-app-text`
-      }`}
+      className={railBoxClass(compact, active)}
     >
       <Icon size={compact ? 13 : 16} />
       {/* LA PASTIGLIA STA IN BASSO, e senza anello.
@@ -374,7 +384,7 @@ function GitSectionRow({
         data-testid="project-sidebar-git"
         role="button"
         aria-expanded={expanded}
-        className={SECTION_CARD}
+        className={sectionCard(expanded)}
       >
         <div className="flex items-center gap-2 min-w-0">
           <GitBranch size={14} className={`flex-shrink-0 ${git ? '' : 'text-app-text-muted'}`} />
@@ -462,7 +472,7 @@ function FilesSectionHeader({ open, onToggle, explorerRef, reveal, headerRef }: 
       // starting color was `currentColor`, here `--text-secondary` against a
       // much lighter `--border`. Keeping the color always on leaves nothing
       // to animate.
-      className={`${SECTION_CARD} group/files`}
+      className={`${sectionCard(open)} group/files`}
     >
       <FolderTree size={14} className="flex-shrink-0" />
       <span>{tr('project.sidebar.files')}</span>
@@ -486,6 +496,7 @@ export function ProjectSidebar({
   onWSMessage,
   onOpenProcessLog,
   inlineSlot,
+  inlineBare = false,
 }: ProjectSidebarProps) {
   const tr = useT();
   // I quattro comandi dell'intestazione «Files» (nuovo file, nuova cartella,
@@ -883,9 +894,13 @@ export function ProjectSidebar({
   const drawerOpen = isMobile && !effectiveCollapsed;
   useExitGhost(drawerRef, drawerOpen, 'drawer');
   useExitGhost(drawerScrimRef, drawerOpen, 'modal');
+  let titleCommands: ReactNode = null;
 
-  if (effectiveCollapsed) {
+  {
+    // From the closed column a command opens it on its section; from the open
+    // one it opens or closes that section, as the section's own header does.
     const open = (section: SectionId) => () => {
+      if (!effectiveCollapsed) { toggleSection(section); return; }
       onToggleCollapse();
       // Stesso cancello del toggle: una sezione stretta a zero deve tornare
       // utile anche quando la si apre dalla rail, non solo dall'intestazione.
@@ -924,19 +939,19 @@ export function ProjectSidebar({
     // rail verticale e una per la striscia in linea — e la rail non c'e' piu':
     // resta la lista, che e' anche il motivo per cui non ne sono mai divergite
     // due al primo badge aggiunto.
-    const comandi = () => (
+    const comandi = (compact = true) => (
       <>
         <RailButton
-          compact
+          compact={compact}
           icon={FolderTree}
-          active={expandedSections.files}
+          active={!effectiveCollapsed && expandedSections.files}
           onClick={open('files')}
           title={tr('project.sidebar.files')}
         />
         {gitVisible && <RailButton
-          compact
+          compact={compact}
           icon={GitBranch}
-          active={expandedSections.git}
+          active={!effectiveCollapsed && expandedSections.git}
           onClick={open('git')}
           title={gitTitle}
           // Il NOME DEL RAMO non entra e non ci va: nei tool seri il ramo vive
@@ -951,9 +966,9 @@ export function ProjectSidebar({
           dot={!!git && git.fileCount === 0 && (git.ahead > 0 || git.behind > 0)}
         />}
         <RailButton
-          compact
+          compact={compact}
           icon={CirclePlay}
-          active={expandedSections.processes}
+          active={!effectiveCollapsed && expandedSections.processes}
           onClick={open('processes')}
           title={procTitle}
           // Il rosso è il motivo per cui questo badge esiste: un processo uscito
@@ -984,7 +999,7 @@ export function ProjectSidebar({
           // cedere dev'essere il NOME (che tronca), non i comandi (che
           // sparirebbero). I bottoni sono `flex-shrink-0` da soli, quindi la
           // pressione arriva tutta sulla card del titolo.
-          className={`flex items-center ${TAB_GAP_CLASS} pl-1.5 min-w-0 app-no-drag`}
+          className={`flex items-center ${inlineBare ? 'gap-0.5' : `${TAB_GAP_CLASS} pl-1.5`} min-w-0 app-no-drag`}
           {...NO_DRAG_REGION}
         >
           {/* IL NOME STA DENTRO L'APERTORE, non accanto a lui.
@@ -997,19 +1012,39 @@ export function ProjectSidebar({
               progetto una fascia di chrome intera per tre bottoni da 28px.
               Chiesto il 30/08 di portarli dentro il trigger: una card sola, in
               fila con le tab, che contiene il nome e i comandi. */}
-          <ProjectCard
-            projectPath={projectPath}
-            name={projectName}
-            collapsed
-            onToggle={onToggleCollapse}
-            className="max-w-[280px] flex-shrink"
-            trailing={comandi()}
-          />
+          {inlineBare ? (
+            <>
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title={`${projectName} · ${tr(effectiveCollapsed ? 'project.sidebar.expand' : 'project.sidebar.hide')}`}
+                aria-label={tr(effectiveCollapsed ? 'project.sidebar.expand' : 'project.sidebar.hide')}
+                aria-expanded={!effectiveCollapsed}
+                data-testid="project-card"
+                className={railBoxClass(false, !effectiveCollapsed)}
+              >
+                {effectiveCollapsed ? <PanelLeftOpen size={16} aria-hidden /> : <PanelLeftClose size={16} aria-hidden />}
+              </button>
+              {comandi(false)}
+            </>
+          ) : (
+            <ProjectCard
+              projectPath={projectPath}
+              name={projectName}
+              collapsed
+              onToggle={onToggleCollapse}
+              className="max-w-[280px] flex-shrink"
+              trailing={comandi()}
+            />
+          )}
         </div>,
         inlineSlot,
     );
 
-    return striscia;
+    if (effectiveCollapsed) return striscia;
+    // Open, on the title row of a project with no bar of its own: the commands
+    // stay there (25/11: they should stay with the column open too).
+    if (inlineBare && !isMobile) titleCommands = striscia;
   }
 
   // On mobile: render as overlay on top of content.
@@ -1059,7 +1094,7 @@ export function ProjectSidebar({
           seconda: due posti che dicono la stessa cosa divergono al primo che
           viene corretto da solo. */}
       <div className="flex-1 flex flex-col min-h-0 pb-[3px] sidebar-column">
-            <div className={`flex flex-col ${expandedSections.files ? 'flex-1 min-h-0 pb-[3px]' : 'flex-shrink-0'}`}>
+            <div data-section-island className={`${sectionIsland(expandedSections.files)} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
               <FilesSectionHeader
                 open={expandedSections.files}
                 onToggle={() => toggleSection('files')}
@@ -1075,7 +1110,8 @@ export function ProjectSidebar({
             {gitVisible && <div
               data-testid="project-sidebar-git-section"
               ref={el => { sectionsRef.current.git = el; }}
-              className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+              data-section-island
+              className={`${sectionIsland(expandedSections.git)} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1103,7 +1139,8 @@ export function ProjectSidebar({
             </div>}
             <div
               ref={el => { sectionsRef.current.processes = el; }}
-              className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+              data-section-island
+              className={`${sectionIsland(expandedSections.processes)} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
               style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1128,7 +1165,7 @@ export function ProjectSidebar({
                 // gemello nella rail lo dichiara già (RailButton).
                 data-testid="project-sidebar-processes"
                 aria-expanded={expandedSections.processes}
-                className={SECTION_CARD}
+                className={sectionCard(expandedSections.processes)}
               >
                 <CirclePlay size={14} className="flex-shrink-0" />
                 <span>{tr('project.sidebar.processes')}</span>
@@ -1155,6 +1192,8 @@ export function ProjectSidebar({
   }
 
   return (
+    <>
+    {titleCommands}
     <div
       data-testid="project-sidebar"
       // `bg-app-chrome`, non `bg-elevated`. Misurato in tema chiaro sul web:
@@ -1177,7 +1216,10 @@ export function ProjectSidebar({
       // differenza di tinta che non c'è più. «Mostriamo bordo sidebar, mi sa non
       // abbiamo altre soluzioni pulite» (Attilio, 09/08): non è un ripiego, è
       // l'unica cosa che resta quando le due superfici sono identiche.
-      className="chrome-glass flex-shrink-0 bg-app-chrome border-r border-app-border flex flex-col overflow-hidden relative"
+      // ISLANDS, not one panel (25/11: each section a card of its own): the
+      // column has no ground or edge of its own, each section is a card
+      // (SECTION_ISLAND) on the window's ground.
+      className="flex-shrink-0 flex flex-col overflow-hidden relative"
       style={{ width: sidebarWidth }}
     >
       {/* Maniglia sul bordo destro: invisibile, si annuncia col cursore.
@@ -1202,9 +1244,10 @@ export function ProjectSidebar({
           barra dell'app. Se questa testata restasse `h-10`, la card e la prima
           sotto-tab si scollerebbero di sei pixel — e sarebbero due meta della
           stessa riga. */}
-      <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
+      {/* With its commands on the title row the name and the toggle are there too. */}
+      {!inlineBare && <div className="flex items-center h-10 md:h-[34px] md:pb-[6px] px-1.5 flex-shrink-0">
         <ProjectCard projectPath={projectPath} name={projectName} collapsed={false} onToggle={onToggleCollapse} className="flex-1" />
-      </div>
+      </div>}
 
       {/* Sections — Files fills top (flex-1), Git/Processes anchored at bottom.
           IL MEZZO PASSO IN FONDO: le sezioni sono card, e l'ultima si fermava a
@@ -1238,7 +1281,8 @@ export function ProjectSidebar({
             vede di più: è esattamente il punto da cui è partito questo giro —
             «quando aperta, trigger e trigger degli altri accordion si trovano
             alla stessa distanza» (Attilio, 09/08). Adesso ci si trovano. */}
-        <div ref={filesBoxRef} className={`flex flex-col flex-1 min-h-0 ${expandedSections.files ? 'pb-[3px]' : ''}`}>
+        <div ref={filesBoxRef} className="flex flex-col flex-1 min-h-0">
+          <div data-section-island className={`${sectionIsland(expandedSections.files)} flex flex-col ${expandedSections.files ? 'flex-1 min-h-0' : 'flex-shrink-0'}`}>
           <FilesSectionHeader
             headerRef={filesHeaderRef}
             open={expandedSections.files}
@@ -1251,6 +1295,7 @@ export function ProjectSidebar({
               <FileExplorer ref={fileExplorerRef} projectPath={projectPath} compact onOpenFile={onOpenFile} onWSMessage={onWSMessage} />
             </div>
           </KeptSection>
+          </div>
         </div>
 
         {/* Resize handle: Files ↔ first expanded bottom section */}
@@ -1277,7 +1322,8 @@ export function ProjectSidebar({
         {gitVisible && <div
           data-testid="project-sidebar-git-section"
           ref={el => { sectionsRef.current.git = el; }}
-          className={`flex flex-col overflow-hidden ${expandedSections.git ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+          data-section-island
+          className={`${sectionIsland(expandedSections.git)} flex flex-col ${expandedSections.git ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.git
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1331,7 +1377,8 @@ export function ProjectSidebar({
         {/* Processes Section — anchored at bottom, fixed pixel height */}
         <div
           ref={el => { sectionsRef.current.processes = el; }}
-          className={`flex flex-col overflow-hidden ${expandedSections.processes ? 'min-h-0 pb-[3px]' : 'flex-shrink-0'}`}
+          data-section-island
+          className={`${sectionIsland(expandedSections.processes)} flex flex-col ${expandedSections.processes ? 'min-h-0' : 'flex-shrink-0'}`}
           style={expandedSections.processes
               // Automatica: l'altezza la dà il contenuto, con il tetto di
               // `capSezione`. Trascinata: il numero vince, ed è una deroga
@@ -1354,7 +1401,7 @@ export function ProjectSidebar({
             // «quale controllo» e `aria-expanded` dice «è già aperto?».
             data-testid="project-sidebar-processes"
             aria-expanded={expandedSections.processes}
-            className={SECTION_CARD}
+            className={sectionCard(expandedSections.processes)}
           >
             <CirclePlay size={14} className="flex-shrink-0" />
             <span>{tr('project.sidebar.processes')}</span>
@@ -1375,5 +1422,6 @@ export function ProjectSidebar({
         </div>
       </div>
     </div>
+    </>
   );
 }
