@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { SubAgentResult } from "../lib/subagent-result";
-import { createSubagentWake, subagentWakeText, type SubagentWakeDeps } from "./subagent-wake";
+import { createSubagentWake, isNoNewsReply, subagentWakeText, type SubagentWakeDeps } from "./subagent-wake";
 
 const PARENT = "topic:p";
 const result = (over: Partial<SubAgentResult> = {}): SubAgentResult => ({
@@ -302,5 +302,18 @@ describe("the wake's text", () => {
     const text = subagentWakeText([result({ agentId: "child-42", status: "stopped", partial: true, text: "x", reason: { code: "machine-cut", detail: "stall" } })]);
     expect(text).toContain("stopped by the system (stall)");
     expect(text).toContain("`send_to_agent` with agent_id `child-42`");
+  });
+});
+
+describe("a stale-message acknowledgement", () => {
+  test("a short later-turn reply with no news does not wake the parent", () => {
+    expect(isNoNewsReply(result({ turn: 3, text: "Stale message, nothing new." }))).toBe(true);
+    expect(isNoNewsReply(result({ turn: 2, text: "Messaggio arretrato, nessuna novità." }))).toBe(true);
+  });
+
+  test("the first turn, a failure or a long report still wakes it", () => {
+    expect(isNoNewsReply(result({ turn: 1, text: "Nothing new." }))).toBe(false);
+    expect(isNoNewsReply(result({ turn: 2, status: "failed", text: "Nothing new." }))).toBe(false);
+    expect(isNoNewsReply(result({ turn: 2, text: `Nothing new in the first part. ${"x".repeat(400)}` }))).toBe(false);
   });
 });

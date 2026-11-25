@@ -162,6 +162,9 @@ export function bootDeliveryAudit(scope: AfterReattach) {
   // retries, fast-forward only, and once main is on origin its `unpushed` cards
   // turn `landed`. Every repo, not only those with marked cards: a land made by
   // a server without this fix is behind all the same, and that is the measured case.
+  // The last refusal said per repo: a pre-push hook that refuses on purpose says the same
+  // thing every 10 minutes, and the log only needs it when it starts, changes or ends.
+  const lastRefusal = new Map<string, string>();
   const sweepUnpushedLands = async () => {
     const repos = new Set<string>();
     try { for (const d of listSelectableProjectDirs()) repos.add(d); } catch { /* best-effort */ }
@@ -180,7 +183,11 @@ export function bootDeliveryAudit(scope: AfterReattach) {
         if (cur) broadcastToAll({ type: "task:updated", projectId: pid, task: cur } as Parameters<typeof broadcastToAll>[0]);
       }
     }, mainPushGit).then((out) => {
-      for (const o of out) if (!o.result.ok) console.warn(`[land-push] ${o.repo}: ${o.result.reason}`);
+      for (const o of out) {
+        const reason = o.result.ok ? "" : o.result.reason;
+        if (reason && reason !== lastRefusal.get(o.repo)) console.warn(`[land-push] ${o.repo}: ${reason}`);
+        if (reason) lastRefusal.set(o.repo, reason); else lastRefusal.delete(o.repo);
+      }
     });
   };
 
