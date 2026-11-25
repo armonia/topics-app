@@ -4,13 +4,16 @@
  * Two projects, four cards in four different statuses and four priorities, so
  * every sort has an order that differs from every other one:
  *
- *   alfa: «Zeta rifare il login»   todo         priority 1 (Bassa)
- *         «Alfa scrivere i docs»   in_progress  priority 3 (Alta) (allow-italian: quotes the UI label)
- *   zeta: «Gamma pulire backlog»   backlog      priority 2 (Media)
- *         «Beta revisione sicurezza» review     priority 4 (Urgente)
+ *   sito-vetrina: «Rifare il login»           todo         priority 1 (Bassa)
+ *                 «Aggiornare la guida»       in_progress  priority 3 (Alta) (allow-italian: quotes the UI label)
+ *   app-mobile:   «Pulire il backlog»         backlog      priority 2 (Media)
+ *                 «Controllare la sicurezza»  review       priority 4 (Urgente) (allow-italian: quotes a card title)
  *
  * The titles start with letters that run against the workflow order, so
  * "sorted by status" and "sorted by title" cannot be mistaken for each other.
+ * Names and titles read like a real board, with no timestamp or id in them: the
+ * same run shoots the photos for the delivery review. The run's own folder keeps
+ * the projects apart from any other run's.
  *
  * Contract:
  *  1. The table is a view of the view selector, and its default order is the
@@ -39,8 +42,9 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 const STAMP = Date.now();
-const PATH_A = `${canonicalTmpRoot()}/e2e-table-alfa-${STAMP}`;
-const PATH_B = `${canonicalTmpRoot()}/e2e-table-zeta-${STAMP}`;
+const RUN_DIR = `${canonicalTmpRoot()}/e2e-table-${STAMP}`;
+const PATH_A = `${RUN_DIR}/sito-vetrina`;
+const PATH_B = `${RUN_DIR}/app-mobile`;
 const ID_A = boardIdForPath(PATH_A);
 const ID_B = boardIdForPath(PATH_B);
 const MEDIA_DIR = join(homedir(), ".topics", "media", "board-tabella");
@@ -52,10 +56,10 @@ const topics: string[] = [];
 
 interface Seed { key: string; board: string; text: string; status: string; priority: number }
 const SEEDS: Seed[] = [
-  { key: "login", board: ID_A, text: `Zeta rifare il login ${STAMP}`, status: "todo", priority: 1 },
-  { key: "docs", board: ID_A, text: `Alfa scrivere i docs ${STAMP}`, status: "in_progress", priority: 3 },
-  { key: "backlog", board: ID_B, text: `Gamma pulire backlog ${STAMP}`, status: "backlog", priority: 2 },
-  { key: "review", board: ID_B, text: `Beta revisione sicurezza ${STAMP}`, status: "review", priority: 4 },
+  { key: "login", board: ID_A, text: "Rifare il login", status: "todo", priority: 1 },
+  { key: "docs", board: ID_A, text: "Aggiornare la guida", status: "in_progress", priority: 3 },
+  { key: "backlog", board: ID_B, text: "Pulire il backlog", status: "backlog", priority: 2 },
+  { key: "review", board: ID_B, text: "Controllare la sicurezza", status: "review", priority: 4 },
 ];
 const ids: Record<string, string> = {};
 
@@ -116,7 +120,7 @@ async function projectBeforeTitle(page: Page, key: string, withName: boolean) {
   await expect(project.locator("svg, img").first()).toBeVisible();
   const [p, t] = [await project.boundingBox(), await title.boundingBox()];
   expect(p && t && p.x + p.width <= t.x + 1, `project cell left of the title in row ${key}`).toBe(true);
-  const name = project.getByText("e2e-table-", { exact: false });
+  const name = project.getByText(/^(sito-vetrina|app-mobile)$/);
   if (withName) await expect(name).toBeVisible();
   else await expect(name).toBeHidden();
 }
@@ -132,7 +136,7 @@ test.describe("Board — vista Tabella", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test.beforeAll(async ({ request }) => {
-    for (const [path, name] of [[PATH_A, "e2e-table-alfa"], [PATH_B, "e2e-table-zeta"]] as const) {
+    for (const [path, name] of [[PATH_A, "sito-vetrina"], [PATH_B, "app-mobile"]] as const) {
       mkdirSync(path, { recursive: true });
       writeFileSync(`${path}/package.json`, JSON.stringify({ name }, null, 2));
       topics.push((await createTopic(request, name, { projectPath: path })).id);
@@ -143,8 +147,7 @@ test.describe("Board — vista Tabella", () => {
   test.afterAll(async ({ request }) => {
     for (const t of [...createdTasks].reverse()) await deleteTask(request, t.board, t.id);
     for (const id of [...topics].reverse()) await deleteTopic(request, id);
-    removeTmpDir(PATH_A);
-    removeTmpDir(PATH_B);
+    removeTmpDir(RUN_DIR);
   });
 
   test("default order is the workflow's, a header click sorts and a second click flips it", async ({ page }) => {
@@ -155,7 +158,7 @@ test.describe("Board — vista Tabella", () => {
     // 1. Workflow order: backlog, todo, in progress, review.
     expect(await seededOrder(page)).toEqual(["backlog", "login", "docs", "review"]);
 
-    // 2. Title: A to Z by the first letter of the title (Alfa, Beta, Gamma, Zeta).
+    // 2. Title: A to Z by the first letter of the title (A, C, P, R).
     await page.getByTestId("board-table-sort-title").click();
     expect(await seededOrder(page)).toEqual(["docs", "review", "backlog", "login"]);
     await expect(page.locator('[role="columnheader"][aria-sort="ascending"]')).toHaveCount(1);
@@ -190,14 +193,14 @@ test.describe("Board — vista Tabella", () => {
     await expect(review.getByTestId("board-table-waiting")).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(rowOf(page, "login").getByTestId("board-table-waiting")).toHaveCount(0);
     // The project column shows on the global board, before the title, with its icon and its name.
-    await expect(rowOf(page, "docs").locator('[data-col="project"]')).toContainText("e2e-table-alfa");
+    await expect(rowOf(page, "docs").locator('[data-col="project"]')).toContainText("sito-vetrina");
     for (const key of Object.keys(ids)) await projectBeforeTitle(page, key, true);
 
     await expect(page.getByTestId("task-detail-drawer")).toHaveCount(0);
     await rowOf(page, "docs").click();
     const drawer = page.getByTestId("task-detail-drawer");
     await expect(drawer).toBeVisible({ timeout: 10000 });
-    await expect(drawer).toContainText(`Alfa scrivere i docs ${STAMP}`);
+    await expect(drawer).toContainText("Aggiornare la guida");
     await shoot(page, "table-drawer-1440");
   });
 
