@@ -35,7 +35,7 @@ import { agentTypeDescription, readAgentProfiles } from "../lib/agent-profiles";
 import type { ParsedArgs } from "./topics-http";
 import { TOOLS, runScriptDescription } from "./tool-catalog";
 import {
-  callBrowserBridge, callCloseBrowserPane, callFocusBrowserTab, callImportChrome, callListBrowserTabs, callOpenBrowserPane,
+  callBrowserBridge, callCloseBrowserPane, callFocusBrowserTab, callImportChrome, callListBrowserTabs, callOpenBrowserPane, callRequestLogin,
 } from "./browser-pane-tools";
 import { callCloseGoal, callGetGoal, callSetGoal, callUpdateGoalSteps } from "./goal-tools";
 import { callListProcesses, callReadProcessOutput, callRunScript, callStopProcess, callWaitForProcess } from "./process-tools";
@@ -340,6 +340,7 @@ export const TOOL_HANDLERS: Record<
     const lead = [r.warning, r.note].filter(Boolean).join("\n");
     return lead ? `${lead}\n${body}` : body;
   },
+  request_login: (a, t) => callRequestLogin(a, t),
   close_browser_pane: (a, t) => callCloseBrowserPane(a, t as { contextId?: unknown }),
   browser_list_tabs: (a, t) => callListBrowserTabs(a, t),
   browser_focus_tab: (a, t) => callFocusBrowserTab(a, t as { contextId?: unknown }),

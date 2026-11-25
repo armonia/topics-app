@@ -117,6 +117,7 @@ import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import { focusBrowserContextLive } from '../lib/focusBrowserContext';
+import { handleLoginRequestLive } from '../lib/loginRequest';
 import {
   armFocusIntent,
   liveFocusIntent,
@@ -1973,6 +1974,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       void focusBrowserContextLive({ contextId: m.contextId, reopen: false, onlyWhereShown: true }, { layoutHandled: true });
     });
   }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
+
+  // request_login: the agent hit a login wall. The tab comes forward and the
+  // window is raised (detached when asked) so the person notices it.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type !== 'browser:login-request' || !msg.contextId) return;
+      void handleLoginRequestLive({
+        contextId: msg.contextId,
+        url: msg.url,
+        detached: msg.detached,
+        topicId: msg.topicId,
+      });
+    });
+  }, [onWSMessage]);
 
   const handleProjectClick = useCallback((projectPath: string) => {
     // Aprire un progetto dalla sidebar è una navigazione VOLUTA quanto un click
