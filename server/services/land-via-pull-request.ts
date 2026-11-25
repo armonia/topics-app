@@ -45,12 +45,14 @@ export type LandViaPrResult =
   | { status: "head-differs"; prHead: string | null; expected: string }
   /** Local main has commits origin lacks: GitHub's merge commit would not fast forward onto it. */
   | { status: "main-ahead" }
+  /** The pull request's base is not the current origin/main: GitHub would merge onto another base, a tree nobody tested. */
+  | { status: "base-differs"; prBase: string | null; originMain: string }
   | { status: "failed"; reason: string };
 
 export type FastForwardMain = (cwd: string, commit: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
 
 /** True when local HEAD is already contained in origin/main (after a fetch), so a merge GitHub makes there fast forwards here. */
-export type MainIsBehindOrigin = (cwd: string) => Promise<{ ok: true; behind: boolean } | { ok: false; reason: string }>;
+export type MainIsBehindOrigin = (cwd: string) => Promise<{ ok: true; behind: boolean; originMain: string } | { ok: false; reason: string }>;
 
 export type LandViaPrDeps = {
   mainIsBehindOrigin?: MainIsBehindOrigin;
@@ -70,7 +72,11 @@ const realMainIsBehindOrigin: MainIsBehindOrigin = async (cwd) => {
   if (fetch.code !== 0) return { ok: false, reason: `git fetch origin main exited ${fetch.code}: ${fetch.stderr.trim().slice(0, 300)}` };
   const ancestor = await runGit(cwd, ["merge-base", "--is-ancestor", "HEAD", "origin/main"], { timeoutMs: GIT_TIMEOUT_MS });
   // 0 = ancestor, 1 = not; anything else is git failing to answer.
-  if (ancestor.code === 0 || ancestor.code === 1) return { ok: true, behind: ancestor.code === 0 };
+  if (ancestor.code === 0 || ancestor.code === 1) {
+    const tip = await runGit(cwd, ["rev-parse", "origin/main"], { timeoutMs: GIT_TIMEOUT_MS });
+    if (tip.code !== 0) return { ok: false, reason: `git rev-parse origin/main exited ${tip.code}: ${tip.stderr.trim().slice(0, 300)}` };
+    return { ok: true, behind: ancestor.code === 0, originMain: tip.stdout.trim() };
+  }
   return { ok: false, reason: `git merge-base --is-ancestor exited ${ancestor.code}: ${ancestor.stderr.trim().slice(0, 300)}` };
 };
 
@@ -122,7 +128,13 @@ export async function landViaPullRequest(
   }
 
   const state = await port.pullRequestState(input.cwd, repo, pr);
-  if (!state.ok) return { status: "failed", reason: `cannot read pull request #${pr}: ${state.error}` };
+  if (!state.ok) {
+    // The state is unknown, so auto-merge may already be on from a previous
+    // attempt: turn it off, or the pull request merges behind a failed land.
+    const off = await port.disableAutoMerge(input.cwd, repo, pr);
+    const tail = off.ok ? "auto-merge turned off" : `and auto-merge could not be turned off: ${off.error}`;
+    return { status: "failed", reason: `cannot read pull request #${pr}: ${state.error}, ${tail}` };
+  }
 
   // Already merged (a previous attempt enabled auto-merge and GitHub acted on
   // it before this land got to re-check): land what is already there.
@@ -136,6 +148,12 @@ export async function landViaPullRequest(
   const behind = await mainIsBehindOrigin(input.cwd);
   if (!behind.ok) return { status: "failed", reason: behind.reason };
   if (!behind.behind) return { status: "main-ahead" };
+  // Two lands in a row: the pull request was tested on a base origin/main has
+  // since left, so GitHub would merge onto a new base and the tree would not be
+  // the one measured (main would rerun the CI). Only the current base is safe.
+  if (open.value.baseRefOid !== behind.originMain) {
+    return { status: "base-differs", prBase: open.value.baseRefOid ?? null, originMain: behind.originMain };
+  }
 
   if (state.value.isDraft) {
     const ready = await port.markReady(input.cwd, repo, pr);

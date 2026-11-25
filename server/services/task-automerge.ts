@@ -1567,7 +1567,7 @@ export function createTaskAutoMerge(deps: AutoMergeDeps) {
               log(`[automerge] land-via-pull-request failed for ${taskId}: ${viaPr.reason}`);
               return { ok: false, reason: viaPr.reason };
             }
-            // "no-pr", "head-differs" or "main-ahead": nothing GitHub can merge as is, fall through to the local merge.
+            // "no-pr", "head-differs", "base-differs" or "main-ahead": nothing GitHub can merge as is, fall through to the local merge.
           }
           const merge = await runGit(cwd, ["merge", "--no-ff", "-m", mergeMsg, mergeRef()]);
           if (merge.code === 0) return { ok: true };

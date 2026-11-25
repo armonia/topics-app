@@ -126,6 +126,14 @@ describe("land through the pull request: the message GitHub gets", () => {
     expect(res).toMatchObject({ status: "merged" });
   });
 
+  test("a hook that fails with any other exit code counts as a refusal too", async () => {
+    const script = join(dir, "hooks", "pre-push");
+    writeFileSync(script, "#!/bin/sh\nexit 2\n");
+    chmodSync(script, 0o755);
+    const { handed } = await landViaPr("fix harmless thing", "merged");
+    expect(handed).toEqual(["merge task abc123"]);
+  });
+
   test("a failed land through the pull request is a skip with its real reason, not a conflict", async () => {
     const { res } = await landViaPr("fix harmless thing", "failed");
     expect(res).toMatchObject({ status: "skipped", code: "pull-request-land-failed", reason: "auto-merge refused by GitHub" });

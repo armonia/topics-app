@@ -16,7 +16,7 @@ function fakePort(over: Partial<GithubPort> = {}): GithubPort {
     remoteHead: async () => ({ ok: true, value: null }),
     inReflog: async () => ({ ok: true, value: false }),
     contains: async () => ({ ok: true, value: false }),
-    openPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7", headRefOid: "h".repeat(40) } }),
+    openPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7", headRefOid: "h".repeat(40), baseRefOid: "b".repeat(40) } }),
     draftPullRequest: async () => ({ ok: true, value: { number: 7, url: "https://github.com/o/r/pull/7" } }),
     closePullRequest: async () => ({ ok: true, value: "closed" }),
     deleteRemoteBranch: async () => ({ ok: true, value: "deleted" }),
@@ -36,7 +36,7 @@ function fakePort(over: Partial<GithubPort> = {}): GithubPort {
 }
 
 /** Local main already contained in origin/main: the precondition the real git check reports on a pushed main. */
-const synced = { mainIsBehindOrigin: async () => ({ ok: true as const, behind: true }) };
+const synced = { mainIsBehindOrigin: async () => ({ ok: true as const, behind: true, originMain: "b".repeat(40) }) };
 
 function fakeClock() {
   let t = 1_000_000;
@@ -144,9 +144,32 @@ describe("landViaPullRequest", () => {
       markReady: async () => { calls.push("ready"); return { ok: true, value: "ready" }; },
       enableAutoMerge: async () => { calls.push("auto"); return { ok: true, value: "enabled" }; },
     });
-    const got = await landViaPullRequest(input, port, { mainIsBehindOrigin: async () => ({ ok: true, behind: false }) });
+    const got = await landViaPullRequest(input, port, { mainIsBehindOrigin: async () => ({ ok: true, behind: false, originMain: "b".repeat(40) }) });
     expect(got).toEqual({ status: "main-ahead" });
     expect(calls).toEqual([]);
+  });
+
+  test("a pull request measured on an older base than origin/main falls back before GitHub merges anything", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      openPullRequest: async () => ({ ok: true, value: { number: 7, url: "u", headRefOid: "h".repeat(40), baseRefOid: "a".repeat(40) } }),
+      markReady: async () => { calls.push("ready"); return { ok: true, value: "ready" }; },
+      enableAutoMerge: async () => { calls.push("auto"); return { ok: true, value: "enabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, synced);
+    expect(got).toEqual({ status: "base-differs", prBase: "a".repeat(40), originMain: "b".repeat(40) });
+    expect(calls).toEqual([]);
+  });
+
+  test("an unreadable pull request state turns auto-merge off before reporting the failure", async () => {
+    const calls: string[] = [];
+    const port = fakePort({
+      pullRequestState: async () => ({ ok: false, error: "gh: boom" }),
+      disableAutoMerge: async () => { calls.push("off"); return { ok: true, value: "disabled" }; },
+    });
+    const got = await landViaPullRequest(input, port, synced);
+    expect(got).toEqual({ status: "failed", reason: expect.stringContaining("gh: boom") });
+    expect(calls).toEqual(["off"]);
   });
 
   test("a fast-forward that fails (main moved under it) is a failure, not a silent partial land", async () => {

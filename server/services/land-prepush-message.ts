@@ -15,7 +15,7 @@ const HOOK_DEADLINE_MS = 60_000;
 /** The environment as it is NOW: under Bun a child launched without `env` sees the one the server was born with. */
 const LIVE_ENV = (): Record<string, string> => process.env as Record<string, string>;
 
-/** True only when the hook answers with a refusal. */
+/** True when the hook refuses: any non-zero exit, or a hook that failed to run. */
 async function prePushRefuses(cwd: string, base: string, sha: string): Promise<boolean> {
   return (await prePushVerdict(cwd, base, sha)).refused;
 }
@@ -44,7 +44,8 @@ export async function prePushVerdict(cwd: string, base: string, sha: string): Pr
     env: LIVE_ENV(),
     stdinData: `refs/heads/main ${sha} refs/heads/main ${base}\n`,
   });
-  return { refused: !r.spawnFailed && r.exitCode === 1, detail: `${hook} exit=${r.exitCode} spawnFailed=${r.spawnFailed} ${r.spawnError ?? ""} ${r.stderr}` };
+  // Any non-zero exit or a hook that could not run is a refusal: unknown is not accepted.
+  return { refused: r.spawnFailed || r.exitCode !== 0, detail: `${hook} exit=${r.exitCode} spawnFailed=${r.spawnFailed} ${r.spawnError ?? ""} ${r.stderr}` };
 }
 
 /**
@@ -68,6 +69,6 @@ export async function neutralizeRefusedMergeMessage(cwd: string, neutralMsg: str
  */
 export async function mergeMessageRefused(cwd: string, parent: string, message: string): Promise<boolean> {
   const probe = await runGit(cwd, ["commit-tree", `${parent}^{tree}`, "-p", parent, "-m", message], { timeoutMs: 10_000, identity: true });
-  if (probe.code !== 0) return false;
+  if (probe.code !== 0) return false; // no probe commit to judge: keep the title
   return prePushRefuses(cwd, parent, probe.stdout.trim());
 }
