@@ -513,10 +513,10 @@ export const PROJECT_WORDS = new Set([
   "editable", "embedded", "evaluator", "evaluators", "families", "mapping", "modified", "newer", "numeric",
   "oddities", "planned", "rerecord", "slowest", "startup", "summaries", "updating", "using", "weakest",
   // Proper nouns of the organizations preview's example data: the two example
-  // organizations (Consorzio di Nocera, SARIM), the programs and services their
+  // organizations (Consorzio di Nocera, ORBIT), the programs and services their
   // flows talk to (Halley, PEC = certified e-mail, Normattiva, BURC = the
   // regional bulletin, WhatsApp). The code names the thing it simulates.
-  "burc", "halley", "nocera", "normattiva", "pec", "sarim", "whatsapp",
+  "burc", "halley", "nocera", "normattiva", "pec", "orbit", "whatsapp",
   // Platforms and devices the code has to name to test them. Proper nouns: no
   // dictionary carries "iPhone", and the user-agent constants in
   // `push/environment.test.ts` cannot say which device they impersonate

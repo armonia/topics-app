@@ -1,5 +1,5 @@
 /**
- * Organizations: the Board of all organizations, the direction overview, SARIM, the page of an organization.
+ * Organizations: the Board of all organizations, the direction overview, ORBIT, the page of an organization.
  * The words of the `orgs` area of the preview; values in `i18n-ui-orgs-it.ts`
  * and `i18n-ui-orgs-en.ts`. Only product words: sector words arrive with the data.
  */
@@ -83,7 +83,7 @@ export interface OrgsOverviewCopy {
   logCustomize: string;
 }
 
-export interface OrgsSarimCopy {
+export interface OrgsOrbitCopy {
   always: string;
   flowsCount: (n: number) => string;
   newFlow: string;
@@ -95,7 +95,7 @@ export interface OrgsSarimCopy {
   clearFilters: string;
   columns: { flow: string; area: string; trigger: string; status: string; perMonth: string; waiting: string };
   overviewDetail: string;
-  /** The organization the SARIM screens are about, said in their titles. */
+  /** The organization the ORBIT screens are about, said in their titles. */
   orgName: string;
   overviewTitle: string;
   exportFile: string;
@@ -227,7 +227,7 @@ export interface OrgsSearchCopy {
 export interface OrgsCopy {
   board: OrgsBoardCopy;
   overview: OrgsOverviewCopy;
-  sarim: OrgsSarimCopy;
+  orbit: OrgsOrbitCopy;
   callCenter: OrgsCallCenterCopy;
   page: OrgsPageCopy;
   search: OrgsSearchCopy;

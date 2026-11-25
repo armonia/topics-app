@@ -145,7 +145,7 @@ function hasTopKey(obj, key) {
 
 let buildFiles = 0;
 if (!srcOnly) {
-  for (const page of ["sarim.html", "consorzio.html"]) {
+  for (const page of ["orbit.html", "consorzio.html"]) {
     if (!existsSync(join(DIST, page))) {
       console.error(`check-ui-native: client/dist-ui/${page} is missing, run \`bun run build:ui\` first (or pass --src-only).`);
       process.exit(1);

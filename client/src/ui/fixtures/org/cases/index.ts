@@ -1,6 +1,6 @@
 /**
  * Every example case of the preview, one file each. Order: the six complete
- * Nocera cases first, then the lighter ones, then SARIM's.
+ * Nocera cases first, then the lighter ones, then ORBIT's.
  */
 import type { CaseSeed } from '../types';
 import { CASE_2417 } from './2417';
@@ -32,7 +32,7 @@ export const CASES: CaseSeed[] = [
   CASE_2381,
   CASE_2421,
   CASE_2404,
-  // SARIM: segnalazione AMA, fattura passiva, FIR.
+  // ORBIT: segnalazione AMA, fattura passiva, FIR.
   CASE_S0153,
   CASE_S0149,
   CASE_S0151,

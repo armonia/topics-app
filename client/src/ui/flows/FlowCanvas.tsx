@@ -7,7 +7,7 @@ import { TONE_TEXT } from '../tone';
 import { Chip, FieldChip } from '../primitives/Chip';
 import { IconButton } from '../primitives/Button';
 import { FOCUS_RING } from '../shell/pressable';
-import { ActorBadge } from '../sarim/WorkParts';
+import { ActorBadge } from '../orbit/WorkParts';
 import type { CanvasLane, CanvasMode, CanvasNode, CanvasStep, CanvasStepState, FlowCanvasModel, StepEditing } from './model';
 import { MAIN_CONTAINER } from './model';
 

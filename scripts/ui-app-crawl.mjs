@@ -35,10 +35,10 @@
  * any console error, exception or failed request fail the run. So does a
  * control of the browser drawn anywhere on the way (a native select, a date
  * or range input, a visible native checkbox, a `title` tooltip), on the
- * place and inside every menu or dialog a click opened, and, for the SARIM
+ * place and inside every menu or dialog a click opened, and, for the ORBIT
  * edition, a retired word of its glossary in the text on screen.
  *
- *   node scripts/ui-app-crawl.mjs [--entry sarim|consorzio] [--only n01,x06] [--persona legale] [--max 400] [--shard 1/3]
+ *   node scripts/ui-app-crawl.mjs [--entry orbit|consorzio] [--only n01,x06] [--persona legale] [--max 400] [--shard 1/3]
  *       [--routes /flussi/nocera-pec,/da-fare/card/PEC-2418/flusso] [--max-clicks 300]
  *
  * `--routes` crawls only those addresses (hash paths, comma separated) instead
@@ -49,7 +49,7 @@
  * check of one screen takes minutes and not the hour of the full crawl.
  * Both default to off: with neither the crawl is the one it always was.
  *
- * `--entry sarim` crawls the SARIM edition (`sarim.html`) and `--entry consorzio` the
+ * `--entry orbit` crawls the ORBIT edition (`orbit.html`) and `--entry consorzio` the
  * Consorzio edition (`consorzio.html`) instead of `app.html`.
  *
  * Exit 0: every click did something and the page logged no error.
@@ -196,8 +196,8 @@ const snapshot = () => page.evaluate(() => {
 });
 const overlayCount = () => page.evaluate((sel) => document.querySelectorAll(sel).length, OVERLAYS);
 
-/* Controls of the browser instead of the layer's own, and retired words on screen (`scripts/check-ui-native.mjs`, `check-sarim-words.mjs` read the sources; this reads what is drawn). */
-/* The retired word is spelled in two pieces so that the sources keep passing `check-sarim-words.mjs` while this still looks for it on screen. */
+/* Controls of the browser instead of the layer's own, and retired words on screen (`scripts/check-ui-native.mjs`, `check-orbit-words.mjs` read the sources; this reads what is drawn). */
+/* The retired word is spelled in two pieces so that the sources keep passing `check-orbit-words.mjs` while this still looks for it on screen. */
 const RETIRED_ON_SCREEN = entry !== "app" ? new RegExp(["fun", "nel"].join(""), "i") : null;
 const natives = new Set();
 const nativeScan = (where) => page.evaluate(({ where, retired }) => {
