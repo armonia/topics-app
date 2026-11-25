@@ -1,3 +1,9 @@
+/**
+ * The CLI's «You've hit your limit · resets …» sentence read as an hour, so the
+ * turn is held and resumed at the reset instead of failing (card fe342993).
+ *
+ * @covers RESUME-04
+ */
 import { describe, expect, it } from "bun:test";
 import { CLAUDE_USAGE_LIMIT_FALLBACK_MS, parseClaudeUsageLimit } from "./usage-limit";
 
