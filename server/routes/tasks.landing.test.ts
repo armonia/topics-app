@@ -24,7 +24,7 @@ import { createTasksRouter } from "./tasks";
 import { createTaskService, LAND_ACTION_LABEL } from "../services/tasks";
 import { PUBLISH_ACTION_LABEL } from "../../shared/board";
 import { t as label } from "../../client/src/lib/i18n";
-import { freshDb, makeCtx, call } from "./tasks-test-support";
+import { freshDb, makeCtx, call, setCiPhaseMode } from "./tasks-test-support";
 
 describe("approve decoupled from landing", () => {
   let db: Database; let broadcasts: any[];
@@ -263,9 +263,68 @@ describe("approve decoupled from landing", () => {
     // Il land gira staccato dalla risposta: si aspetta che la catena dreni.
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(seen).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
+    expect(seen.map(({ branch, commit }) => ({ branch, commit }))).toEqual([{ branch: "topics/consegnato", commit: "bdfcf0cb" }]);
     const said = db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(t.id) as Array<{ content: string }>;
     expect(said.some((c) => c.content.includes("Land ≠ consegna") && c.content.includes("DOPO la consegna"))).toBe(true);
+  });
+
+  test("land: a manual land of an unmeasured delivery never reaches the merge, a measured one (repair cards too) does", async () => {
+    const merges: Array<{ id: string; noRealign: unknown }> = [];
+    const am = {
+      tryMerge: async (id: string, _t: string, delivery: any) => {
+        merges.push({ id, noRealign: delivery.noRealign });
+        return { status: "skipped", code: "auto-land-stopped", reason: "stopped" };
+      },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    const ctx = makeCtx(db, broadcasts);
+    const r2 = createTasksRouter(ctx, undefined, { autoMerge: am });
+    db.run("INSERT INTO topics (id) VALUES ('top-4')");
+    db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks) VALUES ('pX', ?)",
+      [JSON.stringify([{ name: "gates", cmd: "true" }, { name: "unit", cmd: "github-ci:unit" }])]);
+    const rowOf = (cmd: string) => ({ name: cmd, cmd, ok: true, code: 0, ms: 1, timedOut: false });
+    const full = [rowOf("true"), rowOf("github-ci:unit")];
+    const cases: Array<[string | null, unknown[] | null, string | null]> = [
+      [null, null, null], ["pass", [rowOf("true")], null], ["pass", full, null], ["pass", full, "main-ci-red:abc"],
+    ];
+    const ids: string[] = [];
+    for (const [state, rows, key] of cases) {
+      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: `card ${ids.length}` }))!.json();
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-4', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=?, checks_json=?, claude_task_id=? WHERE id = ?")
+        .run(state, rows ? JSON.stringify(rows) : null, key, t.id);
+      ids.push(t.id);
+      await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    // Only the two fully measured cards reach the merge, and none of them through the automatic path.
+    expect(merges).toEqual([{ id: ids[2], noRealign: undefined }, { id: ids[3], noRealign: undefined }]);
+    const said = (id: string) => (db.prepare("SELECT content FROM task_comments WHERE task_id = ?").all(id) as Array<{ content: string }>).map((c) => c.content).join(" ");
+    expect(said(ids[0]!)).toContain("checks nullo");
+    expect(said(ids[1]!)).toContain("mancano: unit");
+  });
+
+  test("land in `after` mode: the github-ci rows are not expected yet, a card with local rows lands, one with no checks does not", async () => {
+    const merges: string[] = [];
+    const am = {
+      tryMerge: async (id: string) => { merges.push(id); return { status: "skipped", code: "auto-land-stopped", reason: "stopped" }; },
+      buildClient: async () => ({ code: 0, stderr: "" }),
+    } as any;
+    setCiPhaseMode(db, "after");
+    const r2 = createTasksRouter(makeCtx(db, broadcasts), undefined, { autoMerge: am, integrationMeasure: async () => ({ measured: [], conflicts: [], verdict: "pass", commit: "bdfcf0cb" }) } as any);
+    db.run("INSERT INTO topics (id) VALUES ('top-5')");
+    db.run("INSERT OR REPLACE INTO board_settings (project_id, review_checks, dispatch_auto_merge) VALUES ('pX', ?, 1)",
+      [JSON.stringify([{ name: "gates", cmd: "true" }, { name: "unit", cmd: "github-ci:unit" }])]);
+    const rowOf = (cmd: string) => ({ name: cmd, cmd, ok: true, code: 0, ms: 1, timedOut: false });
+    const ids: string[] = [];
+    for (const rows of [null, [rowOf("true")]]) {
+      const t = await (await call(r2, "POST", "/api/boards/pX/tasks", { text: `card ${ids.length}` }))!.json();
+      db.prepare("UPDATE tasks SET assigned_topic_id='top-5', status='review', delivery_branch='topics/y', delivery_commit='bdfcf0cb', checks_state=?, checks_json=? WHERE id = ?")
+        .run(rows ? "pass" : null, rows ? JSON.stringify(rows) : null, t.id);
+      ids.push(t.id);
+      await call(r2, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(merges).toEqual([ids[1]!]);
   });
 
   test("land: with main red the merge hook refuses, but the repair card (main-ci-red:) goes through", async () => {
