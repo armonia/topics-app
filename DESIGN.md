@@ -134,6 +134,10 @@ barra dei menu.
 - Don't: id, nomi di file o comandi nei titoli.
 - Don't: una funzione che esiste solo come variabile d'ambiente o riga di log.
 - Don't: rifare ciò che non è stato segnalato.
+- Don't: hover e fondi scritti a mano (`hover:bg-black/5 dark:hover:bg-white/5`) dove c'è il token
+  (`hover:bg-app-hover`, `bg-app-inset`); raggi solo dalla scala (`rounded` 8px pannelli,
+  `rounded-sm` 6px controlli, `rounded-xs` 4px chip); l'avviso è `amber-500`, cioè `warning`.
+  Corretto più volte, l'ultima il 25/11.
 
 ## Riferimenti
 
@@ -156,6 +160,10 @@ barra dei menu.
   titolo è la tab in primo piano (icona, menu, X col conto alla rovescia, badge, indirizzo intero
   del browser) e la striscia non torna nemmeno a colonna chiusa; i comandi del progetto restano sul
   titolo con la colonna aperta, badge interi; File, Git e Processi sono tre card arrotondate.
+- La vista Tabella della board del 25/11 («Sì, unisci» sulle foto a 375, 768, 1440 e 3440): stato,
+  poi progetto con la sua icona (il nome accanto da pannello largo), titolo, chip di chi la segue;
+  intestazione e righe in un solo riquadro con l'intestazione su `inset`, hover `app-hover` e anello
+  di focus sulle righe.
 
 ## Feedback di Attilio
 
@@ -228,3 +236,8 @@ barra dei menu.
   una scritta che ne copia una parte, e chiudendo la tab davanti il titolo resta su di lei col conto
   alla rovescia finché non scade (prima saltava subito alla tab dopo e il progresso spariva). «gli accordion della sidebar progetto … singole isole come se
   fosse una loro card» → File, Git e Processi sono card a sé, la colonna non ha più fondo né filo.
+- 25/11 «nella tabella il progetto dovrebbe andare prima del titolo e mostrare anche icona..
+  così come il resto dovrebbe seguire il design system ovunque fatto bene.. e parecchie volte
+  che nn segui i design system» → nella tabella della board il progetto (icona, poi nome dove
+  c'è posto) viene prima del titolo, come nella riga di gruppo; ogni colore, raggio, hover e
+  focus della tabella viene dai token, niente valori a mano.
