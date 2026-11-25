@@ -41,7 +41,7 @@
  *      owner's rule of 09/11 turned it: technical cards close themselves, with
  *      the whole bar green on the commit that lands.
  */
-import { agentAskInThread, asksOnlyApproval, type PersonPath } from "../../shared/workflow";
+import { agentAskInThread, askNeedsPerson, type PersonPath } from "../../shared/workflow";
 import { whoCloses } from "../../shared/task-labels";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { isThreadSpeech, type CheckRun } from "../../shared/board";
@@ -109,9 +109,9 @@ export function autoLandVerdict(
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
   // The bar must describe what is about to land, not an earlier round.
   if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the bar measured another commit than the delivered one");
-  // A `human_ask` that only says "ok?" asks what review already offers (`asksOnlyApproval`, shared/workflow.ts).
-  const ask = (card.humanAsk ?? "").trim();
-  if (ask && !asksOnlyApproval(ask)) return no("the card asks the person something");
+  // Only a question that belongs to a person (copy to see, money, public, real people, irreversible)
+  // holds the land. "ok?" and a technical choice do not: the system takes it (`askNeedsPerson`, shared/workflow.ts).
+  if (askNeedsPerson(card.humanAsk ?? "")) return no("the card asks the person something");
   if ((card.dispatchError ?? "").trim()) return no("the run ended on an error: the delivery may be partial");
   if (personSpokeSinceReview(card.reviewAt ?? null, thread)) return no("a person wrote on the card after it entered review");
   if (agentAskInThread(thread)) return no("the agent's last word is a question");

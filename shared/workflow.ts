@@ -261,6 +261,26 @@ export function asksOnlyApproval(text: string): boolean {
   return words.length > 0 && words.every((w) => APPROVAL_WORDS.has(w));
 }
 
+/**
+ * A question only a person can answer: UI or copy to look at, money, anything
+ * public, real people's data, something irreversible, another person's
+ * decision. Everything else an agent asks on a green, invisible card is a
+ * technical choice the system takes by itself, so it does not hold the land.
+ * Matched by value on the words agents write.
+ */
+const PERSON_OWNED_QUESTION = new RegExp([ // allow-italian: the words agents write, matched by value
+  'guard\\w*', 'vedere', 'vedi', 'testo', 'testi', 'screenshot', 'foto', 'grafic\\w*', 'design', 'copy', 'wording', 'look', 'ui', 'ux',
+  'spes[ae]', 'cost\\w*', 'pagament\\w*', 'a pagamento', 'budget', 'abbonament\\w*', 'fattur\\w*', 'paid', 'billing', 'spend',
+  'pubblic\\w*', 'publish', 'public', 'annunci\\w*', 'release', 'clienti?', 'customers?',
+  'person[ae]', 'persone', 'utent[ei]', 'dati (reali|veri|vero|di person\\w*)', 'real people',
+  'irreversibil\\w*', 'irreversible', 'non si annulla', 'non reversibil\\w*', 'decisione di', 'decision of', 'decide (lui|lei)',
+].map((w) => `\\b${w}\\b`).join('|'), 'i');
+
+export function askNeedsPerson(text: string): boolean {
+  const t = text.trim();
+  return t !== '' && !asksOnlyApproval(t) && PERSON_OWNED_QUESTION.test(t);
+}
+
 /** Every sentence of `text` that ends in "?" is approval words only; a report with no "?" passes. */
 function questionsOnlyApproval(text: string): boolean {
   return (text.match(/[^.?!\n]*\?/g) ?? []).every(asksOnlyApproval);

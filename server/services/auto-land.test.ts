@@ -90,7 +90,12 @@ describe("autoLandVerdict", () => {
     expect(verdict(card({ humanAsk: "Landa su main a CI verde (consigliata)?" })).ok).toBe(true);
     // 25f0e2a5, 15/11: the ask left by the round before the red bounce.
     const doubt = "Ho toccato anche .github/workflows/ci.yml (runner a ubuntu-24.04) perché la CI era rotta per tutti: ti va bene dentro questa PR?";
-    expect(verdict(card({ humanAsk: doubt }))).toEqual({ ok: false, reason: "the card asks the person something" });
+    // A technical choice is the system's to take: it does not hold the land.
+    expect(verdict(card({ humanAsk: doubt })).ok).toBe(true);
+    // What belongs to a person still does: money, public, real people, irreversible.
+    for (const mine of ["Posso pubblicare il pacchetto sul registro pubblico?", "Questo costa 20 euro al mese: procedo?", "L'operazione è irreversibile, va bene?"]) {
+      expect(verdict(card({ humanAsk: mine }))).toEqual({ ok: false, reason: "the card asks the person something" });
+    }
   });
 
   test("open steps keep the parent in review", () => {
