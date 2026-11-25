@@ -40,6 +40,15 @@ import { selectForBase } from "./test-touched.ts";
 /** Always part of a reduced plan: the shell boots and the three surfaces everything hangs from. */
 export const SMOKE_SPECS = ["sidebar.spec.ts", "chat.spec.ts", "terminal.spec.ts", "topics-archive-boot.spec.ts"] as const;
 
+/** Unit tests that scan the whole tracked tree: no import edge reaches them, so a reduced plan always carries them. */
+export const TREE_GUARD_TESTS = [
+  "tests/unit/any-budget.test.ts",
+  "tests/unit/no-home-paths-tracked.test.ts",
+  "tests/unit/no-personal-data-tracked.test.ts",
+  "tests/unit/no-instance-strings.test.ts",
+  "tests/unit/no-third-party-emails.test.ts",
+] as const;
+
 /** More than this and the change is wide: the whole tier is the honest answer. */
 export const MAX_REDUCED = 60;
 
@@ -173,6 +182,10 @@ export function failedImpact(e: unknown): Impact {
   return { e2e: { kind: "full", reason }, unit: { kind: "full", reason }, reduced: true };
 }
 
+export function withTreeGuards(tests: string[], cwd: string): string[] {
+  return [...new Set([...tests, ...TREE_GUARD_TESTS.filter((t) => existsSync(join(cwd, t)))])];
+}
+
 export function impactOf(base: string, cwd: string = process.cwd()): Impact {
   const diff = changedFiles(base, cwd);
   if (!diff) {
@@ -185,7 +198,7 @@ export function impactOf(base: string, cwd: string = process.cwd()): Impact {
   let unit: Impact["unit"];
   try {
     const s = selectForBase(base, cwd);
-    unit = s.kind === "full" ? { kind: "full", reason: s.reason } : { kind: "tests", tests: s.tests };
+    unit = s.kind === "full" ? { kind: "full", reason: s.reason } : { kind: "tests", tests: withTreeGuards(s.tests, cwd) };
   } catch (e) {
     unit = { kind: "full", reason: `selection failed: ${(e as Error).message}` };
   }

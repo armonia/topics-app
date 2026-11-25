@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_REDUCED, coversOf, failedImpact, planFiles, scopeE2e, specFilesOfList } from "./ci-impact";
+import { MAX_REDUCED, TREE_GUARD_TESTS, coversOf, failedImpact, planFiles, scopeE2e, specFilesOfList, withTreeGuards } from "./ci-impact";
 
 const spec = (name: string, text = "") => ({ file: `tests/e2e/${name}`, text });
 const SPECS = [
@@ -104,5 +104,14 @@ describe("helpers", () => {
   test("specFilesOfList names the spec files of a Playwright list", () => {
     const json = JSON.stringify({ suites: [{ file: "a.spec.ts", suites: [{ specs: [{ file: "b/c.spec.ts" }] }] }] });
     expect(specFilesOfList(json)).toEqual(["c.spec.ts"]);
+  });
+});
+
+describe("withTreeGuards", () => {
+  test("adds the whole-tree guard tests that exist, once each", () => {
+    const out = withTreeGuards(["tests/unit/any-budget.test.ts", "a.test.ts"], join(import.meta.dir, ".."));
+    expect(out.filter((t) => t === "tests/unit/any-budget.test.ts")).toHaveLength(1);
+    expect(out).toContain("a.test.ts");
+    for (const g of TREE_GUARD_TESTS) expect(out).toContain(g);
   });
 });
