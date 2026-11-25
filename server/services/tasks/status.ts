@@ -3,7 +3,7 @@ import { isAbsolute } from "node:path";
 import type { ServiceOpts, TaskService } from "../tasks";
 import type { createTasksShared } from "./shared";
 import { TaskServiceError, DELIVERY_SNAPSHOT_COLUMNS, STATUSES, branchStillAhead, clampInt, MACHINE_RETRY_BASE_MS, MACHINE_RETRY_CAP, GLOBAL_SETTINGS_KEY } from "./shared";
-import { PARKED_WAITED_OUT, UNRESOLVED_PROJECT_PARK_REASON, LEGACY_UNRESOLVED_PROJECT_PARK_REASON, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap, missingReviewCardFields } from "../../../shared/board";
+import { ACTIVE_DISPATCH_STATES, PARKED_WAITED_OUT, UNRESOLVED_PROJECT_PARK_REASON, LEGACY_UNRESOLVED_PROJECT_PARK_REASON, type TaskStatus, PARKED_STOPPED, readTaskWeight, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, waitReasonKey, ARCHIVE_PARKED_LABEL, PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, noteParkedChildrenResolved, type GlobalDispatchCap, type GlobalCapPatch, budgetShare, clampGlobalCap, missingReviewCardFields } from "../../../shared/board";
 import { type Task } from "../task-shapes";
 import { markTargetNotificationsSeen } from "../../db/notification-log";
 import { WORKFLOW_COLUMNS } from "../../../shared/workflow";
@@ -876,7 +876,13 @@ update(this: TaskService, { taskId, actor, by, patch, projectId, agentTopicId, s
       // 13/08: uno step lasciato in todo SEMBRA in coda, ma la coda non lo
       // servirà mai (il tick lista `rootsOnly`). È fermo come uno in backlog, e
       // il momento in cui diventa fermo è questo.
-      if ((patch.status === "backlog" || patch.status === "todo") && current !== patch.status && row.parent_task_id) {
+      // A child that was ALREADY parked (backlog or todo, no dispatch chip on it) and moves to the other
+      // parked column raises nothing: the stall existed before and the parent was told then. Asking again
+      // turned the 23 backlog -> todo moves of 25/11 into a question on two container parents (cards
+      // 5904a1cf, ca2134e0) that nobody had worked.
+      const wasParked = (current === "backlog" || current === "todo")
+        && !(ACTIVE_DISPATCH_STATES as readonly string[]).includes(String(row.dispatch_state ?? ""));
+      if ((patch.status === "backlog" || patch.status === "todo") && current !== patch.status && row.parent_task_id && !wasParked) {
         parkedChildRaisedStall(row.parent_task_id as string, taskId, by, this);
       }
       // E il verso opposto: un figlio che si chiude esce dagli aperti, e il
