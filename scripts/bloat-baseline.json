@@ -295,6 +295,7 @@
   "min_clone_lines": 20,
   "duplicated_lines": 311,
   "clone_groups": 11,
+  "max_over_files": 154,
   "files": {
     "client/src/App.tsx": 1140,
 
@@ -548,6 +549,8 @@
 
     "server/providers/native/agent-loop.ts": 1370,
 
+    "server/providers/native/auth.ts": 891,
+
     "server/providers/native/provider.ts": {
       "lines": 1523,
       "why": [
@@ -749,5 +752,12 @@
     "tests/integration/process-run-command.test.ts": 836,
 
     "tests/unit/ws-outbound-schema.test.ts": 946
+  },
+
+  "exceptions": {
+    "server/providers/native/auth.ts": {
+      "why": "Entered main over the threshold before this gate could refuse it (card f3c5a186); to be split in its own card.",
+      "expires": "2026-12-31"
+    }
   }
 }
