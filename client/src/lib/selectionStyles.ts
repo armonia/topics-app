@@ -1161,7 +1161,11 @@ export function sidebarRowCard(
   if (attention) return `${base} edge-lit ${attentionSurface(attention)}`;
   if (focused) return `${base} edge-lit ${SELECTED_SURFACE}`;
   if (tab === 'open') return `${base} edge-lit ${RESTING_SURFACE} text-app-text`;
-  if (tab === 'closed') return `${base} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
+  // A closed row never takes a fill, the pointer included: the hover fill is a
+  // shade above the open tabs' resting one, so a closed row under the pointer
+  // read as open, and WKWebView keeps a hover on after the pointer leaves the
+  // window (25/11, a closed project that looked open). The text lights instead.
+  if (tab === 'closed') return `${base} text-app-text-secondary hover:text-app-text`;
   if (open) return `${base}${riposo} text-app-text ${SIDEBAR_HOVER}`;
   return `${base}${riposo} text-app-text-secondary ${SIDEBAR_HOVER} hover:text-app-text`;
 }

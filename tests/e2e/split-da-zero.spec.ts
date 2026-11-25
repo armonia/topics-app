@@ -123,6 +123,32 @@ test.describe("split, from zero", () => {
     await expect(page.locator("[data-pane-zoom]")).toHaveCount(0, { timeout: 5_000 });
   });
 
+  test("SPLIT-03c: a cell remembered for a closed pane does not make a lone pane a split one", async ({ browser, request }) => {
+    // 25/11: the saved layout still named a cell whose pane had been closed,
+    // and the only pane on screen wore the lit focus line under its title.
+    const [a, b] = made;
+    await resetPaneStore(request, [a.id]);
+    const layout = JSON.stringify({ gridRows: [{ itemKeys: [`solo:${b.id}`], widths: [1] }], gridRowHeights: [1], soloCells: [[b.id]] });
+    const ctx = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      storageState: { cookies: [], origins: [{ origin: E2E_BASE, localStorage: [
+        { name: "app-settings", value: JSON.stringify({ tabsPosition: "side" }) },
+        { name: "topics-panel-grid-layout:space:default", value: layout },
+      ] }] },
+    });
+    const page = await ctx.newPage();
+    await goToApp(page);
+    await expect(row(page, a.name)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("textarea:visible").first()).toBeVisible({ timeout: 10_000 });
+    await frames(page, 3);
+    await expect(page.locator("[data-cell-lit]")).toHaveCount(0);
+    await expect(page.getByTestId("cell-title-handle")).toHaveCount(0);
+    // The remembered cell is still there: the case held, it was not pruned away.
+    const kept = await page.evaluate(() => localStorage.getItem("topics-panel-grid-layout:space:default") ?? "");
+    expect(kept).toContain(b.id);
+    await ctx.close();
+  });
+
   test("SPLIT-03b: a short narrow cell keeps its empty chat's greeting under its title", async ({ page, request }) => {
     // 768 wide, one column stacked: the starters wrap and the greeting used to
     // climb over the cell's title bar.
