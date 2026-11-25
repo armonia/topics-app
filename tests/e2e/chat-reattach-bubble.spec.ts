@@ -4,6 +4,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -34,7 +35,7 @@ const BASE = E2E_BASE;
  * Video acceso: è un COMPORTAMENTO (una bolla che si svuota e si riscrive), e
  * uno screenshot non lo dimostra.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const TESTO = "Ho letto le mail e trovato la pratica di voltura.";
 const MSG_ID = "reatt-bubble-0001";

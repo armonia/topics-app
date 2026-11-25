@@ -31,6 +31,7 @@
  */
 
 import { findEmptyDraftPane, forgetDraft, isDraftDisposable, draftTextKey } from '../state/draftPane';
+import { clearPendingFirstSend, savePendingFirstSend } from '../state/pendingFirstSend';
 import { carryFirstBubble, draftSessionKey, stageFirstBubble, withdrawFirstBubble } from '../state/firstSend';
 import { notePromotion } from '../state/composerHandoff';
 import {
@@ -71,11 +72,13 @@ import {
   enqueueProjectPaneFocus,
   PROJECT_BROWSER_HAND_OVER_EVENT,
   type ProjectBrowserHandOver,
+  pinKeyFromPaneId,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
 import { isLiveSpaceId } from '../state/pane/reducers/spaces';
-import { DEFAULT_SPACE_ID } from '../state/pane/types';
+import { CLOSED_STACK_MAX, DEFAULT_SPACE_ID } from '../state/pane/types';
+import { agedOutChats } from '../lib/closedRows';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
 import { isMachineRow } from '../components/Chat/machineRow';
@@ -114,6 +117,7 @@ import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
 import { focusBrowserContextLive } from '../lib/focusBrowserContext';
+import { handleLoginRequestLive } from '../lib/loginRequest';
 import {
   armFocusIntent,
   liveFocusIntent,
@@ -248,13 +252,16 @@ export interface UsePanelLifecycleArgs {
   terminalSessions: TerminalSessionInfo[];
   pruneStaleTerminalPanes: (currentPaneIds: string[]) => string[];
   terminalOps: TerminalOps;
-  // Pinning (Fissati): retained for App wiring compatibility (App passes it
-  // from useSidebarState.isPinned). NO LONGER gates archive-on-close — a
-  // pinned chat archives on close like every other chat (its durable
-  // cross-client closed signal), and the buildSidebarItems pinnedIds escape
-  // keeps its row while reopen unarchives. See handleClosePanel for why the
+  // Pinning (Fissati), from useSidebarState.isPinned, keyed by pin key. It
+  // gates CLOSING, not archiving: with `pinnedClosable` off a pinned tab does
+  // not close (see `closePolicyRef`). It never exempts a chat from the
+  // archive-on-close of the two-state model; see handleClosePanel for why the
   // former pinned-exempt behaviour resurrected closed pinned chats.
   isPinnedRef?: React.RefObject<(id: string) => boolean>;
+  /** The two View settings that shape a close: `closeArchives` (closing a
+   *  chat archives it, the two-state model) and `pinnedClosable`. Absent =
+   *  the two-state model with closable pins, the behaviour before them. */
+  closePolicyRef?: React.RefObject<{ closeArchives: boolean; pinnedClosable: boolean }>;
   // WS
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   sendWS: (msg: WSMessage) => void;
@@ -310,6 +317,12 @@ export interface UsePanelLifecycleReturn {
     handleTopicClick: (topicId: string, e?: React.MouseEvent) => void;
     handleTopicDoubleClick: (topicId: string, e?: React.MouseEvent) => void;
     handleClosePanel: (topicId: string) => void;
+    /** True, with a toast saying why, when the tab is pinned and pins do not
+     *  close. The deferred closes ask it before their countdown starts. */
+    pinnedCloseBlocked: (paneId: string) => boolean;
+    /** Opens, without moving the focus, the pinned projects and chats whose
+     *  tab is closed: with pins that do not close, a pin is an open tab. */
+    openPinsInBackground: (pinKeys: readonly string[]) => void;
     handleProjectClick: (projectPath: string) => void;
     handleCloseProject: (projectPath: string) => void;
     handleFocusPanel: (topicId: string) => void;
@@ -371,6 +384,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     onWSMessage, sendWS, windowId,
     chatStreamHandlers,
     setSidebarCollapsed, removeClosedTab, closedTabs,
+    isPinnedRef, closePolicyRef,
   } = args;
 
   // The full detached set — seeds openPanels; empty off-detach. `detachedTopicId`
@@ -1610,6 +1624,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // The global Kanban coordinator is a durable server-owned conversation:
       // closing its project-window pane only closes that local pane. It must
       // never enter the normal closed <-> archived lifecycle.
+      // With three states (closeArchives off, the default since 24/11) the
+      // chat stays as a closed row under its project (lib/closedRows.ts).
+      if (!(closePolicyRef?.current?.closeArchives ?? true)) return;
       if (id && t && !t.isGlobalOrchestrator) void archiveTopic(id, true);
     };
     const onUnarchive = (e: Event) => {
@@ -1622,7 +1639,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       window.removeEventListener('topic-archive-on-close', onArchive);
       window.removeEventListener('topic-unarchive-on-open', onUnarchive);
     };
-  }, [archiveTopic, topicsRef]);
+  }, [archiveTopic, topicsRef, closePolicyRef]);
+
+  // A closed chat whose record falls off the bounded closed stack is archived
+  // (`agedOutChats`): without it the chat had neither a closed row nor an
+  // archive entry, and only search found it. Two states: the close archived it.
+  useEffect(() => usePaneStore.subscribe((s) => s.closedStack, (next, prev) => {
+    if (closePolicyRef?.current?.closeArchives ?? true) return;
+    const openInWindow = (id: string) => Object.values(projectOpenPanesRef.current).some((ids) => ids.includes(id) || ids.includes(`chat:${id}`));
+    for (const id of agedOutChats(prev, next, CLOSED_STACK_MAX)) {
+      const t = topicsRef.current[id];
+      if (!t || t.archived || t.isGlobalOrchestrator || openPanelsRef.current.includes(id) || openInWindow(id)) continue;
+      void archiveTopic(id, true);
+    }
+  }), [archiveTopic, topicsRef, closePolicyRef, projectOpenPanesRef, openPanelsRef]);
 
   const handleTopicClick = useCallback((topicId: string, e?: React.MouseEvent) => {
     // A deliberate tab switch releases any pending deep-link focus intent, so a
@@ -1661,9 +1691,61 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     if (isMobile) setSidebarCollapsed(true);
   }, [openPanel, isMobile, topics, openPanels, setSidebarCollapsed, archiveTopic, releaseFocusIntents]);
 
+  // A pin closed before pins stopped closing, or on a device that lets them
+  // close, opens again (asked on 24/11: reopen them as tabs). Projects and chats only:
+  // a terminal or a browser needs its session or its page, which a pin does
+  // not carry, so those stay as a closed tile.
+  // Appends, never through `openPanel`: on the phone that one REPLACES the
+  // open tabs with the one it opens, so three pins left one tab and wiped the
+  // chats that were open. An archived pin stays closed: opening it would
+  // unarchive a chat nobody asked for.
+  const openPinsInBackground = useCallback((pinKeys: readonly string[]) => {
+    const added: string[] = [];
+    for (const key of pinKeys) {
+      if (key.startsWith('project:')) {
+        const path = key.slice('project:'.length);
+        const id = createPaneId('project', path);
+        if (openPanelsRef.current.includes(id)) continue;
+        ensurePaneRegistered({ id, type: 'project', projectPath: path });
+        // Permanent like the chats below: a lone preview pane would be
+        // REPLACED by the next one, closing a tab the person opened.
+        markTabPermanent(id);
+        added.push(id);
+      } else if (!key.includes(':')) {
+        const topic = topicsRef.current[key];
+        if (!topic || topic.archived || topic.isGlobalOrchestrator || openPanelsRef.current.includes(key)) continue;
+        if (opensAsProjectPane(topic) && topic.projectPath) {
+          // A project's chat lives in its project window: that is what opens.
+          const id = createPaneId('project', topic.projectPath);
+          if (openPanelsRef.current.includes(id) || added.includes(id)) continue;
+          ensurePaneRegistered({ id, type: 'project', projectPath: topic.projectPath, title: topic.name });
+          markTabPermanent(id);
+          added.push(id);
+          continue;
+        }
+        ensurePaneRegistered({ id: key, type: 'chat', topicId: key, title: topic.name }, { groupId: 'group:default' });
+        markTabPermanent(key);
+        added.push(key);
+      }
+    }
+    if (added.length) setOpenPanels(prev => [...prev, ...added.filter(id => !prev.includes(id))]);
+  }, [topicsRef, openPanelsRef]);
+
   const handleTopicDoubleClick = useCallback((topicId: string, _e?: React.MouseEvent) => {
     openPanel(topicId, 'permanent');
   }, [openPanel]);
+
+  // A pinned tab stays open unless the View setting allows closing pins
+  // (asked on 24/11: a pin that cannot close is handy). One rule
+  // for the X, ⌘W, the menus and the deferred closes, which ask before their
+  // countdown so a refused close never shows one.
+  const pinnedCloseBlocked = useCallback((paneId: string): boolean => {
+    const policy = closePolicyRef?.current;
+    if (!policy || policy.pinnedClosable) return false;
+    if (!isPinnedRef?.current?.(pinKeyFromPaneId(paneId))) return false;
+    toast.info(tr('app.pinnedClosed'));
+    return true;
+  }, [closePolicyRef, isPinnedRef, toast, tr]);
 
   // handleClosePanel (stable identity via ref-backed impl)
   const handleClosePanelRef = useRef<(topicId: string, opts?: { silent?: boolean }) => void>(() => {});
@@ -1682,6 +1764,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // its X a silent no-op. A project pane the store still holds closes.
     const heldProjectPane = isProjectPaneId(topicId) && !!usePaneStore.getState().panes[topicId];
     if (!openPanelsRef.current.includes(topicId) && !heldProjectPane) return;
+    if (!opts?.silent && pinnedCloseBlocked(topicId)) return;
     // Le tre (ora quattro) conseguenze della chiusura di una pane BROWSER
     // vivono qui, e non solo nel gestore per-tipo di usePaneLifecycle, perche'
     // questo e' l'UNICO imbuto da cui passano tutte le strade: la X, ⌘W, il
@@ -1738,9 +1821,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // The global coordinator remains durable when its local pane closes. Its
     // server-projected marker is authoritative for this client-side exception;
     // ordinary Topics retain the existing close <-> archive contract.
+    // Three-state model (the default): a closed chat stays closed, a row in
+    // the column, until it is archived. The durable tombstone CLOSE_PANE
+    // writes keeps a stale peer from reopening it, as for every other pane.
     const archivesOnClose = !!closingTopic
       && !isDraftPaneId(topicId)
-      && !closingTopic.isGlobalOrchestrator;
+      && !closingTopic.isGlobalOrchestrator
+      && (closePolicyRef?.current?.closeArchives ?? true);
     let panelIndex = 0;
     {
       const s = usePaneStore.getState();
@@ -1887,6 +1974,20 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       void focusBrowserContextLive({ contextId: m.contextId, reopen: false, onlyWhereShown: true }, { layoutHandled: true });
     });
   }, [onWSMessage, openPanelsRef, setOpenPanels, setFocusedPanelId]);
+
+  // request_login: the agent hit a login wall. The tab comes forward and the
+  // window is raised (detached when asked) so the person notices it.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type !== 'browser:login-request' || !msg.contextId) return;
+      void handleLoginRequestLive({
+        contextId: msg.contextId,
+        url: msg.url,
+        detached: msg.detached,
+        topicId: msg.topicId,
+      });
+    });
+  }, [onWSMessage]);
 
   const handleProjectClick = useCallback((projectPath: string) => {
     // Aprire un progetto dalla sidebar è una navigazione VOLUTA quanto un click
@@ -2248,6 +2349,14 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // promotion's renders (see `state/firstSend.ts`).
     const draftKey = draftSessionKey(draftId);
     const bubbleId = stageFirstBubble(draftKey, firstMessage, options?.mediaSizes);
+    // On disk before the request: a restart while it is in flight brings the
+    // text back into the draft's field (`state/pendingFirstSend.ts`).
+    savePendingFirstSend(draftId, firstMessage);
+    // Gives the text back to the field of the draft that stays open.
+    const returnToField = () => {
+      clearPendingFirstSend(draftId);
+      window.dispatchEvent(new CustomEvent('topics:seed-composer', { detail: { topicId: draftId, text: firstMessage } }));
+    };
     const topic = await createTopic({
       name: 'New Chat',
       icon: DEFAULT_TOPIC_ICON,
@@ -2256,6 +2365,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     if (!topic) {
       withdrawFirstBubble(draftKey, bubbleId);
+      returnToField();
       return;
     }
     // The lineage first: every render from here on that sees the topic's id
@@ -2285,6 +2395,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (usePaneStore.getState().panes[draftId]) {
         console.warn('promoteDraft: id collision, keeping draft', draftId, '→', topic.id);
         withdrawFirstBubble(draftKey, bubbleId);
+        returnToField();
         return;
       }
     }
@@ -2313,6 +2424,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     });
     try { localStorage.removeItem(draftTextKey(draftId)); } catch { /* draft text may already be gone */ }
     forgetDraft(draftId);
+    clearPendingFirstSend(draftId);
     await sendMessage(topic.sessionKey, firstMessage, { ...options, userMessageId: bubbleId });
   }, [draftMeta, createTopic, sendMessage, focusedPanelIdRef]);
 
@@ -2774,6 +2886,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       handleTopicClick,
       handleTopicDoubleClick,
       handleClosePanel,
+      pinnedCloseBlocked,
+      openPinsInBackground,
       handleProjectClick,
       handleCloseProject,
       handleFocusPanel,

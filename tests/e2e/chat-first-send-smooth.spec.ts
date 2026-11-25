@@ -5,6 +5,7 @@ import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { hermetic } from "./fixtures/hermetic";
 import { EASE, MOTION } from "../../client/src/lib/motion";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -54,7 +55,7 @@ hermetic(test);
 // The suite runs with `reducedMotion: "reduce"` (playwright.config.ts), where the
 // composer has no slide at all. The gesture under test IS the motion, so this
 // file puts it back.
-test.use({ video: "on", contextOptions: { reducedMotion: "no-preference" } });
+test.use({ video: VIDEO_ON, contextOptions: { reducedMotion: "no-preference" } });
 
 const TOL = 0.5;
 

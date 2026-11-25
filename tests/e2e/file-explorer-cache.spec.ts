@@ -194,15 +194,19 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await expect(header).toBeVisible({ timeout: 15000 });
     if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
 
+    // The section is an island (25/11): the card is the box around the header,
+    // which keeps its ground, corners and inset; the header is a row inside it.
     const stile = () => header.evaluate((el: HTMLElement) => {
       const cs = getComputedStyle(el);
+      const island = getComputedStyle(el.parentElement!);
       return {
-        fondo: cs.backgroundColor,
-        raggio: cs.borderRadius,
+        fondo: island.backgroundColor,
+        raggio: island.borderRadius,
+        rientro: island.marginLeft,
+        fondoRiga: cs.backgroundColor,
         testo: cs.color,
         bordi: [cs.borderTopWidth, cs.borderBottomWidth, cs.borderLeftWidth, cs.borderRightWidth],
         coloriBordo: [cs.borderTopColor, cs.borderBottomColor],
-        rientro: cs.marginLeft,
       };
     });
 
@@ -252,7 +256,7 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     };
 
     const aperta = await styleAtRest();
-    // È una card: fondo proprio, angoli, e rientrata dai lati come ogni altra.
+    // A card: its own ground, rounded corners, and an inset from the sides.
     expect(aperta.raggio, "l'intestazione è arrotondata come una tab").not.toBe("0px");
     expect(aperta.fondo, "l'intestazione ha un fondo suo").not.toMatch(/rgba\(0, 0, 0, 0\)/);
     expect(parseFloat(aperta.rientro), "ed è rientrata dai lati").toBeGreaterThan(0);
@@ -261,11 +265,13 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await expect(header).toHaveAttribute("aria-expanded", "false");
     const chiusa = await styleAtRest();
 
-    // Niente cambia fra i due stati: non c'è più un bordo che compare, e la
-    // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,
-    // questa riga se ne accorge.
+    // No border appears on closing: if someone put a conditional line back,
+    // this catches it. The ground does change, and on purpose (25/11: no
+    // background unless active in some way, as the tabs): open, the island is
+    // a card; closed, it is only its header, a row with no ground of its own.
     expect(chiusa.bordi, "nessun bordo compare chiudendo").toEqual(aperta.bordi);
-    expect(chiusa.fondo, "la superficie non cambia").toBe(aperta.fondo);
+    expect(chiusa.fondo, "a closed island has no ground").toBe("rgba(0, 0, 0, 0)");
+    expect(chiusa.fondoRiga, "header row at rest keeps the same surface").toBe(aperta.fondoRiga);
     // E nessun capello prende il colore del testo — il valore di partenza
     // sbagliato del preflight, che è il difetto vero dietro il vecchio test.
     for (const c of [...aperta.coloriBordo, ...chiusa.coloriBordo]) {

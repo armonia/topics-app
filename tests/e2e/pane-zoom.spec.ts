@@ -287,7 +287,7 @@ async function seedGrid(page: Page, request: APIRequestContext, opts: SeedOption
     request.put(`${BASE}/api/ui-state/panel-order`, { data: { order: paneIds, pinned: paneIds }, ignoreHTTPSErrors: true }).catch(() => {}),
   ]);
 
-  await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+  await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
   await page.evaluate(
     ({ gridKey, spaceKey, spawnerKey, grid, spawnerMap }) => {
       localStorage.removeItem("topics-open-panels");

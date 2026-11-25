@@ -36,6 +36,7 @@ interface Profilo {
   paddingRight: string;
   borderRadius: string;
   fondo: string;
+  dipinge: boolean;
   corpo: string;
   peso: string;
 }
@@ -110,6 +111,7 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
         return {
           paddingLeft: cs.paddingLeft, paddingRight: cs.paddingRight,
           borderRadius: cs.borderRadius, fondo: fondo(el),
+          dipinge: cs.backgroundColor !== "rgba(0, 0, 0, 0)" && cs.backgroundColor !== "transparent",
           corpo: ns.fontSize, peso: ns.fontWeight,
         };
       };
@@ -126,10 +128,12 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
     expect(misure, "tessera o righe non montate").not.toBeNull();
     const { tessera, riga } = misure as { tessera: Profilo; riga: Profilo };
 
-    // Il fondo a riposo. Era 0.08 contro 0.05: due tinte per la stessa quiete,
-    // e la seconda era il valore che il repo aveva GIÀ misurato come troppo
-    // debole su questo schermo (1,10:1 contro 1,18:1).
-    expect(tessera.fondo, "il fondo a riposo deve essere lo stesso").toBe(riga.fondo);
+    // The ground at rest. Until 25/11 tile and row had to wear the same one;
+    // since then a ground says "active" (open, pinned, selected), and a row at
+    // rest has none on the phone too ("if not active in some way, no
+    // background, as the tabs"). The pinned tile keeps its own.
+    expect(tessera.dipinge, "the pinned tile has its ground").toBe(true);
+    expect(riga.dipinge, "a row at rest paints nothing").toBe(false);
     // L'incasso orizzontale: ROW_PX, «l'incasso canonico di una riga di
     // contenuto», su entrambe.
     expect(tessera.paddingLeft).toBe(riga.paddingLeft);
@@ -195,9 +199,9 @@ test.describe("Le tre facce di una tab, sullo schermo dove collassano in una", (
 
     expect(fondi, "righe non montate dopo la riapertura del cassetto").not.toBeNull();
     const { scelta: fSel, riposo: fRip } = fondi as { scelta: string; riposo: string };
-    // Entrambe DIPINGONO — se il riposo fosse trasparente il confronto sarebbe
-    // vuoto e passerebbe per il motivo sbagliato.
-    expect(fRip, "la riga a riposo deve avere un fondo sul telefono").not.toBe("—");
+    // Since 25/11 the resting row paints nothing on the phone either, and the
+    // selected one does: that is how it stands out.
+    expect(fRip, "a row at rest has no ground, on the phone too").toBe("—");
     expect(fSel, "la riga selezionata deve avere un fondo").not.toBe("—");
     // E sono DIVERSI: è tutto il punto.
     expect(fSel, `selezionata e riposo hanno lo stesso fondo (${fSel})`).not.toBe(fRip);

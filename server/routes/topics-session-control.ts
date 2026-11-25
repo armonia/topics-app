@@ -79,6 +79,8 @@ export function createSessionControlRoutes(
           // AC-01: archived is a client error distinct from "doesn't exist" — the
           // topic IS there, it's just not switchable (unarchive/open it first).
           if (r.code === "archived") return json({ error: r.message, code: "topic_archived", topicId: targetId }, 400);
+          // A name that matches several topics: the message lists them with their ids.
+          if (r.code === "ambiguous") return json({ error: r.message, code: "topic_ambiguous" }, 409);
           return json({ error: r.message }, 404);
         }
         return json({ ok: true, toTopicId: r.toTopicId });

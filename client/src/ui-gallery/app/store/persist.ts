@@ -5,7 +5,7 @@
  */
 import { STATE_VERSION, initialState, type DemoState } from './state';
 
-/** The key of the multi-organization preview; another edition (SARIM alone) keeps its own. */
+/** The key of the multi-organization preview; another edition (ORBIT alone) keeps its own. */
 export const DEFAULT_STORAGE_KEY = 'topics-org-preview';
 
 export function loadState(fresh: boolean, key = DEFAULT_STORAGE_KEY, persona?: string): DemoState {

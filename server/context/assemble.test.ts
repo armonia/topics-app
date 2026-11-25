@@ -267,12 +267,12 @@ describe("assembleTopicContext — minimal topic", () => {
   });
 });
 
-describe("assembleTopicContext — topic switch directory", () => {
-  // Every turn of a provider with control tools rebuilds this directory, and
-  // it lists the LIVE topics only. It used to get there by loading every topic
-  // of the store, archived ones included (1,848 of 1,870 on this machine,
-  // 2026-09-30, ~2.5 ms a turn), and skipping them in JS. The store has the
-  // live half on an index: the directory asks for that.
+describe("assembleTopicContext — topic switching block", () => {
+  // The block used to list every live topic so the model could pick an id:
+  // 33.5k characters on 23/11/2026, rewritten by each of the ~755 topics
+  // created a day, sitting before the history. `switch_topic` now resolves a
+  // name itself, so the block carries the current topic only and changes
+  // only when that topic is renamed.
   const baseDir = join(ROOT, "directory", "base");
   const appDataDir = join(ROOT, "directory", "app-data");
   mkdirSync(join(baseDir, "memory"), { recursive: true });
@@ -304,10 +304,26 @@ describe("assembleTopicContext — topic switch directory", () => {
   });
   const directory = env.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.content ?? "";
 
-  it("lists every live topic but the current one, and no archived one", () => {
-    expect(directory).toContain("- [id:live-0] Live 0\n- [id:live-1] Live 1 (project: alpha)");
-    expect(directory).not.toContain("[id:live-current]");
-    expect(directory).not.toContain("[id:arch-");
+  it("names the current topic and lists no other topic", () => {
+    expect(directory).toContain('You are currently in topic: "Current"');
+    expect(directory).toContain("switch_topic");
+    expect(directory).not.toContain("Live 0");
+    expect(directory).not.toContain("live-1");
+    expect(directory).not.toContain("Archived");
+  });
+
+  it("stays byte-identical when other topics come and go", () => {
+    all["live-new"] = makeTopic({ id: "live-new", name: "Brand new", sessionKey: "topic:livenew" });
+    try {
+      const again = assembleTopicContext(ctx, {
+        sessionKey: topic.sessionKey,
+        providerName: "claude",
+        providerStrategy: "history-aware",
+      });
+      expect(again.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.content).toBe(directory);
+    } finally {
+      delete all["live-new"];
+    }
   });
 
   it("is left out when the topic switched it off", () => {
@@ -319,11 +335,6 @@ describe("assembleTopicContext — topic switch directory", () => {
     } as Parameters<typeof assembleTopicContext>[1]);
     expect(off.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.enabled).toBe(false);
     expect(env.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.enabled).toBe(true);
-  });
-
-  it("does not load the archived topics to build it", () => {
-    expect(loadedCounts.length).toBeGreaterThan(0);
-    expect(Math.max(...loadedCounts)).toBe(3);
   });
 });
 

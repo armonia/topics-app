@@ -160,6 +160,12 @@ interface OpenAsk {
   /** When the ask opened, so its age spans the ask and not a single leg. */
   startedAt: number;
   /**
+   * When the bridge last came back for the answer. A living question is polled
+   * every leg (25 s); an entry nobody polls any more is a leftover, and
+   * `askStillPolled` lets the restart gate tell the two apart.
+   */
+  lastLegAt: number;
+  /**
    * The tool row the panel of THIS question sits on, when the wait that owns the
    * rendez-vous declared one. See `openAskIdentity` for what reads it.
    */
@@ -177,8 +183,13 @@ interface OpenAsk {
  * when somebody answers, cancels, or sends a new message (see the header).
  */
 export function beginAsk(sessionKey: string, now = Date.now(), text?: string | null): void {
-  if (activeAsks.has(sessionKey)) return;
-  activeAsks.set(sessionKey, { startedAt: now });
+  const open = activeAsks.get(sessionKey);
+  if (open) {
+    // A later leg of the same ask: the age stays, the sign of life is renewed.
+    open.lastLegAt = Date.now();
+    return;
+  }
+  activeAsks.set(sessionKey, { startedAt: now, lastLegAt: Date.now() });
   // From here the turn is parked on a person. Whoever watches the BOARD cannot
   // tell by itself: the task would stay `working` under an open panel. See
   // human-hold-events.ts.
@@ -405,6 +416,30 @@ export function forgetBufferedAnswer(
  */
 export function hasPendingAsk(sessionKey: string): boolean {
   return activeAsks.has(sessionKey);
+}
+
+/**
+ * How long the bridge may stay silent before an open ask stops vouching that a
+ * person is being waited for: the longest leg a caller may pick (60 s, clamped
+ * in the ask route) plus the window the bridge keeps retrying through a server
+ * restart (`ASK_TRANSPORT_GRACE_MS`, 90 s).
+ */
+export const ASK_POLL_LIVE_MS = 150_000;
+
+/**
+ * Is a question open for this session AND its asker still coming back for it?
+ *
+ * `hasPendingAsk` says the registry has an entry; the entry can outlive its
+ * question (a leg that arrives after a Stop re-opens it, and nothing closes it
+ * again, because no clock ends a question). A real question is polled every
+ * 25 s, so one nobody has polled for `ASK_POLL_LIVE_MS` is a leftover. This is
+ * the witness for whoever would act on "a person is being waited for" by
+ * hiding a turn from the work count: a leftover must never hide a turn that is
+ * working.
+ */
+export function askStillPolled(sessionKey: string, now = Date.now()): boolean {
+  const open = activeAsks.get(sessionKey);
+  return open !== undefined && now - open.lastLegAt <= ASK_POLL_LIVE_MS;
 }
 
 /**

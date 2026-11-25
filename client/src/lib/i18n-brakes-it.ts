@@ -51,6 +51,16 @@ const BRAKES_IT: Dict = {
   'brake.column.api': "Partono appena l'API torna a rispondere.",
   'brake.column.apiOne': "Parte appena l'API torna a rispondere.",
   'brake.card.wait': 'Aspetta il freno · {who}',
+  'brake.spend.who': 'Spesa 24 h',
+  'brake.spend.title': 'Il tetto di spesa delle 24 ore ferma la coda',
+  'brake.why.spend': '{spent} su {cap} USD, riparte {when}',
+  'brake.why.spendOpen': '{spent} su {cap} USD, riparte quando rientra',
+  'brake.pop.leadSpend': 'La spesa degli agenti nelle ultime 24 ore ha passato il tetto: nessuna card parte, qualunque sia il modello. Il tetto si cambia nelle impostazioni della board.',
+  'brake.column.spendHead': '{n} aspettano il tetto di spesa',
+  'brake.column.spendHeadOne': '1 aspetta il tetto di spesa',
+  'brake.column.spendOpen': 'Partono quando la spesa delle 24 ore rientra sotto il tetto.',
+  'brake.column.spendOpenOne': 'Parte quando la spesa delle 24 ore rientra sotto il tetto.',
+  'brake.card.spend': 'Aspetta il tetto di spesa',
 };
 
 export default BRAKES_IT;

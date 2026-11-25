@@ -148,8 +148,11 @@ test.describe("la riga dei comandi del progetto e ciò che le sta sotto", () => 
     const file = win.getByTestId("project-sidebar-files");
     await expect(file).toBeVisible({ timeout: 10000 });
 
+    // Since 25/11 the sections are islands: the card is the box around the
+    // «File» row, and the step is measured to that card, not to the row it
+    // holds a few pixels inside.
     const t = (await trigger.boundingBox())!;
-    const f = (await file.boundingBox())!;
+    const f = (await file.locator("xpath=..").boundingBox())!;
     const varco = f.y - (t.y + t.height);
     expect(
       varco,

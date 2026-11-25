@@ -16,7 +16,9 @@ import { accumulateTurnUsage, turnUsageWire } from "../usage/turn-usage";
 import { buildContextUpdate } from "../usage/usage-update";
 import { recordSessionContext } from "../db/session-context";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
+import { parseClaudeUsageLimit } from "../providers/claude/usage-limit";
 import { holdUntilLabel, setProviderHold } from "../lib/provider-hold";
+import { providerHoldKey } from "../../shared/provider-hold";
 import { rememberCodexHoldLogin } from "../lib/codex-login-watch";
 import type { ChatTurnScope } from "./chat-turn-scope";
 import { failedToolText } from "../lib/tool-finalize-status";
@@ -769,6 +771,15 @@ export function createStreamHandler(turn: ChatTurnScope): void {
         if (limit) {
           setProviderHold({ ...limit, window: "usage_limit", provider: "codex" }); rememberCodexHoldLogin();
           console.warn(`[StreamWS] Codex usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
+        }
+      }
+      // The Claude CLI's own "You've hit your limit · resets ..." is the same wall
+      // for Claude: hold until the reset so the resume sweep resends this turn then.
+      if (providerHoldKey(turn.topicProvider.name) === "claude") {
+        const limit = parseClaudeUsageLimit(error);
+        if (limit) {
+          setProviderHold({ ...limit, window: "usage_limit" });
+          console.warn(`[StreamWS] Claude usage limit recorded for ${sessionKey}: resumes at ${holdUntilLabel({ untilMs: limit.untilMs })}`);
         }
       }
       // Il turno e' fallito: il preambolo marcato come consegnato potrebbe

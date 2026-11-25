@@ -115,6 +115,10 @@ interface SidebarState {
    *  scartato a ogni GET, ogni push WS e ogni evento cross-tab — scritto e mai
    *  riletto, senza un solo errore. */
   pinnedLayout: PinnedRow[];
+  /** The hand order of the column's rows (lib/listOrder.ts): ids the person
+   *  placed by dragging. Rows it does not know go on top. Registered in
+   *  DEFAULT_STATE like every field, or the sanitizer drops it. */
+  listOrder: string[];
   // Legacy fields — kept for backward compat during migration, not used in new UI
   showProjects: boolean;
   showChats: boolean;
@@ -137,6 +141,7 @@ const DEFAULT_STATE: SidebarState = {
   showArchived: false,
   pinnedItems: [],
   pinnedLayout: [],
+  listOrder: [],
   // Legacy defaults
   showProjects: true,
   showChats: true,
@@ -508,6 +513,12 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     });
   }, []);
 
+  /** The hand order after a drag in the column (lib/listOrder.ts). */
+  const setListOrder = useCallback((next: string[]) => {
+    lastLocalChangeRef.current = Date.now();
+    setStateRaw(prev => ({ ...prev, listOrder: next }));
+  }, []);
+
   /**
    * La disposizione dopo un drag. Riconciliata comunque: chi chiama passa una
    * griglia, non la verità su cosa è fissato.
@@ -599,6 +610,8 @@ export function useSidebarState(onMessage?: (handler: (msg: WSMessage) => void) 
     pinnedIds,
     pinnedLayout: state.pinnedLayout,
     setPinnedLayout,
+    listOrder: state.listOrder ?? [],
+    setListOrder,
     pinAt,
     togglePin,
     snapshotPinned,

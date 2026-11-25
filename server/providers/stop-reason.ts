@@ -235,7 +235,7 @@ const REFUSAL_RE =
 /** Il turno ha esaurito le richieste al modello concesse (`--max-turns`). */
 /** The API's own words for "not now": the rate limit and the overload, as
  *  the native runtime reports them after its retries are spent. */
-const RATE_LIMIT_RE = /rate_limit_error|rate.?limit|overloaded_error|\bAPI (?:429|529)\b/i;
+const RATE_LIMIT_RE = /rate_limit_error|rate.?limit|overloaded_error|\bAPI (?:429|529)\b|you.ve hit your (?:[a-z0-9-]+ ){0,3}limit/i;
 const MAX_TURNS_RE = /error_max_turns|max[ _-]?turns? (exceeded|reached)/i;
 
 /**

@@ -210,6 +210,7 @@ describe('outbound registry contract', () => {
       'browser:close-pane',
       'browser:focus-pane',
       'browser:force-open',
+      'browser:login-request',
       'browser:navigate',
       'browser:open-near-pane',
       'browser:open-task-tab',
@@ -446,8 +447,10 @@ describe('outbound registry contract', () => {
   // 108 -> 109: `stream:reasoning_translation`, a reasoning sentence translated into
   // the chat language, sent as each sentence closes. Sender
   // `server/reasoning-translation/turn.ts`, listener `client/src/hooks/chatStreamEvents.ts`.
+  // 109 -> 110: `browser:login-request`, an agent asks for a login tab to be raised
+  // (optionally detached). Sender `server/routes/browser-login-request.ts`.
   test('all 104 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(109);
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(110);
   });
 });
 

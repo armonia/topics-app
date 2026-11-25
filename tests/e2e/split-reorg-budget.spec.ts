@@ -60,10 +60,11 @@ import {
   settlePanes,
   type GestureResult,
 } from "./helpers/react-commit-probe";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 // The card asks for a video of the gestures.
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 /** Pointer moves of the divider drag: large enough that "one commit per move" is unmistakable. */
 const DRAG_MOVES = 40;
@@ -648,7 +649,7 @@ test.describe("split reorganisation budget", () => {
         .catch(() => {});
       // The split cells live in localStorage only: the terminal and the browser
       // each in a cell of their own, the two chats in the pool.
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.goto("/manifest.json", { waitUntil: "commit" }).catch(() => {});
       await page.evaluate((grid) => {
         localStorage.removeItem("topics-open-panels");
         localStorage.setItem("topics-panel-grid-layout", JSON.stringify(grid));

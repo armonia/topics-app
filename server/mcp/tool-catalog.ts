@@ -82,6 +82,26 @@ export const TOOLS = [
     annotations: { ...MODIFICA, openWorldHint: true },
   },
   {
+    name: "request_login",
+    description:
+      "Use this INSTEAD of writing 'log in to X in the Topics browser' in a comment. When you hit a login wall (password, passkey, 2FA: things you never type), call it with the login URL: it opens that page in a NEW tab, brings it to the front, optionally in a detached window that catches the eye, and WAITS for the person to get past the login. Returns `logged_in` (carry on, the tab keeps the session), `waiting` (call again with the returned `resume` to keep waiting; one call waits about 4 minutes) or `needs_input` after 30 minutes (move the card to needs_input; the tab stays open). Never fill credentials and never import cookies without the Keychain consent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "The login page URL (https://...). Required unless `resume` is given." },
+        name: { type: "string", description: "Tab label (default 'Login <host>', so each site gets its own tab)." },
+        detached: { type: "boolean", description: "Also pop the topic out into its own window so it grabs attention." },
+        resume: {
+          type: "object",
+          description: "The object a previous `waiting` answer returned: keeps waiting without reopening the tab.",
+          properties: { contextId: { type: "string" }, startUrl: { type: "string" }, deadline: { type: "number" } },
+        },
+      },
+      required: [],
+    },
+    annotations: { ...MODIFICA, openWorldHint: true },
+  },
+  {
     name: "close_browser_pane",
     description:
       "Close the browser pane this session opened with open_browser_pane, in every window that shows it (clean close: same flow as the tab's X, undoable by the user). Use it to clean up after yourself when the browsing task is done and the pane is no longer needed. Pass contextId only to target a specific pane other than this session's own.",
@@ -685,10 +705,10 @@ export const TOOLS = [
   {
     name: "switch_topic",
     description:
-      "Switch the user's view to an EXISTING chat topic (conversation thread) by id. Use when the user asks to go to / open another topic. UI-only: it does not move the current message. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to switch); use open_project to move a terminal tab into a project instead.",
+      "Switch the user's view to an EXISTING chat topic (conversation thread), by its name or id: Topics looks the name up, and when several topics match it returns them with their ids so you can call again with one. Use when the user asks to go to / open another topic. UI-only: it does not move the current message. Acts on CHAT topics only — from a terminal Claude tab it returns a clear error (there's no conversation to switch); use open_project to move a terminal tab into a project instead.",
     inputSchema: {
       type: "object",
-      properties: { topic_id: { type: "string", description: "Target topic id." } },
+      properties: { topic_id: { type: "string", description: "Target topic name (or part of it) or id." } },
       required: ["topic_id"],
     },
     annotations: MODIFICA,

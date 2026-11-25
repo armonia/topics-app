@@ -3,6 +3,7 @@ import { createTopic, deleteTopic, seedPaneStore } from "./helpers/api-fixtures"
 import { E2E_BASE } from "./helpers/test-server";
 import { goToApp } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
+import { VIDEO_ON } from "./video-evidence";
 
 hermetic(test);
 
@@ -36,7 +37,7 @@ hermetic(test);
  * Video acceso: è un comportamento (una pane muore, l'altra continua a
  * funzionare), e uno screenshot non prova un comportamento.
  */
-test.use({ video: "on" });
+test.use({ video: VIDEO_ON });
 
 const LAZY_PANE = "__dashboard__";
 

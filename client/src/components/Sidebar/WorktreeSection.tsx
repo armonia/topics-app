@@ -2,8 +2,8 @@ import type { ReactNode } from 'react';
 import { GitBranch, Plus } from 'lucide-react';
 import { useT } from '@/hooks/useT';
 import {
-  sidebarRowCard, ROW_CARD, ROW_PX, ROW_GAP, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT,
-  ROW_ACTIONS, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SECTION_H, SIDEBAR_INDENT_STEP, TAB_LABEL,
+  sidebarRowCard, ROW_CARD, ROW_H, ROW_PX, ROW_GAP, ROW_INSET, ROW_GLYPH, ROW_GLYPH_SLOT,
+  ROW_ACTIONS, ROW_ACTION_BOX, ROW_ACTION_GLYPH, SIDEBAR_INDENT_STEP, TAB_LABEL,
 } from '@/lib/selectionStyles';
 
 interface WorktreeSectionProps {
@@ -33,8 +33,8 @@ interface WorktreeSectionProps {
  * ARIA shape for "these treeitems belong together", and it is what lets the
  * header carry a label without pretending to be a row.
  *
- * The header is a SECTION row (`SECTION_H`, not `ROW_H`): the same height and
- * the same card as the section headers of the state view, so the sidebar has
+ * The header is a SECTION row (`ROW_H`, a row's height since 25/11): the
+ * same card as the section headers of the state view, so the sidebar has
  * one way of saying "what follows is grouped". Its only command — the "+" —
  * lives in the shared action rail (`ROW_ACTIONS`): revealed on hover, always
  * present under a finger, and it opens the SAME creation dialog the project
@@ -51,7 +51,7 @@ export function WorktreeSection({ worktreeId, name, branchName, depth, onNewTopi
       className="flex flex-col"
     >
       <div
-        className={`group ${ROW_CARD} flex items-center ${ROW_GAP} ${SECTION_H} ${ROW_PX} select-none ${sidebarRowCard({ nested: true })}`}
+        className={`group ${ROW_CARD} flex items-center ${ROW_GAP} ${ROW_H} ${ROW_PX} select-none ${sidebarRowCard({})}`}
         style={{ marginLeft: ROW_INSET + depth * SIDEBAR_INDENT_STEP }}
         data-worktree-header={worktreeId}
       >

@@ -1,7 +1,7 @@
 /**
  * The contracts of the Consorzio edition, with their versions, clauses,
  * obligations, comments, attachments, variants and approvals. Same shape as
- * `../sarim-org/contracts.ts`.
+ * `../orbit-org/contracts.ts`.
  *
  * What is real: that the Consorzio tendered a framework agreement in 2 lots for
  * engineering services of the 2026-2028 works programme (CUC del Lago di allow-italian: quotes the words on screen
@@ -25,7 +25,7 @@
  * between versions: a later version rewrites words, not ids. Every obligation
  * quotes the words of its clause verbatim, so the screen can highlight them.
  */
-import type { ApprovalStep, Clause, Contract, ContractAttachment } from '../sarim-org/types';
+import type { ApprovalStep, Clause, Contract, ContractAttachment } from '../orbit-org/types';
 
 /** A clause as printed; the id follows the number. */
 const art = (n: number, title: string, text: string): Clause => ({ id: `art-${n}`, n: String(n), title, text });

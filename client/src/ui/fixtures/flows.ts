@@ -205,10 +205,10 @@ export const TRIGGER_DETAIL: Record<string, TriggerDetail> = {
   segnalazioni: { note: 'WhatsApp, telefono', produces: [f('mail', 'Segnalazione'), f('file', 'Foto')] }, // allow-italian: fixture data, shown as written
   concessioni: { note: 'richiesta via PEC o sportello', produces: [f('mail', 'Richiesta'), f('file', 'Allegati ×n')] }, // allow-italian: fixture data, shown as written
   accesso: { note: 'PEC con «accesso»', produces: [f('mail', 'PEC'), f('file', 'Istanza')] }, // allow-italian: fixture data, shown as written
-  'sarim-segnalazioni': { note: '1.412 al mese, stima · mail AMA · portale utenze · telefonata', produces: [f('mail', 'Segnalazione'), f('file', 'Foto')] }, // allow-italian: fixture data, shown as written
+  'orbit-segnalazioni': { note: '1.412 al mese, stima · mail AMA · portale utenze · telefonata', produces: [f('mail', 'Segnalazione'), f('file', 'Foto')] }, // allow-italian: fixture data, shown as written
   verbale: { note: 'dal sopralluogo', produces: [f('legal', 'Verbale'), f('file', 'Foto')] }, // allow-italian: fixture data, shown as written
-  'sarim-fir': { note: 'a ogni ritiro con formulario', produces: [f('legal', 'Ritiro')] }, // allow-italian: fixture data, shown as written
-  'sarim-fatture': { note: 'dalla casella fornitori', produces: [f('file', 'Fattura'), f('mail', 'Mail')] }, // allow-italian: fixture data, shown as written
+  'orbit-fir': { note: 'a ogni ritiro con formulario', produces: [f('legal', 'Ritiro')] }, // allow-italian: fixture data, shown as written
+  'orbit-fatture': { note: 'dalla casella fornitori', produces: [f('file', 'Fattura'), f('mail', 'Mail')] }, // allow-italian: fixture data, shown as written
 };
 
 /** Detail of every step of the non-PEC flows, by flow then by step id. */
@@ -287,7 +287,7 @@ export const STEP_DETAIL: Record<string, Record<string, StepDetail>> = {
     s5: { uses: [f('folder', 'Atti richiesti')], produces: [f('legal', 'Risposta (bozza)')] }, // allow-italian: fixture data, shown as written
     s6: { uses: [f('legal', 'Risposta (bozza)')], produces: [f('mail', 'Ricevuta di consegna')] }, // allow-italian: fixture data, shown as written
   },
-  'sarim-segnalazioni': {
+  'orbit-segnalazioni': {
     s1: { uses: [f('mail', 'Segnalazione')], produces: [f('record', 'Indirizzo'), f('folder', 'Tipo di servizio'), f('folder', 'Urgenza')] }, // allow-italian: fixture data, shown as written
     s7: { note: 'stesso indirizzo entro 50 m', uses: [f('record', 'Indirizzo'), f('number', 'Servizi aperti')] }, // allow-italian: fixture data, shown as written
     s2: { uses: [f('record', 'Indirizzo')], produces: [f('number', 'Ordine SAP')], phase: 'registration' }, // allow-italian: fixture data, shown as written
@@ -297,7 +297,7 @@ export const STEP_DETAIL: Record<string, Record<string, StepDetail>> = {
     s6: { uses: [f('number', 'Turno')] }, // allow-italian: fixture data, shown as written
     s5: { trailing: 'sempre', phase: 'registration' }, // allow-italian: fixture data, shown as written
   },
-  'sarim-fatture': {
+  'orbit-fatture': {
     s1: { uses: [f('file', 'Fattura')], produces: [f('number', 'Importo'), f('number', 'IVA')] }, // allow-italian: fixture data, shown as written
     s2: { uses: [f('number', 'Importo')], produces: [f('number', 'Registrazione n.')], phase: 'registration' }, // allow-italian: fixture data, shown as written
     s3: { uses: [f('number', 'Importo')], produces: [f('number', 'Differenza')] }, // allow-italian: fixture data, shown as written
@@ -305,7 +305,7 @@ export const STEP_DETAIL: Record<string, Record<string, StepDetail>> = {
     s5: { note: 'confronto con i movimenti bancari', uses: [f('number', 'Registrazione n.')], phase: 'registration' }, // allow-italian: fixture data, shown as written
     s6: { trailing: 'mail' }, // allow-italian: fixture data, shown as written
   },
-  'sarim-fir': {
+  'orbit-fir': {
     s1: { note: 'quattro copie, una al produttore', produces: [f('legal', 'FIR'), f('number', 'Peso previsto')], phase: 'registration' }, // allow-italian: fixture data, shown as written
     s2: { uses: [f('legal', 'FIR')], phase: 'work' }, // allow-italian: fixture data, shown as written
     s3: { uses: [f('legal', 'FIR')], produces: [f('number', 'Peso a destino')] }, // allow-italian: fixture data, shown as written
@@ -363,15 +363,15 @@ export const OFFICE_TIMES: Record<string, { rows: Array<{ who: string; time: str
     rows: [{ who: 'Tecnico', time: '1 giorno in media' }, { who: 'Direzione', time: '2 giorni' }], // allow-italian: fixture data, shown as written
     stuck: "L'ordinanza della Direzione: in prova, 2 verbali su 6 hanno aspettato più di 5 giorni.", // allow-italian: fixture data, shown as written
   },
-  'sarim-fir': {
+  'orbit-fir': {
     rows: [{ who: 'Servizi sul territorio', time: '2 giorni in media' }], // allow-italian: fixture data, shown as written
     stuck: 'Il rientro con il peso: una copia su otto arriva dopo più di 5 giorni.', // allow-italian: fixture data, shown as written
   },
-  'sarim-segnalazioni': {
+  'orbit-segnalazioni': {
     rows: [{ who: 'Call center', time: '35 min in media' }], // allow-italian: fixture data, shown as written
     stuck: 'La conferma del call center nei picchi del lunedì.', // allow-italian: fixture data, shown as written
   },
-  'sarim-fatture': {
+  'orbit-fatture': {
     rows: [{ who: 'Amministrazione', time: '1,5 ore in media' }], // allow-italian: fixture data, shown as written
     stuck: 'Le differenze con ordine: una fattura su dieci.', // allow-italian: fixture data, shown as written
   },
