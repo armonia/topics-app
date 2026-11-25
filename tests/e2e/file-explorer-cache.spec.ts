@@ -265,11 +265,12 @@ test.describe("il bordo dell'accordion File non lampeggia", () => {
     await expect(header).toHaveAttribute("aria-expanded", "false");
     const chiusa = await styleAtRest();
 
-    // Niente cambia fra i due stati: non c'è più un bordo che compare, e la
-    // superficie è la stessa. Se qualcuno rimettesse una linea condizionale,
-    // questa riga se ne accorge.
+    // No border appears on closing: if someone put a conditional line back,
+    // this catches it. The ground does change, and on purpose (25/11: no
+    // background unless active in some way, as the tabs): open, the island is
+    // a card; closed, it is only its header, a row with no ground of its own.
     expect(chiusa.bordi, "nessun bordo compare chiudendo").toEqual(aperta.bordi);
-    expect(chiusa.fondo, "la superficie non cambia").toBe(aperta.fondo);
+    expect(chiusa.fondo, "a closed island has no ground").toBe("rgba(0, 0, 0, 0)");
     expect(chiusa.fondoRiga, "header row at rest keeps the same surface").toBe(aperta.fondoRiga);
     // E nessun capello prende il colore del testo — il valore di partenza
     // sbagliato del preflight, che è il difetto vero dietro il vecchio test.

@@ -301,6 +301,10 @@ test.describe("the foot of the column", () => {
       // Above the card, not beside it and not under it.
       expect(row.bottom, `${where}: row ends at ${row.bottom}, card starts at ${m.card.top}`)
         .toBeLessThanOrEqual(m.card.top);
+      // One column step (6px) between them, as between any two rows: the card
+      // must not drop when someone turns up (it was 7 on 25/11).
+      expect(Math.abs(m.card.top - row.bottom - 6), `${where}: ${m.card.top - row.bottom}px from row to card`)
+        .toBeLessThanOrEqual(1);
       const chips = m.buttons.filter((b) => b.id === "friend-chip");
       expect(chips, `${where}: ${chips.length} chips on the row`).toHaveLength(m.chips);
       const tops = chips.map((c) => c.top);
