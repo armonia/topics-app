@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "fs";
+import { gunzipSync } from "zlib";
 import { join } from "path";
+import { readTranscriptJsonl } from "../lib/transcript-retention";
 import type { AppContext, RouteHandler, StoredMessage } from "../types";
 import type { ContentBlock } from "../../shared/types";
 import type { AIProvider } from "../providers";
@@ -389,8 +391,9 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         const entry = store[sessionKey];
         if (entry?.sessionId) {
           const jsonlPath = join(SESSIONS_DIR, entry.sessionId + ".jsonl");
-          if (existsSync(jsonlPath)) {
-            const lines = readFileSync(jsonlPath, "utf-8").split("\n").filter(Boolean);
+          const jsonlContent = readTranscriptJsonl(jsonlPath, { existsSync, readFileSync, gunzipSync });
+          if (jsonlContent !== null) {
+            const lines = jsonlContent.split("\n").filter(Boolean);
             const messages: any[] = [];
             let skipped = 0;
             for (const line of lines) {

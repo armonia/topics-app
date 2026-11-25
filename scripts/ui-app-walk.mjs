@@ -103,10 +103,10 @@ const STEPS = [
     keys: async (p) => { await p.click("button[aria-label^='Notifiche']"); await p.waitForTimeout(250); await p.locator("[role=dialog] button", { hasText: "Esecuzione ferma" }).first().click(); },
     screen: "n11", hash: "#/flussi/pec/esecuzioni/e-0412",
   },
-  { what: "la seconda organizzazione: SARIM", click: (p) => p.locator("nav [role=treeitem]", { hasText: /^SA\s*SARIM/ }).first(), expandOnly: true },
-  { what: "il call center di SARIM", click: (p) => p.locator("nav [role=treeitem]", { hasText: /^Call center/ }).first(), screen: "s03", prefix: "#/sarim/call-center", shot: "giro-10-sarim" },
+  { what: "la seconda organizzazione: ORBIT", click: (p) => p.locator("nav [role=treeitem]", { hasText: /^SA\s*ORBIT/ }).first(), expandOnly: true },
+  { what: "il call center di ORBIT", click: (p) => p.locator("nav [role=treeitem]", { hasText: /^Call center/ }).first(), screen: "s03", prefix: "#/orbit/call-center", shot: "giro-10-orbit" },
   { what: "la Board", click: (p) => p.locator("nav [role=treeitem]", { hasText: /^Board/ }).first(), screen: "n17", prefix: "#/board" },
-  { what: "indietro: il call center", back: true, screen: "s03", prefix: "#/sarim/call-center" },
+  { what: "indietro: il call center", back: true, screen: "s03", prefix: "#/orbit/call-center" },
   { what: "indietro: l'esecuzione ferma", back: true, screen: "n11", hash: "#/flussi/pec/esecuzioni/e-0412" },
   { what: "indietro: la pratica 2418", back: true, screen: "x06", hash: "#/pratiche/2418" },
   {

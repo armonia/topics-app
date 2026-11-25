@@ -91,6 +91,10 @@ describe("classifyResultEvent — l'evento finale della CLI", () => {
 });
 
 describe("classifyTurnError — la promise del turno morta", () => {
+  it("reads the Claude CLI usage-limit sentence as a rate-limit, resumed by itself", () => {
+    const info = classifyTurnError(new Error("You've hit your limit · resets 3pm (Europe/Rome)"));
+    expect(info).toMatchObject({ end: "error", cause: "rate-limit" });
+  });
   it("il tetto a orologio del dispatcher", () => {
     const info = classifyTurnError(new Error("turn exceeded wall-clock timeout"));
     expect(info.end).toBe("cancelled");

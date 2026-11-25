@@ -68,16 +68,17 @@ export function bootTimersShutdown(scope: AfterRelay) {
   /**
    * Free database pages go back to the disk while nothing is working.
    *
-   * The predicate is the restart gate's own (`whatIsStillWorking`): whatever
-   * would hold a restart holds a step of this too, and the round asks again
-   * before every step. Bounds and measurements are in
+   * The predicate is the restart gate's own (`whatIsStillWorking`), read as what
+   * WORKS (`workingBusy`) and not as what holds a restart (`busy`): a turn parked
+   * on a question computes nothing, and a question left open overnight skipped
+   * every round (RGATE-13). The round asks again before every step. Bounds and measurements are in
    * `server/lib/db-incremental-vacuum.ts`. Until the one-time conversion in
    * start-prod.sh has run, `auto_vacuum` is NONE and every round is a no-op.
    */
   const incrementalVacuumTimer = setInterval(() => {
     runIncrementalVacuum({
       db: ctx.db,
-      busy: async () => (await whatIsStillWorking()).busy,
+      busy: async () => (await whatIsStillWorking()).workingBusy,
       log: (line) => console.log(line),
     }).catch((err) => console.warn("[incremental-vacuum] round skipped:", (err as Error).message));
   }, INCREMENTAL_VACUUM_EVERY_MS);

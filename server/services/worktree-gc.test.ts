@@ -3,9 +3,11 @@
  * destructive action when there is anything to lose; the sweep must honour a
  * live turn and degrade to keep on a landing that can't complete.
  *
- * @covers WORKTREE-09, WORKTREE-14
+ * @covers WORKTREE-09, WORKTREE-14, WORKTREE-STD-04
  */
 import { describe, test, it, expect } from "bun:test";
+import { planOverCap, type CapRow } from "./worktree-cap";
+import { capPass, type GcRow, type GcSettings, type PassesCtx } from "./worktree-gc-passes";
 import { decideGhostRow, decidePostLandReap, decideWorktreeReap, normalizeKeepReason, shouldSlimOnKeep, sweepWorktrees, type GcWorktree, type WorktreeGcDeps } from "./worktree-gc";
 
 describe("decideWorktreeReap — safety contract", () => {
@@ -915,5 +917,87 @@ describe("sweepWorktrees — re-dispatch con worktree sporco", () => {
     }));
     // Nessuna nota: il worktree e' stato potato normalmente.
     expect(notes).toEqual([]);
+  });
+});
+
+describe("tetto per progetto", () => {
+  const row = (id: string, createdAtMs: number, over: Partial<CapRow> = {}): CapRow =>
+    ({ id, projectId: "p", createdAtMs, status: "ready", inRoot: true, exempt: false, ...over });
+
+  test("tetto: un progetto sotto o al limite non compare nel piano", () => {
+    expect(planOverCap([row("a", 1), row("b", 2)], 2)).toEqual([]);
+  });
+
+  test("tetto: oltre il limite i candidati vanno dal piu' vecchio, e l'eccesso e' il conteggio meno il tetto", () => {
+    const [plan] = planOverCap([row("c", 30), row("a", 10), row("b", 20)], 1);
+    expect(plan).toMatchObject({ projectId: "p", count: 3, max: 1, excess: 2 });
+    expect(plan!.reap).toEqual(["a", "b", "c"]);
+  });
+
+  test("tetto: i worktree vivi contano ma non sono mai candidati; error e fuori radice non contano", () => {
+    const [plan] = planOverCap([
+      row("live", 1, { exempt: true }), row("old", 2), row("new", 3),
+      row("err", 0, { status: "error" }), row("foreign", 0, { inRoot: false }),
+    ], 1);
+    expect(plan).toMatchObject({ count: 3, excess: 2 });
+    expect(plan!.reap).toEqual(["old", "new"]);
+  });
+
+  test("tetto: un progetto per volta, il piu' sforato per primo", () => {
+    const plans = planOverCap([row("a", 1), row("b", 2), row("x", 3, { projectId: "q" }), row("y", 4, { projectId: "q" }), row("z", 5, { projectId: "q" })], 1);
+    expect(plans.map((p) => p.projectId)).toEqual(["q", "p"]);
+  });
+
+  /** A context whose sweep reaps only the ids it is told the contract admits. */
+  function ctxOver(rows: GcRow[], admitted: Set<string>, log: string[], max: number): PassesCtx {
+    const settings: GcSettings = { abandonDays: 7, gcForeign: "off", maxPerProject: max };
+    const ctx: Partial<PassesCtx> = {
+      readSettings: () => settings,
+      rows: () => rows,
+      isOurs: () => true,
+      folderPresent: () => true,
+      taskOf: () => ({ taskId: null }),
+      isInFlight: () => false,
+      liveInside: () => false,
+      busyInside: () => false,
+      slim: async (p) => { log.push(`slim:${p}`); },
+      sweepOne: async (wt) => {
+        log.push(`sweep:${wt.id}`);
+        const ok = admitted.has(wt.id);
+        return { total: 1, reaped: ok ? 1 : 0, archived: 0, abandoned: 0, unbound: 0, freed: 0, kept: ok ? 0 : 1, residueCommitted: 0, slimmed: 0, slimmedBytes: 0, errors: 0, keptReasons: {} };
+      },
+    };
+    return ctx as PassesCtx;
+  }
+  const gcRow = (id: string, day: number): GcRow => ({ id, projectId: "p", absPath: `/nowhere/${id}`, branchName: null, mode: "detached", status: "ready", createdAt: new Date(Date.UTC(2026, 10, day)).toISOString() });
+
+  test("tetto: prima lo slim, poi il piu' vecchio fra gli ammessi, e ci si ferma appena si e' sotto il limite", async () => {
+    const log: string[] = [];
+    // `a` (oldest) is kept by the contract; `b` and `c` are admitted; one has to go (3 rows, cap 2).
+    const rows = [gcRow("a", 1), gcRow("b", 2), gcRow("c", 3)];
+    const freed = await capPass(ctxOver(rows, new Set(["b", "c"]), log, 2));
+    expect(freed).toBe(1);
+    expect(log).toEqual(["slim:/nowhere/a", "slim:/nowhere/b", "slim:/nowhere/c", "sweep:a", "sweep:b"]);
+  });
+
+  test("tetto: un worktree con qualcosa vivo dentro non viene snellito ne' tentato", async () => {
+    const log: string[] = [];
+    const ctx = { ...ctxOver([gcRow("a", 1), gcRow("b", 2)], new Set(["a", "b"]), log, 1), liveInside: (p: string) => p.endsWith("/a") };
+    expect(await capPass(ctx)).toBe(1);
+    expect(log).toEqual(["slim:/nowhere/b", "sweep:b"]);
+  });
+});
+
+describe("worktree bloccato da un altro (git worktree lock)", () => {
+  test("lockedByOthers: tenuto e mai reaped, anche con task chiuso e ramo unito", async () => {
+    const reaped: string[] = [];
+    const s = await sweepWorktrees(makeDeps({
+      listWorktrees: () => [wt("held")],
+      lockedByOthers: () => true,
+      reap: async (id) => { reaped.push(id); return true; },
+    }));
+    expect(reaped).toEqual([]);
+    expect(s.kept).toBe(1);
+    expect(Object.keys(s.keptReasons)[0]).toContain("bloccato");
   });
 });

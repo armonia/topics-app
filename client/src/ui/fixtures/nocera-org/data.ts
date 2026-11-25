@@ -12,7 +12,7 @@
  * `contracts.ts` that run in that comune. `place` is how the cards name the
  * place, when it is not the name of the comune.
  */
-import type { SarimTown } from '../sarim-org/data';
+import type { OrbitTown } from '../orbit-org/data';
 
 const BOOK = 'https://www.bonificasarno.it/site/wp-content/uploads/2026/03/web_librodellanno-2025-consorziobonifica.pdf';
 const source = { host: 'bonificasarno.it', url: BOOK };
@@ -24,7 +24,7 @@ const low = (text: string) => `Comprensorio Basso. ${text}`; // allow-italian: f
 const NO_WORKS = "Nessun intervento citato nel Libro dell'anno 2025."; // allow-italian: fixture data, shown as written
 const works = (list: string) => `Nel Libro dell'anno 2025: ${list}.`; // allow-italian: fixture data, shown as written
 
-export const NOCERA_TOWNS: SarimTown[] = [
+export const NOCERA_TOWNS: OrbitTown[] = [
   { id: 'bracigliano', name: 'Bracigliano', province: 'SA', service: high(works('Torrente Lavinaio, Vallone Ionne, Vallone Marzio, Vallone Piesco, Vallone Salto')), since: NO_START, source, contracts: [] }, // allow-italian: fixture data, shown as written
   { id: 'montoro', name: 'Montoro', province: 'AV', service: high(works('Canale Labso, Canale Vietri, Vallone Valle, Fiumicello Borgo')), since: NO_START, source, contracts: [] }, // allow-italian: fixture data, shown as written
   { id: 'solofra', name: 'Solofra', province: 'AV', service: high(works('Vallone San Vito, Vallone della Starza, Vallone Santo Spirito')), since: NO_START, source, contracts: [] }, // allow-italian: fixture data, shown as written

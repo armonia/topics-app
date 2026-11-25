@@ -1,4 +1,7 @@
-"""Bench for the permanent-node drain: fake DB (slot_busy) and fake ssh. Run: python3 deploy/cloud-node/test_node_pool.py"""
+"""Bench for the permanent-node drain: fake DB (slot_busy) and fake ssh. Run: python3 deploy/cloud-node/test_node_pool.py
+
+@covers WORKTREE-STD-12 (BundleNeverStays)
+"""
 import base64, importlib.machinery, importlib.util, os, shutil, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -182,6 +185,56 @@ class SyncRepoIdentity(unittest.TestCase):
 
     def email64_in(self, script):
         return script.split('git -C $d config user.email "$(echo ')[1].split(" |")[0]
+
+
+class BundleNeverStays(unittest.TestCase):
+    """The local bundle of sync_repo goes even when scp fails, and the ones a dead run left are swept."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        np.ST = self.tmp
+        np.known_file = lambda ip: os.path.join(self.tmp, "known")
+        self.saved_run = np.subprocess.run
+
+    def tearDown(self):
+        np.subprocess.run = self.saved_run
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def bundles(self):
+        return sorted(f for f in os.listdir(self.tmp) if f.endswith(".bundle"))
+
+    def test_a_failed_scp_leaves_no_bundle(self):
+        def fake_run(args, **kwargs):
+            if "bundle" in args and "create" in args:
+                open(args[args.index("create") + 1], "wb").close()
+            if args[0] == "scp":
+                raise np.subprocess.CalledProcessError(1, args)
+
+            class Done:
+                returncode = 0
+                stdout = "refs/remotes/origin/main"
+                stderr = ""
+            return Done()
+
+        np.subprocess.run = fake_run
+        sl = {"ip": "1.2.3.4", "server_id": "s1", "n": 1}
+        with self.assertRaises(np.subprocess.CalledProcessError):
+            np.sync_repo(sl, "https://example.test/acme/alpha", "/repo/alpha", "A", "a@example.test")
+        self.assertEqual(self.bundles(), [])
+
+    def test_sweep_removes_dead_and_old_keeps_live(self):
+        dead = os.path.join(self.tmp, "alpha-999999999.bundle")
+        live = os.path.join(self.tmp, f"beta-{os.getppid()}.bundle")
+        old_live = os.path.join(self.tmp, f"gamma-{os.getppid()}.bundle")
+        other = os.path.join(self.tmp, "state.json")
+        for f in (dead, live, old_live, other):
+            open(f, "wb").close()
+        now = os.path.getmtime(live)
+        os.utime(old_live, (now - np.STALE_BUNDLE_S - 1, now - np.STALE_BUNDLE_S - 1))
+        removed = np.sweep_stale_bundles(now=now)
+        self.assertEqual(sorted(removed), ["alpha-999999999.bundle", f"gamma-{os.getppid()}.bundle"])
+        self.assertEqual(self.bundles(), [f"beta-{os.getppid()}.bundle"])
+        self.assertTrue(os.path.exists(other))
 
 
 if __name__ == "__main__":

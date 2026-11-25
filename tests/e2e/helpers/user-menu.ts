@@ -103,7 +103,7 @@ export async function openOrganizationPage(page: Page): Promise<Locator> {
 }
 
 /** The forms that live where they are used, drawn by `HomePanelHost`. */
-export type HomePanelName = "providers" | "tools" | "calendar";
+export type HomePanelName = "providers" | "tools" | "calendar" | "worktrees";
 
 /**
  * Opens one of those forms the way a door with no anchor of its own does (the

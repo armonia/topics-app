@@ -1,10 +1,67 @@
 [
   {
+    "version": "2.4.101",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [
+        {
+          "text": "red-main cards carry a fixed recipe and run on Sonnet",
+          "scope": "main-ci"
+        },
+        {
+          "text": "skip a spent account until its reset and retry the turn on the next one",
+          "scope": "native"
+        }
+      ],
+      "fixes": [
+        {
+          "text": "run gate-coverage and native-shutdown-notice tests serially",
+          "scope": "tests"
+        },
+        {
+          "text": "no reap, prune or remove loses work the review found exposed",
+          "scope": "worktrees"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.4.100",
+    "date": "2026-11-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "a project's tabs show open or closed, and a row opens its own sub-agents",
+          "scope": "sidebar"
+        },
+        {
+          "text": "judge other tools' fresh rows, lift vanished hook locks, keep git off live sessions",
+          "scope": "worktree-gc"
+        },
+        {
+          "text": "one folder per session, atomic name claim, nothing lost on failure",
+          "scope": "worktree-hook"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.4.99",
     "date": "2026-11-25",
     "sections": {
       "new": [],
       "fixes": [
+        {
+          "text": "judge what a folder holds now, and never reap what Topics cannot prove it made",
+          "scope": "worktrees"
+        },
+        {
+          "text": "every cross-node and cross-tool door leaves Topics' proof, and nothing is removed without it",
+          "scope": "worktrees"
+        },
         {
           "text": "count the cells on screen, not the ones the layout remembers",
           "scope": "split"
@@ -12,6 +69,10 @@
         {
           "text": "a closed row takes no fill under the pointer",
           "scope": "sidebar"
+        },
+        {
+          "text": "a Topics worktree whose HEAD left its branch is judged by HEAD",
+          "scope": "worktrees"
         }
       ],
       "perf": []
@@ -63,6 +124,10 @@
         {
           "text": "keep the lights inset line and count the project row's map",
           "scope": "split"
+        },
+        {
+          "text": "the GC moves only what Topics proves it made, into a quarantine",
+          "scope": "worktrees"
         }
       ],
       "perf": []
