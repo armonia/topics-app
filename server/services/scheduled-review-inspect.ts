@@ -5,7 +5,7 @@
  * The checkout lives in the scratch folder of the node checks and is removed
  * before the answer, whatever it is.
  */
-import { existsSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { runBounded, SPAWN_TIMEOUT } from "../lib/bounded-spawn";
 import { runGit } from "../lib/run-git";
@@ -53,10 +53,16 @@ export async function inspectDelivery(repoPath: string, taskId: string, commit: 
     // The checkout has no installed packages of its own: the repository's are reused.
     const modules = join(repoPath, "node_modules");
     if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"), "junction");
+    // The code under test is not reviewed yet: it runs with a home and a data folder of its own, never the live ones.
+    const home = join(dir, ".review-home");
+    mkdirSync(home, { recursive: true });
+    const env: Record<string, string | undefined> = {
+      ...process.env, HOME: home, USERPROFILE: home, APP_DATA_DIR: join(home, "data"), TOPICS_DATA_DIR: join(home, "data"), NODE_ENV: "test",
+    };
     const failures: TestFailure[] = [];
     for (const file of tests) {
       if (!existsSync(join(dir, file))) continue; // deleted by the delivery
-      const run = await runBounded(["bun", "test", file], { cwd: dir, stderr: "pipe", timeoutMs: TEST_RUN_TIMEOUT_MS });
+      const run = await runBounded(["bun", "test", file], { cwd: dir, env, stderr: "pipe", timeoutMs: TEST_RUN_TIMEOUT_MS });
       if (run.spawnFailed) return { kind: "unmeasured", why: `bun test: ${run.spawnError ?? "did not start"}` };
       if (run.timedOut) return { kind: "unmeasured", why: `bun test ${file}: timeout` };
       if (run.exitCode !== 0) {

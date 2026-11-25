@@ -53,7 +53,7 @@ export interface AutoLandCard {
   labels: ReadonlyArray<{ label: string }>;
   checksState: "running" | "pass" | "fail" | "unknown" | null;
   checksCommit: string | null;
-  checks: ReadonlyArray<Pick<CheckRun, "ok">> | null;
+  checks: ReadonlyArray<Pick<CheckRun, "ok"> & Partial<Pick<CheckRun, "cmd">>> | null;
   deliveryBranch: string | null;
   deliveryCommit: string | null;
   humanAsk?: string | null;
@@ -71,7 +71,16 @@ export interface AutoLandBoard {
   autoMerge: boolean;
   /** How many commands the board declares in its bar. */
   declaredChecks: number;
+  /**
+   * The board runs the scheduled review (`scheduled-review.ts`): no card lands alone without that
+   * review's own row in the bar, naming the commit, and a technical card needs no `invisibile` label.
+   */
+  scheduledReview?: boolean;
 }
+
+/** The bar row the scheduled review writes for the commit it judged fit to land. */
+export const SCHEDULED_REVIEW_PREFIX = "scheduled-review:";
+export const scheduledReviewCmd = (commit: string): string => `${SCHEDULED_REVIEW_PREFIX}${commit.slice(0, 8).toLowerCase()}`;
 
 export interface AutoLandComment {
   author?: string | null;
@@ -102,11 +111,18 @@ export function autoLandVerdict(
   // A board with no bar has nothing that could be green: `null` is not a pass.
   if (board.declaredChecks < 1) return no("the board declares no bar");
   const labels = card.labels.map((l) => l.label);
-  if (whoCloses(labels, card.checksState) !== "conductor") return no("the card is not invisible with a green bar");
-  // "Whole": every command the board declares has a row, and every row is ok.
-  const runs = card.checks ?? [];
-  if (runs.length < board.declaredChecks || !runs.every((r) => r.ok)) return no("the bar is not green in full");
+  if (board.scheduledReview) {
+    // The review's own judgement stands in for the label: only a card a person must see is excluded.
+    if (labels.includes("visibile") || card.checksState !== "pass") return no("the card is visible or its bar is not green");
+  } else if (whoCloses(labels, card.checksState) !== "conductor") return no("the card is not invisible with a green bar");
+  // "Whole": every command the board declares has a row, and every row is ok. The review's row is not a declared one.
+  const all = card.checks ?? [];
+  const runs = all.filter((r) => !(r.cmd ?? "").startsWith(SCHEDULED_REVIEW_PREFIX));
+  if (runs.length < board.declaredChecks || !all.every((r) => r.ok)) return no("the bar is not green in full");
   if (!card.deliveryBranch || !card.deliveryCommit) return no("the delivery has no branch and commit of its own");
+  if (board.scheduledReview && !all.some((r) => r.cmd === scheduledReviewCmd(card.deliveryCommit!) && r.ok)) {
+    return no("the scheduled review has not cleared this commit");
+  }
   // The bar must describe what is about to land, not an earlier round.
   if (!sameCommit(card.checksCommit, card.deliveryCommit)) return no("the bar measured another commit than the delivered one");
   // A `human_ask` that only says "ok?" asks what review already offers (`asksOnlyApproval`, shared/workflow.ts).

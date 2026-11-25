@@ -11,21 +11,28 @@
  * no bar verdict at all sat between the two.
  *
  * This pass is the third door, on the same sweep (`sweepAutoLand`). For a card
- * that is due it reads the delivered branch in a throwaway checkout of its own
- * commit: does main still merge into it, and do the test files the delivery
- * touched pass? Then the move is the same two the board already makes:
- *   - something fails  -> back to the agent, naming the file (and the test);
- *   - everything holds -> the land, with a last look at the commit just before.
- * What a person must judge (a question, a place `personPlace` names) is never
+ * whose bar is green on the delivered commit it:
+ *   1. sends back a commit already bounced once and delivered again unchanged
+ *      (the red goes first), and a "already on main" claim origin/main does not bear out;
+ *   2. reads the branch in a throwaway checkout of its own commit: does main
+ *      still merge into it, and do the test files the delivery touched pass?
+ *   3. asks a model other than the writer for the judgement of SENSE: does the
+ *      diff do what the card asks, does it contradict a decision in the thread?
+ *      The same reviewer answers the agent's technical questions.
+ * A clearing verdict is written as a row of the card's bar, and the land is then
+ * ASKED of `autoLandVerdict`: this module never lands by itself, so everything
+ * that verdict knows (the whole bar on the commit, a person who spoke after the
+ * review, a question in the thread, open steps, a dispatch error, live turns)
+ * keeps holding. What a person must judge (a place `personPlace` names) is never
  * decided here. The rule is off by default (`scheduledReviewMinutes`, 0).
  *
- * Pure decisions and one injected inspector: the checkout and the test run are
- * the router's doors, so the bar of this module is a test with no git.
+ * Pure decisions and injected doors: the checkout, the test run and the model
+ * are the router's, so the bar of this module is a test with no git.
  * `ai_review_reminded_at` is the stamp of the last pass, as the review
  * reminder already used it: a card is looked at again only after the interval.
  */
-import { personPlace } from "./auto-land";
-import type { PersonPath } from "../../shared/workflow";
+import { personPlace, sameCommit } from "./auto-land";
+import { asksOnlyApproval, type PersonPath } from "../../shared/workflow";
 
 export interface ScheduledReviewCard {
   id: string;
@@ -34,9 +41,12 @@ export interface ScheduledReviewCard {
   humanAsk?: string | null;
   deliveryBranch: string | null;
   deliveryCommit: string | null;
+  /** The bar's verdict and the commit it measured: only a commit the bar cleared is judged. */
+  checksState: "running" | "pass" | "fail" | "unknown" | null;
+  checksCommit: string | null;
   /** Last scheduled pass (ISO), `null` = never looked at. */
   lastPassAt: string | null;
-  /** When the card entered review (ISO); a card younger than the interval is left to the other doors. */
+  /** When the card entered review (ISO); a card younger than half the interval is left to the other doors. */
   reviewAt: string | null;
 }
 
@@ -50,6 +60,23 @@ export type InspectionReport =
   | { kind: "red"; failures: TestFailure[] }
   | { kind: "green"; tested: string[] };
 
+/**
+ * The judgement of SENSE, by a model other than the one that wrote the delivery:
+ * does the diff do what the card asks, and does it contradict a decision written
+ * in the thread? A green bar proves the code is not broken, not that it is right
+ * (25/11: a delivery counted cards in review as taking places from the nodes, the
+ * opposite of the card's purpose, with every test green because they were written
+ * on the same mistaken idea).
+ */
+export type SenseVerdict =
+  | { kind: "ok"; note: string }
+  | { kind: "reject"; why: string }
+  /** A technical question the agent put to a person, answered by the reviewer. */
+  | { kind: "answer"; text: string }
+  /** What only a person can judge (spend, public, irreversible, real people, a UI to look at). */
+  | { kind: "person"; why: string }
+  | { kind: "unmeasured"; why: string };
+
 export interface ScheduledReviewDeps {
   /** Paths of the delivery at `commit`; `null` = git could not say. */
   files(card: ScheduledReviewCard): Promise<string[] | null>;
@@ -57,24 +84,37 @@ export interface ScheduledReviewDeps {
   personPaths(projectId: string): readonly PersonPath[];
   /** Checkout of `card.deliveryCommit`, merge-tree against main, the touched tests run. */
   inspect(card: ScheduledReviewCard, files: readonly string[]): Promise<InspectionReport>;
+  /** Shas the card's last words call "already on main" that origin/main does not have; `null` = could not check. */
+  falseMainClaims(card: ScheduledReviewCard): Promise<string[] | null>;
+  /** Is the delivered commit already contained in origin/main? `null` = could not check. */
+  onMain(card: ScheduledReviewCard): Promise<boolean | null>;
+  /** Why this very commit was already sent back by a pass (an agent redelivering it unchanged), or `null`. */
+  bouncedBefore(card: ScheduledReviewCard): string | null;
+  /** The sense review: one model session for this one card. */
+  sense(card: ScheduledReviewCard, files: readonly string[]): Promise<SenseVerdict>;
   turnIsLive(card: ScheduledReviewCard): boolean;
   /** Send the card back to its agent with `why`; `true` = it left review. */
   bounce(card: ScheduledReviewCard, why: string): boolean;
-  /** Ask the land for `commit`; the land's own recheck stops it when the card moved. */
-  land(card: ScheduledReviewCard, commit: string): void;
+  /** Answer the agent's technical question and send the card back; `true` = it left review. */
+  answer(card: ScheduledReviewCard, text: string): boolean;
+  /** Write the verdict as a row of the card's bar, so the automatic land's verdict reads it. */
+  clear(card: ScheduledReviewCard, note: string): void;
+  /** Offer the card to the automatic land's own verdict; `true` = it said yes. */
+  land(card: ScheduledReviewCard): Promise<boolean>;
   /** Write the stamp of this pass. */
   stamp(card: ScheduledReviewCard, atIso: string): void;
-  /** One line on the thread for a card left alone for a reason a person should see. */
+  /** One line for a card left alone for a reason somebody should see. */
   log?(line: string): void;
 }
 
-export type ScheduledReviewOutcome = "skipped" | "bounced" | "landed" | "unmeasured" | "person";
+export type ScheduledReviewOutcome = "skipped" | "bounced" | "answered" | "landed" | "held" | "unmeasured" | "person";
+
+const short = (commit: string) => commit.slice(0, 8);
 
 /** Is this card due for a pass at `nowMs`? Pure: age and stamp only. */
 export function scheduledReviewDue(card: ScheduledReviewCard, nowMs: number, everyMinutes: number): boolean {
   if (everyMinutes <= 0 || card.status !== "review") return false;
   if (!card.deliveryBranch || !card.deliveryCommit) return false;
-  if ((card.humanAsk ?? "").trim()) return false;
   const every = everyMinutes * 60_000;
   const since = (iso: string | null) => (iso ? nowMs - Date.parse(iso) : Number.POSITIVE_INFINITY);
   const sincePass = since(card.lastPassAt);
@@ -84,27 +124,66 @@ export function scheduledReviewDue(card: ScheduledReviewCard, nowMs: number, eve
   return !(Number.isFinite(sinceReview) && sinceReview < every / 2);
 }
 
-/** What the agent reads when the pass sends its card back. */
-export function scheduledReviewMessage(report: Extract<InspectionReport, { kind: "conflict" | "red" }>): string {
+/** What the agent reads when the pass sends its card back; the commit is named so a redelivery of it is recognised. */
+export function scheduledReviewMessage(commit: string, report: Extract<InspectionReport, { kind: "conflict" | "red" }>): string {
+  const head = `Ripasso a orario su \`${short(commit)}\`:`;
   if (report.kind === "conflict") {
-    return `Il merge con main non è pulito: conflitto in ${report.files.slice(0, 5).join(", ")}. Porta main nel tuo ramo, risolvi e rimetti in review.`;
+    return `${head} il merge con main non è pulito, conflitto in ${report.files.slice(0, 5).join(", ")}. Porta main nel tuo ramo, risolvi e rimetti in review.`;
   }
   const named = report.failures.slice(0, 5).map((f) => (f.test ? `${f.file} (test: ${f.test})` : f.file));
-  return `Ripasso a orario: i test toccati dalla consegna sono rossi in ${named.join("; ")}. Correggi il codice o il test nel tuo ramo e rimetti in review.`;
+  return `${head} i test toccati dalla consegna sono rossi in ${named.join("; ")}. Correggi il codice o il test nel tuo ramo e rimetti in review.`;
+}
+
+/** The same commit delivered again after a red: the red goes first, and the message says nothing changed. */
+export function redeliveryMessage(commit: string, earlier: string): string {
+  return `Ripasso a orario su \`${short(commit)}\`: è lo stesso commit già rimandato, senza modifiche. Il rosso resta: ${earlier} Cambia il codice, non rimettere in review lo stesso commit.`;
 }
 
 /** One card's pass. The caller has already checked `scheduledReviewDue`. */
 export async function reviewScheduled(card: ScheduledReviewCard, deps: ScheduledReviewDeps, now: Date = new Date()): Promise<ScheduledReviewOutcome> {
+  const commit = card.deliveryCommit;
+  if (!commit) return "skipped";
+  // Only a commit the bar already cleared is judged: a running, missing or red bar belongs to the other doors.
+  if (card.checksState !== "pass" || !sameCommit(card.checksCommit, commit)) return "skipped";
   if (deps.turnIsLive(card)) return "skipped";
+  const stamp = () => deps.stamp(card, now.toISOString());
   const files = await deps.files(card).catch(() => null);
   if (files === null) return "unmeasured";
   const extra = deps.personPaths(card.projectId);
   const place = files.map((f) => personPlace(f, extra)).find((p) => p !== null);
   // The stamp keeps a card a person must see from being opened again every beat.
-  if (place) { deps.stamp(card, now.toISOString()); return "person"; }
+  if (place) { stamp(); return "person"; }
+
+  const earlier = deps.bouncedBefore(card);
+  if (earlier) { stamp(); return deps.bounce(card, redeliveryMessage(commit, earlier)) ? "bounced" : "skipped"; }
+
+  const claims = await deps.falseMainClaims(card).catch(() => null);
+  if (claims && claims.length > 0) {
+    stamp();
+    const why = `Ripasso a orario su \`${short(commit)}\`: dici che ${claims.slice(0, 5).join(", ")} è già su main, ma origin/main non ha quel commit. Consegna il lavoro invece di dichiararlo fatto.`;
+    return deps.bounce(card, why) ? "bounced" : "skipped";
+  }
+
+  const onMain = await deps.onMain(card).catch(() => null);
+  if (onMain === true) {
+    stamp();
+    deps.clear(card, "il commit consegnato è già contenuto in origin/main (git merge-base --is-ancestor)");
+    return (await deps.land(card)) ? "landed" : "held";
+  }
+
   const report = await deps.inspect(card, files).catch((e): InspectionReport => ({ kind: "unmeasured", why: String(e) }));
   if (report.kind === "unmeasured") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} non misurata: ${report.why}`); return "unmeasured"; }
-  deps.stamp(card, now.toISOString());
-  if (report.kind === "green") { deps.land(card, card.deliveryCommit!); return "landed"; }
-  return deps.bounce(card, scheduledReviewMessage(report)) ? "bounced" : "skipped";
+  if (report.kind !== "green") { stamp(); return deps.bounce(card, scheduledReviewMessage(commit, report)) ? "bounced" : "skipped"; }
+
+  const sense = await deps.sense(card, files).catch((e): SenseVerdict => ({ kind: "unmeasured", why: String(e) }));
+  if (sense.kind === "unmeasured") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} senso non misurato: ${sense.why}`); return "unmeasured"; }
+  stamp();
+  if (sense.kind === "person") { deps.log?.(`[scheduled-review] ${card.id.slice(0, 8)} a una persona: ${sense.why}`); return "person"; }
+  if (sense.kind === "reject") return deps.bounce(card, `Ripasso a orario su \`${short(commit)}\`: ${sense.why}`) ? "bounced" : "skipped";
+  if (sense.kind === "answer") return deps.answer(card, sense.text) ? "answered" : "skipped";
+  // A question the reviewer did not answer stays with the person who was asked.
+  const ask = (card.humanAsk ?? "").trim();
+  if (ask && !asksOnlyApproval(ask)) return "person";
+  deps.clear(card, sense.note);
+  return (await deps.land(card)) ? "landed" : "held";
 }
